@@ -35,6 +35,8 @@ function StatusBadge({ text, code }: { text: string; code: string }) {
       ? 'ok'
       : code === 'absent'
         ? 'bad'
+        : code === 'weekend'
+          ? 'neutral'
         : code === 'waiting' || code === 'shortage'
           ? 'partial'
           : 'neutral';
@@ -94,6 +96,8 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
               const rowMod =
                 code === 'ok'
                   ? 'ok'
+                  : code === 'weekend'
+                    ? 'neutral'
                   : code === 'waiting'
                     ? 'wait'
                     : code === 'shortage' || code === 'absent'

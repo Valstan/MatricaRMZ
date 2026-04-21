@@ -248,6 +248,52 @@ describe('assemblyForecast', () => {
     expect(day2B).toBe(4);
   });
 
+  it('formats day label with date and weekday', () => {
+    const stock = new Map<string, number>([
+      ['p1', 4],
+      ['p2', 4],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: 'b1', brandLabel: 'B1', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 1,
+      targetEnginesPerDay: 1,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+    });
+    expect(res.rows[0]?.dayLabel ?? '').toMatch(/^\d{2}\.\d{2}\.\d{4} \([а-я]+\)$/);
+  });
+
+  it('skips assembly on non-working weekdays and emits weekend row', () => {
+    const stock = new Map<string, number>([
+      ['p1', 100],
+      ['p2', 100],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: 'b1', brandLabel: 'B1', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const todayDow = new Date(new Date().setHours(0, 0, 0, 0)).getDay();
+    const nonTodayDow = (todayDow + 1) % 7;
+    const res = computeAssemblyForecast({
+      horizonDays: 1,
+      targetEnginesPerDay: 3,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+      workingWeekdays: [nonTodayDow],
+    });
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]?.status).toBe('weekend');
+    expect(res.rows[0]?.engineBrand).toBe('Выходной');
+    expect(res.rows[0]?.plannedEngines).toBe(0);
+  });
+
   it('applies incoming plan from a later day before that day allocation', () => {
     const stock = new Map<string, number>([
       ['p1', 0],

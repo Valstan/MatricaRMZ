@@ -31,6 +31,8 @@ type ForecastRequest = {
   engineBrandIds?: string[];
   /** Марки, которые в прогнозе обрабатываются первыми (round-robin внутри группы), затем остальные. */
   priorityEngineBrandIds?: string[];
+  /** Рабочие дни недели (0=вс, 1=пн ... 6=сб). */
+  workingWeekdays?: number[];
 };
 
 async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<string, number>> {
@@ -326,6 +328,9 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const priorityEngineBrandIds = Array.isArray(args.priorityEngineBrandIds)
     ? args.priorityEngineBrandIds.map((id) => String(id).trim()).filter(Boolean)
     : undefined;
+  const workingWeekdays = Array.isArray(args.workingWeekdays)
+    ? args.workingWeekdays.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6)
+    : undefined;
   const dbIncomingLines = await loadPlannedIncomingLines({
     horizonDays,
     ...(warehouseIds ? { warehouseIds } : {}),
@@ -353,5 +358,6 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     warehouseStockBins,
     incomingLines: dbIncomingLines,
     ...(priorityEngineBrandIds?.length ? { priorityEngineBrandIds } : {}),
+    ...(workingWeekdays?.length ? { workingWeekdays } : {}),
   });
 }

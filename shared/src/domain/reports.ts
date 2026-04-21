@@ -746,6 +746,23 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         step: 1,
         defaultValue: 7,
       },
+      {
+        type: 'multi_select',
+        key: 'workingWeekdays',
+        label: 'Рабочие дни недели',
+        labelHint:
+          'Отмеченные дни считаются рабочими и участвуют в расчёте сборки. Неотмеченные дни считаются выходными: в результате они показываются строкой «Выходной» без расчёта сборки.',
+        selectAllByDefault: true,
+        options: [
+          { value: '1', label: 'Понедельник' },
+          { value: '2', label: 'Вторник' },
+          { value: '3', label: 'Среда' },
+          { value: '4', label: 'Четверг' },
+          { value: '5', label: 'Пятница' },
+          { value: '6', label: 'Суббота' },
+          { value: '0', label: 'Воскресенье' },
+        ],
+      },
     ],
     columns: [
       { key: 'dayLabel', label: 'День' },

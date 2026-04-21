@@ -356,12 +356,13 @@ function statusLabel(status: string): string {
   }
 }
 
-/** Коды `ok` | `waiting` | `shortage` | `absent` с API; совместимость со старым ответом с русскими подписями. */
-function normalizeAssemblyForecastStatusFromApi(raw: string): 'ok' | 'waiting' | 'shortage' | 'absent' {
+/** Коды `ok` | `waiting` | `shortage` | `absent` | `weekend` с API; совместимость со старым ответом с русскими подписями. */
+function normalizeAssemblyForecastStatusFromApi(raw: string): 'ok' | 'waiting' | 'shortage' | 'absent' | 'weekend' {
   const s = String(raw ?? '').trim().toLowerCase();
   if (s === 'ok' || s === 'хватит') return 'ok';
   if (s === 'waiting' || s === 'ожидание') return 'waiting';
   if (s === 'absent') return 'absent';
+  if (s === 'weekend' || s.includes('выходн')) return 'weekend';
   if (s === 'shortage' || s.includes('не хватает')) return 'shortage';
   if (s.includes('хват')) return 'ok';
   return 'shortage';
@@ -2868,6 +2869,9 @@ async function buildAssemblyForecast7dReport(
     const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(filters?.horizonDays ?? 7))));
     const warehouseIds = asArray(filters?.warehouseIds);
     const engineBrandIds = asArray(filters?.engineBrandIds);
+    const workingWeekdays = asArray(filters?.workingWeekdays)
+      .map((x) => Number(x))
+      .filter((x) => Number.isInteger(x) && x >= 0 && x <= 6);
     const payload = {
       targetEnginesPerDay,
       sameBrandBatchSize,
@@ -2875,6 +2879,7 @@ async function buildAssemblyForecast7dReport(
       ...(warehouseIds.length > 0 ? { warehouseIds } : {}),
       ...(engineBrandIds.length > 0 ? { engineBrandIds } : {}),
       ...(priorityEngineBrandIds.length > 0 ? { priorityEngineBrandIds } : {}),
+      ...(workingWeekdays.length > 0 ? { workingWeekdays } : {}),
     };
     try {
       const r = await httpAuthed(
@@ -3261,6 +3266,7 @@ function assemblyForecastPdfStatusClass(statusText: string): string {
   if (statusText === 'Комплект') return 'afp-st-ok';
   if (statusText === 'Неполный комплект') return 'afp-st-wait';
   if (statusText === 'Нет') return 'afp-st-bad';
+  if (statusText === 'Выходной') return 'afp-st-neu';
   if (statusText === 'Хватает') return 'afp-st-ok';
   if (statusText === 'Частично') return 'afp-st-wait';
   if (statusText === 'Не хватает') return 'afp-st-bad';

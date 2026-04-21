@@ -392,9 +392,10 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     const tgtF = filterOf('targetEnginesPerDay');
     const batchF = filterOf('sameBrandBatchSize');
     const horF = filterOf('horizonDays');
-    if (!prio || !contF || !whF || !engF || !priF || !tgtF || !batchF || !horF) return null;
+    const wkF = filterOf('workingWeekdays');
+    if (!prio || !contF || !whF || !engF || !priF || !tgtF || !batchF || !horF || !wkF) return null;
     if (prio.type !== 'select' || contF.type !== 'multi_select' || whF.type !== 'multi_select' || engF.type !== 'multi_select' || priF.type !== 'multi_select') return null;
-    if (tgtF.type !== 'number' || batchF.type !== 'number' || horF.type !== 'number') return null;
+    if (tgtF.type !== 'number' || batchF.type !== 'number' || horF.type !== 'number' || wkF.type !== 'multi_select') return null;
 
     const warehouseOpts = optionSets.warehouses ?? [];
     const brandOpts = optionSets.brands ?? [];
@@ -405,6 +406,11 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     const selBrand = Array.isArray(activeFilters.engineBrandIds) ? (activeFilters.engineBrandIds as string[]) : [];
     const selPriBrand = Array.isArray(activeFilters.priorityEngineBrandIds) ? (activeFilters.priorityEngineBrandIds as string[]) : [];
     const selContracts = Array.isArray(activeFilters.assemblyContractIds) ? (activeFilters.assemblyContractIds as string[]) : [];
+    const selWorkingWeekdays = Array.isArray(activeFilters.workingWeekdays) ? (activeFilters.workingWeekdays as string[]) : [];
+    const weekdayOpts = wkF.options ?? [];
+    const allWeekdayIds = weekdayOpts.map((o) => String(o.value));
+    const allWeekdaysSelected =
+      allWeekdayIds.length > 0 && selWorkingWeekdays.length === allWeekdayIds.length && allWeekdayIds.every((id) => selWorkingWeekdays.includes(id));
 
     const allWhIds = warehouseOpts.map((o) => String(o.value));
     const allBrandIds = brandOpts.map((o) => String(o.value));
@@ -644,6 +650,45 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
         {renderAfNumber(tgtF)}
         {renderAfNumber(batchF)}
         {renderAfNumber(horF)}
+        <div className="report-preset-af-block">
+          <div className="report-preset-af-label" title={filterLabelHint(wkF)}>
+            {wkF.label}
+          </div>
+          <div className="report-preset-af-main">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+              {weekdayOpts.map((option) => {
+                const id = String(option.value);
+                const checked = selWorkingWeekdays.includes(id);
+                return (
+                  <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const set = new Set(selWorkingWeekdays);
+                        if (e.target.checked) set.add(id);
+                        else set.delete(id);
+                        patchFilter(wkF.key, Array.from(set));
+                      }}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          <button type="button" onClick={() => resetFilter(wkF)} title="Сбросить" style={filterResetBtnStyle}>
+            ✕
+          </button>
+          <div className="report-preset-af-meta">
+            {allWeekdaysSelected
+              ? 'Рабочие: все дни недели.'
+              : selWorkingWeekdays.length === 0
+                ? 'Рабочие дни не выбраны: весь горизонт будет выходным.'
+                : `Рабочие: ${weekdayOpts.filter((o) => selWorkingWeekdays.includes(String(o.value))).map((o) => o.label).join(', ')}`}
+          </div>
+        </div>
       </div>
     );
   }

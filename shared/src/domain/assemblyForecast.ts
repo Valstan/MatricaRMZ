@@ -58,6 +58,11 @@ export type AssemblyForecastComputeInput = {
    * затем оставшийся лимит дня — между остальными марками.
    */
   priorityEngineBrandIds?: string[];
+  /**
+   * Рабочие дни недели по JS getDay(): 0=вс, 1=пн, ... 6=сб.
+   * Если пусто/не задано — считаем рабочими все дни.
+   */
+  workingWeekdays?: number[];
 };
 
 export type AssemblyForecastDayRow = {
@@ -66,8 +71,8 @@ export type AssemblyForecastDayRow = {
   engineBrand: string;
   brandId: string;
   plannedEngines: number;
-  /** ok — комплект закрыт по плану; waiting — неполный комплект по марке; shortage — неполный комплект по дню (итог); absent — нет комплектующих для сборки */
-  status: 'ok' | 'shortage' | 'waiting' | 'absent';
+  /** ok — комплект закрыт по плану; waiting — неполный комплект по марке; shortage — неполный комплект по дню (итог); absent — нет комплектующих; weekend — выходной */
+  status: 'ok' | 'shortage' | 'waiting' | 'absent' | 'weekend';
   requiredComponentsSummary: string;
   deficitsSummary: string;
   alternativeBrands: string;
@@ -384,9 +389,33 @@ export function assemblyForecastStatusLabelRu(status: AssemblyForecastDayRow['st
       return 'Неполный комплект';
     case 'absent':
       return 'Нет';
+    case 'weekend':
+      return 'Выходной';
     default:
       return String(status ?? '').trim() || '—';
   }
+}
+
+const WEEKDAY_LABELS_RU = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'] as const;
+
+function startOfTodayLocal(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function dayDateByOffset(start: Date, dayOffset: number): Date {
+  const d = new Date(start);
+  d.setDate(d.getDate() + dayOffset);
+  return d;
+}
+
+function formatDayLabelWithDate(date: Date): string {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(date.getFullYear());
+  const weekday = WEEKDAY_LABELS_RU[date.getDay()] ?? '';
+  return `${dd}.${mm}.${yyyy} (${weekday})`;
 }
 
 function mergeHorizonMissingByDisplayLabel(rows: AssemblyHorizonMissingBrand[]): AssemblyHorizonMissingBrand[] {
@@ -686,6 +715,13 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
 
   const priorityOrderRaw = (input.priorityEngineBrandIds ?? []).map((id) => String(id).trim()).filter(Boolean);
   const prioritySet = new Set(priorityOrderRaw);
+  const workingWeekdays = new Set(
+    (input.workingWeekdays ?? [])
+      .map((x) => Number(x))
+      .filter((x) => Number.isInteger(x) && x >= 0 && x <= 6),
+  );
+  const hasWorkingDaysFilter = workingWeekdays.size > 0;
+  const today = startOfTodayLocal();
 
   const lastUsedBrandByPool = new Map<string, string>();
 
@@ -696,13 +732,13 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
    */
   function allocateDayByBatchRuns(
     day: number,
+    dayLabel: string,
     poolKey: string,
     pool: AssemblyEngineBrandKit[],
     labelSuffix: string,
     initialBudget: number,
     sortPool: (p: AssemblyEngineBrandKit[]) => AssemblyEngineBrandKit[],
   ): number {
-    const dayLabel = `День ${day + 1}`;
     let remaining = initialBudget;
     if (pool.length === 0 || remaining <= 0) return remaining;
     const order = sortPool(pool);
@@ -778,17 +814,33 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   for (let day = 0; day < horizon; day++) {
     applyIncomingForDay(stock, day, input.incomingLines);
     applyIncomingToWarehouseBins(warehouseBins, day, input.incomingLines);
-    const dayLabel = `День ${day + 1}`;
+    const dayDate = dayDateByOffset(today, day);
+    const dayLabel = formatDayLabelWithDate(dayDate);
+    const isWeekend = hasWorkingDaysFilter && !workingWeekdays.has(dayDate.getDay());
+    if (isWeekend) {
+      rows.push({
+        dayOffset: day,
+        dayLabel,
+        engineBrand: 'Выходной',
+        brandId: '',
+        plannedEngines: 0,
+        status: 'weekend',
+        requiredComponentsSummary: 'Выходной день: сборка двигателей не планируется.',
+        deficitsSummary: '',
+        alternativeBrands: '',
+      });
+      continue;
+    }
 
     let remaining = target;
     if (remaining > 0) {
       if (prioritySet.size > 0) {
         const priorityKits = kits.filter((k) => kitMatchesPriorityEngineBrand(k, prioritySet));
         const otherKits = kits.filter((k) => !kitMatchesPriorityEngineBrand(k, prioritySet));
-        remaining = allocateDayByBatchRuns(day, 'priority', priorityKits, '', remaining, (p) => sortKitsByPriorityList(p, priorityOrderRaw));
-        remaining = allocateDayByBatchRuns(day, 'other', otherKits, '', remaining, sortAlpha);
+        remaining = allocateDayByBatchRuns(day, dayLabel, 'priority', priorityKits, '', remaining, (p) => sortKitsByPriorityList(p, priorityOrderRaw));
+        remaining = allocateDayByBatchRuns(day, dayLabel, 'other', otherKits, '', remaining, sortAlpha);
       } else {
-        remaining = allocateDayByBatchRuns(day, 'all', kits, '', remaining, sortAlpha);
+        remaining = allocateDayByBatchRuns(day, dayLabel, 'all', kits, '', remaining, sortAlpha);
       }
     }
 
@@ -814,7 +866,6 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     }
   }
 
-  const deficitRecommendations = computeDeficitRecommendations(input, kits, horizon, target);
   const horizonGap = computeHorizonCoverageGap({
     kits,
     rows,
@@ -823,7 +874,9 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
     sameBrandBatchSize,
     prioritySet,
     priorityOrderRaw,
+    ...(hasWorkingDaysFilter ? { workingWeekdays } : {}),
   });
+  const deficitRecommendations = computeDeficitRecommendations(input, kits, horizon, target, hasWorkingDaysFilter ? workingWeekdays : null);
   return {
     rows,
     warnings,
@@ -841,6 +894,7 @@ function computeHorizonCoverageGap(args: {
   sameBrandBatchSize: number;
   prioritySet: Set<string>;
   priorityOrderRaw: string[];
+  workingWeekdays?: ReadonlySet<number>;
 }): {
   horizonMissingByBrand: AssemblyHorizonMissingBrand[];
   horizonComponentNeeds: AssemblyHorizonComponentNeed[];
@@ -880,7 +934,12 @@ function computeHorizonCoverageGap(args: {
     return remaining;
   }
 
+  const today = startOfTodayLocal();
   for (let day = 0; day < args.horizon; day++) {
+    if (args.workingWeekdays && args.workingWeekdays.size > 0) {
+      const dow = dayDateByOffset(today, day).getDay();
+      if (!args.workingWeekdays.has(dow)) continue;
+    }
     let remaining = args.target;
     if (args.prioritySet.size > 0) {
       const priorityKits = args.kits.filter((k) => kitMatchesPriorityEngineBrand(k, args.prioritySet));
@@ -947,10 +1006,19 @@ function computeDeficitRecommendations(
   kits: AssemblyEngineBrandKit[],
   horizon: number,
   target: number,
+  workingWeekdays: ReadonlySet<number> | null,
 ): AssemblyDeficitRecommendation[] {
   if (target <= 0 || kits.length === 0) return [];
-
-  const totalEngines = target * horizon;
+  const today = startOfTodayLocal();
+  const workDaysInHorizon = (() => {
+    if (!workingWeekdays || workingWeekdays.size === 0) return horizon;
+    let n = 0;
+    for (let day = 0; day < horizon; day++) {
+      if (workingWeekdays.has(dayDateByOffset(today, day).getDay())) n += 1;
+    }
+    return n;
+  })();
+  const totalEngines = target * workDaysInHorizon;
   const partMeta = new Map<string, { partLabel: string; role: AssemblyComponentRole; maxQtyPerEngine: number; brands: Set<string> }>();
 
   for (const kit of kits) {
