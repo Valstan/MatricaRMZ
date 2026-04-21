@@ -724,7 +724,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         min: 0,
         max: 500,
         step: 1,
-        defaultValue: 1,
+        defaultValue: 4,
       },
       {
         type: 'number',
@@ -751,8 +751,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         key: 'workingWeekdays',
         label: 'Рабочие дни недели',
         labelHint:
-          'Отмеченные дни считаются рабочими и участвуют в расчёте сборки. Неотмеченные дни считаются выходными: в результате они показываются строкой «Выходной» без расчёта сборки.',
-        selectAllByDefault: true,
+          'Отмеченные дни считаются рабочими и участвуют в расчёте сборки. Неотмеченные дни считаются выходными: в результате они показываются строкой «Выходной» без расчёта сборки. По умолчанию рабочие понедельник–суббота; воскресенье — выходной (его можно отметить как рабочий).',
         options: [
           { value: '1', label: 'Понедельник' },
           { value: '2', label: 'Вторник' },
@@ -765,11 +764,11 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
     ],
     columns: [
-      { key: 'dayLabel', label: 'День' },
+      { key: 'dayLabel', label: 'Дата и день недели' },
       { key: 'engineBrand', label: 'Марка двигателя' },
       { key: 'plannedEngines', label: 'Кол-во двигателей', kind: 'number', align: 'right' },
-      { key: 'status', label: 'Статус' },
-      { key: 'requiredComponentsSummary', label: 'Расход комплектующих (факт за день)' },
+      { key: 'status', label: 'Статус сборки' },
+      { key: 'requiredComponentsSummary', label: 'Комплектующие' },
     ],
   },
 ];

@@ -2864,7 +2864,7 @@ async function buildAssemblyForecast7dReport(
   async function viaApi(): Promise<{ report: OkPreview } | { skip: true } | { error: string }> {
     const apiBaseUrl = String(ctx?.apiBaseUrl ?? '').trim();
     if (!ctx?.sysDb || !apiBaseUrl) return { skip: true };
-    const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 1)));
+    const targetEnginesPerDay = Math.max(0, Math.floor(Number(filters?.targetEnginesPerDay ?? 4)));
     const sameBrandBatchSize = Math.max(1, Math.floor(Number(filters?.sameBrandBatchSize ?? 2)));
     const horizonDays = Math.max(1, Math.min(31, Math.floor(Number(filters?.horizonDays ?? 7))));
     const warehouseIds = asArray(filters?.warehouseIds);
@@ -3273,66 +3273,74 @@ function assemblyForecastPdfStatusClass(statusText: string): string {
   return 'afp-st-neu';
 }
 
-function renderAssemblyForecastPdfConsumptionLines(text: string): string {
-  const lines = text.split('\n').filter((s) => s.trim().length > 0);
-  if (lines.length <= 1) return htmlEscape(text);
-  return lines.map((line) => `<div class="afp-cons">${htmlEscape(line)}</div>`).join('');
-}
-
-function renderAssemblyForecastPdfTable(report: OkPreview): string {
+function renderAssemblyForecastPdfBlocks(report: OkPreview): string {
   const style = `<style>
 .afp-wrap{font-size:14px;color:#0b1220}
-.afp-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden}
-.afp-th{padding:9px 10px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1;font-weight:800;font-size:14px;text-align:left}
-.afp-td{padding:9px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top;line-height:1.45}
-.afp-tr-ok{background:#ecfdf5;box-shadow:inset 3px 0 0 0 #16a34a}
-.afp-tr-wait{background:#fffbeb;box-shadow:inset 3px 0 0 0 #d97706}
-.afp-tr-short{background:#fef2f2;box-shadow:inset 3px 0 0 0 #dc2626}
+.afp-day-list{display:block}
+.afp-day{border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#fff;margin-bottom:12px}
+.afp-day:last-child{margin-bottom:0}
+.afp-day-head{padding:10px 12px;font-weight:800;font-size:15px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1}
+.afp-day-body{padding:8px 10px}
+.afp-engine{border:1px solid #e2e8f0;border-radius:8px;background:#fff;margin-bottom:8px;overflow:hidden}
+.afp-engine:last-child{margin-bottom:0}
+.afp-engine-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+.afp-engine-brand{font-weight:700;font-size:14px;color:#0f172a}
+.afp-engine-parts{padding:8px 10px;background:#fff}
 .afp-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:14px;font-weight:800;letter-spacing:0.03em;border:1px solid transparent}
 .afp-st-ok{background:rgba(22,163,74,0.14);color:#14532d;border-color:rgba(22,163,74,0.35)}
 .afp-st-wait{background:rgba(217,119,6,0.16);color:#7c2d12;border-color:rgba(217,119,6,0.4)}
 .afp-st-bad{background:rgba(220,38,38,0.12);color:#7f1d1d;border-color:rgba(220,38,38,0.35)}
 .afp-st-neu{background:#f8fafc;color:#475569;border-color:#e2e8f0}
-.afp-cons{padding:5px 0 5px 8px;margin-bottom:5px;border-left:2px solid rgba(37,99,235,0.35);background:rgba(248,250,252,0.95);border-radius:0 6px 6px 0}
-.afp-cons:last-child{margin-bottom:0}
+.afp-engine-part{padding:5px 0 5px 8px;margin-bottom:5px;border-left:2px solid rgba(37,99,235,0.35);background:rgba(248,250,252,0.95);border-radius:0 6px 6px 0;line-height:1.45}
+.afp-engine-part:last-child{margin-bottom:0}
+.afp-empty{padding:12px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:10px;background:#fff}
 </style>`;
-  const head = report.columns
-    .map(
-      (c) =>
-        `<th class="afp-th" style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`,
-    )
-    .join('');
-  const body =
-    report.rows.length > 0
-      ? report.rows
-          .map((row) => {
-            const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
-            const trClass =
-              code === 'ok'
-                ? 'afp-tr-ok'
-                : code === 'waiting'
-                  ? 'afp-tr-wait'
-                  : code === 'shortage' || code === 'absent'
-                    ? 'afp-tr-short'
+  const statusCol = report.columns.find((c) => c.key === 'status');
+  const dayCol = report.columns.find((c) => c.key === 'dayLabel');
+  const brandCol = report.columns.find((c) => c.key === 'engineBrand');
+  const compCol = report.columns.find((c) => c.key === 'requiredComponentsSummary');
+  const rows = report.rows.map((row) => {
+    const status = formatCell(statusCol ?? { key: 'status', label: '', kind: 'text' }, (row['status'] ?? null) as ReportCellValue);
+    const dayLabel = formatCell(dayCol ?? { key: 'dayLabel', label: '', kind: 'text' }, (row['dayLabel'] ?? null) as ReportCellValue);
+    const engineBrand = formatCell(brandCol ?? { key: 'engineBrand', label: '', kind: 'text' }, (row['engineBrand'] ?? null) as ReportCellValue);
+    const partsRaw = formatCell(
+      compCol ?? { key: 'requiredComponentsSummary', label: '', kind: 'text' },
+      (row['requiredComponentsSummary'] ?? null) as ReportCellValue,
+    );
+    const parts = partsRaw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const statusCode = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
+    return { dayLabel, engineBrand, status, statusCode, parts };
+  });
+  const byDay = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const dayRows = byDay.get(row.dayLabel) ?? [];
+    dayRows.push(row);
+    byDay.set(row.dayLabel, dayRows);
+  }
+  const daySections =
+    rows.length > 0
+      ? Array.from(byDay.entries())
+          .map(([dayLabel, dayRows]) => {
+            const engineHtml = dayRows
+              .map((r) => {
+                const statusClass = assemblyForecastPdfStatusClass(r.status);
+                const partsHtml =
+                  r.parts.length > 0
+                    ? `<div class="afp-engine-parts">${r.parts
+                        .map((line) => `<div class="afp-engine-part">${htmlEscape(line)}</div>`)
+                        .join('')}</div>`
                     : '';
-            const tds = report.columns
-              .map((column) => {
-                const text = formatCell(column, (row[column.key] ?? null) as ReportCellValue);
-                if (column.key === 'status') {
-                  const cls = assemblyForecastPdfStatusClass(text);
-                  return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}"><span class="afp-st ${cls}">${htmlEscape(text)}</span></td>`;
-                }
-                if (column.key === 'requiredComponentsSummary') {
-                  return `<td class="afp-td" style="text-align:left">${renderAssemblyForecastPdfConsumptionLines(text)}</td>`;
-                }
-                return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}">${htmlEscape(text)}</td>`;
+                return `<article class="afp-engine"><div class="afp-engine-head"><div class="afp-engine-brand">${htmlEscape(r.engineBrand)}</div><span class="afp-st ${statusClass}">${htmlEscape(r.status)}</span></div>${partsHtml}</article>`;
               })
               .join('');
-            return `<tr class="${trClass}">${tds}</tr>`;
+            return `<section class="afp-day"><div class="afp-day-head">${htmlEscape(dayLabel)}</div><div class="afp-day-body">${engineHtml}</div></section>`;
           })
           .join('')
-      : `<tr><td class="afp-td" colspan="${report.columns.length}" style="text-align:center;color:#64748b">Нет данных</td></tr>`;
-  return `${style}<div class="afp-wrap"><table class="afp-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+      : `<div class="afp-empty">Нет данных</div>`;
+  return `${style}<div class="afp-wrap"><div class="afp-day-list">${daySections}</div></div>`;
 }
 
 function renderAssemblyForecastPdfFooter(lines: string[]): string {
@@ -3389,7 +3397,7 @@ export function renderReportHtml(report: OkPreview): string {
     const metaHtml = subtitleChips
       ? `<div style="margin:0 0 12px 0;line-height:1.4">${subtitleChips}</div>`
       : `<div class="meta">${htmlEscape(report.subtitle ?? '')}</div>`;
-    const tableBlock = renderAssemblyForecastPdfTable(report);
+    const tableBlock = renderAssemblyForecastPdfBlocks(report);
     const totalsHtml =
       report.totals && Object.keys(report.totals).length > 0
         ? `<div style="margin-top:12px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;font-size:14px"><b>Итого по отчёту:</b> ${htmlEscape(formatTotalsForDisplay(report.totals).join(', '))}</div>`

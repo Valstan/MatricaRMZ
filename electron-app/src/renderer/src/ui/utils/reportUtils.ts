@@ -179,6 +179,10 @@ export function buildDefaultFilters(preset: ReportPresetDefinition): ReportPrese
       continue;
     }
     if (filter.type === 'multi_select') {
+      if (preset.id === 'assembly_forecast_7d' && filter.key === 'workingWeekdays') {
+        out[filter.key] = ['1', '2', '3', '4', '5', '6'];
+        continue;
+      }
       out[filter.key] = [];
       continue;
     }
@@ -246,75 +250,82 @@ function assemblyForecastStatusPrintClass(statusText: string): string {
   if (statusText === 'Комплект') return 'afp-st-ok';
   if (statusText === 'Неполный комплект') return 'afp-st-wait';
   if (statusText === 'Нет') return 'afp-st-bad';
+  if (statusText === 'Выходной') return 'afp-st-neu';
   if (statusText === 'Хватает') return 'afp-st-ok';
   if (statusText === 'Частично') return 'afp-st-wait';
   if (statusText === 'Не хватает') return 'afp-st-bad';
   return 'afp-st-neu';
 }
 
-function renderAssemblyForecastConsumptionPrint(text: string): string {
-  const lines = text.split('\n').filter((s) => s.trim().length > 0);
-  if (lines.length <= 1) return escapeHtml(text);
-  return lines.map((line) => `<div class="afp-cons">${escapeHtml(line)}</div>`).join('');
-}
-
-/** Печать / предпросмотр: компактные стили без внешнего CSS. */
-export function renderAssemblyForecastTableForPrint(report: PreviewOk): string {
+/** Печать / предпросмотр: блочная вёрстка как в экране результата (день → двигатели → комплектующие). */
+export function renderAssemblyForecastBlocksForPrint(report: PreviewOk): string {
   const style = `<style>
 .afp-wrap{font-size:14px;color:#0b1220}
-.afp-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden}
-.afp-th{padding:9px 10px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1;font-weight:800;font-size:14px;text-align:left}
-.afp-td{padding:9px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top;line-height:1.45}
-.afp-tr-ok{background:#ecfdf5;box-shadow:inset 3px 0 0 0 #16a34a}
-.afp-tr-wait{background:#fffbeb;box-shadow:inset 3px 0 0 0 #d97706}
-.afp-tr-short{background:#fef2f2;box-shadow:inset 3px 0 0 0 #dc2626}
+.afp-day-list{display:block}
+.afp-day{border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#fff;margin-bottom:12px}
+.afp-day:last-child{margin-bottom:0}
+.afp-day-head{padding:10px 12px;font-weight:800;font-size:15px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid #cbd5e1}
+.afp-day-body{padding:8px 10px}
+.afp-engine{border:1px solid #e2e8f0;border-radius:8px;background:#fff;margin-bottom:8px;overflow:hidden}
+.afp-engine:last-child{margin-bottom:0}
+.afp-engine-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+.afp-engine-brand{font-weight:700;font-size:14px;color:#0f172a}
+.afp-engine-parts{padding:8px 10px;background:#fff}
 .afp-st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:14px;font-weight:800;letter-spacing:0.03em;border:1px solid transparent}
 .afp-st-ok{background:rgba(22,163,74,0.14);color:#14532d;border-color:rgba(22,163,74,0.35)}
 .afp-st-wait{background:rgba(217,119,6,0.16);color:#7c2d12;border-color:rgba(217,119,6,0.4)}
 .afp-st-bad{background:rgba(220,38,38,0.12);color:#7f1d1d;border-color:rgba(220,38,38,0.35)}
 .afp-st-neu{background:#f8fafc;color:#475569;border-color:#e2e8f0}
-.afp-cons{padding:5px 0 5px 8px;margin-bottom:5px;border-left:2px solid rgba(37,99,235,0.35);background:rgba(248,250,252,0.95);border-radius:0 6px 6px 0}
-.afp-cons:last-child{margin-bottom:0}
+.afp-engine-part{padding:5px 0 5px 8px;margin-bottom:5px;border-left:2px solid rgba(37,99,235,0.35);background:rgba(248,250,252,0.95);border-radius:0 6px 6px 0;line-height:1.45}
+.afp-engine-part:last-child{margin-bottom:0}
+.afp-empty{padding:12px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:10px;background:#fff}
 </style>`;
-
-  const head = report.columns
-    .map(
-      (c) =>
-        `<th class="afp-th" style="text-align:${c.align === 'right' ? 'right' : 'left'}">${escapeHtml(c.label)}</th>`,
-    )
-    .join('');
-  const body =
-    report.rows.length > 0
-      ? report.rows
-          .map((row) => {
-            const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
-            const trClass =
-              code === 'ok'
-                ? 'afp-tr-ok'
-                : code === 'waiting'
-                  ? 'afp-tr-wait'
-                  : code === 'shortage' || code === 'absent'
-                    ? 'afp-tr-short'
+  const statusCol = report.columns.find((c) => c.key === 'status');
+  const dayCol = report.columns.find((c) => c.key === 'dayLabel');
+  const brandCol = report.columns.find((c) => c.key === 'engineBrand');
+  const compCol = report.columns.find((c) => c.key === 'requiredComponentsSummary');
+  const rows = report.rows.map((row) => {
+    const status = formatReportCell(statusCol?.kind ?? 'text', (row['status'] ?? null) as ReportCellValue, 'status');
+    const dayLabel = formatReportCell(dayCol?.kind ?? 'text', (row['dayLabel'] ?? null) as ReportCellValue, 'dayLabel');
+    const engineBrand = formatReportCell(brandCol?.kind ?? 'text', (row['engineBrand'] ?? null) as ReportCellValue, 'engineBrand');
+    const partsRaw = formatReportCell(
+      compCol?.kind ?? 'text',
+      (row['requiredComponentsSummary'] ?? null) as ReportCellValue,
+      'requiredComponentsSummary',
+    );
+    const parts = partsRaw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return { dayLabel, engineBrand, status, parts };
+  });
+  const byDay = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const dayRows = byDay.get(row.dayLabel) ?? [];
+    dayRows.push(row);
+    byDay.set(row.dayLabel, dayRows);
+  }
+  const daySections =
+    rows.length > 0
+      ? Array.from(byDay.entries())
+          .map(([dayLabel, dayRows]) => {
+            const engineHtml = dayRows
+              .map((r) => {
+                const statusClass = assemblyForecastStatusPrintClass(r.status);
+                const partsHtml =
+                  r.parts.length > 0
+                    ? `<div class="afp-engine-parts">${r.parts
+                        .map((line) => `<div class="afp-engine-part">${escapeHtml(line)}</div>`)
+                        .join('')}</div>`
                     : '';
-            const cells = report.columns
-              .map((column) => {
-                const value = row[column.key] ?? null;
-                const text = formatReportCell(column.kind ?? 'text', value as ReportCellValue, column.key);
-                if (column.key === 'status') {
-                  const cls = assemblyForecastStatusPrintClass(text);
-                  return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}"><span class="afp-st ${cls}">${escapeHtml(text)}</span></td>`;
-                }
-                if (column.key === 'requiredComponentsSummary') {
-                  return `<td class="afp-td" style="text-align:left">${renderAssemblyForecastConsumptionPrint(text)}</td>`;
-                }
-                return `<td class="afp-td" style="text-align:${column.align === 'right' ? 'right' : 'left'}">${escapeHtml(text)}</td>`;
+                return `<article class="afp-engine"><div class="afp-engine-head"><div class="afp-engine-brand">${escapeHtml(r.engineBrand)}</div><span class="afp-st ${statusClass}">${escapeHtml(r.status)}</span></div>${partsHtml}</article>`;
               })
               .join('');
-            return `<tr class="${trClass}">${cells}</tr>`;
+            return `<section class="afp-day"><div class="afp-day-head">${escapeHtml(dayLabel)}</div><div class="afp-day-body">${engineHtml}</div></section>`;
           })
           .join('')
-      : `<tr><td class="afp-td" colspan="${report.columns.length}" style="text-align:center;color:#64748b">Нет данных</td></tr>`;
-  return `${style}<div class="afp-wrap"><table class="afp-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+      : `<div class="afp-empty">Нет данных</div>`;
+  return `${style}<div class="afp-wrap"><div class="afp-day-list">${daySections}</div></div>`;
 }
 
 export function renderAssemblyForecastFooterForPrint(lines: string[]): string {
@@ -337,6 +348,7 @@ export function renderAssemblyForecastFooterForPrint(lines: string[]): string {
     'Авто: нет контрактов',
     'Приоритет:',
     'Приоритетные марки',
+    'Ограничение:',
   ];
   const body = lines
     .map((line) => {
@@ -355,7 +367,7 @@ export function renderAssemblyForecastFooterForPrint(lines: string[]): string {
 
 export function renderReportTableHtml(report: PreviewOk) {
   if (report.presetId === 'assembly_forecast_7d') {
-    return renderAssemblyForecastTableForPrint(report);
+    return renderAssemblyForecastBlocksForPrint(report);
   }
   const head = report.columns
     .map((column) => `<th style="text-align:${column.align === 'right' ? 'right' : 'left'}">${escapeHtml(column.label)}</th>`)

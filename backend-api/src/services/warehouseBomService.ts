@@ -971,7 +971,7 @@ export async function buildWarehouseBomExpandedForecast(args: {
     const brandId = String(args.engineBrandId).trim();
     if (!brandId) return { ok: false, error: 'engineBrandId обязателен' };
     const horizonDays = Math.max(1, Math.min(31, Math.trunc(Number(args.horizonDays ?? 7))));
-    const target = Math.max(0, Math.trunc(Number(args.targetEnginesPerDay ?? 1)));
+    const target = Math.max(0, Math.trunc(Number(args.targetEnginesPerDay ?? 4)));
     const totalEngines = target * horizonDays;
     const warehouseSet = Array.isArray(args.warehouseIds) && args.warehouseIds.length > 0 ? new Set(args.warehouseIds.map(String)) : null;
 

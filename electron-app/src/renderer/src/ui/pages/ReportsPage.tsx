@@ -17,7 +17,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 import { openPrintPreview } from '../utils/printPreview.js';
-import { buildReportPrintPreviewSections } from '../utils/reportUtils.js';
+import { buildDefaultFilters, buildReportPrintPreviewSections } from '../utils/reportUtils.js';
 import { renderWorkOrderPayrollFormInnerHtml } from '../utils/workOrderPayrollReportLayoutHtml.js';
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
@@ -158,31 +158,6 @@ function binaryDownloadBase64(contentBase64: string, fileName: string, mime: str
   a.download = fileName;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function buildDefaultFilters(preset: ReportPresetDefinition): ReportPresetFilters {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const out: ReportPresetFilters = {};
-  for (const filter of preset.filters) {
-    if (filter.type === 'date_range') {
-      out[filter.startKey] = startOfDayMs(monthStart);
-      out[filter.endKey] = endOfDayMs(now);
-      continue;
-    }
-    if (filter.type === 'multi_select') {
-      out[filter.key] = [];
-      continue;
-    }
-    if (filter.type === 'checkbox') {
-      out[filter.key] = filter.key === 'includePurchases';
-      continue;
-    }
-    if (filter.type === 'select') {
-      out[filter.key] = filter.options?.[0]?.value ?? '';
-    }
-  }
-  return out;
 }
 
 export function ReportsPage(props: { canExport: boolean }) {

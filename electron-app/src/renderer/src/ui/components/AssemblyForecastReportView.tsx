@@ -49,6 +49,11 @@ type ForecastRowView = { dayLabel: string; engineBrand: string; status: string; 
 export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
   const { preview } = props;
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggleExpanded = (rowKey: string) =>
+    setExpanded((prev) => ({
+      ...prev,
+      [rowKey]: !prev[rowKey],
+    }));
   const subtitleParts = preview.subtitle?.split(' | ').map((s) => s.trim()).filter(Boolean) ?? [];
   const rows: ForecastRowView[] = preview.rows.map((row) => {
     const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
@@ -87,39 +92,51 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
           <section key={`${dayLabel}-${i}`} className="report-af-day">
             <div className="report-af-day__head">{dayLabel}</div>
             <div className="report-af-day__body">
-              {dayRows.map((r, idx) => (
-                <article key={`${dayLabel}-${idx}`} className="report-af-engine">
-                  <div className="report-af-engine__head">
-                    <div className="report-af-engine__brand">{r.engineBrand}</div>
-                    <div className="report-af-engine__actions">
-                      {r.parts.length > 0 ? (
-                        <button
-                          type="button"
-                          className="report-af-engine__toggle"
-                          onClick={() =>
-                            setExpanded((prev) => ({
-                              ...prev,
-                              [`${dayLabel}-${idx}`]: !prev[`${dayLabel}-${idx}`],
-                            }))
-                          }
-                        >
-                          {expanded[`${dayLabel}-${idx}`] ? 'Свернуть' : 'Развернуть'}
-                        </button>
-                      ) : null}
-                      <StatusBadge text={r.status} code={r.statusCode} />
+              {dayRows.map((r, idx) => {
+                const rowKey = `${dayLabel}-${idx}`;
+                const isOpen = Boolean(expanded[rowKey]);
+                return (
+                  <article key={rowKey} className="report-af-engine">
+                    <div
+                      className={`report-af-engine__head${r.parts.length > 0 ? ' report-af-engine__head--clickable' : ''}`}
+                      role={r.parts.length > 0 ? 'button' : undefined}
+                      tabIndex={r.parts.length > 0 ? 0 : undefined}
+                      aria-expanded={r.parts.length > 0 ? isOpen : undefined}
+                      onClick={r.parts.length > 0 ? () => toggleExpanded(rowKey) : undefined}
+                      onKeyDown={
+                        r.parts.length > 0
+                          ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toggleExpanded(rowKey);
+                              }
+                            }
+                          : undefined
+                      }
+                    >
+                      <div className="report-af-engine__brand">{r.engineBrand}</div>
+                      <div className="report-af-engine__actions">
+                        <StatusBadge text={r.status} code={r.statusCode} />
+                        {r.parts.length > 0 ? (
+                          <span
+                            className={`report-af-engine__chevron${isOpen ? ' report-af-engine__chevron--open' : ''}`}
+                            aria-hidden
+                          />
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                  {r.parts.length > 0 && expanded[`${dayLabel}-${idx}`] ? (
-                    <div className="report-af-engine__parts">
-                      {r.parts.map((line, li) => (
-                        <div key={`${idx}-${li}`} className="report-af-engine__part-line">
-                          {line}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </article>
-              ))}
+                    {r.parts.length > 0 && isOpen ? (
+                      <div className="report-af-engine__parts">
+                        {r.parts.map((line, li) => (
+                          <div key={`${idx}-${li}`} className="report-af-engine__part-line">
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           </section>
         ))}
