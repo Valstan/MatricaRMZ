@@ -1417,6 +1417,26 @@ table.list-table.list-table--catalog {
   margin-bottom: 6px;
 }
 
+.report-af-engine__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-af-engine__toggle {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.report-af-engine__toggle:hover {
+  filter: brightness(1.05);
+}
+
 .report-af-engine__brand {
   font-size: var(--ui-report-font-size);
   font-weight: 700;

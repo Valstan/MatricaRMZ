@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReportCellValue, ReportPresetPreviewResult } from '@matricarmz/shared';
 
 import { formatReportCell, formatReportTotals } from '../utils/reportUtils.js';
@@ -47,6 +48,7 @@ type ForecastRowView = { dayLabel: string; engineBrand: string; status: string; 
 
 export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
   const { preview } = props;
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const subtitleParts = preview.subtitle?.split(' | ').map((s) => s.trim()).filter(Boolean) ?? [];
   const rows: ForecastRowView[] = preview.rows.map((row) => {
     const code = String((row as Record<string, unknown>)['_assemblyStatusCode'] ?? '');
@@ -89,9 +91,25 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk }) {
                 <article key={`${dayLabel}-${idx}`} className="report-af-engine">
                   <div className="report-af-engine__head">
                     <div className="report-af-engine__brand">{r.engineBrand}</div>
-                    <StatusBadge text={r.status} code={r.statusCode} />
+                    <div className="report-af-engine__actions">
+                      {r.parts.length > 0 ? (
+                        <button
+                          type="button"
+                          className="report-af-engine__toggle"
+                          onClick={() =>
+                            setExpanded((prev) => ({
+                              ...prev,
+                              [`${dayLabel}-${idx}`]: !prev[`${dayLabel}-${idx}`],
+                            }))
+                          }
+                        >
+                          {expanded[`${dayLabel}-${idx}`] ? 'Свернуть' : 'Развернуть'}
+                        </button>
+                      ) : null}
+                      <StatusBadge text={r.status} code={r.statusCode} />
+                    </div>
                   </div>
-                  {r.parts.length > 0 ? (
+                  {r.parts.length > 0 && expanded[`${dayLabel}-${idx}`] ? (
                     <div className="report-af-engine__parts">
                       {r.parts.map((line, li) => (
                         <div key={`${idx}-${li}`} className="report-af-engine__part-line">

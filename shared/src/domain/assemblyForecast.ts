@@ -370,6 +370,15 @@ function summarizeKit(kit: AssemblyEngineBrandKit, engines: number): string {
 
 type PartWarehouseTake = { warehouseLabel: string; takeQty: number; beforeQty: number };
 
+function shortPartLabel(label: string): string {
+  const s = String(label ?? '').trim();
+  if (!s) return 'Комплектующая';
+  return s
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function consumeOneEngineAndFormatSummary(
   stock: Map<string, number>,
   warehouseBins: MutableWarehouseState | null,
@@ -383,6 +392,7 @@ function consumeOneEngineAndFormatSummary(
   for (const p of parts) {
     const need = Math.max(0, Math.floor(p.qtyPerEngine));
     if (need <= 0) continue;
+    const displayPart = shortPartLabel(p.partLabel);
     const beforeTotal = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
     const afterTotal = Math.max(0, beforeTotal - need);
     stock.set(p.nomenclatureId, afterTotal);
@@ -411,12 +421,12 @@ function consumeOneEngineAndFormatSummary(
 
     const allocText =
       takes.length === 0
-        ? `взять: ${need} шт.`
+        ? `${need} шт.; склад не определён (${beforeTotal} шт.)`
         : takes.length === 1
-          ? `взять со склада «${takes[0]!.warehouseLabel}» ${takes[0]!.takeQty} шт. (остаток перед списанием: ${takes[0]!.beforeQty} шт.)`
-          : `взять: ${takes.map((x) => `«${x.warehouseLabel}» ${x.takeQty} шт. (перед списанием ${x.beforeQty})`).join('; ')}`;
+          ? `${need} шт.; «${takes[0]!.warehouseLabel}» (${takes[0]!.beforeQty} шт.)`
+          : `${need} шт.; ${takes.map((x) => `«${x.warehouseLabel}» (${x.beforeQty} шт.)`).join('; ')}`;
 
-    lines.push(`${p.partLabel}: нужно ${need} шт.; ${allocText}; остаток перед сборкой: ${beforeTotal} шт.`);
+    lines.push(`${displayPart}: ${allocText}`);
   }
 
   return lines.join('\n');
