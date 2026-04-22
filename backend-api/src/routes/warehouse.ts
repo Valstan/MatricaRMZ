@@ -12,6 +12,15 @@ import {
   getWarehouseDocument,
   listWarehouseForecastIncoming,
   listWarehouseLookups,
+  listWarehouseNomenclatureItemTypes,
+  upsertWarehouseNomenclatureItemType,
+  deleteWarehouseNomenclatureItemType,
+  listWarehouseNomenclatureProperties,
+  upsertWarehouseNomenclatureProperty,
+  deleteWarehouseNomenclatureProperty,
+  listWarehouseNomenclatureTemplates,
+  upsertWarehouseNomenclatureTemplate,
+  deleteWarehouseNomenclatureTemplate,
   listWarehouseDocuments,
   listWarehouseEngineInstances,
   listWarehouseMovements,
@@ -44,6 +53,111 @@ warehouseRouter.use(requireAuth);
 
 warehouseRouter.get('/lookups', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
   const result = await listWarehouseLookups();
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/nomenclature/item-types', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await listWarehouseNomenclatureItemTypes();
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/nomenclature/item-types', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await upsertWarehouseNomenclatureItemType({
+    code: parsed.data.code,
+    name: parsed.data.name,
+    ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
+    ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.delete('/nomenclature/item-types/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const result = await deleteWarehouseNomenclatureItemType({ id: String(req.params.id || '').trim() });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/nomenclature/properties', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await listWarehouseNomenclatureProperties();
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/nomenclature/properties', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+    dataType: z.string().min(1),
+    isRequired: z.boolean().optional(),
+    optionsJson: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await upsertWarehouseNomenclatureProperty({
+    code: parsed.data.code,
+    name: parsed.data.name,
+    dataType: parsed.data.dataType,
+    ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
+    ...(parsed.data.isRequired !== undefined ? { isRequired: parsed.data.isRequired } : {}),
+    ...(parsed.data.optionsJson !== undefined ? { optionsJson: parsed.data.optionsJson } : {}),
+    ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.delete('/nomenclature/properties/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const result = await deleteWarehouseNomenclatureProperty({ id: String(req.params.id || '').trim() });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/nomenclature/templates', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await listWarehouseNomenclatureTemplates();
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/nomenclature/templates', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+    itemTypeCode: z.string().nullable().optional(),
+    directoryKind: z.string().nullable().optional(),
+    propertiesJson: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await upsertWarehouseNomenclatureTemplate({
+    code: parsed.data.code,
+    name: parsed.data.name,
+    ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
+    ...(parsed.data.itemTypeCode !== undefined ? { itemTypeCode: parsed.data.itemTypeCode } : {}),
+    ...(parsed.data.directoryKind !== undefined ? { directoryKind: parsed.data.directoryKind } : {}),
+    ...(parsed.data.propertiesJson !== undefined ? { propertiesJson: parsed.data.propertiesJson } : {}),
+    ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.delete('/nomenclature/templates/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const result = await deleteWarehouseNomenclatureTemplate({ id: String(req.params.id || '').trim() });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

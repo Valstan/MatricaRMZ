@@ -386,10 +386,20 @@ const matricaApi = {
   },
   warehouse: {
     lookupsGet: async () => ipcRenderer.invoke('warehouse:lookups:get'),
+    nomenclatureItemTypesList: async () => ipcRenderer.invoke('warehouse:nomenclature:itemTypes:list'),
+    nomenclatureItemTypeUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:nomenclature:itemTypes:upsert', args),
+    nomenclatureItemTypeDelete: async (id: string) => ipcRenderer.invoke('warehouse:nomenclature:itemTypes:delete', id),
+    nomenclaturePropertiesList: async () => ipcRenderer.invoke('warehouse:nomenclature:properties:list'),
+    nomenclaturePropertyUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:nomenclature:properties:upsert', args),
+    nomenclaturePropertyDelete: async (id: string) => ipcRenderer.invoke('warehouse:nomenclature:properties:delete', id),
+    nomenclatureTemplatesList: async () => ipcRenderer.invoke('warehouse:nomenclature:templates:list'),
+    nomenclatureTemplateUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:nomenclature:templates:upsert', args),
+    nomenclatureTemplateDelete: async (id: string) => ipcRenderer.invoke('warehouse:nomenclature:templates:delete', id),
     nomenclatureList: async (args?: {
       id?: string;
       search?: string;
       itemType?: string;
+      directoryKind?: string;
       groupId?: string;
       isActive?: boolean;
       limit?: number;

@@ -1247,6 +1247,15 @@ export type MatricaApi = {
   };
   warehouse: {
     lookupsGet: () => Promise<{ ok: true; lookups: WarehouseLookups } | { ok: false; error: string }>;
+    nomenclatureItemTypesList: () => Promise<{ ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string }>;
+    nomenclatureItemTypeUpsert: (args: Record<string, unknown>) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclatureItemTypeDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclaturePropertiesList: () => Promise<{ ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string }>;
+    nomenclaturePropertyUpsert: (args: Record<string, unknown>) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclaturePropertyDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclatureTemplatesList: () => Promise<{ ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string }>;
+    nomenclatureTemplateUpsert: (args: Record<string, unknown>) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclatureTemplateDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     nomenclatureList: (args?: {
       id?: string;
       search?: string;

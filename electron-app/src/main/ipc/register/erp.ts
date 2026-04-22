@@ -34,6 +34,15 @@ import {
   warehouseForecastBomGet,
   warehouseForecastIncomingGet,
   warehouseMovementsList,
+  warehouseNomenclatureItemTypesList,
+  warehouseNomenclatureItemTypeUpsert,
+  warehouseNomenclatureItemTypeDelete,
+  warehouseNomenclaturePropertiesList,
+  warehouseNomenclaturePropertyUpsert,
+  warehouseNomenclaturePropertyDelete,
+  warehouseNomenclatureTemplatesList,
+  warehouseNomenclatureTemplateUpsert,
+  warehouseNomenclatureTemplateDelete,
   warehouseNomenclatureDelete,
   warehouseNomenclatureEngineBrandDelete,
   warehouseNomenclatureEngineBrandsList,
@@ -151,6 +160,69 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
     return warehouseLookupsGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:itemTypes:list', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureItemTypesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:itemTypes:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureItemTypeUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:itemTypes:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureItemTypeDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:properties:list', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePropertiesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:properties:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePropertyUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:properties:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePropertyDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:templates:list', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureTemplatesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:templates:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureTemplateUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:templates:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureTemplateDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
   ipcMain.handle('warehouse:nomenclature:upsert', async (_e, args: Record<string, unknown>) => {

@@ -277,6 +277,38 @@ export type WarehouseLookups = {
   counterparties: WarehouseLookupOption[];
   employees: WarehouseLookupOption[];
   engineBrands: WarehouseLookupOption[];
+  nomenclatureItemTypes?: WarehouseLookupOption[];
+  nomenclatureProperties?: WarehouseLookupOption[];
+  nomenclatureTemplates?: WarehouseLookupOption[];
+};
+
+export type NomenclaturePropertyDataType = 'text' | 'number' | 'boolean' | 'date' | 'enum' | 'json';
+
+export type WarehouseNomenclatureProperty = {
+  id: string;
+  code: string;
+  name: string;
+  dataType: NomenclaturePropertyDataType;
+  isRequired: boolean;
+  optionsJson: string | null;
+  description?: string | null;
+};
+
+export type WarehouseNomenclatureTemplateProperty = {
+  propertyId: string;
+  required?: boolean;
+  sortOrder?: number;
+  defaultValue?: unknown;
+};
+
+export type WarehouseNomenclatureTemplate = {
+  id: string;
+  code: string;
+  name: string;
+  itemTypeCode: string | null;
+  directoryKind: string | null;
+  properties: WarehouseNomenclatureTemplateProperty[];
+  description?: string | null;
 };
 
 export type WarehouseDocumentHeaderPayload = {

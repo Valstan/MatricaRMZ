@@ -9,6 +9,9 @@ const EMPTY_LOOKUPS: WarehouseLookups = {
   counterparties: [],
   employees: [],
   engineBrands: [],
+  nomenclatureItemTypes: [],
+  nomenclatureProperties: [],
+  nomenclatureTemplates: [],
 };
 
 export function useWarehouseReferenceData(options?: { loadNomenclature?: boolean }) {

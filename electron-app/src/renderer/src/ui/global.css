@@ -427,6 +427,9 @@ table.list-table th {
   top: 0;
   z-index: 2;
   background: var(--surface-2);
+  /* Явный цвет: иначе наследуется color: #fff с thead > tr (градиентные шапки) при светлом фоне у th — текст нечитаем. */
+  color: var(--text);
+  font-weight: 700;
 }
 
 table.list-table td {
@@ -1138,6 +1141,7 @@ table.list-table.list-table--catalog {
   top: 0;
   z-index: 2;
   background: var(--surface-2);
+  color: var(--text);
 }
 
 .ui-table .num {

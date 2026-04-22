@@ -31,6 +31,11 @@ export function NomenclatureDetailsPage(props: {
   const [isSerialTracked, setIsSerialTracked] = useState(false);
   const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
   const [specJson, setSpecJson] = useState('');
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [propertyValues, setPropertyValues] = useState<Record<string, unknown>>({});
+  const [typeOptions, setTypeOptions] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [templateRows, setTemplateRows] = useState<Array<{ id: string; code: string; name: string; propertiesJson?: string | null }>>([]);
+  const [propertyRows, setPropertyRows] = useState<Array<{ id: string; code: string; name: string; dataType?: string | null }>>([]);
   const [instanceSerial, setInstanceSerial] = useState('');
   const [instanceContractId, setInstanceContractId] = useState<string | null>(null);
   const [instanceWarehouseId, setInstanceWarehouseId] = useState<string | null>('default');
@@ -67,6 +72,19 @@ export function NomenclatureDetailsPage(props: {
       setIsSerialTracked(found.isSerialTracked === true);
       setDefaultWarehouseId(found.defaultWarehouseId ?? null);
       setSpecJson(String(found.specJson ?? ''));
+      try {
+        const parsedSpec = found.specJson ? (JSON.parse(String(found.specJson)) as Record<string, unknown>) : {};
+        const parsedTemplateId = typeof parsedSpec.templateId === 'string' && parsedSpec.templateId.trim() ? parsedSpec.templateId.trim() : null;
+        const parsedPropertyValues =
+          parsedSpec.propertyValues && typeof parsedSpec.propertyValues === 'object' && !Array.isArray(parsedSpec.propertyValues)
+            ? (parsedSpec.propertyValues as Record<string, unknown>)
+            : {};
+        setTemplateId(parsedTemplateId);
+        setPropertyValues(parsedPropertyValues);
+      } catch {
+        setTemplateId(null);
+        setPropertyValues({});
+      }
       if (stock?.ok) {
         setBalances(stock.rows ?? []);
       } else {
@@ -84,7 +102,70 @@ export function NomenclatureDetailsPage(props: {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const [typesRes, templatesRes, propertiesRes] = await Promise.all([
+        window.matrica.warehouse.nomenclatureItemTypesList(),
+        window.matrica.warehouse.nomenclatureTemplatesList(),
+        window.matrica.warehouse.nomenclaturePropertiesList(),
+      ]);
+      if (!alive) return;
+      if (typesRes?.ok) {
+        setTypeOptions(
+          ((typesRes.rows ?? []) as Array<Record<string, unknown>>)
+            .map((row) => ({
+              id: String(row.id ?? ''),
+              code: String(row.code ?? '').trim(),
+              name: String(row.name ?? '').trim(),
+            }))
+            .filter((row) => row.id && row.code && row.name),
+        );
+      }
+      if (templatesRes?.ok) {
+        setTemplateRows(
+          ((templatesRes.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+            id: String(row.id ?? ''),
+            code: String(row.code ?? '').trim(),
+            name: String(row.name ?? '').trim(),
+            propertiesJson: row.propertiesJson == null ? null : String(row.propertiesJson ?? ''),
+          })),
+        );
+      }
+      if (propertiesRes?.ok) {
+        setPropertyRows(
+          ((propertiesRes.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+            id: String(row.id ?? ''),
+            code: String(row.code ?? '').trim(),
+            name: String(row.name ?? '').trim(),
+            dataType: row.dataType == null ? null : String(row.dataType ?? ''),
+          })),
+        );
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const totalQty = useMemo(() => balances.reduce((sum, row) => sum + Number(row.qty ?? 0), 0), [balances]);
+  const itemTypeSelectOptions = useMemo(() => {
+    if (typeOptions.length > 0) return typeOptions.map((row) => ({ id: row.code, label: row.name }));
+    return WAREHOUSE_ITEM_TYPE_OPTIONS.filter((item) => item.id).map((item) => ({ id: String(item.id), label: item.label }));
+  }, [typeOptions]);
+  const propertyById = useMemo(() => new Map(propertyRows.map((row) => [row.id, row] as const)), [propertyRows]);
+  const selectedTemplateProperties = useMemo(() => {
+    const template = templateRows.find((row) => row.id === templateId);
+    if (!template?.propertiesJson) return [] as Array<{ propertyId: string; required?: boolean }>;
+    try {
+      const parsed = JSON.parse(template.propertiesJson) as Array<{ propertyId?: string; required?: boolean }>;
+      return parsed
+        .map((row) => ({ propertyId: String(row?.propertyId ?? '').trim(), required: row?.required === true }))
+        .filter((row) => row.propertyId);
+    } catch {
+      return [];
+    }
+  }, [templateRows, templateId]);
 
   const canEditNomenclatureFields = props.canEdit;
 
@@ -109,7 +190,11 @@ export function NomenclatureDetailsPage(props: {
                 defaultBrandId,
                 isSerialTracked,
                 defaultWarehouseId,
-                specJson: specJson.trim() || null,
+                specJson: JSON.stringify({
+                  ...(specJson.trim() ? { raw: specJson.trim() } : {}),
+                  ...(templateId ? { templateId } : {}),
+                  propertyValues,
+                }),
                 isActive: true,
               });
               if (!result?.ok) {
@@ -157,12 +242,20 @@ export function NomenclatureDetailsPage(props: {
           <Input value={name} disabled={!canEditNomenclatureFields} onChange={(e) => setName(e.target.value)} />
           <div>Тип</div>
           <select value={itemType} disabled={!canEditNomenclatureFields} onChange={(e) => setItemType(e.target.value)} style={{ padding: '8px 10px' }}>
-            {WAREHOUSE_ITEM_TYPE_OPTIONS.filter((item) => item.id).map((item) => (
+            {itemTypeSelectOptions.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
               </option>
             ))}
           </select>
+          <div>Шаблон</div>
+          <SearchSelect
+            value={templateId}
+            disabled={!canEditNomenclatureFields}
+            options={templateRows.map((row) => ({ id: row.id, label: row.name, secondaryText: row.code }))}
+            placeholder="Шаблон номенклатуры"
+            onChange={setTemplateId}
+          />
           <div>Группа</div>
           <SearchSelect
             value={groupId}
@@ -208,6 +301,34 @@ export function NomenclatureDetailsPage(props: {
           />
           <div>Спецификация (JSON)</div>
           <textarea value={specJson} disabled={!canEditNomenclatureFields} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
+          {selectedTemplateProperties.map((templateProp) => {
+            const property = propertyById.get(templateProp.propertyId);
+            const value = propertyValues[templateProp.propertyId];
+            const dataType = String(property?.dataType ?? 'text').toLowerCase();
+            return (
+              <React.Fragment key={templateProp.propertyId}>
+                <div>{property?.name || templateProp.propertyId}{templateProp.required ? ' *' : ''}</div>
+                {dataType === 'boolean' ? (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(value)}
+                      disabled={!canEditNomenclatureFields}
+                      onChange={(e) => setPropertyValues((prev) => ({ ...prev, [templateProp.propertyId]: e.target.checked }))}
+                    />
+                    Да/Нет
+                  </label>
+                ) : (
+                  <Input
+                    value={value == null ? '' : String(value)}
+                    disabled={!canEditNomenclatureFields}
+                    onChange={(e) => setPropertyValues((prev) => ({ ...prev, [templateProp.propertyId]: e.target.value }))}
+                    placeholder={property?.code || templateProp.propertyId}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
       </div>
 

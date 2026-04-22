@@ -7,6 +7,11 @@ import { db } from '../database/db.js';
 import {
   attributeDefs,
   attributeValues,
+  directoryEngineBrands,
+  directoryGoods,
+  directoryParts,
+  directoryServices,
+  directoryTools,
   entities,
   entityTypes,
   erpCounterparties,
@@ -185,6 +190,106 @@ function normalizeItemTypeToCategory(itemType: string): 'engine' | 'component' |
   return 'component';
 }
 
+const NOMENCLATURE_ITEM_TYPE_CODE = 'nomenclature_item_type';
+const NOMENCLATURE_PROPERTY_CODE = 'nomenclature_property';
+const NOMENCLATURE_TEMPLATE_CODE = 'nomenclature_template';
+
+type GovernanceTemplatePayload = {
+  templateId: string;
+  propertyValues: Record<string, unknown>;
+};
+
+async function getEntityTypeIdByCode(typeCode: string): Promise<string | null> {
+  const typeRows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, typeCode), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  return typeRows[0]?.id ? String(typeRows[0].id) : null;
+}
+
+async function ensureTypeAndDefs(
+  typeCode: string,
+  typeName: string,
+  defs: Array<{ code: string; name: string; dataType: string; sortOrder: number; isRequired?: boolean }>,
+): Promise<string> {
+  const ts = nowMs();
+  let typeId = await getEntityTypeIdByCode(typeCode);
+  if (!typeId) {
+    typeId = randomUUID();
+    await db.insert(entityTypes).values({
+      id: typeId,
+      code: typeCode,
+      name: typeName,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+      lastServerSeq: null,
+    });
+  }
+  const existingDefs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)));
+  const existingCodeSet = new Set(existingDefs.map((row) => String(row.code)));
+  for (const def of defs) {
+    if (existingCodeSet.has(def.code)) continue;
+    await db.insert(attributeDefs).values({
+      id: randomUUID(),
+      entityTypeId: typeId as any,
+      code: def.code,
+      name: def.name,
+      dataType: def.dataType,
+      isRequired: Boolean(def.isRequired),
+      sortOrder: def.sortOrder,
+      metaJson: null,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+      syncStatus: 'synced',
+      lastServerSeq: null,
+    });
+  }
+  return typeId;
+}
+
+async function ensureNomenclatureGovernanceMeta(): Promise<void> {
+  await ensureTypeAndDefs(NOMENCLATURE_ITEM_TYPE_CODE, 'Типы номенклатуры', [
+    { code: 'code', name: 'Код', dataType: 'text', sortOrder: 10, isRequired: true },
+    { code: 'name', name: 'Название', dataType: 'text', sortOrder: 20, isRequired: true },
+    { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 30 },
+  ]);
+  await ensureTypeAndDefs(NOMENCLATURE_PROPERTY_CODE, 'Свойства номенклатуры', [
+    { code: 'code', name: 'Код', dataType: 'text', sortOrder: 10, isRequired: true },
+    { code: 'name', name: 'Название', dataType: 'text', sortOrder: 20, isRequired: true },
+    { code: 'data_type', name: 'Тип значения', dataType: 'text', sortOrder: 30, isRequired: true },
+    { code: 'is_required', name: 'Обязательное', dataType: 'boolean', sortOrder: 40 },
+    { code: 'options_json', name: 'Опции', dataType: 'json', sortOrder: 50 },
+    { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 60 },
+  ]);
+  await ensureTypeAndDefs(NOMENCLATURE_TEMPLATE_CODE, 'Шаблоны номенклатуры', [
+    { code: 'code', name: 'Код', dataType: 'text', sortOrder: 10, isRequired: true },
+    { code: 'name', name: 'Название', dataType: 'text', sortOrder: 20, isRequired: true },
+    { code: 'item_type_code', name: 'Код типа', dataType: 'text', sortOrder: 30 },
+    { code: 'directory_kind', name: 'Источник', dataType: 'text', sortOrder: 40 },
+    { code: 'properties_json', name: 'Состав свойств', dataType: 'json', sortOrder: 50 },
+    { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 60 },
+  ]);
+}
+
+function parseGovernanceSpecPayload(raw: string | null | undefined): GovernanceTemplatePayload | null {
+  const payload = parseJsonObject(raw ?? null);
+  const templateId = strField(payload, 'templateId');
+  if (!templateId) return null;
+  const propertyValuesRaw = payload.propertyValues;
+  const propertyValues =
+    propertyValuesRaw && typeof propertyValuesRaw === 'object' && !Array.isArray(propertyValuesRaw)
+      ? (propertyValuesRaw as Record<string, unknown>)
+      : {};
+  return { templateId, propertyValues };
+}
+
 async function listMasterdataLookup(typeCode: string): Promise<LookupOption[]> {
   const typeRows = await db
     .select({ id: entityTypes.id })
@@ -256,6 +361,119 @@ async function listMasterdataLookup(typeCode: string): Promise<LookupOption[]> {
       };
     })
     .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+}
+
+async function listMasterdataEntitiesWithAttrs(
+  typeCode: string,
+): Promise<Array<{ id: string; attrs: Record<string, string | null> }>> {
+  const typeId = await getEntityTypeIdByCode(typeCode);
+  if (!typeId) return [];
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)));
+  const defById = new Map(defs.map((def) => [String(def.id), String(def.code)] as const));
+  const rows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)));
+  const entityIds = rows.map((row) => String(row.id));
+  if (entityIds.length === 0) return [];
+  const values = await db
+    .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(inArray(attributeValues.entityId, entityIds as any), isNull(attributeValues.deletedAt)));
+  const attrsByEntity = new Map<string, Record<string, string | null>>();
+  for (const value of values) {
+    const entityId = String(value.entityId);
+    const code = defById.get(String(value.attributeDefId));
+    if (!code) continue;
+    const bag = attrsByEntity.get(entityId) ?? {};
+    bag[code] = parseJsonScalar(value.valueJson);
+    attrsByEntity.set(entityId, bag);
+  }
+  return rows.map((row) => ({
+    id: String(row.id),
+    attrs: attrsByEntity.get(String(row.id)) ?? {},
+  }));
+}
+
+async function upsertMasterdataEntityByTypeCode(args: {
+  typeCode: string;
+  typeName: string;
+  defs: Array<{ code: string; name: string; dataType: string; sortOrder: number; isRequired?: boolean }>;
+  id?: string;
+  attrs: Record<string, string | null>;
+}): Promise<Result<{ id: string }>> {
+  try {
+    const typeId = await ensureTypeAndDefs(args.typeCode, args.typeName, args.defs);
+    const ts = nowMs();
+    const id = String(args.id || randomUUID());
+    await db
+      .insert(entities)
+      .values({
+        id,
+        typeId: typeId as any,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: null,
+      })
+      .onConflictDoUpdate({
+        target: entities.id,
+        set: { typeId: typeId as any, updatedAt: ts, deletedAt: null, syncStatus: 'synced' },
+      });
+    const defs = await db
+      .select({ id: attributeDefs.id, code: attributeDefs.code })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.entityTypeId, typeId as any), isNull(attributeDefs.deletedAt)));
+    const defMap = new Map(defs.map((row) => [String(row.code), String(row.id)] as const));
+    for (const [code, value] of Object.entries(args.attrs)) {
+      const defId = defMap.get(code);
+      if (!defId) continue;
+      await db
+        .insert(attributeValues)
+        .values({
+          id: randomUUID(),
+          entityId: id as any,
+          attributeDefId: defId as any,
+          valueJson: value == null ? null : JSON.stringify(value),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: null,
+        })
+        .onConflictDoUpdate({
+          target: [attributeValues.entityId, attributeValues.attributeDefId],
+          set: {
+            valueJson: value == null ? null : JSON.stringify(value),
+            updatedAt: ts,
+            deletedAt: null,
+            syncStatus: 'synced',
+          },
+        });
+    }
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function deleteMasterdataEntityByTypeCode(args: { typeCode: string; id: string }): Promise<Result<{ id: string }>> {
+  try {
+    const typeId = await getEntityTypeIdByCode(args.typeCode);
+    if (!typeId) return { ok: false, error: `Не найден тип справочника: ${args.typeCode}` };
+    const ts = nowMs();
+    await db
+      .update(entities)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(and(eq(entities.id, args.id), eq(entities.typeId, typeId as any), isNull(entities.deletedAt)));
+    return { ok: true, id: args.id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 function ensureDefaultWarehouse(rows: LookupOption[]): LookupOption[] {
@@ -628,11 +846,20 @@ export async function listWarehouseLookups(): Promise<
       counterparties: LookupOption[];
       employees: LookupOption[];
       engineBrands: LookupOption[];
+      nomenclatureItemTypes: LookupOption[];
+      nomenclatureProperties: LookupOption[];
+      nomenclatureTemplates: LookupOption[];
     };
   }>
 > {
   try {
+    await ensureNomenclatureGovernanceMeta();
     const refs = await listWarehouseReferenceData();
+    const [nomenclatureItemTypes, nomenclatureProperties, nomenclatureTemplates] = await Promise.all([
+      listMasterdataLookup(NOMENCLATURE_ITEM_TYPE_CODE),
+      listMasterdataLookup(NOMENCLATURE_PROPERTY_CODE),
+      listMasterdataLookup(NOMENCLATURE_TEMPLATE_CODE),
+    ]);
     return {
       ok: true,
       lookups: {
@@ -643,11 +870,173 @@ export async function listWarehouseLookups(): Promise<
         counterparties: refs.counterparties,
         employees: refs.employees,
         engineBrands: refs.engineBrands,
+        nomenclatureItemTypes,
+        nomenclatureProperties,
+        nomenclatureTemplates,
       },
     };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+export async function listWarehouseNomenclatureItemTypes(): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  try {
+    await ensureNomenclatureGovernanceMeta();
+    const rows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_ITEM_TYPE_CODE);
+    return {
+      ok: true,
+      rows: rows.map((row) => ({
+        id: row.id,
+        code: String(row.attrs.code ?? '').trim(),
+        name: String(row.attrs.name ?? '').trim(),
+        description: row.attrs.description ?? null,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertWarehouseNomenclatureItemType(args: {
+  id?: string;
+  code: string;
+  name: string;
+  description?: string | null;
+}): Promise<Result<{ id: string }>> {
+  return upsertMasterdataEntityByTypeCode({
+    typeCode: NOMENCLATURE_ITEM_TYPE_CODE,
+    typeName: 'Типы номенклатуры',
+    defs: [
+      { code: 'code', name: 'Код', dataType: 'text', sortOrder: 10, isRequired: true },
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 20, isRequired: true },
+      { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 30 },
+    ],
+    ...(args.id !== undefined ? { id: args.id } : {}),
+    attrs: {
+      code: String(args.code ?? '').trim() || null,
+      name: String(args.name ?? '').trim() || null,
+      description: args.description == null ? null : String(args.description).trim() || null,
+    },
+  });
+}
+
+export async function deleteWarehouseNomenclatureItemType(args: { id: string }): Promise<Result<{ id: string }>> {
+  return deleteMasterdataEntityByTypeCode({ typeCode: NOMENCLATURE_ITEM_TYPE_CODE, id: String(args.id) });
+}
+
+export async function listWarehouseNomenclatureProperties(): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  try {
+    await ensureNomenclatureGovernanceMeta();
+    const rows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_PROPERTY_CODE);
+    return {
+      ok: true,
+      rows: rows.map((row) => ({
+        id: row.id,
+        code: String(row.attrs.code ?? '').trim(),
+        name: String(row.attrs.name ?? '').trim(),
+        dataType: String(row.attrs.data_type ?? 'text').trim().toLowerCase() || 'text',
+        isRequired: String(row.attrs.is_required ?? '').trim().toLowerCase() === 'true',
+        optionsJson: row.attrs.options_json ?? null,
+        description: row.attrs.description ?? null,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertWarehouseNomenclatureProperty(args: {
+  id?: string;
+  code: string;
+  name: string;
+  dataType: string;
+  isRequired?: boolean;
+  optionsJson?: string | null;
+  description?: string | null;
+}): Promise<Result<{ id: string }>> {
+  return upsertMasterdataEntityByTypeCode({
+    typeCode: NOMENCLATURE_PROPERTY_CODE,
+    typeName: 'Свойства номенклатуры',
+    defs: [
+      { code: 'code', name: 'Код', dataType: 'text', sortOrder: 10, isRequired: true },
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 20, isRequired: true },
+      { code: 'data_type', name: 'Тип значения', dataType: 'text', sortOrder: 30, isRequired: true },
+      { code: 'is_required', name: 'Обязательное', dataType: 'boolean', sortOrder: 40 },
+      { code: 'options_json', name: 'Опции', dataType: 'json', sortOrder: 50 },
+      { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 60 },
+    ],
+    ...(args.id !== undefined ? { id: args.id } : {}),
+    attrs: {
+      code: String(args.code ?? '').trim() || null,
+      name: String(args.name ?? '').trim() || null,
+      data_type: String(args.dataType ?? 'text').trim().toLowerCase() || 'text',
+      is_required: args.isRequired ? 'true' : 'false',
+      options_json: args.optionsJson == null ? null : String(args.optionsJson).trim() || null,
+      description: args.description == null ? null : String(args.description).trim() || null,
+    },
+  });
+}
+
+export async function deleteWarehouseNomenclatureProperty(args: { id: string }): Promise<Result<{ id: string }>> {
+  return deleteMasterdataEntityByTypeCode({ typeCode: NOMENCLATURE_PROPERTY_CODE, id: String(args.id) });
+}
+
+export async function listWarehouseNomenclatureTemplates(): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
+  try {
+    await ensureNomenclatureGovernanceMeta();
+    const rows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_TEMPLATE_CODE);
+    return {
+      ok: true,
+      rows: rows.map((row) => ({
+        id: row.id,
+        code: String(row.attrs.code ?? '').trim(),
+        name: String(row.attrs.name ?? '').trim(),
+        itemTypeCode: row.attrs.item_type_code ?? null,
+        directoryKind: row.attrs.directory_kind ?? null,
+        propertiesJson: row.attrs.properties_json ?? null,
+        description: row.attrs.description ?? null,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertWarehouseNomenclatureTemplate(args: {
+  id?: string;
+  code: string;
+  name: string;
+  itemTypeCode?: string | null;
+  directoryKind?: string | null;
+  propertiesJson?: string | null;
+  description?: string | null;
+}): Promise<Result<{ id: string }>> {
+  return upsertMasterdataEntityByTypeCode({
+    typeCode: NOMENCLATURE_TEMPLATE_CODE,
+    typeName: 'Шаблоны номенклатуры',
+    defs: [
+      { code: 'code', name: 'Код', dataType: 'text', sortOrder: 10, isRequired: true },
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 20, isRequired: true },
+      { code: 'item_type_code', name: 'Код типа', dataType: 'text', sortOrder: 30 },
+      { code: 'directory_kind', name: 'Источник', dataType: 'text', sortOrder: 40 },
+      { code: 'properties_json', name: 'Состав свойств', dataType: 'json', sortOrder: 50 },
+      { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 60 },
+    ],
+    ...(args.id !== undefined ? { id: args.id } : {}),
+    attrs: {
+      code: String(args.code ?? '').trim() || null,
+      name: String(args.name ?? '').trim() || null,
+      item_type_code: args.itemTypeCode == null ? null : String(args.itemTypeCode).trim() || null,
+      directory_kind: args.directoryKind == null ? null : String(args.directoryKind).trim() || null,
+      properties_json: args.propertiesJson == null ? null : String(args.propertiesJson).trim() || null,
+      description: args.description == null ? null : String(args.description).trim() || null,
+    },
+  });
+}
+
+export async function deleteWarehouseNomenclatureTemplate(args: { id: string }): Promise<Result<{ id: string }>> {
+  return deleteMasterdataEntityByTypeCode({ typeCode: NOMENCLATURE_TEMPLATE_CODE, id: String(args.id) });
 }
 
 export async function listWarehouseNomenclature(args?: {
@@ -763,7 +1152,9 @@ export async function upsertWarehouseNomenclature(args: {
   _syncFromPart?: boolean;
 }): Promise<Result<{ id: string }>> {
   try {
+    await ensureNomenclatureGovernanceMeta();
     const id = String(args.id || randomUUID());
+    const isCreate = !args.id;
     if (!args._syncFromPart && isLegacyPartMirrorMode()) {
       const prevRows = await db
         .select({ specJson: erpNomenclature.specJson })
@@ -778,13 +1169,90 @@ export async function upsertWarehouseNomenclature(args: {
         };
       }
     }
+    const governanceSpec = parseGovernanceSpecPayload(args.specJson ?? null);
+    if (isCreate) {
+      if (!args.directoryKind || !String(args.directoryKind).trim()) return { ok: false, error: 'Для создания укажите источник (directoryKind).' };
+      if (!args.directoryRefId || !String(args.directoryRefId).trim()) return { ok: false, error: 'Для создания укажите карточку источника (directoryRefId).' };
+      if (!args.groupId || !String(args.groupId).trim()) return { ok: false, error: 'Для создания укажите группу номенклатуры.' };
+      if (!args.unitId || !String(args.unitId).trim()) return { ok: false, error: 'Для создания укажите единицу измерения.' };
+      if (!governanceSpec?.templateId) return { ok: false, error: 'Для создания укажите шаблон номенклатуры (templateId в specJson).' };
+    }
+
+    const itemTypeRows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_ITEM_TYPE_CODE);
+    const allowedItemTypes = new Set(
+      itemTypeRows.map((row) => String(row.attrs.code ?? '').trim().toLowerCase()).filter(Boolean),
+    );
+    const nextItemType = String(args.itemType || 'material').trim().toLowerCase();
+    if (allowedItemTypes.size > 0 && !allowedItemTypes.has(nextItemType)) {
+      return { ok: false, error: `Недопустимый тип номенклатуры: ${nextItemType}` };
+    }
+
+    let resolvedSourceName: string | null = null;
+    const sourceKind = String(args.directoryKind ?? '').trim().toLowerCase();
+    const sourceRefId = String(args.directoryRefId ?? '').trim();
+    if (sourceKind && sourceRefId) {
+      if (sourceKind === 'tool') {
+        const rows = await db.select({ name: directoryTools.name }).from(directoryTools).where(and(eq(directoryTools.id, sourceRefId as any), isNull(directoryTools.deletedAt))).limit(1);
+        resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
+      } else if (sourceKind === 'good') {
+        const rows = await db.select({ name: directoryGoods.name }).from(directoryGoods).where(and(eq(directoryGoods.id, sourceRefId as any), isNull(directoryGoods.deletedAt))).limit(1);
+        resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
+      } else if (sourceKind === 'service') {
+        const rows = await db.select({ name: directoryServices.name }).from(directoryServices).where(and(eq(directoryServices.id, sourceRefId as any), isNull(directoryServices.deletedAt))).limit(1);
+        resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
+      } else if (sourceKind === 'part') {
+        const rows = await db.select({ name: directoryParts.name }).from(directoryParts).where(and(eq(directoryParts.id, sourceRefId as any), isNull(directoryParts.deletedAt))).limit(1);
+        resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
+      } else if (sourceKind === 'engine_brand') {
+        const rows = await db
+          .select({ name: directoryEngineBrands.name })
+          .from(directoryEngineBrands)
+          .where(and(eq(directoryEngineBrands.id, sourceRefId as any), isNull(directoryEngineBrands.deletedAt)))
+          .limit(1);
+        resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
+      }
+      if (!resolvedSourceName) {
+        return { ok: false, error: `Источник ${sourceKind}:${sourceRefId} не найден или удален.` };
+      }
+    }
+
+    if (governanceSpec?.templateId) {
+      const templates = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_TEMPLATE_CODE);
+      const template = templates.find((row) => row.id === governanceSpec.templateId);
+      if (!template) return { ok: false, error: 'Указанный шаблон номенклатуры не найден.' };
+      const templateItemType = String(template.attrs.item_type_code ?? '').trim().toLowerCase();
+      const templateDirectoryKind = String(template.attrs.directory_kind ?? '').trim().toLowerCase();
+      if (templateItemType && templateItemType !== nextItemType) {
+        return { ok: false, error: 'Шаблон не соответствует выбранному типу номенклатуры.' };
+      }
+      if (templateDirectoryKind && sourceKind && templateDirectoryKind !== sourceKind) {
+        return { ok: false, error: 'Шаблон не соответствует выбранному источнику номенклатуры.' };
+      }
+      const propertiesJson = String(template.attrs.properties_json ?? '').trim();
+      if (propertiesJson) {
+        try {
+          const propertyDefs = JSON.parse(propertiesJson) as Array<{ propertyId?: string; required?: boolean }>;
+          for (const propDef of propertyDefs) {
+            const propertyId = String(propDef?.propertyId ?? '').trim();
+            if (!propertyId || propDef?.required !== true) continue;
+            const value = governanceSpec.propertyValues[propertyId];
+            const isEmpty =
+              value == null || (typeof value === 'string' && value.trim().length === 0) || (Array.isArray(value) && value.length === 0);
+            if (isEmpty) return { ok: false, error: `Не заполнено обязательное свойство шаблона: ${propertyId}` };
+          }
+        } catch {
+          return { ok: false, error: 'Некорректный состав свойств в шаблоне.' };
+        }
+      }
+    }
+
     const ts = nowMs();
     const normalized = {
       code: String(args.code).trim(),
       sku: args.sku == null ? null : String(args.sku).trim() || null,
-      name: String(args.name).trim(),
-      itemType: String(args.itemType || 'material'),
-      category: args.category == null ? normalizeItemTypeToCategory(String(args.itemType || 'material')) : String(args.category),
+      name: resolvedSourceName ?? String(args.name).trim(),
+      itemType: nextItemType,
+      category: args.category == null ? normalizeItemTypeToCategory(nextItemType) : String(args.category),
       directoryKind: args.directoryKind == null ? null : String(args.directoryKind).trim() || null,
       directoryRefId: args.directoryRefId == null ? null : String(args.directoryRefId).trim() || null,
       groupId: args.groupId ?? null,
@@ -793,7 +1261,7 @@ export async function upsertWarehouseNomenclature(args: {
       minStock: args.minStock == null ? null : Math.trunc(Number(args.minStock)),
       maxStock: args.maxStock == null ? null : Math.trunc(Number(args.maxStock)),
       defaultBrandId: args.defaultBrandId ?? null,
-      isSerialTracked: args.isSerialTracked ?? String(args.itemType || '').toLowerCase() === 'engine',
+      isSerialTracked: args.isSerialTracked ?? nextItemType === 'engine',
       defaultWarehouseId: args.defaultWarehouseId ?? null,
       specJson: args.specJson ?? null,
       isActive: args.isActive ?? true,

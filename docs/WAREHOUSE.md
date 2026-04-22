@@ -110,3 +110,30 @@ Dry-run проверяет:
 - неконсистентные ссылки `erp_nomenclature.directory_ref_id`,
 - коллизии `sku`/`code`,
 - текущий объем legacy-зеркал `spec_json.source = part`.
+
+## Управляемая номенклатура (templates/properties/types)
+
+- Для номенклатуры введен governance-контур на базе masterdata:
+  - типы номенклатуры: `nomenclature_item_type`,
+  - свойства номенклатуры: `nomenclature_property`,
+  - шаблоны номенклатуры: `nomenclature_template`.
+- `GET /warehouse/lookups` теперь отдает также:
+  - `nomenclatureItemTypes`,
+  - `nomenclatureProperties`,
+  - `nomenclatureTemplates`.
+- Добавлены API-ручки CRUD:
+  - `GET/POST/DELETE /warehouse/nomenclature/item-types`,
+  - `GET/POST/DELETE /warehouse/nomenclature/properties`,
+  - `GET/POST/DELETE /warehouse/nomenclature/templates`.
+- В `POST /warehouse/nomenclature` ужесточена валидация создания:
+  - обязательны `directoryKind`, `directoryRefId`, `groupId`, `unitId`,
+  - обязательна ссылка на шаблон в `specJson.templateId`,
+  - обязательные свойства шаблона должны быть заполнены в `specJson.propertyValues`,
+  - имя при создании берется из записи источника (`directory_*`), а не из свободного ручного ввода.
+
+### Backfill legacy записей
+
+- Добавлен скрипт `backend-api/src/scripts/backfillNomenclatureGovernance.ts`.
+- Скрипт:
+  - создает fallback-шаблоны `legacy_*`,
+  - проставляет `specJson.templateId` и пустой `propertyValues` там, где governance-метки отсутствуют.

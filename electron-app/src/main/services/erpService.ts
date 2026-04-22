@@ -619,6 +619,108 @@ export async function warehouseLookupsGet(
   }
 }
 
+export async function warehouseNomenclatureItemTypesList(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/nomenclature/item-types';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureItemTypeUpsert(db: BetterSQLite3Database, apiBaseUrl: string, args: Record<string, unknown>) {
+  const path = '/warehouse/nomenclature/item-types';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String((r.json as any).id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureItemTypeDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/nomenclature/item-types/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return { ok: true as const, id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePropertiesList(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/nomenclature/properties';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePropertyUpsert(db: BetterSQLite3Database, apiBaseUrl: string, args: Record<string, unknown>) {
+  const path = '/warehouse/nomenclature/properties';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String((r.json as any).id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePropertyDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/nomenclature/properties/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return { ok: true as const, id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureTemplatesList(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/nomenclature/templates';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureTemplateUpsert(db: BetterSQLite3Database, apiBaseUrl: string, args: Record<string, unknown>) {
+  const path = '/warehouse/nomenclature/templates';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String((r.json as any).id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureTemplateDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/nomenclature/templates/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return { ok: true as const, id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseNomenclatureUpsert(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
