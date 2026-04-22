@@ -5,6 +5,7 @@ import { PRODUCTS_PRESET } from './nomenclatureDirectoryPresets.js';
 
 export function ProductsPage(props: {
   onOpen: (id: string) => Promise<void>;
+  onOpenNomenclatureCatalog?: () => void;
   canCreate: boolean;
   canDelete: boolean;
   canViewMasterData: boolean;
@@ -12,6 +13,7 @@ export function ProductsPage(props: {
   return (
     <NomenclatureDirectoryPage
       onOpen={props.onOpen}
+      onOpenNomenclatureCatalog={props.onOpenNomenclatureCatalog}
       canCreate={props.canCreate}
       canView={props.canViewMasterData}
       noAccessText="Недостаточно прав для просмотра товаров."

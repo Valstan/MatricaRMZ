@@ -5,6 +5,7 @@ import { SERVICES_PRESET } from './nomenclatureDirectoryPresets.js';
 
 export function ServicesPage(props: {
   onOpen: (id: string) => Promise<void>;
+  onOpenNomenclatureCatalog?: () => void;
   canCreate: boolean;
   canDelete: boolean;
   canViewMasterData: boolean;
@@ -12,6 +13,7 @@ export function ServicesPage(props: {
   return (
     <NomenclatureDirectoryPage
       onOpen={props.onOpen}
+      onOpenNomenclatureCatalog={props.onOpenNomenclatureCatalog}
       canCreate={props.canCreate}
       canView={props.canViewMasterData}
       noAccessText="Недостаточно прав для просмотра услуг."

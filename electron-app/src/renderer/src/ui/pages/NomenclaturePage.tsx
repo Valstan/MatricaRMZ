@@ -136,9 +136,11 @@ export function NomenclaturePage(props: {
       setExpandedGroupKey(null);
       return;
     }
-    const stillExists = expandedGroupKey != null && groupedRows.some((group) => group.key === expandedGroupKey);
+    // Не переоткрываем группу автоматически: пользователь может осознанно свернуть все.
+    if (expandedGroupKey == null) return;
+    const stillExists = groupedRows.some((group) => group.key === expandedGroupKey);
     if (!stillExists) {
-      setExpandedGroupKey(groupedRows[0].key);
+      setExpandedGroupKey(null);
     }
   }, [expandedGroupKey, groupedRows]);
 
@@ -376,8 +378,8 @@ export function NomenclaturePage(props: {
                     zIndex: 3,
                     border: 'none',
                     borderBottom: '1px solid var(--border)',
-                    background: 'var(--surface-2)',
-                    color: 'var(--text)',
+                    background: expanded ? '#1d4ed8' : '#dcfce7',
+                    color: expanded ? '#ffffff' : '#14532d',
                     fontWeight: 700,
                     fontSize: 13,
                     textAlign: 'left',
@@ -386,7 +388,7 @@ export function NomenclaturePage(props: {
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--subtle)', flexShrink: 0 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expanded ? '#dbeafe' : '#166534', flexShrink: 0 }}>
                     <span>{group.rows.length}</span>
                     <span style={{ fontSize: 14 }}>{expanded ? '▾' : '▸'}</span>
                   </span>

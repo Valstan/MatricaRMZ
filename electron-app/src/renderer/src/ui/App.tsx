@@ -3326,6 +3326,7 @@ export function App() {
         {tab === 'parts' && (
           <PartsPage
             onOpen={openNomenclature}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
             canCreate={caps.canCreateParts}
             canDelete={caps.canDeleteParts}
           />
@@ -3341,6 +3342,7 @@ export function App() {
         {tab === 'tools' && (
           <ToolsPage
             onOpen={openNomenclature}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
             onOpenProperties={() => setTab('tool_properties')}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
@@ -3370,6 +3372,7 @@ export function App() {
         {tab === 'products' && (
           <ProductsPage
             onOpen={openNomenclature}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -3379,6 +3382,7 @@ export function App() {
         {tab === 'services' && (
           <ServicesPage
             onOpen={openNomenclature}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}

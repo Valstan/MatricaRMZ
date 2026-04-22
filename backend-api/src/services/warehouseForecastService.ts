@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import {
   computeAssemblyForecast,
@@ -239,7 +239,8 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
   const lineRows = await db
     .select()
     .from(erpEngineAssemblyBomLines)
-    .where(and(inArray(erpEngineAssemblyBomLines.bomId, bomIds as any), isNull(erpEngineAssemblyBomLines.deletedAt)));
+    .where(and(inArray(erpEngineAssemblyBomLines.bomId, bomIds as any), isNull(erpEngineAssemblyBomLines.deletedAt)))
+    .orderBy(asc(erpEngineAssemblyBomLines.priority), asc(erpEngineAssemblyBomLines.createdAt));
   const componentIds = Array.from(new Set(lineRows.map((row) => String(row.componentNomenclatureId))));
   const nomenclatureRows =
     componentIds.length > 0
@@ -291,9 +292,7 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
       grouped.set(line.variantGroup, arr);
     }
 
-    const technicalGroupKeys = Array.from(grouped.keys())
-      .filter((k) => String(k).startsWith('__kit_'))
-      .sort((a, b) => String(a).localeCompare(String(b)));
+    const technicalGroupKeys = Array.from(grouped.keys()).filter((k) => String(k).startsWith('__kit_'));
 
     const groupEntries = grouped.size > 0 ? Array.from(grouped.entries()) : [[null, []] as const];
     for (const [groupKey, groupLines] of groupEntries) {

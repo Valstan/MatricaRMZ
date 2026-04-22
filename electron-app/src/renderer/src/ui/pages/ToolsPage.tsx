@@ -5,6 +5,7 @@ import { TOOLS_PRESET } from './nomenclatureDirectoryPresets.js';
 
 export function ToolsPage(props: {
   onOpen: (id: string) => Promise<void>;
+  onOpenNomenclatureCatalog?: () => void;
   onOpenProperties: () => void;
   canCreate: boolean;
   canDelete: boolean;
@@ -12,6 +13,7 @@ export function ToolsPage(props: {
   return (
     <NomenclatureDirectoryPage
       onOpen={props.onOpen}
+      onOpenNomenclatureCatalog={props.onOpenNomenclatureCatalog}
       canCreate={props.canCreate}
       {...TOOLS_PRESET}
       secondaryAction={

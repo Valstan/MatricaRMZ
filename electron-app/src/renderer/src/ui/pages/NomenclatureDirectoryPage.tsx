@@ -17,6 +17,7 @@ type SortKey = 'code' | 'name' | 'sku' | 'parts' | 'price';
 
 export function NomenclatureDirectoryPage(props: {
   onOpen: (id: string) => Promise<void>;
+  onOpenNomenclatureCatalog?: () => void;
   canCreate: boolean;
   canView?: boolean;
   noAccessText?: string;
@@ -37,6 +38,70 @@ export function NomenclatureDirectoryPage(props: {
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const canView = props.canView !== false;
+  const directoryLabel = ({ part: 'деталь', tool: 'инструмент', good: 'товар', service: 'услуга' } as Record<string, string>)[
+    String(props.directoryKind ?? '').trim().toLowerCase()
+  ] ?? props.directoryKind;
+
+  function buildCreateHint(statusText: string): string | null {
+    const text = String(statusText ?? '');
+    if (!text.startsWith('Ошибка')) return null;
+    if (text.includes('карточку источника')) {
+      return 'Не создана карточка в исходном справочнике. Проверьте права на справочники и повторите создание.';
+    }
+    if (text.includes('не найден шаблон номенклатуры')) {
+      return `Для создания "${directoryLabel}" нужен шаблон номенклатуры: откройте "Склад → Номенклатура", блок "Шаблоны номенклатуры", добавьте шаблон для источника "${props.directoryKind}" и текущего типа, затем повторите.`;
+    }
+    if (text.includes('группа номенклатуры') || text.includes('единица измерения')) {
+      return 'Не настроены базовые справочники склада. Добавьте хотя бы одну группу номенклатуры и одну единицу измерения в "Склад → Номенклатура".';
+    }
+    if (text.includes('не удалось загрузить шаблоны номенклатуры') || text.includes('не удалось загрузить справочники')) {
+      return 'Проверьте соединение с сервером/синхронизацию и права доступа, затем нажмите "Обновить".';
+    }
+    return null;
+  }
+
+  function shouldShowOpenNomenclatureAction(statusText: string): boolean {
+    const text = String(statusText ?? '');
+    if (!text.startsWith('Ошибка')) return false;
+    return (
+      text.includes('шаблон номенклатуры') ||
+      text.includes('группа номенклатуры') ||
+      text.includes('единица измерения')
+    );
+  }
+
+  async function createSourceEntityForDirectoryKind(kind: string, label: string): Promise<string | null> {
+    const normalizedKind = String(kind ?? '').trim().toLowerCase();
+    if (!normalizedKind) return null;
+    const typeCandidates: Record<string, string[]> = {
+      part: ['part'],
+      tool: ['tool'],
+      good: ['good', 'product'],
+      service: ['service'],
+      engine_brand: ['engine_brand'],
+    };
+    const candidates = typeCandidates[normalizedKind] ?? [normalizedKind];
+    const typeList = await window.matrica.admin.entityTypes.list();
+    if (!typeList?.ok || !Array.isArray(typeList.types)) return null;
+    const found = candidates
+      .map((code) =>
+        (typeList.types as Array<Record<string, unknown>>).find(
+          (row) => String(row.code ?? '').trim().toLowerCase() === code,
+        ),
+      )
+      .find(Boolean) as Record<string, unknown> | undefined;
+    const typeId = String(found?.id ?? '').trim();
+    if (!typeId) return null;
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created?.ok || !created.id) return null;
+    const entityId = String(created.id);
+    const trimmedLabel = String(label ?? '').trim() || 'Новая позиция';
+    for (const attrCode of ['name', 'title', 'label']) {
+      const setRes = await window.matrica.admin.entities.setAttr(entityId, attrCode, trimmedLabel);
+      if (setRes?.ok) break;
+    }
+    return entityId;
+  }
 
   function parsePriceFromSpec(specJson: string | null | undefined): number | null {
     if (!specJson) return null;
@@ -253,12 +318,69 @@ export function NomenclatureDirectoryPage(props: {
         {props.canCreate ? (
           <Button
             onClick={async () => {
+              if (props.directoryKind === 'part') {
+                const createdPart = await window.matrica.parts.create({
+                  attributes: {
+                    name: props.createConfig.name,
+                  },
+                });
+                if (!createdPart?.ok || !createdPart.part?.id) {
+                  setStatus(`Ошибка: ${String(createdPart && 'error' in createdPart ? createdPart.error : 'не удалось создать деталь')}`);
+                  return;
+                }
+                await refresh();
+                await props.onOpen(String(createdPart.part.id));
+                return;
+              }
+              const sourceId = await createSourceEntityForDirectoryKind(props.directoryKind, props.createConfig.name);
+              if (!sourceId) {
+                setStatus(`Ошибка: не удалось создать карточку источника для "${props.directoryKind}".`);
+                return;
+              }
+              const lookups = await window.matrica.warehouse.lookupsGet();
+              if (!lookups?.ok) {
+                setStatus(`Ошибка: ${String(lookups?.error ?? 'не удалось загрузить справочники')}`);
+                return;
+              }
+              const groupId = String(lookups.lookups?.nomenclatureGroups?.[0]?.id ?? '').trim();
+              const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
+              if (!groupId || !unitId) {
+                setStatus('Ошибка: не найдены группа номенклатуры или единица измерения по умолчанию.');
+                return;
+              }
+              const templatesRes = await window.matrica.warehouse.nomenclatureTemplatesList();
+              if (!templatesRes?.ok) {
+                setStatus(`Ошибка: ${String(templatesRes?.error ?? 'не удалось загрузить шаблоны номенклатуры')}`);
+                return;
+              }
+              const templates = (templatesRes.rows ?? []).map((row) => ({
+                id: String((row as { id?: string }).id ?? ''),
+                itemTypeCode: String((row as { itemTypeCode?: string }).itemTypeCode ?? '').trim().toLowerCase(),
+                directoryKind: String((row as { directoryKind?: string }).directoryKind ?? '').trim().toLowerCase(),
+              }));
+              const itemTypeCode = String(props.createConfig.itemType ?? '').trim().toLowerCase();
+              const directoryKind = String(props.directoryKind ?? '').trim().toLowerCase();
+              const bestTemplate =
+                templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && t.directoryKind === directoryKind) ??
+                templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && !t.directoryKind) ??
+                templates.find((t) => t.id && !t.itemTypeCode && (t.directoryKind === directoryKind || !t.directoryKind)) ??
+                null;
+              if (!bestTemplate?.id) {
+                setStatus(
+                  `Ошибка: не найден шаблон номенклатуры для типа "${itemTypeCode}" и источника "${directoryKind}". Требуется настроить шаблон перед созданием.`,
+                );
+                return;
+              }
               const created = await window.matrica.warehouse.nomenclatureUpsert({
                 code: buildNomenclatureCode(props.createConfig.codePrefix),
                 name: props.createConfig.name,
                 itemType: props.createConfig.itemType,
                 category: props.createConfig.category,
                 directoryKind: props.directoryKind,
+                directoryRefId: sourceId,
+                groupId,
+                unitId,
+                specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
                 isActive: true,
               });
               if (!created?.ok) {
@@ -288,6 +410,32 @@ export function NomenclatureDirectoryPage(props: {
       </div>
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
+      {status.startsWith('Ошибка') && buildCreateHint(status) ? (
+        <div
+          style={{
+            border: '1px solid rgba(245, 158, 11, 0.45)',
+            background: 'rgba(254, 243, 199, 0.45)',
+            color: '#92400e',
+            borderRadius: 8,
+            padding: '8px 10px',
+            fontSize: 12,
+            lineHeight: 1.35,
+          }}
+        >
+          Подсказка: {buildCreateHint(status)}
+          {props.onOpenNomenclatureCatalog && shouldShowOpenNomenclatureAction(status) ? (
+            <div style={{ marginTop: 8 }}>
+              <Button
+                variant="ghost"
+                onClick={() => props.onOpenNomenclatureCatalog?.()}
+                style={{ padding: '4px 10px', minHeight: 0 }}
+              >
+                Открыть Склад → Номенклатура
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <WarehouseListPager
         pageSize={pageSize}
         onPageSizeChange={(size) => {

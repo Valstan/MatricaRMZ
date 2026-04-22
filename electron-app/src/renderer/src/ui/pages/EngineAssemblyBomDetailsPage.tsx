@@ -479,6 +479,41 @@ export function EngineAssemblyBomDetailsPage(props: {
     }));
   }, [preparedLines]);
 
+  const variantBlocks = useMemo(() => {
+    const baseLines = preparedLines.filter((line) => !line.normalizedVariantGroup);
+    const byVariant = new Map<string, PreparedLine[]>();
+    for (const line of preparedLines) {
+      if (!line.normalizedVariantGroup) continue;
+      const arr = byVariant.get(line.normalizedVariantGroup) ?? [];
+      arr.push(line);
+      byVariant.set(line.normalizedVariantGroup, arr);
+    }
+    const ordered = Array.from(byVariant.entries()).sort((a, b) => {
+      const aMin = Math.min(...a[1].map((line) => Number(line.priority ?? 100)));
+      const bMin = Math.min(...b[1].map((line) => Number(line.priority ?? 100)));
+      if (aMin !== bMin) return aMin - bMin;
+      return a[0].localeCompare(b[0], 'ru');
+    });
+    if (ordered.length === 0) {
+      return [
+        {
+          id: '__base__',
+          title: 'Общая спецификация',
+          minPriority: 100,
+          lines: baseLines,
+          variantOnlyLines: [] as PreparedLine[],
+        },
+      ];
+    }
+    return ordered.map(([variantId, variantOnlyLines]) => ({
+      id: variantId,
+      title: `Вариант: ${variantId}`,
+      minPriority: Math.min(...variantOnlyLines.map((line) => Number(line.priority ?? 100))),
+      lines: [...baseLines, ...variantOnlyLines],
+      variantOnlyLines,
+    }));
+  }, [preparedLines]);
+
   const patchLine = useCallback((idx: number, patch: Partial<BomLine>) => {
     setData((prev) => {
       if (!prev) return prev;
@@ -509,6 +544,35 @@ export function EngineAssemblyBomDetailsPage(props: {
       if (!prev) return prev;
       const lines = prev.lines.filter((_, i) => i !== idx);
       return { ...prev, lines };
+    });
+  }, []);
+
+  const moveVariantPriority = useCallback((variantId: string, direction: 'up' | 'down') => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const variantIds = Array.from(
+        new Set(prev.lines.map((line) => normalizeVariantGroup(line.variantGroup)).filter((value): value is string => Boolean(value))),
+      ).sort((a, b) => {
+        const aMin = Math.min(...prev.lines.filter((line) => normalizeVariantGroup(line.variantGroup) === a).map((line) => Number(line.priority ?? 100)));
+        const bMin = Math.min(...prev.lines.filter((line) => normalizeVariantGroup(line.variantGroup) === b).map((line) => Number(line.priority ?? 100)));
+        if (aMin !== bMin) return aMin - bMin;
+        return a.localeCompare(b, 'ru');
+      });
+      const currentIdx = variantIds.indexOf(variantId);
+      if (currentIdx < 0) return prev;
+      const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+      if (swapIdx < 0 || swapIdx >= variantIds.length) return prev;
+      const nextOrder = [...variantIds];
+      [nextOrder[currentIdx], nextOrder[swapIdx]] = [nextOrder[swapIdx], nextOrder[currentIdx]];
+      const rankByVariant = new Map(nextOrder.map((id, idx) => [id, (idx + 1) * 10] as const));
+      const nextLines = prev.lines.map((line) => {
+        const vg = normalizeVariantGroup(line.variantGroup);
+        if (!vg) return line;
+        const rank = rankByVariant.get(vg);
+        if (rank == null) return line;
+        return { ...line, priority: rank };
+      });
+      return { ...prev, lines: nextLines };
     });
   }, []);
 
@@ -1608,32 +1672,78 @@ export function EngineAssemblyBomDetailsPage(props: {
           </div>
 
           {viewMode === 'table' ? (
-            <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
-              <table className="list-table">
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left' }}>Тип</th>
-                    <th style={{ textAlign: 'left' }}>Компонент</th>
-                    <th style={{ textAlign: 'left' }}>Кол-во/двиг.</th>
-                    {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Группа связки</th> : null}
-                    {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Узел</th> : null}
-                    {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Родительский узел</th> : null}
-                    <th style={{ textAlign: 'left' }}>Быстрые связи</th>
-                    <th style={{ textAlign: 'left' }}>Обяз.</th>
-                    <th style={{ textAlign: 'left' }}>Приоритет</th>
-                    {props.canEdit ? <th /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.lines.map((line, idx) => (
-                    <tr
+            <div style={{ display: 'grid', gap: 10, flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {variantBlocks.map((block, blockIdx) => (
+                <div key={block.id} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      padding: '8px 10px',
+                      background: '#eff6ff',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>{block.title}</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Приоритет: {block.minPriority}</span>
+                      {props.canEdit && block.id !== '__base__' ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            style={{ padding: '2px 8px', minHeight: 0 }}
+                            onClick={() => moveVariantPriority(block.id, 'up')}
+                            disabled={blockIdx === 0}
+                            title="Поднять вариант выше"
+                          >
+                            ↑
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            style={{ padding: '2px 8px', minHeight: 0 }}
+                            onClick={() => moveVariantPriority(block.id, 'down')}
+                            disabled={blockIdx === variantBlocks.length - 1}
+                            title="Опустить вариант ниже"
+                          >
+                            ↓
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div style={{ overflow: 'auto' }}>
+                    <table className="list-table">
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left' }}>Тип</th>
+                          <th style={{ textAlign: 'left' }}>Компонент</th>
+                          <th style={{ textAlign: 'left' }}>Кол-во/двиг.</th>
+                          {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Группа связки</th> : null}
+                          {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Узел</th> : null}
+                          {showTechnicalFields ? <th style={{ textAlign: 'left' }}>Родительский узел</th> : null}
+                          <th style={{ textAlign: 'left' }}>Быстрые связи</th>
+                          <th style={{ textAlign: 'left' }}>Обяз.</th>
+                          <th style={{ textAlign: 'left' }}>Приоритет</th>
+                          {props.canEdit ? <th /> : null}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {block.lines.map((line) => {
+                          const idx = line.idx;
+                          const isSharedBase = !line.normalizedVariantGroup;
+                          return (
+                            <tr
                       key={line.id || `new-${idx}`}
                       style={
                         lineValidation.lineIssues.get(idx)?.errors.length
                           ? { background: 'rgba(239, 68, 68, 0.08)' }
                           : lineValidation.lineIssues.get(idx)?.warnings.length
                             ? { background: 'rgba(245, 158, 11, 0.08)' }
-                            : undefined
+                            : isSharedBase
+                              ? { background: 'rgba(148,163,184,0.10)' }
+                              : undefined
                       }
                     >
                       <td>
@@ -1746,15 +1856,20 @@ export function EngineAssemblyBomDetailsPage(props: {
                             variant="ghost"
                             onClick={() => removeLine(idx)}
                             style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0 }}
+                            disabled={block.id !== '__base__' && isSharedBase}
                           >
                             Удалить
                           </Button>
                         </td>
                       ) : null}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 8, flex: 1, minHeight: 0, overflow: 'auto' }}>
