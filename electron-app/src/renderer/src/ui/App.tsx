@@ -3296,6 +3296,8 @@ export function App() {
             requestClose={requestCardClose}
             onOpenProduct={openProduct}
             onOpenService={openService}
+            onOpenNomenclature={openNomenclature}
+            onOpenPart={openPart}
             onClose={() => {
               setSelectedRequestId(null);
               setTabState('requests');

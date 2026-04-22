@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import type { ChatDeepLinkPayload, ChatMessageItem, ChatUnreadCountResult, ChatUserItem } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { theme } from '../theme.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
@@ -54,6 +55,7 @@ export function ChatPanel(props: {
   viewMode: boolean;
   chatSide: 'left' | 'right';
 }) {
+  const { confirm } = useConfirm();
   const [users, setUsers] = useState<ChatUserItem[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [adminMode, setAdminMode] = useState<boolean>(false);
@@ -272,6 +274,16 @@ export function ChatPanel(props: {
   }
 
   async function handleDeleteMessage(message: ChatMessageItem) {
+    const preview =
+      message.messageType === 'text' || message.messageType === 'text_notify'
+        ? String(message.bodyText ?? '').trim().slice(0, 200)
+        : message.messageType === 'file'
+          ? `файл: ${String(message.bodyText ?? '').trim() || 'вложение'}`
+          : 'сообщение';
+    const ok = await confirm({
+      detail: `Будет удалено сообщение в чате (${preview ? `содержимое: «${preview}»` : 'без текста'}).`,
+    });
+    if (!ok) return;
     const r = await window.matrica.chat.deleteMessage({ messageId: message.id }).catch(() => null);
     if (r && (r as any).ok) {
       setOpenInfoId(null);

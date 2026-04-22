@@ -121,7 +121,6 @@ export function PartTemplateDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canDelete) return;
-    if (!confirm('Удалить деталь из справочника?')) return;
     try {
       setStatus('Удаление…');
       const deleted = await window.matrica.parts.templates.delete(props.templateId);
@@ -174,6 +173,7 @@ export function PartTemplateDetailsPage(props: {
           }
           onReset={props.canEdit ? () => void load().then(() => { dirtyRef.current = false; }) : undefined}
           onDelete={props.canDelete ? () => void handleDelete() : undefined}
+          deleteConfirmDetail={`Будет удалён шаблон детали из справочника: «${name.trim() || props.templateId}». Связанные данные могут остаться в базе с отвязкой — уточняйте у администратора.`}
           onClose={props.requestClose ? () => props.requestClose?.() : undefined}
         />
       }

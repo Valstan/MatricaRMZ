@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { UiDisplayPrefs } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 
 type CriticalEventItem = {
@@ -28,6 +29,7 @@ export function SettingsPage(props: {
   }) => void;
   onLogout: () => void;
 }) {
+  const { confirm: confirmModal } = useConfirm();
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
   const [status, setStatus] = useState<string>('');
@@ -132,7 +134,11 @@ export function SettingsPage(props: {
   async function handleDeleteCriticalEvent(eventId: string) {
     const id = String(eventId ?? '').trim();
     if (!id) return;
-    if (!confirm('Удалить это критическое событие из истории?')) return;
+    const ev = criticalEvents.find((e) => String(e.id) === id);
+    const ok = await confirmModal({
+      detail: `Будет удалена из локальной истории запись о критическом событии${ev ? `: «${(ev.title || ev.eventCode || '').trim() || id}»` : ''}.`,
+    });
+    if (!ok) return;
     try {
       setCriticalDeletingId(id);
       const r = await window.matrica.diagnostics.criticalEventsDelete({ id });
@@ -152,7 +158,10 @@ export function SettingsPage(props: {
 
   async function handleClearAllCriticalEvents() {
     if (criticalEvents.length === 0) return;
-    if (!confirm('Удалить ВСЕ критические события из истории? Действие необратимо.')) return;
+    const ok = await confirmModal({
+      detail: `Будут удалены все записи о критических событиях из локальной истории (${criticalEvents.length} шт.). Действие необратимо.`,
+    });
+    if (!ok) return;
     try {
       setCriticalClearingAll(true);
       const r = await window.matrica.diagnostics.criticalEventsClear();
@@ -255,7 +264,7 @@ export function SettingsPage(props: {
   }
 
   async function handleResetUpdates() {
-    if (!confirm('Сбросить кэш обновлений и начать загрузку заново?')) return;
+    if (!window.confirm('Сбросить кэш обновлений и начать загрузку заново?')) return;
     try {
       setUpdateResetLoading(true);
       const r = await window.matrica.update.reset();
@@ -307,7 +316,7 @@ export function SettingsPage(props: {
 
   async function handleResetLocalDb() {
     if (
-      !confirm(
+      !window.confirm(
         'Сбросить локальную базу данных? Все локальные данные, настройки и авторизация будут удалены. Клиент перезапустится и попросит вход заново.',
       )
     )
@@ -328,7 +337,7 @@ export function SettingsPage(props: {
   }
 
   async function handleFullSync() {
-    if (!confirm('Запустить полную синхронизацию без сброса базы? Это может занять много времени.')) return;
+    if (!window.confirm('Запустить полную синхронизацию без сброса базы? Это может занять много времени.')) return;
     try {
       setFullSyncLoading(true);
       setStatus('Полная синхронизация запущена...');
@@ -916,7 +925,7 @@ export function SettingsPage(props: {
               variant="ghost"
               disabled={e2eLoading}
               onClick={async () => {
-                if (!confirm('Ротация ключа создаст новый основной ключ. Старые останутся для чтения истории. Продолжить?')) return;
+                if (!window.confirm('Ротация ключа создаст новый основной ключ. Старые останутся для чтения истории. Продолжить?')) return;
                 setE2eLoading(true);
                 const r = await window.matrica.e2eKeys.rotate();
                 if (r.ok) {

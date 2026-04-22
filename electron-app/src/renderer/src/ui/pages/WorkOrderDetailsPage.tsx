@@ -4,6 +4,7 @@ import type { WorkOrderPayload, WorkOrderWorkGroup, WorkOrderWorkLine } from '@m
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
@@ -249,6 +250,7 @@ export function WorkOrderDetailsPage(props: {
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
   const dirtyRef = useRef(false);
+  const { confirm } = useConfirm();
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -637,7 +639,6 @@ export function WorkOrderDetailsPage(props: {
       onClose={() => props.requestClose?.()}
       onDelete={() => {
         void (async () => {
-          if (!confirm('Удалить наряд?')) return;
           const r = await window.matrica.workOrders.delete(props.id);
           if (!r.ok) {
             setStatus(`Ошибка удаления: ${r.error}`);
@@ -647,6 +648,11 @@ export function WorkOrderDetailsPage(props: {
         })();
       }}
       deleteLabel="Удалить наряд"
+      deleteConfirmDetail={
+        payload
+          ? `Будет удалён наряд №${String(payload.workOrderNumber ?? '—')} от ${formatMoscowDate(payload.orderDate)}. Действие обычно нельзя отменить.`
+          : undefined
+      }
     />
   );
 
@@ -777,7 +783,19 @@ export function WorkOrderDetailsPage(props: {
                         onMoveUp={() => moveCrewMember(idx, idx - 1)}
                         onMoveDown={() => moveCrewMember(idx, idx + 1)}
                       />
-                      <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) })}>
+                      <Button
+                        variant="ghost"
+                        style={{ color: 'var(--danger)' }}
+                        onClick={() => {
+                          void (async () => {
+                            const ok = await confirm({
+                              detail: `Убрать из бригады наряда №${String(payload.workOrderNumber ?? '—')} сотрудника «${String(member.employeeName || '').trim() || member.employeeId || `строка ${idx + 1}`}»?`,
+                            });
+                            if (!ok) return;
+                            patch({ ...payload, crew: payload.crew.filter((_, i) => i !== idx) });
+                          })();
+                        }}
+                      >
                         Удалить
                       </Button>
                     </div>
@@ -1000,7 +1018,19 @@ export function WorkOrderDetailsPage(props: {
                           onMoveUp={() => moveFreeWorkLine(idx, idx - 1)}
                           onMoveDown={() => moveFreeWorkLine(idx, idx + 1)}
                         />
-                        <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) })}>
+                        <Button
+                          variant="ghost"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => {
+                            void (async () => {
+                              const ok = await confirm({
+                                detail: `Удалить из наряда №${String(payload.workOrderNumber ?? '—')} строку вида работ №${line.lineNo}${line.serviceName ? ` («${line.serviceName}»)` : ''}?`,
+                              });
+                              if (!ok) return;
+                              patch({ ...payload, freeWorks: payload.freeWorks.filter((_, rowIdx) => rowIdx !== idx) });
+                            })();
+                          }}
+                        >
                           Удалить
                         </Button>
                       </div>

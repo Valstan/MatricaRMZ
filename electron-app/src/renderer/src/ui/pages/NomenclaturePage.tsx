@@ -3,12 +3,28 @@ import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matri
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { NomenclaturePropertyEditModal, type NomenclaturePropertyEditRow } from '../components/NomenclaturePropertyEditModal.js';
+import {
+  NomenclatureTemplateCompositionEditor,
+  type NomenclatureTemplateCompositionEditorTemplate,
+} from '../components/NomenclatureTemplateCompositionEditor.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { parseTemplatePropertiesJson } from '../utils/nomenclatureTemplateProperties.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
 type SortKey = 'name' | 'itemType' | 'group' | 'unit';
+
+type PropertyGovernanceRow = {
+  id: string;
+  code: string;
+  name: string;
+  dataType: string;
+  isRequired: boolean;
+  optionsJson: string;
+  description: string;
+};
 
 export function NomenclaturePage(props: {
   onOpen: (id: string) => void;
@@ -29,8 +45,12 @@ export function NomenclaturePage(props: {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [newTypeCode, setNewTypeCode] = useState('');
   const [newTypeName, setNewTypeName] = useState('');
-  const [propertiesRows, setPropertiesRows] = useState<Array<{ id: string; code: string; name: string; dataType: string }>>([]);
-  const [templatesRows, setTemplatesRows] = useState<Array<{ id: string; code: string; name: string; itemTypeCode: string; directoryKind: string; propertiesJson: string }>>([]);
+  const [propertiesRows, setPropertiesRows] = useState<PropertyGovernanceRow[]>([]);
+  const [templatesRows, setTemplatesRows] = useState<
+    Array<{ id: string; code: string; name: string; itemTypeCode: string; directoryKind: string; propertiesJson: string }>
+  >([]);
+  const [propertyEdit, setPropertyEdit] = useState<NomenclaturePropertyEditRow | null>(null);
+  const [templateEdit, setTemplateEdit] = useState<NomenclatureTemplateCompositionEditorTemplate | null>(null);
   const [newPropertyCode, setNewPropertyCode] = useState('');
   const [newPropertyName, setNewPropertyName] = useState('');
   const [newPropertyType, setNewPropertyType] = useState('text');
@@ -38,7 +58,6 @@ export function NomenclaturePage(props: {
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateItemType, setNewTemplateItemType] = useState('');
   const [newTemplateDirectoryKind, setNewTemplateDirectoryKind] = useState('');
-  const [newTemplatePropertiesJson, setNewTemplatePropertiesJson] = useState('[]');
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -81,6 +100,9 @@ export function NomenclaturePage(props: {
           code: String(row.code ?? ''),
           name: String(row.name ?? ''),
           dataType: String(row.dataType ?? 'text'),
+          isRequired: Boolean(row.isRequired),
+          optionsJson: String(row.optionsJson ?? ''),
+          description: String(row.description ?? ''),
         })),
       );
     }
@@ -292,22 +314,46 @@ export function NomenclaturePage(props: {
               Добавить свойство
             </Button>
           </div>
-          <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
-            {propertiesRows.slice(0, 10).map((row) => `${row.code} (${row.dataType})`).join(', ') || 'Свойства не созданы'}
+          <div style={{ overflow: 'auto', maxHeight: 220, border: '1px solid var(--border)', borderRadius: 8 }}>
+            <table className="list-table">
+              <thead>
+                <tr>
+                  <th>Код</th>
+                  <th>Наименование</th>
+                  <th>Тип</th>
+                  <th style={{ width: 110 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {propertiesRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ color: 'var(--subtle)', padding: 10, textAlign: 'center' }}>
+                      Нет свойств
+                    </td>
+                  </tr>
+                ) : (
+                  propertiesRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.code}</td>
+                      <td>{row.name}</td>
+                      <td>{row.dataType}</td>
+                      <td>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setPropertyEdit({ ...row })}>
+                          Изменить
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
           <div style={{ fontWeight: 700, marginTop: 4 }}>Шаблоны номенклатуры</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 140px 140px', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 140px 140px auto', gap: 8 }}>
             <Input value={newTemplateCode} onChange={(e) => setNewTemplateCode(e.target.value)} placeholder="Код" />
             <Input value={newTemplateName} onChange={(e) => setNewTemplateName(e.target.value)} placeholder="Название" />
             <Input value={newTemplateItemType} onChange={(e) => setNewTemplateItemType(e.target.value)} placeholder="Код типа" />
             <Input value={newTemplateDirectoryKind} onChange={(e) => setNewTemplateDirectoryKind(e.target.value)} placeholder="Источник" />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
-            <Input
-              value={newTemplatePropertiesJson}
-              onChange={(e) => setNewTemplatePropertiesJson(e.target.value)}
-              placeholder='JSON свойств шаблона, напр. [{"propertyId":"...","required":true}]'
-            />
             <Button
               type="button"
               onClick={async () => {
@@ -316,7 +362,7 @@ export function NomenclaturePage(props: {
                   name: newTemplateName.trim(),
                   itemTypeCode: newTemplateItemType.trim() || null,
                   directoryKind: newTemplateDirectoryKind.trim() || null,
-                  propertiesJson: newTemplatePropertiesJson.trim() || '[]',
+                  propertiesJson: '[]',
                 });
                 if (!up?.ok) {
                   setStatus(`Ошибка: ${String(up?.error ?? 'не удалось сохранить шаблон')}`);
@@ -326,15 +372,66 @@ export function NomenclaturePage(props: {
                 setNewTemplateName('');
                 setNewTemplateItemType('');
                 setNewTemplateDirectoryKind('');
-                setNewTemplatePropertiesJson('[]');
                 await refreshGovernance();
               }}
             >
               Добавить шаблон
             </Button>
           </div>
-          <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
-            {templatesRows.slice(0, 10).map((row) => `${row.code} [${row.itemTypeCode || '*'} / ${row.directoryKind || '*'}]`).join(', ') || 'Шаблоны не созданы'}
+          <div style={{ color: 'var(--subtle)', fontSize: 12, marginBottom: 6 }}>
+            Состав шаблона (список свойств) настраивается кнопкой «Состав» — без ручного JSON.
+          </div>
+          <div style={{ overflow: 'auto', maxHeight: 240, border: '1px solid var(--border)', borderRadius: 8 }}>
+            <table className="list-table">
+              <thead>
+                <tr>
+                  <th>Код</th>
+                  <th>Название</th>
+                  <th>Тип / источник</th>
+                  <th>Свойств</th>
+                  <th style={{ width: 120 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {templatesRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ color: 'var(--subtle)', padding: 10, textAlign: 'center' }}>
+                      Нет шаблонов
+                    </td>
+                  </tr>
+                ) : (
+                  templatesRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.code}</td>
+                      <td>{row.name}</td>
+                      <td>
+                        {row.itemTypeCode || '—'} / {row.directoryKind || '—'}
+                      </td>
+                      <td>{parseTemplatePropertiesJson(row.propertiesJson).length}</td>
+                      <td>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setTemplateEdit({
+                              id: row.id,
+                              code: row.code,
+                              name: row.name,
+                              itemTypeCode: row.itemTypeCode,
+                              directoryKind: row.directoryKind,
+                              propertiesJson: row.propertiesJson,
+                            })
+                          }
+                        >
+                          Состав
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
@@ -440,6 +537,20 @@ export function NomenclaturePage(props: {
           })
         )}
       </div>
+
+      <NomenclaturePropertyEditModal
+        open={propertyEdit != null}
+        row={propertyEdit}
+        onClose={() => setPropertyEdit(null)}
+        onSaved={() => void refreshGovernance()}
+      />
+      <NomenclatureTemplateCompositionEditor
+        open={templateEdit != null}
+        template={templateEdit}
+        propertyOptions={propertiesRows}
+        onClose={() => setTemplateEdit(null)}
+        onSaved={() => void refreshGovernance()}
+      />
     </div>
   );
 }

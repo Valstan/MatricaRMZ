@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { useConfirm } from './ConfirmContext.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 
 type AttachmentFileRef = FileRef & { isObsolete?: boolean };
@@ -77,6 +78,7 @@ export function AttachmentsPanel(props: {
   scope?: { ownerType: string; ownerId: string; category: string };
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 }) {
+  const { confirm } = useConfirm();
   const [busy, setBusy] = useState<string>('');
   const [filterMode, setFilterMode] = useState<FileFilterMode>('all');
   const uploadFlow = useFileUploadFlow();
@@ -380,6 +382,10 @@ export function AttachmentsPanel(props: {
                         variant="ghost"
                         onClick={async () => {
                           try {
+                            const ok = await confirm({
+                              detail: `Будет удалён файл «${f.name}»${props.title ? ` из блока «${props.title}»` : ''}. Ссылка уберётся из записи; при отсутствии других ссылок файл может быть удалён на сервере.`,
+                            });
+                            if (!ok) return;
                             const next = list.filter((x) => x.id !== f.id);
                             setBusy('Удаление из списка...');
                             const upd = await Promise.resolve(props.onChange(next));

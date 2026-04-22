@@ -215,6 +215,17 @@ const CLASSIC_PRESET: TypeSeed[] = [
     ],
   },
   {
+    code: 'good',
+    name: 'Товары (источники для номенклатуры)',
+    defs: [
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
+      { code: 'code', name: 'Код', dataType: 'text', sortOrder: 20 },
+      { code: 'unit', name: 'Единица измерения', dataType: 'text', sortOrder: 30 },
+      { code: 'price', name: 'Цена, ₽', dataType: 'number', sortOrder: 40 },
+    ],
+    entries: [],
+  },
+  {
     code: 'service',
     name: 'Услуги',
     defs: [

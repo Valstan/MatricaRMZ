@@ -188,7 +188,6 @@ export function EngineBrandDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canEdit) return;
-    if (!confirm('Удалить марку двигателя?')) return;
     try {
       setStatus('Удаление…');
       const r = await window.matrica.admin.entities.softDelete(props.brandId);
@@ -429,6 +428,7 @@ export function EngineBrandDetailsPage(props: {
             });
           }}
           onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалена марка двигателя «${name.trim() || props.brandId}».`}
           onClose={() => props.requestClose?.()}
         />
       </div>

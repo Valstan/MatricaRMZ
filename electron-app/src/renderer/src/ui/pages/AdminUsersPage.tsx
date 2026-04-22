@@ -3,10 +3,12 @@ import React, { useEffect, useState } from 'react';
 import type { AdminUserPermissionsPayload, AdminUserSummary, PermissionDelegation } from '@matricarmz/shared';
 import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 
 export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: string; role: string; username: string } | null }) {
+  const { confirm: confirmModal } = useConfirm();
   const canManageUsers = props.canManageUsers;
   const me = props.me ?? null;
   const meRole = String(me?.role ?? '').toLowerCase();
@@ -406,7 +408,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                               <Button
                                 onClick={async () => {
-                                  if (!confirm('Подтвердить удаление пользователя?')) return;
+                                  const ok = await confirmModal({
+                                    detail: `Будет окончательно удалён пользователь «${selectedUser?.username ?? selectedUserId}» по ранее созданному запросу на удаление.`,
+                                  });
+                                  if (!ok) return;
                                   setStatus('Удаление...');
                                   const r = await window.matrica.admin.users.deleteConfirm(selectedUserId);
                                   setStatus(r.ok ? 'Пользователь удалён' : `Ошибка: ${r.error ?? 'unknown'}`);
@@ -434,7 +439,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                           {meRole === 'superadmin' && !selectedIsSelf && (
                             <Button
                               onClick={async () => {
-                                if (!confirm('Удалить пользователя? Это действие нельзя отменить.')) return;
+                                const ok = await confirmModal({
+                                  detail: `Будет окончательно удалён пользователь «${selectedUser?.username ?? selectedUserId}». Это действие нельзя отменить.`,
+                                });
+                                if (!ok) return;
                                 setStatus('Удаление...');
                                 const r = await window.matrica.admin.users.deleteConfirm(selectedUserId);
                                 setStatus(r.ok ? 'Пользователь удалён' : `Ошибка: ${r.error ?? 'unknown'}`);
@@ -448,7 +456,10 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                             <Button
                               variant="ghost"
                               onClick={async () => {
-                                if (!confirm('Запросить удаление пользователя?')) return;
+                                const ok = await confirmModal({
+                                  detail: `Будет создан запрос на удаление пользователя «${selectedUser?.username ?? selectedUserId}». Удаление выполнит суперадминистратор после подтверждения.`,
+                                });
+                                if (!ok) return;
                                 setStatus('Запрос на удаление...');
                                 const r = await window.matrica.admin.users.deleteRequest(selectedUserId);
                                 setStatus(r.ok ? 'Запрос отправлен' : `Ошибка: ${r.error ?? 'unknown'}`);

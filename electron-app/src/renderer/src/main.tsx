@@ -7,6 +7,7 @@ import { ru } from 'date-fns/locale/ru';
 import 'react-datepicker/dist/react-datepicker.css';
 import './ui/global.css';
 import { App } from './ui/App.js';
+import { ConfirmProvider } from './ui/components/ConfirmContext.js';
 
 if (!('workOrderId' in globalThis)) {
   (globalThis as any).workOrderId = null;
@@ -46,10 +47,12 @@ if (!root) {
   safeLog('error', 'window.matrica is undefined (preload not loaded)');
 } else {
   ReactDOM.createRoot(root).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+    <React.StrictMode>
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
+    </React.StrictMode>,
+  );
   safeLog('info', 'renderer boot mounted');
 }
 

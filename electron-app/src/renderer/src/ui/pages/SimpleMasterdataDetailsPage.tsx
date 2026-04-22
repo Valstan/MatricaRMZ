@@ -439,7 +439,6 @@ export function SimpleMasterdataDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canEdit) return;
-    if (!confirm('Удалить запись?')) return;
     try {
       setStatus('Удаление…');
       const r = await window.matrica.admin.entities.softDelete(props.entityId);
@@ -912,6 +911,7 @@ export function SimpleMasterdataDetailsPage(props: {
             });
           }}
           onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалена (помечена удалённой) запись справочника «${props.title}» (${props.typeCode}): «${name.trim() || props.entityId}».`}
           onClose={() => props.requestClose?.()}
         />
       }

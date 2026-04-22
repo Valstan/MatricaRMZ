@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
@@ -229,6 +230,7 @@ export function EmployeeDetailsPage(props: {
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
+  const { confirm } = useConfirm();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [status, setStatus] = useState('');
 
@@ -535,7 +537,6 @@ export function EmployeeDetailsPage(props: {
   async function handleDelete() {
     if (!props.canEdit) return;
     const isSuper = meRole === 'superadmin';
-    if (!confirm(isSuper ? 'Удалить сотрудника? Это действие нельзя отменить.' : 'Запросить удаление сотрудника?')) return;
     try {
       setStatus(isSuper ? 'Удаление…' : 'Запрос на удаление…');
       const r = await window.matrica.employees.delete(props.employeeId);
@@ -1328,6 +1329,11 @@ export function EmployeeDetailsPage(props: {
               : undefined
           }
           onDelete={props.canEdit ? () => void handleDelete() : undefined}
+          deleteConfirmDetail={
+            meRole === 'superadmin'
+              ? `Будет удалён сотрудник «${computedFullName || props.employeeId}». Это действие нельзя отменить.`
+              : `Будет отправлен запрос на удаление сотрудника «${computedFullName || props.employeeId}».`
+          }
           onClose={props.requestClose ? () => props.requestClose?.() : undefined}
         />
       }
@@ -1393,11 +1399,18 @@ export function EmployeeDetailsPage(props: {
                   />
                   <Button
                     variant="ghost"
-                    onClick={async () => {
-                      if (!props.canEdit) return;
-                      const next = transfers.filter((x) => x.id !== t.id);
-                      dirtyRef.current = true;
-                      setTransfers(next);
+                    onClick={() => {
+                      void (async () => {
+                        if (!props.canEdit) return;
+                        const kindRu = t.kind === 'department' ? 'подразделение' : 'должность';
+                        const ok = await confirm({
+                          detail: `Будет удалена запись о переводе (${kindRu}) от ${t.date ? formatMoscowDate(t.date) : '—'}: «${t.value || '—'}».`,
+                        });
+                        if (!ok) return;
+                        const next = transfers.filter((x) => x.id !== t.id);
+                        dirtyRef.current = true;
+                        setTransfers(next);
+                      })();
                     }}
                     disabled={!props.canEdit}
                   >

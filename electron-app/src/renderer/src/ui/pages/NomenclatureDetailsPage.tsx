@@ -2,17 +2,39 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EngineInstanceListItem, NomenclatureItemType, WarehouseMovementListItem, WarehouseNomenclatureListItem, WarehouseStockListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
+import { NomenclatureTemplateCompositionEditor } from '../components/NomenclatureTemplateCompositionEditor.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import {
+  appendTemplateProperty,
+  parseTemplatePropertiesJson,
+  serializeTemplatePropertiesJson,
+} from '../utils/nomenclatureTemplateProperties.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS, warehouseDocTypeLabel } from '../utils/warehouseUi.js';
+
+function parseEnumValuesFromOptionsJson(optionsJson: string | null | undefined): string[] {
+  if (!optionsJson?.trim()) return [];
+  try {
+    const v = JSON.parse(optionsJson) as unknown;
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'values' in v && Array.isArray((v as { values: unknown }).values)) {
+      return ((v as { values: unknown[] }).values ?? []).map((x) => String(x));
+    }
+    if (Array.isArray(v)) return v.map((x) => String(x));
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
 
 export function NomenclatureDetailsPage(props: {
   id: string;
   canEdit: boolean;
   onClose: () => void;
 }) {
+  const { confirm } = useConfirm();
   const { lookups, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
   const [row, setRow] = useState<WarehouseNomenclatureListItem | null>(null);
@@ -35,8 +57,16 @@ export function NomenclatureDetailsPage(props: {
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [propertyValues, setPropertyValues] = useState<Record<string, unknown>>({});
   const [typeOptions, setTypeOptions] = useState<Array<{ id: string; code: string; name: string }>>([]);
-  const [templateRows, setTemplateRows] = useState<Array<{ id: string; code: string; name: string; propertiesJson?: string | null }>>([]);
-  const [propertyRows, setPropertyRows] = useState<Array<{ id: string; code: string; name: string; dataType?: string | null }>>([]);
+  const [templateRows, setTemplateRows] = useState<
+    Array<{ id: string; code: string; name: string; itemTypeCode: string; directoryKind: string; propertiesJson: string }>
+  >([]);
+  const [propertyRows, setPropertyRows] = useState<Array<{ id: string; code: string; name: string; dataType?: string | null; optionsJson?: string | null }>>([]);
+  const [templateCompositionOpen, setTemplateCompositionOpen] = useState(false);
+  const [showAdvancedSpec, setShowAdvancedSpec] = useState(false);
+  const [addPropertyPickId, setAddPropertyPickId] = useState<string | null>(null);
+  const [quickPropCode, setQuickPropCode] = useState('');
+  const [quickPropName, setQuickPropName] = useState('');
+  const [quickPropDataType, setQuickPropDataType] = useState('text');
   const [instanceSerial, setInstanceSerial] = useState('');
   const [instanceContractId, setInstanceContractId] = useState<string | null>(null);
   const [instanceWarehouseId, setInstanceWarehouseId] = useState<string | null>('default');
@@ -46,8 +76,7 @@ export function NomenclatureDetailsPage(props: {
     const clean = String(label ?? '').trim();
     if (!clean) return null;
     const types = await window.matrica.admin.entityTypes.list();
-    if (!types?.ok) return null;
-    const type = (types.types as Array<Record<string, unknown>>).find((row) => String(row.code ?? '').trim().toLowerCase() === typeCode);
+    const type = types.find((row) => String(row.code ?? '').trim().toLowerCase() === typeCode);
     const typeId = String(type?.id ?? '').trim();
     if (!typeId) return null;
     const created = await window.matrica.admin.entities.create(typeId);
@@ -120,51 +149,51 @@ export function NomenclatureDetailsPage(props: {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      const [typesRes, templatesRes, propertiesRes] = await Promise.all([
-        window.matrica.warehouse.nomenclatureItemTypesList(),
-        window.matrica.warehouse.nomenclatureTemplatesList(),
-        window.matrica.warehouse.nomenclaturePropertiesList(),
-      ]);
-      if (!alive) return;
-      if (typesRes?.ok) {
-        setTypeOptions(
-          ((typesRes.rows ?? []) as Array<Record<string, unknown>>)
-            .map((row) => ({
-              id: String(row.id ?? ''),
-              code: String(row.code ?? '').trim(),
-              name: String(row.name ?? '').trim(),
-            }))
-            .filter((row) => row.id && row.code && row.name),
-        );
-      }
-      if (templatesRes?.ok) {
-        setTemplateRows(
-          ((templatesRes.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+  const reloadTemplateGovernance = useCallback(async () => {
+    const [typesRes, templatesRes, propertiesRes] = await Promise.all([
+      window.matrica.warehouse.nomenclatureItemTypesList(),
+      window.matrica.warehouse.nomenclatureTemplatesList(),
+      window.matrica.warehouse.nomenclaturePropertiesList(),
+    ]);
+    if (typesRes?.ok) {
+      setTypeOptions(
+        ((typesRes.rows ?? []) as Array<Record<string, unknown>>)
+          .map((row) => ({
             id: String(row.id ?? ''),
             code: String(row.code ?? '').trim(),
             name: String(row.name ?? '').trim(),
-            propertiesJson: row.propertiesJson == null ? null : String(row.propertiesJson ?? ''),
-          })),
-        );
-      }
-      if (propertiesRes?.ok) {
-        setPropertyRows(
-          ((propertiesRes.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
-            id: String(row.id ?? ''),
-            code: String(row.code ?? '').trim(),
-            name: String(row.name ?? '').trim(),
-            dataType: row.dataType == null ? null : String(row.dataType ?? ''),
-          })),
-        );
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+          }))
+          .filter((row) => row.id && row.code && row.name),
+      );
+    }
+    if (templatesRes?.ok) {
+      setTemplateRows(
+        ((templatesRes.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+          id: String(row.id ?? ''),
+          code: String(row.code ?? '').trim(),
+          name: String(row.name ?? '').trim(),
+          itemTypeCode: String(row.itemTypeCode ?? ''),
+          directoryKind: String(row.directoryKind ?? ''),
+          propertiesJson: String(row.propertiesJson ?? '[]'),
+        })),
+      );
+    }
+    if (propertiesRes?.ok) {
+      setPropertyRows(
+        ((propertiesRes.rows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+          id: String(row.id ?? ''),
+          code: String(row.code ?? '').trim(),
+          name: String(row.name ?? '').trim(),
+          dataType: row.dataType == null ? null : String(row.dataType ?? ''),
+          optionsJson: row.optionsJson == null ? null : String(row.optionsJson ?? ''),
+        })),
+      );
+    }
   }, []);
+
+  useEffect(() => {
+    void reloadTemplateGovernance();
+  }, [reloadTemplateGovernance]);
 
   const totalQty = useMemo(() => balances.reduce((sum, row) => sum + Number(row.qty ?? 0), 0), [balances]);
   const itemTypeSelectOptions = useMemo(() => {
@@ -174,16 +203,97 @@ export function NomenclatureDetailsPage(props: {
   const propertyById = useMemo(() => new Map(propertyRows.map((row) => [row.id, row] as const)), [propertyRows]);
   const selectedTemplateProperties = useMemo(() => {
     const template = templateRows.find((row) => row.id === templateId);
-    if (!template?.propertiesJson) return [] as Array<{ propertyId: string; required?: boolean }>;
-    try {
-      const parsed = JSON.parse(template.propertiesJson) as Array<{ propertyId?: string; required?: boolean }>;
-      return parsed
-        .map((row) => ({ propertyId: String(row?.propertyId ?? '').trim(), required: row?.required === true }))
-        .filter((row) => row.propertyId);
-    } catch {
-      return [];
-    }
+    if (!template?.propertiesJson) return [];
+    return parseTemplatePropertiesJson(template.propertiesJson);
   }, [templateRows, templateId]);
+
+  const templateForCompositionEditor = useMemo(() => {
+    if (!templateId) return null;
+    const t = templateRows.find((row) => row.id === templateId);
+    if (!t) return null;
+    return {
+      id: t.id,
+      code: t.code,
+      name: t.name,
+      itemTypeCode: t.itemTypeCode,
+      directoryKind: t.directoryKind,
+      propertiesJson: t.propertiesJson,
+    };
+  }, [templateId, templateRows]);
+
+  const canEditNomenclatureFields = props.canEdit;
+
+  const propertyOptionsForAdd = useMemo(() => {
+    const inTpl = new Set(selectedTemplateProperties.map((p) => p.propertyId));
+    return propertyRows
+      .filter((p) => p.id && !inTpl.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        label: `${p.name} (${p.code})`,
+        hintText: p.dataType ?? '',
+      }));
+  }, [propertyRows, selectedTemplateProperties]);
+
+  async function appendPropertyToCurrentTemplate(propertyId: string) {
+    if (!canEditNomenclatureFields) return;
+    const pid = String(propertyId ?? '').trim();
+    if (!pid) return;
+    if (!templateId) {
+      setStatus('Сначала выберите шаблон номенклатуры.');
+      return;
+    }
+    const tpl = templateRows.find((r) => r.id === templateId);
+    if (!tpl) {
+      setStatus('Шаблон не найден в списке. Обновите страницу.');
+      return;
+    }
+    const rows = parseTemplatePropertiesJson(tpl.propertiesJson);
+    if (rows.some((r) => r.propertyId === pid)) {
+      setStatus('Это свойство уже есть в шаблоне.');
+      return;
+    }
+    const next = appendTemplateProperty(rows, pid);
+    const up = await window.matrica.warehouse.nomenclatureTemplateUpsert({
+      id: tpl.id,
+      code: tpl.code.trim(),
+      name: tpl.name.trim(),
+      itemTypeCode: tpl.itemTypeCode.trim() || null,
+      directoryKind: tpl.directoryKind.trim() || null,
+      propertiesJson: serializeTemplatePropertiesJson(next),
+    });
+    if (!up?.ok) {
+      setStatus(`Ошибка: ${String(up?.error ?? 'не удалось обновить шаблон')}`);
+      return;
+    }
+    await reloadTemplateGovernance();
+    setPropertyValues((prev) => ({ ...prev, [pid]: prev[pid] ?? '' }));
+    setAddPropertyPickId(null);
+    setStatus('Свойство добавлено в шаблон. Сохраните карточку при необходимости.');
+    setTimeout(() => setStatus(''), 2500);
+  }
+
+  async function createQuickPropertyAndAppend() {
+    const code = quickPropCode.trim().toLowerCase();
+    const name = quickPropName.trim();
+    if (!code || !name) {
+      setStatus('Укажите код и наименование нового свойства.');
+      return;
+    }
+    const created = await window.matrica.warehouse.nomenclaturePropertyUpsert({
+      code,
+      name,
+      dataType: quickPropDataType,
+    });
+    if (!created?.ok || !created.id) {
+      setStatus(`Ошибка: ${String(!created?.ok && created ? created.error : 'не удалось создать свойство')}`);
+      return;
+    }
+    setQuickPropCode('');
+    setQuickPropName('');
+    setQuickPropDataType('text');
+    await reloadTemplateGovernance();
+    await appendPropertyToCurrentTemplate(String(created.id));
+  }
   const templateOptions = useMemo(
     () =>
       withRecents(
@@ -200,8 +310,6 @@ export function NomenclatureDetailsPage(props: {
     () => withRecents('instanceWarehouseId', lookupToSelectOptions(lookups.warehouses)),
     [lookups.warehouses, withRecents],
   );
-
-  const canEditNomenclatureFields = props.canEdit;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -248,7 +356,10 @@ export function NomenclatureDetailsPage(props: {
             variant="ghost"
             style={{ color: 'var(--danger)' }}
             onClick={async () => {
-              if (!confirm('Удалить номенклатурную позицию?')) return;
+              const ok = await confirm({
+                detail: `Будет удалена номенклатурная позиция «${name.trim() || code.trim() || props.id}» (код: ${code.trim() || '—'}). Связанные складские документы могут потребовать проверки.`,
+              });
+              if (!ok) return;
               const result = await window.matrica.warehouse.nomenclatureDelete(props.id);
               if (!result?.ok) {
                 setStatus(`Ошибка: ${String(result?.error ?? 'не удалось удалить')}`);
@@ -283,49 +394,48 @@ export function NomenclatureDetailsPage(props: {
             ))}
           </select>
           <div>Шаблон</div>
-          <SearchSelect
-            value={templateId}
-            disabled={!canEditNomenclatureFields}
-            options={templateOptions}
-            placeholder="Шаблон номенклатуры"
-            showAllWhenEmpty
-            emptyQueryLimit={15}
-            onChange={(next) => {
-              setTemplateId(next);
-              pushRecent('templateId', next);
-            }}
-            createLabel="Новый шаблон"
-            onCreate={
-              canEditNomenclatureFields
-                ? async (label) => {
-                    const up = await window.matrica.warehouse.nomenclatureTemplateUpsert({
-                      code: `TPL-${Date.now().toString(36).toUpperCase()}`,
-                      name: String(label ?? '').trim() || 'Новый шаблон',
-                      itemTypeCode: String(itemType ?? '').trim() || null,
-                      directoryKind: row?.directoryKind ? String(row.directoryKind) : null,
-                      propertiesJson: '[]',
-                    });
-                    if (!up?.ok) {
-                      setStatus(`Ошибка: ${String(up?.error ?? 'не удалось создать шаблон')}`);
-                      return null;
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+              <SearchSelect
+                value={templateId}
+                disabled={!canEditNomenclatureFields}
+                options={templateOptions}
+                placeholder="Шаблон номенклатуры"
+                showAllWhenEmpty
+                emptyQueryLimit={15}
+                onChange={(next) => {
+                  setTemplateId(next);
+                  pushRecent('templateId', next);
+                }}
+                {...(canEditNomenclatureFields
+                  ? {
+                      createLabel: 'Новый шаблон',
+                      onCreate: async (label: string) => {
+                        const up = await window.matrica.warehouse.nomenclatureTemplateUpsert({
+                          code: `TPL-${Date.now().toString(36).toUpperCase()}`,
+                          name: String(label ?? '').trim() || 'Новый шаблон',
+                          itemTypeCode: String(itemType ?? '').trim() || null,
+                          directoryKind: row?.directoryKind ? String(row.directoryKind) : null,
+                          propertiesJson: '[]',
+                        });
+                        if (!up?.ok) {
+                          setStatus(`Ошибка: ${String(up?.error ?? 'не удалось создать шаблон')}`);
+                          return null;
+                        }
+                        await reloadTemplateGovernance();
+                        pushRecent('templateId', up.id);
+                        return String(up.id);
+                      },
                     }
-                    const list = await window.matrica.warehouse.nomenclatureTemplatesList();
-                    if (list?.ok) {
-                      setTemplateRows(
-                        ((list.rows ?? []) as Array<Record<string, unknown>>).map((r) => ({
-                          id: String(r.id ?? ''),
-                          code: String(r.code ?? '').trim(),
-                          name: String(r.name ?? '').trim(),
-                          propertiesJson: r.propertiesJson == null ? null : String(r.propertiesJson ?? ''),
-                        })),
-                      );
-                    }
-                    pushRecent('templateId', up.id);
-                    return String(up.id);
-                  }
-                : undefined
-            }
-          />
+                  : {})}
+              />
+            </div>
+            {canEditNomenclatureFields && templateId ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setTemplateCompositionOpen(true)}>
+                Состав шаблона
+              </Button>
+            ) : null}
+          </div>
           <div>Группа</div>
           <SearchSelect
             value={groupId}
@@ -338,10 +448,10 @@ export function NomenclatureDetailsPage(props: {
               setGroupId(next);
               pushRecent('groupId', next);
             }}
-            createLabel="Новая группа"
-            onCreate={
-              canEditNomenclatureFields
-                ? async (label) => {
+            {...(canEditNomenclatureFields
+              ? {
+                  createLabel: 'Новая группа',
+                  onCreate: async (label: string) => {
                     const id = await createLookupEntity('nomenclature_group', label);
                     if (!id) {
                       setStatus('Ошибка: не удалось создать группу номенклатуры');
@@ -350,9 +460,9 @@ export function NomenclatureDetailsPage(props: {
                     await refreshRefs();
                     pushRecent('groupId', id);
                     return id;
-                  }
-                : undefined
-            }
+                  },
+                }
+              : {})}
           />
           <div>Единица измерения</div>
           <SearchSelect
@@ -366,10 +476,10 @@ export function NomenclatureDetailsPage(props: {
               setUnitId(next);
               pushRecent('unitId', next);
             }}
-            createLabel="Новая единица"
-            onCreate={
-              canEditNomenclatureFields
-                ? async (label) => {
+            {...(canEditNomenclatureFields
+              ? {
+                  createLabel: 'Новая единица',
+                  onCreate: async (label: string) => {
                     const id = await createLookupEntity('unit', label);
                     if (!id) {
                       setStatus('Ошибка: не удалось создать единицу измерения');
@@ -378,9 +488,9 @@ export function NomenclatureDetailsPage(props: {
                     await refreshRefs();
                     pushRecent('unitId', id);
                     return id;
-                  }
-                : undefined
-            }
+                  },
+                }
+              : {})}
           />
           <div>Штрихкод</div>
           <Input value={barcode} disabled={!canEditNomenclatureFields} onChange={(e) => setBarcode(e.target.value)} />
@@ -400,10 +510,10 @@ export function NomenclatureDetailsPage(props: {
               setDefaultBrandId(next);
               pushRecent('defaultBrandId', next);
             }}
-            createLabel="Новая марка"
-            onCreate={
-              canEditNomenclatureFields
-                ? async (label) => {
+            {...(canEditNomenclatureFields
+              ? {
+                  createLabel: 'Новая марка',
+                  onCreate: async (label: string) => {
                     const id = await createLookupEntity('engine_brand', label);
                     if (!id) {
                       setStatus('Ошибка: не удалось создать марку двигателя');
@@ -412,9 +522,9 @@ export function NomenclatureDetailsPage(props: {
                     await refreshRefs();
                     pushRecent('defaultBrandId', id);
                     return id;
-                  }
-                : undefined
-            }
+                  },
+                }
+              : {})}
           />
           <div>Серийный учет</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -433,10 +543,10 @@ export function NomenclatureDetailsPage(props: {
               setDefaultWarehouseId(next);
               pushRecent('defaultWarehouseId', next);
             }}
-            createLabel="Новый склад"
-            onCreate={
-              canEditNomenclatureFields
-                ? async (label) => {
+            {...(canEditNomenclatureFields
+              ? {
+                  createLabel: 'Новый склад',
+                  onCreate: async (label: string) => {
                     const id = await createLookupEntity('warehouse_ref', label);
                     if (!id) {
                       setStatus('Ошибка: не удалось создать склад');
@@ -445,19 +555,74 @@ export function NomenclatureDetailsPage(props: {
                     await refreshRefs();
                     pushRecent('defaultWarehouseId', id);
                     return id;
-                  }
-                : undefined
-            }
+                  },
+                }
+              : {})}
           />
-          <div>Спецификация (JSON)</div>
-          <textarea value={specJson} disabled={!canEditNomenclatureFields} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
+          <div style={{ gridColumn: '1 / -1' }}>
+            <button type="button" onClick={() => setShowAdvancedSpec((v) => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#2563eb', fontSize: 13 }}>
+              {showAdvancedSpec ? '▼' : '▸'} Спецификация (JSON, для отладки)
+            </button>
+            {showAdvancedSpec ? (
+              <textarea
+                value={specJson}
+                disabled={!canEditNomenclatureFields}
+                onChange={(e) => setSpecJson(e.target.value)}
+                rows={5}
+                style={{ width: '100%', marginTop: 8 }}
+              />
+            ) : null}
+          </div>
+          {canEditNomenclatureFields && templateId ? (
+            <>
+              <div style={{ gridColumn: '1 / -1', fontWeight: 600, marginTop: 4 }}>Добавить свойство в шаблон этой номенклатуры</div>
+              <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>
+                Свойство будет закреплено в выбранном шаблоне и появится в форме ниже (сохраните карточку, чтобы записать значения).
+              </div>
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'end', marginBottom: 8 }}>
+                <SearchSelect
+                  value={addPropertyPickId}
+                  options={propertyOptionsForAdd}
+                  placeholder="Выберите свойство из справочника…"
+                  showAllWhenEmpty
+                  emptyQueryLimit={20}
+                  onChange={(next) => setAddPropertyPickId(next)}
+                />
+                <Button type="button" variant="outline" size="sm" disabled={!addPropertyPickId} onClick={() => void appendPropertyToCurrentTemplate(addPropertyPickId!)}>
+                  Добавить в шаблон
+                </Button>
+              </div>
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr 100px auto', gap: 8, alignItems: 'end', marginBottom: 8 }}>
+                <Input value={quickPropCode} onChange={(e) => setQuickPropCode(e.target.value)} placeholder="Код нового свойства" />
+                <Input value={quickPropName} onChange={(e) => setQuickPropName(e.target.value)} placeholder="Наименование" />
+                <select value={quickPropDataType} onChange={(e) => setQuickPropDataType(e.target.value)} style={{ padding: '8px 10px' }}>
+                  <option value="text">text</option>
+                  <option value="number">number</option>
+                  <option value="boolean">boolean</option>
+                  <option value="date">date</option>
+                  <option value="enum">enum</option>
+                  <option value="json">json</option>
+                </select>
+                <Button type="button" variant="outline" size="sm" onClick={() => void createQuickPropertyAndAppend()}>
+                  Создать и в шаблон
+                </Button>
+              </div>
+            </>
+          ) : null}
+          {selectedTemplateProperties.length > 0 ? (
+            <div style={{ gridColumn: '1 / -1', fontWeight: 600, marginTop: 6 }}>Значения по шаблону</div>
+          ) : null}
           {selectedTemplateProperties.map((templateProp) => {
             const property = propertyById.get(templateProp.propertyId);
             const value = propertyValues[templateProp.propertyId];
             const dataType = String(property?.dataType ?? 'text').toLowerCase();
+            const enumOpts = dataType === 'enum' ? parseEnumValuesFromOptionsJson(property?.optionsJson ?? null) : [];
             return (
               <React.Fragment key={templateProp.propertyId}>
-                <div>{property?.name || templateProp.propertyId}{templateProp.required ? ' *' : ''}</div>
+                <div>
+                  {property?.name || templateProp.propertyId}
+                  {templateProp.required ? ' *' : ''}
+                </div>
                 {dataType === 'boolean' ? (
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <input
@@ -468,6 +633,20 @@ export function NomenclatureDetailsPage(props: {
                     />
                     Да/Нет
                   </label>
+                ) : dataType === 'enum' && enumOpts.length > 0 ? (
+                  <select
+                    value={value == null ? '' : String(value)}
+                    disabled={!canEditNomenclatureFields}
+                    onChange={(e) => setPropertyValues((prev) => ({ ...prev, [templateProp.propertyId]: e.target.value }))}
+                    style={{ padding: '8px 10px', width: '100%' }}
+                  >
+                    <option value="">—</option>
+                    {enumOpts.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
                   <Input
                     value={value == null ? '' : String(value)}
@@ -498,10 +677,10 @@ export function NomenclatureDetailsPage(props: {
                 setInstanceWarehouseId(next);
                 pushRecent('instanceWarehouseId', next);
               }}
-              createLabel="Новый склад"
-              onCreate={
-                canEditNomenclatureFields
-                  ? async (label) => {
+              {...(canEditNomenclatureFields
+                ? {
+                    createLabel: 'Новый склад',
+                    onCreate: async (label: string) => {
                       const id = await createLookupEntity('warehouse_ref', label);
                       if (!id) {
                         setStatus('Ошибка: не удалось создать склад');
@@ -510,9 +689,9 @@ export function NomenclatureDetailsPage(props: {
                       await refreshRefs();
                       pushRecent('instanceWarehouseId', id);
                       return id;
-                    }
-                  : undefined
-              }
+                    },
+                  }
+                : {})}
             />
             <Button
               type="button"
@@ -562,7 +741,10 @@ export function NomenclatureDetailsPage(props: {
                 <tr key={instance.id}>
                   <td>{instance.serialNumber}</td>
                   <td>{instance.currentStatus}</td>
-                  <td>{instance.warehouseName || instance.warehouseId || 'default'}</td>
+                  <td>
+                    {instance.warehouseName ||
+                      (String(instance.warehouseId ?? '') === 'default' ? 'Склад по умолчанию' : instance.warehouseId || '—')}
+                  </td>
                   <td>{instance.contractName || instance.contractCode || instance.contractId || '—'}</td>
                   <td>{instance.createdAt ? new Date(Number(instance.createdAt)).toLocaleString('ru-RU') : '—'}</td>
                 </tr>
@@ -593,7 +775,10 @@ export function NomenclatureDetailsPage(props: {
             ) : (
               balances.map((balance) => (
                 <tr key={balance.id}>
-                  <td>{balance.warehouseName || balance.warehouseId || 'default'}</td>
+                  <td>
+                    {balance.warehouseName ||
+                      (String(balance.warehouseId ?? '') === 'default' ? 'Склад по умолчанию' : balance.warehouseId || '—')}
+                  </td>
                   <td>{Number(balance.availableQty ?? 0)}</td>
                   <td>{Number(balance.qty ?? 0)}</td>
                   <td>{Number(balance.reservedQty ?? 0)}</td>
@@ -650,6 +835,22 @@ export function NomenclatureDetailsPage(props: {
           </Button>
         </div>
       ) : null}
+
+      <NomenclatureTemplateCompositionEditor
+        open={templateCompositionOpen && templateForCompositionEditor != null}
+        template={templateForCompositionEditor}
+        propertyOptions={propertyRows.map((p) => ({
+          id: p.id,
+          code: p.code,
+          name: p.name,
+          dataType: String(p.dataType ?? 'text'),
+        }))}
+        onClose={() => setTemplateCompositionOpen(false)}
+        onSaved={() => {
+          void reloadTemplateGovernance();
+          void load();
+        }}
+      />
     </div>
   );
 }

@@ -3118,8 +3118,8 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
           return [
             {
               value: 'default',
-              label: 'Склад по умолчанию (default)',
-              searchText: 'default склад',
+              label: 'Склад по умолчанию',
+              searchText: 'default склад по умолчанию',
             },
             ...base,
           ];

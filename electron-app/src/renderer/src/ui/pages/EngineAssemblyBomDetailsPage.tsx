@@ -10,6 +10,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
@@ -383,6 +384,7 @@ export function EngineAssemblyBomDetailsPage(props: {
   canEdit: boolean;
   onClose: () => void;
 }) {
+  const { confirm } = useConfirm();
   const [status, setStatus] = useState('');
   const [data, setData] = useState<BomDetails | null>(null);
   const [bomRelationSchema, setBomRelationSchema] = useState<WarehouseBomRelationSchema>(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA);
@@ -662,7 +664,11 @@ export function EngineAssemblyBomDetailsPage(props: {
       const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
       if (swapIdx < 0 || swapIdx >= variantIds.length) return prev;
       const nextOrder = [...variantIds];
-      [nextOrder[currentIdx], nextOrder[swapIdx]] = [nextOrder[swapIdx], nextOrder[currentIdx]];
+      const idAtCurrent = nextOrder[currentIdx];
+      const idAtSwap = nextOrder[swapIdx];
+      if (idAtCurrent === undefined || idAtSwap === undefined) return prev;
+      nextOrder[currentIdx] = idAtSwap;
+      nextOrder[swapIdx] = idAtCurrent;
       const rankByVariant = new Map(nextOrder.map((id, idx) => [id, (idx + 1) * 10] as const));
       const nextLines = prev.lines.map((line) => {
         const vg = normalizeVariantGroup(line.variantGroup);
@@ -1149,6 +1155,7 @@ export function EngineAssemblyBomDetailsPage(props: {
         }
         onClose={requestCloseBomCard}
         onDelete={props.canEdit && !showSchemaEditor && data ? () => setDeleteConfirmOpen(true) : undefined}
+        deleteSkipBuiltInConfirm
         deleteLabel="Удалить спецификацию"
         extraActionsLeft={
           showSchemaEditor ? (
@@ -1391,24 +1398,30 @@ export function EngineAssemblyBomDetailsPage(props: {
                           <Button
                             variant="ghost"
                             onClick={() => {
-                              const usage = schemaUsageByTypeId.get(String(node.typeId ?? '').trim().toLowerCase());
-                              if ((usage?.activeLineCount ?? 0) > 0) {
-                                setSchemaStatus(`Ошибка схемы: тип "${node.typeId}" используется в active BOM (${usage?.activeLineCount}) и не может быть удален.`);
-                                return;
-                              }
-                              if (String(node.typeId) === String(schemaRootTypeDraft)) {
-                                setSchemaStatus('Ошибка схемы: нельзя удалить корневой тип.');
-                                return;
-                              }
-                              setSchemaNodesDraft((prev) =>
-                                prev
-                                  .filter((_, rowIdx) => rowIdx !== idx)
-                                  .map((item) => ({
-                                    ...item,
-                                    childTypeIds: (item.childTypeIds ?? []).filter((childTypeId) => childTypeId !== node.typeId),
-                                  })),
-                              );
-                              setSchemaStatus('');
+                              void (async () => {
+                                const usage = schemaUsageByTypeId.get(String(node.typeId ?? '').trim().toLowerCase());
+                                if ((usage?.activeLineCount ?? 0) > 0) {
+                                  setSchemaStatus(`Ошибка схемы: тип "${node.typeId}" используется в active BOM (${usage?.activeLineCount}) и не может быть удален.`);
+                                  return;
+                                }
+                                if (String(node.typeId) === String(schemaRootTypeDraft)) {
+                                  setSchemaStatus('Ошибка схемы: нельзя удалить корневой тип.');
+                                  return;
+                                }
+                                const ok = await confirm({
+                                  detail: `Будет удалён узел глобальной схемы BOM: «${node.label || node.typeId}» (${node.typeId}).`,
+                                });
+                                if (!ok) return;
+                                setSchemaNodesDraft((prev) =>
+                                  prev
+                                    .filter((_, rowIdx) => rowIdx !== idx)
+                                    .map((item) => ({
+                                      ...item,
+                                      childTypeIds: (item.childTypeIds ?? []).filter((childTypeId) => childTypeId !== node.typeId),
+                                    })),
+                                );
+                                setSchemaStatus('');
+                              })();
                             }}
                             style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0 }}
                           >
@@ -1975,7 +1988,21 @@ export function EngineAssemblyBomDetailsPage(props: {
                         <td>
                           <Button
                             variant="ghost"
-                            onClick={() => removeLine(idx)}
+                            onClick={() => {
+                              void (async () => {
+                                const line = data?.lines[idx];
+                                const nm =
+                                  line?.componentNomenclatureName ||
+                                  line?.componentNomenclatureCode ||
+                                  line?.componentNomenclatureId ||
+                                  'строка';
+                                const ok = await confirm({
+                                  detail: `Будет удалена строка спецификации BOM «${data?.header.name ?? ''}»: «${nm}» (тип ${line?.componentType ?? '—'}, кол-во на узел ${line?.qtyPerUnit ?? '—'}).`,
+                                });
+                                if (!ok) return;
+                                removeLine(idx);
+                              })();
+                            }}
                             style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0 }}
                             disabled={block.id !== '__base__' && isSharedBase}
                           >

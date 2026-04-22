@@ -66,3 +66,18 @@ export const SERVICES_PRESET: NomenclatureDirectoryPreset = {
     category: 'service',
   },
 };
+
+/** Виды номенклатуры, доступные при создании позиции из заявки в снабжение. */
+export const SUPPLY_REQUEST_LINE_CREATE_PRESETS = [PARTS_PRESET, TOOLS_PRESET, PRODUCTS_PRESET, SERVICES_PRESET] as const;
+
+export function labelForSupplyRequestCreateKind(directoryKind: string): string {
+  const k = String(directoryKind ?? '').trim().toLowerCase();
+  const map: Record<string, string> = {
+    part: 'Деталь',
+    tool: 'Инструмент',
+    good: 'Товар',
+    service: 'Услуга',
+    engine_brand: 'Марка двигателя',
+  };
+  return map[k] ?? directoryKind;
+}

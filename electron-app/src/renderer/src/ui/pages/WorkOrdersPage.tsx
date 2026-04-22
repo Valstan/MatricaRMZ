@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
@@ -40,6 +41,7 @@ function rub(v: number) {
 }
 
 export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean }) {
+  const { confirm } = useConfirm();
   const { state: listState, patchState } = useListUiState('list:work_orders', {
     query: '',
     month: '',
@@ -150,7 +152,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
       selectedManyLabel: 'выбранные наряды',
       singleLabel: 'наряд',
     });
-    if (!confirm(message)) return;
+    const ok = await confirm({ detail: `${message}\n\nЭто действие обычно нельзя отменить.` });
+    if (!ok) return;
     const failed: string[] = [];
     for (const id of ids) {
       const r = await window.matrica.workOrders.delete(id);

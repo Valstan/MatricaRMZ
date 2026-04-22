@@ -4,6 +4,7 @@ import type { ChatDeepLinkPayload, ChatUserItem } from '@matricarmz/shared';
 import type { NoteBlock, NoteItem, NoteShareItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { theme } from '../theme.js';
@@ -124,6 +125,7 @@ export function NotesPage(props: {
   onSendToChat: (note: NoteDraft, recipientUserIds: string[]) => Promise<void>;
   onBurningCountChange?: (count: number) => void;
 }) {
+  const { confirm } = useConfirm();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [shares, setShares] = useState<NoteShareItem[]>([]);
   const [users, setUsers] = useState<ChatUserItem[]>([]);
@@ -472,11 +474,19 @@ export function NotesPage(props: {
   }
 
   async function deleteNote(id: string) {
+    const draft = drafts[id];
+    const title = draft?.title?.trim() || notes.find((n) => n.id === id)?.title || id;
+    const ok = await confirm({ detail: `Будет удалена заметка «${title}».` });
+    if (!ok) return;
     await window.matrica.notes.delete({ noteId: id });
     await refresh();
   }
 
   async function unshareNote(noteId: string, recipientUserId: string) {
+    const draft = drafts[noteId];
+    const title = draft?.title?.trim() || notes.find((n) => n.id === noteId)?.title || noteId;
+    const ok = await confirm({ detail: `Заметка «${title}» будет убрана из вашего списка (доступ через «поделились» отменится для вас).` });
+    if (!ok) return;
     const r = await window.matrica.notes.unshare({ noteId, recipientUserId }).catch(() => null);
     if ((r as any)?.ok) {
       setPerNoteStatus(noteId, 'Доступ убран', 'ok');

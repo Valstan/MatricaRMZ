@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from './Button.js';
+import { useConfirm } from './ConfirmContext.js';
 
 export type CardActionBarProps = {
   canEdit: boolean;
@@ -11,6 +12,10 @@ export type CardActionBarProps = {
   onPrint?: (() => void) | undefined;
   onDelete?: (() => void) | undefined;
   deleteLabel?: string | undefined;
+  /** Текст: что именно будет удалено (модальное окно). Если не задан — общая формулировка. */
+  deleteConfirmDetail?: string | undefined;
+  /** Не показывать встроенное подтверждение (родитель открывает свой диалог). */
+  deleteSkipBuiltInConfirm?: boolean | undefined;
   onClose?: (() => void) | undefined;
   extraActionsLeft?: React.ReactNode | undefined;
   extraActionsCenter?: React.ReactNode | undefined;
@@ -19,6 +24,22 @@ export type CardActionBarProps = {
 };
 
 export function CardActionBar(props: CardActionBarProps) {
+  const { confirm } = useConfirm();
+
+  async function handleDeleteClick() {
+    if (!props.onDelete) return;
+    if (props.deleteSkipBuiltInConfirm) {
+      props.onDelete();
+      return;
+    }
+    const actionLabel = (props.deleteLabel || 'Удалить карточку').replace(/\s+$/, '');
+    const detail =
+      props.deleteConfirmDetail?.trim() ||
+      `${actionLabel}.\n\nБудет удалена открытая карточка${props.cardLabel ? ` (${props.cardLabel})` : ''}. Обычно это действие нельзя отменить.`;
+    const ok = await confirm({ detail });
+    if (ok) props.onDelete();
+  }
+
   return (
     <div
       className="card-action-bar"
@@ -92,7 +113,7 @@ export function CardActionBar(props: CardActionBarProps) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flex: 1 }}>
           {props.canEdit && props.onDelete && (
-            <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={props.onDelete}>
+            <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={() => void handleDeleteClick()}>
               {props.deleteLabel || 'Удалить карточку'}
             </Button>
           )}

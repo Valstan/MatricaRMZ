@@ -12,6 +12,7 @@ import { formatMoscowDate } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
@@ -119,6 +120,7 @@ export function ToolDetailsPage(props: {
   const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
 
   const dirtyRef = useRef(false);
+  const { confirm: confirmModal } = useConfirm();
 
   const employeeLabelById = useMemo(() => new Map(employeeOptions.map((o) => [o.id, o.label])), [employeeOptions]);
   const departmentLabelById = useMemo(() => new Map(departmentOptions.map((o) => [o.id, o.label])), [departmentOptions]);
@@ -431,7 +433,10 @@ export function ToolDetailsPage(props: {
   }
 
   async function deleteMovement(m: MovementRow) {
-    if (!confirm('Удалить движение инструмента?')) return;
+    const ok = await confirmModal({
+      detail: `Будет удалена запись движения инструмента «${name.trim() || props.toolId}» от ${formatMoscowDate(m.movementAt)} (${m.mode === 'returned' ? 'возврат' : 'получение'}).`,
+    });
+    if (!ok) return;
     const r = await window.matrica.tools.movements.delete({ id: m.id, toolId: props.toolId });
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);
@@ -523,7 +528,7 @@ export function ToolDetailsPage(props: {
       onClose={() => {
         void (async () => {
           if (dirtyRef.current) {
-            if (confirm('Сохранить изменения перед выходом?')) {
+            if (window.confirm('Сохранить изменения перед выходом?')) {
               await saveAllFields();
             } else {
               dirtyRef.current = false;
@@ -534,7 +539,6 @@ export function ToolDetailsPage(props: {
       }}
       onDelete={() => {
         void (async () => {
-          if (!confirm('Удалить инструмент?')) return;
           const r = await window.matrica.tools.delete(props.toolId);
           if (!r.ok) {
             setStatus(`Ошибка удаления: ${r.error}`);
@@ -544,6 +548,7 @@ export function ToolDetailsPage(props: {
         })();
       }}
       deleteLabel="Удалить инструмент"
+      deleteConfirmDetail={`Будет удалён инструмент «${name.trim() || props.toolId}»${toolNumber ? `, таб. № ${toolNumber}` : ''}. Действие обычно нельзя отменить.`}
     />
   );
 
@@ -735,8 +740,15 @@ export function ToolDetailsPage(props: {
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      const nextRows = properties.filter((_p, i) => i !== idx);
-                      void updateProperties(nextRows);
+                      void (async () => {
+                        const propLabel = propertyOptions.find((o) => o.id === row.propertyId)?.label ?? row.propertyId;
+                        const ok = await confirmModal({
+                          detail: `Удалить из карточки инструмента «${name.trim() || props.toolId}» строку свойства «${propLabel}»?`,
+                        });
+                        if (!ok) return;
+                        const nextRows = properties.filter((_p, i) => i !== idx);
+                        void updateProperties(nextRows);
+                      })();
                     }}
                     style={{ color: 'var(--danger)' }}
                   >

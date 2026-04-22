@@ -173,6 +173,26 @@ function parseJsonScalar(raw: string | null | undefined): string | null {
   }
 }
 
+/** Скаляры как строка; объекты/массивы — JSON-строка (нужно для `properties_json` шаблонов и др. JSON-полей). */
+function parseMasterdataAttrValue(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  try {
+    const parsed = JSON.parse(s) as unknown;
+    if (parsed == null) return null;
+    if (typeof parsed === 'object') return JSON.stringify(parsed);
+    if (typeof parsed === 'string') {
+      const trimmed = parsed.trim();
+      return trimmed ? trimmed : null;
+    }
+    if (typeof parsed === 'number' || typeof parsed === 'boolean') return String(parsed);
+    return null;
+  } catch {
+    return s;
+  }
+}
+
 function buildLookupMap(rows: LookupOption[]) {
   return new Map(rows.map((row) => [row.id, row]));
 }
@@ -276,6 +296,158 @@ async function ensureNomenclatureGovernanceMeta(): Promise<void> {
     { code: 'properties_json', name: 'Состав свойств', dataType: 'json', sortOrder: 50 },
     { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 60 },
   ]);
+}
+
+const DEFAULT_NOMENCLATURE_PROPERTY_SEEDS: Array<{
+  code: string;
+  name: string;
+  dataType: string;
+  description?: string;
+  optionsJson?: string | null;
+}> = [
+  { code: 'partner_sku', name: 'Артикул поставщика', dataType: 'text', description: 'Код номенклатуры у поставщика' },
+  { code: 'manufacturer', name: 'Производитель', dataType: 'text' },
+  { code: 'country_origin', name: 'Страна происхождения', dataType: 'text' },
+  { code: 'tnved', name: 'ТН ВЭД', dataType: 'text', description: 'Код ТН ВЭД ЕАЭС' },
+  { code: 'okpd2', name: 'ОКПД2', dataType: 'text' },
+  { code: 'weight_net_kg', name: 'Вес нетто, кг', dataType: 'number' },
+  { code: 'volume_m3', name: 'Объём, м³', dataType: 'number' },
+  { code: 'dimensions_mm', name: 'Габариты (Д×Ш×В), мм', dataType: 'text' },
+  { code: 'material', name: 'Материал', dataType: 'text' },
+  { code: 'quality_grade', name: 'Сорт / качество', dataType: 'text' },
+  { code: 'warranty_months', name: 'Гарантия, мес', dataType: 'number' },
+  { code: 'accounting_group', name: 'Группа фин. учёта', dataType: 'text' },
+  { code: 'storage_conditions', name: 'Условия хранения', dataType: 'text' },
+  { code: 'purchase_note', name: 'Комментарий для закупки', dataType: 'text' },
+  { code: 'vat_rate', name: 'Ставка НДС, %', dataType: 'number' },
+  { code: 'min_ship_qty', name: 'Мин. партия отгрузки', dataType: 'number' },
+];
+
+const DEFAULT_NOMENCLATURE_KIND_TO_PROPERTY_CODES: Record<string, string[]> = {
+  part: ['manufacturer', 'material', 'partner_sku', 'weight_net_kg', 'dimensions_mm', 'tnved', 'okpd2', 'quality_grade'],
+  tool: ['manufacturer', 'material', 'partner_sku', 'warranty_months', 'storage_conditions', 'purchase_note', 'country_origin'],
+  good: ['manufacturer', 'partner_sku', 'tnved', 'vat_rate', 'min_ship_qty', 'weight_net_kg', 'purchase_note'],
+  service: ['purchase_note', 'vat_rate', 'accounting_group', 'partner_sku'],
+  engine_brand: ['manufacturer', 'country_origin', 'purchase_note'],
+};
+
+function isEmptyTemplatePropertiesJson(raw: string | null | undefined): boolean {
+  const s = raw == null ? '' : String(raw).trim();
+  if (!s) return true;
+  try {
+    const v = JSON.parse(s) as unknown;
+    return Array.isArray(v) && v.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function buildNomenclatureTemplatePropertiesPayload(propertyIds: string[]): string {
+  const arr = propertyIds.filter(Boolean).map((id, i) => ({ propertyId: id, sortOrder: i * 10 }));
+  return JSON.stringify(arr);
+}
+
+function defaultNomenclatureTemplateLabel(kind: string): string {
+  switch (kind) {
+    case 'part':
+      return 'Стандарт: детали';
+    case 'tool':
+      return 'Стандарт: инструмент';
+    case 'good':
+      return 'Стандарт: товары';
+    case 'service':
+      return 'Стандарт: услуги';
+    case 'engine_brand':
+      return 'Стандарт: марки двигателей';
+    default:
+      return `Стандарт: ${kind}`;
+  }
+}
+
+let defaultNomenclatureGovernanceSeed: Promise<void> | null = null;
+
+async function runDefaultNomenclatureGovernanceSeed(): Promise<void> {
+  const propRows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_PROPERTY_CODE);
+  const propertyIdByCode = new Map(propRows.map((r) => [String(r.attrs.code ?? '').trim().toLowerCase(), r.id]));
+
+  for (const p of DEFAULT_NOMENCLATURE_PROPERTY_SEEDS) {
+    const code = p.code.trim().toLowerCase();
+    const existingId = propertyIdByCode.get(code);
+    const res = await upsertWarehouseNomenclatureProperty({
+      ...(existingId ? { id: existingId } : {}),
+      code,
+      name: p.name,
+      dataType: p.dataType,
+      description: p.description ?? null,
+      optionsJson: p.optionsJson ?? null,
+      isRequired: false,
+    });
+    if (!res.ok) throw new Error(res.error);
+    propertyIdByCode.set(code, res.id);
+  }
+
+  const refreshedProps = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_PROPERTY_CODE);
+  const idByCode = new Map(refreshedProps.map((r) => [String(r.attrs.code ?? '').trim().toLowerCase(), r.id]));
+
+  const templateRows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_TEMPLATE_CODE);
+
+  for (const kind of Object.keys(DEFAULT_NOMENCLATURE_KIND_TO_PROPERTY_CODES)) {
+    const templateCode = `default_${kind}`;
+    const codes = DEFAULT_NOMENCLATURE_KIND_TO_PROPERTY_CODES[kind] ?? [];
+    const ids = codes.map((c) => idByCode.get(c.toLowerCase())).filter((x): x is string => Boolean(x));
+    if (!ids.length) continue;
+    const existing = templateRows.find((r) => String(r.attrs.code ?? '').trim().toLowerCase() === templateCode);
+    const itemTypeCode = kind === 'tool' ? 'tool_consumable' : 'product';
+    const res = await upsertWarehouseNomenclatureTemplate({
+      ...(existing ? { id: existing.id } : {}),
+      code: templateCode,
+      name: defaultNomenclatureTemplateLabel(kind),
+      itemTypeCode,
+      directoryKind: kind,
+      propertiesJson: buildNomenclatureTemplatePropertiesPayload(ids),
+      description: 'Автоматически созданный шаблон; состав можно менять в справочнике.',
+    });
+    if (!res.ok) throw new Error(res.error);
+  }
+
+  const templatesAfter = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_TEMPLATE_CODE);
+  for (const row of templatesAfter) {
+    const code = String(row.attrs.code ?? '').trim().toLowerCase();
+    if (!code.startsWith('legacy_')) continue;
+    const rawJson = row.attrs.properties_json;
+    if (!isEmptyTemplatePropertiesJson(rawJson == null ? '' : String(rawJson))) continue;
+    const dk = String(row.attrs.directory_kind ?? '').trim().toLowerCase();
+    const codes = DEFAULT_NOMENCLATURE_KIND_TO_PROPERTY_CODES[dk];
+    if (!codes?.length) continue;
+    const ids = codes.map((c) => idByCode.get(c.toLowerCase())).filter((x): x is string => Boolean(x));
+    if (!ids.length) continue;
+    const res = await upsertWarehouseNomenclatureTemplate({
+      id: row.id,
+      code,
+      name: String(row.attrs.name ?? code).trim() || code,
+      itemTypeCode: row.attrs.item_type_code == null || String(row.attrs.item_type_code).trim() === '' ? null : String(row.attrs.item_type_code),
+      directoryKind: dk || null,
+      propertiesJson: buildNomenclatureTemplatePropertiesPayload(ids),
+      description: row.attrs.description == null || String(row.attrs.description).trim() === '' ? null : String(row.attrs.description),
+    });
+    if (!res.ok) throw new Error(res.error);
+  }
+}
+
+async function ensureDefaultNomenclatureGovernanceSeeded(): Promise<void> {
+  if (defaultNomenclatureGovernanceSeed) {
+    await defaultNomenclatureGovernanceSeed;
+    return;
+  }
+  defaultNomenclatureGovernanceSeed = (async () => {
+    await runDefaultNomenclatureGovernanceSeed();
+  })();
+  try {
+    await defaultNomenclatureGovernanceSeed;
+  } catch (e) {
+    defaultNomenclatureGovernanceSeed = null;
+    throw e;
+  }
 }
 
 function parseGovernanceSpecPayload(raw: string | null | undefined): GovernanceTemplatePayload | null {
@@ -389,7 +561,7 @@ async function listMasterdataEntitiesWithAttrs(
     const code = defById.get(String(value.attributeDefId));
     if (!code) continue;
     const bag = attrsByEntity.get(entityId) ?? {};
-    bag[code] = parseJsonScalar(value.valueJson);
+    bag[code] = parseMasterdataAttrValue(value.valueJson);
     attrsByEntity.set(entityId, bag);
   }
   return rows.map((row) => ({
@@ -478,7 +650,8 @@ async function deleteMasterdataEntityByTypeCode(args: { typeCode: string; id: st
 
 function ensureDefaultWarehouse(rows: LookupOption[]): LookupOption[] {
   if (rows.some((row) => row.id === 'default')) return rows;
-  return [{ id: 'default', label: 'Основной склад', code: 'default' }, ...rows];
+  /** Плейсхолдер id не меняем (`default`); `code: null` — чтобы в UI не дублировалось «(default)» рядом с названием. */
+  return [{ id: 'default', label: 'Склад по умолчанию', code: null }, ...rows];
 }
 
 async function ensurePartNomenclatureGroup(): Promise<string | null> {
@@ -854,6 +1027,7 @@ export async function listWarehouseLookups(): Promise<
 > {
   try {
     await ensureNomenclatureGovernanceMeta();
+    await ensureDefaultNomenclatureGovernanceSeeded();
     const refs = await listWarehouseReferenceData();
     const [nomenclatureItemTypes, nomenclatureProperties, nomenclatureTemplates] = await Promise.all([
       listMasterdataLookup(NOMENCLATURE_ITEM_TYPE_CODE),
@@ -928,6 +1102,7 @@ export async function deleteWarehouseNomenclatureItemType(args: { id: string }):
 export async function listWarehouseNomenclatureProperties(): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
     await ensureNomenclatureGovernanceMeta();
+    await ensureDefaultNomenclatureGovernanceSeeded();
     const rows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_PROPERTY_CODE);
     return {
       ok: true,
@@ -985,6 +1160,7 @@ export async function deleteWarehouseNomenclatureProperty(args: { id: string }):
 export async function listWarehouseNomenclatureTemplates(): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
     await ensureNomenclatureGovernanceMeta();
+    await ensureDefaultNomenclatureGovernanceSeeded();
     const rows = await listMasterdataEntitiesWithAttrs(NOMENCLATURE_TEMPLATE_CODE);
     return {
       ok: true,

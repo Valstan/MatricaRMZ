@@ -11,7 +11,7 @@ export function PartsPage(props: {
   return (
     <NomenclatureDirectoryPage
       onOpen={props.onOpen}
-      onOpenNomenclatureCatalog={props.onOpenNomenclatureCatalog}
+      {...(props.onOpenNomenclatureCatalog ? { onOpenNomenclatureCatalog: props.onOpenNomenclatureCatalog } : {})}
       canCreate={props.canCreate}
       {...PARTS_PRESET}
     />

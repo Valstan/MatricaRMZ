@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
 import { SearchSelect } from './SearchSelect.js';
@@ -1424,6 +1425,7 @@ function TableEditor(props: {
   onChange: (rows: Record<string, string | boolean | number>[]) => void;
   onSave: (rows: Record<string, string | boolean | number>[]) => void;
 }) {
+  const { confirm } = useConfirm();
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
   const isDefectItemsTable = props.tableId === 'defect_items';
@@ -1669,10 +1671,26 @@ function TableEditor(props: {
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      if (!canDeleteRow(idx)) return;
-                      const next = rows.filter((_, i) => i !== idx);
-                      props.onChange(next);
-                      props.onSave(next);
+                      void (async () => {
+                        if (!canDeleteRow(idx)) return;
+                        const row = rows[idx] as Record<string, unknown>;
+                        const partNo = isDefectItemsTable ? String(row?.part_number ?? '').trim() : '';
+                        const node = isCompletenessItemsTable ? String(row?.node_label ?? row?.part_number ?? '').trim() : '';
+                        const hint = partNo || node || String(row?.[cols[0]?.id ?? 'value'] ?? '').trim().slice(0, 120);
+                        const tableRu =
+                          props.tableId === 'defect_items'
+                            ? 'листа дефектовки'
+                            : props.tableId === 'completeness_items'
+                              ? 'акта комплектности'
+                              : 'таблицы';
+                        const ok = await confirm({
+                          detail: `Будет удалена строка ${idx + 1} ${tableRu}${hint ? ` (данные: «${hint}»)` : ''}.`,
+                        });
+                        if (!ok) return;
+                        const next = rows.filter((_, i) => i !== idx);
+                        props.onChange(next);
+                        props.onSave(next);
+                      })();
                     }}
                     title={canDeleteRow(idx) ? undefined : 'Строка из марки двигателя обновляется автоматически'}
                     disabled={!canDeleteRow(idx)}
@@ -1707,10 +1725,26 @@ function TableEditor(props: {
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      if (!canDeleteRow(idx)) return;
-                      const next = rows.filter((_, i) => i !== idx);
-                      props.onChange(next);
-                      props.onSave(next);
+                      void (async () => {
+                        if (!canDeleteRow(idx)) return;
+                        const row = rows[idx] as Record<string, unknown>;
+                        const partNo = isDefectItemsTable ? String(row?.part_number ?? '').trim() : '';
+                        const node = isCompletenessItemsTable ? String(row?.node_label ?? row?.part_number ?? '').trim() : '';
+                        const hint = partNo || node || String(row?.[cols[0]?.id ?? 'value'] ?? '').trim().slice(0, 120);
+                        const tableRu =
+                          props.tableId === 'defect_items'
+                            ? 'листа дефектовки'
+                            : props.tableId === 'completeness_items'
+                              ? 'акта комплектности'
+                              : 'таблицы';
+                        const ok = await confirm({
+                          detail: `Будет удалена строка ${idx + 1} ${tableRu}${hint ? ` (данные: «${hint}»)` : ''}.`,
+                        });
+                        if (!ok) return;
+                        const next = rows.filter((_, i) => i !== idx);
+                        props.onChange(next);
+                        props.onSave(next);
+                      })();
                     }}
                     title={canDeleteRow(idx) ? undefined : 'Строка из марки двигателя обновляется автоматически'}
                     disabled={!canDeleteRow(idx)}

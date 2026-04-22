@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
@@ -300,6 +301,7 @@ function SectionBlock(props: {
   onOpenPart?: (partId: string) => void;
   onOpenEngineBrand?: (engineBrandId: string) => void;
 }) {
+  const { confirm } = useConfirm();
   const {
     title,
     section,
@@ -331,7 +333,13 @@ function SectionBlock(props: {
     update({ engineBrands: [...section.engineBrands, next] });
   };
 
-  const removeEngineBrand = (idx: number) => {
+  const removeEngineBrand = async (idx: number) => {
+    const row = section.engineBrands[idx];
+    const label = row ? engineBrandOptions.find((o) => o.id === row.engineBrandId)?.label ?? row.engineBrandId : '';
+    const ok = await confirm({
+      detail: `Будет удалена строка марки двигателя в разделе «${title}»${label ? ` (марка «${label}»)` : ''}.`,
+    });
+    if (!ok) return;
     const next = section.engineBrands.filter((_, i) => i !== idx);
     update({ engineBrands: next });
   };
@@ -357,7 +365,13 @@ function SectionBlock(props: {
     update({ parts: [...section.parts, next] });
   };
 
-  const removePart = (idx: number) => {
+  const removePart = async (idx: number) => {
+    const row = section.parts[idx];
+    const label = row ? partOptions.find((o) => o.id === row.partId)?.label ?? row.partId : '';
+    const ok = await confirm({
+      detail: `Будет удалена строка детали в разделе «${title}»${label ? ` (деталь «${label}»)` : ''}.`,
+    });
+    if (!ok) return;
     const next = section.parts.filter((_, i) => i !== idx);
     update({ parts: next });
   };
@@ -381,7 +395,18 @@ function SectionBlock(props: {
       style={{ borderRadius: 0, padding: 16, minWidth: 0, overflow: 'hidden' }}
       actions={
         onRemove && canEdit ? (
-          <Button variant="ghost" tone="danger" size="sm" onClick={onRemove}>
+          <Button
+            variant="ghost"
+            tone="danger"
+            size="sm"
+            onClick={() => {
+              void (async () => {
+                const ok = await confirm({ detail: `Будет удалено дополнительное соглашение «${title}» из карточки контракта.` });
+                if (!ok) return;
+                onRemove();
+              })();
+            }}
+          >
             Удалить ДС
           </Button>
         ) : undefined
@@ -546,7 +571,7 @@ function SectionBlock(props: {
                               onMoveUp={() => moveEngineBrand(idx, idx - 1)}
                               onMoveDown={() => moveEngineBrand(idx, idx + 1)}
                             />
-                            <Button variant="ghost" tone="danger" size="sm" onClick={() => removeEngineBrand(idx)}>
+                            <Button variant="ghost" tone="danger" size="sm" onClick={() => void removeEngineBrand(idx)}>
                               ×
                             </Button>
                           </div>
@@ -653,7 +678,7 @@ function SectionBlock(props: {
                               onMoveUp={() => movePart(idx, idx - 1)}
                               onMoveDown={() => movePart(idx, idx + 1)}
                             />
-                            <Button variant="ghost" tone="danger" size="sm" onClick={() => removePart(idx)}>
+                            <Button variant="ghost" tone="danger" size="sm" onClick={() => void removePart(idx)}>
                               ×
                             </Button>
                           </div>
@@ -1058,7 +1083,6 @@ export function ContractDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canEditMasterData) return;
-    if (!confirm('Удалить контракт?')) return;
     try {
       setStatus('Удаление…');
       const r = await window.matrica.admin.entities.softDelete(props.contractId);
@@ -1250,6 +1274,7 @@ export function ContractDetailsPage(props: {
             })();
           }}
           onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалён контракт №${String(sections?.primary.number ?? '').trim() || props.contractId}. Действие обычно нельзя отменить.`}
           onClose={() => props.requestClose?.()}
         />
       }

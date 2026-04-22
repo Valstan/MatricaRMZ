@@ -13,7 +13,7 @@ export function ToolsPage(props: {
   return (
     <NomenclatureDirectoryPage
       onOpen={props.onOpen}
-      onOpenNomenclatureCatalog={props.onOpenNomenclatureCatalog}
+      {...(props.onOpenNomenclatureCatalog ? { onOpenNomenclatureCatalog: props.onOpenNomenclatureCatalog } : {})}
       canCreate={props.canCreate}
       {...TOOLS_PRESET}
       secondaryAction={

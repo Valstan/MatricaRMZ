@@ -13,7 +13,7 @@ export function ServicesPage(props: {
   return (
     <NomenclatureDirectoryPage
       onOpen={props.onOpen}
-      onOpenNomenclatureCatalog={props.onOpenNomenclatureCatalog}
+      {...(props.onOpenNomenclatureCatalog ? { onOpenNomenclatureCatalog: props.onOpenNomenclatureCatalog } : {})}
       canCreate={props.canCreate}
       canView={props.canViewMasterData}
       noAccessText="Недостаточно прав для просмотра услуг."

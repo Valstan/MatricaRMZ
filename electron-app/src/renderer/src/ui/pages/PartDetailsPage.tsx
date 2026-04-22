@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -206,6 +207,7 @@ export function PartDetailsPage(props: {
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
+  const { confirm } = useConfirm();
   const [part, setPart] = useState<Part | null>(null);
   const [status, setStatus] = useState<string>('');
   const [editingAttr, setEditingAttr] = useState<Record<string, unknown>>({});
@@ -503,7 +505,11 @@ export function PartDetailsPage(props: {
 
   async function deleteBrandLink(linkId: string) {
     if (!props.canEdit) return;
-    const ok = confirm('Удалить связь с маркой двигателя?');
+    const row = brandLinks.find((x) => x.id === linkId);
+    const brandLabel = row?.engineBrandId ? engineBrandOptions.find((o) => o.id === row.engineBrandId)?.label ?? row.engineBrandId : '';
+    const ok = await confirm({
+      detail: `Будет удалена связь детали с маркой двигателя${brandLabel ? ` «${brandLabel}»` : ''}${row?.assemblyUnitNumber?.trim() ? ` (узел ${row.assemblyUnitNumber.trim()})` : ''}.`,
+    });
     if (!ok) return;
     const affectedBrandId = String(brandLinks.find((x) => x.id === linkId)?.engineBrandId || '').trim();
     const result = await queueBrandLinkOperation({
@@ -1753,7 +1759,6 @@ export function PartDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canDelete) return;
-    if (!confirm('Удалить деталь?')) return;
     try {
       setStatus('Удаление…');
       const r = await window.matrica.parts.delete(props.partId);
@@ -2242,6 +2247,7 @@ export function PartDetailsPage(props: {
           onReset={props.canEdit ? () => void load().then(() => { dirtyRef.current = false; }) : undefined}
           onPrint={printPartCard}
           onDelete={props.canDelete ? () => void handleDelete() : undefined}
+          deleteConfirmDetail={`Будет удалена деталь «${name.trim() || props.partId}»${article.trim() ? ` (арт. ${article.trim()})` : ''}.`}
           onClose={props.requestClose ? () => props.requestClose?.() : undefined}
         />
       }
@@ -2334,8 +2340,14 @@ export function PartDetailsPage(props: {
                       variant="ghost"
                       tone="danger"
                       onClick={() => {
-                        dirtyRef.current = true;
-                        setDimensions((prev) => prev.filter((item) => item.id !== row.id));
+                        void (async () => {
+                          const ok = await confirm({
+                            detail: `Будет удалена пара размеров «${row.name.trim() || 'без названия'}» = «${String(row.value).trim() || '—'}» в карточке детали.`,
+                          });
+                          if (!ok) return;
+                          dirtyRef.current = true;
+                          setDimensions((prev) => prev.filter((item) => item.id !== row.id));
+                        })();
                       }}
                     >
                       Удалить

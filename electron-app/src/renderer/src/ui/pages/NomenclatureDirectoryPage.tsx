@@ -4,7 +4,7 @@ import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, typ
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
-import { buildNomenclatureCode } from '../utils/nomenclatureCode.js';
+import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
 
 type CreateConfig = {
   codePrefix: string;
@@ -68,39 +68,6 @@ export function NomenclatureDirectoryPage(props: {
       text.includes('группа номенклатуры') ||
       text.includes('единица измерения')
     );
-  }
-
-  async function createSourceEntityForDirectoryKind(kind: string, label: string): Promise<string | null> {
-    const normalizedKind = String(kind ?? '').trim().toLowerCase();
-    if (!normalizedKind) return null;
-    const typeCandidates: Record<string, string[]> = {
-      part: ['part'],
-      tool: ['tool'],
-      good: ['good', 'product'],
-      service: ['service'],
-      engine_brand: ['engine_brand'],
-    };
-    const candidates = typeCandidates[normalizedKind] ?? [normalizedKind];
-    const typeList = await window.matrica.admin.entityTypes.list();
-    if (!typeList?.ok || !Array.isArray(typeList.types)) return null;
-    const found = candidates
-      .map((code) =>
-        (typeList.types as Array<Record<string, unknown>>).find(
-          (row) => String(row.code ?? '').trim().toLowerCase() === code,
-        ),
-      )
-      .find(Boolean) as Record<string, unknown> | undefined;
-    const typeId = String(found?.id ?? '').trim();
-    if (!typeId) return null;
-    const created = await window.matrica.admin.entities.create(typeId);
-    if (!created?.ok || !created.id) return null;
-    const entityId = String(created.id);
-    const trimmedLabel = String(label ?? '').trim() || 'Новая позиция';
-    for (const attrCode of ['name', 'title', 'label']) {
-      const setRes = await window.matrica.admin.entities.setAttr(entityId, attrCode, trimmedLabel);
-      if (setRes?.ok) break;
-    }
-    return entityId;
   }
 
   function parsePriceFromSpec(specJson: string | null | undefined): number | null {
@@ -318,92 +285,23 @@ export function NomenclatureDirectoryPage(props: {
         {props.canCreate ? (
           <Button
             onClick={async () => {
-              if (props.directoryKind === 'part') {
-                const createdPart = await window.matrica.parts.create({
-                  attributes: {
-                    code: buildNomenclatureCode(props.createConfig.codePrefix),
-                    name: props.createConfig.name,
-                  },
-                });
-                if (!createdPart?.ok || !createdPart.part?.id) {
-                  const duplicateMatch = String(createdPart && 'error' in createdPart ? createdPart.error ?? '' : '').match(
-                    /duplicate part exists:\s*([0-9a-f-]{36})/i,
-                  );
-                  if (duplicateMatch?.[1]) {
-                    const existingId = String(duplicateMatch[1]);
-                    await refresh();
-                    await props.onOpen(existingId);
-                    setStatus(`Деталь уже существовала, открыта существующая карточка (${existingId.slice(0, 8)}...).`);
-                    return;
-                  }
-                  setStatus(`Ошибка: ${String(createdPart && 'error' in createdPart ? createdPart.error : 'не удалось создать деталь')}`);
+              const r = await createNomenclatureLineFromPreset({
+                directoryKind: props.directoryKind,
+                createConfig: props.createConfig,
+                displayName: props.createConfig.name,
+              });
+              if (!r.ok) {
+                if ('duplicatePartId' in r) {
+                  await refresh();
+                  await props.onOpen(r.duplicatePartId);
+                  setStatus(`Деталь уже существовала, открыта существующая карточка (${r.duplicatePartId.slice(0, 8)}...).`);
                   return;
                 }
-                await refresh();
-                await props.onOpen(String(createdPart.part.id));
-                return;
-              }
-              const sourceId = await createSourceEntityForDirectoryKind(props.directoryKind, props.createConfig.name);
-              if (!sourceId) {
-                setStatus(`Ошибка: не удалось создать карточку источника для "${props.directoryKind}".`);
-                return;
-              }
-              const lookups = await window.matrica.warehouse.lookupsGet();
-              if (!lookups?.ok) {
-                setStatus(`Ошибка: ${String(lookups?.error ?? 'не удалось загрузить справочники')}`);
-                return;
-              }
-              const groupId = String(lookups.lookups?.nomenclatureGroups?.[0]?.id ?? '').trim();
-              const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
-              if (!groupId || !unitId) {
-                setStatus('Ошибка: не найдены группа номенклатуры или единица измерения по умолчанию.');
-                return;
-              }
-              const templatesRes = await window.matrica.warehouse.nomenclatureTemplatesList();
-              if (!templatesRes?.ok) {
-                setStatus(`Ошибка: ${String(templatesRes?.error ?? 'не удалось загрузить шаблоны номенклатуры')}`);
-                return;
-              }
-              const templates = (templatesRes.rows ?? []).map((row) => ({
-                id: String((row as { id?: string }).id ?? ''),
-                itemTypeCode: String((row as { itemTypeCode?: string }).itemTypeCode ?? '').trim().toLowerCase(),
-                directoryKind: String((row as { directoryKind?: string }).directoryKind ?? '').trim().toLowerCase(),
-              }));
-              const itemTypeCode = String(props.createConfig.itemType ?? '').trim().toLowerCase();
-              const directoryKind = String(props.directoryKind ?? '').trim().toLowerCase();
-              const bestTemplate =
-                templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && t.directoryKind === directoryKind) ??
-                templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && !t.directoryKind) ??
-                templates.find((t) => t.id && !t.itemTypeCode && (t.directoryKind === directoryKind || !t.directoryKind)) ??
-                null;
-              if (!bestTemplate?.id) {
-                setStatus(
-                  `Ошибка: не найден шаблон номенклатуры для типа "${itemTypeCode}" и источника "${directoryKind}". Требуется настроить шаблон перед созданием.`,
-                );
-                return;
-              }
-              const created = await window.matrica.warehouse.nomenclatureUpsert({
-                code: buildNomenclatureCode(props.createConfig.codePrefix),
-                name: props.createConfig.name,
-                itemType: props.createConfig.itemType,
-                category: props.createConfig.category,
-                directoryKind: props.directoryKind,
-                directoryRefId: sourceId,
-                groupId,
-                unitId,
-                specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
-                isActive: true,
-              });
-              if (!created?.ok) {
-                setStatus(`Ошибка: ${String(created.error ?? 'не удалось создать')}`);
-                return;
-              }
-              if (!created.id) {
-                setStatus('Ошибка: не удалось создать');
+                setStatus(`Ошибка: ${r.error}`);
                 return;
               }
               await refresh();
-              await props.onOpen(String(created.id));
+              await props.onOpen(r.mode === 'part' ? r.partId : r.nomenclatureId);
             }}
           >
             {props.createButtonText}

@@ -27,7 +27,16 @@ export function PartTemplatesPage(props: {
   const [pageIndex, setPageIndex] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
   const queryTimer = useRef<number | null>(null);
+  const createNameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!createModalOpen) return;
+    const t = window.setTimeout(() => createNameInputRef.current?.focus(), 50);
+    return () => window.clearTimeout(t);
+  }, [createModalOpen]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -101,27 +110,103 @@ export function PartTemplatesPage(props: {
     return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
   }
 
+  async function submitNewTemplate() {
+    const name = newTemplateName.trim();
+    if (!name) return;
+    try {
+      setStatus('Создание детали...');
+      const created = await window.matrica.parts.templates.create({ attributes: { name } });
+      if (!created.ok || !created.template?.id) {
+        setStatus(`Ошибка: ${!created.ok ? created.error : 'Не удалось создать деталь'}`);
+        return;
+      }
+      setStatus('');
+      setCreateModalOpen(false);
+      setNewTemplateName('');
+      await load({ silent: true });
+      await props.onOpen(created.template.id);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {createModalOpen ? (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: 16,
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setCreateModalOpen(false);
+              setNewTemplateName('');
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="part-template-create-title"
+            style={{
+              width: 'min(440px, 100%)',
+              borderRadius: 12,
+              background: '#fff',
+              padding: 16,
+              boxShadow: '0 24px 64px rgba(2, 6, 23, 0.35)',
+              border: '1px solid #e5e7eb',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div id="part-template-create-title" style={{ fontWeight: 700, marginBottom: 10, fontSize: 16, color: '#111827' }}>
+              Новый шаблон детали
+            </div>
+            <Input
+              ref={createNameInputRef}
+              value={newTemplateName}
+              onChange={(e) => setNewTemplateName(e.target.value)}
+              placeholder="Название детали"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setCreateModalOpen(false);
+                  setNewTemplateName('');
+                }
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void submitNewTemplate();
+                }
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCreateModalOpen(false);
+                  setNewTemplateName('');
+                }}
+              >
+                Отмена
+              </Button>
+              <Button variant="primary" onClick={() => void submitNewTemplate()} disabled={!newTemplateName.trim()}>
+                Создать
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {props.canCreate ? (
           <Button
-            onClick={async () => {
-              const name = prompt('Название детали')?.trim() ?? '';
-              if (!name) return;
-              try {
-                setStatus('Создание детали...');
-                const created = await window.matrica.parts.templates.create({ attributes: { name } });
-                if (!created.ok || !created.template?.id) {
-                  setStatus(`Ошибка: ${!created.ok ? created.error : 'Не удалось создать деталь'}`);
-                  return;
-                }
-                setStatus('');
-                await load({ silent: true });
-                await props.onOpen(created.template.id);
-              } catch (e) {
-                setStatus(`Ошибка: ${String(e)}`);
-              }
+            onClick={() => {
+              setNewTemplateName('');
+              setCreateModalOpen(true);
             }}
           >
             Создать новый шаблон детали

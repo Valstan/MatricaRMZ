@@ -116,7 +116,7 @@ function resolveShortcutTile(shortcutId: string, reportPresets?: Array<{ id: str
   }
   const reportMatch = /^report:(.+)$/i.exec(normalized);
   if (reportMatch) {
-    const presetId = reportMatch[1].trim();
+    const presetId = String(reportMatch[1] ?? '').trim();
     if (!presetId) return null;
     const preset = reportPresets?.find((p) => p.id === presetId);
     const title = (preset?.title ?? '').trim() || `Отчёт (${presetId})`;

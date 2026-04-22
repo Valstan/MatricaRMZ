@@ -281,7 +281,10 @@ export function StockBalancesPage(props: {
                     }
                     onClick={() => setSelectedRowId(row.id)}
                   >
-                    <td>{row.warehouseName || row.warehouseId || 'Основной склад'}</td>
+                    <td>
+                      {row.warehouseName ||
+                        (String(row.warehouseId ?? '') === 'default' ? 'Склад по умолчанию' : row.warehouseId || '—')}
+                    </td>
                     <td>{row.nomenclatureCode || '—'}</td>
                     <td>
                       {row.nomenclatureId ? (

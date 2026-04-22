@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { canActByPosition, canSignAsDepartmentHead } from '@matricarmz/shared';
-import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload } from '@matricarmz/shared';
+import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -15,13 +15,28 @@ import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type Attribu
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch, mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import {
+  labelForSupplyRequestCreateKind,
+  SUPPLY_REQUEST_LINE_CREATE_PRESETS,
+} from './nomenclatureDirectoryPresets.js';
 
 type LinkOpt = SearchSelectOption;
-type ProductOption = LinkOpt & { unit?: string; name: string; kind: 'product' | 'service' };
+
+/** Ссылка на строку складской номенклатуры, карточку детали или устаревшие сущности product/service. */
+type ProductRefKind = 'nomenclature' | 'part' | 'legacy_product_entity' | 'legacy_service_entity';
+
+type ProductOption = LinkOpt & {
+  name: string;
+  unit: string;
+  refKind: ProductRefKind;
+  directoryKind?: string | null;
+};
 
 const UI_TYPE_CODE = 'ui_supply_request';
 
@@ -240,10 +255,13 @@ export function SupplyRequestDetailsPage(props: {
   userDepartmentId?: string | null;
   onOpenProduct?: (productId: string) => void;
   onOpenService?: (serviceId: string) => void;
+  onOpenNomenclature?: (nomenclatureId: string) => void;
+  onOpenPart?: (partId: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
+  const { confirm: confirmModal, pickChoice } = useConfirm();
   const [payload, setPayload] = useState<SupplyRequestPayload | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('');
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
@@ -317,25 +335,57 @@ export function SupplyRequestDetailsPage(props: {
     }
     await loadType('department', 'departmentId');
 
-    // Product suggestions (master-data)
+    const items: ProductOption[] = [];
+
+    const nomKinds = ['part', 'tool', 'good', 'service'] as const;
+    for (const dk of nomKinds) {
+      const res = await window.matrica.warehouse.nomenclatureList({ directoryKind: dk, limit: 3000 });
+      if (!res?.ok) continue;
+      for (const row of res.rows ?? []) {
+        const wr = row as WarehouseNomenclatureListItem;
+        const name = String(wr.name ?? '').trim();
+        if (!name) continue;
+        const id = String(wr.id ?? '').trim();
+        if (!id) continue;
+        const unit = String(wr.unitName ?? '').trim();
+        const dkNorm = String(wr.directoryKind ?? dk).trim().toLowerCase();
+        const kindLabel = labelForSupplyRequestCreateKind(dkNorm);
+        const label = dkNorm === 'service' ? `${name} (услуга)` : name;
+        items.push({
+          ...buildSearchOption({
+            id,
+            label,
+            hintText: joinOptionHint([kindLabel, unit && `Ед. ${unit}`]),
+            searchText: joinOptionSearch([name, id, dkNorm, unit, kindLabel, 'услуга', 'товар', 'деталь', 'инструмент', wr.code ?? '']),
+          }),
+          name,
+          unit,
+          refKind: 'nomenclature',
+          directoryKind: dkNorm,
+        });
+      }
+    }
+
     const productTid = typeIdByCodeMap.get('product');
     const serviceTid = typeIdByCodeMap.get('service');
-    const items: ProductOption[] = [];
     if (productTid) {
       const rows = await window.matrica.admin.entities.listByEntityType(productTid);
       rows.forEach((r: any) => {
         const name = String(r.displayName ?? '').trim();
         if (!name) return;
+        const id = String(r.id);
+        if (items.some((x) => x.id === id)) return;
         items.push({
           ...buildSearchOption({
-            id: String(r.id),
-            label: name,
-            hintText: 'Товар',
-            searchText: joinOptionSearch([name, r.id, r.searchText]),
+            id,
+            label: `${name} (справочник: товар)`,
+            hintText: 'Устаревшая сущность product',
+            searchText: joinOptionSearch([name, r.id, r.searchText, 'product', 'товар']),
           }),
           name,
           unit: '',
-          kind: 'product',
+          refKind: 'legacy_product_entity',
+          directoryKind: null,
         });
       });
     }
@@ -344,19 +394,49 @@ export function SupplyRequestDetailsPage(props: {
       rows.forEach((r: any) => {
         const name = String(r.displayName ?? '').trim();
         if (!name) return;
+        const id = String(r.id);
+        if (items.some((x) => x.id === id)) return;
         items.push({
           ...buildSearchOption({
-            id: String(r.id),
-            label: `${name} (услуга)`,
-            hintText: 'Услуга',
-            searchText: joinOptionSearch([name, r.id, r.searchText, 'услуга']),
+            id,
+            label: `${name} (услуга, справочник)`,
+            hintText: 'Устаревшая сущность service',
+            searchText: joinOptionSearch([name, r.id, r.searchText, 'услуга', 'service']),
           }),
           name,
           unit: '',
-          kind: 'service',
+          refKind: 'legacy_service_entity',
+          directoryKind: null,
         });
       });
     }
+
+    const knownIds = new Set(items.map((x) => x.id));
+    for (const it of payloadRef.current?.items ?? []) {
+      const pid = it.productId ? String(it.productId).trim() : '';
+      if (!pid || knownIds.has(pid)) continue;
+      const pr = await window.matrica.parts.get(pid);
+      if (!pr?.ok || !pr.part?.id) continue;
+      knownIds.add(pid);
+      const attrs = pr.part.attributes ?? [];
+      const nameAttr = attrs.find((a) => String(a.code ?? '').trim().toLowerCase() === 'name');
+      const partName = String(nameAttr?.value ?? '').trim() || `Деталь ${pid.slice(0, 8)}…`;
+      const unitAttr = attrs.find((a) => String(a.code ?? '').trim().toLowerCase() === 'unit');
+      const unit = String(unitAttr?.value ?? '').trim();
+      items.push({
+        ...buildSearchOption({
+          id: pid,
+          label: partName,
+          hintText: joinOptionHint(['Деталь (карточка детали)', unit && `Ед. ${unit}`]),
+          searchText: joinOptionSearch([partName, pid, 'part', 'деталь', unit]),
+        }),
+        name: partName,
+        unit,
+        refKind: 'part',
+        directoryKind: 'part',
+      });
+    }
+
     items.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
     setProductOptions(items);
 
@@ -411,13 +491,39 @@ export function SupplyRequestDetailsPage(props: {
     const opt = productOptions.find((p) => p.id === optionId);
     if (!opt || (opt.unit && opt.unit.trim())) return opt;
     try {
-      const details = await window.matrica.admin.entities.get(optionId);
-      const unit = String(details?.attributes?.unit ?? '').trim();
+      let unit = '';
+      let dkForLabel = String(opt.directoryKind ?? '').trim().toLowerCase();
+
+      if (opt.refKind === 'nomenclature') {
+        const res = await window.matrica.warehouse.nomenclatureList({ id: optionId, limit: 1 });
+        if (res?.ok && res.rows?.[0]) {
+          const row = res.rows[0] as WarehouseNomenclatureListItem;
+          unit = String(row.unitName ?? '').trim();
+          dkForLabel = String(row.directoryKind ?? dkForLabel).trim().toLowerCase();
+        }
+      } else if (opt.refKind === 'part') {
+        const pr = await window.matrica.parts.get(optionId);
+        if (pr?.ok && pr.part?.attributes) {
+          const unitAttr = pr.part.attributes.find((a) => String(a.code ?? '').trim().toLowerCase() === 'unit');
+          unit = String(unitAttr?.value ?? '').trim();
+        }
+      } else if (opt.refKind === 'legacy_product_entity' || opt.refKind === 'legacy_service_entity') {
+        const details = await window.matrica.admin.entities.get(optionId);
+        unit = String((details as { attributes?: { unit?: string } })?.attributes?.unit ?? '').trim();
+      }
+
       if (!unit) return opt;
+
+      const kindLabel =
+        opt.refKind === 'legacy_service_entity'
+          ? 'Услуга (справочник)'
+          : opt.refKind === 'legacy_product_entity'
+            ? 'Товар (справочник)'
+            : labelForSupplyRequestCreateKind(dkForLabel);
       const nextOptions = productOptions.map((p) => {
         if (p.id !== optionId) return p;
-        const hintText = joinOptionHint([p.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]);
-        const searchText = joinOptionSearch([p.name, p.id, p.kind, unit]);
+        const hintText = joinOptionHint([kindLabel, unit && `Ед. ${unit}`]);
+        const searchText = joinOptionSearch([p.name, p.id, p.refKind, dkForLabel, unit]);
         return {
           ...p,
           unit,
@@ -426,8 +532,8 @@ export function SupplyRequestDetailsPage(props: {
         };
       });
       setProductOptions(nextOptions);
-      const hintText = joinOptionHint([opt.kind === 'service' ? 'Услуга' : 'Товар', unit && `Ед. ${unit}`]);
-      const searchText = joinOptionSearch([opt.name, opt.id, opt.kind, unit]);
+      const hintText = joinOptionHint([kindLabel, unit && `Ед. ${unit}`]);
+      const searchText = joinOptionSearch([opt.name, opt.id, opt.refKind, dkForLabel, unit]);
       return {
         ...opt,
         unit,
@@ -509,6 +615,19 @@ export function SupplyRequestDetailsPage(props: {
     replaceRequestItems(items, { rowKeys });
   }
 
+  async function confirmRemoveRequestItem(index: number) {
+    const currentPayload = payloadRef.current;
+    if (!currentPayload) return;
+    const cur = currentPayload.items?.[index];
+    const lineNo = cur?.lineNo ?? index + 1;
+    const label = (cur?.name?.trim() || cur?.productId || 'без названия').slice(0, 160);
+    const ok = await confirmModal({
+      detail: `Будет удалена строка №${lineNo} из заявки №${String(currentPayload.requestNumber ?? '').trim() || props.id}: «${label}».`,
+    });
+    if (!ok) return;
+    removeRequestItem(index);
+  }
+
   function moveDelivery(itemIndex: number, from: number, to: number) {
     const currentPayload = payloadRef.current;
     if (!currentPayload) return;
@@ -544,7 +663,6 @@ export function SupplyRequestDetailsPage(props: {
   }
 
   async function handleDelete() {
-    if (!confirm('Удалить заявку?')) return;
     try {
       setSaveStatus('Удаление…');
       const r = await window.matrica.supplyRequests.delete(props.id);
@@ -813,6 +931,7 @@ export function SupplyRequestDetailsPage(props: {
             });
           }}
           onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалена заявка на закупку №${String(payload.requestNumber ?? '').trim() || props.id}${payload.title?.trim() ? ` — «${payload.title.trim()}»` : ''}.`}
           onClose={() => props.requestClose?.()}
           onPrint={() => printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows)}
           deleteLabel="Удалить заявку"
@@ -976,11 +1095,16 @@ export function SupplyRequestDetailsPage(props: {
                 const delivered = sumDelivered(it.deliveries);
                 const remaining = Math.max(0, (Number(it.qty) || 0) - delivered);
                 const linkedProduct = productOptions.find((p) => p.id === it.productId);
-                const onOpenItem = linkedProduct?.kind === 'service'
-                  ? props.onOpenService
-                  : linkedProduct?.kind === 'product'
-                    ? props.onOpenProduct
-                    : null;
+                const onOpenItem =
+                  linkedProduct?.refKind === 'nomenclature'
+                    ? props.onOpenNomenclature
+                    : linkedProduct?.refKind === 'part'
+                      ? props.onOpenPart
+                      : linkedProduct?.refKind === 'legacy_service_entity'
+                        ? props.onOpenService
+                        : linkedProduct?.refKind === 'legacy_product_entity'
+                          ? props.onOpenProduct
+                          : null;
                 return (
                   <React.Fragment key={itemRowKeysRef.current[idx] ?? `supply-request-item-${idx}`}>
                     <tr
@@ -1020,7 +1144,7 @@ export function SupplyRequestDetailsPage(props: {
                             options={productOptions}
                             disabled={!props.canEdit}
                             canCreate={props.canEditMasterData}
-                            createLabel="Добавить товар или услугу"
+                            createLabel="Создать позицию (деталь, инструмент, товар, услуга…)"
                             onChange={(next) => {
                               const selected = productOptions.find((p) => p.id === next);
                               updateRequestItem(idx, (current) => ({
@@ -1044,25 +1168,44 @@ export function SupplyRequestDetailsPage(props: {
                             onCreate={async (label) => {
                               const name = label.trim();
                               if (!name) return null;
-                              const isService = confirm('Создать как услугу? (OK = услуга, Отмена = товар)');
-                              const typeCode = isService ? 'service' : 'product';
-                              const id = await createMasterDataItem(typeCode, name);
-                              if (!id) return null;
-                              setProductOptions((current) => {
-                                const createdOption: ProductOption = {
-                                  ...buildSearchOption({
-                                    id,
-                                    label: isService ? `${name} (услуга)` : name,
-                                    hintText: isService ? 'Услуга' : 'Товар',
-                                    searchText: joinOptionSearch([name, id, isService ? 'service' : 'product']),
-                                  }),
-                                  name,
-                                  unit: '',
-                                  kind: isService ? 'service' : 'product',
-                                };
-                                const withoutDuplicate = current.filter((option) => option.id !== id);
-                                return [...withoutDuplicate, createdOption].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+                              const choice = await pickChoice({
+                                title: 'Выберите, что создать',
+                                detail: `Наименование: ${name}`,
+                                choices: SUPPLY_REQUEST_LINE_CREATE_PRESETS.map((preset) => ({
+                                  id: preset.directoryKind,
+                                  label: labelForSupplyRequestCreateKind(preset.directoryKind),
+                                })),
                               });
+                              if (!choice) return null;
+                              const preset = SUPPLY_REQUEST_LINE_CREATE_PRESETS.find((p) => p.directoryKind === choice);
+                              if (!preset) return null;
+                              const r = await createNomenclatureLineFromPreset({
+                                directoryKind: preset.directoryKind,
+                                createConfig: preset.createConfig,
+                                displayName: name,
+                              });
+                              if (!r.ok) {
+                                if ('duplicatePartId' in r) {
+                                  setSaveStatus(r.message);
+                                  await loadLinkLists();
+                                  const pr = await window.matrica.parts.get(r.duplicatePartId);
+                                  const attrs = pr?.ok && pr.part?.attributes ? pr.part.attributes : [];
+                                  const nameAttr = attrs.find((a) => String(a.code ?? '').trim().toLowerCase() === 'name');
+                                  const partName = String(nameAttr?.value ?? '').trim() || name;
+                                  updateRequestItem(idx, (current) => ({
+                                    ...current,
+                                    productId: r.duplicatePartId,
+                                    name: partName,
+                                    unit: current.unit ?? '',
+                                  }));
+                                  void props.onOpenPart?.(r.duplicatePartId);
+                                  return r.duplicatePartId;
+                                }
+                                setSaveStatus(`Ошибка: ${r.error}`);
+                                return null;
+                              }
+                              const id = r.mode === 'part' ? r.partId : r.nomenclatureId;
+                              await loadLinkLists();
                               updateRequestItem(idx, (current) => ({
                                 ...current,
                                 productId: id,
@@ -1176,7 +1319,7 @@ export function SupplyRequestDetailsPage(props: {
                               variant="ghost"
                               size="sm"
                               onClick={() => {
-                                removeRequestItem(idx);
+                                void confirmRemoveRequestItem(idx);
                               }}
                             >
                               Удалить
@@ -1278,12 +1421,18 @@ export function SupplyRequestDetailsPage(props: {
                                   <Button
                                     variant="ghost"
                                     onClick={() => {
-                                      const items = [...(payload.items ?? [])];
-                                      const cur = ensureItem(items[idx], idx + 1);
-                                      const deliveries = [...(cur.deliveries ?? [])];
-                                      deliveries.splice(di, 1);
-                                      items[idx] = { ...cur, deliveries };
-                                      scheduleSave({ ...payload, items });
+                                      void (async () => {
+                                        const ok = await confirmModal({
+                                          detail: `Будет удалена запись фактической поставки №${di + 1} по строке заявки №${it.lineNo ?? idx + 1} («${(it.name ?? '').trim() || 'без названия'}»).`,
+                                        });
+                                        if (!ok) return;
+                                        const items = [...(payload.items ?? [])];
+                                        const cur = ensureItem(items[idx], idx + 1);
+                                        const deliveries = [...(cur.deliveries ?? [])];
+                                        deliveries.splice(di, 1);
+                                        items[idx] = { ...cur, deliveries };
+                                        scheduleSave({ ...payload, items });
+                                      })();
                                     }}
                                   >
                                     Удалить

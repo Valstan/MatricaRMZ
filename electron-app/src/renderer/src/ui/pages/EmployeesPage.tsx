@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatEmploymentStatusAttrForUi } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
@@ -55,6 +56,7 @@ function formatAccessRole(role: string | null | undefined) {
 }
 
 export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean; refreshKey?: number }) {
+  const { confirm } = useConfirm();
   const { state: listState, patchState } = useListUiState('list:employees', {
     query: '',
     sortKey: 'updatedAt' as SortKey,
@@ -251,7 +253,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       selectedManyLabel: 'выделенных сотрудников',
       singleLabel: 'сотрудника',
     });
-    if (!confirm(message)) return;
+    const ok = await confirm({ detail: `${message}\n\nЭто действие обычно нельзя отменить.` });
+    if (!ok) return;
     let failed = 0;
     for (const id of ids) {
       const r = await window.matrica.employees.delete(id);
@@ -266,7 +269,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     );
     selection.clearSelection();
     await refresh();
-  }, [props.canDelete, refresh, selection]);
+  }, [confirm, props.canDelete, refresh, selection]);
 
   function renderTable(items: Row[]) {
     return (

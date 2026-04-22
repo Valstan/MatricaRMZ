@@ -327,7 +327,6 @@ export function EngineDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canEditEngines) return;
-    if (!confirm('Удалить двигатель?')) return;
     try {
       setSaveStatus('Удаление…');
       const r = await window.matrica.engines.delete(props.engineId);
@@ -718,6 +717,7 @@ export function EngineDetailsPage(props: {
           }}
           onPrint={props.canPrintEngineCard ? handlePrint : undefined}
           onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалён двигатель «${String(engineNumber || '').trim() || props.engineId}» (марка: ${String(engineBrand || '—').trim()}). Действие обычно нельзя отменить.`}
           onClose={() => props.requestClose?.()}
         />
       }

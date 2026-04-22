@@ -168,7 +168,6 @@ export function CounterpartyDetailsPage(props: {
 
   async function handleDelete() {
     if (!props.canEdit) return;
-    if (!confirm('Удалить контрагента?')) return;
     try {
       setStatus('Удаление…');
       const r = await window.matrica.admin.entities.softDelete(props.counterpartyId);
@@ -296,6 +295,7 @@ export function CounterpartyDetailsPage(props: {
             });
           }}
           onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалён контрагент «${name.trim() || props.counterpartyId}»${inn.trim() ? ` (ИНН ${inn.trim()})` : ''}.`}
           onClose={() => props.requestClose?.()}
         />
       </div>

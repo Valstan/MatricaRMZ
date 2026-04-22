@@ -52,19 +52,19 @@ async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<st
 async function loadWarehouseIdToLabelMap(): Promise<Map<string, string>> {
   try {
     const res = await listWarehouseLookups();
-    if (!res.ok) return new Map([['default', 'Основной склад']]);
+    if (!res.ok) return new Map([['default', 'Склад по умолчанию']]);
     const m = new Map<string, string>();
     for (const w of res.lookups.warehouses) {
       const id = String(w.id ?? '').trim();
       if (!id) continue;
       let lab = String(w.label ?? '').trim();
-      if (!lab || isUuidLike(lab)) lab = id === 'default' ? 'Основной склад' : 'Склад';
+      if (!lab || isUuidLike(lab)) lab = id === 'default' ? 'Склад по умолчанию' : 'Склад';
       m.set(id, lab);
     }
-    if (!m.has('default')) m.set('default', 'Основной склад');
+    if (!m.has('default')) m.set('default', 'Склад по умолчанию');
     return m;
   } catch {
-    return new Map([['default', 'Основной склад']]);
+    return new Map([['default', 'Склад по умолчанию']]);
   }
 }
 
@@ -83,7 +83,7 @@ async function loadNomenclatureWarehouseBins(
     if (avail <= 0) continue;
     let label = warehouseLabels.get(wh) ?? '';
     if (!label.trim() || isUuidLike(label)) {
-      label = wh === 'default' ? 'Основной склад' : 'Склад';
+      label = wh === 'default' ? 'Склад по умолчанию' : 'Склад';
     }
     const arr = detail.get(nid) ?? [];
     arr.push({ warehouseId: wh, warehouseLabel: label, qty: avail });

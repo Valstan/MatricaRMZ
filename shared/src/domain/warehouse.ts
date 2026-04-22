@@ -294,6 +294,7 @@ export type WarehouseNomenclatureProperty = {
   description?: string | null;
 };
 
+/** Элемент массива `properties_json` шаблона: ссылка на сущность `nomenclature_property` по `id`; значения в карточке — в `specJson.propertyValues[propertyId]`. */
 export type WarehouseNomenclatureTemplateProperty = {
   propertyId: string;
   required?: boolean;

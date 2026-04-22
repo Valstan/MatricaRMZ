@@ -3,6 +3,7 @@ import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocum
 import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -103,6 +104,7 @@ export function StockDocumentDetailsPage(props: {
   canCreateParts?: boolean;
   onClose: () => void;
 }) {
+  const { confirm } = useConfirm();
   const { lookups, nomenclature, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData({ loadNomenclature: true });
   const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:stock-doc-recents:${props.id}`, 8);
   const [status, setStatus] = useState('');
@@ -757,7 +759,19 @@ export function StockDocumentDetailsPage(props: {
                           />
                           <Button
                             variant="ghost"
-                            onClick={() => setLines((prev) => normalizeLineOrder(prev.filter((_, lineIndex) => lineIndex !== idx)))}
+                            onClick={() => {
+                              void (async () => {
+                                const line = lines[idx];
+                                const nom = line?.nomenclatureId
+                                  ? nomenclature.find((n) => n.id === line.nomenclatureId)?.name ?? line.nomenclatureId
+                                  : '';
+                                const ok = await confirm({
+                                  detail: `Будет удалена строка №${line?.lineNo ?? idx + 1} документа «${warehouseDocTypeLabel(docType)}» №${docNo.trim() || props.id}${nom ? ` (номенклатура: «${nom}»)` : ''}.`,
+                                });
+                                if (!ok) return;
+                                setLines((prev) => normalizeLineOrder(prev.filter((_, lineIndex) => lineIndex !== idx)));
+                              })();
+                            }}
                           >
                             Удалить
                           </Button>

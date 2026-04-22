@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { useListSelection } from '../hooks/useListSelection.js';
@@ -30,6 +31,7 @@ export function ToolPropertiesPage(props: {
   canCreate: boolean;
   canDelete: boolean;
 }) {
+  const { confirm } = useConfirm();
   const { state: listState, patchState } = useListUiState('list:tool_properties', {
     query: '',
     sortKey: 'name' as SortKey,
@@ -119,7 +121,8 @@ export function ToolPropertiesPage(props: {
       selectedManyLabel: 'выделенные свойства',
       singleLabel: 'свойство',
     });
-    if (!confirm(message)) return;
+    const ok = await confirm({ detail: `${message}\n\nСвойства инструмента будут удалены из справочника.` });
+    if (!ok) return;
     let failed = 0;
     for (const id of ids) {
       const r = await window.matrica.tools.properties.delete(id);

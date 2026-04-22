@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
@@ -71,6 +72,7 @@ export function CounterpartiesPage(props: {
   canDelete: boolean;
   canViewMasterData: boolean;
 }) {
+  const { confirm } = useConfirm();
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
@@ -205,7 +207,8 @@ export function CounterpartiesPage(props: {
       selectedManyLabel: 'выделенных контрагентов',
       singleLabel: 'контрагента',
     });
-    if (!confirm(message)) return;
+    const ok = await confirm({ detail: `${message}\n\nКарточки будут помечены удалёнными (soft delete).` });
+    if (!ok) return;
     let failed = 0;
     for (const id of ids) {
       const r = await window.matrica.admin.entities.softDelete(id);
