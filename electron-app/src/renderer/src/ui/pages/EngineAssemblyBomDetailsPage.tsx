@@ -15,6 +15,7 @@ import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 
 type BomDetails = {
   header: {
@@ -98,6 +99,101 @@ function normalizeVariantGroup(raw: unknown): string | null {
 
 function getLineDisplayLabel(line: BomLine): string {
   return line.componentNomenclatureName || line.componentNomenclatureCode || line.componentNomenclatureId || '(не выбран компонент)';
+}
+
+function keyValueTable(rows: Array<[string, string]>): string {
+  return `<table><tbody>${rows
+    .map(([k, v]) => `<tr><th style="width:260px">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
+    .join('')}</tbody></table>`;
+}
+
+function buildBomPrintSections(lines: BomLine[]): PrintSection[] {
+  if (!lines.length) {
+    return [{ id: 'lines-empty', title: 'Строки спецификации', html: '<div class="muted">Нет строк BOM</div>' }];
+  }
+
+  const renderRows = (chunk: BomLine[]): string =>
+    [...chunk]
+      .sort((a, b) => {
+        const ap = Number(a.priority ?? 100);
+        const bp = Number(b.priority ?? 100);
+        if (ap !== bp) return ap - bp;
+        return getLineDisplayLabel(a).localeCompare(getLineDisplayLabel(b), 'ru');
+      })
+      .map((line) => {
+        const type = String(line.componentType ?? '');
+        const component = getLineDisplayLabel(line);
+        const qty = String(Number(line.qtyPerUnit ?? 0));
+        const required = line.isRequired !== false ? 'Да' : 'Нет';
+        const priority = String(Number(line.priority ?? 100));
+        const lineKey = String(line.lineKey ?? '').trim() || '—';
+        const parent = String(line.parentLineKey ?? '').trim() || '—';
+        return `<tr>
+          <td>${escapeHtml(type)}</td>
+          <td>${escapeHtml(component)}</td>
+          <td>${escapeHtml(qty)}</td>
+          <td>${escapeHtml(required)}</td>
+          <td>${escapeHtml(priority)}</td>
+          <td>${escapeHtml(lineKey)}</td>
+          <td>${escapeHtml(parent)}</td>
+        </tr>`;
+      })
+      .join('');
+
+  const renderTable = (chunk: BomLine[]): string => {
+    const rows = renderRows(chunk);
+    return `<table>
+      <thead>
+        <tr>
+          <th>Тип</th>
+          <th>Компонент</th>
+          <th>Кол-во/двиг.</th>
+          <th>Обяз.</th>
+          <th>Приоритет</th>
+          <th>Узел</th>
+          <th>Родитель</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  };
+
+  const baseLines = lines.filter((line) => !String(line.variantGroup ?? '').trim());
+  const variantMap = new Map<string, BomLine[]>();
+  for (const line of lines) {
+    const vg = String(line.variantGroup ?? '').trim();
+    if (!vg) continue;
+    const arr = variantMap.get(vg) ?? [];
+    arr.push(line);
+    variantMap.set(vg, arr);
+  }
+  const variants = Array.from(variantMap.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ru'));
+  const sections: PrintSection[] = [];
+
+  if (baseLines.length > 0) {
+    sections.push({
+      id: 'bom-base',
+      title: 'База (общие строки)',
+      html: renderTable(baseLines),
+      checked: true,
+    });
+  }
+
+  for (const [variantId, variantOnlyLines] of variants) {
+    const merged = [...baseLines, ...variantOnlyLines];
+    const safeId = `variant-${variantId.toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'unnamed'}`;
+    sections.push({
+      id: safeId,
+      title: `Вариант: ${variantId}`,
+      html: renderTable(merged),
+      checked: true,
+    });
+  }
+
+  if (sections.length === 0) {
+    return [{ id: 'bom-lines', title: 'Строки спецификации', html: renderTable(lines), checked: true }];
+  }
+  return sections;
 }
 
 function normalizeSearchText(raw: string): string {
@@ -1022,7 +1118,28 @@ export function EngineAssemblyBomDetailsPage(props: {
                     setStatus(`Ошибка печати: ${String(printed?.error ?? 'unknown')}`);
                     return;
                   }
-                  setStatus('Печатная форма подготовлена (payload получен).');
+                  const payload = printed.payload as BomDetails | undefined;
+                  const header = payload?.header ?? data.header;
+                  const lines = Array.isArray(payload?.lines) ? payload.lines : data.lines;
+                  openPrintPreview({
+                    title: 'Спецификация сборки двигателя',
+                    subtitle: `${String(header.name ?? 'Без названия')} • марка: ${String(header.engineBrandId ?? '—')} • версия: ${String(header.version ?? 1)}`,
+                    sections: [
+                      {
+                        id: 'summary',
+                        title: 'Карточка BOM',
+                        html: keyValueTable([
+                          ['Название', String(header.name ?? '—')],
+                          ['Марка двигателя', String(header.engineBrandId ?? '—')],
+                          ['Версия', String(header.version ?? 1)],
+                          ['Статус', String(header.status ?? '—')],
+                          ['Строк в спецификации', String(lines.length)],
+                        ]),
+                      },
+                      ...buildBomPrintSections(lines),
+                    ],
+                  });
+                  setStatus('');
                 })();
               }
             : undefined
@@ -1602,19 +1719,16 @@ export function EngineAssemblyBomDetailsPage(props: {
       ) : null}
       {!data ? null : (
         <>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {warehouseRefsError ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>Справочники склада: {warehouseRefsError}</div> : null}
-            <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
-                Марка двигателя из справочника (семейство). Спецификация и прогнозы ведутся по марке, а не по конкретной номенклатуре или серийному двигателю.
-                Для марки, у которой уже есть другая карточка BOM, выбор в списке скрыт.
-              </span>
+          {warehouseRefsError ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>Справочники склада: {warehouseRefsError}</div> : null}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(280px, 1.2fr) minmax(110px, 160px)', gap: 10, alignItems: 'end' }}>
+            <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя</span>
               {props.canEdit ? (
                 <SearchSelect
                   value={data.header.engineBrandId || null}
                   options={engineBrandOptionsForHeader}
                   showAllWhenEmpty
-                  placeholder="Выберите марку из справочника"
+                  placeholder="Марка двигателя"
                   onChange={(value) => {
                     const bid = value ? String(value) : '';
                     setData((prev) =>
@@ -1640,10 +1754,8 @@ export function EngineAssemblyBomDetailsPage(props: {
                 />
               )}
             </label>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Название BOM</span>
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Наименование спецификации</span>
               <Input
                 value={data.header.name}
                 onChange={(e) =>
@@ -1657,24 +1769,19 @@ export function EngineAssemblyBomDetailsPage(props: {
                   )
                 }
                 disabled={!props.canEdit}
-                style={{ width: '100%', minWidth: 240, maxWidth: '100%' }}
+                style={{ width: '100%', minWidth: 220, maxWidth: '100%' }}
               />
             </label>
-            <label style={{ display: 'grid', gap: 4, maxWidth: 220 }}>
+            <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Версия</span>
               <Input value={String(data.header.version ?? 1)} disabled />
             </label>
           </div>
 
-          <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
-            Кол-во/двиг. = сколько штук компонента нужно на 1 двигатель. Поля "Группа связки", "Узел" и "Родительский узел" скрыты в обычном режиме и
-            показываются только по кнопке "Показать техполя".
-          </div>
-
           {viewMode === 'table' ? (
-            <div style={{ display: 'grid', gap: 10, flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <div style={{ display: 'grid', gap: 10, gridAutoRows: 'max-content', alignContent: 'start', flex: 1, minHeight: 0, overflow: 'auto' }}>
               {variantBlocks.map((block, blockIdx) => (
-                <div key={block.id} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                <div key={block.id} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'visible' }}>
                   <div
                     style={{
                       display: 'flex',
@@ -1713,7 +1820,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                       ) : null}
                     </div>
                   </div>
-                  <div style={{ overflow: 'auto' }}>
+                  <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
                     <table className="list-table">
                       <thead>
                         <tr>
@@ -1878,7 +1985,22 @@ export function EngineAssemblyBomDetailsPage(props: {
           )}
 
           {props.canEdit ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 5,
+                padding: '8px 10px',
+                marginTop: 6,
+                background: 'var(--surface)',
+                borderTop: '1px solid var(--border)',
+                boxShadow: '0 -6px 16px rgba(15, 23, 42, 0.08)',
+              }}
+            >
               <Button
                 variant="ghost"
                 onClick={() =>
