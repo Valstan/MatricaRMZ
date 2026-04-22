@@ -325,6 +325,16 @@ export function NomenclatureDirectoryPage(props: {
                   },
                 });
                 if (!createdPart?.ok || !createdPart.part?.id) {
+                  const duplicateMatch = String(createdPart && 'error' in createdPart ? createdPart.error ?? '' : '').match(
+                    /duplicate part exists:\s*([0-9a-f-]{36})/i,
+                  );
+                  if (duplicateMatch?.[1]) {
+                    const existingId = String(duplicateMatch[1]);
+                    await refresh();
+                    await props.onOpen(existingId);
+                    setStatus(`Деталь уже существовала, открыта существующая карточка (${existingId.slice(0, 8)}...).`);
+                    return;
+                  }
                   setStatus(`Ошибка: ${String(createdPart && 'error' in createdPart ? createdPart.error : 'не удалось создать деталь')}`);
                   return;
                 }
