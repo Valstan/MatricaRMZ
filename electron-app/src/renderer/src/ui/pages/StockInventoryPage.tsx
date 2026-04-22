@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
+import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { lookupToSelectOptions } from '../utils/warehouseUi.js';
@@ -25,6 +26,7 @@ export function StockInventoryPage(props: {
   onOpenDocument: (id: string) => void;
 }) {
   const { lookups, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData();
+  const { pushRecent, withRecents } = useRecentSelectOptions('matrica:stock-inventory-recents', 8);
   const [status, setStatus] = useState('');
   const [warehouseId, setWarehouseId] = useState<string | null>('default');
   const [reason, setReason] = useState('Плановая инвентаризация');
@@ -64,6 +66,10 @@ export function StockInventoryPage(props: {
     const start = pageIndex * pageSize;
     return sortedRows.slice(start, start + pageSize);
   }, [pageIndex, pageSize, sortedRows]);
+  const warehouseOptions = useMemo(
+    () => withRecents('warehouseId', lookupToSelectOptions(lookups.warehouses)),
+    [lookups.warehouses, withRecents],
+  );
 
   function onSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -124,9 +130,14 @@ export function StockInventoryPage(props: {
           <div>Склад</div>
           <SearchSelect
             value={warehouseId}
-            options={lookupToSelectOptions(lookups.warehouses)}
+            options={warehouseOptions}
             placeholder="Склад"
-            onChange={setWarehouseId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setWarehouseId(next);
+              pushRecent('warehouseId', next);
+            }}
           />
           <div>Основание</div>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />

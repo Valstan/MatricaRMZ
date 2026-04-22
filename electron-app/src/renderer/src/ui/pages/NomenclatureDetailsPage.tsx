@@ -3,7 +3,8 @@ import type { EngineInstanceListItem, NomenclatureItemType, WarehouseMovementLis
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
-import { SearchSelect } from '../components/SearchSelect.js';
+import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
+import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS, warehouseDocTypeLabel } from '../utils/warehouseUi.js';
 
@@ -39,6 +40,23 @@ export function NomenclatureDetailsPage(props: {
   const [instanceSerial, setInstanceSerial] = useState('');
   const [instanceContractId, setInstanceContractId] = useState<string | null>(null);
   const [instanceWarehouseId, setInstanceWarehouseId] = useState<string | null>('default');
+  const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:nomenclature-field-recents:${props.id}`, 8);
+
+  const createLookupEntity = useCallback(async (typeCode: string, label: string): Promise<string | null> => {
+    const clean = String(label ?? '').trim();
+    if (!clean) return null;
+    const types = await window.matrica.admin.entityTypes.list();
+    if (!types?.ok) return null;
+    const type = (types.types as Array<Record<string, unknown>>).find((row) => String(row.code ?? '').trim().toLowerCase() === typeCode);
+    const typeId = String(type?.id ?? '').trim();
+    if (!typeId) return null;
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created?.ok || !created.id) return null;
+    const entityId = String(created.id);
+    await window.matrica.admin.entities.setAttr(entityId, 'name', clean).catch(() => null);
+    await window.matrica.admin.entities.setAttr(entityId, 'code', clean).catch(() => null);
+    return entityId;
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -166,6 +184,22 @@ export function NomenclatureDetailsPage(props: {
       return [];
     }
   }, [templateRows, templateId]);
+  const templateOptions = useMemo(
+    () =>
+      withRecents(
+        'templateId',
+        templateRows.map((t) => ({ id: t.id, label: t.name, hintText: t.code })),
+      ),
+    [templateRows, withRecents],
+  );
+  const groupOptions = useMemo(() => withRecents('groupId', lookupToSelectOptions(lookups.nomenclatureGroups)), [lookups.nomenclatureGroups, withRecents]);
+  const unitOptions = useMemo(() => withRecents('unitId', lookupToSelectOptions(lookups.units)), [lookups.units, withRecents]);
+  const brandOptions = useMemo(() => withRecents('defaultBrandId', lookupToSelectOptions(lookups.engineBrands)), [lookups.engineBrands, withRecents]);
+  const warehouseOptions = useMemo(() => withRecents('defaultWarehouseId', lookupToSelectOptions(lookups.warehouses)), [lookups.warehouses, withRecents]);
+  const instanceWarehouseOptions = useMemo(
+    () => withRecents('instanceWarehouseId', lookupToSelectOptions(lookups.warehouses)),
+    [lookups.warehouses, withRecents],
+  );
 
   const canEditNomenclatureFields = props.canEdit;
 
@@ -252,25 +286,101 @@ export function NomenclatureDetailsPage(props: {
           <SearchSelect
             value={templateId}
             disabled={!canEditNomenclatureFields}
-            options={templateRows.map((row) => ({ id: row.id, label: row.name, secondaryText: row.code }))}
+            options={templateOptions}
             placeholder="Шаблон номенклатуры"
-            onChange={setTemplateId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setTemplateId(next);
+              pushRecent('templateId', next);
+            }}
+            createLabel="Новый шаблон"
+            onCreate={
+              canEditNomenclatureFields
+                ? async (label) => {
+                    const up = await window.matrica.warehouse.nomenclatureTemplateUpsert({
+                      code: `TPL-${Date.now().toString(36).toUpperCase()}`,
+                      name: String(label ?? '').trim() || 'Новый шаблон',
+                      itemTypeCode: String(itemType ?? '').trim() || null,
+                      directoryKind: row?.directoryKind ? String(row.directoryKind) : null,
+                      propertiesJson: '[]',
+                    });
+                    if (!up?.ok) {
+                      setStatus(`Ошибка: ${String(up?.error ?? 'не удалось создать шаблон')}`);
+                      return null;
+                    }
+                    const list = await window.matrica.warehouse.nomenclatureTemplatesList();
+                    if (list?.ok) {
+                      setTemplateRows(
+                        ((list.rows ?? []) as Array<Record<string, unknown>>).map((r) => ({
+                          id: String(r.id ?? ''),
+                          code: String(r.code ?? '').trim(),
+                          name: String(r.name ?? '').trim(),
+                          propertiesJson: r.propertiesJson == null ? null : String(r.propertiesJson ?? ''),
+                        })),
+                      );
+                    }
+                    pushRecent('templateId', up.id);
+                    return String(up.id);
+                  }
+                : undefined
+            }
           />
           <div>Группа</div>
           <SearchSelect
             value={groupId}
             disabled={!canEditNomenclatureFields}
-            options={lookupToSelectOptions(lookups.nomenclatureGroups)}
+            options={groupOptions}
             placeholder="Группа номенклатуры"
-            onChange={setGroupId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setGroupId(next);
+              pushRecent('groupId', next);
+            }}
+            createLabel="Новая группа"
+            onCreate={
+              canEditNomenclatureFields
+                ? async (label) => {
+                    const id = await createLookupEntity('nomenclature_group', label);
+                    if (!id) {
+                      setStatus('Ошибка: не удалось создать группу номенклатуры');
+                      return null;
+                    }
+                    await refreshRefs();
+                    pushRecent('groupId', id);
+                    return id;
+                  }
+                : undefined
+            }
           />
           <div>Единица измерения</div>
           <SearchSelect
             value={unitId}
             disabled={!canEditNomenclatureFields}
-            options={lookupToSelectOptions(lookups.units)}
+            options={unitOptions}
             placeholder="Единица измерения"
-            onChange={setUnitId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setUnitId(next);
+              pushRecent('unitId', next);
+            }}
+            createLabel="Новая единица"
+            onCreate={
+              canEditNomenclatureFields
+                ? async (label) => {
+                    const id = await createLookupEntity('unit', label);
+                    if (!id) {
+                      setStatus('Ошибка: не удалось создать единицу измерения');
+                      return null;
+                    }
+                    await refreshRefs();
+                    pushRecent('unitId', id);
+                    return id;
+                  }
+                : undefined
+            }
           />
           <div>Штрихкод</div>
           <Input value={barcode} disabled={!canEditNomenclatureFields} onChange={(e) => setBarcode(e.target.value)} />
@@ -282,9 +392,29 @@ export function NomenclatureDetailsPage(props: {
           <SearchSelect
             value={defaultBrandId}
             disabled={!canEditNomenclatureFields}
-            options={lookupToSelectOptions(lookups.engineBrands)}
+            options={brandOptions}
             placeholder="Марка двигателя"
-            onChange={setDefaultBrandId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setDefaultBrandId(next);
+              pushRecent('defaultBrandId', next);
+            }}
+            createLabel="Новая марка"
+            onCreate={
+              canEditNomenclatureFields
+                ? async (label) => {
+                    const id = await createLookupEntity('engine_brand', label);
+                    if (!id) {
+                      setStatus('Ошибка: не удалось создать марку двигателя');
+                      return null;
+                    }
+                    await refreshRefs();
+                    pushRecent('defaultBrandId', id);
+                    return id;
+                  }
+                : undefined
+            }
           />
           <div>Серийный учет</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -295,9 +425,29 @@ export function NomenclatureDetailsPage(props: {
           <SearchSelect
             value={defaultWarehouseId}
             disabled={!canEditNomenclatureFields}
-            options={lookupToSelectOptions(lookups.warehouses)}
+            options={warehouseOptions}
             placeholder="Склад по умолчанию"
-            onChange={setDefaultWarehouseId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setDefaultWarehouseId(next);
+              pushRecent('defaultWarehouseId', next);
+            }}
+            createLabel="Новый склад"
+            onCreate={
+              canEditNomenclatureFields
+                ? async (label) => {
+                    const id = await createLookupEntity('warehouse_ref', label);
+                    if (!id) {
+                      setStatus('Ошибка: не удалось создать склад');
+                      return null;
+                    }
+                    await refreshRefs();
+                    pushRecent('defaultWarehouseId', id);
+                    return id;
+                  }
+                : undefined
+            }
           />
           <div>Спецификация (JSON)</div>
           <textarea value={specJson} disabled={!canEditNomenclatureFields} onChange={(e) => setSpecJson(e.target.value)} rows={5} style={{ width: '100%' }} />
@@ -340,9 +490,29 @@ export function NomenclatureDetailsPage(props: {
             <Input value={instanceContractId ?? ''} onChange={(e) => setInstanceContractId(e.target.value || null)} placeholder="Contract ID (опционально)" />
             <SearchSelect
               value={instanceWarehouseId}
-              options={lookupToSelectOptions(lookups.warehouses)}
+              options={instanceWarehouseOptions}
               placeholder="Склад"
-              onChange={setInstanceWarehouseId}
+              showAllWhenEmpty
+              emptyQueryLimit={15}
+              onChange={(next) => {
+                setInstanceWarehouseId(next);
+                pushRecent('instanceWarehouseId', next);
+              }}
+              createLabel="Новый склад"
+              onCreate={
+                canEditNomenclatureFields
+                  ? async (label) => {
+                      const id = await createLookupEntity('warehouse_ref', label);
+                      if (!id) {
+                        setStatus('Ошибка: не удалось создать склад');
+                        return null;
+                      }
+                      await refreshRefs();
+                      pushRecent('instanceWarehouseId', id);
+                      return id;
+                    }
+                  : undefined
+              }
             />
             <Button
               type="button"

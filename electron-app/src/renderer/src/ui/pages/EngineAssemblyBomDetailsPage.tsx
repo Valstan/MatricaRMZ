@@ -14,6 +14,7 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
+import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 
@@ -407,6 +408,7 @@ export function EngineAssemblyBomDetailsPage(props: {
     Array<{ id: string; defaultBrandId?: string | null; itemType?: string | null; category?: string | null }>
   >([]);
   const [bomOccupancyRows, setBomOccupancyRows] = useState<BomOccupancyRow[]>([]);
+  const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:engine-bom-details-recents:${props.id}`, 8);
   const { lookups, error: warehouseRefsError } = useWarehouseReferenceData();
 
   const relationNodes = useMemo(
@@ -536,11 +538,12 @@ export function EngineAssemblyBomDetailsPage(props: {
 
   const engineBrandOptionsForHeader = useMemo(() => {
     const currentBomId = data?.header.id ?? '';
-    return engineBrandSelectOptions.filter((opt) => {
+    const filtered = engineBrandSelectOptions.filter((opt) => {
       const occupant = brandIdToBomId.get(String(opt.id));
       return !occupant || occupant === currentBomId;
     });
-  }, [brandIdToBomId, data?.header.id, engineBrandSelectOptions]);
+    return withRecents('engineBrandId', filtered);
+  }, [brandIdToBomId, data?.header.id, engineBrandSelectOptions, withRecents]);
 
   const parentOptionsByLineIdx = useMemo(() => {
     const map = new Map<number, SearchSelectOption[]>();
@@ -1223,10 +1226,14 @@ export function EngineAssemblyBomDetailsPage(props: {
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Корневой тип (обычно двигатель)</span>
               <SearchSelect
                 value={schemaRootTypeDraft}
-                options={schemaNodeOptions}
+                options={withRecents('schemaRootTypeDraft', schemaNodeOptions)}
                 showAllWhenEmpty
                 placeholder="Выберите корневой тип"
-                onChange={(value) => setSchemaRootTypeDraft(String(value ?? 'engine'))}
+                onChange={(value) => {
+                  const next = String(value ?? 'engine');
+                  setSchemaRootTypeDraft(next);
+                  pushRecent('schemaRootTypeDraft', next);
+                }}
               />
             </label>
             <Button
@@ -1731,6 +1738,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                   placeholder="Марка двигателя"
                   onChange={(value) => {
                     const bid = value ? String(value) : '';
+                    pushRecent('engineBrandId', bid || null);
                     setData((prev) =>
                       prev
                         ? {
@@ -1869,15 +1877,18 @@ export function EngineAssemblyBomDetailsPage(props: {
                       <td style={{ minWidth: 260 }}>
                         <SearchSelect
                           value={line.componentNomenclatureId}
-                          options={(() => {
+                          options={withRecents('componentNomenclatureId', (() => {
                             const filtered = componentOptionsByType.get(String(line.componentType ?? '').trim().toLowerCase()) ?? componentOptions;
                             if (!line.componentNomenclatureId) return filtered;
                             if (filtered.some((option) => String(option.id) === String(line.componentNomenclatureId))) return filtered;
                             const selected = componentOptionById.get(String(line.componentNomenclatureId));
                             return selected ? [selected, ...filtered] : filtered;
-                          })()}
+                          })())}
                           showAllWhenEmpty
-                          onChange={(next) => patchLine(idx, { componentNomenclatureId: next ?? '' })}
+                          onChange={(next) => {
+                            pushRecent('componentNomenclatureId', next ?? null);
+                            patchLine(idx, { componentNomenclatureId: next ?? '' });
+                          }}
                           disabled={!props.canEdit}
                         />
                       </td>
@@ -1912,10 +1923,13 @@ export function EngineAssemblyBomDetailsPage(props: {
                         <td style={{ minWidth: 220 }}>
                           <SearchSelect
                             value={line.parentLineKey ?? null}
-                            options={parentOptionsByLineIdx.get(idx) ?? []}
+                            options={withRecents('parentLineKey', parentOptionsByLineIdx.get(idx) ?? [])}
                             placeholder="Без родителя"
                             showAllWhenEmpty
-                            onChange={(next) => patchLine(idx, { parentLineKey: next ?? null })}
+                            onChange={(next) => {
+                              pushRecent('parentLineKey', next ?? null);
+                              patchLine(idx, { parentLineKey: next ?? null });
+                            }}
                             disabled={!props.canEdit}
                           />
                         </td>

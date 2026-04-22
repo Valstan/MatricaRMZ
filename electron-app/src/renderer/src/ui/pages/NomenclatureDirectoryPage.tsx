@@ -321,6 +321,7 @@ export function NomenclatureDirectoryPage(props: {
               if (props.directoryKind === 'part') {
                 const createdPart = await window.matrica.parts.create({
                   attributes: {
+                    code: buildNomenclatureCode(props.createConfig.codePrefix),
                     name: props.createConfig.name,
                   },
                 });

@@ -6,6 +6,8 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
+import { buildNomenclatureCode } from '../utils/nomenclatureCode.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -102,6 +104,7 @@ export function StockDocumentDetailsPage(props: {
   onClose: () => void;
 }) {
   const { lookups, nomenclature, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData({ loadNomenclature: true });
+  const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:stock-doc-recents:${props.id}`, 8);
   const [status, setStatus] = useState('');
   const [document, setDocument] = useState<WarehouseDocumentDetails | null>(null);
   const [docNo, setDocNo] = useState('');
@@ -439,8 +442,21 @@ export function StockDocumentDetailsPage(props: {
   }
 
   const nomenclatureOptions = useMemo(
-    () => nomenclature.map((item) => ({ id: item.id, label: `${item.name} (${item.code})` })),
-    [nomenclature],
+    () =>
+      withRecents(
+        'nomenclatureId',
+        nomenclature.map((item) => ({ id: item.id, label: `${item.name} (${item.code})` })),
+      ),
+    [nomenclature, withRecents],
+  );
+  const warehouseOptions = useMemo(() => withRecents('warehouseId', lookupToSelectOptions(lookups.warehouses)), [lookups.warehouses, withRecents]);
+  const counterpartyOptions = useMemo(
+    () => withRecents('counterpartyId', lookupToSelectOptions(lookups.counterparties)),
+    [lookups.counterparties, withRecents],
+  );
+  const writeoffReasonOptions = useMemo(
+    () => withRecents('writeoffReason', lookupToSelectOptions(lookups.writeoffReasons)),
+    [lookups.writeoffReasons, withRecents],
   );
 
   return (
@@ -492,7 +508,18 @@ export function StockDocumentDetailsPage(props: {
           <div>Дата</div>
           <Input type="date" value={docDate} disabled={!canEditDocument} onChange={(e) => setDocDate(e.target.value)} />
           <div>Склад по умолчанию</div>
-          <SearchSelect value={warehouseId} disabled={!canEditDocument} options={lookupToSelectOptions(lookups.warehouses)} placeholder="Склад" onChange={setWarehouseId} />
+          <SearchSelect
+            value={warehouseId}
+            disabled={!canEditDocument}
+            options={warehouseOptions}
+            placeholder="Склад"
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setWarehouseId(next);
+              pushRecent('warehouseId', next);
+            }}
+          />
           {isIncoming ? <div>Ожидаемая дата</div> : null}
           {isIncoming ? <Input type="date" value={expectedDate} disabled={!canEditDocument} onChange={(e) => setExpectedDate(e.target.value)} /> : null}
           {isIncoming ? <div>Источник прихода</div> : null}
@@ -532,18 +559,28 @@ export function StockDocumentDetailsPage(props: {
           <SearchSelect
             value={counterpartyId}
             disabled={!canEditDocument}
-            options={lookupToSelectOptions(lookups.counterparties)}
+            options={counterpartyOptions}
             placeholder="Контрагент"
-            onChange={setCounterpartyId}
+            showAllWhenEmpty
+            emptyQueryLimit={15}
+            onChange={(next) => {
+              setCounterpartyId(next);
+              pushRecent('counterpartyId', next);
+            }}
           />
           <div>Основание / причина</div>
           {isWriteoff ? (
             <SearchSelect
               value={reason || null}
               disabled={!canEditDocument}
-              options={lookupToSelectOptions(lookups.writeoffReasons)}
+              options={writeoffReasonOptions}
               placeholder="Причина списания"
-              onChange={(value) => setReason(value ?? '')}
+              showAllWhenEmpty
+              emptyQueryLimit={15}
+              onChange={(value) => {
+                setReason(value ?? '');
+                pushRecent('writeoffReason', value ?? null);
+              }}
             />
           ) : (
             <Input value={reason} disabled={!canEditDocument} onChange={(e) => setReason(e.target.value)} placeholder="Основание документа" />
@@ -606,13 +643,20 @@ export function StockDocumentDetailsPage(props: {
                         disabled={!canEditDocument}
                         options={nomenclatureOptions}
                         placeholder="Номенклатура"
+                        showAllWhenEmpty
+                        emptyQueryLimit={20}
                         {...(props.canCreateParts
                           ? {
                               createLabel: 'Создать деталь и выбрать',
                               onCreate: async (label: string) => {
                                 const trimmed = label.trim();
                                 if (!trimmed) return null;
-                                const r = await window.matrica.parts.create({ attributes: { name: trimmed } });
+                                const r = await window.matrica.parts.create({
+                                  attributes: {
+                                    code: buildNomenclatureCode('DET'),
+                                    name: trimmed,
+                                  },
+                                });
                                 if (!r?.ok || !r.part?.id) {
                                   throw new Error(String((r as { error?: string })?.error ?? 'Не удалось создать деталь'));
                                 }
@@ -630,16 +674,24 @@ export function StockDocumentDetailsPage(props: {
                               },
                             }
                           : {})}
-                        onChange={(value) => updateLine(idx, { nomenclatureId: value })}
+                        onChange={(value) => {
+                          pushRecent('nomenclatureId', value);
+                          updateLine(idx, { nomenclatureId: value });
+                        }}
                       />
                     </td>
                     <td style={{ minWidth: 220 }}>
                       <SearchSelect
                         value={isTransfer ? line.fromWarehouseId || warehouseId : line.warehouseId || warehouseId}
                         disabled={!canEditDocument}
-                        options={lookupToSelectOptions(lookups.warehouses)}
+                        options={warehouseOptions}
                         placeholder="Склад"
-                        onChange={(value) => updateLine(idx, isTransfer ? { fromWarehouseId: value } : { warehouseId: value })}
+                        showAllWhenEmpty
+                        emptyQueryLimit={15}
+                        onChange={(value) => {
+                          pushRecent('warehouseId', value);
+                          updateLine(idx, isTransfer ? { fromWarehouseId: value } : { warehouseId: value });
+                        }}
                       />
                     </td>
                     {isTransfer ? (
@@ -647,9 +699,14 @@ export function StockDocumentDetailsPage(props: {
                         <SearchSelect
                           value={line.toWarehouseId}
                           disabled={!canEditDocument}
-                          options={lookupToSelectOptions(lookups.warehouses)}
+                          options={warehouseOptions}
                           placeholder="Склад назначения"
-                          onChange={(value) => updateLine(idx, { toWarehouseId: value })}
+                          showAllWhenEmpty
+                          emptyQueryLimit={15}
+                          onChange={(value) => {
+                            pushRecent('warehouseId', value);
+                            updateLine(idx, { toWarehouseId: value });
+                          }}
                         />
                       </td>
                     ) : null}
