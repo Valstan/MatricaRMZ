@@ -18,7 +18,7 @@ type QuickStartTile = {
   icon: string;
   title: string;
   subtitle: string;
-  tab: ChatDeepLinkPayload['tab'];
+  tab: string;
   gradient: string;
 };
 
@@ -498,7 +498,7 @@ export function HistoryPage(props: {
                 onClick={() => {
                   props.onNavigate({
                     kind: 'app_link',
-                    tab: tile.tab,
+                    tab: tile.tab as ChatDeepLinkPayload['tab'],
                     breadcrumbs: [tile.title],
                   });
                 }}

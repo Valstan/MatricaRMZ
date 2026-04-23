@@ -33,6 +33,8 @@ type ForecastRequest = {
   priorityEngineBrandIds?: string[];
   /** Рабочие дни недели (0=вс, 1=пн ... 6=сб). */
   workingWeekdays?: number[];
+  /** Максимум двигателей по базовой марке за весь горизонт (контракт / только на заводе). */
+  brandMaxEnginesHorizon?: Record<string, number>;
 };
 
 async function loadNomenclatureStockMap(warehouseIds?: string[]): Promise<Map<string, number>> {
@@ -330,6 +332,16 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   const workingWeekdays = Array.isArray(args.workingWeekdays)
     ? args.workingWeekdays.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6)
     : undefined;
+  let brandMaxEnginesHorizon: Map<string, number> | undefined;
+  if (args.brandMaxEnginesHorizon && typeof args.brandMaxEnginesHorizon === 'object') {
+    const m = new Map<string, number>();
+    for (const [k, v] of Object.entries(args.brandMaxEnginesHorizon)) {
+      const id = String(k).trim();
+      const n = Math.max(0, Math.floor(Number(v)));
+      if (id.length > 0 && Number.isFinite(n)) m.set(id, n);
+    }
+    if (m.size > 0) brandMaxEnginesHorizon = m;
+  }
   const dbIncomingLines = await loadPlannedIncomingLines({
     horizonDays,
     ...(warehouseIds ? { warehouseIds } : {}),
@@ -358,5 +370,6 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     incomingLines: dbIncomingLines,
     ...(priorityEngineBrandIds?.length ? { priorityEngineBrandIds } : {}),
     ...(workingWeekdays?.length ? { workingWeekdays } : {}),
+    ...(brandMaxEnginesHorizon && brandMaxEnginesHorizon.size > 0 ? { brandMaxEnginesHorizon } : {}),
   });
 }

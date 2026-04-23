@@ -7,6 +7,7 @@ import {
   STATUS_CODES,
   aggregateContractExecutionProgress,
   collectEngineBrandIdsFromContractSections,
+  sumEngineBrandQtyByBrandFromContractSections,
   computeObjectProgress,
   effectiveContractDueAt,
   isContractLaggingVsSchedule,
@@ -2618,7 +2619,7 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
   snapshot: Snapshot,
   filters: ReportPresetFilters | undefined,
   bomEngineBrandIds: Set<string> | null,
-): { priorityEngineBrandIds: string[]; footerNotes: string[]; modeHints: string[] } {
+): { priorityEngineBrandIds: string[]; footerNotes: string[]; modeHints: string[]; brandMaxEnginesHorizon?: Record<string, number> } {
   const now = Date.now();
   const engineBrandFilter = new Set(asArray(filters?.engineBrandIds).map(String));
   const selectedContractIds = new Set(asArray(filters?.assemblyContractIds).map(String).filter(Boolean));
@@ -2720,7 +2721,7 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
 
   scored.sort((a, b) => b.score - a.score || (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
 
-  const priorityEngineBrandIds: string[] = [];
+  let priorityEngineBrandIds: string[] = [];
   const seen = new Set<string>();
   for (const row of scored) {
     for (const bid of row.brandIds) {
@@ -2730,8 +2731,103 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
     }
   }
 
+  const brandMaxMap = new Map<string, number>();
+  const volumeModeHints: string[] = [];
+  const onSiteOnly = Boolean(filters?.assemblyForecastOnSiteOnly);
+  if (scored.length > 0) {
+    const scoredContractIds = new Set(scored.map((s) => s.contractId));
+    const passesBrandAndBom = (bid: string) => {
+      if (!bid) return false;
+      if (engineBrandFilter.size > 0 && !engineBrandFilter.has(bid)) return false;
+      if (bomEngineBrandIds != null && !bomEngineBrandIds.has(bid)) return false;
+      return true;
+    };
+
+    if (onSiteOnly) {
+      const repairStartedByBrand = new Map<string, number>();
+      for (const engineId of getIdsByType(snapshot, 'engine')) {
+        const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
+        const cid = normalizeText(eattrs.contract_id, '');
+        if (!scoredContractIds.has(cid)) continue;
+        if (!eattrs.status_repair_started) continue;
+        if (eattrs.status_customer_accepted) continue;
+        if (eattrs.status_rejected) continue;
+        const bid = normalizeText(eattrs.engine_brand_id, normalizeText(eattrs.engine_brand, ''));
+        if (!passesBrandAndBom(bid)) continue;
+        repairStartedByBrand.set(bid, (repairStartedByBrand.get(bid) ?? 0) + 1);
+      }
+
+      const firstRank = new Map<string, number>();
+      let pr = 0;
+      for (const bid of priorityEngineBrandIds) {
+        if (!firstRank.has(bid)) firstRank.set(bid, pr);
+        pr++;
+      }
+
+      const reordered = priorityEngineBrandIds.filter((bid) => (repairStartedByBrand.get(bid) ?? 0) > 0);
+      reordered.sort((a, b) => {
+        const ca = repairStartedByBrand.get(a) ?? 0;
+        const cb = repairStartedByBrand.get(b) ?? 0;
+        if (cb !== ca) return cb - ca;
+        return (firstRank.get(a) ?? 0) - (firstRank.get(b) ?? 0);
+      });
+
+      const extra: string[] = [];
+      for (const [bid, n] of repairStartedByBrand) {
+        if (n > 0 && !reordered.includes(bid)) extra.push(bid);
+      }
+      extra.sort((a, b) => (repairStartedByBrand.get(b) ?? 0) - (repairStartedByBrand.get(a) ?? 0));
+
+      priorityEngineBrandIds = [...reordered, ...extra];
+
+      for (const [bid, n] of repairStartedByBrand) {
+        if (n > 0) brandMaxMap.set(bid, n);
+      }
+
+      if (repairStartedByBrand.size === 0) {
+        volumeModeHints.push(
+          'Режим «только на заводе»: по отстающим контрактам нет прикреплённых двигателей со статусом «Начат ремонт» (не считаются принятые заказчиком и забракованные).',
+        );
+      } else {
+        volumeModeHints.push(
+          'Учёт только на заводе: лимит сборки по марке — число таких двигателей; порядок приоритета марок — по убыванию этого числа.',
+        );
+      }
+    } else {
+      for (const row of scored) {
+        const attrs = snapshot.attrsByEntity.get(row.contractId) ?? {};
+        const sections = parseContractSections(attrs);
+        const planned = sumEngineBrandQtyByBrandFromContractSections(sections);
+        const completedByBrand = new Map<string, number>();
+        for (const engineId of getIdsByType(snapshot, 'engine')) {
+          const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
+          if (normalizeText(eattrs.contract_id, '') !== row.contractId) continue;
+          const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
+          for (const code of STATUS_CODES) statusFlags[code] = Boolean(eattrs[code]);
+          const prog = computeObjectProgress(statusFlags);
+          if (!eattrs.status_customer_accepted && prog < 99.5) continue;
+          const bid = normalizeText(eattrs.engine_brand_id, normalizeText(eattrs.engine_brand, ''));
+          if (!bid) continue;
+          completedByBrand.set(bid, (completedByBrand.get(bid) ?? 0) + 1);
+        }
+        for (const [brandId, pq] of planned) {
+          const done = completedByBrand.get(brandId) ?? 0;
+          const rem = Math.max(0, Math.floor(pq - done));
+          if (rem <= 0) continue;
+          if (!passesBrandAndBom(brandId)) continue;
+          brandMaxMap.set(brandId, (brandMaxMap.get(brandId) ?? 0) + rem);
+        }
+      }
+      if (brandMaxMap.size > 0) {
+        volumeModeHints.push(
+          'Полный объём контракта: лимит сборки по марке — остаток к исполнению (сумма qty по маркам в первичном договоре и ДС минус уже завершённые прикреплённые двигатели).',
+        );
+      }
+    }
+  }
+
   const footerNotes: string[] = [...mismatchNotes];
-  const modeHints: string[] = [];
+  const modeHints: string[] = [...volumeModeHints];
   if (selectedContractIds.size > 0) {
     modeHints.push(`Ограничение: авто-приоритет только среди ${selectedContractIds.size} выбранных контракт(ов).`);
   }
@@ -2760,7 +2856,12 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
     }
   }
 
-  return { priorityEngineBrandIds, footerNotes, modeHints };
+  return {
+    priorityEngineBrandIds,
+    footerNotes,
+    modeHints,
+    ...(brandMaxMap.size > 0 ? { brandMaxEnginesHorizon: Object.fromEntries(brandMaxMap) } : {}),
+  };
 }
 
 /** Убирает из текста отчёта для оператора внутренние маркеры вариантов BOM и UUID. */
@@ -2828,6 +2929,7 @@ async function buildAssemblyForecast7dReport(
   let priorityEngineBrandIds = asArray(filters?.priorityEngineBrandIds);
   let contractFooterNotes: string[] = [];
   let modeHints: string[] = [];
+  let brandMaxEnginesHorizon: Record<string, number> | undefined;
   const manualBomFooter: string[] = [];
   if (mode === 'contracts') {
     const contractBomIds =
@@ -2836,6 +2938,7 @@ async function buildAssemblyForecast7dReport(
     priorityEngineBrandIds = p.priorityEngineBrandIds;
     contractFooterNotes = p.footerNotes;
     modeHints = p.modeHints;
+    brandMaxEnginesHorizon = p.brandMaxEnginesHorizon;
   } else {
     const manualIds = asArray(filters?.priorityEngineBrandIds)
       .map((id) => String(id).trim())
@@ -2880,6 +2983,7 @@ async function buildAssemblyForecast7dReport(
       ...(engineBrandIds.length > 0 ? { engineBrandIds } : {}),
       ...(priorityEngineBrandIds.length > 0 ? { priorityEngineBrandIds } : {}),
       ...(workingWeekdays.length > 0 ? { workingWeekdays } : {}),
+      ...(brandMaxEnginesHorizon && Object.keys(brandMaxEnginesHorizon).length > 0 ? { brandMaxEnginesHorizon } : {}),
     };
     try {
       const r = await httpAuthed(

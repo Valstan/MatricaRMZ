@@ -16,6 +16,31 @@ describe('assemblyForecast', () => {
     expect(kits[0]?.parts.find((p) => p.partId === 'p1')?.qtyPerEngine).toBe(2);
   });
 
+  it('computeAssemblyForecast respects brandMaxEnginesHorizon total cap across days', () => {
+    const stock = new Map<string, number>([
+      ['p1', 100],
+      ['p2', 100],
+    ]);
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+      { partId: 'p2', brandId: 'b1', brandLabel: 'B1', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const brandMaxEnginesHorizon = new Map<string, number>([['b1', 3]]);
+    const res = computeAssemblyForecast({
+      horizonDays: 5,
+      targetEnginesPerDay: 10,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: stock,
+      incomingLines: [],
+      priorityEngineBrandIds: ['b1'],
+      brandMaxEnginesHorizon,
+    });
+    const okRows = res.rows.filter((r) => r.status === 'ok' && r.brandId);
+    const totalOk = okRows.reduce((a, r) => a + r.plannedEngines, 0);
+    expect(totalOk).toBe(3);
+  });
+
   it('computeAssemblyForecast allocates up to target when stock allows', () => {
     const stock = new Map<string, number>([
       ['p1', 10],

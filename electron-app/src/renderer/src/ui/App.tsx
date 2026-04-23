@@ -3362,7 +3362,7 @@ export function App() {
             canEdit={caps.canEditMasterData || caps.canFulfillSupplyRequests}
             canViewMasterData={caps.canViewMasterData}
             onOpenNomenclature={openNomenclature}
-            onOpenEmployee={(id) => {
+            onOpenEmployee={(id: string) => {
               setSelectedEmployeeId(id);
               setTab('employee');
             }}

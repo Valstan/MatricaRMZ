@@ -29,6 +29,16 @@ function getStatusLabel(code: StatusCode) {
   return code === 'status_customer_sent' ? 'Дата отгрузки' : STATUS_LABELS[code];
 }
 
+const STATUS_DISPLAY_ORDER: StatusCode[] = [
+  'status_rejected',
+  'status_rework_sent',
+  'status_storage_received',
+  'status_repair_started',
+  'status_repaired',
+  'status_customer_sent',
+  'status_customer_accepted',
+];
+
 function toInputDate(ms: number | null | undefined): string {
   if (!ms || !Number.isFinite(ms)) return '';
   const d = new Date(ms);
@@ -65,6 +75,13 @@ function keyValueTable(rows: Array<[string, string]>) {
     .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
     .join('\n');
   return `<table><tbody>${body}</tbody></table>`;
+}
+
+function statusPrintValue(flag: boolean, dateMs: number | null | undefined): string {
+  const yn = flag ? 'Да' : 'Нет';
+  const dateLabel = toInputDate(dateMs);
+  if (!flag || !dateLabel) return yn;
+  return `${yn} ${formatDateLabel(dateLabel)}`;
 }
 
 function fileListHtml(list: unknown) {
@@ -274,6 +291,33 @@ export function EngineDetailsPage(props: {
     }
   }
 
+  const REPAIR_STARTED_CODE: StatusCode = 'status_repair_started';
+
+  /** Взаимоисключение флагов статусов: «Начат ремонт» ↔ остальные; дата начала ремонта при снятии через другой статус не трогаем. */
+  function applyStatusCheckboxChange(code: StatusCode, next: boolean) {
+    sessionHadChanges.current = true;
+    setStatusFlags((prev) => {
+      const updated: Partial<Record<StatusCode, boolean>> = { ...prev, [code]: next };
+      if (code === REPAIR_STARTED_CODE && next) {
+        for (const c of STATUS_CODES) {
+          if (c !== REPAIR_STARTED_CODE) updated[c] = false;
+        }
+      } else if (code !== REPAIR_STARTED_CODE && next) {
+        updated[REPAIR_STARTED_CODE] = false;
+      }
+      return updated;
+    });
+    setStatusDates((prev) => {
+      if (code === REPAIR_STARTED_CODE && next) {
+        return { ...prev, [REPAIR_STARTED_CODE]: prev[REPAIR_STARTED_CODE] ?? Date.now() };
+      }
+      if (code !== REPAIR_STARTED_CODE && next) {
+        return { ...prev, [code]: prev[code] ?? Date.now() };
+      }
+      return { ...prev, [code]: next ? prev[code] ?? Date.now() : null };
+    });
+  }
+
   async function saveAllAndClose() {
     if (props.canEditEngines) {
       const attrs = props.engine.attributes ?? {};
@@ -455,28 +499,31 @@ export function EngineDetailsPage(props: {
         metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand' }),
       },
       {
-        code: 'contract_id',
-        name: 'Контракт',
-        dataType: 'link',
-        sortOrder: 22,
-        metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
-      },
-      {
         code: 'customer_id',
         name: 'Контрагент',
         dataType: 'link',
-        sortOrder: 23,
+        sortOrder: 30,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'customer' }),
       },
-      { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 25 },
-      ...STATUS_CODES.flatMap((code, i) => [
-        { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 30 + i * 2 },
-        { code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date', sortOrder: 31 + i * 2 },
+      {
+        code: 'contract_id',
+        name: 'Контракт',
+        dataType: 'link',
+        sortOrder: 40,
+        metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
+      },
+      { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 50 },
+      ...STATUS_DISPLAY_ORDER.flatMap((code, i) => [
+        { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 60 + i * 2 },
+        { code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date', sortOrder: 61 + i * 2 },
       ]),
     ];
     void ensureAttributeDefs(engineTypeId, desired, engineDefs).then((next) => {
-      if (next.length !== engineDefs.length) setEngineDefs(next);
-      setCoreDefsReady(true);
+      const orderedCodes = desired.map((f) => f.code);
+      void persistFieldOrder(orderedCodes, next, { entityTypeId: engineTypeId }).then(() => {
+        setEngineDefs([...next]);
+        setCoreDefsReady(true);
+      });
     });
   }, [props.canEditMasterData, engineTypeId, engineDefs.length, coreDefsReady]);
 
@@ -562,7 +609,7 @@ export function EngineDetailsPage(props: {
     },
     {
       code: 'arrival_date',
-      defaultOrder: 25,
+      defaultOrder: 50,
       label: 'Дата прихода',
       value: arrivalDate,
       render: (
@@ -579,8 +626,26 @@ export function EngineDetailsPage(props: {
     },
     props.canViewMasterData
       ? {
+          code: 'customer_id',
+          defaultOrder: 30,
+          label: 'Контрагент',
+          value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
+          render: (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+              <Input value={(linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId} disabled />
+              {customerId && props.onOpenCounterparty ? (
+                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCounterparty?.(customerId)}>
+                  Открыть
+                </Button>
+              ) : null}
+            </div>
+          ),
+        }
+      : null,
+    props.canViewMasterData
+      ? {
           code: 'contract_id',
-          defaultOrder: 22,
+          defaultOrder: 40,
           label: 'Контракт',
           value: (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId,
           render: (
@@ -612,29 +677,11 @@ export function EngineDetailsPage(props: {
           ),
         }
       : null,
-    props.canViewMasterData
-      ? {
-          code: 'customer_id',
-          defaultOrder: 23,
-          label: 'Контрагент',
-          value: (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId,
-          render: (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-              <Input value={(linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId} disabled />
-              {customerId && props.onOpenCounterparty ? (
-                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCounterparty?.(customerId)}>
-                  Открыть
-                </Button>
-              ) : null}
-            </div>
-          ),
-        }
-      : null,
-    ...STATUS_CODES.map((code) => {
+    ...STATUS_DISPLAY_ORDER.map((code) => {
       const dateValue = toInputDate(statusDates[code] ?? null);
       return {
         code,
-        defaultOrder: 30 + STATUS_CODES.indexOf(code) * 2,
+        defaultOrder: 60 + STATUS_DISPLAY_ORDER.indexOf(code) * 2,
         label: getStatusLabel(code),
         value: statusFlags[code] ? 'да' : 'нет',
         render: (
@@ -645,13 +692,7 @@ export function EngineDetailsPage(props: {
                 checked={!!statusFlags[code]}
                 disabled={!props.canEditEngines}
                 onChange={(e) => {
-                  const next = e.target.checked;
-                  sessionHadChanges.current = true;
-                  setStatusFlags((prev) => ({ ...prev, [code]: next }));
-                  setStatusDates((prev) => ({
-                    ...prev,
-                    [code]: next ? prev[code] ?? Date.now() : null,
-                  }));
+                  applyStatusCheckboxChange(code, e.target.checked);
                 }}
               />
               <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
@@ -673,7 +714,23 @@ export function EngineDetailsPage(props: {
   ].filter(Boolean);
   const mainFields = orderFieldsByDefs(mainFieldItems as any[], engineDefs);
 
-  const orderedPrintRows = mainFields.map((f) => [f.label, String(f.value ?? '')] as [string, string]);
+  const orderedPrintRows: Array<[string, string]> = [
+    ['Номер двигателя', engineNumber],
+    ['Марка двигателя', engineBrand],
+    ['Контрагент', (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId],
+    ['Контракт', (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId],
+    ['Дата прихода', formatDateLabel(arrivalDate)],
+    ['Забракован', statusPrintValue(Boolean(statusFlags.status_rejected), statusDates.status_rejected)],
+    [
+      'Отправлен заказчику на перекомплектацию',
+      statusPrintValue(Boolean(statusFlags.status_rework_sent), statusDates.status_rework_sent),
+    ],
+    ['Принят на хранение', statusPrintValue(Boolean(statusFlags.status_storage_received), statusDates.status_storage_received)],
+    ['Начат ремонт', statusPrintValue(Boolean(statusFlags.status_repair_started), statusDates.status_repair_started)],
+    ['Отремонтирован', statusPrintValue(Boolean(statusFlags.status_repaired), statusDates.status_repaired)],
+    ['Дата отгрузки', statusPrintValue(Boolean(statusFlags.status_customer_sent), statusDates.status_customer_sent)],
+    ['Принято заказчиком', statusPrintValue(Boolean(statusFlags.status_customer_accepted), statusDates.status_customer_accepted)],
+  ];
   const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
   const arrivalDateMsForChecklist = fromInputDate(arrivalDate);

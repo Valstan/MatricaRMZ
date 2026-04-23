@@ -398,6 +398,24 @@ export function collectEngineBrandIdsFromContractSections(sections: ContractSect
   return out;
 }
 
+/** Сумма количеств по каждой марке (первичный договор и все ДС). */
+export function sumEngineBrandQtyByBrandFromContractSections(sections: ContractSections | null | undefined): Map<string, number> {
+  const m = new Map<string, number>();
+  if (!sections) return m;
+  const add = (rows: ContractEngineBrandRow[]) => {
+    for (const r of rows) {
+      const id = String(r.engineBrandId ?? '').trim();
+      if (!id) continue;
+      const q = normalizeQty(r.qty);
+      if (q <= 0) continue;
+      m.set(id, (m.get(id) ?? 0) + q);
+    }
+  };
+  add(sections.primary.engineBrands);
+  for (const addon of sections.addons) add(addon.engineBrands);
+  return m;
+}
+
 /**
  * Ожидаемый % исполнения по линейному графику от даты подписания до срока.
  * Возвращает null, если нет осмысленного интервала дат.

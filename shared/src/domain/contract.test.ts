@@ -5,6 +5,7 @@ import {
   computeObjectProgress,
   isContractLaggingVsSchedule,
   linearScheduleExpectedProgressPct,
+  sumEngineBrandQtyByBrandFromContractSections,
   type ContractSections,
 } from './contract.js';
 
@@ -83,6 +84,39 @@ describe('contract domain regressions', () => {
     const now = dueAt + 24 * 60 * 60 * 1000;
     expect(isContractLaggingVsSchedule({ actualProgressPct: 50, signedAt: null, dueAt, now })).toBe(true);
     expect(isContractLaggingVsSchedule({ actualProgressPct: 100, signedAt: null, dueAt, now })).toBe(false);
+  });
+
+  it('sumEngineBrandQtyByBrandFromContractSections sums primary and addons by brand', () => {
+    const sections: ContractSections = {
+      primary: {
+        number: 'K-1',
+        signedAt: null,
+        dueAt: null,
+        internalNumber: '',
+        customerId: null,
+        engineBrands: [
+          { engineBrandId: 'brand-a', qty: 2, unitPrice: 0 },
+          { engineBrandId: 'brand-b', qty: 1, unitPrice: 0 },
+        ],
+        parts: [],
+      },
+      addons: [
+        {
+          number: 'DS-1',
+          signedAt: null,
+          dueAt: null,
+          engineBrands: [
+            { engineBrandId: 'brand-a', qty: 3, unitPrice: 0 },
+            { engineBrandId: 'brand-c', qty: 0, unitPrice: 0 },
+          ],
+          parts: [],
+        },
+      ],
+    };
+    const m = sumEngineBrandQtyByBrandFromContractSections(sections);
+    expect(m.get('brand-a')).toBe(5);
+    expect(m.get('brand-b')).toBe(1);
+    expect(m.has('brand-c')).toBe(false);
   });
 });
 

@@ -817,6 +817,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     engineBrandIds: z.array(z.string().uuid()).optional(),
     priorityEngineBrandIds: z.array(z.string().uuid()).optional(),
     workingWeekdays: z.array(z.coerce.number().int().min(0).max(6)).optional(),
+    brandMaxEnginesHorizon: z.record(z.string().min(1), z.coerce.number().int().min(0).max(100_000)).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -829,6 +830,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
       ...(parsed.data.engineBrandIds !== undefined ? { engineBrandIds: parsed.data.engineBrandIds } : {}),
       ...(parsed.data.priorityEngineBrandIds !== undefined ? { priorityEngineBrandIds: parsed.data.priorityEngineBrandIds } : {}),
       ...(parsed.data.workingWeekdays !== undefined ? { workingWeekdays: parsed.data.workingWeekdays } : {}),
+      ...(parsed.data.brandMaxEnginesHorizon !== undefined ? { brandMaxEnginesHorizon: parsed.data.brandMaxEnginesHorizon } : {}),
     });
     /** Коды статуса как в `computeAssemblyForecast` (`ok` | `waiting` | `shortage` | `absent` | `weekend`); подписи для UI делает клиент. */
     const rows = forecast.rows.map((r: {

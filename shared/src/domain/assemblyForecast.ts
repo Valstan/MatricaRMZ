@@ -59,6 +59,11 @@ export type AssemblyForecastComputeInput = {
    */
   priorityEngineBrandIds?: string[];
   /**
+   * Максимум собранных двигателей по базовой марке (UUID без суффикса `::...`) за весь горизонт симуляции.
+   * Марка не в map — без лимита; значение 0 — не планировать эту марку.
+   */
+  brandMaxEnginesHorizon?: ReadonlyMap<string, number>;
+  /**
    * Рабочие дни недели по JS getDay(): 0=вс, 1=пн, ... 6=сб.
    * Если пусто/не задано — считаем рабочими все дни.
    */
@@ -788,6 +793,8 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
   const today = startOfTodayLocal();
 
   const lastUsedBrandByPool = new Map<string, string>();
+  const brandEnginesUsed = new Map<string, number>();
+  const brandMaxHorizon = input.brandMaxEnginesHorizon;
 
   /**
    * Распределяет часть дневной цели по переданному пулу комплектов
@@ -817,13 +824,27 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
       while (attempts < order.length && remaining > 0) {
         const kit = order[cursor];
         if (!kit) break;
+        const baseBrandId = baseEngineBrandIdFromKitBrandId(kit.brandId);
+        let brandLeft = Number.POSITIVE_INFINITY;
+        if (brandMaxHorizon) {
+          const cap = brandMaxHorizon.get(baseBrandId);
+          if (cap != null) {
+            const used = brandEnginesUsed.get(baseBrandId) ?? 0;
+            brandLeft = Math.max(0, cap - used);
+          }
+        }
+        if (brandLeft <= 0) {
+          cursor = (cursor + 1) % order.length;
+          attempts += 1;
+          continue;
+        }
         const maxForCurrent = maxEnginesForKit(stock, kit);
         if (maxForCurrent <= 0) {
           cursor = (cursor + 1) % order.length;
           attempts += 1;
           continue;
         }
-        const run = Math.max(1, Math.min(remaining, sameBrandBatchSize, maxForCurrent));
+        const run = Math.max(1, Math.min(remaining, sameBrandBatchSize, maxForCurrent, Math.floor(brandLeft)));
         for (let i = 0; i < run; i++) {
           const requiredSummary = consumeOneEngineAndFormatSummary(stock, warehouseBins, kit);
           rows.push({
@@ -841,6 +862,7 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
         remaining -= run;
         progressed = true;
         lastUsedBrandId = kit.brandId;
+        brandEnginesUsed.set(baseBrandId, (brandEnginesUsed.get(baseBrandId) ?? 0) + run);
         if (remaining > 0) {
           cursor = (cursor + 1) % order.length;
         }

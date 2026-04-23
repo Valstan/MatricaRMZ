@@ -692,6 +692,13 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         selectAllByDefault: true,
       },
       {
+        type: 'checkbox',
+        key: 'assemblyForecastOnSiteOnly',
+        label: 'Учитывать только двигатели на заводе:',
+        labelHint:
+          'Только в режиме «По контрактам». Включено — в прогнозе по объёму и приоритету учитываются только прикреплённые к контракту двигатели со статусом «Начат ремонт». Выключено — ориентир по суммарным количествам по маркам из первичного договора и всех ДС (остаток к исполнению с учётом уже завершённых единиц).',
+      },
+      {
         type: 'multi_select',
         key: 'warehouseIds',
         label: 'Склады',

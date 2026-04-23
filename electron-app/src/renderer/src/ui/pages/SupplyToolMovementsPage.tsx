@@ -325,7 +325,9 @@ export function SupplyToolMovementsPage(props: {
               placeholder="Инструмент или товар из номенклатуры"
               disabled={!props.canEdit}
               canCreate={false}
+              createLabel=""
               onChange={(next) => setSubjectEntityId(next ?? '')}
+              onCreate={async () => null}
             />
           </div>
         )}
