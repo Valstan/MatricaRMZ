@@ -176,6 +176,10 @@ async function getToolTypeId(db: BetterSQLite3Database) {
   return getEntityTypeIdByCode(db, TOOL_TYPE_CODE);
 }
 
+async function getProductTypeId(db: BetterSQLite3Database) {
+  return getEntityTypeIdByCode(db, 'product');
+}
+
 async function getToolPropertyTypeId(db: BetterSQLite3Database) {
   return getEntityTypeIdByCode(db, TOOL_PROPERTY_TYPE_CODE);
 }
@@ -255,6 +259,61 @@ async function ensureToolAccess(
     return { ok: false, error: `permission denied: tools.${mode}` };
   }
   return { ok: true, departmentId: userDept };
+}
+
+async function ensureMovementSubjectAccess(
+  db: BetterSQLite3Database,
+  subjectId: string,
+  scope?: { userId: string; role: string },
+  mode: 'view' | 'edit' = 'view',
+): Promise<{ ok: true; departmentId: string | null } | { ok: false; error: string }> {
+  if (!scope?.userId) return { ok: false, error: 'missing user session' };
+  const rows = await db
+    .select({ typeId: entities.typeId })
+    .from(entities)
+    .where(and(eq(entities.id, subjectId), isNull(entities.deletedAt)))
+    .limit(1);
+  if (!rows[0]) return { ok: false, error: 'subject not found' };
+  const typeId = String(rows[0].typeId);
+  const toolTypeId = await getToolTypeId(db);
+  const productTypeId = await getProductTypeId(db);
+  if (toolTypeId && typeId === toolTypeId) return ensureToolAccess(db, subjectId, scope, mode);
+  if (productTypeId && typeId === productTypeId) {
+    if (canViewAllDepartments(scope.role) || canEditAllDepartments(scope.role)) {
+      return { ok: true, departmentId: null };
+    }
+    const deptDefId = await getAttributeDefIdByCode(db, productTypeId, 'department_id');
+    if (!deptDefId) {
+      if (mode === 'view') return { ok: true, departmentId: null };
+      return { ok: true, departmentId: null };
+    }
+    const deptRow = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .where(and(eq(attributeValues.entityId, subjectId), eq(attributeValues.attributeDefId, deptDefId), isNull(attributeValues.deletedAt)))
+      .limit(1);
+    const raw = deptRow[0]?.valueJson ? String(deptRow[0].valueJson) : '';
+    const parsedDept = safeJsonParse(raw);
+    const subjDept = typeof parsedDept === 'string' ? parsedDept : raw;
+    const userDept = await getUserDepartmentId(db, scope.userId).catch(() => null);
+    if (!userDept || !subjDept || String(subjDept) !== userDept) {
+      if (mode === 'view') return { ok: false, error: `permission denied: tools.${mode}` };
+      return { ok: false, error: `permission denied: tools.${mode}` };
+    }
+    return { ok: true, departmentId: userDept };
+  }
+  return { ok: false, error: 'unsupported movement subject' };
+}
+
+async function movementSubjectLabel(db: BetterSQLite3Database, entityId: string): Promise<string | null> {
+  try {
+    const det = await getEntityDetails(db, entityId);
+    const a = det.attributes ?? {};
+    const name = String((a as any).name ?? (a as any).title ?? '').trim();
+    return name || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function listTools(
@@ -823,6 +882,47 @@ export async function listToolMovements(
   return { ok: true as const, movements: out };
 }
 
+export async function listAllToolMovements(
+  db: BetterSQLite3Database,
+  scope?: { userId: string; role: string },
+): Promise<{ ok: true; movements: ToolMovementItem[] } | { ok: false; error: string }> {
+  if (!scope?.userId) return { ok: false as const, error: 'missing user session' };
+  try {
+    const rows = await db
+      .select()
+      .from(operations)
+      .where(and(eq(operations.operationType, TOOL_MOVEMENT_TYPE), isNull(operations.deletedAt)))
+      .orderBy(desc(operations.performedAt))
+      .limit(2000);
+    const out: ToolMovementItem[] = [];
+    for (const r of rows as any[]) {
+      const subjectId = String(r.engineEntityId ?? '');
+      if (!subjectId) continue;
+      const access = await ensureMovementSubjectAccess(db, subjectId, scope, 'view');
+      if (!access.ok) continue;
+      const parsed = r.metaJson ? (safeJsonParse(String(r.metaJson)) as any) : null;
+      const subjectName = await movementSubjectLabel(db, subjectId);
+      out.push({
+        id: String(r.id),
+        toolId: subjectId,
+        movementAt: Number(parsed?.movementAt ?? r.performedAt ?? r.createdAt),
+        mode: parsed?.mode === 'returned' ? 'returned' : 'received',
+        employeeId: parsed?.employeeId ? String(parsed.employeeId) : null,
+        confirmed: parsed?.confirmed === true,
+        confirmedById: parsed?.confirmedById ? String(parsed.confirmedById) : null,
+        comment: parsed?.comment ? String(parsed.comment) : null,
+        createdAt: Number(r.createdAt ?? 0),
+        updatedAt: Number(r.updatedAt ?? 0),
+        subjectName,
+      });
+    }
+    out.sort((a, b) => b.movementAt - a.movementAt);
+    return { ok: true as const, movements: out };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function listToolPropertyValueHints(
   db: BetterSQLite3Database,
   args: { propertyId: string; scope?: { userId: string; role: string } },
@@ -954,7 +1054,7 @@ export async function addToolMovement(
     scope?: { userId: string; role: string };
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const access = await ensureToolAccess(db, args.toolId, args.scope, 'edit');
+  const access = await ensureMovementSubjectAccess(db, args.toolId, args.scope, 'edit');
   if (!access.ok) return access;
   const ts = nowMs();
   const payload = {
@@ -998,7 +1098,7 @@ export async function updateToolMovement(
     scope?: { userId: string; role: string };
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const access = await ensureToolAccess(db, args.toolId, args.scope, 'edit');
+  const access = await ensureMovementSubjectAccess(db, args.toolId, args.scope, 'edit');
   if (!access.ok) return access;
   const ts = nowMs();
   const payload = {
@@ -1030,7 +1130,7 @@ export async function deleteToolMovement(
   db: BetterSQLite3Database,
   args: { id: string; toolId: string; scope?: { userId: string; role: string } },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const access = await ensureToolAccess(db, args.toolId, args.scope, 'edit');
+  const access = await ensureMovementSubjectAccess(db, args.toolId, args.scope, 'edit');
   if (!access.ok) return access;
   const ts = nowMs();
   await db

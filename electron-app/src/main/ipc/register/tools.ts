@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
-import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
+import { hasPerm, isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { authStatus } from '../../services/authService.js';
 import {
   addToolMovement,
@@ -19,6 +19,7 @@ import {
   getToolsScope,
   listToolCatalog,
   listToolMovements,
+  listAllToolMovements,
   updateToolMovement,
   listToolPropertyValueHints,
   listToolProperties,
@@ -32,6 +33,18 @@ export function registerToolsIpc(ctx: IpcContext) {
     const auth = await authStatus(ctx.sysDb);
     if (!auth.loggedIn || !auth.user) return null;
     return { userId: auth.user.id, role: auth.user.role };
+  }
+
+  async function requireMasterDataViewOrSupplyView() {
+    const perms = await ctx.currentPermissions();
+    if (hasPerm(perms, 'masterdata.view') || hasPerm(perms, 'supply_requests.view')) return { ok: true as const };
+    return { ok: false as const, error: 'permission denied: masterdata.view or supply_requests.view' };
+  }
+
+  async function requireMasterDataEditOrSupplyFulfill() {
+    const perms = await ctx.currentPermissions();
+    if (hasPerm(perms, 'masterdata.edit') || hasPerm(perms, 'supply_requests.fulfill')) return { ok: true as const };
+    return { ok: false as const, error: 'permission denied: masterdata.edit or supply_requests.fulfill' };
   }
 
   ipcMain.handle('tools:list', async (_e, args?: { q?: string }) => {
@@ -85,6 +98,14 @@ export function registerToolsIpc(ctx: IpcContext) {
     return listToolMovements(ctx.dataDb(), toolId, scope);
   });
 
+  ipcMain.handle('tools:movements:listAll', async () => {
+    const gate = await requireMasterDataViewOrSupplyView();
+    if (!gate.ok) return gate as any;
+    const scope = await getScope();
+    if (!scope) return { ok: false as const, error: 'missing user session' };
+    return listAllToolMovements(ctx.dataDb(), scope);
+  });
+
   ipcMain.handle(
     'tools:movements:add',
     async (
@@ -100,7 +121,7 @@ export function registerToolsIpc(ctx: IpcContext) {
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();
-      const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+      const gate = await requireMasterDataEditOrSupplyFulfill();
       if (!gate.ok) return gate as any;
       const scope = await getScope();
       if (!scope) return { ok: false as const, error: 'missing user session' };
@@ -125,7 +146,7 @@ export function registerToolsIpc(ctx: IpcContext) {
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();
-      const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+      const gate = await requireMasterDataEditOrSupplyFulfill();
       if (!gate.ok) return gate as any;
       const scope = await getScope();
       if (!scope) return { ok: false as const, error: 'missing user session' };
@@ -136,7 +157,7 @@ export function registerToolsIpc(ctx: IpcContext) {
 
   ipcMain.handle('tools:movements:delete', async (_e, args: { id: string; toolId: string }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+    const gate = await requireMasterDataEditOrSupplyFulfill();
     if (!gate.ok) return gate as any;
     const scope = await getScope();
     if (!scope) return { ok: false as const, error: 'missing user session' };
@@ -212,7 +233,7 @@ export function registerToolsIpc(ctx: IpcContext) {
   });
 
   ipcMain.handle('tools:employees:list', async (_e, args?: { departmentId?: string | null }) => {
-    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    const gate = await requireMasterDataViewOrSupplyView();
     if (!gate.ok) return gate as any;
     return listEmployeesForTools(ctx.dataDb(), args?.departmentId ?? null);
   });

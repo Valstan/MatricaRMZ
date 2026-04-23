@@ -1370,7 +1370,7 @@ export async function upsertWarehouseNomenclature(args: {
       if (sourceKind === 'tool') {
         const rows = await db.select({ name: directoryTools.name }).from(directoryTools).where(and(eq(directoryTools.id, sourceRefId as any), isNull(directoryTools.deletedAt))).limit(1);
         resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
-      } else if (sourceKind === 'good') {
+      } else if (sourceKind === 'good' || sourceKind === 'product') {
         const rows = await db.select({ name: directoryGoods.name }).from(directoryGoods).where(and(eq(directoryGoods.id, sourceRefId as any), isNull(directoryGoods.deletedAt))).limit(1);
         resolvedSourceName = rows[0]?.name ? String(rows[0].name) : null;
       } else if (sourceKind === 'service') {
@@ -1401,8 +1401,14 @@ export async function upsertWarehouseNomenclature(args: {
       if (templateItemType && templateItemType !== nextItemType) {
         return { ok: false, error: 'Шаблон не соответствует выбранному типу номенклатуры.' };
       }
-      if (templateDirectoryKind && sourceKind && templateDirectoryKind !== sourceKind) {
-        return { ok: false, error: 'Шаблон не соответствует выбранному источнику номенклатуры.' };
+      if (templateDirectoryKind && sourceKind) {
+        const kindsMatch =
+          templateDirectoryKind === sourceKind ||
+          (templateDirectoryKind === 'good' && sourceKind === 'product') ||
+          (templateDirectoryKind === 'product' && sourceKind === 'good');
+        if (!kindsMatch) {
+          return { ok: false, error: 'Шаблон не соответствует выбранному источнику номенклатуры.' };
+        }
       }
       const propertiesJson = String(template.attrs.properties_json ?? '').trim();
       if (propertiesJson) {

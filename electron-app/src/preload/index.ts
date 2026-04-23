@@ -258,6 +258,7 @@ const matricaApi = {
     scope: async () => ipcRenderer.invoke('tools:scope'),
     movements: {
       list: async (toolId: string) => ipcRenderer.invoke('tools:movements:list', toolId),
+      listAll: async () => ipcRenderer.invoke('tools:movements:listAll'),
       add: async (args: {
         toolId: string;
         movementAt: number;

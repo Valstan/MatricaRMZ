@@ -39,6 +39,7 @@ export type TabId =
   | 'part'
   | 'part_template'
   | 'tools'
+  | 'tool_accounting'
   | 'tool'
   | 'tool_properties'
   | 'tool_property'
@@ -98,8 +99,8 @@ const PARENT_TAB: Record<string, MenuTabId> = {
   employee: 'employees',
   contract: 'contracts',
   counterparty: 'counterparties',
-  product: 'products',
-  service: 'services',
+  product: 'nomenclature',
+  service: 'nomenclature',
   nomenclature_item: 'nomenclature',
   stock_document: 'stock_documents',
   engine_assembly_bom_item: 'engine_assembly_bom',
@@ -120,6 +121,7 @@ const menuTabSet = new Set<MenuTabId>([
   'work_orders',
   'parts',
   'tools',
+  'tool_accounting',
   'products',
   'services',
   'nomenclature',
@@ -171,8 +173,8 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
 const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
-  production: ['engines', 'engine_brands', 'parts', 'part_templates', 'engine_assembly_bom'],
-  supply: ['requests', 'work_orders', 'tools', 'products', 'services'],
+  production: ['engines', 'engine_brands', 'parts', 'part_templates', 'engine_assembly_bom', 'tools'],
+  supply: ['requests', 'work_orders', 'tool_accounting'],
   warehouse: ['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
@@ -226,7 +228,8 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   parts: { icon: '🧩', subtitle: 'Справочник деталей и узлов', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
   requests: { icon: '📦', subtitle: 'Закупка и потребности', gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)' },
   work_orders: { icon: '🛠️', subtitle: 'Работы и производство', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
-  tools: { icon: '🔧', subtitle: 'Инструменты и оснащение', gradient: 'linear-gradient(135deg, #059669 0%, #22c55e 100%)' },
+  tools: { icon: '🔧', subtitle: 'Справочник инструментов (номенклатура)', gradient: 'linear-gradient(135deg, #059669 0%, #22c55e 100%)' },
+  tool_accounting: { icon: '📋', subtitle: 'Выдачи и возвраты по сотрудникам', gradient: 'linear-gradient(135deg, #047857 0%, #34d399 100%)' },
   products: { icon: '📦', subtitle: 'Товары и номенклатура', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
   services: { icon: '🧰', subtitle: 'Услуги и операции', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
   nomenclature: { icon: '🗃️', subtitle: 'Единый каталог ТМЦ', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
@@ -461,6 +464,7 @@ export function Tabs(props: {
     work_orders: 'Наряды',
     parts: 'Детали',
     tools: 'Инструменты',
+    tool_accounting: 'Учёт инструментов',
     products: 'Товары',
     services: 'Услуги',
     nomenclature: 'Номенклатура',

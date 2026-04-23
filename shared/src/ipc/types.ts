@@ -109,6 +109,8 @@ export type ToolMovementItem = {
   comment?: string | null;
   createdAt: number;
   updatedAt: number;
+  /** Имя сущности (инструмент / товар), если движение ведётся не только по инструментам. */
+  subjectName?: string | null;
 };
 
 export type EmployeeListItem = {

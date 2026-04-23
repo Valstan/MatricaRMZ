@@ -115,8 +115,7 @@ const ToolPropertiesPage = lazyPage('./pages/ToolPropertiesPage.tsx', 'ToolPrope
 const ToolPropertyDetailsPage = lazyPage('./pages/ToolPropertyDetailsPage.tsx', 'ToolPropertyDetailsPage');
 const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
 const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
-const ProductsPage = lazyPage('./pages/ProductsPage.tsx', 'ProductsPage');
-const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
+const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
 const NomenclaturePage = lazyPage('./pages/NomenclaturePage.tsx', 'NomenclaturePage');
 const NomenclatureDetailsPage = lazyPage('./pages/NomenclatureDetailsPage.tsx', 'NomenclatureDetailsPage');
 const StockBalancesPage = lazyPage('./pages/StockBalancesPage.tsx', 'StockBalancesPage');
@@ -328,8 +327,8 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   employee: 'employees',
   contract: 'contracts',
   counterparty: 'counterparties',
-  product: 'products',
-  service: 'services',
+  product: 'nomenclature',
+  service: 'nomenclature',
   nomenclature_item: 'nomenclature',
   engine_assembly_bom_item: 'engine_assembly_bom',
   stock_document: 'stock_documents',
@@ -1290,13 +1289,12 @@ export function App() {
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
     ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
-    ...(caps.canViewSupplyRequests ? (['requests'] as const) : []),
+    ...(caps.canViewSupplyRequests ? (['requests', 'tool_accounting'] as const) : []),
     ...(caps.canViewWorkOrders ? (['work_orders'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canViewParts ? (['part_templates'] as const) : []),
     ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
-    ...(caps.canViewMasterData ? (['products', 'services'] as const) : []),
     ...(caps.canViewMasterData
       ? (['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'] as const)
       : []),
@@ -1344,6 +1342,7 @@ export function App() {
     parts: 'Детали',
     part_templates: 'Справочник деталей',
     tools: 'Инструменты',
+    tool_accounting: 'Учёт инструментов',
     products: 'Товары',
     services: 'Услуги',
     nomenclature: 'Номенклатура',
@@ -1863,6 +1862,7 @@ export function App() {
       part: 'Карточка детали',
       part_template: 'Карточка детали (справочник)',
       tools: 'Инструменты',
+      tool_accounting: 'Учёт инструментов',
       tool: 'Карточка инструмента',
       tool_properties: 'Свойства инструментов',
       tool_property: 'Карточка свойства инструмента',
@@ -1902,8 +1902,8 @@ export function App() {
       contract: 'Контракты',
       counterparty: 'Контрагенты',
       employee: 'Сотрудники',
-      product: 'Товары',
-      service: 'Услуги',
+      product: 'Номенклатура',
+      service: 'Номенклатура',
       nomenclature_item: 'Номенклатура',
       engine_assembly_bom_item: 'BOM двигателей',
       stock_document: 'Складские документы',
@@ -2324,14 +2324,12 @@ export function App() {
         ? 'Матрица РМЗ — Карточка двигателя'
         : tab === 'engine_brand'
           ? 'Матрица РМЗ — Карточка марки двигателя'
-        : tab === 'products'
-          ? 'Матрица РМЗ — Товары'
-          : tab === 'product'
+        : tab === 'product'
             ? 'Матрица РМЗ — Карточка товара'
-            : tab === 'services'
-              ? 'Матрица РМЗ — Услуги'
-              : tab === 'service'
-                ? 'Матрица РМЗ — Карточка услуги'
+            : tab === 'service'
+              ? 'Матрица РМЗ — Карточка услуги'
+              : tab === 'tool_accounting'
+                ? 'Матрица РМЗ — Учёт инструментов'
                 : tab === 'nomenclature'
                   ? 'Матрица РМЗ — Номенклатура'
                   : tab === 'nomenclature_item'
@@ -2376,6 +2374,14 @@ export function App() {
               ? 'Матрица РМЗ — Карточка детали'
               : tab === 'part_template'
                 ? 'Матрица РМЗ — Карточка детали (справочник)'
+                : tab === 'tools'
+                  ? 'Матрица РМЗ — Инструменты'
+                  : tab === 'tool_properties'
+                    ? 'Матрица РМЗ — Свойства инструментов'
+                    : tab === 'tool_property'
+                      ? 'Матрица РМЗ — Свойство инструмента'
+                      : tab === 'tool'
+                        ? 'Матрица РМЗ — Карточка инструмента'
           : tab === 'contracts'
             ? 'Матрица РМЗ — Контракты'
             : tab === 'contract'
@@ -3351,6 +3357,19 @@ export function App() {
           />
         )}
 
+        {tab === 'tool_accounting' && (
+          <SupplyToolMovementsPage
+            canEdit={caps.canEditMasterData || caps.canFulfillSupplyRequests}
+            canViewMasterData={caps.canViewMasterData}
+            onOpenNomenclature={openNomenclature}
+            onOpenEmployee={(id) => {
+              setSelectedEmployeeId(id);
+              setTab('employee');
+            }}
+            canCreateEmployees={caps.canManageEmployees}
+          />
+        )}
+
         {tab === 'tool_properties' && (
           <ToolPropertiesPage
             onOpen={openToolProperty}
@@ -3368,26 +3387,6 @@ export function App() {
             canCreate={caps.canManageEmployees}
             canDelete={caps.canManageEmployees}
             refreshKey={employeesRefreshKey}
-          />
-        )}
-
-        {tab === 'products' && (
-          <ProductsPage
-            onOpen={openNomenclature}
-            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
-            canCreate={caps.canEditMasterData}
-            canDelete={caps.canEditMasterData}
-            canViewMasterData={caps.canViewMasterData}
-          />
-        )}
-
-        {tab === 'services' && (
-          <ServicesPage
-            onOpen={openNomenclature}
-            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
-            canCreate={caps.canEditMasterData}
-            canDelete={caps.canEditMasterData}
-            canViewMasterData={caps.canViewMasterData}
           />
         )}
 
@@ -3585,7 +3584,7 @@ export function App() {
             onOpenCustomer={openCounterparty}
             onClose={() => {
               setSelectedProductId(null);
-              setTabState('products');
+              setTabState('nomenclature');
             }}
           />
         )}
@@ -3605,7 +3604,7 @@ export function App() {
             onOpenCustomer={openCounterparty}
             onClose={() => {
               setSelectedServiceId(null);
-              setTabState('services');
+              setTabState('nomenclature');
             }}
           />
         )}

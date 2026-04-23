@@ -1,4 +1,4 @@
-import type { NomenclatureItemType } from '@matricarmz/shared';
+import type { NomenclatureItemType, WarehouseLookupOption } from '@matricarmz/shared';
 
 import type { NomenclatureCreateConfig } from '../pages/nomenclatureDirectoryPresets.js';
 import { buildNomenclatureCode } from './nomenclatureCode.js';
@@ -37,6 +37,38 @@ export type CreateNomenclatureLineFromPresetResult =
   | { ok: true; mode: 'part'; partId: string }
   | { ok: false; error: string }
   | { ok: false; duplicatePartId: string; message: string };
+
+function labelNorm(s: string | null | undefined) {
+  return String(s ?? '').trim().toLowerCase();
+}
+
+function findNomenclatureGroupId(groups: WarehouseLookupOption[] | undefined, exactLabels: string[]): string | null {
+  const rows = groups ?? [];
+  for (const want of exactLabels) {
+    const t = labelNorm(want);
+    const hit = rows.find((g) => labelNorm(g.label) === t);
+    if (hit?.id) return String(hit.id);
+  }
+  return null;
+}
+
+/** Группа склада по виду справочника: «Инструменты», «Товары», «Услуги» и запасные варианты из пресетов. */
+export function pickWarehouseNomenclatureGroupId(
+  groups: WarehouseLookupOption[] | undefined,
+  directoryKind: string,
+): string | null {
+  const dk = String(directoryKind ?? '').trim().toLowerCase();
+  if (dk === 'tool') {
+    return findNomenclatureGroupId(groups, ['Инструменты', 'Инструмент и оснастка']);
+  }
+  if (dk === 'good' || dk === 'product') {
+    return findNomenclatureGroupId(groups, ['Товары', 'Готовая продукция', 'Покупные комплектующие']);
+  }
+  if (dk === 'service') {
+    return findNomenclatureGroupId(groups, ['Услуги', 'Услуги подрядчиков']);
+  }
+  return null;
+}
 
 /**
  * Создание позиции как в каталоге номенклатуры: деталь через parts.create, остальное — источник + warehouse.nomenclatureUpsert.
@@ -78,7 +110,9 @@ export async function createNomenclatureLineFromPreset(args: {
   if (!lookups?.ok) {
     return { ok: false, error: String(lookups?.error ?? 'не удалось загрузить справочники склада') };
   }
-  const groupId = String(lookups.lookups?.nomenclatureGroups?.[0]?.id ?? '').trim();
+  const groups = lookups.lookups?.nomenclatureGroups as WarehouseLookupOption[] | undefined;
+  const groupId =
+    pickWarehouseNomenclatureGroupId(groups, directoryKind) ?? String(groups?.[0]?.id ?? '').trim();
   const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
   if (!groupId || !unitId) {
     return { ok: false, error: 'Не найдены группа номенклатуры или единица измерения по умолчанию (Склад → Номенклатура).' };
