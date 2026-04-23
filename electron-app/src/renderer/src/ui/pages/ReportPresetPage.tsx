@@ -389,12 +389,14 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     const whF = filterOf('warehouseIds');
     const engF = filterOf('engineBrandIds');
     const priF = filterOf('priorityEngineBrandIds');
+    const onSiteF = filterOf('assemblyForecastOnSiteOnly');
     const tgtF = filterOf('targetEnginesPerDay');
     const batchF = filterOf('sameBrandBatchSize');
     const horF = filterOf('horizonDays');
     const wkF = filterOf('workingWeekdays');
-    if (!prio || !contF || !whF || !engF || !priF || !tgtF || !batchF || !horF || !wkF) return null;
+    if (!prio || !contF || !onSiteF || !whF || !engF || !priF || !tgtF || !batchF || !horF || !wkF) return null;
     if (prio.type !== 'select' || contF.type !== 'multi_select' || whF.type !== 'multi_select' || engF.type !== 'multi_select' || priF.type !== 'multi_select') return null;
+    if (onSiteF.type !== 'checkbox') return null;
     if (tgtF.type !== 'number' || batchF.type !== 'number' || horF.type !== 'number' || wkF.type !== 'multi_select') return null;
 
     const warehouseOpts = optionSets.warehouses ?? [];
@@ -406,6 +408,7 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
     const selBrand = Array.isArray(activeFilters.engineBrandIds) ? (activeFilters.engineBrandIds as string[]) : [];
     const selPriBrand = Array.isArray(activeFilters.priorityEngineBrandIds) ? (activeFilters.priorityEngineBrandIds as string[]) : [];
     const selContracts = Array.isArray(activeFilters.assemblyContractIds) ? (activeFilters.assemblyContractIds as string[]) : [];
+    const onSiteOnlyChecked = Boolean(activeFilters.assemblyForecastOnSiteOnly);
     const selWorkingWeekdays = Array.isArray(activeFilters.workingWeekdays) ? (activeFilters.workingWeekdays as string[]) : [];
     const weekdayOpts = wkF.options ?? [];
     const allWeekdayIds = weekdayOpts.map((o) => String(o.value));
@@ -533,6 +536,42 @@ export function ReportPresetPage(props: { presetId: ReportPresetId; canExport: b
                   {o.label}
                 </span>
               ))}
+            </div>
+          )}
+        </div>
+
+        <div className="report-preset-af-block">
+          <div className="report-preset-af-label" title={filterLabelHint(onSiteF)}>
+            {onSiteF.label}
+          </div>
+          <div className="report-preset-af-main" style={{ display: 'flex', alignItems: 'center', minHeight: 36 }}>
+            <input
+              type="checkbox"
+              checked={onSiteOnlyChecked}
+              disabled={busy || contractsDisabled}
+              title={contractsDisabled ? 'Доступно в режиме «По контрактам».' : filterLabelHint(onSiteF)}
+              onChange={(e) => patchFilter('assemblyForecastOnSiteOnly', e.target.checked)}
+              aria-label={onSiteF.label}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => resetFilter(onSiteF)}
+            title="Сбросить"
+            style={filterResetBtnStyle}
+            disabled={contractsDisabled}
+          >
+            ✕
+          </button>
+          {contractsDisabled ? (
+            <div className="report-preset-af-meta">Доступно в режиме «По контрактам»: учёт объёма по контракту vs только двигатели на заводе со статусом «Начат ремонт».</div>
+          ) : onSiteOnlyChecked ? (
+            <div className="report-preset-af-meta">
+              Включено: прогноз по прикреплённым к выбранным контрактам двигателям со статусом «Начат ремонт» (на заводе к ремонту).
+            </div>
+          ) : (
+            <div className="report-preset-af-meta">
+              Выключено: ориентир по суммарным количествам по маркам из первичного договора и ДС (остаток к исполнению).
             </div>
           )}
         </div>
