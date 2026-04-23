@@ -544,17 +544,17 @@ export function NomenclaturePage(props: {
                 groupedRows.map((group) => {
                   const expanded = expandedGroupKey === group.key;
                   return (
-                    <section key={group.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <section key={group.key} style={{ width: '100%', borderBottom: '1px solid var(--border)' }}>
                       <button
                         type="button"
                         onClick={() => setExpandedGroupKey((prev) => (prev === group.key ? null : group.key))}
                         style={{
                           width: '100%',
                           height: GROUP_HEADER_HEIGHT,
-                          display: 'flex',
+                          display: 'grid',
+                          gridTemplateColumns: '1fr auto',
                           alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 10,
+                          columnGap: 10,
                           position: 'sticky',
                           top: 0,
                           zIndex: 3,
@@ -567,9 +567,21 @@ export function NomenclaturePage(props: {
                           textAlign: 'left',
                           cursor: 'pointer',
                           padding: '0 10px',
+                          boxSizing: 'border-box',
                         }}
                       >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</span>
+                  <span
+                    style={{
+                      minWidth: 0,
+                      justifySelf: 'stretch',
+                      textAlign: 'left',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {group.label}
+                  </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expanded ? '#dbeafe' : '#166534', flexShrink: 0 }}>
                     <span>{group.rows.length}</span>
                     <span style={{ fontSize: 14 }}>{expanded ? '▾' : '▸'}</span>
