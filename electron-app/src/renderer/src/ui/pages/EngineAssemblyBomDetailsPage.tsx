@@ -748,28 +748,93 @@ export function EngineAssemblyBomDetailsPage(props: {
 
   useEffect(() => {
     if (!data) return;
-    if (data.lines.length > 0) return;
     if (requiredComponentTypes.length === 0) return;
-    setData((prev) => {
-      if (!prev) return prev;
-      if (prev.lines.length > 0) return prev;
-      return {
-        ...prev,
-        lines: requiredComponentTypes.map((typeId, idx) => ({
+
+    const existingLines = data.lines;
+    const activeTypes = new Set(requiredComponentTypes.map((typeId) => String(typeId ?? '').trim().toLowerCase()).filter(Boolean));
+    const cleanedLines = existingLines.filter((line) => {
+      const type = String(line.componentType ?? '').trim().toLowerCase();
+      return !type || activeTypes.has(type);
+    });
+    const missingLines: BomLine[] = [];
+    const lineStubId =
+      pickBomDraftStubNomenclatureFromMeta(nomenclatureMetaRows, data.header.engineBrandId) ||
+      existingLines.map((line) => String(line.componentNomenclatureId ?? '').trim()).find(Boolean) ||
+      '';
+
+    const removedLineCount = existingLines.length - cleanedLines.length;
+    const byScope = new Map<string, BomLine[]>();
+    for (const line of cleanedLines) {
+      const scope = normalizeVariantGroup(line.variantGroup) || '__base__';
+      const list = byScope.get(scope) ?? [];
+      list.push(line);
+      byScope.set(scope, list);
+    }
+
+    const addMissing = (scope: string, missingTypes: string[]) => {
+      for (const typeId of missingTypes) {
+        const lineKey = normalizeNodeKey(`auto-${scope}-${typeId}-${Date.now()}`) || `auto-${typeId}-${Date.now()}`;
+        missingLines.push({
           id: '',
-          componentNomenclatureId: '',
+          componentNomenclatureId: lineStubId,
+          componentType: typeId,
+          qtyPerUnit: 0,
+          variantGroup: scope === '__base__' ? null : scope,
+          lineKey,
+          parentLineKey: null,
+          isRequired: true,
+          priority: 100,
+          notes: 'Черновик строки: укажите номенклатуру компонента.',
+        });
+      }
+    };
+
+    if (existingLines.length === 0) {
+      missingLines.push(
+        ...requiredComponentTypes.map((typeId) => ({
+          id: '',
+          componentNomenclatureId: lineStubId,
           componentType: typeId,
           qtyPerUnit: 0,
           variantGroup: null,
-          lineKey: null,
+          lineKey: normalizeNodeKey(`auto-${typeId}-${Date.now()}`) || `auto-${typeId}-${Date.now()}`,
           parentLineKey: null,
           isRequired: true,
-          priority: (idx + 1) * 10,
-          notes: null,
+          priority: 100,
+          notes: 'Черновик строки: укажите номенклатуру компонента.',
         })),
-      };
-    });
-  }, [data, requiredComponentTypes]);
+      );
+    } else {
+      const scopes = Array.from(byScope.keys());
+      const onlyBase = scopes.length === 1 && scopes[0] === '__base__';
+      if (onlyBase) {
+        const presentTypes = new Set(existingLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+        const missingTypes = requiredComponentTypes.filter((typeId) => !presentTypes.has(typeId));
+        addMissing('__base__', missingTypes);
+      } else {
+        for (const scope of scopes) {
+          if (scope === '__base__') continue;
+          if (!scope.startsWith('__kit_')) continue;
+          const scopeLines = byScope.get(scope) ?? [];
+          const presentTypes = new Set(scopeLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
+          const missingTypes = requiredComponentTypes.filter((typeId) => !presentTypes.has(typeId));
+          addMissing(scope, missingTypes);
+        }
+      }
+    }
+
+    if (removedLineCount > 0 || missingLines.length > 0) {
+      setData((prev) => {
+        if (!prev) return prev;
+        return { ...prev, lines: [...cleanedLines, ...missingLines] };
+      });
+      setStatus(
+        `Глобальная схема изменилась: ${removedLineCount > 0 ? `удалено ${removedLineCount} устаревших строк. ` : ''}${
+          missingLines.length > 0 ? `добавлено ${missingLines.length} черновых строк для новых типов.` : ''
+        }`,
+      );
+    }
+  }, [data, nomenclatureMetaRows, requiredComponentTypes]);
 
   useEffect(() => {
     let alive = true;
