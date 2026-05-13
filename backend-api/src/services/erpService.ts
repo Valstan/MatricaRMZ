@@ -598,3 +598,21 @@ export async function postErpDocument(args: { documentId: string; actor: { id: s
     return { ok: false as const, error: String(e) };
   }
 }
+
+export async function getContractSections(contractId: string): Promise<{ ok: true; sections: string[] } | { ok: false; error: string }> {
+  try {
+    const rows = await db.select({ attrsJson: erpContracts.attrsJson }).from(erpContracts).where(and(eq(erpContracts.id, contractId), isNull(erpContracts.deletedAt))).limit(1);
+    if (!rows[0]) return { ok: false, error: 'Contract not found' };
+    const attrs = rows[0].attrsJson ? JSON.parse(rows[0].attrsJson) : {};
+    const contractSections = attrs.contract_sections as any;
+    if (!contractSections) return { ok: true, sections: [] };
+    const sections: string[] = [];
+    if (contractSections.primary?.number) sections.push(contractSections.primary.number);
+    for (const addon of contractSections.addons || []) {
+      if (addon.number) sections.push(addon.number);
+    }
+    return { ok: true, sections };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}

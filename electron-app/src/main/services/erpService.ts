@@ -869,6 +869,25 @@ export async function warehouseEngineInstanceDelete(
   }
 }
 
+export async function warehouseContractSectionsGet(
+  apiBaseUrl: string,
+  contractId: string,
+) {
+  const path = `/warehouse/contracts/${encodeURIComponent(contractId)}/sections`;
+  try {
+    const r = await fetch(`${apiBaseUrl}${path}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    const json = await r.json();
+    if (!json?.ok) return { ok: false as const, error: String(json?.error ?? 'unknown') };
+    return json as { ok: true; sections: string[] };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseStockList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

@@ -47,6 +47,7 @@ import {
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
 import { getGlobalWarehouseBomRelationSchema, setGlobalWarehouseBomRelationSchema } from '../services/clientSettingsService.js';
 import { getIdempotentCommandResult, saveIdempotentCommandResult } from '../services/commandIdempotencyService.js';
+import { getContractSections } from '../services/erpService.js';
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
@@ -370,6 +371,7 @@ warehouseRouter.post('/engine-instances', requirePermission(PermissionCode.ErpDi
     nomenclatureId: z.string().uuid(),
     serialNumber: z.string().min(1),
     contractId: z.string().uuid().nullable().optional(),
+    contractSectionNumber: z.string().nullable().optional(),
     warehouseId: z.string().optional(),
     currentStatus: z.string().optional(),
   });
@@ -380,6 +382,7 @@ warehouseRouter.post('/engine-instances', requirePermission(PermissionCode.ErpDi
     serialNumber: parsed.data.serialNumber,
     ...(parsed.data.id !== undefined ? { id: parsed.data.id } : {}),
     ...(parsed.data.contractId !== undefined ? { contractId: parsed.data.contractId } : {}),
+    ...(parsed.data.contractSectionNumber !== undefined ? { contractSectionNumber: parsed.data.contractSectionNumber } : {}),
     ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
     ...(parsed.data.currentStatus !== undefined ? { currentStatus: parsed.data.currentStatus } : {}),
   });
@@ -398,12 +401,14 @@ warehouseRouter.delete('/engine-instances/:id', requirePermission(PermissionCode
 warehouseRouter.get('/assembly-bom', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const schema = z.object({
     engineBrandId: z.string().uuid().optional(),
+    engineBrandIds: z.array(z.string().uuid()).optional(),
     engineNomenclatureId: z.string().uuid().optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
   });
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await listWarehouseAssemblyBoms({
+    ...(parsed.data.engineBrandIds ? { engineBrandIds: parsed.data.engineBrandIds } : {}),
     ...(parsed.data.engineBrandId ? { engineBrandId: parsed.data.engineBrandId } : {}),
     ...(parsed.data.engineNomenclatureId ? { engineNomenclatureId: parsed.data.engineNomenclatureId } : {}),
     ...(parsed.data.status ? { status: parsed.data.status } : {}),
@@ -902,6 +907,14 @@ warehouseRouter.get('/forecast/incoming', requirePermission(PermissionCode.ErpRe
     to: parsed.data.to,
     ...(parsed.data.warehouseId ? { warehouseId: parsed.data.warehouseId } : {}),
   });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/contracts/:contractId/sections', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const contractId = String(req.params.contractId || '').trim();
+  if (!contractId) return res.status(400).json({ ok: false, error: 'contractId обязателен' });
+  const result = await getContractSections(contractId);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

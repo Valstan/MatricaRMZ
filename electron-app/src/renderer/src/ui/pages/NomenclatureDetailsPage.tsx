@@ -69,7 +69,9 @@ export function NomenclatureDetailsPage(props: {
   const [quickPropDataType, setQuickPropDataType] = useState('text');
   const [instanceSerial, setInstanceSerial] = useState('');
   const [instanceContractId, setInstanceContractId] = useState<string | null>(null);
+  const [instanceContractSectionNumber, setInstanceContractSectionNumber] = useState<string | null>(null);
   const [instanceWarehouseId, setInstanceWarehouseId] = useState<string | null>('default');
+  const [contractSections, setContractSections] = useState<string[]>([]);
   const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:nomenclature-field-recents:${props.id}`, 8);
 
   const createLookupEntity = useCallback(async (typeCode: string, label: string): Promise<string | null> => {
@@ -148,6 +150,23 @@ export function NomenclatureDetailsPage(props: {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (instanceContractId) {
+      window.matrica.warehouse.contractSectionsGet(instanceContractId).then((res) => {
+        if (res?.ok) {
+          setContractSections(res.sections ?? []);
+        } else {
+          setContractSections([]);
+        }
+      }).catch(() => {
+        setContractSections([]);
+      });
+    } else {
+      setContractSections([]);
+    }
+    setInstanceContractSectionNumber(null);
+  }, [instanceContractId]);
 
   const reloadTemplateGovernance = useCallback(async () => {
     const [typesRes, templatesRes, propertiesRes] = await Promise.all([
@@ -309,6 +328,10 @@ export function NomenclatureDetailsPage(props: {
   const instanceWarehouseOptions = useMemo(
     () => withRecents('instanceWarehouseId', lookupToSelectOptions(lookups.warehouses)),
     [lookups.warehouses, withRecents],
+  );
+  const contractOptions = useMemo(
+    () => withRecents('instanceContractId', lookupToSelectOptions(lookups.contracts)),
+    [lookups.contracts, withRecents],
   );
 
   return (
@@ -664,9 +687,27 @@ export function NomenclatureDetailsPage(props: {
       <div style={{ border: '1px solid var(--border)', padding: 12 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Серийные экземпляры</div>
         {canEditNomenclatureFields ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(220px, 1fr) minmax(220px, 1fr) auto', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr) auto', gap: 8, marginBottom: 10 }}>
             <Input value={instanceSerial} onChange={(e) => setInstanceSerial(e.target.value)} placeholder="Серийный номер" />
-            <Input value={instanceContractId ?? ''} onChange={(e) => setInstanceContractId(e.target.value || null)} placeholder="Contract ID (опционально)" />
+            <SearchSelect
+              value={instanceContractId}
+              options={contractOptions}
+              placeholder="Контракт (опционально)"
+              showAllWhenEmpty
+              emptyQueryLimit={15}
+              onChange={(next) => {
+                setInstanceContractId(next);
+                pushRecent('instanceContractId', next);
+              }}
+            />
+            <SearchSelect
+              value={instanceContractSectionNumber}
+              options={contractSections.map((s) => ({ value: s, label: s }))}
+              placeholder="ДС контракта (опционально)"
+              showAllWhenEmpty
+              disabled={!instanceContractId}
+              onChange={setInstanceContractSectionNumber}
+            />
             <SearchSelect
               value={instanceWarehouseId}
               options={instanceWarehouseOptions}
@@ -704,6 +745,7 @@ export function NomenclatureDetailsPage(props: {
                   nomenclatureId: props.id,
                   serialNumber: instanceSerial.trim(),
                   contractId: instanceContractId,
+                  contractSectionNumber: instanceContractSectionNumber,
                   warehouseId: instanceWarehouseId || 'default',
                   currentStatus: 'in_stock',
                 });

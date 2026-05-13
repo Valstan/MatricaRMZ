@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
-import { SearchSelect } from '../components/SearchSelect.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 
@@ -27,7 +27,7 @@ export function EngineAssemblyBomPage(props: {
 }) {
   const { error: refsError, lookups } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
-  const [engineBrandIdFilter, setEngineBrandIdFilter] = useState<string | null>(null);
+  const [engineBrandIdFilter, setEngineBrandIdFilter] = useState<string[]>([]);
   const [rows, setRows] = useState<BomListRow[]>([]);
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
@@ -38,7 +38,7 @@ export function EngineAssemblyBomPage(props: {
     try {
       setStatus('Загрузка BOM...');
       const result = await window.matrica.warehouse.assemblyBomList(
-        engineBrandIdFilter ? { engineBrandId: engineBrandIdFilter } : undefined,
+        engineBrandIdFilter.length > 0 ? { engineBrandIds: engineBrandIdFilter } : undefined,
       );
       if (!result?.ok) {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
@@ -115,16 +115,17 @@ export function EngineAssemblyBomPage(props: {
     return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
   }
 
+  const selectedEngineBrandId = engineBrandIdFilter.length === 1 ? engineBrandIdFilter[0] : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка)</span>
-          <SearchSelect
-            value={engineBrandIdFilter}
+          <MultiSearchSelect
+            values={engineBrandIdFilter}
             options={engineBrandOptions}
             placeholder="Все марки"
-            showAllWhenEmpty
             onChange={(value) => {
               setPageIndex(0);
               setEngineBrandIdFilter(value);
@@ -134,19 +135,19 @@ export function EngineAssemblyBomPage(props: {
         {props.canEdit ? (
           <Button
             onClick={async () => {
-              if (!engineBrandIdFilter) {
-                setStatus('Ошибка: сначала выберите марку двигателя.');
+              if (!selectedEngineBrandId) {
+                setStatus('Ошибка: сначала выберите одну марку двигателя.');
                 return;
               }
-              const existing = rows.find((row) => String(row.engineBrandId) === String(engineBrandIdFilter));
+              const existing = rows.find((row) => String(row.engineBrandId) === selectedEngineBrandId);
               if (existing?.id) {
                 setStatus('Для выбранной марки спецификация уже есть. Открываем текущую карточку.');
                 props.onOpen(String(existing.id));
                 return;
               }
               const created = await window.matrica.warehouse.assemblyBomUpsert({
-                name: `BOM ${engineBrandOptions.find((brand) => brand.id === engineBrandIdFilter)?.label ?? 'марки двигателя'}`,
-                engineBrandId: engineBrandIdFilter,
+                name: `BOM ${engineBrandOptions.find((brand) => brand.id === selectedEngineBrandId)?.label ?? 'марки двигателя'}`,
+                engineBrandId: selectedEngineBrandId,
                 status: 'active',
                 isDefault: true,
                 lines: [],
@@ -158,7 +159,7 @@ export function EngineAssemblyBomPage(props: {
               await refresh();
               props.onOpen(String(created.id));
             }}
-            disabled={!engineBrandIdFilter}
+            disabled={!selectedEngineBrandId}
           >
             Создать BOM
           </Button>

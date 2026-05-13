@@ -9,6 +9,7 @@ const EMPTY_LOOKUPS: WarehouseLookups = {
   counterparties: [],
   employees: [],
   engineBrands: [],
+  contracts: [],
   nomenclatureItemTypes: [],
   nomenclatureProperties: [],
   nomenclatureTemplates: [],

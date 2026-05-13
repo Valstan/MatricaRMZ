@@ -144,13 +144,19 @@ type BomLineInput = {
 
 export async function listWarehouseAssemblyBoms(args?: {
   engineBrandId?: string;
+  engineBrandIds?: string[];
   /** Совместимость: фильтр по старой колонке, если ещё заполнена. */
   engineNomenclatureId?: string;
   status?: string;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
     const conditions = [isNull(erpEngineAssemblyBom.deletedAt)];
-    if (args?.engineBrandId) {
+    const engineBrandIds = Array.isArray(args?.engineBrandIds)
+      ? args.engineBrandIds.map(String).map((id) => id.trim()).filter(Boolean)
+      : [];
+    if (engineBrandIds.length > 0) {
+      conditions.push(inArray(erpEngineAssemblyBom.engineBrandId, engineBrandIds as any));
+    } else if (args?.engineBrandId) {
       conditions.push(eq(erpEngineAssemblyBom.engineBrandId, String(args.engineBrandId)));
     }
     if (args?.engineNomenclatureId) {

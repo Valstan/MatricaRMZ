@@ -277,6 +277,7 @@ export type WarehouseLookups = {
   counterparties: WarehouseLookupOption[];
   employees: WarehouseLookupOption[];
   engineBrands: WarehouseLookupOption[];
+  contracts: WarehouseLookupOption[];
   nomenclatureItemTypes?: WarehouseLookupOption[];
   nomenclatureProperties?: WarehouseLookupOption[];
   nomenclatureTemplates?: WarehouseLookupOption[];
@@ -510,6 +511,7 @@ export type EngineInstance = {
   nomenclatureId: string;
   serialNumber: string;
   contractId: string | null;
+  contractSectionNumber: string | null;
   currentStatus: EngineInstanceStatus | string;
   warehouseId: string;
   createdAt: number;
@@ -523,6 +525,7 @@ export type EngineInstanceListItem = EngineInstance & {
   warehouseName: string | null;
   contractCode?: string | null;
   contractName?: string | null;
+  contractSectionNumber?: string | null;
 };
 
 export type NomenclatureEngineBrandLink = {

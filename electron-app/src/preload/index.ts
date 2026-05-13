@@ -436,7 +436,7 @@ const matricaApi = {
     documentPlan: async (id: string) => ipcRenderer.invoke('warehouse:documents:plan', id),
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
     documentCancel: async (id: string) => ipcRenderer.invoke('warehouse:documents:cancel', id),
-    assemblyBomList: async (args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string }) =>
+    assemblyBomList: async (args?: { engineBrandId?: string; engineBrandIds?: string[]; engineNomenclatureId?: string; status?: string }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:list', args),
     assemblyBomSchemaGet: async () => ipcRenderer.invoke('warehouse:assemblyBom:schema:get'),
     assemblyBomSchemaSet: async (args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) =>
@@ -449,10 +449,12 @@ const matricaApi = {
     assemblyBomArchive: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:archive', id),
     assemblyBomHistory: async (args: { engineBrandId: string }) => ipcRenderer.invoke('warehouse:assemblyBom:history', args),
     assemblyBomPrint: async (id: string) => ipcRenderer.invoke('warehouse:assemblyBom:print', id),
-    engineInstancesList: async (args?: { nomenclatureId?: string; contractId?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number }) =>
+    engineInstancesList: async (args?: { nomenclatureId?: string; contractId?: string; contractSectionNumber?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number }) =>
       ipcRenderer.invoke('warehouse:engineInstances:list', args),
-    engineInstanceUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:engineInstances:upsert', args),
+    engineInstanceUpsert: async (args: { id?: string; nomenclatureId: string; serialNumber: string; contractId?: string | null; contractSectionNumber?: string | null; warehouseId?: string; currentStatus?: string }) =>
+      ipcRenderer.invoke('warehouse:engineInstances:upsert', args),
     engineInstanceDelete: async (id: string) => ipcRenderer.invoke('warehouse:engineInstances:delete', id),
+    contractSectionsGet: async (contractId: string) => ipcRenderer.invoke('warehouse:contracts:sections:get', contractId),
     movementsList: async (args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number }) =>
       ipcRenderer.invoke('warehouse:movements:list', args),
     forecastIncomingGet: async (args: { from: number; to: number; warehouseId?: string }) => ipcRenderer.invoke('warehouse:forecast:incoming:get', args),

@@ -827,7 +827,7 @@ async function listWarehouseReferenceData() {
   if (isLegacyPartMirrorMode()) {
     await ensurePartNomenclatureGroup();
   }
-  const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows, engineBrands] = await Promise.all([
+  const [warehousesRaw, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows, engineBrands, contractsRows] = await Promise.all([
     listMasterdataLookup('warehouse_ref'),
     listMasterdataLookup('nomenclature_group'),
     listMasterdataLookup('unit'),
@@ -835,6 +835,7 @@ async function listWarehouseReferenceData() {
     db.select().from(erpCounterparties).where(isNull(erpCounterparties.deletedAt)).orderBy(asc(erpCounterparties.name)),
     db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).orderBy(asc(erpEmployeeCards.fullName)),
     listMasterdataLookup('engine_brand'),
+    db.select().from(erpContracts).where(isNull(erpContracts.deletedAt)).orderBy(asc(erpContracts.name)),
   ]);
 
   const warehouses = ensureDefaultWarehouse(warehousesRaw);
@@ -848,6 +849,11 @@ async function listWarehouseReferenceData() {
     label: String(row.fullName),
     code: row.personnelNo == null ? null : String(row.personnelNo),
   }));
+  const contracts: LookupOption[] = contractsRows.map((row) => ({
+    id: String(row.id),
+    label: String(row.name),
+    code: row.code == null ? null : String(row.code),
+  }));
 
   return {
     warehouses,
@@ -857,6 +863,7 @@ async function listWarehouseReferenceData() {
     counterparties,
     employees,
     engineBrands,
+    contracts,
     warehouseById: buildLookupMap(warehouses),
     groupById: buildLookupMap(nomenclatureGroups),
     unitById: buildLookupMap(units),
@@ -864,6 +871,7 @@ async function listWarehouseReferenceData() {
     counterpartyById: buildLookupMap(counterparties),
     employeeById: buildLookupMap(employees),
     engineBrandById: buildLookupMap(engineBrands),
+    contractById: buildLookupMap(contracts),
   };
 }
 
@@ -1019,6 +1027,7 @@ export async function listWarehouseLookups(): Promise<
       counterparties: LookupOption[];
       employees: LookupOption[];
       engineBrands: LookupOption[];
+      contracts: LookupOption[];
       nomenclatureItemTypes: LookupOption[];
       nomenclatureProperties: LookupOption[];
       nomenclatureTemplates: LookupOption[];
@@ -1044,6 +1053,7 @@ export async function listWarehouseLookups(): Promise<
         counterparties: refs.counterparties,
         employees: refs.employees,
         engineBrands: refs.engineBrands,
+        contracts: refs.contracts,
         nomenclatureItemTypes,
         nomenclatureProperties,
         nomenclatureTemplates,
@@ -1678,6 +1688,7 @@ export async function deleteWarehouseNomenclatureEngineBrand(args: { id: string 
 export async function listWarehouseEngineInstances(args?: {
   nomenclatureId?: string;
   contractId?: string;
+  contractSectionNumber?: string;
   warehouseId?: string;
   status?: string;
   search?: string;
@@ -1694,6 +1705,7 @@ export async function listWarehouseEngineInstances(args?: {
     const filtered = rows.filter((row) => {
       if (args?.nomenclatureId && String(row.nomenclatureId) !== String(args.nomenclatureId)) return false;
       if (args?.contractId && String(row.contractId ?? '') !== String(args.contractId)) return false;
+      if (args?.contractSectionNumber && String(row.contractSectionNumber ?? '') !== String(args.contractSectionNumber)) return false;
       if (args?.warehouseId && String(row.warehouseId) !== String(args.warehouseId)) return false;
       if (args?.status && String(row.currentStatus) !== String(args.status)) return false;
       if (args?.search) {
@@ -1727,6 +1739,7 @@ export async function listWarehouseEngineInstances(args?: {
         warehouseName: readLookupLabel(refs.warehouseById, String(row.warehouseId)),
         contractCode: c?.code ?? null,
         contractName: c?.name ?? null,
+        contractSectionNumber: row.contractSectionNumber ?? null,
       };
     });
     if (args?.limit === undefined) return { ok: true, rows: mapped, hasMore: false };
@@ -1745,6 +1758,7 @@ export async function upsertWarehouseEngineInstance(args: {
   nomenclatureId: string;
   serialNumber: string;
   contractId?: string | null;
+  contractSectionNumber?: string | null;
   warehouseId?: string;
   currentStatus?: string;
 }): Promise<Result<{ id: string }>> {
@@ -1758,6 +1772,7 @@ export async function upsertWarehouseEngineInstance(args: {
         nomenclatureId: String(args.nomenclatureId),
         serialNumber: String(args.serialNumber).trim(),
         contractId: args.contractId ?? null,
+        contractSectionNumber: args.contractSectionNumber ?? null,
         warehouseId: String(args.warehouseId || 'default'),
         currentStatus: String(args.currentStatus || 'in_stock'),
         createdAt: ts,
@@ -1772,6 +1787,7 @@ export async function upsertWarehouseEngineInstance(args: {
           nomenclatureId: String(args.nomenclatureId),
           serialNumber: String(args.serialNumber).trim(),
           contractId: args.contractId ?? null,
+          contractSectionNumber: args.contractSectionNumber ?? null,
           warehouseId: String(args.warehouseId || 'default'),
           currentStatus: String(args.currentStatus || 'in_stock'),
           updatedAt: ts,
@@ -1792,6 +1808,7 @@ export async function upsertWarehouseEngineInstance(args: {
             nomenclature_id: String(row.nomenclatureId),
             serial_number: String(row.serialNumber),
             contract_id: row.contractId,
+            contract_section_number: row.contractSectionNumber,
             current_status: String(row.currentStatus),
             warehouse_id: String(row.warehouseId),
             created_at: Number(row.createdAt),

@@ -321,6 +321,13 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseEngineInstanceDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
   });
 
+  ipcMain.handle('warehouse:contracts:sections:get', async (_e, contractId: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse contracts are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseContractSectionsGet(ctx.mgr.getApiBaseUrl(), String(contractId || ''));
+  });
+
   ipcMain.handle('warehouse:documents:get', async (_e, id: string) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.documents.view');

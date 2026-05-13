@@ -1323,6 +1323,7 @@ export type MatricaApi = {
     ) => Promise<{ ok: true; id: string; status: string; queued?: boolean } | { ok: false; error: string }>;
     assemblyBomList: (args?: {
       engineBrandId?: string;
+      engineBrandIds?: string[];
       engineNomenclatureId?: string;
       status?: string;
     }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
@@ -1377,6 +1378,7 @@ export type MatricaApi = {
       currentStatus?: EngineInstanceStatus | string;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     engineInstanceDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    contractSectionsGet: (contractId: string) => Promise<{ ok: true; sections: string[] } | { ok: false; error: string }>;
   };
 
   files: {
