@@ -84,19 +84,31 @@ export async function createNomenclatureLineFromPreset(args: {
   const nameForRow = displayName || createConfig.name;
 
   if (directoryKind === 'part') {
-    const createdPart = await window.matrica.parts.create({
-      attributes: {
-        code: buildNomenclatureCode(createConfig.codePrefix),
-        name: nameForRow,
-      },
-    });
-    if (!createdPart?.ok || !createdPart.part?.id) {
-      const rawErr = createdPart && 'error' in createdPart ? String(createdPart.error ?? '') : 'не удалось создать деталь';
-      const duplicateMatch = rawErr.match(/duplicate part exists:\s*([0-9a-f-]{36})/i);
-      if (duplicateMatch?.[1]) {
-        return { ok: false, duplicatePartId: String(duplicateMatch[1]), message: rawErr };
+    let createdPart: any | null = null;
+    let rawErr = 'не удалось создать деталь';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      createdPart = await window.matrica.parts.create({
+        attributes: {
+          code: buildNomenclatureCode(createConfig.codePrefix),
+          name: nameForRow,
+        },
+      });
+      if (createdPart?.ok && createdPart.part?.id) {
+        rawErr = '';
+        break;
       }
-      return { ok: false, error: rawErr };
+      rawErr = createdPart && 'error' in createdPart ? String(createdPart.error ?? '') : rawErr;
+      const duplicateMatch = rawErr.match(/duplicate part exists:\s*([0-9a-f-]{36})/i);
+      if (!duplicateMatch?.[1]) {
+        return { ok: false, error: rawErr };
+      }
+      if (attempt === 0) {
+        continue;
+      }
+      return { ok: false, duplicatePartId: String(duplicateMatch[1]), message: rawErr };
+    }
+    if (!createdPart?.ok || !createdPart?.part?.id) {
+      return { ok: false, error: rawErr || 'не удалось создать деталь' };
     }
 
     const sourceId = String(createdPart.part.id);

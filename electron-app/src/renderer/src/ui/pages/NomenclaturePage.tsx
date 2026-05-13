@@ -11,6 +11,14 @@ import {
 import { SearchSelect } from '../components/SearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import {
+  PARTS_PRESET,
+  PRODUCTS_PRESET,
+  SERVICES_PRESET,
+  TOOLS_PRESET,
+  type NomenclatureCreateConfig,
+} from './nomenclatureDirectoryPresets.js';
 import { parseTemplatePropertiesJson } from '../utils/nomenclatureTemplateProperties.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
@@ -243,6 +251,22 @@ export function NomenclaturePage(props: {
     return itemTypeOptions.find((item) => item.id === itemTypeValue)?.label ?? String(itemTypeValue ?? '—');
   }
 
+  function getCreateConfigForDirectoryKind(kind: string): NomenclatureCreateConfig | null {
+    switch (String(kind ?? '').trim().toLowerCase()) {
+      case 'part':
+        return PARTS_PRESET.createConfig;
+      case 'tool':
+        return TOOLS_PRESET.createConfig;
+      case 'good':
+      case 'product':
+        return PRODUCTS_PRESET.createConfig;
+      case 'service':
+        return SERVICES_PRESET.createConfig;
+      default:
+        return null;
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
       {props.canEdit ? (
@@ -469,21 +493,35 @@ export function NomenclaturePage(props: {
             >
               {props.canEdit ? (
                 <Button
+                  disabled={!directoryKind || !getCreateConfigForDirectoryKind(directoryKind)}
                   onClick={async () => {
-                    const now = Date.now();
-                    const code = `NM-${String(now).slice(-8)}`;
-                    const created = await window.matrica.warehouse.nomenclatureUpsert({
-                      code,
-                      name: 'Новая номенклатура',
-                      itemType: 'material',
-                      isActive: true,
+                    if (!directoryKind) {
+                      setStatus('Для создания новой позиции выберите источник в фильтре «Источник».');
+                      return;
+                    }
+                    const createConfig = getCreateConfigForDirectoryKind(directoryKind);
+                    if (!createConfig) {
+                      setStatus(`Создание новой позиции для источника «${directoryKind}» не поддерживается.`);
+                      return;
+                    }
+                    setStatus('Создание новой позиции...');
+                    const result = await createNomenclatureLineFromPreset({
+                      directoryKind,
+                      createConfig,
+                      displayName: createConfig.name,
                     });
-                    if (!created?.ok || !created.id) {
-                      setStatus(`Ошибка: ${String(!created?.ok && created ? created.error : 'не удалось создать')}`);
+                    if (!result.ok) {
+                      if ('duplicatePartId' in result) {
+                        await refresh();
+                        await props.onOpen(result.duplicatePartId);
+                        setStatus(`Деталь уже существовала, открыта существующая карточка (${result.duplicatePartId.slice(0, 8)}...).`);
+                        return;
+                      }
+                      setStatus(`Ошибка: ${result.error}`);
                       return;
                     }
                     await refresh();
-                    props.onOpen(String(created.id));
+                    props.onOpen(result.mode === 'part' ? result.partId : result.nomenclatureId);
                   }}
                 >
                   Добавить позицию

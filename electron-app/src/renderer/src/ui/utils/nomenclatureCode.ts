@@ -3,6 +3,8 @@ export function buildNomenclatureCode(prefix: string, timestamp: number = Date.n
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
-  const suffix = String(Math.trunc(Math.abs(timestamp))).slice(-8).padStart(8, '0');
+  const timeSuffix = String(Math.trunc(Math.abs(timestamp))).slice(-8).padStart(8, '0');
+  const randomSuffix = String(Math.floor(Math.random() * 900) + 100);
+  const suffix = `${timeSuffix}${randomSuffix}`;
   return normalizedPrefix ? `${normalizedPrefix}-${suffix}` : suffix;
 }
