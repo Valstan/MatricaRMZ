@@ -3333,7 +3333,7 @@ export function App() {
 
         {tab === 'parts' && (
           <PartsPage
-            onOpen={openNomenclature}
+            onOpen={openPart}
             onOpenNomenclatureCatalog={() => setTab('nomenclature')}
             canCreate={caps.canCreateParts}
             canDelete={caps.canDeleteParts}

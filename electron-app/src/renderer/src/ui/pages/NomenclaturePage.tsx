@@ -493,20 +493,16 @@ export function NomenclaturePage(props: {
             >
               {props.canEdit ? (
                 <Button
-                  disabled={!directoryKind || !getCreateConfigForDirectoryKind(directoryKind)}
                   onClick={async () => {
-                    if (!directoryKind) {
-                      setStatus('Для создания новой позиции выберите источник в фильтре «Источник».');
-                      return;
-                    }
-                    const createConfig = getCreateConfigForDirectoryKind(directoryKind);
-                    if (!createConfig) {
-                      setStatus(`Создание новой позиции для источника «${directoryKind}» не поддерживается.`);
+                    const kind = directoryKind ? String(directoryKind).trim().toLowerCase() : '';
+                    const createConfig = getCreateConfigForDirectoryKind(kind);
+                    if (!kind || !createConfig) {
+                      setStatus('Для создания позиции нужно выбрать источник в фильтре «Источник» (Детали, Инструменты, Товары, Услуги).');
                       return;
                     }
                     setStatus('Создание новой позиции...');
                     const result = await createNomenclatureLineFromPreset({
-                      directoryKind,
+                      directoryKind: kind,
                       createConfig,
                       displayName: createConfig.name,
                     });
