@@ -68,7 +68,7 @@ type LineIssue = {
   warnings: string[];
 };
 
-const FALLBACK_COMPONENT_TYPES = ['sleeve', 'piston', 'ring', 'jacket', 'head', 'other'] as const;
+const FALLBACK_COMPONENT_TYPES = ['sleeve', 'piston', 'ring', 'jacket', 'head', 'carter', 'other'] as const;
 
 const DEFAULT_COMPONENT_TYPE_LABELS: Record<string, string> = {
   sleeve: 'Гильза',
@@ -76,6 +76,7 @@ const DEFAULT_COMPONENT_TYPE_LABELS: Record<string, string> = {
   ring: 'Кольцо',
   jacket: 'Рубашка',
   head: 'Головка',
+  carter: 'Картер',
   other: 'Прочее',
 };
 const TYPE_SEARCH_TOKENS: Record<string, string[]> = {

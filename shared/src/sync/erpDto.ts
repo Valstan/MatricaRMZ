@@ -109,7 +109,7 @@ export const erpEngineAssemblyBomLineRowSchema = z.object({
   ...baseErpFields,
   bom_id: z.string().uuid(),
   component_nomenclature_id: z.string().uuid(),
-  component_type: z.enum(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']),
+  component_type: z.enum(['sleeve', 'piston', 'ring', 'jacket', 'head', 'carter', 'other']),
   qty_per_unit: z.number().min(0),
   variant_group: z.string().nullable().optional(),
   is_required: z.boolean(),

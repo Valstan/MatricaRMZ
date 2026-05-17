@@ -552,6 +552,7 @@ export const EngineAssemblyBomComponentType = {
   Ring: 'ring',
   Jacket: 'jacket',
   Head: 'head',
+  Carter: 'carter',
   Other: 'other',
 } as const;
 
@@ -791,7 +792,7 @@ export function sanitizeWarehouseBomRelationSchema(raw: unknown): WarehouseBomRe
 }
 
 /** Типы узлов, которые участвуют в стартовом скелете BOM (совпадает с KNOWN в backend warehouseBomService). */
-const BOM_SKELETON_KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']);
+const BOM_SKELETON_KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'carter', 'other']);
 
 /** Нормализация ключей узла/родителя в BOM (как на сервере). */
 export function normalizeBomRelationKey(raw: string | null | undefined): string | null {

@@ -35,13 +35,13 @@ function normalizeStatus(raw: string | undefined): 'draft' | 'active' | 'archive
   return 'draft';
 }
 
-function normalizeComponentType(raw: string | undefined): 'sleeve' | 'piston' | 'ring' | 'jacket' | 'head' | 'other' {
+function normalizeComponentType(raw: string | undefined): 'sleeve' | 'piston' | 'ring' | 'jacket' | 'head' | 'carter' | 'other' {
   const value = String(raw ?? 'other').trim().toLowerCase();
-  if (value === 'sleeve' || value === 'piston' || value === 'ring' || value === 'jacket' || value === 'head') return value;
+  if (value === 'sleeve' || value === 'piston' || value === 'ring' || value === 'jacket' || value === 'head' || value === 'carter') return value;
   return 'other';
 }
 
-const KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']);
+const KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'carter', 'other']);
 
 function variantScopeKey(v: string | null | undefined): string {
   const s = String(v ?? '').trim();

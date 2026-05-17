@@ -507,7 +507,7 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
         z.object({
           id: z.string().uuid().optional(),
           componentNomenclatureId: z.string().uuid(),
-          componentType: z.enum(['sleeve', 'piston', 'ring', 'jacket', 'head', 'other']).optional(),
+          componentType: z.enum(['sleeve', 'piston', 'ring', 'jacket', 'head', 'carter', 'other']).optional(),
           qtyPerUnit: z.coerce.number().int().min(0),
           variantGroup: z.string().nullable().optional(),
           lineKey: z.string().nullable().optional(),
