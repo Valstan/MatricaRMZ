@@ -43,6 +43,19 @@ function normalizeComponentType(raw: string | undefined): 'sleeve' | 'piston' | 
 
 const KNOWN_COMPONENT_TYPES = new Set(['sleeve', 'piston', 'ring', 'jacket', 'head', 'carter', 'other']);
 
+/** typeId -> sortOrder из глобальной схемы; fallback = 100 для неизвестных типов. */
+function buildSchemaSortOrderMap(schema: WarehouseBomRelationSchema): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const node of schema.nodes) {
+    if (node && node.typeId) map.set(String(node.typeId).trim().toLowerCase(), Number(node.sortOrder ?? 100));
+  }
+  return map;
+}
+
+function schemaPriorityFor(sortOrderMap: Map<string, number>, componentType: string): number {
+  return sortOrderMap.get(String(componentType).trim().toLowerCase()) ?? 100;
+}
+
 function variantScopeKey(v: string | null | undefined): string {
   const s = String(v ?? '').trim();
   return s.length > 0 ? s : '__base__';
@@ -439,25 +452,29 @@ export async function upsertWarehouseAssemblyBom(args: {
       });
     }
 
+    const schemaSortOrderMap = buildSchemaSortOrderMap(sanitizedSchema);
     const normalizedLines = sourceLines
-      .map((line) => ({
+      .map((line) => {
+        const componentType = normalizeComponentType(line.componentType);
+        return {
         id: randomUUID(),
         bomId: id,
         componentNomenclatureId: String(line.componentNomenclatureId),
-        componentType: normalizeComponentType(line.componentType),
+        componentType,
         qtyPerUnit: Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0))),
         variantGroup: line.variantGroup == null ? null : String(line.variantGroup).trim() || null,
         lineKey: normalizeBomRelationKey(line.lineKey == null ? null : String(line.lineKey)),
         parentLineKey: normalizeBomRelationKey(line.parentLineKey == null ? null : String(line.parentLineKey)),
         isRequired: line.isRequired !== false,
-        priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
+        priority: schemaPriorityFor(schemaSortOrderMap, componentType),
         notesText: line.notes == null ? null : String(line.notes),
         createdAt: ts,
         updatedAt: ts,
         deletedAt: null,
         syncStatus: 'synced' as const,
         lastServerSeq: null,
-      }))
+        };
+      })
       .filter((line) => line.componentNomenclatureId);
 
     const rootId = String(sanitizedSchema.rootTypeId ?? 'engine').trim().toLowerCase();
@@ -1071,6 +1088,52 @@ export async function buildWarehouseBomExpandedForecast(args: {
     const warnings = droppedDependentCount > 0 ? [`Пропущено строк BOM без родительского узла: ${droppedDependentCount}`] : [];
 
     return { ok: true, rows: filteredRows, warnings };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Пересчитывает priority всех активных строк BOM по sortOrder из текущей глобальной схемы.
+ * Вызывается после сохранения изменений в схеме, чтобы строки перестраивались по новому порядку.
+ */
+export async function reorderAllBomLinesBySchema(): Promise<Result<{ updatedCount: number }>> {
+  try {
+    const schema = await loadSanitizedBomRelationSchema();
+    const sortOrderMap = buildSchemaSortOrderMap(schema);
+
+    const distinctTypes = Array.from(sortOrderMap.entries());
+    let updatedCount = 0;
+    const ts = nowMs();
+
+    for (const [typeId, priority] of distinctTypes) {
+      const result = await db
+        .update(erpEngineAssemblyBomLines)
+        .set({ priority, updatedAt: ts, syncStatus: 'synced' })
+        .where(
+          and(
+            isNull(erpEngineAssemblyBomLines.deletedAt),
+            eq(erpEngineAssemblyBomLines.componentType, typeId),
+          ),
+        );
+      updatedCount += (result as unknown as { rowsAffected?: number }).rowsAffected ?? 0;
+    }
+
+    // Типы не в схеме → priority = 100 (fallback)
+    const knownTypeIds = Array.from(sortOrderMap.keys());
+    if (knownTypeIds.length > 0) {
+      await db
+        .update(erpEngineAssemblyBomLines)
+        .set({ priority: 100, updatedAt: ts, syncStatus: 'synced' })
+        .where(
+          and(
+            isNull(erpEngineAssemblyBomLines.deletedAt),
+            sql`${erpEngineAssemblyBomLines.componentType} NOT IN (${sql.join(knownTypeIds.map((t) => sql`${t}`), sql`, `)})`,
+          ),
+        );
+    }
+
+    return { ok: true, updatedCount };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

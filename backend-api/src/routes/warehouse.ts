@@ -42,6 +42,7 @@ import {
   listWarehouseAssemblyBoms,
   deleteWarehouseAssemblyBom,
   renameWarehouseBomComponentTypes,
+  reorderAllBomLinesBySchema,
   upsertWarehouseAssemblyBom,
 } from '../services/warehouseBomService.js';
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
@@ -456,6 +457,8 @@ warehouseRouter.post('/assembly-bom/schema', requirePermission(PermissionCode.Er
       renamedLineCount = renameResult.renamedLineCount;
     }
     const result = await setGlobalWarehouseBomRelationSchema({ schema: parsed.data.schema });
+    // Перестраиваем priority всех строк BOM по новому sortOrder схемы (fire-and-forget — не блокируем ответ)
+    reorderAllBomLinesBySchema().catch(() => undefined);
     return res.json({ ok: true, schema: JSON.parse(result.schemaJson), updatedAt: result.updatedAt, renamedLineCount });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
