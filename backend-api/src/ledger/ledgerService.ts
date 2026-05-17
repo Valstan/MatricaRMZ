@@ -1,12 +1,20 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createCipheriv, createDecipheriv, createHash, createSign, randomBytes } from 'node:crypto';
+import { createHash, createSign } from 'node:crypto';
 import { LedgerStore, emptyLedgerState, type LedgerSignedTx, type LedgerTxPayload, type LedgerTableName } from '@matricarmz/ledger';
 import { generateLedgerKeyPair } from '@matricarmz/ledger';
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 import { sql } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
+import {
+  createInitialKeyring,
+  decryptRowSensitiveWithKeyring,
+  encryptRowSensitiveWithKeyring,
+  loadKeyring,
+  saveKeyring,
+  type DataKeyring,
+} from './dataKeyring.js';
 import {
   attributeDefs,
   attributeValues,
@@ -44,7 +52,7 @@ type LedgerStateRecoveryResult = {
 let store: LedgerStore | null = null;
 let serverKeys: { publicKeyPem: string; privateKeyPem: string } | null = null;
 let cachedLedgerDir: string | null = null;
-let dataKey: Buffer | null = null;
+let dataKeyring: DataKeyring | null = null;
 
 function isValidJsonFile(path: string): boolean {
   try {
@@ -117,75 +125,50 @@ function loadOrCreateServerKeys(ledgerDir: string) {
   return keys;
 }
 
-function loadOrCreateDataKey(ledgerDir: string): Buffer {
-  if (dataKey) return dataKey;
+/**
+ * Загрузка keyring шифрования. Поддерживает три случая:
+ *  1) env `MATRICA_LEDGER_DATA_KEY` (single-key, legacy) — оборачиваем в legacy-keyring;
+ *  2) файл `data-key.json` уже в keyring-формате (после первой ротации);
+ *  3) файл `data-key.json` в legacy `{keyBase64}` — оборачиваем в legacy-keyring;
+ *  4) файла нет — создаём свежий keyring с новым ключом (НЕ legacy, сразу enc:v2-готов).
+ */
+export function loadOrCreateDataKeyring(ledgerDir: string): DataKeyring {
+  if (dataKeyring) return dataKeyring;
   if (process.env.MATRICA_LEDGER_DATA_KEY) {
-    dataKey = Buffer.from(process.env.MATRICA_LEDGER_DATA_KEY, 'base64');
-    return dataKey;
+    dataKeyring = {
+      version: 2,
+      activeId: 'v1-legacy',
+      keys: [
+        {
+          id: 'v1-legacy',
+          keyBase64: Buffer.from(process.env.MATRICA_LEDGER_DATA_KEY, 'base64').toString('base64'),
+          createdAt: 0,
+        },
+      ],
+    };
+    return dataKeyring;
   }
   const keyPath = join(ledgerDir, DATA_KEY_FILE);
-  if (existsSync(keyPath)) {
-    const saved = JSON.parse(readFileSync(keyPath, 'utf8')) as { keyBase64: string };
-    dataKey = Buffer.from(saved.keyBase64, 'base64');
-    return dataKey;
+  const existing = loadKeyring(keyPath);
+  if (existing) {
+    dataKeyring = existing;
+    return dataKeyring;
   }
-  const key = randomBytes(32);
-  writeFileSync(keyPath, JSON.stringify({ keyBase64: key.toString('base64') }, null, 2));
-  dataKey = key;
-  return key;
+  const fresh = createInitialKeyring();
+  saveKeyring(keyPath, fresh);
+  dataKeyring = fresh;
+  return fresh;
+}
+
+/** Перечитать keyring с диска (для CLI ротации внутри процесса; в проде используется рестарт). */
+export function reloadDataKeyring(ledgerDir: string): DataKeyring {
+  dataKeyring = null;
+  return loadOrCreateDataKeyring(ledgerDir);
 }
 
 /** Convert DB row (camelCase) -> DTO row (snake_case) using the shared registry. */
 function toSyncRow(table: SyncTableName, row: any): any {
   return SyncTableRegistry.toSyncRow(table, row as Record<string, unknown>);
-}
-
-function encryptText(value: string, key: Buffer): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `enc:v1:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
-}
-
-function decryptText(value: string, key: Buffer): string {
-  if (!value.startsWith('enc:v1:')) return value;
-  const parts = value.split(':');
-  if (parts.length !== 5) return value;
-  const ivRaw = parts[2];
-  const tagRaw = parts[3];
-  const dataRaw = parts[4];
-  if (!ivRaw || !tagRaw || !dataRaw) return value;
-  const iv = Buffer.from(ivRaw, 'base64');
-  const tag = Buffer.from(tagRaw, 'base64');
-  const data = Buffer.from(dataRaw, 'base64');
-  const decipher = createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-  return decrypted.toString('utf8');
-}
-
-function encryptRowSensitive(row: Record<string, unknown>, key: Buffer) {
-  const next = { ...row };
-  for (const field of ['meta_json', 'payload_json']) {
-    const val = next[field];
-    if (typeof val === 'string' && val.length > 0) {
-      if (val.startsWith('enc:e2e:v1:')) continue;
-      next[field] = encryptText(val, key);
-    }
-  }
-  return next;
-}
-
-function decryptRowSensitive(row: Record<string, unknown>, key: Buffer) {
-  const next = { ...row };
-  for (const field of ['meta_json', 'payload_json']) {
-    const val = next[field];
-    if (typeof val === 'string' && val.startsWith('enc:v1:')) {
-      next[field] = decryptText(val, key);
-    }
-  }
-  return next;
 }
 
 function resolveLedgerDir(): string {
@@ -233,8 +216,8 @@ export function signAndAppendDetailed(
   const ledger = getLedgerStore();
   const ledgerDir = resolveLedgerDir();
   const keys = loadOrCreateServerKeys(ledgerDir);
-  const key = loadOrCreateDataKey(ledgerDir);
-  const encryptedPayloads = payloads.map((p) => (p.row ? { ...p, row: encryptRowSensitive(p.row, key) } : p));
+  const keyring = loadOrCreateDataKeyring(ledgerDir);
+  const encryptedPayloads = payloads.map((p) => (p.row ? { ...p, row: encryptRowSensitiveWithKeyring(p.row, keyring) } : p));
   const signed = ledger.signTxs(encryptedPayloads, keys.privateKeyPem, keys.publicKeyPem);
   const block = ledger.appendBlock(signed);
   const lastSeq = signed.at(-1)?.seq ?? ledger.loadIndex().lastSeq;
@@ -260,11 +243,11 @@ export function listChangesSince(
   const page = txs.slice(0, safeLimit);
   const hasMore = txs.length > safeLimit;
   const lastSeq = page.at(-1)?.seq ?? since;
-  const key = loadOrCreateDataKey(resolveLedgerDir());
+  const keyring = loadOrCreateDataKeyring(resolveLedgerDir());
   const changes = page.map((tx) => {
     const op: 'upsert' | 'delete' = tx.type === 'delete' ? 'delete' : 'upsert';
     const payload =
-      (tx.row ? decryptRowSensitive(tx.row, key) : undefined) ??
+      (tx.row ? decryptRowSensitiveWithKeyring(tx.row, keyring) : undefined) ??
       (tx.row_id
         ? {
             id: tx.row_id,
@@ -468,12 +451,12 @@ export function queryState(
   const ledger = getLedgerStore();
   const state = ledger.loadState();
   const rows = state.tables[table] ?? {};
-  const key = loadOrCreateDataKey(resolveLedgerDir());
+  const keyring = loadOrCreateDataKeyring(resolveLedgerDir());
   const list = Object.values(rows);
-  let filtered = list.map((row) => decryptRowSensitive(row as Record<string, unknown>, key));
+  let filtered = list.map((row) => decryptRowSensitiveWithKeyring(row as Record<string, unknown>, keyring));
   if (opts.id) {
     const row = rows[opts.id];
-    return row ? [decryptRowSensitive(row as Record<string, unknown>, key)] : [];
+    return row ? [decryptRowSensitiveWithKeyring(row as Record<string, unknown>, keyring)] : [];
   }
   if (opts.filter) {
     filtered = filtered.filter((row) =>

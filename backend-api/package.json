@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/backend-api",
-  "version": "1.14.20",
+  "version": "1.14.21",
   "private": true,
   "type": "module",
   "scripts": {
@@ -29,7 +29,9 @@
     "masterdata:import-contracts-goz": "tsx src/scripts/importContractsGoz.ts",
     "parts:migrate-brand-junction": "tsx src/scripts/migratePartBrandJunction.ts",
     "masterdata:sync-engines-completeness-csv": "tsx src/scripts/importEnginesFromCompletenessCsv.ts",
-    "warehouse:directories-dry-run": "tsx src/scripts/dryRunDirectoriesToNomenclature.ts"
+    "warehouse:directories-dry-run": "tsx src/scripts/dryRunDirectoriesToNomenclature.ts",
+    "ledger:rotate-data-key": "tsx src/scripts/rotateLedgerDataKey.ts",
+    "ledger:rotate-data-key:dry-run": "tsx src/scripts/rotateLedgerDataKey.ts --dry-run"
   },
   "dependencies": {
     "@matricarmz/ledger": "workspace:*",

@@ -3,6 +3,14 @@
 ## Главный принцип
 **Секреты не храним в GitHub и в репозитории.** Никаких паролей/токенов/ключей в коде и документации.
 
+## Критические инварианты (важно для агентов)
+
+- **`MATRICA_LEDGER_RELEASE_TOKEN` — это JWT, подписанный `MATRICA_JWT_SECRET`.** При ротации JWT-секрета release-токен становится невалидным. После любой смены `MATRICA_JWT_SECRET` нужно сразу выпустить новый release-токен через web-admin (`/admin-ui/` → Admin → Release token) и положить в `.env` рядом с обновлённым JWT-секретом. Не путать: refresh-токены пользователей (`/auth/refresh`) живут в БД как SHA-256 хэши и не зависят от JWT-секрета — они переживают ротацию.
+- **`data-key.json` и `server-key.json` всегда mode 600.** Любые архивы старых версий — тоже 600. При редактировании через `nano` / `vim` иногда дефолтные umask сбрасывают на 644; после правок `stat -c '%a'` обязателен.
+- **Ledger-блоки в `blocks/` неперешифровываемы** — перешифровка нарушит хэш-цепочку. Только `state.json` (проекция) пересчитывается при ротации data-key. Старые ключи в keyring остаются навсегда, чтобы можно было читать историю.
+- **UFW deny incoming default.** Любое добавление новой службы, слушающей порт — это новое UFW-правило. Без правила служба будет недоступна снаружи (правильное поведение, но проверь, что так и задумано).
+
+
 ## Где должны храниться секреты
 - **Только на сервере (VPS)**: файлы `.env`, systemd/PM2 env, приватные ключи.
 - **В GitHub**: допускаются только **GitHub Actions Secrets** (они не попадают в git и не видны в логах при правильном использовании).
@@ -100,14 +108,70 @@
 5. Подкорректировать body-лимит: `express.json({ limit: '1mb' })` глобально, и поднять до 20mb только на `/files`, `/ledger`, `/backups`.
 6. Добавить в nginx HSTS и `X-Content-Type-Options: nosniff` (defense in depth).
 
-### Фаза 4 — defense in depth (долгосрочные улучшения)
-Цель: подготовиться к редкому, но дорогому сценарию — компрометации сервера или ключей.
+### Фаза 4.1 — версионирование ledger-крипто и ротация data-key (выполнено)
+Дата применения: 2026-05-18.
 
-1. **Версионирование ledger-крипто и ротация ключей.** Сейчас в коде только префикс `enc:v1:` и один ключ. Нужно:
-   - Ввести `enc:v2:` с `keyId` в payload, поддержку списка ключей в `data-key.json` (массив, текущий + предыдущие).
-   - Добавить серверный фоновый job: «пере-зашифровать всё с v1 на v2 текущим ключом», после чего старый ключ можно вывести.
-   - Аналогично для `server-key.json`: подпись по `keyId`, проверка принимает любой из набора публичных ключей. При ротации генерируем новый ключ, добавляем в keyring, новые блоки подписаны новым.
-   - После того как код поддержит keyring — ротировать оба ключа (они были world-readable до Фазы 1, считаем потенциально скомпрометированными).
+- Новый модуль [backend-api/src/ledger/dataKeyring.ts](../backend-api/src/ledger/dataKeyring.ts): keyring AES-256-GCM с поддержкой нескольких ключей одновременно, формат `data-key.json` версии 2 (`{ version:2, activeId, keys:[{id,keyBase64,createdAt}] }`).
+- Полная обратная совместимость: старый `{keyBase64}` файл прозрачно загружается как legacy-keyring с id `v1-legacy`. Пока activeId = `v1-legacy` (то есть ротация ещё не запускалась), новые шифровки пишутся в `enc:v1:` — downgrade backend остаётся возможным.
+- После первой ротации новые шифровки идут в `enc:v2:<keyId>:iv:tag:data`. Старые `enc:v1:` остаются читаемыми, потому что legacy-ключ остаётся в keyring навсегда.
+- В [ledgerService.ts](../backend-api/src/ledger/ledgerService.ts) убраны прямые `createCipheriv`/`createDecipheriv`, всё через keyring. Реэкспортирован `loadOrCreateDataKeyring`.
+- CLI [backend-api/src/scripts/rotateLedgerDataKey.ts](../backend-api/src/scripts/rotateLedgerDataKey.ts) + npm-скрипты:
+  - `pnpm --filter @matricarmz/backend-api ledger:rotate-data-key:dry-run` — посмотреть, сколько строк надо перешифровать
+  - `pnpm --filter @matricarmz/backend-api ledger:rotate-data-key` — реальная ротация
+- 7 юнит-тестов keyring проходят, общий backend test-suite расширен с 52 до 59 без регрессий.
+
+**Что про блоки и подписи (`server-key.json`):** код уже rotation-friendly без правок — каждая подписанная транзакция несёт `public_key` внутри, `verifyTxs` верифицирует именно этим ключом. Старые блоки остаются валидными после смены `server-key.json`; новые подписываются новой парой. Блок-файлы в `blocks/` НЕ перешифровываются (это нарушит хэш-цепочку); CLI ротации работает только с проекцией `state.json`.
+
+#### Процедура ротации data-key (выполняется оператором):
+
+```bash
+ssh matricarmz
+cd /home/valstan/MatricaRMZ
+
+# 1) Сначала dry-run, чтобы увидеть масштаб перешифровки:
+pnpm --filter @matricarmz/backend-api ledger:rotate-data-key:dry-run
+
+# 2) Останавливаем backend (чтобы не было гонок записи state.json):
+sudo systemctl stop matricarmz-backend-secondary.service
+sudo systemctl stop matricarmz-backend-primary.service
+
+# 3) Реальная ротация: добавляется новый ключ, перешифровывается state.json,
+#    сохраняются бэкапы .bak.<ts>.before-rotate
+pnpm --filter @matricarmz/backend-api ledger:rotate-data-key
+
+# 4) Права на свежий data-key.json (CLI сохраняет с дефолтными правами 644 — нужно ужесточить):
+chmod 600 /home/valstan/MatricaRMZ/backend-api/ledger/data-key.json
+
+# 5) Старт primary, ждать /health, потом secondary:
+sudo systemctl start matricarmz-backend-primary.service
+sleep 10 && curl -fsS http://127.0.0.1:3001/health
+sudo systemctl start matricarmz-backend-secondary.service
+sleep 5 && curl -fsS http://127.0.0.1:3002/health
+
+# 6) Архивировать backup state.json спустя сутки после проверки, что всё работает:
+mv /home/valstan/MatricaRMZ/backend-api/ledger/state.json.bak.*.before-rotate \
+   /home/valstan/MatricaRMZ/backend-api/ledger/archive/
+```
+
+#### Процедура ротации server-key (подпись):
+
+```bash
+sudo systemctl stop matricarmz-backend-secondary.service
+sudo systemctl stop matricarmz-backend-primary.service
+
+# Перемещаем старый ключ в архив, при следующем старте сгенерируется новый:
+mv /home/valstan/MatricaRMZ/backend-api/ledger/server-key.json \
+   /home/valstan/MatricaRMZ/backend-api/ledger/archive/server-key.json.bak.$(date +%s)
+
+sudo systemctl start matricarmz-backend-primary.service
+sleep 10 && curl -fsS http://127.0.0.1:3001/health
+sudo systemctl start matricarmz-backend-secondary.service
+
+# После старта новый server-key.json сгенерирован; chmod 600:
+chmod 600 /home/valstan/MatricaRMZ/backend-api/ledger/server-key.json
+```
+
+Подписи существующих блоков остаются валидными — каждая транзакция несёт свой `public_key`.
 2. **PostgreSQL SSL (self-signed CA).** Сейчас PG слушает только `127.0.0.1`, SSL не критичен, но при разделении DB-хоста потребуется:
    - Создать локальный CA (`openssl genrsa` + `openssl req -x509`), серверный cert/key подписанный CA.
    - `ssl = on` + `ssl_cert_file`/`ssl_key_file` в postgresql.conf, `hostssl ... cert clientcert=verify-ca` в pg_hba.conf.
