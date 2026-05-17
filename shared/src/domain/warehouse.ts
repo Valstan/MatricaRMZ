@@ -578,8 +578,8 @@ export type EngineAssemblyBomLine = {
 export type EngineAssemblyBom = {
   id: string;
   name: string;
-  /** Марка двигателя из справочника (entities). */
-  engineBrandId: string;
+  /** Марки двигателей из справочника (entities) — M:N. Одна BOM может покрывать несколько марок. */
+  engineBrandIds: string[];
   /** Устарело: привязка к номенклатуре; не используется в новых спецификациях. */
   engineNomenclatureId?: string | null;
   version: number;
@@ -618,7 +618,8 @@ export type EngineAssemblyBomLineInput = {
 export type EngineAssemblyBomUpsertInput = {
   id?: string;
   name: string;
-  engineBrandId: string;
+  /** Список марок двигателей, к которым применима эта спецификация (минимум одна). */
+  engineBrandIds: string[];
   /**
    * Номенклатура «двигатель» для марки (колонка legacy). Сервер может вывести сам;
    * поле нужно для совместимости со старым API, где оно было обязательным в теле POST.

@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 8;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 9;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -319,6 +319,79 @@ const MIGRATIONS: Migration[] = [
       sqlite.exec(
         `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,
       );
+    },
+  },
+  {
+    from: 8,
+    to: 9,
+    name: 'BOM ↔ engine brands M:N via junction; drop engine_brand_id from BOM',
+    up: async (_db, sqlite) => {
+      // Создаём junction-таблицу
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_engine_assembly_bom_brand_links (
+          id text PRIMARY KEY NOT NULL,
+          bom_id text NOT NULL,
+          engine_brand_id text NOT NULL,
+          is_primary integer NOT NULL DEFAULT 0,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced',
+          last_server_seq integer
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_eabbl_bom_brand_uq
+          ON erp_engine_assembly_bom_brand_links(bom_id, engine_brand_id)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS erp_eabbl_bom_idx
+          ON erp_engine_assembly_bom_brand_links(bom_id);
+        CREATE INDEX IF NOT EXISTS erp_eabbl_brand_idx
+          ON erp_engine_assembly_bom_brand_links(engine_brand_id);
+      `);
+
+      const bomCols = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom')`).all() as Array<{ name: string }>;
+      const hasEngineBrandId = bomCols.some((c) => c.name === 'engine_brand_id');
+      if (hasEngineBrandId) {
+        // Бэкфил junction строк из текущих engine_brand_id
+        const ts = Date.now();
+        sqlite
+          .prepare(
+            `INSERT OR IGNORE INTO erp_engine_assembly_bom_brand_links
+               (id, bom_id, engine_brand_id, is_primary, created_at, updated_at, deleted_at, sync_status)
+             SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2)
+                    || '-' || substr('89ab', 1+(abs(random())%4), 1) || substr(lower(hex(randomblob(2))),2)
+                    || '-' || lower(hex(randomblob(6))),
+                    b.id, b.engine_brand_id, 1, b.created_at, COALESCE(b.updated_at, ?), b.deleted_at, 'synced'
+               FROM erp_engine_assembly_bom b
+               WHERE b.engine_brand_id IS NOT NULL`,
+          )
+          .run(ts);
+
+        // SQLite не умеет DROP COLUMN в старых версиях — пересоздаём таблицу без engine_brand_id
+        sqlite.exec(`PRAGMA foreign_keys=OFF;`);
+        sqlite.exec(`
+          CREATE TABLE __erp_engine_assembly_bom_new (
+            id text PRIMARY KEY NOT NULL,
+            name text NOT NULL,
+            engine_nomenclature_id text,
+            version integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'draft',
+            is_default integer NOT NULL DEFAULT 0,
+            notes text,
+            created_at integer NOT NULL,
+            updated_at integer NOT NULL,
+            deleted_at integer,
+            sync_status text NOT NULL DEFAULT 'synced',
+            last_server_seq integer
+          );
+          INSERT INTO __erp_engine_assembly_bom_new (id, name, engine_nomenclature_id, version, status, is_default, notes, created_at, updated_at, deleted_at, sync_status, last_server_seq)
+          SELECT id, name, engine_nomenclature_id, version, status, is_default, notes, created_at, updated_at, deleted_at, sync_status, last_server_seq
+          FROM erp_engine_assembly_bom;
+          DROP TABLE erp_engine_assembly_bom;
+          ALTER TABLE __erp_engine_assembly_bom_new RENAME TO erp_engine_assembly_bom;
+          CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);
+        `);
+        sqlite.exec(`PRAGMA foreign_keys=ON;`);
+      }
     },
   },
 ];

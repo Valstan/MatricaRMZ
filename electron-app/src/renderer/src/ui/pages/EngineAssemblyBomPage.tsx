@@ -8,7 +8,7 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 type BomListRow = {
   id: string;
   name: string;
-  engineBrandId: string;
+  engineBrandIds: string[];
   engineNomenclatureId?: string | null;
   engineNomenclatureCode?: string | null;
   engineNomenclatureName?: string | null;
@@ -18,6 +18,11 @@ type BomListRow = {
   linesCount: number;
   updatedAt: number;
 };
+
+function brandsLabel(ids: string[], labels: Map<string, string>): string {
+  if (!ids.length) return '—';
+  return ids.map((id) => labels.get(id) ?? id).join(', ');
+}
 
 type SortKey = 'name' | 'brand' | 'version' | 'lines' | 'updatedAt';
 
@@ -44,7 +49,7 @@ export function EngineAssemblyBomPage(props: {
         setStatus(`Ошибка: ${String(result?.error ?? 'unknown')}`);
         return;
       }
-      setRows((result.rows ?? []) as BomListRow[]);
+      setRows((result.rows ?? []) as unknown as BomListRow[]);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -84,8 +89,8 @@ export function EngineAssemblyBomPage(props: {
       let cmp = 0;
       if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       else if (sortKey === 'brand') {
-        const la = brandLabelById.get(String(a.engineBrandId)) ?? String(a.engineBrandId ?? '');
-        const lb = brandLabelById.get(String(b.engineBrandId)) ?? String(b.engineBrandId ?? '');
+        const la = brandsLabel(a.engineBrandIds ?? [], brandLabelById);
+        const lb = brandsLabel(b.engineBrandIds ?? [], brandLabelById);
         cmp = la.localeCompare(lb, 'ru');
       } else if (sortKey === 'version') cmp = Number(a.version ?? 0) - Number(b.version ?? 0);
       else if (sortKey === 'lines') cmp = Number(a.linesCount ?? 0) - Number(b.linesCount ?? 0);
@@ -139,15 +144,9 @@ export function EngineAssemblyBomPage(props: {
                 setStatus('Ошибка: сначала выберите одну марку двигателя.');
                 return;
               }
-              const existing = rows.find((row) => String(row.engineBrandId) === selectedEngineBrandId);
-              if (existing?.id) {
-                setStatus('Для выбранной марки спецификация уже есть. Открываем текущую карточку.');
-                props.onOpen(String(existing.id));
-                return;
-              }
               const created = await window.matrica.warehouse.assemblyBomUpsert({
                 name: `BOM ${engineBrandOptions.find((brand) => brand.id === selectedEngineBrandId)?.label ?? 'марки двигателя'}`,
-                engineBrandId: selectedEngineBrandId,
+                engineBrandIds: [selectedEngineBrandId],
                 status: 'active',
                 isDefault: true,
                 lines: [],
@@ -211,7 +210,7 @@ export function EngineAssemblyBomPage(props: {
                 <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
                   <td style={{ whiteSpace: 'normal', wordBreak: 'break-word', verticalAlign: 'top' }}>{row.name || '—'}</td>
                   <td style={{ whiteSpace: 'normal', wordBreak: 'break-word', verticalAlign: 'top' }}>
-                    <div>{brandLabelById.get(String(row.engineBrandId)) || row.engineBrandId || '—'}</div>
+                    <div>{brandsLabel(row.engineBrandIds ?? [], brandLabelById)}</div>
                     {row.engineNomenclatureName || row.engineNomenclatureCode ? (
                       <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>
                         Устар. номенклатура: {row.engineNomenclatureName || row.engineNomenclatureCode || row.engineNomenclatureId || '—'}

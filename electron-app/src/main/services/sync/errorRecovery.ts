@@ -62,6 +62,7 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.ErpNomenclatureEngineBrand]: undefined,
   [SyncTableName.ErpEngineAssemblyBom]: undefined,
   [SyncTableName.ErpEngineAssemblyBomLines]: undefined,
+  [SyncTableName.ErpEngineAssemblyBomBrandLinks]: undefined,
   [SyncTableName.ErpEngineInstances]: undefined,
   [SyncTableName.ErpRegStockBalance]: undefined,
   [SyncTableName.ErpRegStockMovements]: undefined,

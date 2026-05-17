@@ -12,6 +12,7 @@ import {
 import { db } from '../database/db.js';
 import {
   erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
   erpNomenclature,
   erpNomenclatureEngineBrand,
@@ -155,6 +156,34 @@ type BomLineInput = {
   notes?: string | null;
 };
 
+/** Загружает марки двигателей для набора BOM (через junction-таблицу). */
+async function loadBrandIdsForBoms(bomIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (bomIds.length === 0) return result;
+  const links = await db
+    .select({
+      bomId: erpEngineAssemblyBomBrandLinks.bomId,
+      engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId,
+      isPrimary: erpEngineAssemblyBomBrandLinks.isPrimary,
+      createdAt: erpEngineAssemblyBomBrandLinks.createdAt,
+    })
+    .from(erpEngineAssemblyBomBrandLinks)
+    .where(
+      and(
+        inArray(erpEngineAssemblyBomBrandLinks.bomId, bomIds as any),
+        isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+      ),
+    )
+    .orderBy(desc(erpEngineAssemblyBomBrandLinks.isPrimary), asc(erpEngineAssemblyBomBrandLinks.createdAt));
+  for (const link of links) {
+    const key = String(link.bomId);
+    const arr = result.get(key) ?? [];
+    arr.push(String(link.engineBrandId));
+    result.set(key, arr);
+  }
+  return result;
+}
+
 export async function listWarehouseAssemblyBoms(args?: {
   engineBrandId?: string;
   engineBrandIds?: string[];
@@ -164,14 +193,28 @@ export async function listWarehouseAssemblyBoms(args?: {
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
   try {
     const conditions = [isNull(erpEngineAssemblyBom.deletedAt)];
-    const engineBrandIds = Array.isArray(args?.engineBrandIds)
+    const filterBrandIds = Array.isArray(args?.engineBrandIds)
       ? args.engineBrandIds.map(String).map((id) => id.trim()).filter(Boolean)
-      : [];
-    if (engineBrandIds.length > 0) {
-      conditions.push(inArray(erpEngineAssemblyBom.engineBrandId, engineBrandIds as any));
-    } else if (args?.engineBrandId) {
-      conditions.push(eq(erpEngineAssemblyBom.engineBrandId, String(args.engineBrandId)));
+      : args?.engineBrandId
+        ? [String(args.engineBrandId).trim()].filter(Boolean)
+        : [];
+
+    if (filterBrandIds.length > 0) {
+      // Подзапрос: bom_id'ы, у которых есть активная связь с любой из переданных марок
+      const matchingBomIds = await db
+        .selectDistinct({ bomId: erpEngineAssemblyBomBrandLinks.bomId })
+        .from(erpEngineAssemblyBomBrandLinks)
+        .where(
+          and(
+            inArray(erpEngineAssemblyBomBrandLinks.engineBrandId, filterBrandIds as any),
+            isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+          ),
+        );
+      const ids = matchingBomIds.map((row) => String(row.bomId));
+      if (ids.length === 0) return { ok: true, rows: [] };
+      conditions.push(inArray(erpEngineAssemblyBom.id, ids as any));
     }
+
     if (args?.engineNomenclatureId) {
       conditions.push(eq(erpEngineAssemblyBom.engineNomenclatureId, String(args.engineNomenclatureId)));
     }
@@ -184,7 +227,6 @@ export async function listWarehouseAssemblyBoms(args?: {
       .select({
         id: erpEngineAssemblyBom.id,
         name: erpEngineAssemblyBom.name,
-        engineBrandId: erpEngineAssemblyBom.engineBrandId,
         engineNomenclatureId: erpEngineAssemblyBom.engineNomenclatureId,
         version: erpEngineAssemblyBom.version,
         status: erpEngineAssemblyBom.status,
@@ -216,22 +258,14 @@ export async function listWarehouseAssemblyBoms(args?: {
         lineCounts.set(String(row.bomId), Number(row.count ?? 0));
       }
     }
+    const brandIdsMap = await loadBrandIdsForBoms(bomIds);
 
-    const visibleRows = (() => {
-      const perBrand = new Map<string, (typeof headerRows)[number]>();
-      for (const row of headerRows) {
-        const brandId = String(row.engineBrandId);
-        if (!brandId) continue;
-        if (!perBrand.has(brandId)) perBrand.set(brandId, row);
-      }
-      return Array.from(perBrand.values());
-    })();
     return {
       ok: true,
-      rows: visibleRows.map((row) => ({
+      rows: headerRows.map((row) => ({
         id: String(row.id),
         name: String(row.name),
-        engineBrandId: String(row.engineBrandId),
+        engineBrandIds: brandIdsMap.get(String(row.id)) ?? [],
         engineNomenclatureId: row.engineNomenclatureId ? String(row.engineNomenclatureId) : null,
         engineNomenclatureCode: row.engineCode ? String(row.engineCode) : null,
         engineNomenclatureName: row.engineName ? String(row.engineName) : null,
@@ -256,7 +290,6 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
     .select({
       id: erpEngineAssemblyBom.id,
       name: erpEngineAssemblyBom.name,
-      engineBrandId: erpEngineAssemblyBom.engineBrandId,
       engineNomenclatureId: erpEngineAssemblyBom.engineNomenclatureId,
       version: erpEngineAssemblyBom.version,
       status: erpEngineAssemblyBom.status,
@@ -275,10 +308,11 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
 
   const hr = headerRows[0];
   if (!hr) return { ok: false, error: 'BOM не найден' };
+  const brandIdsMap = await loadBrandIdsForBoms([bomId]);
   const header: Record<string, unknown> = {
     id: String(hr.id),
     name: String(hr.name),
-    engineBrandId: String(hr.engineBrandId),
+    engineBrandIds: brandIdsMap.get(bomId) ?? [],
     engineNomenclatureId: hr.engineNomenclatureId ? String(hr.engineNomenclatureId) : null,
     engineNomenclatureCode: hr.engineCode ? String(hr.engineCode) : null,
     engineNomenclatureName: hr.engineName ? String(hr.engineName) : null,
@@ -355,7 +389,8 @@ export async function getWarehouseAssemblyBom(args: { id: string }): Promise<Res
 export async function upsertWarehouseAssemblyBom(args: {
   id?: string;
   name: string;
-  engineBrandId: string;
+  /** Список марок двигателей, к которым применима спецификация (минимум одна). */
+  engineBrandIds: string[];
   /** Опционально: legacy-колонка — номенклатура типа engine для марки; иначе null. Черновые строки используют отдельный resolve. */
   engineNomenclatureId?: string | null;
   version?: number;
@@ -366,41 +401,24 @@ export async function upsertWarehouseAssemblyBom(args: {
   actor: Actor;
 }): Promise<Result<{ id: string }>> {
   try {
-    const requestedBrandId = String(args.engineBrandId).trim();
-    if (!requestedBrandId) return { ok: false, error: 'Марка двигателя (engineBrandId) обязательна' };
-
-    const existingForBrand = await db
-      .select({ id: erpEngineAssemblyBom.id })
-      .from(erpEngineAssemblyBom)
-      .where(and(eq(erpEngineAssemblyBom.engineBrandId, requestedBrandId), isNull(erpEngineAssemblyBom.deletedAt)))
-      .orderBy(desc(erpEngineAssemblyBom.updatedAt), desc(erpEngineAssemblyBom.version))
-      .limit(1);
-    const existingId = existingForBrand[0]?.id ? String(existingForBrand[0].id) : null;
-    const id = String(args.id ?? existingId ?? randomUUID());
-    if (args.id) {
-      const otherForBrand = await db
-        .select({ id: erpEngineAssemblyBom.id })
-        .from(erpEngineAssemblyBom)
-        .where(
-          and(
-            eq(erpEngineAssemblyBom.engineBrandId, requestedBrandId),
-            isNull(erpEngineAssemblyBom.deletedAt),
-            sql`${erpEngineAssemblyBom.id} <> ${id}`,
-          ),
-        )
-        .limit(1);
-      if (otherForBrand[0]?.id) {
-        return {
-          ok: false,
-          error:
-            'Для выбранной марки двигателя уже есть другая спецификация. Удалите или откройте ту карточку, либо выберите другую марку.',
-        };
-      }
+    const requestedBrandIds = Array.from(
+      new Set(
+        (Array.isArray(args.engineBrandIds) ? args.engineBrandIds : [])
+          .map(String)
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (requestedBrandIds.length === 0) {
+      return { ok: false, error: 'Не указана ни одна марка двигателя (engineBrandIds)' };
     }
+    const primaryBrandId = requestedBrandIds[0]!;
+    const id = String(args.id ?? randomUUID());
+
     const ts = nowMs();
     const status = 'active';
     const version = Math.max(1, Math.trunc(Number(args.version ?? 1)));
-    const lineStubId = await pickLineDraftStubNomenclatureId(requestedBrandId);
+    const lineStubId = await pickLineDraftStubNomenclatureId(primaryBrandId);
     if (!lineStubId) {
       return {
         ok: false,
@@ -409,10 +427,9 @@ export async function upsertWarehouseAssemblyBom(args: {
       };
     }
     const explicitNom = args.engineNomenclatureId != null && String(args.engineNomenclatureId).trim() ? String(args.engineNomenclatureId).trim() : null;
-    const headerEngineNom = explicitNom ?? (await pickEngineNomenclatureIdForBrand(requestedBrandId));
+    const headerEngineNom = explicitNom ?? (await pickEngineNomenclatureIdForBrand(primaryBrandId));
     const base = {
       name: String(args.name ?? '').trim() || `BOM ${version}`,
-      engineBrandId: requestedBrandId,
       engineNomenclatureId: headerEngineNom,
       version,
       status,
@@ -602,17 +619,71 @@ export async function upsertWarehouseAssemblyBom(args: {
       );
     }
 
-    await db
-      .update(erpEngineAssemblyBom)
-      .set({ isDefault: false, updatedAt: ts, syncStatus: 'synced' })
-      .where(
-        and(
-          eq(erpEngineAssemblyBom.engineBrandId, requestedBrandId),
-          isNull(erpEngineAssemblyBom.deletedAt),
-          eq(erpEngineAssemblyBom.status, 'active'),
-          sql`${erpEngineAssemblyBom.id} <> ${id}`,
-        ),
-      );
+    // Синхронизируем junction-таблицу марок: софт-удаляем те, что больше не указаны, апсертим новые/обновлённые.
+    const existingLinks = await db
+      .select({
+        id: erpEngineAssemblyBomBrandLinks.id,
+        engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId,
+      })
+      .from(erpEngineAssemblyBomBrandLinks)
+      .where(and(eq(erpEngineAssemblyBomBrandLinks.bomId, id), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)));
+    const existingByBrand = new Map<string, string>();
+    for (const link of existingLinks) {
+      existingByBrand.set(String(link.engineBrandId), String(link.id));
+    }
+    const desiredSet = new Set(requestedBrandIds);
+    const linksToInsert: Array<{
+      id: string;
+      bomId: string;
+      engineBrandId: string;
+      isPrimary: boolean;
+      createdAt: number;
+      updatedAt: number;
+      deletedAt: number | null;
+      syncStatus: 'synced';
+      lastServerSeq: null;
+    }> = [];
+    const linksToUpdate: Array<{ id: string; engineBrandId: string; isPrimary: boolean }> = [];
+    for (const [idx, brandId] of requestedBrandIds.entries()) {
+      const isPrimary = idx === 0;
+      const existingLinkId = existingByBrand.get(brandId);
+      if (existingLinkId) {
+        linksToUpdate.push({ id: existingLinkId, engineBrandId: brandId, isPrimary });
+      } else {
+        linksToInsert.push({
+          id: randomUUID(),
+          bomId: id,
+          engineBrandId: brandId,
+          isPrimary,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: null,
+        });
+      }
+    }
+    const linksToDelete = existingLinks.filter((link) => !desiredSet.has(String(link.engineBrandId)));
+    if (linksToInsert.length > 0) {
+      await db.insert(erpEngineAssemblyBomBrandLinks).values(linksToInsert);
+    }
+    for (const update of linksToUpdate) {
+      await db
+        .update(erpEngineAssemblyBomBrandLinks)
+        .set({ isPrimary: update.isPrimary, updatedAt: ts, syncStatus: 'synced' })
+        .where(eq(erpEngineAssemblyBomBrandLinks.id, update.id));
+    }
+    if (linksToDelete.length > 0) {
+      await db
+        .update(erpEngineAssemblyBomBrandLinks)
+        .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+        .where(
+          inArray(
+            erpEngineAssemblyBomBrandLinks.id,
+            linksToDelete.map((l) => String(l.id)) as any,
+          ),
+        );
+    }
 
     const savedBom = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
     if (savedBom[0]) {
@@ -625,7 +696,6 @@ export async function upsertWarehouseAssemblyBom(args: {
           row: {
             id: String(row.id),
             name: String(row.name),
-            engine_brand_id: String(row.engineBrandId),
             engine_nomenclature_id: row.engineNomenclatureId == null ? null : String(row.engineNomenclatureId),
             version: Number(row.version),
             status: String(row.status),
@@ -641,6 +711,35 @@ export async function upsertWarehouseAssemblyBom(args: {
           ts,
         },
       ]);
+    }
+
+    // Публикуем актуальное состояние junction-таблицы марок в ledger
+    const allBrandLinks = await db
+      .select()
+      .from(erpEngineAssemblyBomBrandLinks)
+      .where(eq(erpEngineAssemblyBomBrandLinks.bomId, id));
+    if (allBrandLinks.length > 0) {
+      const actorPayload = { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' };
+      signAndAppendDetailed(
+        allBrandLinks.map((link) => ({
+          type: (link.deletedAt == null ? 'upsert' : 'delete') as 'upsert' | 'delete',
+          table: LedgerTableName.ErpEngineAssemblyBomBrandLinks,
+          row_id: String(link.id),
+          row: {
+            id: String(link.id),
+            bom_id: String(link.bomId),
+            engine_brand_id: String(link.engineBrandId),
+            is_primary: Boolean(link.isPrimary),
+            created_at: Number(link.createdAt),
+            updated_at: Number(link.updatedAt),
+            deleted_at: link.deletedAt == null ? null : Number(link.deletedAt),
+            sync_status: String(link.syncStatus ?? 'synced'),
+            last_server_seq: link.lastServerSeq == null ? null : Number(link.lastServerSeq),
+          },
+          actor: actorPayload,
+          ts,
+        })),
+      );
     }
 
     const savedLines = await db
@@ -697,11 +796,19 @@ export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Acto
       .select()
       .from(erpEngineAssemblyBomLines)
       .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
+    const brandLinksBefore = await db
+      .select()
+      .from(erpEngineAssemblyBomBrandLinks)
+      .where(and(eq(erpEngineAssemblyBomBrandLinks.bomId, id), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)));
 
     await db
       .update(erpEngineAssemblyBomLines)
       .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
       .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
+    await db
+      .update(erpEngineAssemblyBomBrandLinks)
+      .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
+      .where(and(eq(erpEngineAssemblyBomBrandLinks.bomId, id), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)));
     await db
       .update(erpEngineAssemblyBom)
       .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
@@ -731,8 +838,27 @@ export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Acto
       actor,
       ts,
     }));
+    const brandLinkDeletes = brandLinksBefore.map((link) => ({
+      type: 'delete' as const,
+      table: LedgerTableName.ErpEngineAssemblyBomBrandLinks,
+      row_id: String(link.id),
+      row: {
+        id: String(link.id),
+        bom_id: String(link.bomId),
+        engine_brand_id: String(link.engineBrandId),
+        is_primary: Boolean(link.isPrimary),
+        created_at: Number(link.createdAt),
+        updated_at: ts,
+        deleted_at: ts,
+        sync_status: String(link.syncStatus ?? 'synced'),
+        last_server_seq: link.lastServerSeq == null ? null : Number(link.lastServerSeq),
+      },
+      actor,
+      ts,
+    }));
     signAndAppendDetailed([
       ...lineDeletes,
+      ...brandLinkDeletes,
       {
         type: 'delete' as const,
         table: LedgerTableName.ErpEngineAssemblyBom,
@@ -740,7 +866,6 @@ export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Acto
         row: {
           id: String(headerRow.id),
           name: String(headerRow.name),
-          engine_brand_id: String(headerRow.engineBrandId),
           engine_nomenclature_id: headerRow.engineNomenclatureId == null ? null : String(headerRow.engineNomenclatureId),
           version: Number(headerRow.version),
           status: String(headerRow.status),
@@ -775,41 +900,34 @@ export async function activateWarehouseAssemblyBomAsDefault(args: {
     const ts = nowMs();
     await db
       .update(erpEngineAssemblyBom)
-      .set({ isDefault: false, updatedAt: ts, syncStatus: 'synced' })
-      .where(and(eq(erpEngineAssemblyBom.engineBrandId, row.engineBrandId), isNull(erpEngineAssemblyBom.deletedAt)));
-    await db
-      .update(erpEngineAssemblyBom)
       .set({ status: 'active', isDefault: true, updatedAt: ts, syncStatus: 'synced' })
       .where(eq(erpEngineAssemblyBom.id, id));
-    const affected = await db
-      .select()
-      .from(erpEngineAssemblyBom)
-      .where(and(eq(erpEngineAssemblyBom.engineBrandId, row.engineBrandId), isNull(erpEngineAssemblyBom.deletedAt)));
-    if (affected.length > 0) {
-      signAndAppendDetailed(
-        affected.map((item) => ({
-          type: 'upsert' as const,
+    const saved = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
+    const savedRow = saved[0];
+    if (savedRow) {
+      signAndAppendDetailed([
+        {
+          type: 'upsert',
           table: LedgerTableName.ErpEngineAssemblyBom,
-          row_id: String(item.id),
+          row_id: String(savedRow.id),
           row: {
-            id: String(item.id),
-            name: String(item.name),
-            engine_brand_id: String(item.engineBrandId),
-            engine_nomenclature_id: item.engineNomenclatureId == null ? null : String(item.engineNomenclatureId),
-            version: Number(item.version),
-            status: String(item.status),
-            is_default: Boolean(item.isDefault),
-            notes: item.notes ?? null,
-            created_at: Number(item.createdAt),
-            updated_at: Number(item.updatedAt),
-            deleted_at: item.deletedAt == null ? null : Number(item.deletedAt),
-            sync_status: String(item.syncStatus ?? 'synced'),
-            last_server_seq: item.lastServerSeq == null ? null : Number(item.lastServerSeq),
+            id: String(savedRow.id),
+            name: String(savedRow.name),
+            engine_nomenclature_id: savedRow.engineNomenclatureId == null ? null : String(savedRow.engineNomenclatureId),
+            version: Number(savedRow.version),
+            status: String(savedRow.status),
+            is_default: Boolean(savedRow.isDefault),
+            notes: savedRow.notes ?? null,
+            created_at: Number(savedRow.createdAt),
+            updated_at: Number(savedRow.updatedAt),
+            deleted_at: savedRow.deletedAt == null ? null : Number(savedRow.deletedAt),
+            sync_status: String(savedRow.syncStatus ?? 'synced'),
+            last_server_seq: savedRow.lastServerSeq == null ? null : Number(savedRow.lastServerSeq),
           },
           actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
           ts,
-        })),
-      );
+        },
+      ]);
     }
     return { ok: true, id };
   } catch (e) {
@@ -836,7 +954,6 @@ export async function archiveWarehouseAssemblyBom(args: { id: string; actor: Act
           row: {
             id: String(row.id),
             name: String(row.name),
-            engine_brand_id: String(row.engineBrandId),
             engine_nomenclature_id: row.engineNomenclatureId == null ? null : String(row.engineNomenclatureId),
             version: Number(row.version),
             status: String(row.status),
@@ -862,7 +979,7 @@ export async function archiveWarehouseAssemblyBom(args: { id: string; actor: Act
 export async function listWarehouseAssemblyBomHistory(args: {
   engineBrandId: string;
 }): Promise<Result<{ rows: Array<Record<string, unknown>> }>> {
-  return listWarehouseAssemblyBoms({ engineBrandId: String(args.engineBrandId) });
+  return listWarehouseAssemblyBoms({ engineBrandIds: [String(args.engineBrandId)] });
 }
 
 export async function getWarehouseAssemblyBomPrintPayload(args: {
@@ -998,21 +1115,32 @@ export async function buildWarehouseBomExpandedForecast(args: {
     const totalEngines = target * horizonDays;
     const warehouseSet = Array.isArray(args.warehouseIds) && args.warehouseIds.length > 0 ? new Set(args.warehouseIds.map(String)) : null;
 
+    // Ищем активную BOM для марки через junction. Если на марку привязано несколько BOM, берём с isDefault=true, иначе самую свежую.
     const bomRows = await db
-      .select()
+      .select({
+        id: erpEngineAssemblyBom.id,
+        isDefault: erpEngineAssemblyBom.isDefault,
+        updatedAt: erpEngineAssemblyBom.updatedAt,
+      })
       .from(erpEngineAssemblyBom)
+      .innerJoin(
+        erpEngineAssemblyBomBrandLinks,
+        and(
+          eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+          isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+        ),
+      )
       .where(
         and(
-          eq(erpEngineAssemblyBom.engineBrandId, brandId),
+          eq(erpEngineAssemblyBomBrandLinks.engineBrandId, brandId),
           eq(erpEngineAssemblyBom.status, 'active'),
-          eq(erpEngineAssemblyBom.isDefault, true),
           isNull(erpEngineAssemblyBom.deletedAt),
         ),
       )
-      .orderBy(desc(erpEngineAssemblyBom.updatedAt))
+      .orderBy(desc(erpEngineAssemblyBom.isDefault), desc(erpEngineAssemblyBom.updatedAt))
       .limit(1);
     const bom = bomRows[0];
-    if (!bom) return { ok: false, error: 'Нет активной default BOM для выбранной марки двигателя' };
+    if (!bom) return { ok: false, error: 'Нет активной BOM для выбранной марки двигателя' };
 
     const lineRows = await db
       .select({

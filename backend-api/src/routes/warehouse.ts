@@ -499,7 +499,7 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
   const schema = z.object({
     id: z.string().uuid().optional(),
     name: z.string().min(1),
-    engineBrandId: z.string().uuid(),
+    engineBrandIds: z.array(z.string().uuid()).min(1),
     engineNomenclatureId: z.string().uuid().optional().nullable(),
     version: z.coerce.number().int().min(1).optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
@@ -528,7 +528,7 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
   const result = await upsertWarehouseAssemblyBom({
     ...(parsed.data.id ? { id: parsed.data.id } : {}),
     name: parsed.data.name,
-    engineBrandId: parsed.data.engineBrandId,
+    engineBrandIds: parsed.data.engineBrandIds,
     ...(parsed.data.engineNomenclatureId !== undefined ? { engineNomenclatureId: parsed.data.engineNomenclatureId } : {}),
     ...(parsed.data.version !== undefined ? { version: parsed.data.version } : {}),
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),

@@ -471,8 +471,7 @@ export const erpEngineAssemblyBom = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    engineBrandId: text('engine_brand_id').notNull(),
-    /** Устарело: привязка к номенклатуре «двигатель»; смысловая привязка BOM — engine_brand_id. */
+    /** Устарело: привязка к номенклатуре «двигатель»; марки BOM теперь в erp_engine_assembly_bom_brand_links. */
     engineNomenclatureId: text('engine_nomenclature_id'),
     version: integer('version').notNull().default(1),
     status: text('status').notNull().default('draft'),
@@ -485,14 +484,30 @@ export const erpEngineAssemblyBom = sqliteTable(
     lastServerSeq: integer('last_server_seq'),
   },
   (t) => ({
-    brandVersionUq: uniqueIndex('erp_engine_assembly_bom_brand_version_uq')
-      .on(t.engineBrandId, t.version)
-      .where(sql`${t.deletedAt} is null`),
-    brandIdx: index('erp_engine_assembly_bom_brand_idx').on(t.engineBrandId),
     statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
-    activeDefaultBrandUq: uniqueIndex('erp_engine_assembly_bom_active_default_brand_uq')
-      .on(t.engineBrandId)
-      .where(sql`${t.deletedAt} is null and ${t.status} = 'active' and ${t.isDefault} = 1`),
+  }),
+);
+
+/** Связь BOM ↔ марки двигателей (M:N). */
+export const erpEngineAssemblyBomBrandLinks = sqliteTable(
+  'erp_engine_assembly_bom_brand_links',
+  {
+    id: text('id').primaryKey(),
+    bomId: text('bom_id').notNull(),
+    engineBrandId: text('engine_brand_id').notNull(),
+    isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
+      .on(t.bomId, t.engineBrandId)
+      .where(sql`${t.deletedAt} is null`),
+    bomIdx: index('erp_eabbl_bom_idx').on(t.bomId),
+    brandIdx: index('erp_eabbl_brand_idx').on(t.engineBrandId),
   }),
 );
 

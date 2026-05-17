@@ -17,6 +17,7 @@ export const SyncTableName = {
   ErpNomenclatureEngineBrand: 'erp_nomenclature_engine_brand',
   ErpEngineAssemblyBom: 'erp_engine_assembly_bom',
   ErpEngineAssemblyBomLines: 'erp_engine_assembly_bom_lines',
+  ErpEngineAssemblyBomBrandLinks: 'erp_engine_assembly_bom_brand_links',
   ErpEngineInstances: 'erp_engine_instances',
   ErpRegStockBalance: 'erp_reg_stock_balance',
   ErpRegStockMovements: 'erp_reg_stock_movements',

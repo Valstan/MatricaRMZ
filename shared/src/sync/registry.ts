@@ -30,6 +30,7 @@ import {
   erpEngineInstanceRowSchema,
   erpEngineAssemblyBomLineRowSchema,
   erpEngineAssemblyBomRowSchema,
+  erpEngineAssemblyBomBrandLinkRowSchema,
   erpNomenclatureRowSchema,
   erpNomenclatureEngineBrandRowSchema,
   erpRegisterStockBalanceRowSchema,
@@ -213,12 +214,23 @@ const ERP_ENGINE_INSTANCE_FIELDS: readonly FieldMapping[] = [
 const ERP_ENGINE_ASSEMBLY_BOM_FIELDS: readonly FieldMapping[] = [
   { db: 'id', dto: 'id' },
   { db: 'name', dto: 'name' },
-  { db: 'engineBrandId', dto: 'engine_brand_id' },
   { db: 'engineNomenclatureId', dto: 'engine_nomenclature_id' },
   { db: 'version', dto: 'version' },
   { db: 'status', dto: 'status' },
   { db: 'isDefault', dto: 'is_default' },
   { db: 'notes', dto: 'notes' },
+  { db: 'createdAt', dto: 'created_at' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'deletedAt', dto: 'deleted_at' },
+  { db: 'syncStatus', dto: 'sync_status' },
+  { db: 'lastServerSeq', dto: 'last_server_seq' },
+] as const;
+
+const ERP_ENGINE_ASSEMBLY_BOM_BRAND_LINK_FIELDS: readonly FieldMapping[] = [
+  { db: 'id', dto: 'id' },
+  { db: 'bomId', dto: 'bom_id' },
+  { db: 'engineBrandId', dto: 'engine_brand_id' },
+  { db: 'isPrimary', dto: 'is_primary' },
   { db: 'createdAt', dto: 'created_at' },
   { db: 'updatedAt', dto: 'updated_at' },
   { db: 'deletedAt', dto: 'deleted_at' },
@@ -392,6 +404,14 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_ENGINE_ASSEMBLY_BOM_LINE_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.ErpEngineAssemblyBom, SyncTableName.ErpNomenclature],
+  },
+  {
+    syncName: SyncTableName.ErpEngineAssemblyBomBrandLinks,
+    ledgerName: SyncTableName.ErpEngineAssemblyBomBrandLinks,
+    schema: erpEngineAssemblyBomBrandLinkRowSchema,
+    fields: ERP_ENGINE_ASSEMBLY_BOM_BRAND_LINK_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpEngineAssemblyBom, SyncTableName.Entities],
   },
   {
     syncName: SyncTableName.ErpEngineInstances,

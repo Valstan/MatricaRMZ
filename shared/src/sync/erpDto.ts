@@ -95,12 +95,21 @@ export const erpEngineInstanceRowSchema = z.object({
 export const erpEngineAssemblyBomRowSchema = z.object({
   ...baseErpFields,
   name: z.string().min(1),
-  engine_brand_id: z.string().uuid(),
   engine_nomenclature_id: z.string().uuid().nullable().optional(),
   version: z.number().int().min(1),
   status: z.enum(['draft', 'active', 'archived']),
   is_default: z.boolean(),
   notes: z.string().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+/** Связь BOM ↔ марка двигателя (M:N). */
+export const erpEngineAssemblyBomBrandLinkRowSchema = z.object({
+  ...baseErpFields,
+  bom_id: z.string().uuid(),
+  engine_brand_id: z.string().uuid(),
+  is_primary: z.boolean(),
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
   last_server_seq: z.number().int().nullable().optional(),
 });

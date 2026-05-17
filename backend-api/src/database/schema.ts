@@ -996,9 +996,6 @@ export const erpEngineAssemblyBom = pgTable(
   {
     id: uuid('id').primaryKey(),
     name: text('name').notNull(),
-    engineBrandId: uuid('engine_brand_id')
-      .notNull()
-      .references(() => entities.id),
     /** Устарело: раньше привязка к номенклатуре «двигатель»; оставлено для данных до миграции / отладки. */
     engineNomenclatureId: uuid('engine_nomenclature_id').references(() => erpNomenclature.id),
     version: integer('version').notNull().default(1),
@@ -1012,14 +1009,34 @@ export const erpEngineAssemblyBom = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
-    brandVersionUq: uniqueIndex('erp_engine_assembly_bom_brand_version_uq')
-      .on(t.engineBrandId, t.version)
-      .where(sql`${t.deletedAt} is null`),
-    brandIdx: index('erp_engine_assembly_bom_brand_idx').on(t.engineBrandId),
     statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
-    activeDefaultBrandUq: uniqueIndex('erp_engine_assembly_bom_active_default_brand_uq')
-      .on(t.engineBrandId)
-      .where(sql`${t.deletedAt} is null and ${t.status} = 'active' and ${t.isDefault} = true`),
+  }),
+);
+
+/** Связь BOM ↔ марки двигателей (M:N). Один BOM может покрывать несколько марок. */
+export const erpEngineAssemblyBomBrandLinks = pgTable(
+  'erp_engine_assembly_bom_brand_links',
+  {
+    id: uuid('id').primaryKey(),
+    bomId: uuid('bom_id')
+      .notNull()
+      .references(() => erpEngineAssemblyBom.id),
+    engineBrandId: uuid('engine_brand_id')
+      .notNull()
+      .references(() => entities.id),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
+      .on(t.bomId, t.engineBrandId)
+      .where(sql`${t.deletedAt} is null`),
+    bomIdx: index('erp_eabbl_bom_idx').on(t.bomId),
+    brandIdx: index('erp_eabbl_brand_idx').on(t.engineBrandId),
   }),
 );
 

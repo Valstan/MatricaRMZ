@@ -15,6 +15,7 @@ import {
   attributeValues,
   entityTypes,
   erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
   erpNomenclature,
   erpPlannedIncoming,
@@ -227,17 +228,28 @@ async function loadActiveDefaultBomKits(engineBrandFilter?: string[]): Promise<A
     eq(erpEngineAssemblyBom.status, 'active'),
     eq(erpEngineAssemblyBom.isDefault, true),
     isNull(erpEngineAssemblyBom.deletedAt),
+    isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
   ];
   if (engineBrandFilter && engineBrandFilter.length > 0) {
-    conditions.push(inArray(erpEngineAssemblyBom.engineBrandId, engineBrandFilter as any));
+    conditions.push(inArray(erpEngineAssemblyBomBrandLinks.engineBrandId, engineBrandFilter as any));
   }
+  // Один BOM может быть связан с несколькими марками — раскрываем JOIN'ом junction, получая пары (bom, brandId).
   const headerRows = await db
-    .select()
+    .select({
+      id: erpEngineAssemblyBom.id,
+      name: erpEngineAssemblyBom.name,
+      engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId,
+      isPrimary: erpEngineAssemblyBomBrandLinks.isPrimary,
+    })
     .from(erpEngineAssemblyBom)
+    .innerJoin(
+      erpEngineAssemblyBomBrandLinks,
+      eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+    )
     .where(and(...conditions));
   if (headerRows.length === 0) return [];
-  const bomIds = headerRows.map((row) => String(row.id));
-  const brandIds = headerRows.map((row) => String(row.engineBrandId));
+  const bomIds = Array.from(new Set(headerRows.map((row) => String(row.id))));
+  const brandIds = Array.from(new Set(headerRows.map((row) => String(row.engineBrandId))));
   const lineRows = await db
     .select()
     .from(erpEngineAssemblyBomLines)

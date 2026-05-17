@@ -40,6 +40,7 @@ const CLIENT_TABLES: Record<SyncTableName, any> = {
   [SyncTableName.ErpNomenclatureEngineBrand]: null,
   [SyncTableName.ErpEngineAssemblyBom]: null,
   [SyncTableName.ErpEngineAssemblyBomLines]: null,
+  [SyncTableName.ErpEngineAssemblyBomBrandLinks]: null,
   [SyncTableName.ErpEngineInstances]: null,
   [SyncTableName.ErpRegStockBalance]: null,
   [SyncTableName.ErpRegStockMovements]: null,

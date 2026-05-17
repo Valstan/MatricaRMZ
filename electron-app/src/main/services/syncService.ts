@@ -1437,6 +1437,7 @@ async function applyPulledChanges(
     [SyncTableName.ErpNomenclatureEngineBrand]: [],
     [SyncTableName.ErpEngineAssemblyBom]: [],
     [SyncTableName.ErpEngineAssemblyBomLines]: [],
+    [SyncTableName.ErpEngineAssemblyBomBrandLinks]: [],
     [SyncTableName.ErpEngineInstances]: [],
     [SyncTableName.ErpRegStockBalance]: [],
     [SyncTableName.ErpRegStockMovements]: [],

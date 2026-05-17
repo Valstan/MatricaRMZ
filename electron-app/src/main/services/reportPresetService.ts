@@ -34,7 +34,7 @@ import {
   assemblyForecastStatusLabelRu,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBom, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBom, erpEngineAssemblyBomBrandLinks, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 import { httpAuthed } from './httpClient.js';
 import { prependUtf8Bom } from './reportCsvEncoding.js';
@@ -2601,8 +2601,15 @@ function contractLagScore(actualPct: number, signedAt: number | null, dueAt: num
 async function loadActiveDefaultBomEngineBrandIds(db: BetterSQLite3Database): Promise<Set<string>> {
   try {
     const rows = await db
-      .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
+      .select({ engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId })
       .from(erpEngineAssemblyBom)
+      .innerJoin(
+        erpEngineAssemblyBomBrandLinks,
+        and(
+          eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+          isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+        ),
+      )
       .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
     return new Set(rows.map((r) => String(r.engineBrandId ?? '').trim()).filter(Boolean));
   } catch (e) {
@@ -3191,8 +3198,15 @@ async function buildAssemblyBomEngineOptions(
   let rows: Array<{ engineBrandId: string | null }>;
   try {
     rows = await db
-      .select({ engineBrandId: erpEngineAssemblyBom.engineBrandId })
+      .select({ engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId })
       .from(erpEngineAssemblyBom)
+      .innerJoin(
+        erpEngineAssemblyBomBrandLinks,
+        and(
+          eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+          isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+        ),
+      )
       .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
   } catch (e) {
     if (isSqliteMissingEngineBrandIdColumn(e)) rows = [];
