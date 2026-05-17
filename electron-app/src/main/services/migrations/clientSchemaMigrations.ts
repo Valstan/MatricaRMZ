@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 9;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 10;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -392,6 +392,40 @@ const MIGRATIONS: Migration[] = [
         `);
         sqlite.exec(`PRAGMA foreign_keys=ON;`);
       }
+    },
+  },
+  {
+    from: 9,
+    to: 10,
+    name: 'ensure BOM junction table + drop stale BOM indexes (fresh installs)',
+    up: async (_db, sqlite) => {
+      // Идемпотентный страховочный шаг: drizzle-миграция 0010 уже создаёт junction-таблицу,
+      // здесь повторяем для клиентов, поднявшихся ранее без drizzle-новинок.
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_engine_assembly_bom_brand_links (
+          id text PRIMARY KEY NOT NULL,
+          bom_id text NOT NULL,
+          engine_brand_id text NOT NULL,
+          is_primary integer NOT NULL DEFAULT 0,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced',
+          last_server_seq integer
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_eabbl_bom_brand_uq
+          ON erp_engine_assembly_bom_brand_links(bom_id, engine_brand_id)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS erp_eabbl_bom_idx ON erp_engine_assembly_bom_brand_links(bom_id);
+        CREATE INDEX IF NOT EXISTS erp_eabbl_brand_idx ON erp_engine_assembly_bom_brand_links(engine_brand_id);
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_idx;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_engine_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_brand_version_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_brand_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_brand_idx;
+        CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);
+      `);
     },
   },
 ];

@@ -10,7 +10,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
-import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -167,6 +167,10 @@ export function EngineDetailsPage(props: {
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
+  const [contractSectionNumber, setContractSectionNumber] = useState(
+    String(props.engine.attributes?.contract_section_number ?? ''),
+  );
+  const [contractSectionOptions, setContractSectionOptions] = useState<string[]>([]);
   const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
     const attrs = props.engine.attributes ?? {};
     const out: Partial<Record<StatusCode, boolean>> = {};
@@ -212,6 +216,7 @@ export function EngineDetailsPage(props: {
     setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
+    setContractSectionNumber(String(props.engine.attributes?.contract_section_number ?? ''));
     const attrs = props.engine.attributes ?? {};
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
@@ -240,6 +245,7 @@ export function EngineDetailsPage(props: {
   useEffect(() => {
     if (!contractId) {
       setCustomerId('');
+      setContractSectionOptions([]);
       return;
     }
     void (async () => {
@@ -247,8 +253,15 @@ export function EngineDetailsPage(props: {
         const contract = await window.matrica.admin.entities.get(contractId);
         const sections = parseContractSections((contract as { attributes?: Record<string, unknown> })?.attributes ?? {});
         setCustomerId(sections.primary.customerId ?? '');
+        const list: string[] = [];
+        if (sections.primary.number) list.push(String(sections.primary.number));
+        for (const addon of sections.addons ?? []) {
+          if (addon.number) list.push(String(addon.number));
+        }
+        setContractSectionOptions(list);
       } catch {
         setCustomerId('');
+        setContractSectionOptions([]);
       }
     })();
   }, [contractId]);
@@ -331,6 +344,7 @@ export function EngineDetailsPage(props: {
         arrival_date: fromInputDate(arrivalDate),
         customer_id: asNullableText(customerId),
         contract_id: asNullableText(contractId),
+        contract_section_number: asNullableText(contractSectionNumber),
       };
       for (const c of STATUS_CODES) {
         nextValues[c] = Boolean(statusFlags[c]);
@@ -344,6 +358,7 @@ export function EngineDetailsPage(props: {
         arrival_date: normalizeDateInput(attrs.arrival_date),
         customer_id: asNullableText(attrs.customer_id),
         contract_id: asNullableText(attrs.contract_id),
+        contract_section_number: asNullableText(attrs.contract_section_number),
       };
       for (const c of STATUS_CODES) {
         currentValues[c] = Boolean(attrs[c]);
@@ -448,7 +463,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, statusFlags, statusDates, props.registerCardCloseActions]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, statusFlags, statusDates, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
     try {
@@ -512,6 +527,7 @@ export function EngineDetailsPage(props: {
         sortOrder: 40,
         metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
       },
+      { code: 'contract_section_number', name: 'ДС контракта', dataType: 'text', sortOrder: 45 },
       { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 50 },
       ...STATUS_DISPLAY_ORDER.flatMap((code, i) => [
         { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 60 + i * 2 },
@@ -677,6 +693,30 @@ export function EngineDetailsPage(props: {
           ),
         }
       : null,
+    props.canViewMasterData
+      ? {
+          code: 'contract_section_number',
+          defaultOrder: 45,
+          label: 'ДС контракта',
+          value: contractSectionNumber,
+          render: (
+            <SearchSelect
+              value={contractSectionNumber || null}
+              options={(contractSectionNumber && !contractSectionOptions.includes(contractSectionNumber)
+                ? [contractSectionNumber, ...contractSectionOptions]
+                : contractSectionOptions
+              ).map((s) => ({ id: s, label: s }))}
+              placeholder={contractId ? 'Выберите ДС' : 'Сначала выберите контракт'}
+              disabled={!props.canEditEngines || !contractId || contractSectionOptions.length === 0}
+              showAllWhenEmpty
+              onChange={(next) => {
+                sessionHadChanges.current = true;
+                setContractSectionNumber(next ?? '');
+              }}
+            />
+          ),
+        }
+      : null,
     ...STATUS_DISPLAY_ORDER.map((code) => {
       const dateValue = toInputDate(statusDates[code] ?? null);
       return {
@@ -719,6 +759,7 @@ export function EngineDetailsPage(props: {
     ['Марка двигателя', engineBrand],
     ['Контрагент', (linkLists.customer_id ?? []).find((o) => o.id === customerId)?.label ?? customerId],
     ['Контракт', (linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? contractId],
+    ['ДС контракта', contractSectionNumber],
     ['Дата прихода', formatDateLabel(arrivalDate)],
     ['Забракован', statusPrintValue(Boolean(statusFlags.status_rejected), statusDates.status_rejected)],
     [
@@ -822,6 +863,7 @@ export function EngineDetailsPage(props: {
               setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
+              setContractSectionNumber(String(props.engine.attributes?.contract_section_number ?? ''));
               const attrs = props.engine.attributes ?? {};
               const flags: Partial<Record<StatusCode, boolean>> = {};
               for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);

@@ -1451,6 +1451,20 @@ table.list-table.list-table--catalog {
   gap: 8px;
 }
 
+.report-af-engine__print {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--input-border, #cbd5e1);
+  background: var(--card-row-drag-bg, #f8fafc);
+  color: var(--text, #0f172a);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.report-af-engine__print:hover {
+  background: var(--card-row-border, #e2e8f0);
+}
+
 .report-af-engine__chevron {
   display: inline-flex;
   align-items: center;

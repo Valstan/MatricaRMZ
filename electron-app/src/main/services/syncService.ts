@@ -169,22 +169,12 @@ async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
 
 const SYNC_SCHEMA_CACHE_TTL_MS = 6 * 60 * 60_000;
 const SYNC_V2_ENABLED = String(process.env.MATRICA_SYNC_V2 ?? '1') !== '0';
-const FULL_STATE_SYNC_TABLES: string[] = [
-  SyncTableName.EntityTypes,
-  SyncTableName.Entities,
-  SyncTableName.AttributeDefs,
-  SyncTableName.AttributeValues,
-  SyncTableName.Operations,
-  SyncTableName.AuditLog,
-  SyncTableName.ChatMessages,
-  SyncTableName.ChatReads,
-  SyncTableName.UserPresence,
-  SyncTableName.Notes,
-  SyncTableName.NoteShares,
-  SyncTableName.ErpNomenclature,
-  SyncTableName.ErpRegStockBalance,
-  SyncTableName.ErpRegStockMovements,
-];
+/**
+ * Полный пулл при rebuild — единый источник истины через SyncTableRegistry.
+ * Раньше список вёлся вручную и расходился с registry (в результате новые таблицы могли «не загружаться»
+ * после полного сброса). Теперь — все таблицы из registry в зависимости-сейф порядке.
+ */
+const FULL_STATE_SYNC_TABLES: string[] = SyncTableRegistry.tableNames() as string[];
 
 // Moved to sync/progressEmitter.ts
 

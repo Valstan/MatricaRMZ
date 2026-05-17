@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/backend-api",
-  "version": "1.14.19",
+  "version": "1.14.20",
   "private": true,
   "type": "module",
   "scripts": {
@@ -43,6 +43,8 @@
     "drizzle-orm": "^0.40.1",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
     "jose": "^6.1.0",
     "pg": "^8.13.1",
     "webtorrent": "^2.8.5",

@@ -844,6 +844,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     const rows = forecast.rows.map((r: {
       dayLabel: string;
       engineBrand: string;
+      brandId: string;
       plannedEngines: number;
       status: 'ok' | 'shortage' | 'waiting' | 'absent' | 'weekend';
       requiredComponentsSummary: string;
@@ -852,6 +853,7 @@ warehouseRouter.post('/forecast/assembly-7d', requirePermission(PermissionCode.E
     }) => ({
       dayLabel: r.dayLabel,
       engineBrand: r.engineBrand,
+      brandId: r.brandId,
       plannedEngines: r.plannedEngines,
       status: r.status,
       requiredComponentsSummary: r.requiredComponentsSummary,

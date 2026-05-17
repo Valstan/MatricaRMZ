@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
@@ -34,12 +36,67 @@ import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
+/**
+ * CORS allow-list. Электронный клиент не шлёт Origin, поэтому ему ничего не блокирует;
+ * это защита от обращения с произвольных браузерных origin'ов.
+ *
+ * MATRICA_CORS_ORIGINS — CSV: 'https://admin.example.com,https://web.example.com'.
+ * Пустое значение / отсутствие переменной = разрешать любой Origin (legacy-режим, для миграции).
+ * '*' — явно разрешить все. Любое другое значение — строгий allow-list.
+ */
+function buildCorsMiddleware() {
+  const raw = String(process.env.MATRICA_CORS_ORIGINS ?? '').trim();
+  if (!raw || raw === '*') {
+    return cors();
+  }
+  const allow = new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
+  return cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (allow.has(origin)) return cb(null, true);
+      return cb(new Error(`CORS: origin not allowed: ${origin}`));
+    },
+    credentials: true,
+  });
+}
+
+/** Глобальный rate-limit. Электронный клиент шлёт много запросов, но в пределах разумного. */
+const globalLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: Number(process.env.MATRICA_RATE_LIMIT_GLOBAL ?? 600),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+});
+/** Жёсткий rate-limit для попыток входа / refresh — защита от перебора. */
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: Number(process.env.MATRICA_RATE_LIMIT_AUTH ?? 30),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many auth attempts, please slow down.' },
+});
+
 export function createApp() {
   const app = express();
-  // За reverse-proxy (nginx / панель провайдера) важно корректно понимать X-Forwarded-* заголовки.
-  app.set('trust proxy', true);
-  app.use(cors());
+  // За reverse-proxy nginx (1 hop) корректно читаем X-Forwarded-*.
+  // Значение `true` слишком разрешительно: позволяет любому источнику подделать X-Forwarded-For
+  // и обойти rate-limit, поэтому фиксируем число прокси (configurable через ENV для нестандартных схем).
+  const trustProxyHops = Number(process.env.MATRICA_TRUST_PROXY_HOPS ?? 1);
+  app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops >= 0 ? trustProxyHops : 1);
+  // Helmet: безопасные HTTP-заголовки. HSTS на 1 год (мы за HTTPS через nginx),
+  // CSP отключаем — есть статический /admin-ui SPA, который ломается жёсткими дефолтами,
+  // включим её отдельным шагом в report-only режиме после ручной проверки.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+      hsts: { maxAge: 31_536_000, includeSubDomains: true, preload: false },
+    }),
+  );
+  app.use(buildCorsMiddleware());
+  app.use(globalLimiter);
   // Согласовано с nginx client_max_body_size (см. /etc/nginx/conf.d/matricarmz-backend.conf).
+  // Лимит выставлен глобально под крупные ledger / files эндпойнты; роуты с мелкими телами не страдают.
   app.use(express.json({ limit: '20mb' }));
   app.use((_req, _res, next) => {
     noteStatisticsRequestActivity();
@@ -47,7 +104,7 @@ export function createApp() {
   });
 
   app.use('/health', healthRouter);
-  app.use('/auth', authRouter);
+  app.use('/auth', authLimiter, authRouter);
   app.use('/sync', requireAuth, requirePermission(PermissionCode.SyncUse), syncRouter);
   app.use('/ledger', requireAuth, requirePermission(PermissionCode.SyncUse), ledgerRouter);
   app.use('/chat', requireAuth, requirePermission(PermissionCode.ChatUse), chatRouter);

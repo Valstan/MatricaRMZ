@@ -269,7 +269,20 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
   const torrentPath = join(dirname(latest.path), 'latest.torrent');
   await writeFile(torrentPath, torrentBuffer);
 
-  if (!torrentClient) torrentClient = new WebTorrent({ dht: true, tracker: true });
+  if (!torrentClient) {
+    /**
+     * Если задан MATRICA_TORRENT_PEER_PORT — закрепляем порт для TCP-peer-listener и DHT;
+     * это нужно, чтобы UFW мог открыть конкретный порт вместо случайного.
+     */
+    const peerPortRaw = Number(process.env.MATRICA_TORRENT_PEER_PORT ?? 0);
+    const peerPort = Number.isFinite(peerPortRaw) && peerPortRaw > 0 && peerPortRaw < 65536 ? peerPortRaw : 0;
+    const opts: ConstructorParameters<typeof WebTorrent>[0] = { dht: true, tracker: true };
+    if (peerPort > 0) {
+      (opts as Record<string, unknown>).torrentPort = peerPort;
+      (opts as Record<string, unknown>).dhtPort = peerPort;
+    }
+    torrentClient = new WebTorrent(opts);
+  }
   if (currentTorrent) {
     torrentClient.remove(currentTorrent.infoHash, {}, () => {
       // removed

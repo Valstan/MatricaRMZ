@@ -47,6 +47,12 @@ function isSqliteMissingEngineBrandIdColumn(e: unknown): boolean {
   return /no such column/i.test(msg) && msg.includes('engine_brand_id');
 }
 
+/** Локальная SQLite без миграции 0010 (нет junction-таблицы M:N BOM↔марки) — не роняем страницу отчётов. */
+function isSqliteMissingBomBrandLinksTable(e: unknown): boolean {
+  const msg = String(e ?? '');
+  return /no such table/i.test(msg) && msg.includes('erp_engine_assembly_bom_brand_links');
+}
+
 type Snapshot = {
   entityTypeIdByCode: Map<string, string>;
   entitiesById: Map<string, { id: string; typeId: string }>;
@@ -2613,7 +2619,7 @@ async function loadActiveDefaultBomEngineBrandIds(db: BetterSQLite3Database): Pr
       .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
     return new Set(rows.map((r) => String(r.engineBrandId ?? '').trim()).filter(Boolean));
   } catch (e) {
-    if (isSqliteMissingEngineBrandIdColumn(e)) return new Set();
+    if (isSqliteMissingEngineBrandIdColumn(e) || isSqliteMissingBomBrandLinksTable(e)) return new Set();
     throw e;
   }
 }
@@ -2622,11 +2628,36 @@ async function loadActiveDefaultBomEngineBrandIds(db: BetterSQLite3Database): Pr
  * @param bomEngineBrandIds `null` — локальный список BOM неизвестен (например, таблицы не заполнены из sync);
  *   тогда марки из контракта не отфильтровываем по локальной SQLite, проверка остаётся на сервере прогноза.
  */
+type ContractBasedAssemblyPriorityResult = {
+  priorityEngineBrandIds: string[];
+  footerNotes: string[];
+  modeHints: string[];
+  brandMaxEnginesHorizon?: Record<string, number>;
+  /** Двигатели в ремонте, прикреплённые к «горящим» контрактам (для подстановки номеров в строки прогноза в режиме «только на заводе» и для предупреждений). */
+  onSiteEnginesByBrand: Map<string, Array<{
+    engineId: string;
+    engineNumber: string;
+    contractId: string;
+    contractLabel: string;
+    contractScore: number;
+  }>>;
+  /** Лагающие контракты — для предупреждения «горящие контракты + дефицит запчастей». */
+  hotContractsForWarning: Array<{
+    contractId: string;
+    label: string;
+    customerLabel: string;
+    daysLeft: number | null;
+    actualPct: number;
+    brandIds: string[];
+    inRepairEngineNumbers: string[];
+  }>;
+};
+
 function computeContractBasedAssemblyPriorityFromSnapshot(
   snapshot: Snapshot,
   filters: ReportPresetFilters | undefined,
   bomEngineBrandIds: Set<string> | null,
-): { priorityEngineBrandIds: string[]; footerNotes: string[]; modeHints: string[]; brandMaxEnginesHorizon?: Record<string, number> } {
+): ContractBasedAssemblyPriorityResult {
   const now = Date.now();
   const engineBrandFilter = new Set(asArray(filters?.engineBrandIds).map(String));
   const selectedContractIds = new Set(asArray(filters?.assemblyContractIds).map(String).filter(Boolean));
@@ -2741,8 +2772,17 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
   const brandMaxMap = new Map<string, number>();
   const volumeModeHints: string[] = [];
   const onSiteOnly = Boolean(filters?.assemblyForecastOnSiteOnly);
+  const onSiteEnginesByBrand = new Map<string, Array<{
+    engineId: string;
+    engineNumber: string;
+    contractId: string;
+    contractLabel: string;
+    contractScore: number;
+  }>>();
+  const hotContractsForWarning: ContractBasedAssemblyPriorityResult['hotContractsForWarning'] = [];
   if (scored.length > 0) {
     const scoredContractIds = new Set(scored.map((s) => s.contractId));
+    const scoredByContractId = new Map(scored.map((s) => [s.contractId, s] as const));
     const passesBrandAndBom = (bid: string) => {
       if (!bid) return false;
       if (engineBrandFilter.size > 0 && !engineBrandFilter.has(bid)) return false;
@@ -2750,18 +2790,64 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
       return true;
     };
 
+    /**
+     * Сбор двигателей в ремонте под «горящими» контрактами — нужно и для onSiteOnly (подстановка номеров,
+     * лимит сборки), и для предупреждения «горящие контракты + дефицит запчастей» в режиме «по объёму контракта».
+     */
+    const inRepairByContractAndBrand = new Map<string, Map<string, string[]>>();
+    for (const engineId of getIdsByType(snapshot, 'engine')) {
+      const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
+      const cid = normalizeText(eattrs.contract_id, '');
+      if (!scoredContractIds.has(cid)) continue;
+      if (!eattrs.status_repair_started) continue;
+      if (eattrs.status_customer_accepted) continue;
+      if (eattrs.status_rejected) continue;
+      const bid = normalizeText(eattrs.engine_brand_id, normalizeText(eattrs.engine_brand, ''));
+      if (!passesBrandAndBom(bid)) continue;
+      const engineNumber = normalizeText(eattrs.engine_number, '');
+      const contractScore = scoredByContractId.get(cid)?.score ?? 0;
+      const contractLabel = scoredByContractId.get(cid)?.label ?? '';
+      const arr = onSiteEnginesByBrand.get(bid) ?? [];
+      arr.push({
+        engineId,
+        engineNumber,
+        contractId: cid,
+        contractLabel,
+        contractScore,
+      });
+      onSiteEnginesByBrand.set(bid, arr);
+
+      const byBrand = inRepairByContractAndBrand.get(cid) ?? new Map<string, string[]>();
+      const list = byBrand.get(bid) ?? [];
+      list.push(engineNumber || `(№${engineId.slice(0, 8)})`);
+      byBrand.set(bid, list);
+      inRepairByContractAndBrand.set(cid, byBrand);
+    }
+    /** В очереди номеров приоритет: самые отстающие контракты первыми, затем по возрастанию номера. */
+    for (const list of onSiteEnginesByBrand.values()) {
+      list.sort((a, b) => {
+        if (b.contractScore !== a.contractScore) return b.contractScore - a.contractScore;
+        return a.engineNumber.localeCompare(b.engineNumber, 'ru');
+      });
+    }
+    for (const row of scored) {
+      const byBrand = inRepairByContractAndBrand.get(row.contractId) ?? new Map<string, string[]>();
+      const inRepairEngineNumbers = Array.from(byBrand.values()).flat().sort((a, b) => a.localeCompare(b, 'ru'));
+      hotContractsForWarning.push({
+        contractId: row.contractId,
+        label: row.label,
+        customerLabel: row.customerLabel,
+        daysLeft: row.daysLeft,
+        actualPct: row.actualPct,
+        brandIds: row.brandIds,
+        inRepairEngineNumbers,
+      });
+    }
+
     if (onSiteOnly) {
       const repairStartedByBrand = new Map<string, number>();
-      for (const engineId of getIdsByType(snapshot, 'engine')) {
-        const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
-        const cid = normalizeText(eattrs.contract_id, '');
-        if (!scoredContractIds.has(cid)) continue;
-        if (!eattrs.status_repair_started) continue;
-        if (eattrs.status_customer_accepted) continue;
-        if (eattrs.status_rejected) continue;
-        const bid = normalizeText(eattrs.engine_brand_id, normalizeText(eattrs.engine_brand, ''));
-        if (!passesBrandAndBom(bid)) continue;
-        repairStartedByBrand.set(bid, (repairStartedByBrand.get(bid) ?? 0) + 1);
+      for (const [bid, list] of onSiteEnginesByBrand) {
+        repairStartedByBrand.set(bid, list.length);
       }
 
       const firstRank = new Map<string, number>();
@@ -2867,6 +2953,8 @@ function computeContractBasedAssemblyPriorityFromSnapshot(
     priorityEngineBrandIds,
     footerNotes,
     modeHints,
+    onSiteEnginesByBrand,
+    hotContractsForWarning,
     ...(brandMaxMap.size > 0 ? { brandMaxEnginesHorizon: Object.fromEntries(brandMaxMap) } : {}),
   };
 }
@@ -2933,10 +3021,13 @@ async function buildAssemblyForecast7dReport(
   /** Прогноз всегда считается на сервере; локальные таблицы BOM в SQLite могут быть пустыми (ledger pull их не заполняет). */
   const assemblyForecastApiEnabled = Boolean(ctx?.sysDb && String(ctx?.apiBaseUrl ?? '').trim());
   const mode = normalizeText(filters?.assemblyPriorityMode, 'manual');
+  const onSiteOnly = mode === 'contracts' && Boolean(filters?.assemblyForecastOnSiteOnly);
   let priorityEngineBrandIds = asArray(filters?.priorityEngineBrandIds);
   let contractFooterNotes: string[] = [];
   let modeHints: string[] = [];
   let brandMaxEnginesHorizon: Record<string, number> | undefined;
+  let onSiteEnginesByBrand: ContractBasedAssemblyPriorityResult['onSiteEnginesByBrand'] = new Map();
+  let hotContractsForWarning: ContractBasedAssemblyPriorityResult['hotContractsForWarning'] = [];
   const manualBomFooter: string[] = [];
   if (mode === 'contracts') {
     const contractBomIds =
@@ -2946,6 +3037,8 @@ async function buildAssemblyForecast7dReport(
     contractFooterNotes = p.footerNotes;
     modeHints = p.modeHints;
     brandMaxEnginesHorizon = p.brandMaxEnginesHorizon;
+    onSiteEnginesByBrand = p.onSiteEnginesByBrand;
+    hotContractsForWarning = p.hotContractsForWarning;
   } else {
     const manualIds = asArray(filters?.priorityEngineBrandIds)
       .map((id) => String(id).trim())
@@ -3010,19 +3103,57 @@ async function buildAssemblyForecast7dReport(
       }
       const body = r.json as Record<string, unknown>;
       const rowsRaw = Array.isArray(body.rows) ? body.rows : [];
+      type OnSiteEngineEntry = { engineId: string; engineNumber: string; contractId: string; contractLabel: string; contractScore: number };
+      /** Очереди номеров двигателей по базовой марке: расход по rows в порядке появления `ok`-строк. */
+      const onSiteEngineQueueByBrand = new Map<string, OnSiteEngineEntry[]>();
+      if (onSiteOnly) {
+        for (const [bid, list] of onSiteEnginesByBrand) {
+          onSiteEngineQueueByBrand.set(bid, [...list]);
+        }
+      }
+      /** Базовый id марки из API (`uuid::variant` -> `uuid`). */
+      function baseBrandIdFromApiRow(raw: unknown): string {
+        const id = String(raw ?? '').trim();
+        const sep = id.indexOf('::');
+        return sep >= 0 ? id.slice(0, sep) : id;
+      }
       const rows = rowsRaw.map((row) => {
         const r0 = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
         const rawStatus = normalizeText(r0.status, '');
         const statusCode = normalizeAssemblyForecastStatusFromApi(rawStatus);
+        const baseBrandId = baseBrandIdFromApiRow(r0.brandId);
+        let engineBrandLabel = sanitizeAssemblyForecastOperatorText(normalizeText(r0.engineBrand, ''));
+        let engineNumberForRow = '';
+        if (onSiteOnly && statusCode === 'ok' && baseBrandId) {
+          const queue = onSiteEngineQueueByBrand.get(baseBrandId);
+          if (queue && queue.length > 0) {
+            const assigned = queue.shift();
+            if (assigned) {
+              engineNumberForRow = assigned.engineNumber;
+              const numLabel = engineNumberForRow ? `№${engineNumberForRow}` : `двигатель`;
+              const contractLabel = assigned.contractLabel ? ` · контракт «${assigned.contractLabel}»` : '';
+              engineBrandLabel = sanitizeAssemblyForecastOperatorText(`${engineBrandLabel} · ${numLabel}${contractLabel}`);
+            }
+          }
+        }
         return {
           dayLabel: sanitizeAssemblyForecastOperatorText(normalizeText(r0.dayLabel, '')),
-          engineBrand: sanitizeAssemblyForecastOperatorText(normalizeText(r0.engineBrand, '')),
+          engineBrand: engineBrandLabel,
           plannedEngines: Math.max(0, toNumber(r0.plannedEngines)),
           status: assemblyForecastStatusLabelRu(statusCode),
           requiredComponentsSummary: sanitizeAssemblyForecastOperatorText(normalizeText(r0.requiredComponentsSummary, '')),
           _assemblyStatusCode: statusCode,
         } as Record<string, ReportCellValue>;
       });
+      /** Двигатели «в ремонте», для которых в плане прогноза не нашлось ok-строки — сигналим отдельно. */
+      const unassignedOnSiteEngines: Array<{ brandId: string; engineNumber: string; contractLabel: string }> = [];
+      if (onSiteOnly) {
+        for (const [bid, leftQueue] of onSiteEngineQueueByBrand) {
+          for (const eng of leftQueue) {
+            unassignedOnSiteEngines.push({ brandId: bid, engineNumber: eng.engineNumber, contractLabel: eng.contractLabel });
+          }
+        }
+      }
       const warnings = Array.isArray(body.warnings)
         ? body.warnings.map((w) => sanitizeAssemblyForecastOperatorText(String(w))).filter(Boolean)
         : [];
@@ -3085,7 +3216,63 @@ async function buildAssemblyForecast7dReport(
             ]
           : [];
 
-      const footerNotes = [...contractFooterNotes, ...manualBomFooter, ...deficitFooter, ...horizonGapFooter]
+      /** Спец-уведомление: «горящие» контракты с двигателями в ремонте и нехваткой запчастей. */
+      const hotShortageFooter: string[] = [];
+      if (mode === 'contracts' && hotContractsForWarning.length > 0 && horizonMissingByBrand.length > 0) {
+        const missingBrandLabelSet = new Set(horizonMissingByBrand.map((b) => b.brandLabel));
+        const brandLabelById = (id: string) => entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
+        const flagged: string[] = [];
+        for (const hc of hotContractsForWarning) {
+          if (hc.inRepairEngineNumbers.length === 0) continue;
+          const hotBrandLabels = hc.brandIds
+            .map((id) => brandLabelById(id))
+            .filter((lab) => missingBrandLabelSet.has(sanitizeAssemblyForecastOperatorText(lab)));
+          if (hotBrandLabels.length === 0) continue;
+          const dueChunk =
+            hc.daysLeft == null ? 'срок не задан' : hc.daysLeft <= 0 ? 'срок исчерпан' : `до срока ${hc.daysLeft} дн.`;
+          flagged.push(
+            sanitizeAssemblyForecastOperatorText(
+              `• Контракт «${hc.label}» (заказчик «${hc.customerLabel}», ${dueChunk}, исполнение ${hc.actualPct.toFixed(0)}%): двигатели в ремонте — ${hc.inRepairEngineNumbers.map((n) => `№${n}`).join(', ')}. Дефицит по маркам: ${hotBrandLabels.join(', ')}.`,
+            ),
+          );
+        }
+        if (flagged.length > 0) {
+          hotShortageFooter.push(
+            '⚠️ Горящие контракты с отставанием от графика: есть двигатели в ремонте, но запчастей для срочной сборки не хватает.',
+          );
+          hotShortageFooter.push(...flagged.slice(0, 16));
+        }
+      }
+      const unassignedOnSiteFooter: string[] = [];
+      if (onSiteOnly && unassignedOnSiteEngines.length > 0) {
+        const byBrand = new Map<string, Array<{ engineNumber: string; contractLabel: string }>>();
+        for (const e of unassignedOnSiteEngines) {
+          const arr = byBrand.get(e.brandId) ?? [];
+          arr.push({ engineNumber: e.engineNumber, contractLabel: e.contractLabel });
+          byBrand.set(e.brandId, arr);
+        }
+        const brandLabelById = (id: string) => entityLabel(snapshot.attrsByEntity.get(id), id).trim() || id;
+        unassignedOnSiteFooter.push(
+          'Двигатели в ремонте, не попавшие в горизонт плана (нет запчастей или закрыт лимит/выходные):',
+        );
+        for (const [bid, list] of byBrand) {
+          const lab = brandLabelById(bid);
+          unassignedOnSiteFooter.push(
+            sanitizeAssemblyForecastOperatorText(
+              `• ${lab}: ${list.map((e) => `№${e.engineNumber || '—'}${e.contractLabel ? ` (${e.contractLabel})` : ''}`).join(', ')}`,
+            ),
+          );
+        }
+      }
+
+      const footerNotes = [
+        ...hotShortageFooter,
+        ...contractFooterNotes,
+        ...manualBomFooter,
+        ...deficitFooter,
+        ...horizonGapFooter,
+        ...unassignedOnSiteFooter,
+      ]
         .filter(Boolean)
         .map(sanitizeAssemblyForecastOperatorText);
       const preset = getPreset('assembly_forecast_7d');
@@ -3209,7 +3396,7 @@ async function buildAssemblyBomEngineOptions(
       )
       .where(and(eq(erpEngineAssemblyBom.status, 'active'), eq(erpEngineAssemblyBom.isDefault, true), isNull(erpEngineAssemblyBom.deletedAt)));
   } catch (e) {
-    if (isSqliteMissingEngineBrandIdColumn(e)) rows = [];
+    if (isSqliteMissingEngineBrandIdColumn(e) || isSqliteMissingBomBrandLinksTable(e)) rows = [];
     else throw e;
   }
   return buildOptionsByIds(rows.map((row) => String(row.engineBrandId ?? '').trim()).filter(Boolean));
