@@ -32,6 +32,8 @@ export type ContractAddonSection = {
   number: string;
   signedAt: number | null;
   dueAt: number | null;
+  /** Произвольное примечание оператора к дополнительному соглашению. */
+  note: string;
   engineBrands: ContractEngineBrandRow[];
   parts: ContractPartRow[];
 };
@@ -346,6 +348,7 @@ export function parseContractSections(attrs: Record<string, unknown>): ContractS
           number: String(add.number ?? ''),
           signedAt: typeof add.signedAt === 'number' ? add.signedAt : null,
           dueAt: typeof add.dueAt === 'number' ? add.dueAt : null,
+          note: typeof add.note === 'string' ? add.note : '',
           engineBrands: Array.isArray(add.engineBrands) ? (add.engineBrands as ContractEngineBrandRow[]).filter((r) => r && typeof r.engineBrandId === 'string') : [],
           parts: Array.isArray(add.parts) ? (add.parts as ContractPartRow[]).filter((p) => p && typeof p.partId === 'string') : [],
         };

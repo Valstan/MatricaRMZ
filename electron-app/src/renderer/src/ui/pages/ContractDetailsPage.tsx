@@ -484,6 +484,31 @@ function SectionBlock(props: {
           )}
         </FormGrid>
 
+        {!isPrimary && (
+          <FormField label="Примечание" fullWidth>
+            <textarea
+              value={(section as ContractAddonSection).note ?? ''}
+              disabled={!canEdit}
+              rows={3}
+              placeholder="Примечание к дополнительному соглашению…"
+              onChange={(e) => update({ note: e.target.value })}
+              style={{
+                width: '100%',
+                padding: 'var(--ui-input-padding, 4px 6px)',
+                border: '1px solid var(--input-border)',
+                outline: 'none',
+                background: canEdit ? 'var(--input-bg)' : 'var(--input-bg-disabled)',
+                color: 'var(--text)',
+                fontSize: 'var(--ui-input-font-size, 13px)',
+                lineHeight: 1.35,
+                minHeight: 72,
+                resize: 'vertical',
+                boxShadow: 'var(--input-shadow)',
+              }}
+            />
+          </FormField>
+        )}
+
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <label className="ui-muted">Марки двигателей</label>
@@ -1109,6 +1134,7 @@ export function ContractDetailsPage(props: {
           number: sections.primary.number,
           signedAt: null,
           dueAt: sections.primary.dueAt ?? null,
+          note: '',
           engineBrands: [],
           parts: [],
         },
@@ -1181,6 +1207,7 @@ export function ContractDetailsPage(props: {
       addon.number || sections.primary.number || '—',
       toInputDate(addon.signedAt) || '—',
       toInputDate(addon.dueAt) || '—',
+      addon.note?.trim() || '—',
       String(addon.engineBrands.length),
       String(addon.parts.length),
     ]);
@@ -1210,7 +1237,7 @@ export function ContractDetailsPage(props: {
           id: 'addons',
           title: 'Дополнительные соглашения',
           html: renderCompactTableHtml(
-            ['ДС', 'Номер', 'Дата заключения', 'Дата исполнения', 'Строк двигателей', 'Строк деталей'],
+            ['ДС', 'Номер', 'Дата заключения', 'Дата исполнения', 'Примечание', 'Строк двигателей', 'Строк деталей'],
             addonRows,
           ),
         },

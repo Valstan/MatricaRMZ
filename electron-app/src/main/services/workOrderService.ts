@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { WorkOrderPayload } from '@matricarmz/shared';
+import { normalizeWorkOrderLine, type WorkOrderPayload } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
 
 import { auditLog, operations } from '../database/schema.js';
@@ -51,18 +51,8 @@ function fromCents(value: number): number {
   return Math.round(value) / 100;
 }
 
-function normalizeLine(line: any, lineNo: number) {
-  const qty = Math.max(0, safeNum(line?.qty, 0));
-  const priceRub = Math.max(0, safeNum(line?.priceRub, 0));
-  return {
-    lineNo,
-    serviceId: line?.serviceId ? String(line.serviceId) : null,
-    serviceName: String(line?.serviceName ?? ''),
-    unit: String(line?.unit ?? ''),
-    qty,
-    priceRub,
-    amountRub: fromCents(toCents(qty * priceRub)),
-  };
+function normalizeLine(line: unknown, lineNo: number) {
+  return normalizeWorkOrderLine(line, lineNo);
 }
 
 function distributeByKtu(

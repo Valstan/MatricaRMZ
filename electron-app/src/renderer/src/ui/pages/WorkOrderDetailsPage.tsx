@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { WorkOrderPayload, WorkOrderWorkGroup, WorkOrderWorkLine } from '@matricarmz/shared';
+import {
+  normalizeWorkOrderLine,
+  resolveWorkOrderSignatureDecryptions,
+  type WorkOrderPayload,
+  type WorkOrderWorkGroup,
+  type WorkOrderWorkLine,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -9,12 +15,17 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
-import type { SearchSelectOption } from '../components/SearchSelect.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import {
+  renderWorkOrderSignaturesHtml,
+  WORK_ORDER_SIGNATURE_LABELS,
+  WORK_ORDER_SIGNATURE_STYLES,
+} from '../utils/workOrderCardSignaturesHtml.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
@@ -22,9 +33,14 @@ type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; p
 type EmployeeInfo = {
   id: string;
   displayName: string;
+  fullName?: string;
+  lastName?: string;
+  firstName?: string;
+  middleName?: string;
   personnelNumber?: string | null;
   departmentName?: string | null;
   position?: string | null;
+  employmentStatus?: string | null;
 };
 type EngineInfo = { id: string; engineNumber?: string; engineBrandId?: string | null; engineBrandName?: string };
 
@@ -87,24 +103,8 @@ function normalizeStringArray(value: unknown): string[] {
   return [];
 }
 
-function normalizeLine(line: any, lineNo: number): WorkOrderWorkLine {
-  const qty = Math.max(0, safeNum(line?.qty, 0));
-  const priceRub = Math.max(0, safeNum(line?.priceRub, 0));
-  const result: WorkOrderWorkLine = {
-    lineNo,
-    serviceId: line?.serviceId ? String(line.serviceId) : null,
-    serviceName: String(line?.serviceName ?? ''),
-    unit: String(line?.unit ?? ''),
-    qty,
-    priceRub,
-    amountRub: fromCents(toCents(qty * priceRub)),
-  };
-  if (line?.productNumber) result.productNumber = String(line.productNumber);
-  if (line?.engineId) result.engineId = String(line.engineId);
-  if (line?.engineNumber) result.engineNumber = String(line.engineNumber);
-  if (line?.engineBrandId) result.engineBrandId = String(line.engineBrandId);
-  if (line?.engineBrandName) result.engineBrandName = String(line.engineBrandName);
-  return result;
+function normalizeLine(line: unknown, lineNo: number): WorkOrderWorkLine {
+  return normalizeWorkOrderLine(line, lineNo);
 }
 
 function distributeByKtu(
@@ -332,9 +332,14 @@ export function WorkOrderDetailsPage(props: {
         (emps as any[]).map((x) => ({
           id: String(x.id),
           displayName: String(x.displayName || x.fullName || x.id),
+          fullName: x.fullName ? String(x.fullName) : undefined,
+          lastName: x.lastName ? String(x.lastName) : undefined,
+          firstName: x.firstName ? String(x.firstName) : undefined,
+          middleName: x.middleName ? String(x.middleName) : undefined,
           personnelNumber: x.personnelNumber ? String(x.personnelNumber) : null,
           departmentName: x.departmentName ? String(x.departmentName) : null,
           position: x.position ? String(x.position) : null,
+          employmentStatus: x.employmentStatus ? String(x.employmentStatus) : null,
         })),
       );
 
@@ -552,7 +557,22 @@ export function WorkOrderDetailsPage(props: {
     });
   }
 
+  const signatureDecryptions = useMemo(
+    () =>
+      payload
+        ? resolveWorkOrderSignatureDecryptions({
+            crewEmployeeIds: payload.crew.map((member) => String(member.employeeId ?? '').trim()).filter(Boolean),
+            employees,
+          })
+        : { crewMember: '', workshopHead: '', normingSpecialist: '', hrHead: '' },
+    [payload, employees],
+  );
+
   function printWorkOrderCard(current: WorkOrderPayload) {
+    const printSignatures = resolveWorkOrderSignatureDecryptions({
+      crewEmployeeIds: current.crew.map((member) => String(member.employeeId ?? '').trim()).filter(Boolean),
+      employees,
+    });
     const keyValueTable = (rows: Array<[string, string]>) =>
       `<table><tbody>${rows
         .map(
@@ -603,6 +623,11 @@ export function WorkOrderDetailsPage(props: {
         },
         { id: 'crew', title: 'Бригада и выплаты', html: crewHtml },
         { id: 'works', title: 'Виды работ', html: worksHtml },
+        {
+          id: 'signatures',
+          title: 'Подписи',
+          html: `<style>${WORK_ORDER_SIGNATURE_STYLES}</style>${renderWorkOrderSignaturesHtml(printSignatures)}`,
+        },
       ],
     });
   }
@@ -949,25 +974,26 @@ export function WorkOrderDetailsPage(props: {
                     />
                   </td>
                   <td>
-                    <SearchSelectWithCreate
+                    <SearchSelect
                       value={line.engineId || null}
                       options={engineOptions}
                       disabled={!props.canEdit}
-                      canCreate={false}
-                      createLabel=""
                       placeholder="Выберите двигатель"
                       onChange={(next) => {
                         const eng = next ? engines.find((e) => e.id === next) : null;
-                        const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? {
-                          ...item,
-                          engineId: next || null,
-                          engineNumber: eng?.engineNumber || '',
-                          engineBrandId: eng?.engineBrandId || null,
-                          engineBrandName: eng?.engineBrandName || '',
-                        } : item));
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) =>
+                          rowIdx === idx
+                            ? {
+                                ...item,
+                                engineId: next || null,
+                                engineNumber: eng?.engineNumber || '',
+                                engineBrandId: eng?.engineBrandId || null,
+                                engineBrandName: eng?.engineBrandName || '',
+                              }
+                            : item,
+                        );
                         patch({ ...payload, freeWorks });
                       }}
-                      onCreate={async () => null}
                     />
                   </td>
                   <td>
@@ -1070,6 +1096,26 @@ export function WorkOrderDetailsPage(props: {
         >
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Итог</span>
           <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{money(payload.totalAmountRub)}</span>
+        </div>
+      </SectionCard>
+
+      <SectionCard className="entity-card-span-full" title="Подписи">
+        <style>{WORK_ORDER_SIGNATURE_STYLES}</style>
+        <div className="wo-sig" style={{ marginTop: 0 }}>
+          {(
+            [
+              ['crewMember', WORK_ORDER_SIGNATURE_LABELS.crewMember],
+              ['workshopHead', WORK_ORDER_SIGNATURE_LABELS.workshopHead],
+              ['normingSpecialist', WORK_ORDER_SIGNATURE_LABELS.normingSpecialist],
+              ['hrHead', WORK_ORDER_SIGNATURE_LABELS.hrHead],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key} className="wo-sig-row">
+              <span className="wo-sig-label">{label}</span>
+              <span className="wo-sig-line" />
+              <span className="wo-sig-name">{signatureDecryptions[key] || ''}</span>
+            </div>
+          ))}
         </div>
       </SectionCard>
     </div>

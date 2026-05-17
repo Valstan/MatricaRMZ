@@ -94,4 +94,41 @@ describe('workOrderService calculations', () => {
     expect(line.serviceName).toBe('');
     expect(line.unit).toBe('');
   });
+
+  it('keeps product number and engine fields through recalc', () => {
+    const payload = __workOrderTestUtils.recalcPayload({
+      kind: 'work_order',
+      version: 2,
+      operationId: 'wo-x',
+      workOrderNumber: 1,
+      orderDate: 1700000000000,
+      crew: [],
+      workGroups: [],
+      freeWorks: [
+        {
+          lineNo: 1,
+          serviceId: 's-1',
+          serviceName: 'Работа',
+          unit: 'шт',
+          qty: 1,
+          priceRub: 10,
+          amountRub: 10,
+          productNumber: 'Изд-7',
+          engineId: 'eng-9',
+          engineNumber: 'E-009',
+          engineBrandId: 'brand-2',
+          engineBrandName: 'М-240',
+        },
+      ],
+      works: [],
+      totalAmountRub: 0,
+      basePerWorkerRub: 0,
+      payouts: [],
+    } as any);
+
+    expect(payload.freeWorks[0]?.productNumber).toBe('Изд-7');
+    expect(payload.freeWorks[0]?.engineId).toBe('eng-9');
+    expect(payload.freeWorks[0]?.engineNumber).toBe('E-009');
+    expect(payload.freeWorks[0]?.engineBrandName).toBe('М-240');
+  });
 });

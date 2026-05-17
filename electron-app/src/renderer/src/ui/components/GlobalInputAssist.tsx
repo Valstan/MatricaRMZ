@@ -1,12 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import {
+  assistItemKindLabel,
+  buildAssistPopupItems,
+  canRememberAssistValue,
+  getDatabaseOptions,
+  MAX_HISTORY_PER_FIELD,
+  usesDatabaseSource,
+  type PopupItem,
+} from './globalInputAssistLogic.js';
+
 type ManagedField = HTMLInputElement | HTMLTextAreaElement;
 type HistoryMap = Record<string, string[]>;
-type PopupItem = {
-  value: string;
-  kind: 'current' | 'history';
-};
 type PopupRect = {
   left: number;
   top: number;
@@ -33,7 +39,6 @@ const NON_TEXT_INPUT_TYPES = new Set([
 ]);
 const HISTORY_INPUT_TYPES = new Set(['text', 'search', 'number', 'email', 'url', 'tel']);
 const PICKER_INPUT_TYPES = new Set(['date', 'datetime-local', 'time', 'month', 'week']);
-const MAX_HISTORY_PER_FIELD = 6;
 const MAX_STORED_FIELDS = 160;
 const MAX_STORED_VALUE_LENGTH = 240;
 
@@ -61,6 +66,11 @@ function isSensitiveField(field: ManagedField): boolean {
 
 function usesComponentSuggestions(field: ManagedField): boolean {
   return field.dataset.inputAssist === 'component-suggestions';
+}
+
+function isAssistDisabled(field: ManagedField): boolean {
+  if (field.dataset.inputAssist === 'off') return true;
+  return Boolean(field.closest('[data-input-assist="off"]'));
 }
 
 function isPickerField(field: ManagedField): field is HTMLInputElement {
@@ -155,6 +165,16 @@ function valueForStorage(field: ManagedField): string | null {
   if (value.length > MAX_STORED_VALUE_LENGTH) return null;
   if (!supportsHistory(field)) return null;
   if (field instanceof HTMLTextAreaElement && value.split(/\r?\n/).length > 3) return null;
+  const databaseOptions = getDatabaseOptions(field);
+  if (
+    !canRememberAssistValue({
+      value,
+      databaseOptions,
+      databaseOnly: usesDatabaseSource(field),
+    })
+  ) {
+    return null;
+  }
   return value;
 }
 
@@ -213,18 +233,20 @@ function computePopupRect(field: ManagedField): PopupRect {
 }
 
 function buildPopupState(field: ManagedField, history: HistoryMap): PopupState | null {
-  const value = String(field.value ?? '').trim();
-  if (!value || usesComponentSuggestions(field) || isSensitiveField(field) || isPickerField(field)) return null;
+  if (usesComponentSuggestions(field) || isSensitiveField(field) || isPickerField(field)) return null;
+
+  const value = normalizeText(field.value);
   const fieldKey = deriveFieldKey(field);
-  const items: PopupItem[] = [{ value, kind: 'current' }];
-  if (fieldKey) {
-    const recent = history[fieldKey] ?? [];
-    for (const entry of recent) {
-      if (entry === value) continue;
-      items.push({ value: entry, kind: 'history' });
-      if (items.length >= MAX_HISTORY_PER_FIELD) break;
-    }
-  }
+  const historyEntries = fieldKey ? (history[fieldKey] ?? []) : [];
+  const databaseOptions = getDatabaseOptions(field);
+  const items = buildAssistPopupItems({
+    value,
+    historyEntries,
+    databaseOptions,
+    databaseOnly: usesDatabaseSource(field),
+  });
+  if (items.length === 0) return null;
+
   return {
     target: field,
     value,
@@ -288,12 +310,24 @@ function readPalette() {
       };
 }
 
+function computeHintButtonRect(field: ManagedField) {
+  const rect = field.getBoundingClientRect();
+  const width = 92;
+  const height = 26;
+  const gap = 4;
+  const left = Math.min(window.innerWidth - width - 8, rect.right - width);
+  const top = Math.max(8, rect.top + (rect.height - height) / 2);
+  return { left, top, width, height };
+}
+
 export function GlobalInputAssist(props: { storageKey: string }) {
   const historyRef = useRef<HistoryMap>({});
   const popupRef = useRef<HTMLDivElement | null>(null);
   const activeFieldRef = useRef<ManagedField | null>(null);
+  const suppressedFieldsRef = useRef<WeakSet<ManagedField>>(new WeakSet());
   const lastFocusTimeRef = useRef(0);
   const [popup, setPopup] = useState<PopupState | null>(null);
+  const [hintField, setHintField] = useState<ManagedField | null>(null);
 
   useEffect(() => {
     historyRef.current = loadHistory(props.storageKey);
@@ -309,33 +343,39 @@ export function GlobalInputAssist(props: { storageKey: string }) {
       saveHistory(props.storageKey, nextHistory);
     };
 
+    const isSuppressed = (field: ManagedField) => suppressedFieldsRef.current.has(field);
+
     const refreshPopup = (field: ManagedField) => {
-      if (document.activeElement !== field) {
+      if (document.activeElement !== field || isSuppressed(field)) {
         setPopup((prev) => (prev?.target === field ? null : prev));
         return;
       }
+      setHintField(null);
       setPopup(buildPopupState(field, historyRef.current));
     };
 
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
-      if (!isManagedField(target) || target.dataset.inputAssist === 'off') {
+      if (!isManagedField(target) || isAssistDisabled(target)) {
         activeFieldRef.current = null;
         setPopup(null);
+        setHintField(null);
         return;
       }
       activeFieldRef.current = target;
       lastFocusTimeRef.current = Date.now();
-      const hasValue = String(target.value ?? '').trim().length > 0;
-      if (!hasValue) {
-        setPopup(null);
-        return;
-      }
       if (isPickerField(target)) {
         setPopup(null);
+        setHintField(null);
         openPicker(target);
         return;
       }
+      if (isSuppressed(target)) {
+        setPopup(null);
+        setHintField(target);
+        return;
+      }
+      setHintField(null);
       window.requestAnimationFrame(() => refreshPopup(target));
     };
 
@@ -361,6 +401,8 @@ export function GlobalInputAssist(props: { storageKey: string }) {
       window.setTimeout(() => {
         if (document.activeElement === target) return;
         setPopup((prev) => (prev?.target === target ? null : prev));
+        setHintField((prev) => (prev === target ? null : prev));
+        suppressedFieldsRef.current.delete(target);
       }, 0);
     };
 
@@ -369,6 +411,11 @@ export function GlobalInputAssist(props: { storageKey: string }) {
       if (!isManagedField(target)) return;
       if (activeFieldRef.current !== target) return;
       if (Date.now() - lastFocusTimeRef.current < 300) return;
+      if (isSuppressed(target)) {
+        setHintField(target);
+        setPopup(null);
+        return;
+      }
       setPopup((prev) => (prev?.target === target ? null : buildPopupState(target, historyRef.current)));
     };
 
@@ -397,8 +444,7 @@ export function GlobalInputAssist(props: { storageKey: string }) {
       }
       setPopup((prev) => {
         if (!prev || prev.target !== popup.target) return prev;
-        const next = buildPopupState(popup.target, historyRef.current);
-        return next;
+        return buildPopupState(popup.target, historyRef.current);
       });
     };
 
@@ -425,128 +471,197 @@ export function GlobalInputAssist(props: { storageKey: string }) {
     };
   }, [popup]);
 
-  if (!popup) return null;
-
   const palette = readPalette();
+  const hintPortal =
+    hintField && hintField.isConnected && document.activeElement === hintField
+      ? createPortal(
+          <button
+            type="button"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={() => {
+              suppressedFieldsRef.current.delete(hintField);
+              setHintField(null);
+              hintField.focus();
+              setPopup(buildPopupState(hintField, historyRef.current));
+            }}
+            style={{
+              position: 'fixed',
+              ...computeHintButtonRect(hintField),
+              zIndex: 5190,
+              borderRadius: 6,
+              border: `1px solid ${palette.border}`,
+              background: palette.button,
+              color: palette.text,
+              fontSize: 12,
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(15, 23, 42, 0.12)',
+            }}
+            title="Показать подсказки для поля"
+          >
+            Подсказки
+          </button>,
+          document.body,
+        )
+      : null;
+
+  if (!popup) return hintPortal;
+
   const canClear = !popup.target.readOnly && !popup.target.disabled;
 
-  return createPortal(
-    <div
-      ref={popupRef}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      style={{
-        position: 'fixed',
-        left: popup.left,
-        top: popup.top,
-        width: popup.width,
-        zIndex: 5200,
-        background: palette.surface,
-        border: `1px solid ${palette.border}`,
-        borderRadius: 8,
-        boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
-        overflow: 'hidden',
-      }}
-    >
-      <div style={{ padding: '4px 8px', borderBottom: `1px solid ${palette.border}`, background: palette.surfaceAlt }}>
-        <div style={{ fontSize: 11, color: palette.muted }}>Скопировать, заменить или выбрать из недавних</div>
-      </div>
-      <div style={{ maxHeight: popup.maxHeight, overflowY: 'auto' }}>
-        {popup.items.map((item, idx) => {
-          const isCurrent = item.kind === 'current';
-          return (
+  return (
+    <>
+      {hintPortal}
+      {createPortal(
+        <div
+          ref={popupRef}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          style={{
+            position: 'fixed',
+            left: popup.left,
+            top: popup.top,
+            width: popup.width,
+            zIndex: 5200,
+            background: palette.surface,
+            border: `1px solid ${palette.border}`,
+            borderRadius: 8,
+            boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '4px 8px',
+              borderBottom: `1px solid ${palette.border}`,
+              background: palette.surfaceAlt,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 11, color: palette.muted, flex: 1 }}>
+              Скопировать, заменить или выбрать подсказку
+            </div>
             <button
-              key={`${item.kind}-${idx}-${item.value}`}
               type="button"
               onClick={() => {
-                setFieldValue(popup.target, item.value);
+                suppressedFieldsRef.current.add(popup.target);
+                setPopup(null);
+                setHintField(popup.target);
                 popup.target.focus();
-                selectAll(popup.target);
+              }}
+              style={{
+                padding: '2px 8px',
+                borderRadius: 6,
+                border: `1px solid ${palette.border}`,
+                background: palette.button,
+                color: palette.text,
+                cursor: 'pointer',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Скрыть
+            </button>
+          </div>
+          <div style={{ maxHeight: popup.maxHeight, overflowY: 'auto' }}>
+            {popup.items.map((item, idx) => (
+              <button
+                key={`${item.kind}-${idx}-${item.value}`}
+                type="button"
+                onClick={() => {
+                  setFieldValue(popup.target, item.value);
+                  popup.target.focus();
+                  selectAll(popup.target);
+                  setPopup(null);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '5px 8px',
+                  border: 'none',
+                  borderBottom: idx === popup.items.length - 1 ? 'none' : `1px solid ${palette.border}`,
+                  background: item.kind === 'current' ? palette.current : 'transparent',
+                  color: palette.text,
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 12, color: palette.muted }}>{assistItemKindLabel(item.kind)}</div>
+                <div
+                  style={{
+                    marginTop: 2,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={item.value}
+                >
+                  {item.value}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              padding: '4px 8px',
+              borderTop: `1px solid ${palette.border}`,
+              background: palette.surfaceAlt,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                void copyText(popup.value);
+                popup.target.focus();
                 setPopup(null);
               }}
               style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '5px 8px',
-                border: 'none',
-                borderBottom: idx === popup.items.length - 1 ? 'none' : `1px solid ${palette.border}`,
-                background: isCurrent ? palette.current : 'transparent',
+                flex: 1,
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: `1px solid ${palette.border}`,
+                background: palette.button,
                 color: palette.text,
                 cursor: 'pointer',
+                fontSize: 12,
               }}
             >
-              <div style={{ fontSize: 12, color: palette.muted }}>{isCurrent ? 'Текущее значение' : 'Недавнее значение'}</div>
-              <div
-                style={{
-                  marginTop: 2,
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                title={item.value}
-              >
-                {item.value}
-              </div>
+              Скопировать
             </button>
-          );
-        })}
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          gap: 6,
-          padding: '4px 8px',
-          borderTop: `1px solid ${palette.border}`,
-          background: palette.surfaceAlt,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            void copyText(popup.value);
-            popup.target.focus();
-            setPopup(null);
-          }}
-          style={{
-            flex: 1,
-            padding: '4px 8px',
-            borderRadius: 6,
-            border: `1px solid ${palette.border}`,
-            background: palette.button,
-            color: palette.text,
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
-        >
-          Скопировать
-        </button>
-        {canClear && (
-          <button
-            type="button"
-            onClick={() => {
-              setFieldValue(popup.target, '');
-              popup.target.focus();
-              setPopup(null);
-            }}
-            style={{
-              flex: 1,
-              padding: '4px 8px',
-              borderRadius: 6,
-              border: `1px solid ${palette.border}`,
-              background: palette.accent,
-              color: palette.text,
-              cursor: 'pointer',
-              fontSize: 12,
-            }}
-          >
-            Очистить
-          </button>
-        )}
-      </div>
-    </div>,
-    document.body,
+            {canClear && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFieldValue(popup.target, '');
+                  popup.target.focus();
+                  setPopup(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: `1px solid ${palette.border}`,
+                  background: palette.accent,
+                  color: palette.text,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                Очистить
+              </button>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

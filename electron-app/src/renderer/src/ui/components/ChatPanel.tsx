@@ -371,7 +371,7 @@ export function ChatPanel(props: {
   }
 
   return (
-    <div ref={chatRootRef} style={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+    <div ref={chatRootRef} data-input-assist="off" style={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ fontWeight: 900, color: theme.colors.text, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           Чат с пользователями
@@ -569,10 +569,6 @@ export function ChatPanel(props: {
           return (
             <div key={m.id} style={{ marginBottom: 6 }}>
               <div
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setOpenInfoId((prev) => (prev === m.id ? null : m.id));
-                }}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',

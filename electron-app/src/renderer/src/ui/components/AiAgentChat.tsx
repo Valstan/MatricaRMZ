@@ -139,6 +139,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   return (
     <div
       data-ai-agent-ignore="true"
+      data-input-assist="off"
       style={{
         position: 'fixed',
         right: 16,

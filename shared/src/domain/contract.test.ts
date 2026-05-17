@@ -105,6 +105,7 @@ describe('contract domain regressions', () => {
           number: 'DS-1',
           signedAt: null,
           dueAt: null,
+          note: '',
           engineBrands: [
             { engineBrandId: 'brand-a', qty: 3, unitPrice: 0 },
             { engineBrandId: 'brand-c', qty: 0, unitPrice: 0 },

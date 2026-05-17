@@ -1,5 +1,10 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  ComponentSuggestionsHintButton,
+  ComponentSuggestionsPopupHeader,
+  useComponentSuggestionSuppress,
+} from './componentSuggestionHints.js';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 import { buildLookupHighlightParts } from '../utils/searchMatching.js';
 
@@ -17,7 +22,19 @@ export function MultiSearchSelect(props: {
   const disabled = props.disabled === true;
   const safeValues = Array.isArray(props.values) ? props.values : [];
   const dropdown = useSuggestionDropdown(props.options);
+  const hints = useComponentSuggestionSuppress();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openDropdown = useCallback(() => {
+    if (disabled || hints.suppressed) return;
+    dropdown.setOpen(true);
+  }, [disabled, dropdown, hints.suppressed]);
+
+  const hideSuggestions = useCallback(() => {
+    hints.suppress();
+    dropdown.closeDropdown();
+    searchInputRef.current?.focus();
+  }, [dropdown, hints]);
 
   const selected = useMemo(() => {
     const set = new Set(safeValues);
@@ -79,15 +96,23 @@ export function MultiSearchSelect(props: {
           disabled={disabled}
           onFocus={() => {
             if (disabled) return;
-            dropdown.setOpen(true);
+            hints.onFocus(openDropdown);
+          }}
+          onBlur={() => {
+            if (disabled) return;
+            hints.onBlur();
           }}
           onClick={() => {
             if (disabled) return;
-            dropdown.setOpen(true);
+            if (hints.suppressed) {
+              hints.setHintVisible(true);
+              return;
+            }
+            openDropdown();
           }}
           onChange={(e) => {
             if (disabled) return;
-            if (!dropdown.open) dropdown.setOpen(true);
+            if (!dropdown.open && hints.shouldOpenDropdown()) openDropdown();
             setQuery(e.target.value);
           }}
           onKeyDown={(e) => {
@@ -95,7 +120,7 @@ export function MultiSearchSelect(props: {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
               if (!dropdown.open) {
-                dropdown.setOpen(true);
+                openDropdown();
                 return;
               }
               if (!dropdown.filtered.length) return;
@@ -103,7 +128,7 @@ export function MultiSearchSelect(props: {
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               if (!dropdown.open) {
-                dropdown.setOpen(true);
+                openDropdown();
                 return;
               }
               if (!dropdown.filtered.length) return;
@@ -111,7 +136,7 @@ export function MultiSearchSelect(props: {
             } else if (e.key === 'Enter') {
               e.preventDefault();
               if (!dropdown.open) {
-                dropdown.setOpen(true);
+                openDropdown();
                 return;
               }
               const option = dropdown.filtered[dropdown.activeIdx];
@@ -155,6 +180,16 @@ export function MultiSearchSelect(props: {
         )}
       </div>
 
+      <ComponentSuggestionsHintButton
+        anchor={searchInputRef.current}
+        visible={!disabled && hints.hintVisible && !dropdown.open}
+        onShow={() => {
+          hints.restore();
+          dropdown.setOpen(true);
+          searchInputRef.current?.focus();
+        }}
+      />
+
       {dropdown.open && !disabled && dropdown.popupRect
         ? createPortal(
             <div
@@ -175,7 +210,8 @@ export function MultiSearchSelect(props: {
                 overflow: 'hidden',
               }}
             >
-              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight - 42, overflowY: 'auto' }}>
+              <ComponentSuggestionsPopupHeader onHide={hideSuggestions} />
+              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight - 74, overflowY: 'auto' }}>
                 {dropdown.filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
                 {dropdown.filtered.map((o, idx) => {
                   const checked = safeValues.includes(o.id);

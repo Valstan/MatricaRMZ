@@ -1,6 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
+import {
+  ComponentSuggestionsHintButton,
+  ComponentSuggestionsPopupHeader,
+  useComponentSuggestionSuppress,
+} from './componentSuggestionHints.js';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 
 export type SuggestInputOption = {
@@ -49,6 +54,9 @@ export function SuggestInput(props: {
   style?: React.CSSProperties;
 }) {
   const disabled = props.disabled === true;
+  const previewLimit = 15;
+  const hints = useComponentSuggestionSuppress();
+
   const dropdown = useSuggestionDropdown(
     props.options.map((o) =>
       o.description != null && o.description !== ''
@@ -58,6 +66,17 @@ export function SuggestInput(props: {
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [createBusy, setCreateBusy] = React.useState(false);
+
+  const openDropdown = useCallback(() => {
+    if (disabled || hints.suppressed) return;
+    dropdown.setOpen(true);
+  }, [disabled, dropdown, hints.suppressed]);
+
+  const hideSuggestions = useCallback(() => {
+    hints.suppress();
+    dropdown.closeDropdown();
+    inputRef.current?.focus();
+  }, [dropdown, hints]);
 
   useEffect(() => {
     dropdown.setQuery(props.value ?? '');
@@ -105,18 +124,25 @@ export function SuggestInput(props: {
         onFocus={() => {
           if (disabled) return;
           props.onFocus?.();
-          dropdown.setOpen(true);
+          hints.onFocus(openDropdown);
         }}
         onClick={() => {
           if (disabled) return;
-          dropdown.setOpen(true);
+          if (hints.suppressed) {
+            hints.setHintVisible(true);
+            return;
+          }
+          openDropdown();
         }}
-        onBlur={() => props.onBlur?.()}
+        onBlur={() => {
+          hints.onBlur();
+          props.onBlur?.();
+        }}
         onChange={(e) => {
           const v = e.target.value;
           props.onChange(v);
           dropdown.setQuery(v);
-          if (!dropdown.open) dropdown.setOpen(true);
+          if (!dropdown.open && hints.shouldOpenDropdown()) openDropdown();
         }}
         onKeyDown={(e) => {
           if (disabled) return;
@@ -130,7 +156,7 @@ export function SuggestInput(props: {
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             if (!dropdown.open) {
-              dropdown.setOpen(true);
+              openDropdown();
               return;
             }
             if (!dropdown.filtered.length) return;
@@ -138,7 +164,7 @@ export function SuggestInput(props: {
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             if (!dropdown.open) {
-              dropdown.setOpen(true);
+              openDropdown();
               return;
             }
             if (!dropdown.filtered.length) return;
@@ -172,6 +198,16 @@ export function SuggestInput(props: {
           ...(props.style ?? {}),
         }}
       />
+      <ComponentSuggestionsHintButton
+        anchor={inputRef.current}
+        visible={!disabled && hints.hintVisible && !dropdown.open}
+        onShow={() => {
+          hints.restore();
+          dropdown.setOpen(true);
+          inputRef.current?.focus();
+        }}
+      />
+
       {dropdown.open && !disabled && dropdown.popupRect
         ? createPortal(
             <div
@@ -192,9 +228,10 @@ export function SuggestInput(props: {
                 overflow: 'hidden',
               }}
             >
-              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight, overflowY: 'auto' }}>
+              <ComponentSuggestionsPopupHeader onHide={hideSuggestions} />
+              <div ref={dropdown.listRef} style={{ maxHeight: dropdown.popupRect.maxHeight - 32, overflowY: 'auto' }}>
                 {dropdown.filtered.length === 0 && <div style={{ padding: 10, color: 'var(--muted)' }}>Нет совпадений</div>}
-                {dropdown.filtered.map((o, idx) => {
+                {dropdown.filtered.slice(0, previewLimit).map((o, idx) => {
                   const focused = dropdown.activeIdx === idx;
                   const meta = props.options.find((x) => x.value === o.id);
                   return (

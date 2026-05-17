@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  ComponentSuggestionsHintButton,
+  ComponentSuggestionsPopupHeader,
+  useComponentSuggestionSuppress,
+} from './componentSuggestionHints.js';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 import { buildLookupHighlightParts, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
 
@@ -33,6 +38,7 @@ const MAX_RANKED_OPTIONS = 15;
 const VISIBLE_ROWS_CAP = 5;
 const ROW_APPROX_PX = 42;
 const listViewportMaxPx = VISIBLE_ROWS_CAP * ROW_APPROX_PX;
+const POPUP_HEADER_PX = 32;
 
 export function SearchSelect(props: {
   value: string | null;
@@ -49,9 +55,21 @@ export function SearchSelect(props: {
 }) {
   const disabled = props.disabled === true;
   const dropdown = useSuggestionDropdown(props.options);
+  const hints = useComponentSuggestionSuppress();
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openDropdown = useCallback(() => {
+    if (disabled || hints.suppressed) return;
+    dropdown.setOpen(true);
+  }, [disabled, dropdown, hints.suppressed]);
+
+  const hideSuggestions = useCallback(() => {
+    hints.suppress();
+    dropdown.closeDropdown();
+    searchInputRef.current?.focus();
+  }, [dropdown, hints]);
 
   const selected = useMemo(() => {
     if (!props.value) return null;
@@ -65,12 +83,14 @@ export function SearchSelect(props: {
     return rankLookupOptions(props.options, normalizedQuery).slice(0, MAX_RANKED_OPTIONS);
   }, [normalizedQuery, props.options]);
 
+  const showAllWhenEmpty = props.showAllWhenEmpty !== false;
+
   const emptyQueryItems = useMemo(() => {
     if (normalizedQuery) return [];
-    if (!props.showAllWhenEmpty) return [];
-    const limit = Math.max(1, Math.min(500, Math.trunc(Number(props.emptyQueryLimit ?? 200))));
+    if (!showAllWhenEmpty) return [];
+    const limit = Math.max(1, Math.min(500, Math.trunc(Number(props.emptyQueryLimit ?? MAX_RANKED_OPTIONS))));
     return props.options.slice(0, limit).map((option) => ({ option, source: 'database' as SourceLabel }));
-  }, [normalizedQuery, props.emptyQueryLimit, props.options, props.showAllWhenEmpty]);
+  }, [normalizedQuery, props.emptyQueryLimit, props.options, showAllWhenEmpty]);
 
   const exactMatch = useMemo(
     () => props.options.find((option) => normalizeLookupText(option.label) === normalizedQuery) ?? null,
@@ -167,12 +187,12 @@ export function SearchSelect(props: {
     if (disabled) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (!dropdown.open) { dropdown.setOpen(true); return; }
+      if (!dropdown.open) { openDropdown(); return; }
       if (visibleItems.length === 0) return;
       dropdown.setActiveIdx((p) => (p < 0 ? 0 : Math.min(visibleItems.length - 1, p + 1)));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (!dropdown.open) { dropdown.setOpen(true); return; }
+      if (!dropdown.open) { openDropdown(); return; }
       if (visibleItems.length === 0) return;
       dropdown.setActiveIdx((p) => (p <= 0 ? 0 : p - 1));
     } else if (e.key === 'Enter') {
@@ -187,7 +207,7 @@ export function SearchSelect(props: {
       e.preventDefault();
       close();
     }
-  }, [disabled, dropdown, visibleItems, props.onCreate, exactMatch]);
+  }, [disabled, dropdown, openDropdown, visibleItems, props.onCreate, exactMatch]);
 
   const createBtnHeight = props.onCreate ? 52 : 0;
 
@@ -200,9 +220,27 @@ export function SearchSelect(props: {
           value={dropdown.query}
           placeholder={props.placeholder ?? '(не выбрано)'}
           disabled={disabled}
-          onFocus={() => { if (disabled) return; dropdown.setOpen(true); }}
-          onClick={() => { if (disabled) return; dropdown.setOpen(true); }}
-          onChange={(e) => { if (disabled) return; if (!dropdown.open) dropdown.setOpen(true); setQuery(e.target.value); }}
+          onFocus={() => {
+            if (disabled) return;
+            hints.onFocus(openDropdown);
+          }}
+          onBlur={() => {
+            if (disabled) return;
+            hints.onBlur();
+          }}
+          onClick={() => {
+            if (disabled) return;
+            if (hints.suppressed) {
+              hints.setHintVisible(true);
+              return;
+            }
+            openDropdown();
+          }}
+          onChange={(e) => {
+            if (disabled) return;
+            if (!dropdown.open && hints.shouldOpenDropdown()) openDropdown();
+            setQuery(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           style={{
             flex: 1,
@@ -239,6 +277,16 @@ export function SearchSelect(props: {
         )}
       </div>
 
+      <ComponentSuggestionsHintButton
+        anchor={searchInputRef.current}
+        visible={!disabled && hints.hintVisible && !dropdown.open}
+        onShow={() => {
+          hints.restore();
+          dropdown.setOpen(true);
+          searchInputRef.current?.focus();
+        }}
+      />
+
       {dropdown.open && !disabled && dropdown.popupRect
         ? createPortal(
             <div
@@ -253,7 +301,12 @@ export function SearchSelect(props: {
                 width: dropdown.popupRect.width,
                 maxHeight: dropdown.popupRect.maxHeight,
                 height: Math.min(
-                  createBtnHeight + Math.min(listViewportMaxPx, Math.max(ROW_APPROX_PX, dropdown.popupRect.maxHeight - createBtnHeight - 6)),
+                  POPUP_HEADER_PX
+                    + createBtnHeight
+                    + Math.min(
+                        listViewportMaxPx,
+                        Math.max(ROW_APPROX_PX, dropdown.popupRect.maxHeight - createBtnHeight - POPUP_HEADER_PX - 6),
+                      ),
                   dropdown.popupRect.maxHeight,
                 ),
                 zIndex: 5000,
@@ -266,12 +319,16 @@ export function SearchSelect(props: {
                 flexDirection: 'column',
               }}
             >
+              <ComponentSuggestionsPopupHeader onHide={hideSuggestions} />
               <div
                 ref={dropdown.listRef}
                 style={{
                   flex: '1 1 auto',
                   minHeight: 0,
-                  maxHeight: Math.min(listViewportMaxPx, Math.max(ROW_APPROX_PX, dropdown.popupRect.maxHeight - createBtnHeight - 6)),
+                  maxHeight: Math.min(
+                    listViewportMaxPx,
+                    Math.max(ROW_APPROX_PX, dropdown.popupRect.maxHeight - createBtnHeight - POPUP_HEADER_PX - 6),
+                  ),
                   overflowY: 'auto',
                 }}
               >
