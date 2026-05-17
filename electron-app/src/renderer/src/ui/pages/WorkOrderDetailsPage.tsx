@@ -29,7 +29,7 @@ import {
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
-type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[] };
+type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[]; engineBrandIds: string[] };
 type EmployeeInfo = {
   id: string;
   displayName: string;
@@ -329,13 +329,13 @@ export function WorkOrderDetailsPage(props: {
     try {
       const emps = await window.matrica.employees.list().catch(() => [] as any[]);
       setEmployees(
-        (emps as any[]).map((x) => ({
+        (emps as any[]).map((x): EmployeeInfo => ({
           id: String(x.id),
           displayName: String(x.displayName || x.fullName || x.id),
-          fullName: x.fullName ? String(x.fullName) : undefined,
-          lastName: x.lastName ? String(x.lastName) : undefined,
-          firstName: x.firstName ? String(x.firstName) : undefined,
-          middleName: x.middleName ? String(x.middleName) : undefined,
+          ...(x.fullName ? { fullName: String(x.fullName) } : {}),
+          ...(x.lastName ? { lastName: String(x.lastName) } : {}),
+          ...(x.firstName ? { firstName: String(x.firstName) } : {}),
+          ...(x.middleName ? { middleName: String(x.middleName) } : {}),
           personnelNumber: x.personnelNumber ? String(x.personnelNumber) : null,
           departmentName: x.departmentName ? String(x.departmentName) : null,
           position: x.position ? String(x.position) : null,
@@ -360,6 +360,7 @@ export function WorkOrderDetailsPage(props: {
             unit: String(attrs.unit || 'шт'),
             priceRub: Math.max(0, safeNum(attrs.price, 0)),
             partIds: normalizeStringArray(attrs.part_ids),
+            engineBrandIds: normalizeStringArray(attrs.engine_brand_ids),
           } as ServiceInfo;
         }),
       );
@@ -479,7 +480,11 @@ export function WorkOrderDetailsPage(props: {
     );
   }
 
-  async function createServiceFromWorkOrder(label: string, partId: string | null): Promise<string | null> {
+  async function createServiceFromWorkOrder(
+    label: string,
+    partId: string | null,
+    opts?: { engineBrandId?: string | null },
+  ): Promise<string | null> {
     if (!props.canEditMasterData) return null;
     const clean = label.trim();
     if (!clean) return null;
@@ -505,6 +510,12 @@ export function WorkOrderDetailsPage(props: {
     await window.matrica.admin.entities.setAttr(created.id, 'price', 0);
     if (partId) {
       await window.matrica.admin.entities.setAttr(created.id, 'part_ids', [partId]);
+    }
+    /** Если строка наряда привязана к двигателю — сразу проставляем марку, чтобы новая услуга
+     *  попала в отфильтрованный список без необходимости открывать карточку. */
+    const brandId = opts?.engineBrandId ? String(opts.engineBrandId).trim() : '';
+    if (brandId) {
+      await window.matrica.admin.entities.setAttr(created.id, 'engine_brand_ids', [brandId]);
     }
     return created.id;
   }
@@ -928,13 +939,31 @@ export function WorkOrderDetailsPage(props: {
             <tbody>
               {payload.freeWorks.map((line, idx) => {
                 const engineInfo = engines.find((e) => e.id === line.engineId) || null;
+                const brandForLine = engineInfo?.engineBrandId ?? null;
+                /**
+                 * Фильтр услуг по марке двигателя строки:
+                 *  - если в строке не выбран двигатель → показываем все услуги;
+                 *  - если выбран → показываем только универсальные (engineBrandIds пуст)
+                 *    + те, у кого марка совпадает.
+                 * Если в строке уже сохранена услуга, не проходящая фильтр (например, после смены двигателя)
+                 * — оставляем её в списке, чтобы оператор мог её увидеть/заменить, а не «потерять».
+                 */
+                const serviceOptionsForLine = brandForLine
+                  ? allServiceOptions.filter((opt) => {
+                      if (opt.id === line.serviceId) return true;
+                      const svc = serviceById.get(opt.id);
+                      if (!svc) return true;
+                      if (svc.engineBrandIds.length === 0) return true;
+                      return svc.engineBrandIds.includes(brandForLine);
+                    })
+                  : allServiceOptions;
                 return (
                 <tr key={`free-work-line-${idx}`}>
                   <td>
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6, alignItems: 'start' }}>
                       <SearchSelectWithCreate
                         value={line.serviceId}
-                        options={allServiceOptions}
+                        options={serviceOptionsForLine}
                         disabled={!props.canEdit}
                         canCreate={props.canEditMasterData}
                         createLabel="Новая услуга"
@@ -945,8 +974,10 @@ export function WorkOrderDetailsPage(props: {
                           })
                         }
                         onCreate={async (label) => {
-                          const createdId = await createServiceFromWorkOrder(label, null);
+                          const createdId = await createServiceFromWorkOrder(label, null, { engineBrandId: brandForLine });
                           if (!createdId) return null;
+                          /** После создания услуги перезагружаем справочник, чтобы услуга появилась с её engineBrandIds. */
+                          await loadRefs();
                           patch({
                             ...payload,
                             freeWorks: applyServiceSnapshotToLines(payload.freeWorks, idx, createdId),

@@ -10,6 +10,7 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { DuplicateWarningDialog } from '../components/DuplicateWarningDialog.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -18,6 +19,25 @@ import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type Attribu
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
+
+function parseIdArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x ?? '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((x) => String(x ?? '').trim()).filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return [];
+}
 
 export function SimpleMasterdataDetailsPage(props: {
   title: string;
@@ -52,6 +72,9 @@ export function SimpleMasterdataDetailsPage(props: {
   const [storeOptions, setStoreOptions] = useState<SearchSelectOption[]>([]);
   const [unitTypeId, setUnitTypeId] = useState<string>('');
   const [storeTypeId, setStoreTypeId] = useState<string>('');
+  /** Для услуг: ограничение «применимо к маркам двигателей». Пусто = универсальная услуга. */
+  const [engineBrandIds, setEngineBrandIds] = useState<string[]>([]);
+  const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
   const uploadFlow = useFileUploadFlow();
   const dirtyRef = useRef(false);
 
@@ -76,6 +99,9 @@ export function SimpleMasterdataDetailsPage(props: {
       const nextPhotos = Array.isArray(attrs.photos) ? attrs.photos.filter(isFileRef) : [];
       setPhotos(nextPhotos);
       setMainPhotoId(nextPhotos[0]?.id ?? null);
+      if (props.typeCode === 'service') {
+        setEngineBrandIds(parseIdArray(attrs.engine_brand_ids));
+      }
       dirtyRef.current = false;
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -156,6 +182,13 @@ export function SimpleMasterdataDetailsPage(props: {
           const rows = await window.matrica.admin.entities.listByEntityType(String(storeType.id));
           setStoreOptions(mapEntityRowsToSearchOptions(rows));
         }
+        if (props.typeCode === 'service') {
+          const engineBrandType = (types as any[]).find((t) => String(t.code) === 'engine_brand') ?? null;
+          if (engineBrandType?.id) {
+            const rows = await window.matrica.admin.entities.listByEntityType(String(engineBrandType.id));
+            if (alive) setEngineBrandOptions(mapEntityRowsToSearchOptions(rows));
+          }
+        }
       } catch {
         // ignore
       }
@@ -163,7 +196,7 @@ export function SimpleMasterdataDetailsPage(props: {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [props.typeCode]);
 
   async function createLookupEntity(typeId: string, label: string) {
     const name = label.trim();
@@ -194,6 +227,15 @@ export function SimpleMasterdataDetailsPage(props: {
       ]),
       { code: 'unit', name: 'Ед. измерения', dataType: 'text', sortOrder: 50 },
       { code: 'price', name: 'Цена', dataType: 'number', sortOrder: 60 },
+      ...(isService ? [
+        {
+          code: 'engine_brand_ids',
+          name: 'Марки двигателей',
+          dataType: 'json',
+          sortOrder: 70,
+          metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand', multi: true }),
+        },
+      ] : []),
       { code: 'attachments', name: 'Файлы', dataType: 'json', sortOrder: 300 },
       ...(isService ? [] : [
         { code: 'photos', name: 'Фото', dataType: 'json', sortOrder: 310 },
@@ -426,6 +468,9 @@ export function SimpleMasterdataDetailsPage(props: {
     } else {
       await trySave(() => saveField('price', parsedPrice));
     }
+    if (props.typeCode === 'service') {
+      await trySave(() => saveField('engine_brand_ids', engineBrandIds.length > 0 ? engineBrandIds : null));
+    }
     dirtyRef.current = false;
     if (errors.length > 0) {
       setStatus(`Частично сохранено. Ошибки (${errors.length}): ${errors[0]}`);
@@ -494,6 +539,7 @@ export function SimpleMasterdataDetailsPage(props: {
     article,
     unit,
     price,
+    engineBrandIds,
     props.canEdit,
     props.typeCode,
     entityTypeId,
@@ -864,6 +910,29 @@ export function SimpleMasterdataDetailsPage(props: {
           />
         ),
       },
+      ...(isService ? [{
+        code: 'engine_brand_ids',
+        defaultOrder: 70,
+        label: 'Марки двигателей',
+        value: engineBrandIds.length,
+        render: (
+          <div style={{ display: 'grid', gap: 4 }}>
+            <MultiSearchSelect
+              values={engineBrandIds}
+              options={engineBrandOptions}
+              placeholder="Все марки (универсальная услуга)"
+              disabled={!props.canEdit}
+              onChange={(next) => {
+                dirtyRef.current = true;
+                setEngineBrandIds(next);
+              }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+              Если пусто — услуга предлагается в любом наряде. Если выбраны марки — только в нарядах по этим маркам двигателя.
+            </span>
+          </div>
+        ),
+      }] : []),
       ...(isService ? [] : [
         { code: 'photos', defaultOrder: 300, label: 'Фото', value: photos.length, render: photosBlock },
       ]),

@@ -16,6 +16,7 @@ export type TabId =
   | 'products'
   | 'product'
   | 'services'
+  | 'services_by_brand'
   | 'service'
   | 'nomenclature'
   | 'nomenclature_item'
@@ -124,6 +125,7 @@ const menuTabSet = new Set<MenuTabId>([
   'tool_accounting',
   'products',
   'services',
+  'services_by_brand',
   'nomenclature',
   'stock_balances',
   'stock_documents',
@@ -174,7 +176,7 @@ const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', '
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
   production: ['engines', 'engine_brands', 'parts', 'part_templates', 'engine_assembly_bom', 'tools'],
-  supply: ['requests', 'work_orders', 'tool_accounting'],
+  supply: ['requests', 'work_orders', 'services', 'services_by_brand', 'tool_accounting'],
   warehouse: ['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
@@ -232,6 +234,7 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   tool_accounting: { icon: '📋', subtitle: 'Выдачи и возвраты по сотрудникам', gradient: 'linear-gradient(135deg, #047857 0%, #34d399 100%)' },
   products: { icon: '📦', subtitle: 'Товары и номенклатура', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
   services: { icon: '🧰', subtitle: 'Услуги и операции', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
+  services_by_brand: { icon: '🧩', subtitle: 'Спецификация услуг по марке двигателя', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
   nomenclature: { icon: '🗃️', subtitle: 'Единый каталог ТМЦ', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
   engine_assembly_bom: { icon: '🧮', subtitle: 'Матрица комплектования двигателей', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   stock_balances: { icon: '📊', subtitle: 'Остатки по складам', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
@@ -467,6 +470,7 @@ export function Tabs(props: {
     tool_accounting: 'Учёт инструментов',
     products: 'Товары',
     services: 'Услуги',
+    services_by_brand: 'Услуги по маркам',
     nomenclature: 'Номенклатура',
     engine_assembly_bom: 'BOM двигателей',
     stock_balances: 'Остатки',

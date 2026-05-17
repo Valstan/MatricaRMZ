@@ -116,6 +116,8 @@ const ToolPropertyDetailsPage = lazyPage('./pages/ToolPropertyDetailsPage.tsx', 
 const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
 const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
 const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
+const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
+const ServicesByBrandPage = lazyPage('./pages/ServicesByBrandPage.tsx', 'ServicesByBrandPage');
 const NomenclaturePage = lazyPage('./pages/NomenclaturePage.tsx', 'NomenclaturePage');
 const NomenclatureDetailsPage = lazyPage('./pages/NomenclatureDetailsPage.tsx', 'NomenclatureDetailsPage');
 const StockBalancesPage = lazyPage('./pages/StockBalancesPage.tsx', 'StockBalancesPage');
@@ -293,6 +295,7 @@ function appTabTitle(tab: string): string {
     products: 'Товары',
     product: 'Карточка товара',
     services: 'Услуги',
+    services_by_brand: 'Услуги по маркам',
     service: 'Карточка услуги',
     nomenclature: 'Номенклатура',
     engine_assembly_bom: 'BOM двигателей',
@@ -427,6 +430,8 @@ export function App() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  /** Откуда открыта карточка услуги: чтобы при закрытии вернуться на исходный список (services / nomenclature / прочее). */
+  const [serviceOriginTab, setServiceOriginTab] = useState<TabId | null>(null);
   const [selectedNomenclatureId, setSelectedNomenclatureId] = useState<string | null>(null);
   const [selectedStockDocumentId, setSelectedStockDocumentId] = useState<string | null>(null);
   const [selectedEngineAssemblyBomId, setSelectedEngineAssemblyBomId] = useState<string | null>(null);
@@ -1061,6 +1066,7 @@ export function App() {
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
+    setServiceOriginTab(null);
     setSelectedCounterpartyId(null);
     setSelectedReportPresetId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
@@ -1111,6 +1117,7 @@ export function App() {
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
+    setServiceOriginTab(null);
     setSelectedCounterpartyId(null);
     setSelectedReportPresetId(null);
     setChatUnreadTotal(0);
@@ -1345,6 +1352,7 @@ export function App() {
     tool_accounting: 'Учёт инструментов',
     products: 'Товары',
     services: 'Услуги',
+    services_by_brand: 'Услуги по маркам',
     nomenclature: 'Номенклатура',
     engine_assembly_bom: 'BOM двигателей',
     stock_balances: 'Остатки',
@@ -1750,8 +1758,9 @@ export function App() {
     setTab('product');
   }
 
-  async function openService(id: string) {
+  async function openService(id: string, opts?: { from?: TabId }) {
     setSelectedServiceId(id);
+    setServiceOriginTab(opts?.from ?? null);
     setTab('service');
   }
 
@@ -1869,6 +1878,7 @@ export function App() {
       products: 'Товары',
       product: 'Карточка товара',
       services: 'Услуги',
+    services_by_brand: 'Услуги по маркам',
       service: 'Карточка услуги',
       nomenclature: 'Номенклатура',
       engine_assembly_bom: 'BOM двигателей',
@@ -3217,6 +3227,24 @@ export function App() {
           />
         )}
 
+        {tab === 'services' && (
+          <ServicesPage
+            onOpen={(id: string) => openService(id, { from: 'services' })}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {tab === 'services_by_brand' && (
+          <ServicesByBrandPage
+            canEdit={caps.canEditMasterData}
+            canView={caps.canViewMasterData}
+            onOpenService={(id: string) => openService(id, { from: 'services_by_brand' })}
+          />
+        )}
+
         {tab === 'engine' && selectedEngineId && engineDetails && (
           <EngineDetailsPage
             key={selectedEngineId}
@@ -3603,8 +3631,11 @@ export function App() {
             requestClose={requestCardClose}
             onOpenCustomer={openCounterparty}
             onClose={() => {
+              const back = serviceOriginTab ?? 'nomenclature';
               setSelectedServiceId(null);
-              setTabState('nomenclature');
+    setServiceOriginTab(null);
+              setServiceOriginTab(null);
+              setTabState(back);
             }}
           />
         )}
