@@ -8,6 +8,14 @@ export type ReleaseWelcomeContent = {
 
 export const RELEASE_WELCOME_HISTORY: ReleaseWelcomeContent[] = [
   {
+    releaseLabel: 'v1.15.2',
+    title: 'Сборка релиза: повторный запуск с явными путями',
+    intro:
+      'Тот же fix как 1.15.1 — явные пути в asar; патч переиздан под новый тег чтобы GitHub Actions перебилдил installer с этим fix.',
+    highlights: ['Повторный запуск release workflow с исправленным electron-app/package.json build.files.'],
+    outro: 'Никаких изменений функциональности.',
+  },
+  {
     releaseLabel: 'v1.15.1',
     title: 'Сборка релиза: явные пути в asar',
     intro:
