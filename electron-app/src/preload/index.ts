@@ -406,6 +406,8 @@ const matricaApi = {
       limit?: number;
       offset?: number;
     }) => ipcRenderer.invoke('warehouse:nomenclature:list', args),
+    nomenclatureGroupCounts: async (args?: { search?: string; itemType?: string; directoryKind?: string }) =>
+      ipcRenderer.invoke('warehouse:nomenclature:groupCounts', args),
     nomenclatureUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:nomenclature:upsert', args),
     nomenclatureDelete: async (id: string) => ipcRenderer.invoke('warehouse:nomenclature:delete', id),
     nomenclatureEngineBrandsList: async (args: { nomenclatureId: string }) => ipcRenderer.invoke('warehouse:nomenclature:engineBrands:list', args),

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
@@ -136,6 +136,36 @@ async function localWarehouseNomenclatureList(
     rows: (hasMore ? page.slice(0, limit!) : page) as Array<Record<string, unknown>>,
     hasMore,
     meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseNomenclatureGroupCounts(
+  db: BetterSQLite3Database,
+  args?: { search?: string; itemType?: string; directoryKind?: string },
+): Promise<{ ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> }> {
+  const where = [isNull(erpNomenclature.deletedAt)];
+  if (args?.itemType) where.push(eq(erpNomenclature.itemType, String(args.itemType)));
+  if (args?.directoryKind) where.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+  let allRows = await db
+    .select({ groupId: erpNomenclature.groupId, name: erpNomenclature.name, code: erpNomenclature.code })
+    .from(erpNomenclature)
+    .where(and(...where));
+  const search = String(args?.search ?? '').trim().toLowerCase();
+  if (search) {
+    allRows = allRows.filter((row) => `${String(row.code ?? '')} ${String(row.name ?? '')}`.toLowerCase().includes(search));
+  }
+  const countMap = new Map<string | null, number>();
+  for (const row of allRows) {
+    const key = row.groupId ?? null;
+    countMap.set(key, (countMap.get(key) ?? 0) + 1);
+  }
+  return {
+    ok: true,
+    rows: Array.from(countMap.entries()).map(([groupId, cnt]) => ({
+      groupId,
+      groupName: 'Без группы',
+      count: cnt,
+    })),
   };
 }
 
@@ -601,6 +631,28 @@ export async function warehouseNomenclatureList(
   } catch (e) {
     const local = await localWarehouseNomenclatureList(db, args);
     return { ...local, warning: String(e) } as const;
+  }
+}
+
+export async function warehouseNomenclatureGroupCounts(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { search?: string; itemType?: string; directoryKind?: string },
+): Promise<{ ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> } | { ok: false; error: string }> {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.search) qp.set('search', args.search);
+    if (args?.itemType) qp.set('itemType', args.itemType);
+    if (args?.directoryKind) qp.set('directoryKind', args.directoryKind);
+    const path = `/warehouse/nomenclature/group-counts${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 15_000 });
+    if (!r.ok) {
+      return localWarehouseNomenclatureGroupCounts(db, args);
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> };
+  } catch {
+    return localWarehouseNomenclatureGroupCounts(db, args);
   }
 }
 

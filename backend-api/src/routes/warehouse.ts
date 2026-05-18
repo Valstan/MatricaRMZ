@@ -26,6 +26,7 @@ import {
   listWarehouseMovements,
   listWarehouseNomenclatureEngineBrands,
   listWarehouseNomenclature,
+  listWarehouseNomenclatureGroupCounts,
   listWarehouseStock,
   postWarehouseDocument,
   planWarehouseDocument,
@@ -160,6 +161,23 @@ warehouseRouter.post('/nomenclature/templates', requirePermission(PermissionCode
 
 warehouseRouter.delete('/nomenclature/templates/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
   const result = await deleteWarehouseNomenclatureTemplate({ id: String(req.params.id || '').trim() });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/nomenclature/group-counts', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const schema = z.object({
+    search: z.string().optional(),
+    itemType: z.string().optional(),
+    directoryKind: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listWarehouseNomenclatureGroupCounts({
+    ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
+    ...(parsed.data.itemType !== undefined ? { itemType: parsed.data.itemType } : {}),
+    ...(parsed.data.directoryKind !== undefined ? { directoryKind: parsed.data.directoryKind } : {}),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

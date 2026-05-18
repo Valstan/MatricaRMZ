@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import { PART_TEMPLATE_ID_ATTR_CODE, WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART } from '@matricarmz/shared';
 
@@ -1309,6 +1309,47 @@ export async function listWarehouseNomenclature(args?: {
         unitName: readLookupLabel(refs.unitById, row.unitId == null ? null : String(row.unitId)),
         defaultWarehouseName: readLookupLabel(refs.warehouseById, row.defaultWarehouseId == null ? null : String(row.defaultWarehouseId)),
       })) as Array<Record<string, unknown>>,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listWarehouseNomenclatureGroupCounts(args?: {
+  search?: string;
+  itemType?: string;
+  directoryKind?: string;
+}): Promise<Result<{ rows: Array<{ groupId: string | null; groupName: string; count: number }> }>> {
+  try {
+    const refs = await listWarehouseReferenceData();
+    const parts = [isNull(erpNomenclature.deletedAt)];
+    if (args?.itemType) parts.push(eq(erpNomenclature.itemType, String(args.itemType)));
+    if (args?.directoryKind) parts.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+    const searchRaw = String(args?.search ?? '').trim();
+    if (searchRaw) {
+      const pat = `%${searchRaw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      parts.push(
+        sql`(
+          COALESCE(${erpNomenclature.code}, '') ILIKE ${pat} ESCAPE '\\'
+          OR COALESCE(${erpNomenclature.sku}, '') ILIKE ${pat} ESCAPE '\\'
+          OR COALESCE(${erpNomenclature.name}, '') ILIKE ${pat} ESCAPE '\\'
+          OR COALESCE(${erpNomenclature.barcode}, '') ILIKE ${pat} ESCAPE '\\'
+        )`,
+      );
+    }
+    const rows = await db
+      .select({ groupId: erpNomenclature.groupId, cnt: count() })
+      .from(erpNomenclature)
+      .where(and(...parts))
+      .groupBy(erpNomenclature.groupId)
+      .orderBy(asc(erpNomenclature.groupId));
+    return {
+      ok: true,
+      rows: rows.map((row) => ({
+        groupId: row.groupId ?? null,
+        groupName: readLookupLabel(refs.groupById, row.groupId == null ? null : String(row.groupId)) ?? 'Без группы',
+        count: Number(row.cnt),
+      })),
     };
   } catch (e) {
     return { ok: false, error: String(e) };

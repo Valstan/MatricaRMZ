@@ -47,6 +47,7 @@ import {
   warehouseNomenclatureEngineBrandDelete,
   warehouseNomenclatureEngineBrandsList,
   warehouseNomenclatureEngineBrandUpsert,
+  warehouseNomenclatureGroupCounts,
   warehouseNomenclatureList,
   warehouseNomenclatureUpsert,
   warehouseStockList,
@@ -152,6 +153,16 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
     return warehouseNomenclatureList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'warehouse:nomenclature:groupCounts',
+    async (_e, args?: { search?: string; itemType?: string; directoryKind?: string }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+      if (!gate.ok) return gate as any;
+      return warehouseNomenclatureGroupCounts(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
 

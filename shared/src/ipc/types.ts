@@ -1258,6 +1258,14 @@ export type MatricaApi = {
     nomenclatureTemplatesList: () => Promise<{ ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string }>;
     nomenclatureTemplateUpsert: (args: Record<string, unknown>) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     nomenclatureTemplateDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    nomenclatureGroupCounts: (args?: {
+      search?: string;
+      itemType?: string;
+      directoryKind?: string;
+    }) => Promise<
+      | { ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> }
+      | { ok: false; error: string }
+    >;
     nomenclatureList: (args?: {
       id?: string;
       search?: string;

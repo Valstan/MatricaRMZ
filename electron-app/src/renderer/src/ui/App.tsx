@@ -1297,6 +1297,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
     ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests', 'tool_accounting'] as const) : []),
+    ...(caps.canViewMasterData ? (['services', 'services_by_brand'] as const) : []),
     ...(caps.canViewWorkOrders ? (['work_orders'] as const) : []),
     ...(caps.canViewParts ? (['parts'] as const) : []),
     ...(caps.canViewParts ? (['part_templates'] as const) : []),

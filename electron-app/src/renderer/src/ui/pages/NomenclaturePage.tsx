@@ -114,6 +114,7 @@ export function NomenclaturePage(props: {
   const [newTemplateItemType, setNewTemplateItemType] = useState('');
   const [newTemplateDirectoryKind, setNewTemplateDirectoryKind] = useState('');
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
+  const [groupCounts, setGroupCounts] = useState<Array<{ groupId: string | null; groupName: string; count: number }>>([]);
   const [panelTypesOpen, setPanelTypesOpen] = useState(false);
   const [panelPropertiesOpen, setPanelPropertiesOpen] = useState(false);
   const [panelTemplatesOpen, setPanelTemplatesOpen] = useState(false);
@@ -122,6 +123,23 @@ export function NomenclaturePage(props: {
   useEffect(() => {
     setPageIndex(0);
   }, [directoryKind, groupId, itemType, query]);
+
+  const refreshGroupCounts = useCallback(async () => {
+    const result = await window.matrica.warehouse.nomenclatureGroupCounts({
+      ...(query.trim() ? { search: query.trim() } : {}),
+      ...(itemType ? { itemType } : {}),
+      ...(directoryKind ? { directoryKind } : {}),
+    });
+    if (result?.ok) {
+      setGroupCounts(
+        [...result.rows].sort((a, b) => {
+          if (!a.groupId && b.groupId) return 1;
+          if (a.groupId && !b.groupId) return -1;
+          return a.groupName.localeCompare(b.groupName, 'ru');
+        }),
+      );
+    }
+  }, [directoryKind, itemType, query]);
 
   const refresh = useCallback(async () => {
     try {
@@ -183,6 +201,9 @@ export function NomenclaturePage(props: {
     void refresh();
   }, [refresh]);
   useEffect(() => {
+    void refreshGroupCounts();
+  }, [refreshGroupCounts]);
+  useEffect(() => {
     void refreshGovernance();
   }, [refreshGovernance]);
 
@@ -199,31 +220,18 @@ export function NomenclaturePage(props: {
     });
   }, [rows, sortDir, sortKey]);
 
-  const groupedRows = useMemo(() => {
-    const map = new Map<string, { key: string; label: string; rows: WarehouseNomenclatureListItem[] }>();
-    for (const row of sorted) {
-      const groupLabel = String(row.groupName ?? '').trim() || 'Без группы';
-      const key = groupLabel.toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, { key, label: groupLabel, rows: [] });
-      }
-      map.get(key)?.rows.push(row);
-    }
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-  }, [sorted]);
-
   useEffect(() => {
-    if (groupedRows.length === 0) {
+    if (groupCounts.length === 0) {
       setExpandedGroupKey(null);
       return;
     }
-    // Не переоткрываем группу автоматически: пользователь может осознанно свернуть все.
     if (expandedGroupKey == null) return;
-    const stillExists = groupedRows.some((group) => group.key === expandedGroupKey);
+    const stillExists = groupCounts.some((g) => (g.groupId ?? '__none__') === expandedGroupKey);
     if (!stillExists) {
       setExpandedGroupKey(null);
+      setGroupId(null);
     }
-  }, [expandedGroupKey, groupedRows]);
+  }, [expandedGroupKey, groupCounts]);
 
   function onSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -558,30 +566,43 @@ export function NomenclaturePage(props: {
               <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', flexShrink: 0 }}>{status}</div>
             ) : null}
 
-            <WarehouseListPager
-              pageSize={pageSize}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPageIndex(0);
-              }}
-              pageIndex={pageIndex}
-              onPageIndexChange={setPageIndex}
-              rowCount={sorted.length}
-              hasMore={hasMore}
-              disabled={status === 'Загрузка...'}
-            />
+            {expandedGroupKey != null ? (
+              <WarehouseListPager
+                pageSize={pageSize}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPageIndex(0);
+                }}
+                pageIndex={pageIndex}
+                onPageIndexChange={setPageIndex}
+                rowCount={sorted.length}
+                hasMore={hasMore}
+                disabled={status === 'Загрузка...'}
+              />
+            ) : null}
 
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 8 }}>
-              {groupedRows.length === 0 ? (
+              {groupCounts.length === 0 && sorted.length === 0 ? (
                 <div style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>Нет данных</div>
               ) : (
-                groupedRows.map((group) => {
-                  const expanded = expandedGroupKey === group.key;
+                groupCounts.map((group) => {
+                  const expanded = expandedGroupKey === (group.groupId ?? '__none__');
+                  const pageRowsForGroup = groupId === (group.groupId ?? null) ? sorted : [];
                   return (
-                    <section key={group.key} style={{ width: '100%', borderBottom: '1px solid var(--border)' }}>
+                    <section key={group.groupId ?? '__none__'} style={{ width: '100%', borderBottom: '1px solid var(--border)' }}>
                       <button
                         type="button"
-                        onClick={() => setExpandedGroupKey((prev) => (prev === group.key ? null : group.key))}
+                        onClick={() => {
+                          const key = group.groupId ?? '__none__';
+                          if (expandedGroupKey === key) {
+                            setExpandedGroupKey(null);
+                            setGroupId(null);
+                          } else {
+                            setExpandedGroupKey(key);
+                            setGroupId(group.groupId ?? null);
+                            setPageIndex(0);
+                          }
+                        }}
                         style={{
                           width: '100%',
                           height: GROUP_HEADER_HEIGHT,
@@ -604,69 +625,69 @@ export function NomenclaturePage(props: {
                           boxSizing: 'border-box',
                         }}
                       >
-                  <span
-                    style={{
-                      minWidth: 0,
-                      justifySelf: 'stretch',
-                      textAlign: 'left',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {group.label}
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expanded ? '#dbeafe' : '#166534', flexShrink: 0 }}>
-                    <span>{group.rows.length}</span>
-                    <span style={{ fontSize: 14 }}>{expanded ? '▾' : '▸'}</span>
-                  </span>
-                </button>
-                {expanded ? (
-                  <table className="list-table">
-                    <thead>
-                      <tr>
-                        <th
-                          style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220, top: GROUP_HEADER_HEIGHT }}
-                          onClick={() => onSort('name')}
+                        <span
+                          style={{
+                            minWidth: 0,
+                            justifySelf: 'stretch',
+                            textAlign: 'left',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
                         >
-                          {sortLabel('Наименование', 'name')}
-                        </th>
-                        <th
-                          style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
-                          onClick={() => onSort('itemType')}
-                        >
-                          {sortLabel('Тип', 'itemType')}
-                        </th>
-                        <th
-                          style={{ textAlign: 'left', cursor: 'pointer', minWidth: 140, top: GROUP_HEADER_HEIGHT }}
-                          onClick={() => onSort('group')}
-                        >
-                          {sortLabel('Группа', 'group')}
-                        </th>
-                        <th
-                          style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
-                          onClick={() => onSort('unit')}
-                        >
-                          {sortLabel('Ед.', 'unit')}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.rows.map((row) => (
-                        <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
-                          <td style={{ wordBreak: 'break-word' }}>{row.name || '—'}</td>
-                          <td>{itemTypeLabel(row.itemType)}</td>
-                          <td>{row.groupName || '—'}</td>
-                          <td>{row.unitName || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : null}
-              </section>
-            );
-          })
-        )}
+                          {group.groupName}
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expanded ? '#dbeafe' : '#166534', flexShrink: 0 }}>
+                          <span>{group.count}</span>
+                          <span style={{ fontSize: 14 }}>{expanded ? '▾' : '▸'}</span>
+                        </span>
+                      </button>
+                      {expanded ? (
+                        <table className="list-table">
+                          <thead>
+                            <tr>
+                              <th
+                                style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220, top: GROUP_HEADER_HEIGHT }}
+                                onClick={() => onSort('name')}
+                              >
+                                {sortLabel('Наименование', 'name')}
+                              </th>
+                              <th
+                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
+                                onClick={() => onSort('itemType')}
+                              >
+                                {sortLabel('Тип', 'itemType')}
+                              </th>
+                              <th
+                                style={{ textAlign: 'left', cursor: 'pointer', minWidth: 140, top: GROUP_HEADER_HEIGHT }}
+                                onClick={() => onSort('group')}
+                              >
+                                {sortLabel('Группа', 'group')}
+                              </th>
+                              <th
+                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
+                                onClick={() => onSort('unit')}
+                              >
+                                {sortLabel('Ед.', 'unit')}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pageRowsForGroup.map((row) => (
+                              <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
+                                <td style={{ wordBreak: 'break-word' }}>{row.name || '—'}</td>
+                                <td>{itemTypeLabel(row.itemType)}</td>
+                                <td>{row.groupName || '—'}</td>
+                                <td>{row.unitName || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : null}
+                    </section>
+                  );
+                })
+              )}
             </div>
           </div>
         </NomenclatureCollapsePanel>
