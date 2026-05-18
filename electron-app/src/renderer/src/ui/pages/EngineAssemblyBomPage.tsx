@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
+import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 
 type BomListRow = {
   id: string;
@@ -19,9 +20,110 @@ type BomListRow = {
   updatedAt: number;
 };
 
+type BomDetailsFull = {
+  header: {
+    id: string;
+    name: string;
+    engineBrandIds: string[];
+    status: string;
+    isDefault: boolean;
+    version: number;
+    notes?: string | null;
+  };
+  lines: Array<{
+    componentNomenclatureId: string;
+    componentNomenclatureCode?: string | null;
+    componentNomenclatureName?: string | null;
+    componentType: string;
+    qtyPerUnit: number;
+    variantGroup?: string | null;
+    lineKey?: string | null;
+    parentLineKey?: string | null;
+    isRequired: boolean;
+    priority: number;
+    notes?: string | null;
+  }>;
+};
+type BomLineFull = BomDetailsFull['lines'][number];
+
+const COMPONENT_TYPE_LABELS: Record<string, string> = {
+  sleeve: 'Гильза',
+  piston: 'Поршень',
+  ring: 'Кольцо',
+  jacket: 'Рубашка',
+  head: 'Головка',
+  carter: 'Картер',
+  other: 'Прочее',
+};
+
+function lineLabel(line: BomLineFull): string {
+  return line.componentNomenclatureName || line.componentNomenclatureCode || line.componentNomenclatureId || '—';
+}
+
 function brandsLabel(ids: string[], labels: Map<string, string>): string {
   if (!ids.length) return '—';
   return ids.map((id) => labels.get(id) ?? id).join(', ');
+}
+
+function buildAllBomsPrintHtml(
+  boms: BomDetailsFull[],
+  brandLabelById: Map<string, string>,
+): { sections: PrintSection[]; legendHtml: string } {
+  const componentSet = new Map<string, { name: string; code: string; type: string }>();
+  const sections: PrintSection[] = [];
+
+  for (const bom of boms) {
+    const brands = (bom.header.engineBrandIds ?? []).map((id) => brandLabelById.get(String(id)) ?? String(id)).join(', ') || '—';
+    const lines = [...bom.lines].sort((a, b) => {
+      const ap = Number(a.priority ?? 100);
+      const bp = Number(b.priority ?? 100);
+      if (ap !== bp) return ap - bp;
+      return lineLabel(a).localeCompare(lineLabel(b), 'ru');
+    });
+
+    for (const line of lines) {
+      const id = String(line.componentNomenclatureId ?? '');
+      if (id && !componentSet.has(id)) {
+        componentSet.set(id, {
+          name: line.componentNomenclatureName || '—',
+          code: line.componentNomenclatureCode || '—',
+          type: COMPONENT_TYPE_LABELS[line.componentType] || line.componentType || '—',
+        });
+      }
+    }
+
+    const rowsHtml = lines
+      .map((line) => {
+        const type = COMPONENT_TYPE_LABELS[line.componentType] || escapeHtml(line.componentType || '—');
+        const component = escapeHtml(lineLabel(line));
+        const qty = String(Number(line.qtyPerUnit ?? 0));
+        const required = line.isRequired !== false ? 'Да' : '—';
+        const vg = String(line.variantGroup ?? '').trim();
+        return `<tr><td>${type}</td><td>${component}</td><td style="text-align:center">${escapeHtml(qty)}</td><td style="text-align:center">${required}</td>${vg ? `<td>${escapeHtml(vg)}</td>` : '<td>—</td>'}</tr>`;
+      })
+      .join('');
+
+    const tableHtml = `<div style="margin-bottom:4px;font-size:11px;color:#6b7280">Марки: ${escapeHtml(brands)} · версия ${bom.header.version} · строк: ${lines.length}</div>
+<table><thead><tr><th>Тип</th><th>Компонент</th><th style="text-align:center">Кол-во/двиг.</th><th style="text-align:center">Обяз.</th><th>Вариант</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
+
+    sections.push({
+      id: `bom-${bom.header.id}`,
+      title: String(bom.header.name || 'BOM без названия'),
+      html: tableHtml,
+      checked: true,
+    });
+  }
+
+  const legendRows = Array.from(componentSet.entries())
+    .sort((a, b) => a[1].type.localeCompare(b[1].type, 'ru') || a[1].name.localeCompare(b[1].name, 'ru'))
+    .map(([, c]) => `<tr><td>${escapeHtml(c.type)}</td><td>${escapeHtml(c.code)}</td><td>${escapeHtml(c.name)}</td></tr>`)
+    .join('');
+
+  const legendHtml = legendRows
+    ? `<table><thead><tr><th>Тип</th><th>Код</th><th>Наименование</th></tr></thead><tbody>${legendRows}</tbody></table>`
+    : '<div class="muted">Нет компонентов</div>';
+
+  return { sections, legendHtml };
 }
 
 type SortKey = 'name' | 'brand' | 'version' | 'lines' | 'updatedAt';
@@ -120,11 +222,50 @@ export function EngineAssemblyBomPage(props: {
     return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
   }
 
+  const [printing, setPrinting] = useState(false);
+
+  const handlePrintAll = useCallback(async () => {
+    if (!sortedRows.length) return;
+    setPrinting(true);
+    setStatus('Загрузка BOM для печати...');
+    try {
+      const details: BomDetailsFull[] = [];
+      for (const row of sortedRows) {
+        const result = await window.matrica.warehouse.assemblyBomGet(String(row.id));
+        if (result?.ok) {
+          const bom = (result as { ok: true; bom: unknown }).bom as BomDetailsFull;
+          if (bom) details.push(bom);
+        }
+      }
+      if (!details.length) {
+        setStatus('Ошибка: не удалось загрузить BOM-спецификации');
+        return;
+      }
+      const { sections, legendHtml } = buildAllBomsPrintHtml(details, brandLabelById);
+      sections.push({
+        id: 'legend',
+        title: 'Легенда компонентов',
+        html: legendHtml,
+        checked: true,
+      });
+      openPrintPreview({
+        title: 'Спецификации сборки двигателей (BOM)',
+        subtitle: `Всего спецификаций: ${details.length} · дата: ${new Date().toLocaleDateString('ru-RU')}`,
+        sections,
+      });
+      setStatus('');
+    } catch (e) {
+      setStatus(`Ошибка печати: ${String(e)}`);
+    } finally {
+      setPrinting(false);
+    }
+  }, [brandLabelById, sortedRows]);
+
   const selectedEngineBrandId = engineBrandIdFilter.length === 1 ? engineBrandIdFilter[0] : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto', alignItems: 'end' }}>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка)</span>
           <MultiSearchSelect
@@ -137,6 +278,12 @@ export function EngineAssemblyBomPage(props: {
             }}
           />
         </label>
+        <Button
+          onClick={() => void handlePrintAll()}
+          disabled={printing || sortedRows.length === 0}
+        >
+          {printing ? 'Загрузка...' : 'Печать всех BOM'}
+        </Button>
         {props.canEdit ? (
           <Button
             onClick={async () => {

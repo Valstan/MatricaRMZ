@@ -1344,7 +1344,7 @@ export function ContractDetailsPage(props: {
               onChange={(addonSection) => {
                 dirtyRef.current = true;
                 setSections((s) =>
-                  s ? { ...s, addons: s.addons.map((a, i) => (i === idx ? addonSection : a)) } : s
+                  s ? { ...s, addons: s.addons.map((a, i) => (i === idx ? (addonSection as ContractAddonSection) : a)) } : s
                 );
               }}
               onRemove={() => removeAddon(idx)}

@@ -1214,4 +1214,57 @@ export const erpJournalDocuments = pgTable(
   }),
 );
 
+export const servicePriceOrders = pgTable(
+  'service_price_orders',
+  {
+    id: uuid('id').primaryKey(),
+    orderNumber: text('order_number').notNull(),
+    orderDate: bigint('order_date', { mode: 'number' }).notNull(),
+    title: text('title').notNull(),
+    notes: text('notes'),
+    documentLink: text('document_link'),
+    issuedByEmployeeId: uuid('issued_by_employee_id'),
+    effectiveFrom: bigint('effective_from', { mode: 'number' }).notNull(),
+    status: text('status').notNull().default('active'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    orderNumberUq: uniqueIndex('service_price_orders_number_uq').on(t.orderNumber).where(sql`${t.deletedAt} is null`),
+    effectiveFromIdx: index('service_price_orders_effective_from_idx').on(t.effectiveFrom),
+  }),
+);
+
+export const servicePriceHistory = pgTable(
+  'service_price_history',
+  {
+    id: uuid('id').primaryKey(),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => servicePriceOrders.id),
+    price: integer('price').notNull(),
+    priceCurrency: text('price_currency').notNull().default('RUB'),
+    effectiveFrom: bigint('effective_from', { mode: 'number' }).notNull(),
+    notes: text('notes'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    nomenclatureEffectiveIdx: index('service_price_history_nomenclature_effective_idx').on(t.nomenclatureId, t.effectiveFrom),
+    orderIdx: index('service_price_history_order_idx').on(t.orderId),
+    uniqueNomOrder: uniqueIndex('service_price_history_nomenclature_order_uq')
+      .on(t.nomenclatureId, t.orderId)
+      .where(sql`${t.deletedAt} is null`),
+  }),
+);
+
 

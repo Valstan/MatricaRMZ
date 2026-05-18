@@ -1299,9 +1299,11 @@ export function App() {
     ...(caps.canViewSupplyRequests ? (['requests', 'tool_accounting'] as const) : []),
     ...(caps.canViewMasterData ? (['services', 'services_by_brand'] as const) : []),
     ...(caps.canViewWorkOrders ? (['work_orders'] as const) : []),
-    ...(caps.canViewParts ? (['parts'] as const) : []),
-    ...(caps.canViewParts ? (['part_templates'] as const) : []),
-    ...(caps.canViewMasterData ? (['tools'] as const) : []),
+    // Legacy справочники: меню скрыто, создание/просмотр через Склад → Номенклатура (фильтр по типу).
+    // Прямой переход (deeplink, история) по-прежнему работает — компоненты остаются ниже в коде.
+    // ...(caps.canViewParts ? (['parts'] as const) : []),
+    // ...(caps.canViewParts ? (['part_templates'] as const) : []),
+    // ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData
       ? (['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'] as const)

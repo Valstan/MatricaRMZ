@@ -13,11 +13,18 @@ import { WarehouseListPager, type WarehouseListPageSize } from '../components/Wa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
 import {
+  ALL_NOMENCLATURE_CREATE_PRESETS,
+  ASSEMBLY_PRESET,
+  COMPONENT_PRESET,
+  CONSUMABLE_PRESET,
+  ENGINE_PRESET,
+  MATERIAL_PRESET,
   PARTS_PRESET,
   PRODUCTS_PRESET,
   SERVICES_PRESET,
   TOOLS_PRESET,
   type NomenclatureCreateConfig,
+  type NomenclatureDirectoryPreset,
 } from './nomenclatureDirectoryPresets.js';
 import { parseTemplatePropertiesJson } from '../utils/nomenclatureTemplateProperties.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
@@ -95,6 +102,8 @@ export function NomenclaturePage(props: {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState<WarehouseListPageSize>(50);
   const [pageIndex, setPageIndex] = useState(0);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [creatingKind, setCreatingKind] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -259,17 +268,45 @@ export function NomenclaturePage(props: {
     return itemTypeOptions.find((item) => item.id === itemTypeValue)?.label ?? String(itemTypeValue ?? '—');
   }
 
+  const runCreateWithPreset = useCallback(
+    async (preset: NomenclatureDirectoryPreset) => {
+      setCreatingKind(preset.directoryKind);
+      setStatus(`Создание новой позиции (${preset.createConfig.name})...`);
+      try {
+        const result = await createNomenclatureLineFromPreset({
+          directoryKind: preset.directoryKind,
+          createConfig: preset.createConfig,
+          displayName: preset.createConfig.name,
+        });
+        if (!result.ok) {
+          if ('duplicateNomenclatureId' in result) {
+            await refresh();
+            await props.onOpen(result.duplicateNomenclatureId);
+            setStatus(`Позиция уже существовала, открыта существующая карточка (${result.duplicateNomenclatureId.slice(0, 8)}...).`);
+            return;
+          }
+          setStatus(`Ошибка: ${result.error}`);
+          return;
+        }
+        await refresh();
+        setStatus('');
+        setCreateDialogOpen(false);
+        props.onOpen(result.nomenclatureId);
+      } finally {
+        setCreatingKind(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.onOpen],
+  );
+
   function getCreateConfigForDirectoryKind(kind: string): NomenclatureCreateConfig | null {
-    switch (String(kind ?? '').trim().toLowerCase()) {
-      case 'part':
-        return PARTS_PRESET.createConfig;
-      case 'tool':
-        return TOOLS_PRESET.createConfig;
-      case 'good':
+    const k = String(kind ?? '').trim().toLowerCase();
+    const preset = ALL_NOMENCLATURE_CREATE_PRESETS.find((p) => p.directoryKind === k);
+    if (preset) return preset.createConfig;
+    switch (k) {
       case 'product':
         return PRODUCTS_PRESET.createConfig;
-      case 'service':
-        return SERVICES_PRESET.createConfig;
       default:
         return null;
     }
@@ -501,31 +538,14 @@ export function NomenclaturePage(props: {
             >
               {props.canEdit ? (
                 <Button
-                  onClick={async () => {
+                  onClick={() => {
                     const kind = directoryKind ? String(directoryKind).trim().toLowerCase() : '';
-                    const createConfig = getCreateConfigForDirectoryKind(kind);
-                    if (!kind || !createConfig) {
-                      setStatus('Для создания позиции нужно выбрать источник в фильтре «Источник» (Детали, Инструменты, Товары, Услуги).');
+                    const preset = ALL_NOMENCLATURE_CREATE_PRESETS.find((p) => p.directoryKind === kind);
+                    if (preset) {
+                      void runCreateWithPreset(preset);
                       return;
                     }
-                    setStatus('Создание новой позиции...');
-                    const result = await createNomenclatureLineFromPreset({
-                      directoryKind: kind,
-                      createConfig,
-                      displayName: createConfig.name,
-                    });
-                    if (!result.ok) {
-                      if ('duplicatePartId' in result) {
-                        await refresh();
-                        await props.onOpen(result.duplicatePartId);
-                        setStatus(`Деталь уже существовала, открыта существующая карточка (${result.duplicatePartId.slice(0, 8)}...).`);
-                        return;
-                      }
-                      setStatus(`Ошибка: ${result.error}`);
-                      return;
-                    }
-                    await refresh();
-                    props.onOpen(result.mode === 'part' ? result.partId : result.nomenclatureId);
+                    setCreateDialogOpen(true);
                   }}
                 >
                   Добавить позицию
@@ -706,6 +726,81 @@ export function NomenclaturePage(props: {
         onClose={() => setTemplateEdit(null)}
         onSaved={() => void refreshGovernance()}
       />
+      {createDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !creatingKind && setCreateDialogOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.45)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              color: 'inherit',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              padding: 16,
+              minWidth: 420,
+              maxWidth: 'min(640px, 96vw)',
+              maxHeight: '85vh',
+              overflow: 'auto',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+              display: 'grid',
+              gap: 12,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Какую позицию создать?</div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+              Выберите тип. Код и название можно изменить позже. Откроется карточка номенклатуры.
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {ALL_NOMENCLATURE_CREATE_PRESETS.map((preset) => (
+                <button
+                  key={preset.directoryKind}
+                  type="button"
+                  disabled={!!creatingKind}
+                  onClick={() => void runCreateWithPreset(preset)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '10px 12px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: creatingKind === preset.directoryKind ? 'var(--surface-2)' : 'var(--surface)',
+                    color: 'inherit',
+                    cursor: creatingKind ? 'wait' : 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{preset.createButtonText.replace(/^(Добавить|Создать)\s+/i, '')}</div>
+                    <div style={{ fontSize: 12, color: 'var(--subtle)' }}>тип: {preset.createConfig.itemType}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                    {creatingKind === preset.directoryKind ? 'Создаём...' : '→'}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button variant="ghost" disabled={!!creatingKind} onClick={() => setCreateDialogOpen(false)}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

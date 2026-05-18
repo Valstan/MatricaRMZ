@@ -2,16 +2,66 @@ import type { ErpDocumentStatus, ErpDocumentType } from './erp.js';
 
 export const NomenclatureItemType = {
   Engine: 'engine',
-  Material: 'material',
-  Component: 'component',
   Assembly: 'assembly',
-  Product: 'product',
+  Part: 'part',
+  Component: 'component',
+  Material: 'material',
+  Consumable: 'consumable',
+  Tool: 'tool',
+  Good: 'good',
+  Service: 'service',
   SemiProduct: 'semi_product',
+  Product: 'product',
   Waste: 'waste',
   ToolConsumable: 'tool_consumable',
 } as const;
 
 export type NomenclatureItemType = (typeof NomenclatureItemType)[keyof typeof NomenclatureItemType];
+
+export const NOMENCLATURE_ITEM_TYPE_LABELS: Record<NomenclatureItemType, string> = {
+  engine: 'Двигатель',
+  assembly: 'Сборочная единица (узел)',
+  part: 'Деталь',
+  component: 'Комплектующее',
+  material: 'Материал',
+  consumable: 'Расходник',
+  tool: 'Инструмент',
+  good: 'Товар',
+  service: 'Услуга',
+  semi_product: 'Полуфабрикат',
+  product: 'Готовая продукция',
+  waste: 'Отходы',
+  tool_consumable: 'Расходник инструмента',
+};
+
+export const NOMENCLATURE_ITEM_TYPE_HAS_STOCK: Record<NomenclatureItemType, boolean> = {
+  engine: true,
+  assembly: true,
+  part: true,
+  component: true,
+  material: true,
+  consumable: true,
+  tool: true,
+  good: true,
+  service: false,
+  semi_product: true,
+  product: true,
+  waste: true,
+  tool_consumable: true,
+};
+
+export const NOMENCLATURE_ITEM_TYPE_PRIMARY_ORDER: NomenclatureItemType[] = [
+  'part',
+  'assembly',
+  'engine',
+  'component',
+  'material',
+  'consumable',
+  'tool',
+  'good',
+  'service',
+  'semi_product',
+];
 
 export const WarehouseNomenclatureType = {
   Engine: 'engine',

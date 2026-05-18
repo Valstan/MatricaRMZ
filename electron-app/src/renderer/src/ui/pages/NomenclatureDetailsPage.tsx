@@ -515,12 +515,16 @@ export function NomenclatureDetailsPage(props: {
                 }
               : {})}
           />
-          <div>Штрихкод</div>
-          <Input value={barcode} disabled={!canEditNomenclatureFields} onChange={(e) => setBarcode(e.target.value)} />
-          <div>Мин. остаток</div>
-          <Input value={minStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMinStock(e.target.value)} />
-          <div>Макс. остаток</div>
-          <Input value={maxStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMaxStock(e.target.value)} />
+          {itemType !== 'service' && (
+            <>
+              <div>Штрихкод</div>
+              <Input value={barcode} disabled={!canEditNomenclatureFields} onChange={(e) => setBarcode(e.target.value)} />
+              <div>Мин. остаток</div>
+              <Input value={minStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMinStock(e.target.value)} />
+              <div>Макс. остаток</div>
+              <Input value={maxStock} type="number" disabled={!canEditNomenclatureFields} onChange={(e) => setMaxStock(e.target.value)} />
+            </>
+          )}
           <div>Марка по умолчанию</div>
           <SearchSelect
             value={defaultBrandId}
@@ -549,39 +553,47 @@ export function NomenclatureDetailsPage(props: {
                 }
               : {})}
           />
-          <div>Серийный учет</div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={isSerialTracked} disabled={!canEditNomenclatureFields} onChange={(e) => setIsSerialTracked(e.target.checked)} />
-            Вести по серийным номерам
-          </label>
-          <div>Склад по умолчанию</div>
-          <SearchSelect
-            value={defaultWarehouseId}
-            disabled={!canEditNomenclatureFields}
-            options={warehouseOptions}
-            placeholder="Склад по умолчанию"
-            showAllWhenEmpty
-            emptyQueryLimit={15}
-            onChange={(next) => {
-              setDefaultWarehouseId(next);
-              pushRecent('defaultWarehouseId', next);
-            }}
-            {...(canEditNomenclatureFields
-              ? {
-                  createLabel: 'Новый склад',
-                  onCreate: async (label: string) => {
-                    const id = await createLookupEntity('warehouse_ref', label);
-                    if (!id) {
-                      setStatus('Ошибка: не удалось создать склад');
-                      return null;
+          {itemType !== 'service' && (
+            <>
+              <div>Серийный учет</div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={isSerialTracked} disabled={!canEditNomenclatureFields} onChange={(e) => setIsSerialTracked(e.target.checked)} />
+                Вести по серийным номерам
+              </label>
+            </>
+          )}
+          {itemType !== 'service' && (
+            <>
+              <div>Склад по умолчанию</div>
+              <SearchSelect
+                value={defaultWarehouseId}
+                disabled={!canEditNomenclatureFields}
+                options={warehouseOptions}
+                placeholder="Склад по умолчанию"
+                showAllWhenEmpty
+                emptyQueryLimit={15}
+                onChange={(next) => {
+                  setDefaultWarehouseId(next);
+                  pushRecent('defaultWarehouseId', next);
+                }}
+                {...(canEditNomenclatureFields
+                  ? {
+                      createLabel: 'Новый склад',
+                      onCreate: async (label: string) => {
+                        const id = await createLookupEntity('warehouse_ref', label);
+                        if (!id) {
+                          setStatus('Ошибка: не удалось создать склад');
+                          return null;
+                        }
+                        await refreshRefs();
+                        pushRecent('defaultWarehouseId', id);
+                        return id;
+                      },
                     }
-                    await refreshRefs();
-                    pushRecent('defaultWarehouseId', id);
-                    return id;
-                  },
-                }
-              : {})}
-          />
+                  : {})}
+              />
+            </>
+          )}
           <div style={{ gridColumn: '1 / -1' }}>
             <button type="button" onClick={() => setShowAdvancedSpec((v) => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#2563eb', fontSize: 13 }}>
               {showAdvancedSpec ? '▼' : '▸'} Спецификация (JSON, для отладки)
@@ -684,7 +696,7 @@ export function NomenclatureDetailsPage(props: {
         </div>
       </div>
 
-      <div style={{ border: '1px solid var(--border)', padding: 12 }}>
+      {itemType !== 'service' && <div style={{ border: '1px solid var(--border)', padding: 12 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Серийные экземпляры</div>
         {canEditNomenclatureFields ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr) auto', gap: 8, marginBottom: 10 }}>
@@ -702,7 +714,7 @@ export function NomenclatureDetailsPage(props: {
             />
             <SearchSelect
               value={instanceContractSectionNumber}
-              options={contractSections.map((s) => ({ value: s, label: s }))}
+              options={contractSections.map((s) => ({ id: s, label: s }))}
               placeholder="ДС контракта (опционально)"
               showAllWhenEmpty
               disabled={!instanceContractId}
@@ -794,9 +806,9 @@ export function NomenclatureDetailsPage(props: {
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
 
-      <div style={{ border: '1px solid var(--border)', padding: 12 }}>
+      {itemType !== 'service' && <div style={{ border: '1px solid var(--border)', padding: 12 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Остатки по складам (всего: {totalQty})</div>
         <table className="list-table">
           <thead>
@@ -829,9 +841,9 @@ export function NomenclatureDetailsPage(props: {
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
 
-      <div style={{ border: '1px solid var(--border)', padding: 12 }}>
+      {itemType !== 'service' && <div style={{ border: '1px solid var(--border)', padding: 12 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Последние движения</div>
         <table className="list-table">
           <thead>
@@ -867,7 +879,7 @@ export function NomenclatureDetailsPage(props: {
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       {row ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--subtle)', fontSize: 12 }}>

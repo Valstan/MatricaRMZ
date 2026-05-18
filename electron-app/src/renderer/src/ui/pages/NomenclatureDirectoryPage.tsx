@@ -291,17 +291,17 @@ export function NomenclatureDirectoryPage(props: {
                 displayName: props.createConfig.name,
               });
               if (!r.ok) {
-                if ('duplicatePartId' in r) {
+                if ('duplicateNomenclatureId' in r) {
                   await refresh();
-                  await props.onOpen(r.duplicatePartId);
-                  setStatus(`Деталь уже существовала, открыта существующая карточка (${r.duplicatePartId.slice(0, 8)}...).`);
+                  await props.onOpen(r.duplicateNomenclatureId);
+                  setStatus(`Позиция уже существовала, открыта существующая карточка (${r.duplicateNomenclatureId.slice(0, 8)}...).`);
                   return;
                 }
                 setStatus(`Ошибка: ${r.error}`);
                 return;
               }
               await refresh();
-              await props.onOpen(r.mode === 'part' ? r.partId : r.nomenclatureId);
+              await props.onOpen(r.nomenclatureId);
             }}
           >
             {props.createButtonText}

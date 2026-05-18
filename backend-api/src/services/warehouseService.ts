@@ -321,14 +321,58 @@ const DEFAULT_NOMENCLATURE_PROPERTY_SEEDS: Array<{
   { code: 'purchase_note', name: 'Комментарий для закупки', dataType: 'text' },
   { code: 'vat_rate', name: 'Ставка НДС, %', dataType: 'number' },
   { code: 'min_ship_qty', name: 'Мин. партия отгрузки', dataType: 'number' },
+  { code: 'drawing_no', name: 'Чертёж / № документации', dataType: 'text', description: 'Номер чертежа или техпаспорта' },
+  { code: 'gost_tu', name: 'ГОСТ / ТУ', dataType: 'text', description: 'Стандарт, по которому изготовлена позиция' },
+  { code: 'inventory_no', name: 'Инвентарный номер', dataType: 'text', description: 'Для инструмента и оснастки' },
+  { code: 'service_life_h', name: 'Ресурс, ч', dataType: 'number', description: 'Наработка до списания/проверки' },
+  { code: 'calibration_period_m', name: 'Период поверки, мес', dataType: 'number' },
+  { code: 'last_calibration_at', name: 'Последняя поверка', dataType: 'date' },
+  { code: 'shelf_life_m', name: 'Срок хранения, мес', dataType: 'number' },
+  { code: 'analogues', name: 'Аналоги', dataType: 'text', description: 'Артикулы взаимозаменяемых позиций' },
+  { code: 'tolerance_class', name: 'Класс точности', dataType: 'text' },
+  { code: 'engine_power_kw', name: 'Мощность, кВт', dataType: 'number' },
+  { code: 'engine_displacement_l', name: 'Рабочий объём, л', dataType: 'number' },
+  { code: 'service_time_norm_min', name: 'Норма времени, мин', dataType: 'number', description: 'Базовая трудоёмкость услуги' },
+  { code: 'service_grade', name: 'Разряд работ', dataType: 'text', description: 'Квалификационный разряд исполнителя' },
 ];
 
 const DEFAULT_NOMENCLATURE_KIND_TO_PROPERTY_CODES: Record<string, string[]> = {
-  part: ['manufacturer', 'material', 'partner_sku', 'weight_net_kg', 'dimensions_mm', 'tnved', 'okpd2', 'quality_grade'],
-  tool: ['manufacturer', 'material', 'partner_sku', 'warranty_months', 'storage_conditions', 'purchase_note', 'country_origin'],
+  part: ['drawing_no', 'gost_tu', 'manufacturer', 'material', 'partner_sku', 'weight_net_kg', 'dimensions_mm', 'tolerance_class', 'analogues', 'quality_grade'],
+  assembly: ['drawing_no', 'gost_tu', 'manufacturer', 'weight_net_kg', 'dimensions_mm', 'analogues', 'purchase_note'],
+  engine: ['manufacturer', 'engine_power_kw', 'engine_displacement_l', 'weight_net_kg', 'drawing_no', 'partner_sku', 'country_origin'],
+  component: ['manufacturer', 'partner_sku', 'analogues', 'weight_net_kg', 'dimensions_mm', 'country_origin', 'tnved'],
+  material: ['gost_tu', 'manufacturer', 'partner_sku', 'storage_conditions', 'shelf_life_m', 'weight_net_kg', 'tnved'],
+  consumable: ['manufacturer', 'partner_sku', 'analogues', 'shelf_life_m', 'storage_conditions', 'min_ship_qty'],
+  tool: ['inventory_no', 'manufacturer', 'partner_sku', 'service_life_h', 'calibration_period_m', 'last_calibration_at', 'warranty_months', 'storage_conditions'],
   good: ['manufacturer', 'partner_sku', 'tnved', 'vat_rate', 'min_ship_qty', 'weight_net_kg', 'purchase_note'],
-  service: ['purchase_note', 'vat_rate', 'accounting_group', 'partner_sku'],
+  service: ['service_time_norm_min', 'service_grade', 'accounting_group', 'vat_rate', 'purchase_note'],
   engine_brand: ['manufacturer', 'country_origin', 'purchase_note'],
+};
+
+const DEFAULT_NOMENCLATURE_TEMPLATE_LABELS: Record<string, string> = {
+  part: 'Стандарт: деталь',
+  assembly: 'Стандарт: сборочная единица',
+  engine: 'Стандарт: двигатель',
+  component: 'Стандарт: комплектующее',
+  material: 'Стандарт: материал',
+  consumable: 'Стандарт: расходник',
+  tool: 'Стандарт: инструмент',
+  good: 'Стандарт: товар',
+  service: 'Стандарт: услуга',
+  engine_brand: 'Стандарт: марка двигателя',
+};
+
+const DEFAULT_NOMENCLATURE_TEMPLATE_ITEM_TYPE: Record<string, string> = {
+  part: 'part',
+  assembly: 'assembly',
+  engine: 'engine',
+  component: 'component',
+  material: 'material',
+  consumable: 'consumable',
+  tool: 'tool',
+  good: 'good',
+  service: 'service',
+  engine_brand: 'engine_brand',
 };
 
 function isEmptyTemplatePropertiesJson(raw: string | null | undefined): boolean {
@@ -348,20 +392,7 @@ function buildNomenclatureTemplatePropertiesPayload(propertyIds: string[]): stri
 }
 
 function defaultNomenclatureTemplateLabel(kind: string): string {
-  switch (kind) {
-    case 'part':
-      return 'Стандарт: детали';
-    case 'tool':
-      return 'Стандарт: инструмент';
-    case 'good':
-      return 'Стандарт: товары';
-    case 'service':
-      return 'Стандарт: услуги';
-    case 'engine_brand':
-      return 'Стандарт: марки двигателей';
-    default:
-      return `Стандарт: ${kind}`;
-  }
+  return DEFAULT_NOMENCLATURE_TEMPLATE_LABELS[kind] ?? `Стандарт: ${kind}`;
 }
 
 let defaultNomenclatureGovernanceSeed: Promise<void> | null = null;
@@ -397,7 +428,7 @@ async function runDefaultNomenclatureGovernanceSeed(): Promise<void> {
     const ids = codes.map((c) => idByCode.get(c.toLowerCase())).filter((x): x is string => Boolean(x));
     if (!ids.length) continue;
     const existing = templateRows.find((r) => String(r.attrs.code ?? '').trim().toLowerCase() === templateCode);
-    const itemTypeCode = kind === 'tool' ? 'tool_consumable' : 'product';
+    const itemTypeCode = DEFAULT_NOMENCLATURE_TEMPLATE_ITEM_TYPE[kind] ?? kind;
     const res = await upsertWarehouseNomenclatureTemplate({
       ...(existing ? { id: existing.id } : {}),
       code: templateCode,
@@ -1230,6 +1261,7 @@ export async function listWarehouseNomenclature(args?: {
   search?: string;
   itemType?: string;
   directoryKind?: string;
+  directoryRefId?: string;
   groupId?: string;
   isActive?: boolean;
   limit?: number;
@@ -1270,6 +1302,7 @@ export async function listWarehouseNomenclature(args?: {
     if (args?.itemType) parts.push(eq(erpNomenclature.itemType, String(args.itemType)));
     if (args?.groupId) parts.push(eq(erpNomenclature.groupId, String(args.groupId)));
     if (args?.directoryKind) parts.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+    if (args?.directoryRefId) parts.push(eq(erpNomenclature.directoryRefId, String(args.directoryRefId)));
     if (args?.isActive !== undefined) parts.push(eq(erpNomenclature.isActive, Boolean(args.isActive)));
 
     if (searchRaw) {

@@ -33,10 +33,9 @@ export async function createSourceEntityForDirectoryKind(kind: string, label: st
 }
 
 export type CreateNomenclatureLineFromPresetResult =
-  | { ok: true; mode: 'nomenclature'; nomenclatureId: string }
-  | { ok: true; mode: 'part'; partId: string }
+  | { ok: true; nomenclatureId: string }
   | { ok: false; error: string }
-  | { ok: false; duplicatePartId: string; message: string };
+  | { ok: false; duplicateNomenclatureId: string; message: string };
 
 function labelNorm(s: string | null | undefined) {
   return String(s ?? '').trim().toLowerCase();
@@ -52,20 +51,71 @@ function findNomenclatureGroupId(groups: WarehouseLookupOption[] | undefined, ex
   return null;
 }
 
-/** Группа склада по виду справочника: «Инструменты», «Товары», «Услуги» и запасные варианты из пресетов. */
+/** Группа склада по виду справочника / типу позиции. Учитывает новые имена групп сидинга. */
 export function pickWarehouseNomenclatureGroupId(
   groups: WarehouseLookupOption[] | undefined,
   directoryKind: string,
 ): string | null {
   const dk = String(directoryKind ?? '').trim().toLowerCase();
   if (dk === 'tool') {
-    return findNomenclatureGroupId(groups, ['Инструменты', 'Инструмент и оснастка']);
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Инструмент и оснастка',
+      'Инструменты',
+      'Инструмент и оснастка',
+    ]);
   }
   if (dk === 'good' || dk === 'product') {
-    return findNomenclatureGroupId(groups, ['Товары', 'Готовая продукция', 'Покупные комплектующие']);
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Товары',
+      'Товары',
+      'Готовая продукция',
+      'Покупные комплектующие',
+    ]);
   }
   if (dk === 'service') {
-    return findNomenclatureGroupId(groups, ['Услуги', 'Услуги подрядчиков']);
+    return findNomenclatureGroupId(groups, [
+      'Услуги · Собственные',
+      'Услуги · Подрядчиков',
+      'Услуги',
+    ]);
+  }
+  if (dk === 'part') {
+    return findNomenclatureGroupId(groups, [
+      'Производство · Детали собственного изготовления',
+      'Детали',
+    ]);
+  }
+  if (dk === 'assembly') {
+    return findNomenclatureGroupId(groups, [
+      'Производство · Сборочные единицы (узлы)',
+      'Сборочные единицы',
+      'Узлы',
+    ]);
+  }
+  if (dk === 'engine') {
+    return findNomenclatureGroupId(groups, [
+      'Производство · Готовая продукция (двигатели)',
+      'Готовая продукция',
+      'Двигатели',
+    ]);
+  }
+  if (dk === 'component') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Покупные детали и комплектующие',
+      'Комплектующие',
+    ]);
+  }
+  if (dk === 'material') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Материалы и сырьё',
+      'Материалы',
+    ]);
+  }
+  if (dk === 'consumable') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Расходные материалы',
+      'Расходники',
+    ]);
   }
   return null;
 }
@@ -83,6 +133,7 @@ export async function createNomenclatureLineFromPreset(args: {
   const createConfig = args.createConfig;
   const nameForRow = displayName || createConfig.name;
 
+  let sourceId: string | null = null;
   if (directoryKind === 'part') {
     let createdPart: any | null = null;
     let rawErr = 'не удалось создать деталь';
@@ -105,71 +156,23 @@ export async function createNomenclatureLineFromPreset(args: {
       if (attempt === 0) {
         continue;
       }
-      return { ok: false, duplicatePartId: String(duplicateMatch[1]), message: rawErr };
+      const dupPartId = String(duplicateMatch[1]);
+      const existing = await window.matrica.warehouse.nomenclatureList({ directoryKind: 'part', directoryRefId: dupPartId, limit: 1 }).catch(() => null);
+      const existingRow = (existing && existing.ok) ? (existing.rows ?? [])[0] ?? null : null;
+      if (existingRow?.id) {
+        return { ok: false, duplicateNomenclatureId: String(existingRow.id), message: rawErr };
+      }
+      return { ok: false, error: rawErr };
     }
     if (!createdPart?.ok || !createdPart?.part?.id) {
       return { ok: false, error: rawErr || 'не удалось создать деталь' };
     }
-
-    const sourceId = String(createdPart.part.id);
-    const lookups = await window.matrica.warehouse.lookupsGet();
-    if (!lookups?.ok) {
-      return { ok: false, error: String(lookups?.error ?? 'не удалось загрузить справочники склада') };
+    sourceId = String(createdPart.part.id);
+  } else {
+    sourceId = await createSourceEntityForDirectoryKind(directoryKind, nameForRow);
+    if (!sourceId) {
+      return { ok: false, error: `Не удалось создать карточку источника для «${directoryKind}». Проверьте типы справочников (например, «good» / «service») и права.` };
     }
-    const groups = lookups.lookups?.nomenclatureGroups as WarehouseLookupOption[] | undefined;
-    const groupId = pickWarehouseNomenclatureGroupId(groups, directoryKind) ?? String(groups?.[0]?.id ?? '').trim();
-    const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
-    if (!groupId || !unitId) {
-      return { ok: false, error: 'Не найдены группа номенклатуры или единица измерения по умолчанию (Склад → Номенклатура).' };
-    }
-
-    const templatesRes = await window.matrica.warehouse.nomenclatureTemplatesList();
-    if (!templatesRes?.ok) {
-      return { ok: false, error: String(templatesRes?.error ?? 'не удалось загрузить шаблоны номенклатуры') };
-    }
-    const templates = (templatesRes.rows ?? []).map((row) => ({
-      id: String((row as { id?: string }).id ?? ''),
-      code: String((row as { code?: string }).code ?? '').trim().toLowerCase(),
-      itemTypeCode: String((row as { itemTypeCode?: string }).itemTypeCode ?? '').trim().toLowerCase(),
-      directoryKind: String((row as { directoryKind?: string }).directoryKind ?? '').trim().toLowerCase(),
-    }));
-    const itemTypeCode = String(createConfig.itemType ?? '').trim().toLowerCase() as NomenclatureItemType;
-    const defaultCode = `default_${directoryKind}`;
-    const bestTemplate =
-      templates.find((t) => t.id && t.code === defaultCode) ??
-      templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && t.directoryKind === directoryKind) ??
-      templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && !t.directoryKind) ??
-      templates.find((t) => t.id && !t.itemTypeCode && (t.directoryKind === directoryKind || !t.directoryKind)) ??
-      null;
-    if (!bestTemplate?.id) {
-      return {
-        ok: false,
-        error: `Не найден шаблон номенклатуры для типа «${itemTypeCode}» и источника «${directoryKind}». Настройте шаблон в «Склад → Номенклатура».`,
-      };
-    }
-
-    const createdNomenclature = await window.matrica.warehouse.nomenclatureUpsert({
-      code: buildNomenclatureCode(createConfig.codePrefix),
-      name: nameForRow,
-      itemType: createConfig.itemType,
-      category: createConfig.category,
-      directoryKind,
-      directoryRefId: sourceId,
-      groupId,
-      unitId,
-      specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
-      isActive: true,
-    });
-    if (!createdNomenclature?.ok) {
-      return { ok: false, error: String(createdNomenclature.error ?? 'не удалось создать позицию номенклатуры для детали') };
-    }
-
-    return { ok: true, mode: 'part', partId: sourceId };
-  }
-
-  const sourceId = await createSourceEntityForDirectoryKind(directoryKind, nameForRow);
-  if (!sourceId) {
-    return { ok: false, error: `Не удалось создать карточку источника для «${directoryKind}». Проверьте типы справочников (например, «good» / «service») и права.` };
   }
 
   const lookups = await window.matrica.warehouse.lookupsGet();
@@ -227,5 +230,5 @@ export async function createNomenclatureLineFromPreset(args: {
   if (!created.id) {
     return { ok: false, error: 'Не удалось создать позицию номенклатуры' };
   }
-  return { ok: true, mode: 'nomenclature', nomenclatureId: String(created.id) };
+  return { ok: true, nomenclatureId: String(created.id) };
 }

@@ -401,6 +401,7 @@ const matricaApi = {
       search?: string;
       itemType?: string;
       directoryKind?: string;
+      directoryRefId?: string;
       groupId?: string;
       isActive?: boolean;
       limit?: number;

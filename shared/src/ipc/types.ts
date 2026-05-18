@@ -1271,6 +1271,7 @@ export type MatricaApi = {
       search?: string;
       itemType?: NomenclatureItemType;
       directoryKind?: string;
+      directoryRefId?: string;
       groupId?: string;
       isActive?: boolean;
       limit?: number;
@@ -1382,6 +1383,7 @@ export type MatricaApi = {
       nomenclatureId: string;
       serialNumber: string;
       contractId?: string | null;
+      contractSectionNumber?: string | null;
       warehouseId?: string;
       currentStatus?: EngineInstanceStatus | string;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;

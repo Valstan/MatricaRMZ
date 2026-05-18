@@ -1185,26 +1185,21 @@ export function SupplyRequestDetailsPage(props: {
                                 displayName: name,
                               });
                               if (!r.ok) {
-                                if ('duplicatePartId' in r) {
+                                if ('duplicateNomenclatureId' in r) {
                                   setSaveStatus(r.message);
                                   await loadLinkLists();
-                                  const pr = await window.matrica.parts.get(r.duplicatePartId);
-                                  const attrs = pr?.ok && pr.part?.attributes ? pr.part.attributes : [];
-                                  const nameAttr = attrs.find((a) => String(a.code ?? '').trim().toLowerCase() === 'name');
-                                  const partName = String(nameAttr?.value ?? '').trim() || name;
                                   updateRequestItem(idx, (current) => ({
                                     ...current,
-                                    productId: r.duplicatePartId,
-                                    name: partName,
+                                    productId: r.duplicateNomenclatureId,
+                                    name,
                                     unit: current.unit ?? '',
                                   }));
-                                  void props.onOpenPart?.(r.duplicatePartId);
-                                  return r.duplicatePartId;
+                                  return r.duplicateNomenclatureId;
                                 }
                                 setSaveStatus(`Ошибка: ${r.error}`);
                                 return null;
                               }
-                              const id = r.mode === 'part' ? r.partId : r.nomenclatureId;
+                              const id = r.nomenclatureId;
                               await loadLinkLists();
                               updateRequestItem(idx, (current) => ({
                                 ...current,

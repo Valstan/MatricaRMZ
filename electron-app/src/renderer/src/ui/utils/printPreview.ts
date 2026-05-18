@@ -81,7 +81,7 @@ export function openPrintPreview(opts: { title: string; subtitle?: string; secti
     ${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}
     <div class="controls">
       ${controls}
-      <button class="action" id="printBtn">Отправить на принтер</button>
+      <button class="action" id="printBtn">Печать / PDF</button>
     </div>
   </div>
   ${content}

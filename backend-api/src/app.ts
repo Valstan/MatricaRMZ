@@ -31,6 +31,7 @@ import { notesRouter } from './routes/notes.js';
 import { reportsRouter } from './routes/reports.js';
 import { erpRouter } from './routes/erp.js';
 import { warehouseRouter } from './routes/warehouse.js';
+import { servicePricingRouter } from './routes/servicePricing.js';
 import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
@@ -128,6 +129,7 @@ export function createApp() {
   app.use('/reports', requireAuth, requirePermission(PermissionCode.ReportsView), reportsRouter);
   app.use('/erp', erpRouter);
   app.use('/warehouse', warehouseRouter);
+  app.use('/service-pricing', servicePricingRouter);
 
   // Web admin UI (served as static SPA from /admin-ui)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

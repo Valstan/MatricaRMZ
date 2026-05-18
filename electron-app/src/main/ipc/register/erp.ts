@@ -29,6 +29,7 @@ import {
   warehouseAssemblyBomList,
   warehouseAssemblyBomPrint,
   warehouseAssemblyBomUpsert,
+  warehouseContractSectionsGet,
   warehouseDocumentPost,
   warehouseDocumentsList,
   warehouseForecastBomGet,
@@ -148,7 +149,7 @@ export function registerErpIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'warehouse:nomenclature:list',
-    async (_e, args?: { search?: string; itemType?: string; directoryKind?: string; groupId?: string; isActive?: boolean }) => {
+    async (_e, args?: { id?: string; search?: string; itemType?: string; directoryKind?: string; directoryRefId?: string; groupId?: string; isActive?: boolean; limit?: number; offset?: number }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;

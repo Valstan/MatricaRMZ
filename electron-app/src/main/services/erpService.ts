@@ -106,6 +106,7 @@ async function localWarehouseNomenclatureList(
     search?: string;
     itemType?: string;
     directoryKind?: string;
+    directoryRefId?: string;
     groupId?: string;
     isActive?: boolean;
     limit?: number;
@@ -116,6 +117,7 @@ async function localWarehouseNomenclatureList(
   if (args?.id) where.push(eq(erpNomenclature.id, String(args.id)));
   if (args?.itemType) where.push(eq(erpNomenclature.itemType, String(args.itemType)));
   if (args?.directoryKind) where.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+  if (args?.directoryRefId) where.push(eq(erpNomenclature.directoryRefId, String(args.directoryRefId)));
   if (args?.groupId) where.push(eq(erpNomenclature.groupId, String(args.groupId)));
   if (args?.isActive !== undefined) where.push(eq(erpNomenclature.isActive, Boolean(args.isActive)));
   const rows = await db
@@ -601,6 +603,7 @@ export async function warehouseNomenclatureList(
     search?: string;
     itemType?: string;
     directoryKind?: string;
+    directoryRefId?: string;
     groupId?: string;
     isActive?: boolean;
     limit?: number;
@@ -613,6 +616,7 @@ export async function warehouseNomenclatureList(
     if (args?.search) qp.set('search', args.search);
     if (args?.itemType) qp.set('itemType', args.itemType);
     if (args?.directoryKind) qp.set('directoryKind', args.directoryKind);
+    if (args?.directoryRefId) qp.set('directoryRefId', args.directoryRefId);
     if (args?.groupId) qp.set('groupId', args.groupId);
     if (args?.isActive !== undefined) qp.set('isActive', args.isActive ? 'true' : 'false');
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
@@ -931,10 +935,13 @@ export async function warehouseContractSectionsGet(
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    const json = await r.json();
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      return { ok: false as const, error: formatHttpError({ status: r.status, text }, path) };
+    }
+    const json = (await r.json().catch(() => null)) as { ok?: boolean; error?: string; sections?: string[] } | null;
     if (!json?.ok) return { ok: false as const, error: String(json?.error ?? 'unknown') };
-    return json as { ok: true; sections: string[] };
+    return { ok: true as const, sections: Array.isArray(json.sections) ? json.sections : [] };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
