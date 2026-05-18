@@ -17,9 +17,9 @@ log() { printf '[install] %s\n' "$*"; }
 [[ -d "$SRC_DIR" ]] || { echo "source dir not found: $SRC_DIR" >&2; exit 1; }
 
 log "creating directories"
-sudo install -d -m 700 "$ETC_DIR"
-sudo install -d -m 750 -o root -g adm "$LOG_DIR"
-sudo install -d -m 700 "$STATE_DIR"
+sudo install -d -m 750 -o root -g valstan "$ETC_DIR"
+sudo install -d -m 755 -o valstan -g adm "$LOG_DIR"
+sudo install -d -m 700 -o valstan -g valstan "$STATE_DIR"
 
 log "installing scripts to $BIN_DIR"
 for f in backup-encrypted.sh audit-deps.sh watch-failed-auth.sh; do
@@ -31,7 +31,7 @@ if [[ ! -s "$PASSPHRASE_FILE" ]]; then
   log "generating backup passphrase (32 random bytes, base64)"
   TMP_PASS="$(mktemp)"
   openssl rand -base64 32 > "$TMP_PASS"
-  sudo install -m 600 -o root -g root "$TMP_PASS" "$PASSPHRASE_FILE"
+  sudo install -m 640 -o root -g valstan "$TMP_PASS" "$PASSPHRASE_FILE"
   shred -u "$TMP_PASS"
   echo
   echo "=================================================================="

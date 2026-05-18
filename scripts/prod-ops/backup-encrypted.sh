@@ -67,12 +67,26 @@ PGPASSWORD="$PGPASSWORD" pg_dump \
   --file="$DB_DUMP"
 log "  db.dump: $(du -h "$DB_DUMP" | awk '{print $1}')"
 
-# 2. ledger archive (compress strongly with zstd -19)
+# 2. ledger archive — tar exit 1 is "files changed while reading" (warning); accept it
+# blocks/ are append-only and the source of truth, state.json is a projection that
+# the backend rebuilds on startup, so a partially-read state.json is recoverable.
 log "tar+zstd ledger (excluding archive/ and *.bak.*)"
+set +o pipefail
 tar --create --file=- \
+    --warning=no-file-changed \
     --exclude='archive' --exclude='*.bak.*' \
     -C "$LEDGER_DIR" . \
-  | zstd -q -19 -T2 -o "$LEDGER_TAR"
+  | zstd -q -9 -T0 -o "$LEDGER_TAR"
+RCS=("${PIPESTATUS[@]}")
+set -o pipefail
+TAR_RC="${RCS[0]:-0}"
+ZSTD_RC="${RCS[1]:-0}"
+if [[ $TAR_RC -gt 1 ]]; then
+  fail "tar failed with exit $TAR_RC"
+fi
+if [[ $ZSTD_RC -ne 0 ]]; then
+  fail "zstd failed with exit $ZSTD_RC"
+fi
 log "  ledger.tar.zst: $(du -h "$LEDGER_TAR" | awk '{print $1}')"
 
 # 3. combine into single tar (already-compressed inner files, so no outer compression)

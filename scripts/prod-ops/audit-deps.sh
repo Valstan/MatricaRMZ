@@ -30,10 +30,15 @@ if [[ -z "$AUDIT_JSON" ]]; then
   exit 0
 fi
 
-REPORT="$(printf '%s' "$AUDIT_JSON" | python3 <<'PY'
+JSON_TMP="$(mktemp)"
+printf '%s' "$AUDIT_JSON" > "$JSON_TMP"
+trap 'rm -f "$JSON_TMP"' EXIT
+
+REPORT="$(python3 - "$JSON_TMP" <<'PY'
 import json, sys
 try:
-    data = json.load(sys.stdin)
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
 except Exception as e:
     print(f"summary: parse_error={e}")
     print("NOALERT")

@@ -175,6 +175,29 @@ chmod 600 /home/valstan/MatricaRMZ/backend-api/ledger/server-key.json
 ```
 
 Подписи существующих блоков остаются валидными — каждая транзакция несёт свой `public_key`.
+### Фаза 4.2 — операционная автоматизация безопасности (выполнено)
+Дата применения: 2026-05-18.
+
+Три cron-скрипта развёрнуты на проде через `scripts/prod-ops/install-prod-ops.sh`:
+
+- **Шифрованные бэкапы off-VPS** (`/usr/local/sbin/matricarmz-backup-encrypted`, ежедневно в 03:17 MSK):
+  `pg_dump` + tar ledger (zstd −9) → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640 root:valstan) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
+- **Cron-аудит зависимостей** (`/usr/local/sbin/matricarmz-audit-deps`, понедельник 04:23 MSK):
+  `pnpm audit --prod --json` → Telegram-алерт при наличии high/critical. На момент первого запуска найдено **9 high vulnerabilities** — отдельная задача обновления зависимостей.
+- **Алерт по неудачным логинам** (`/usr/local/sbin/matricarmz-watch-failed-auth`, каждые 5 минут):
+  парсит `/var/log/nginx/matricarmz_access.log`, выделяет реальный клиентский IP из `X-Forwarded-For`, считает 401/403 в окне 5 минут. При ≥10 неудач с одного IP — Telegram-алерт с примерами URL и cooldown 60 минут на повтор для того же IP.
+
+**Важно:** passphrase бэкапа **выводится один раз при установке** и должна быть сохранена off-server (менеджер паролей). Без неё расшифровать бэкап невозможно.
+
+Telegram-уведомления требуют `MATRICA_TELEGRAM_ENABLED=true` в `.env` — сейчас выключен, поэтому скрипты логируют алерты в `/var/log/matricarmz/*.log`, но не отправляют. Включить, когда захотим получать алерты.
+
+Файловая раскладка на проде:
+- `/usr/local/sbin/matricarmz-{backup-encrypted,audit-deps,watch-failed-auth}` (root, 755)
+- `/etc/matricarmz/backup.passphrase` (root:valstan 640)
+- `/var/log/matricarmz/` (valstan:adm 755)
+- `/var/lib/matricarmz/` (valstan 700, state-файлы)
+- `/etc/cron.d/matricarmz-ops` (root 644)
+
 2. **PostgreSQL SSL (self-signed CA).** Сейчас PG слушает только `127.0.0.1`, SSL не критичен, но при разделении DB-хоста потребуется:
    - Создать локальный CA (`openssl genrsa` + `openssl req -x509`), серверный cert/key подписанный CA.
    - `ssl = on` + `ssl_cert_file`/`ssl_key_file` в postgresql.conf, `hostssl ... cert clientcert=verify-ca` в pg_hba.conf.
