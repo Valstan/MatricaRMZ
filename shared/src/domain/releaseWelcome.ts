@@ -8,6 +8,14 @@ export type ReleaseWelcomeContent = {
 
 export const RELEASE_WELCOME_HISTORY: ReleaseWelcomeContent[] = [
   {
+    releaseLabel: 'v1.15.3',
+    title: 'Сборка релиза: возврат на windows-2022',
+    intro:
+      'Новый раннер windows-latest (windows-2025-vs2026) не подхватывает glob "dist/**" при packaging asar — electron-builder не находит main entry. Зафиксировали runs-on: windows-2022 (последний known good).',
+    highlights: ['.github/workflows/release-electron-windows.yml: runs-on: windows-2022.'],
+    outro: 'Никаких изменений функциональности.',
+  },
+  {
     releaseLabel: 'v1.15.2',
     title: 'Сборка релиза: повторный запуск с явными путями',
     intro:
