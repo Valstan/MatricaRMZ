@@ -6,13 +6,15 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     build: {
-      outDir: 'dist/main',
+      outDir: resolve(__dirname, 'dist/main'),
+      emptyOutDir: true,
     },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
-      outDir: 'dist/preload',
+      outDir: resolve(__dirname, 'dist/preload'),
+      emptyOutDir: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
@@ -31,7 +33,8 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     build: {
-      outDir: 'dist/renderer',
+      outDir: resolve(__dirname, 'dist/renderer'),
+      emptyOutDir: true,
       rollupOptions: {
         output: {
           manualChunks(id) {

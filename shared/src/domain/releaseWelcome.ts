@@ -8,6 +8,14 @@ export type ReleaseWelcomeContent = {
 
 export const RELEASE_WELCOME_HISTORY: ReleaseWelcomeContent[] = [
   {
+    releaseLabel: 'v1.15.4',
+    title: 'Сборка релиза: абсолютные outDir в electron-vite',
+    intro:
+      'В CI electron-vite интерпретировал outDir для renderer относительно src/renderer, и dist/renderer оказывался ВНЕ electron-app (MatricaRMZ/dist/renderer). Из-за этого asar не содержал renderer-файлов. Зафиксировали абсолютные пути через resolve(__dirname, ...) для main/preload/renderer.',
+    highlights: ['electron-app/electron.vite.config.ts: outDir для всех трёх билдов — абсолютный путь от electron-app/.'],
+    outro: 'Никаких изменений функциональности.',
+  },
+  {
     releaseLabel: 'v1.15.3',
     title: 'Сборка релиза: возврат на windows-2022',
     intro:
