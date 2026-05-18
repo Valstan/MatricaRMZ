@@ -8,6 +8,16 @@ export type ReleaseWelcomeContent = {
 
 export const RELEASE_WELCOME_HISTORY: ReleaseWelcomeContent[] = [
   {
+    releaseLabel: 'v1.15.1',
+    title: 'Сборка релиза: явные пути в asar',
+    intro:
+      'Технический патч поверх 1.15.0. В сборке Windows electron-builder в CI не сматчил pattern `dist/**`, и asar получился без `dist/main/index.js`. Заменили wildcard на явные подпути (main/preload/renderer) — теперь сборка надёжна.',
+    highlights: [
+      'electron-app/package.json: build.files использует явные подпути dist/main/**/*, dist/preload/**/*, dist/renderer/**/* вместо общего dist/**.',
+    ],
+    outro: 'Никаких изменений функциональности — только надёжная сборка инсталлятора. Спокойной работы!',
+  },
+  {
     releaseLabel: 'v1.15.0',
     title: 'Единая номенклатура (как в 1С), новые типы и шаблоны для РМЗ, приказы директора на цены услуг',
     intro:
