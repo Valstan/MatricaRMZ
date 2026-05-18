@@ -109,7 +109,10 @@
 6. Добавить в nginx HSTS и `X-Content-Type-Options: nosniff` (defense in depth).
 
 ### Фаза 4.1 — версионирование ledger-крипто и ротация data-key (выполнено)
-Дата применения: 2026-05-18.
+Дата применения: 2026-05-18 (код), 2026-05-18 (первая боевая ротация).
+
+**Боевая ротация выполнена:** keyring переведён в v2 (`activeId=k-mpay0khj-59638c`, старый `v1-legacy` остался для чтения исторических блоков), 35874 строк просканировано, 4245 шифрованных полей перешифрованы (в `state.json` теперь 0 вхождений `enc:v1:` и 4245 — `enc:v2:`). Бэкапы `state.json.bak.<ts>.before-rotate` и `data-key.json.bak.<ts>.before-rotate` лежат в `backend-api/ledger/` с правами 600 — архивировать в `archive/` спустя сутки после подтверждения, что всё работает.
+
 
 - Новый модуль [backend-api/src/ledger/dataKeyring.ts](../backend-api/src/ledger/dataKeyring.ts): keyring AES-256-GCM с поддержкой нескольких ключей одновременно, формат `data-key.json` версии 2 (`{ version:2, activeId, keys:[{id,keyBase64,createdAt}] }`).
 - Полная обратная совместимость: старый `{keyBase64}` файл прозрачно загружается как legacy-keyring с id `v1-legacy`. Пока activeId = `v1-legacy` (то есть ротация ещё не запускалась), новые шифровки пишутся в `enc:v1:` — downgrade backend остаётся возможным.
