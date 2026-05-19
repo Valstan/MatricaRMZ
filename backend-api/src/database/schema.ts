@@ -496,6 +496,32 @@ export const diagnosticsEntityDiffs = pgTable(
   }),
 );
 
+export const aiChatHistory = pgTable(
+  'ai_chat_history',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    conversationId: uuid('conversation_id').notNull(),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    toolCallsJson: text('tool_calls_json'),
+    toolResultsJson: text('tool_results_json'),
+    model: text('model'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    contextJson: text('context_json'),
+    ts: bigint('ts', { mode: 'number' }).notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    userConvTsIdx: index('ai_chat_history_user_conv_ts_idx').on(t.userId, t.conversationId, t.ts),
+    userTsIdx: index('ai_chat_history_user_ts_idx').on(t.userId, t.ts),
+    createdAtIdx: index('ai_chat_history_created_at_idx').on(t.createdAt),
+  }),
+);
+
 // -----------------------------
 // Chat (sync tables)
 // -----------------------------

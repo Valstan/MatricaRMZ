@@ -240,3 +240,121 @@ export async function callClaudeWithTools(args: {
     if (timer) clearTimeout(timer);
   }
 }
+
+export type ClaudeStreamEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'tool_use'; name: string; input: Record<string, unknown>; id: string }
+  | { type: 'tool_result'; toolUseId: string; toolName: string; content: string; isError?: boolean }
+  | { type: 'step_done'; step: number; stopReason: string | null }
+  | { type: 'done'; inputTokens: number; outputTokens: number; steps: number; toolUses: ClaudeToolUse[]; text: string }
+  | { type: 'error'; error: string };
+
+export async function streamClaudeWithTools(args: {
+  model: string;
+  systemBlocks: SystemBlock[];
+  userMessage: string;
+  tools: ClaudeToolDef[];
+  executeTool: (toolUse: ClaudeToolUse) => Promise<{ content: string; isError?: boolean }>;
+  onEvent: (ev: ClaudeStreamEvent) => void | Promise<void>;
+  maxSteps?: number;
+  options?: CallClaudeOptions;
+}): Promise<ClaudeWithToolsResult> {
+  const client = getClient();
+  const ac = new AbortController();
+  const timeoutMs = args.options?.timeoutMs ?? 0;
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('claude timeout')), timeoutMs) : null;
+  const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, 8));
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: args.userMessage }];
+  const allToolUses: ClaudeToolUse[] = [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let finalText = '';
+  try {
+    for (let step = 1; step <= maxSteps; step++) {
+      const stream = client.messages.stream(
+        {
+          model: args.model,
+          max_tokens: args.options?.maxTokens ?? 1024,
+          system: toSystemParam(args.systemBlocks),
+          tools: args.tools,
+          messages,
+          ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
+        },
+        { signal: ac.signal },
+      );
+      stream.on('text', (delta: string) => {
+        if (delta) void args.onEvent({ type: 'text', delta });
+      });
+      const finalMessage = await stream.finalMessage();
+      inputTokens += finalMessage.usage?.input_tokens ?? 0;
+      outputTokens += finalMessage.usage?.output_tokens ?? 0;
+      const toolUseBlocks = finalMessage.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+      );
+      const textBlocks = finalMessage.content.filter(
+        (b): b is Anthropic.TextBlock => b.type === 'text',
+      );
+      const stepText = textBlocks.map((b) => b.text).join('\n').trim();
+      if (stepText) finalText = stepText;
+      await args.onEvent({ type: 'step_done', step, stopReason: finalMessage.stop_reason });
+      if (toolUseBlocks.length === 0 || finalMessage.stop_reason !== 'tool_use') {
+        await args.onEvent({
+          type: 'done',
+          inputTokens,
+          outputTokens,
+          steps: step,
+          toolUses: allToolUses,
+          text: finalText,
+        });
+        return { text: finalText, toolUses: allToolUses, steps: step, inputTokens, outputTokens };
+      }
+      messages.push({ role: 'assistant', content: finalMessage.content });
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const tu of toolUseBlocks) {
+        const toolUse: ClaudeToolUse = {
+          id: tu.id,
+          name: tu.name,
+          input: (tu.input ?? {}) as Record<string, unknown>,
+        };
+        allToolUses.push(toolUse);
+        await args.onEvent({ type: 'tool_use', id: tu.id, name: tu.name, input: toolUse.input });
+        const result = await args.executeTool(toolUse).catch((err) => ({
+          content: `Ошибка выполнения tool: ${String(err)}`,
+          isError: true,
+        }));
+        await args.onEvent({
+          type: 'tool_result',
+          toolUseId: tu.id,
+          toolName: tu.name,
+          content: result.content,
+          ...(result.isError ? { isError: true } : {}),
+        });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: tu.id,
+          content: result.content,
+          ...(result.isError ? { is_error: true } : {}),
+        });
+      }
+      messages.push({ role: 'user', content: toolResults });
+    }
+    await args.onEvent({
+      type: 'done',
+      inputTokens,
+      outputTokens,
+      steps: maxSteps,
+      toolUses: allToolUses,
+      text: finalText,
+    });
+    return { text: finalText, toolUses: allToolUses, steps: maxSteps, inputTokens, outputTokens };
+  } catch (err) {
+    try {
+      await args.onEvent({ type: 'error', error: String(err) });
+    } catch {
+      // suppress: emitting failure should not mask the original error
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
