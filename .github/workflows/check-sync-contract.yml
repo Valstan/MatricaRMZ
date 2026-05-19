@@ -26,5 +26,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build shared + ledger (required by backend tsx imports)
+        run: |
+          pnpm --filter @matricarmz/shared build
+          pnpm --filter @matricarmz/ledger build
+
       - name: Check sync contract
         run: pnpm -C backend-api exec tsx src/scripts/checkSyncContract.ts
