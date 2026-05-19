@@ -115,6 +115,7 @@ const ToolPropertiesPage = lazyPage('./pages/ToolPropertiesPage.tsx', 'ToolPrope
 const ToolPropertyDetailsPage = lazyPage('./pages/ToolPropertyDetailsPage.tsx', 'ToolPropertyDetailsPage');
 const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
 const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
+const MasterdataWorkshopsPage = lazyPage('./pages/MasterdataWorkshopsPage.tsx', 'MasterdataWorkshopsPage');
 const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
 const ServicesByBrandPage = lazyPage('./pages/ServicesByBrandPage.tsx', 'ServicesByBrandPage');
@@ -1289,6 +1290,12 @@ export function App() {
         canViewParts: false,
         canManageEmployees: false,
         canViewEmployees: false,
+        canManageWorkshops: false,
+        canCloseWorkOrders: false,
+        canRevertWorkOrders: false,
+        canConfirmEngineDisassemble: false,
+        canAssemblyReturn: false,
+        canRevertMovements: false,
       }
     : capsBase;
   const availableTabs: MenuTabId[] = [
@@ -1313,6 +1320,7 @@ export function App() {
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
+    ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
   ];
   const menuState = deriveMenuState(availableTabs, tabsLayout);
@@ -1372,6 +1380,7 @@ export function App() {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
+    workshops: 'Цеха',
   };
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -3217,6 +3226,10 @@ export function App() {
             canCreate={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
+        )}
+
+        {tab === 'workshops' && (
+          <MasterdataWorkshopsPage canManage={caps.canManageWorkshops} />
         )}
 
         {tab === 'contracts' && (

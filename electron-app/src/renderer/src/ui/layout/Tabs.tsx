@@ -51,6 +51,7 @@ export type TabId =
   | 'reports'
   | 'report_preset'
   | 'masterdata'
+  | 'workshops'
   | 'admin'
   | 'audit'
   | 'notes'
@@ -142,6 +143,7 @@ const menuTabSet = new Set<MenuTabId>([
   'auth',
   'notes',
   'settings',
+  'workshops',
 ]);
 
 function resolveMenuTab(tab: string): MenuTabId | null {
@@ -180,7 +182,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   warehouse: ['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
-  control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'admin'],
+  control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'admin'],
 };
 
 type GroupVisualMeta = { icon: string; subtitle: string; gradient: string };
@@ -487,6 +489,7 @@ export function Tabs(props: {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
+    workshops: 'Цеха',
   };
 
   function updateLayout(nextVisibleOrder: MenuTabId[], trashIndex: number, nextHidden: MenuTabId[]) {
