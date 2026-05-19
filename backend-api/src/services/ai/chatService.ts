@@ -17,6 +17,8 @@ import {
   callClaudeJson,
   callClaudeWithTools,
   isClaudeMisconfigured,
+  streamClaudeWithTools,
+  type ClaudeStreamEvent,
   type ClaudeToolUse,
   type SystemBlock,
 } from './claudeProvider.js';
@@ -341,5 +343,190 @@ export async function runChatAssist(args: {
       };
     }
     return { ok: false as const, error: String(error ?? 'ошибка обращения к Claude'), model: modelChat, timeout: false };
+  }
+}
+
+export type ChatStreamHandlers = {
+  onEvent: (ev: ClaudeStreamEvent) => void | Promise<void>;
+};
+
+export type ChatStreamResult = {
+  ok: boolean;
+  reply: AiAgentSuggestion;
+  model: string;
+  timeout: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: string[];
+  escalated: boolean;
+};
+
+export async function runChatAssistStream(
+  args: {
+    actorId: string;
+    context: any;
+    lastEvent?: any | null;
+    recentEvents?: any[];
+    message: string;
+  },
+  handlers: ChatStreamHandlers,
+): Promise<ChatStreamResult> {
+  const startedAt = nowMs();
+  const initialModel = CLAUDE_MODEL_CHAT;
+  const quick = fastPathReply(args.message);
+  if (quick) {
+    await handlers.onEvent({ type: 'text', delta: quick.text });
+    await handlers.onEvent({
+      type: 'done',
+      inputTokens: 0,
+      outputTokens: 0,
+      steps: 0,
+      toolUses: [],
+      text: quick.text,
+    });
+    await recordAssistMetrics({
+      actorId: args.actorId,
+      mode: 'chat',
+      model: initialModel,
+      ok: true,
+      timeout: false,
+      context: args.context,
+      timings: { totalMs: nowMs() - startedAt },
+    });
+    return {
+      ok: true,
+      reply: quick,
+      model: initialModel,
+      timeout: false,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCalls: [],
+      escalated: false,
+    };
+  }
+
+  const ragStart = nowMs();
+  const memories = await retrieveRagMemories({
+    actorId: args.actorId,
+    message: args.message,
+    context: { tab: args.context?.tab, entityType: args.context?.entityType },
+  }).catch(() => []);
+  const ragMs = nowMs() - ragStart;
+  const recentEvents = Array.isArray(args.recentEvents) ? args.recentEvents.slice(-8) : [];
+  const eventsSummary = recentEvents
+    .map((e) => {
+      const label = String(e?.field?.label ?? e?.field?.name ?? '').trim();
+      return `${String(e?.type ?? 'event')}${label ? `:${label}` : ''}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+
+  const unknownStreak = escalationCounters.get(args.actorId) ?? 0;
+  const escalated = unknownStreak >= AI_CHAT_ESCALATE_AFTER;
+  const modelChat = escalated ? CLAUDE_MODEL_ANALYTICS : initialModel;
+  const toolNames = escalated ? FULL_TOOL_NAMES : COMPACT_TOOL_NAMES;
+
+  const llmStart = nowMs();
+  const permissions = await getEffectivePermissionsForUser(args.actorId);
+  const toolCtx: ToolContext = { actorId: args.actorId, permissions };
+  const systemBlocks = buildSystemBlocks(args.context, args.lastEvent ?? null, memories, eventsSummary);
+  const toolDefs = getToolDefinitions(toolNames);
+  const replyToolDef = {
+    name: 'reply_to_user',
+    description:
+      'Финальный ответ пользователю. kind="question" — если нужно уточнение, ' +
+      'kind="suggestion" — если предлагаешь действие, kind="info" — пояснение.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        kind: { type: 'string', enum: ['info', 'question', 'suggestion'] },
+        text: { type: 'string' },
+        actions: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['kind', 'text'],
+    },
+  };
+  const toolCallNames: string[] = [];
+  let replyFromTool: AiAgentSuggestion | null = null;
+
+  try {
+    const result = await streamClaudeWithTools({
+      model: modelChat,
+      systemBlocks,
+      userMessage: `Сообщение пользователя: ${args.message}`,
+      tools: [...toolDefs, replyToolDef],
+      options: { timeoutMs: CLAUDE_TIMEOUT_CHAT_MS, maxTokens: AI_CHAT_MAX_TOKENS, temperature: 0.2 },
+      maxSteps: 4,
+      onEvent: handlers.onEvent,
+      executeTool: async (toolUse: ClaudeToolUse) => {
+        toolCallNames.push(toolUse.name);
+        if (toolUse.name === 'reply_to_user') {
+          replyFromTool = normalizeReply(toolUse.input as ChatReplyJson, '');
+          return { content: JSON.stringify(toolUse.input) };
+        }
+        return executeTool(toolUse, toolCtx);
+      },
+    });
+    const llmMs = nowMs() - llmStart;
+    const reply = replyFromTool ?? normalizeReply(null, result.text || 'Не удалось сформировать ответ.');
+    if (looksLikeUnknown(reply.text) && !escalated) bumpUnknownStreak(args.actorId);
+    else resetUnknownStreak(args.actorId);
+    await ingestRagAssistFact({
+      actorId: args.actorId,
+      context: args.context,
+      message: args.message,
+      replyText: reply.text,
+    });
+    await recordAssistMetrics({
+      actorId: args.actorId,
+      mode: 'chat',
+      model: modelChat,
+      ok: true,
+      timeout: false,
+      context: args.context,
+      timings: { totalMs: nowMs() - startedAt, ragMs, llmMs },
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      toolCalls: toolCallNames,
+      escalated,
+    });
+    return {
+      ok: true,
+      reply,
+      model: modelChat,
+      timeout: false,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      toolCalls: toolCallNames,
+      escalated,
+    };
+  } catch (error) {
+    const llmMs = nowMs() - llmStart;
+    const timeout = isTimeoutError(error);
+    const misconfigured = isClaudeMisconfigured(error);
+    await recordAssistMetrics({
+      actorId: args.actorId,
+      mode: 'chat',
+      model: modelChat,
+      ok: false,
+      timeout,
+      context: args.context,
+      timings: { totalMs: nowMs() - startedAt, ragMs, llmMs },
+    });
+    const fallbackText = misconfigured
+      ? AI_AGENT_MISCONFIGURED_MESSAGE
+      : timeout
+        ? AI_AGENT_BUSY_MESSAGE
+        : `Ошибка: ${String(error)}`;
+    return {
+      ok: !misconfigured && !timeout ? false : true,
+      reply: { kind: 'info', text: fallbackText },
+      model: modelChat,
+      timeout,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCalls: toolCallNames,
+      escalated,
+    };
   }
 }

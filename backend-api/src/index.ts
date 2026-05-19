@@ -7,6 +7,7 @@ import { startUpdateTorrentService } from './services/updateTorrentService.js';
 import { startConsistencyDiagnostics } from './services/diagnosticsConsistencyService.js';
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
+import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js';
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
@@ -92,6 +93,7 @@ async function bootstrap() {
     startAiAgentChatLearningService();
     startSyncPipelineSupervisorService();
     startCriticalEventsTelegramService();
+    startAiChatHistoryCleanup();
   }
 
   const server = app.listen(port, host, () => {
