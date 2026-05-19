@@ -1,28 +1,69 @@
 import type { AiAgentSuggestion } from '@matricarmz/shared';
 
+import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import {
   AI_AGENT_BUSY_MESSAGE,
   AI_AGENT_MISCONFIGURED_MESSAGE,
   AI_CHAT_MAX_TOKENS_DEFAULT,
+  CLAUDE_MODEL_ANALYTICS,
+  CLAUDE_MODEL_CHAT,
   CLAUDE_TIMEOUT_CHAT_MS,
   buildContextSummary,
-  getModelForMode,
   isTimeoutError,
   nowMs,
   truncate,
 } from './common.js';
-import { callClaudeJson, isClaudeMisconfigured } from './claudeProvider.js';
+import {
+  callClaudeJson,
+  callClaudeWithTools,
+  isClaudeMisconfigured,
+  type ClaudeToolUse,
+  type SystemBlock,
+} from './claudeProvider.js';
+import {
+  COMPACT_TOOL_NAMES,
+  FULL_TOOL_NAMES,
+  executeTool,
+  getToolDefinitions,
+  type ToolContext,
+} from './claudeTools.js';
 import { recordAssistMetrics } from './metricsService.js';
 import { ingestRagAssistFact, retrieveRagMemories } from './ragService.js';
 
 const AI_CHAT_MAX_TOKENS = Number(process.env.AI_CHAT_MAX_TOKENS ?? AI_CHAT_MAX_TOKENS_DEFAULT);
 const AI_CHAT_FAST_PATH_ENABLED = String(process.env.AI_CHAT_FAST_PATH_ENABLED ?? 'true').toLowerCase() === 'true';
+const AI_CHAT_TOOLS_ENABLED = String(process.env.AI_CHAT_TOOLS_ENABLED ?? 'true').toLowerCase() === 'true';
+const AI_CHAT_ESCALATE_AFTER = Math.max(1, Number(process.env.AI_CHAT_ESCALATE_AFTER ?? 3));
 
 type ChatReplyJson = {
   kind?: string;
   text?: string;
   actions?: unknown[];
 };
+
+const escalationCounters = new Map<string, number>();
+
+function bumpUnknownStreak(actorId: string): number {
+  const n = (escalationCounters.get(actorId) ?? 0) + 1;
+  escalationCounters.set(actorId, n);
+  return n;
+}
+
+function resetUnknownStreak(actorId: string) {
+  escalationCounters.delete(actorId);
+}
+
+function looksLikeUnknown(text: string): boolean {
+  const t = String(text ?? '').toLowerCase();
+  if (!t) return false;
+  return (
+    t.includes('не знаю') ||
+    t.includes('не могу') ||
+    t.includes('недостаточно данных') ||
+    t.includes("don't know") ||
+    t.includes('insufficient data')
+  );
+}
 
 function normalizeReply(raw: ChatReplyJson | null, fallbackText: string): AiAgentSuggestion {
   if (!raw || typeof raw !== 'object') {
@@ -54,6 +95,119 @@ function fastPathReply(message: string): AiAgentSuggestion | null {
   return null;
 }
 
+function buildSystemBlocks(
+  context: any,
+  lastEvent: any | null,
+  memories: string[],
+  eventsSummary: string,
+): SystemBlock[] {
+  const base =
+    'Ты помощник в программе Матрица РМЗ — ERP-системе для ремонтно-механического завода. ' +
+    'Отвечай кратко, практично и по шагам, на русском языке. Не выдумывай функции, ' +
+    'которых может не быть в системе. Если не уверен — задай уточняющий вопрос. ' +
+    'У тебя есть read-only tools для доступа к БД (номенклатура, остатки, двигатели, операции, ' +
+    'прогноз сборки, сотрудники без чувствительных полей). Не пытайся изменять данные. ' +
+    'Если для точного ответа нужны данные — вызови соответствующий tool. ' +
+    'После tool-вызова отвечай пользователю строго через tool reply_to_user с полями kind и text.';
+  const ctxLine = `Контекст: ${buildContextSummary(context, lastEvent) || 'н/д'}\n` +
+    `Последние события пользователя: ${eventsSummary || 'н/д'}`;
+  const memoryBlock = memories.length
+    ? `Память (релевантные факты):\n${memories.map((m, i) => `${i + 1}) ${m}`).join('\n')}`
+    : 'Память: пусто.';
+  return [
+    { type: 'text', text: base },
+    { type: 'text', text: ctxLine },
+    { type: 'text', text: memoryBlock, cacheable: true },
+  ];
+}
+
+async function runWithToolsThenSummarize(args: {
+  actorId: string;
+  ctx: ToolContext;
+  model: string;
+  systemBlocks: SystemBlock[];
+  userMessage: string;
+  toolNames: ReadonlyArray<string>;
+}) {
+  const toolDefs = getToolDefinitions(args.toolNames);
+  const replyToolDef = {
+    name: 'reply_to_user',
+    description:
+      'Финальный ответ пользователю. kind="question" — если нужно уточнение, ' +
+      'kind="suggestion" — если предлагаешь действие, kind="info" — пояснение. ' +
+      'actions — короткие варианты быстрых кнопок (опционально, до 4).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        kind: { type: 'string', enum: ['info', 'question', 'suggestion'] },
+        text: { type: 'string' },
+        actions: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['kind', 'text'],
+    },
+  };
+  const toolCallNames: string[] = [];
+  const result = await callClaudeWithTools({
+    model: args.model,
+    systemBlocks: args.systemBlocks,
+    userMessage: args.userMessage,
+    tools: [...toolDefs, replyToolDef],
+    options: {
+      timeoutMs: CLAUDE_TIMEOUT_CHAT_MS,
+      maxTokens: AI_CHAT_MAX_TOKENS,
+      temperature: 0.2,
+    },
+    maxSteps: 4,
+    executeTool: async (toolUse: ClaudeToolUse) => {
+      toolCallNames.push(toolUse.name);
+      if (toolUse.name === 'reply_to_user') {
+        return { content: JSON.stringify(toolUse.input) };
+      }
+      return executeTool(toolUse, args.ctx);
+    },
+  });
+  const lastReplyTool = [...result.toolUses].reverse().find((t) => t.name === 'reply_to_user');
+  const reply = lastReplyTool
+    ? normalizeReply(lastReplyTool.input as ChatReplyJson, result.text || 'Не удалось сформировать ответ.')
+    : normalizeReply(null, result.text || 'Не удалось сформировать ответ.');
+  return {
+    reply,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    toolCalls: toolCallNames,
+  };
+}
+
+async function runJsonOnly(args: {
+  model: string;
+  systemText: string;
+  userPrompt: string;
+}) {
+  const json = await callClaudeJson<ChatReplyJson>({
+    model: args.model,
+    system: args.systemText,
+    user: args.userPrompt,
+    toolName: 'reply_to_user',
+    toolDescription:
+      'Сформируй структурированный ответ пользователю Матрица РМЗ. ' +
+      'kind="question" если нужно уточнение, kind="suggestion" если предлагаешь действие, kind="info" для пояснения.',
+    schema: {
+      properties: {
+        kind: { type: 'string', enum: ['info', 'question', 'suggestion'] },
+        text: { type: 'string' },
+        actions: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['kind', 'text'],
+    },
+    options: {
+      timeoutMs: CLAUDE_TIMEOUT_CHAT_MS,
+      maxTokens: AI_CHAT_MAX_TOKENS,
+      temperature: 0.2,
+    },
+  });
+  return normalizeReply(json, 'Не удалось сформировать ответ.');
+}
+
 export async function runChatAssist(args: {
   actorId: string;
   context: any;
@@ -62,19 +216,19 @@ export async function runChatAssist(args: {
   message: string;
 }) {
   const startedAt = nowMs();
-  const modelChat = getModelForMode('chat');
+  const initialModel = CLAUDE_MODEL_CHAT;
   const quick = fastPathReply(args.message);
   if (quick) {
     await recordAssistMetrics({
       actorId: args.actorId,
       mode: 'chat',
-      model: modelChat,
+      model: initialModel,
       ok: true,
       timeout: false,
       context: args.context,
       timings: { totalMs: nowMs() - startedAt, routeMs: nowMs() - startedAt },
     });
-    return { ok: true as const, reply: quick, model: modelChat, timeout: false };
+    return { ok: true as const, reply: quick, model: initialModel, timeout: false };
   }
 
   const ragStart = nowMs();
@@ -93,55 +247,50 @@ export async function runChatAssist(args: {
     .filter(Boolean)
     .join(', ');
 
-  const systemPrompt =
-    'Ты помощник в программе Матрица РМЗ — ERP-системе для ремонтно-механического завода. ' +
-    'Отвечай кратко, практично и по шагам, на русском языке. Не выдумывай функции, ' +
-    'которых может не быть в системе. Если не уверен — задай уточняющий вопрос. ' +
-    'Используй переданный контекст (вкладка, открытая сущность) для конкретных подсказок.';
-  const userPrompt =
-    `Контекст: ${buildContextSummary(args.context, args.lastEvent) || 'н/д'}\n` +
-    `Последние события пользователя: ${eventsSummary || 'н/д'}\n` +
-    `Память (релевантные факты):\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'н/д'}\n\n` +
-    `Сообщение пользователя: ${args.message}`;
+  const unknownStreak = escalationCounters.get(args.actorId) ?? 0;
+  const escalated = unknownStreak >= AI_CHAT_ESCALATE_AFTER;
+  const modelChat = escalated ? CLAUDE_MODEL_ANALYTICS : initialModel;
+  const toolNames = escalated ? FULL_TOOL_NAMES : COMPACT_TOOL_NAMES;
 
   const llmStart = nowMs();
   try {
-    const json = await callClaudeJson<ChatReplyJson>({
-      model: modelChat,
-      system: systemPrompt,
-      user: userPrompt,
-      toolName: 'reply_to_user',
-      toolDescription:
-        'Сформируй структурированный ответ пользователю Матрица РМЗ. ' +
-        'kind="question" если нужно уточнение, kind="suggestion" если предлагаешь действие, kind="info" для пояснения. ' +
-        'actions — короткие варианты кнопок (опционально, до 4 элементов).',
-      schema: {
-        properties: {
-          kind: {
-            type: 'string',
-            enum: ['info', 'question', 'suggestion'],
-            description: 'Тип ответа',
-          },
-          text: {
-            type: 'string',
-            description: 'Текст ответа пользователю на русском языке, кратко и по делу',
-          },
-          actions: {
-            type: 'array',
-            description: 'Опциональные варианты быстрых действий (максимум 4)',
-            items: { type: 'string', description: 'Короткое название действия' },
-          },
-        },
-        required: ['kind', 'text'],
-      },
-      options: {
-        timeoutMs: CLAUDE_TIMEOUT_CHAT_MS,
-        maxTokens: AI_CHAT_MAX_TOKENS,
-        temperature: 0.2,
-      },
-    });
+    let reply: AiAgentSuggestion;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let toolCalls: string[] = [];
+    if (AI_CHAT_TOOLS_ENABLED) {
+      const permissions = await getEffectivePermissionsForUser(args.actorId);
+      const toolCtx: ToolContext = { actorId: args.actorId, permissions };
+      const systemBlocks = buildSystemBlocks(args.context, args.lastEvent ?? null, memories, eventsSummary);
+      const userMessage = `Сообщение пользователя: ${args.message}`;
+      const result = await runWithToolsThenSummarize({
+        actorId: args.actorId,
+        ctx: toolCtx,
+        model: modelChat,
+        systemBlocks,
+        userMessage,
+        toolNames,
+      });
+      reply = result.reply;
+      inputTokens = result.inputTokens;
+      outputTokens = result.outputTokens;
+      toolCalls = result.toolCalls;
+    } else {
+      const systemText =
+        'Ты помощник в программе Матрица РМЗ. Отвечай кратко, по делу, на русском.';
+      const userPrompt =
+        `Контекст: ${buildContextSummary(args.context, args.lastEvent ?? null) || 'н/д'}\n` +
+        `Последние события: ${eventsSummary || 'н/д'}\n` +
+        `Память:\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'н/д'}\n\n` +
+        `Сообщение: ${args.message}`;
+      reply = await runJsonOnly({ model: modelChat, systemText, userPrompt });
+    }
     const llmMs = nowMs() - llmStart;
-    const reply = normalizeReply(json, 'Не удалось сформировать ответ.');
+    if (looksLikeUnknown(reply.text) && !escalated) {
+      bumpUnknownStreak(args.actorId);
+    } else {
+      resetUnknownStreak(args.actorId);
+    }
     await ingestRagAssistFact({
       actorId: args.actorId,
       context: args.context,
@@ -156,6 +305,10 @@ export async function runChatAssist(args: {
       timeout: false,
       context: args.context,
       timings: { totalMs: nowMs() - startedAt, ragMs, llmMs },
+      inputTokens,
+      outputTokens,
+      toolCalls,
+      escalated,
     });
     return { ok: true as const, reply, model: modelChat, timeout: false };
   } catch (error) {

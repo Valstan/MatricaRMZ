@@ -10,13 +10,26 @@ import {
   nowMs,
   truncate,
 } from './common.js';
-import { callClaudeJson, isClaudeMisconfigured } from './claudeProvider.js';
+import {
+  callClaudeJson,
+  callClaudeWithTools,
+  isClaudeMisconfigured,
+  type ClaudeToolUse,
+  type SystemBlock,
+} from './claudeProvider.js';
+import {
+  FULL_TOOL_NAMES,
+  executeTool,
+  getToolDefinitions,
+  type ToolContext,
+} from './claudeTools.js';
 import { recordAssistMetrics } from './metricsService.js';
 import { retrieveRagMemories } from './ragService.js';
 
 const AI_ANALYTICS_MAX_TOKENS = Number(process.env.AI_ANALYTICS_MAX_TOKENS ?? AI_ANALYTICS_MAX_TOKENS_DEFAULT);
 
 const AI_ANALYTICS_ENABLED = String(process.env.AI_ANALYTICS_ENABLED ?? 'true').toLowerCase() === 'true';
+const AI_ANALYTICS_TOOLS_ENABLED = String(process.env.AI_ANALYTICS_TOOLS_ENABLED ?? 'true').toLowerCase() === 'true';
 const MAX_ROWS = 200;
 const PREVIEW_ROWS = 20;
 const FORBIDDEN_SQL = /\b(insert|update|delete|drop|alter|create|grant|revoke|truncate|copy|call|merge)\b/i;
@@ -154,37 +167,6 @@ async function runHeuristicQuery(message: string, policy: AccessPolicy) {
   return { ok: false as const, error: 'Точная эвристика не нашлась, попробуйте сформулировать запрос точнее.' };
 }
 
-type IntentJson = { intent?: string; needsSql?: boolean };
-
-async function detectAnalyticsIntent(model: string, message: string) {
-  const system = 'Определи тип аналитического запроса в системе Матрица РМЗ.';
-  const user = `Запрос пользователя: ${message}`;
-  const json = await callClaudeJson<IntentJson>({
-    model,
-    system,
-    user,
-    toolName: 'classify_intent',
-    toolDescription: 'Классифицируй тип аналитического запроса пользователя.',
-    schema: {
-      properties: {
-        intent: {
-          type: 'string',
-          enum: ['count', 'list', 'search', 'aggregate', 'compare', 'other'],
-          description: 'Тип запроса',
-        },
-        needsSql: {
-          type: 'boolean',
-          description: 'Требуется ли выполнение SQL для ответа',
-        },
-      },
-      required: ['intent', 'needsSql'],
-    },
-    options: { timeoutMs: Math.min(CLAUDE_TIMEOUT_ANALYTICS_MS, 20_000), temperature: 0, maxTokens: 256 },
-  });
-  const intent = String(json?.intent ?? 'other');
-  return { intent, needsSql: json?.needsSql !== false };
-}
-
 type SqlProposalJson = { sql?: string; params?: unknown[]; note?: string };
 
 async function proposeSql(model: string, message: string, policy: AccessPolicy, memories: string[]) {
@@ -234,13 +216,89 @@ async function proposeSql(model: string, message: string, policy: AccessPolicy, 
   };
 }
 
+async function runAnalyticsViaTools(args: {
+  actorId: string;
+  context: any;
+  message: string;
+  memories: string[];
+  model: string;
+  perms: Record<string, boolean>;
+}) {
+  const toolDefs = getToolDefinitions(FULL_TOOL_NAMES);
+  const replyToolDef = {
+    name: 'present_answer',
+    description: 'Финальный ответ пользователю на русском. text — готовый человекочитаемый ответ.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        text: { type: 'string' },
+        sqlUsed: { type: 'string', description: 'Опционально: какой SQL/tool был выполнен.' },
+      },
+      required: ['text'],
+    },
+  };
+  const systemBlocks: SystemBlock[] = [
+    {
+      type: 'text',
+      text:
+        'Ты аналитик базы данных Матрица РМЗ. Используй tools (query_nomenclature, get_stock_balances, ' +
+        'get_inventory_forecast, get_operations, get_engine_details, get_employees_list, get_contracts, ' +
+        'query_diagnostics_snapshots, execute_safe_sql и др.) чтобы найти данные. ' +
+        'Чувствительные поля (зарплаты, паспорта, токены) недоступны — если пользователь о них спрашивает, ' +
+        'честно ответь что эти данные защищены. ' +
+        'После получения данных вызови present_answer с готовым ответом на русском.',
+    },
+    {
+      type: 'text',
+      text:
+        args.memories.length > 0
+          ? `Память (релевантные факты):\n${args.memories.map((m, i) => `${i + 1}) ${m}`).join('\n')}`
+          : 'Память: пусто.',
+      cacheable: true,
+    },
+  ];
+  const ctx: ToolContext = { actorId: args.actorId, permissions: args.perms };
+  const toolCallNames: string[] = [];
+  const result = await callClaudeWithTools({
+    model: args.model,
+    systemBlocks,
+    userMessage: `Запрос: ${args.message}`,
+    tools: [...toolDefs, replyToolDef],
+    options: {
+      timeoutMs: CLAUDE_TIMEOUT_ANALYTICS_MS,
+      maxTokens: AI_ANALYTICS_MAX_TOKENS,
+      temperature: 0,
+    },
+    maxSteps: 6,
+    executeTool: async (toolUse: ClaudeToolUse) => {
+      toolCallNames.push(toolUse.name);
+      if (toolUse.name === 'present_answer') {
+        return { content: JSON.stringify(toolUse.input) };
+      }
+      return executeTool(toolUse, ctx);
+    },
+  });
+  const lastReply = [...result.toolUses].reverse().find((t) => t.name === 'present_answer');
+  const text =
+    (lastReply?.input as { text?: string } | undefined)?.text ??
+    result.text ??
+    'Не удалось сформировать ответ.';
+  return {
+    replyText: truncate(text, 4000),
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    toolCalls: toolCallNames,
+  };
+}
+
 export async function runAnalyticsAssist(args: { actorId: string; context: any; message: string }) {
   const startedAt = nowMs();
   const model = getModelForMode('analytics');
   if (!AI_ANALYTICS_ENABLED) {
     return { ok: true as const, replyText: 'Аналитические возможности ИИ временно отключены. Доступен только чат.', model, timeout: false };
   }
-  const policy = buildAccessPolicy(await getEffectivePermissionsForUser(args.actorId));
+  const perms = await getEffectivePermissionsForUser(args.actorId);
+  const policy = buildAccessPolicy(perms);
   if (!policy.allowedTables.size) {
     return { ok: true as const, replyText: 'Недостаточно прав для аналитики.', model, timeout: false };
   }
@@ -271,13 +329,47 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
     topK: 3,
   }).catch(() => []);
   const ragMs = nowMs() - ragStart;
-  const intentStart = nowMs();
-  try {
-    await detectAnalyticsIntent(model, args.message);
-  } catch {
-    // non-blocking hint step
+
+  if (AI_ANALYTICS_TOOLS_ENABLED) {
+    try {
+      const result = await runAnalyticsViaTools({
+        actorId: args.actorId,
+        context: args.context,
+        message: args.message,
+        memories,
+        model,
+        perms,
+      });
+      await recordAssistMetrics({
+        actorId: args.actorId,
+        mode: 'analytics',
+        model,
+        ok: true,
+        timeout: false,
+        context: args.context,
+        timings: { totalMs: nowMs() - startedAt, ragMs },
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        toolCalls: result.toolCalls,
+      });
+      return { ok: true as const, replyText: result.replyText, model, timeout: false };
+    } catch (e) {
+      const timeout = isTimeoutError(e);
+      const misconfigured = isClaudeMisconfigured(e);
+      await recordAssistMetrics({
+        actorId: args.actorId,
+        mode: 'analytics',
+        model,
+        ok: false,
+        timeout,
+        context: args.context,
+        timings: { totalMs: nowMs() - startedAt, ragMs },
+      });
+      if (misconfigured) return { ok: true as const, replyText: AI_AGENT_MISCONFIGURED_MESSAGE, model, timeout: false };
+      if (timeout) return { ok: true as const, replyText: AI_AGENT_BUSY_MESSAGE, model, timeout: true };
+      // не возвращаем error — мягко падаем в legacy SQL-pipeline ниже
+    }
   }
-  const intentMs = nowMs() - intentStart;
 
   let plan: SqlPlan | null = getCachedPlan(args.actorId, args.message);
   let sqlPlanMs = 0;
@@ -345,7 +437,6 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
     timings: {
       totalMs: nowMs() - startedAt,
       ragMs,
-      routeMs: intentMs,
       sqlPlanMs,
       sqlExecMs: exec.tookMs,
     },
