@@ -79,9 +79,28 @@ export const StockMovementType = {
   Writeoff: 'writeoff',
   InventorySurplus: 'inventory_surplus',
   InventoryShortage: 'inventory_shortage',
+  DismantleIn: 'dismantle_in',
+  DismantleScrapIn: 'dismantle_scrap_in',
+  RepairOut: 'repair_out',
+  RepairIn: 'repair_in',
+  AssemblyConsumptionOut: 'assembly_consumption_out',
+  AssemblyConsumptionIn: 'assembly_consumption_in',
+  AssemblyReturnOut: 'assembly_return_out',
+  AssemblyReturnInRework: 'assembly_return_in_rework',
+  AssemblyReturnInScrap: 'assembly_return_in_scrap',
 } as const;
 
 export type StockMovementType = (typeof StockMovementType)[keyof typeof StockMovementType];
+
+export const STOCK_MOVEMENT_REVERSAL_PREFIX = 'reversal_' as const;
+
+export function reversalMovementType(original: string): string {
+  return `${STOCK_MOVEMENT_REVERSAL_PREFIX}${original}`;
+}
+
+export function isReversalMovementType(movementType: string | null | undefined): boolean {
+  return Boolean(movementType && String(movementType).startsWith(STOCK_MOVEMENT_REVERSAL_PREFIX));
+}
 
 export const StockDirection = {
   In: 'in',
@@ -245,6 +264,8 @@ export const WarehouseDocumentType = {
   ProductionRelease: 'production_release',
   RepairRecovery: 'repair_recovery',
   EngineDismantling: 'engine_dismantling',
+  AssemblyConsumption: 'assembly_consumption',
+  AssemblyReturn: 'assembly_return',
   StockIssue: 'stock_issue',
   StockTransfer: 'stock_transfer',
   StockWriteoff: 'stock_writeoff',
@@ -260,10 +281,25 @@ export const WarehouseDocumentTypeLabels: Record<WarehouseDocumentType, string> 
   [WarehouseDocumentType.ProductionRelease]: 'Выпуск производства',
   [WarehouseDocumentType.RepairRecovery]: 'Восстановление после ремонта',
   [WarehouseDocumentType.EngineDismantling]: 'Разборка двигателя-донора',
+  [WarehouseDocumentType.AssemblyConsumption]: 'Списание в сборку',
+  [WarehouseDocumentType.AssemblyReturn]: 'Возврат из сборки',
   [WarehouseDocumentType.StockIssue]: 'Расход',
   [WarehouseDocumentType.StockTransfer]: 'Перемещение',
   [WarehouseDocumentType.StockWriteoff]: 'Списание',
   [WarehouseDocumentType.StockInventory]: 'Инвентаризация',
+};
+
+/** Режим возврата из сборки: rework — обратно в ремфонд, scrap — в утиль. */
+export const AssemblyReturnMode = {
+  Rework: 'rework',
+  Scrap: 'scrap',
+} as const;
+
+export type AssemblyReturnMode = (typeof AssemblyReturnMode)[keyof typeof AssemblyReturnMode];
+
+export const ASSEMBLY_RETURN_MODE_LABELS: Record<AssemblyReturnMode, string> = {
+  [AssemblyReturnMode.Rework]: 'На доработку',
+  [AssemblyReturnMode.Scrap]: 'В утиль',
 };
 
 /** Значения `erp_document_headers.status` для складских документов (в БД — латиница). */

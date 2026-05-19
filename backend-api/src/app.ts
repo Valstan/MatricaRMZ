@@ -31,6 +31,8 @@ import { notesRouter } from './routes/notes.js';
 import { reportsRouter } from './routes/reports.js';
 import { erpRouter } from './routes/erp.js';
 import { warehouseRouter } from './routes/warehouse.js';
+import { workOrdersRouter } from './routes/workOrders.js';
+import { workshopsRouter } from './routes/workshops.js';
 import { servicePricingRouter } from './routes/servicePricing.js';
 import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
@@ -129,6 +131,8 @@ export function createApp() {
   app.use('/reports', requireAuth, requirePermission(PermissionCode.ReportsView), reportsRouter);
   app.use('/erp', erpRouter);
   app.use('/warehouse', warehouseRouter);
+  app.use('/work-orders', workOrdersRouter);
+  app.use('/workshops', workshopsRouter);
   app.use('/service-pricing', servicePricingRouter);
 
   // Web admin UI (served as static SPA from /admin-ui)

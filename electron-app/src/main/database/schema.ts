@@ -372,6 +372,7 @@ export const erpDocumentHeaders = sqliteTable(
     status: text('status').notNull().default('draft'),
     authorId: text('author_id'),
     departmentId: text('department_id'),
+    workshopId: text('workshop_id'),
     payloadJson: text('payload_json'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -592,16 +593,20 @@ export const erpRegStockMovements = sqliteTable(
     movementType: text('movement_type').notNull(),
     qty: integer('qty').notNull().default(0),
     direction: text('direction').notNull(),
+    engineId: text('engine_id'),
     counterpartyId: text('counterparty_id'),
     reason: text('reason'),
     performedAt: integer('performed_at').notNull(),
     performedBy: text('performed_by'),
+    prevHash: text('prev_hash'),
+    selfHash: text('self_hash'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => ({
     nomenclatureWarehouseIdx: index('erp_reg_stock_movements_nomenclature_warehouse_idx').on(t.nomenclatureId, t.warehouseId),
     headerIdx: index('erp_reg_stock_movements_header_idx').on(t.documentHeaderId),
     performedAtIdx: index('erp_reg_stock_movements_performed_at_idx').on(t.performedAt),
+    engineIdx: index('erp_reg_stock_movements_engine_idx').on(t.engineId),
   }),
 );
 

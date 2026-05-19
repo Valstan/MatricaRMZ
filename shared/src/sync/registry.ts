@@ -273,10 +273,13 @@ const ERP_STOCK_MOVEMENT_FIELDS: readonly FieldMapping[] = [
   { db: 'movementType', dto: 'movement_type' },
   { db: 'qty', dto: 'qty' },
   { db: 'direction', dto: 'direction' },
+  { db: 'engineId', dto: 'engine_id' },
   { db: 'counterpartyId', dto: 'counterparty_id' },
   { db: 'reason', dto: 'reason' },
   { db: 'performedAt', dto: 'performed_at' },
   { db: 'performedBy', dto: 'performed_by' },
+  { db: 'prevHash', dto: 'prev_hash' },
+  { db: 'selfHash', dto: 'self_hash' },
   { db: 'createdAt', dto: 'created_at' },
 ] as const;
 

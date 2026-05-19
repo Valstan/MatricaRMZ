@@ -34,6 +34,7 @@ export const erpDocumentHeaderRowSchema = z.object({
   status: z.string().min(1),
   author_id: z.string().uuid().nullable().optional(),
   department_id: z.string().nullable().optional(),
+  workshop_id: z.string().uuid().nullable().optional(),
   payload_json: z.string().nullable().optional(),
   posted_at: z.number().int().nullable().optional(),
 });
@@ -146,10 +147,13 @@ export const erpRegisterStockMovementRowSchema = z.object({
   movement_type: z.string().min(1),
   qty: z.number().int(),
   direction: z.string().min(1),
+  engine_id: z.string().uuid().nullable().optional(),
   counterparty_id: z.string().uuid().nullable().optional(),
   reason: z.string().nullable().optional(),
   performed_at: z.number().int(),
   performed_by: z.string().nullable().optional(),
+  prev_hash: z.string().nullable().optional(),
+  self_hash: z.string().nullable().optional(),
   created_at: z.number().int(),
 });
 
