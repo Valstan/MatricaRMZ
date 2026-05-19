@@ -52,6 +52,7 @@ export type TabId =
   | 'report_preset'
   | 'masterdata'
   | 'workshops'
+  | 'warehouse_locations'
   | 'admin'
   | 'audit'
   | 'notes'
@@ -144,6 +145,7 @@ const menuTabSet = new Set<MenuTabId>([
   'notes',
   'settings',
   'workshops',
+  'warehouse_locations',
 ]);
 
 function resolveMenuTab(tab: string): MenuTabId | null {
@@ -179,7 +181,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
   production: ['engines', 'engine_brands', 'parts', 'part_templates', 'engine_assembly_bom', 'tools'],
   supply: ['requests', 'work_orders', 'services', 'services_by_brand', 'tool_accounting'],
-  warehouse: ['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
+  warehouse: ['nomenclature', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory'],
   business: ['contracts', 'counterparties'],
   people: ['employees'],
   control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'admin'],
@@ -490,6 +492,7 @@ export function Tabs(props: {
     notes: 'Заметки',
     settings: 'Настройки',
     workshops: 'Цеха',
+    warehouse_locations: 'Локации (parts-movement)',
   };
 
   function updateLayout(nextVisibleOrder: MenuTabId[], trashIndex: number, nextHidden: MenuTabId[]) {
