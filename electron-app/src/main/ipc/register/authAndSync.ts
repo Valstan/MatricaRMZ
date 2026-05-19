@@ -175,6 +175,7 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
         serverOk: json?.ok === true,
         version: typeof json?.version === 'string' ? json.version : null,
         buildDate: typeof json?.buildDate === 'string' ? json.buildDate : null,
+        aiEnabled: json?.features?.aiEnabled !== false,
       };
     } catch (e) {
       return { ok: false as const, url, error: String(e) };

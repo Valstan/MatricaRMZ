@@ -86,6 +86,15 @@ export const AI_AGENT_BUSY_MESSAGE =
 export const AI_AGENT_MISCONFIGURED_MESSAGE =
   'ИИ-агент пока не настроен (отсутствует ANTHROPIC_API_KEY). Обратитесь к администратору.';
 
+export const AI_AGENT_DISABLED_MESSAGE =
+  'ИИ-агент временно отключён администратором. Программа работает в обычном режиме без AI-функций.';
+
+export const AI_ENABLED = String(process.env.AI_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+
+export function isAiEnabled(): boolean {
+  return AI_ENABLED;
+}
+
 export function nowMs() {
   return Date.now();
 }

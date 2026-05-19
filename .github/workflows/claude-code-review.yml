@@ -1,19 +1,24 @@
 name: Claude Code Review
 
+# Триггер pull_request временно отключён — Anthropic API режет запросы с любых
+# участников этого workflow в РФ-зоне или если ключ не задан. Запуск только
+# вручную через workflow_dispatch до тех пор, пока не настроен прокси/секрет.
+# Чтобы вернуть авто-ревью на PR: восстановить блок pull_request ниже.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches:
-      - main
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - ".github/copilot-instructions.md"
-      - ".github/claude-review-prompt.md"
-      - "CLAUDE.md"
+  workflow_dispatch:
+  # pull_request:
+  #   types: [opened, synchronize, reopened]
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - "**/*.md"
+  #     - "docs/**"
+  #     - ".github/copilot-instructions.md"
+  #     - ".github/claude-review-prompt.md"
+  #     - "CLAUDE.md"
 
 concurrency:
-  group: claude-code-review-${{ github.event.pull_request.number }}
+  group: claude-code-review-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:

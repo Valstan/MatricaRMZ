@@ -5,7 +5,7 @@ import { pool } from '../../database/db.js';
 import { ingestServerCriticalEvent, listCriticalEvents } from '../criticalEventsService.js';
 import { getSyncPipelineHealth } from '../diagnosticsSyncPipelineService.js';
 import { logError, logInfo } from '../../utils/logger.js';
-import { CLAUDE_MODEL_ANALYTICS, CLAUDE_TIMEOUT_ANALYTICS_MS, nowMs } from './common.js';
+import { AI_ENABLED, CLAUDE_MODEL_ANALYTICS, CLAUDE_TIMEOUT_ANALYTICS_MS, nowMs } from './common.js';
 import { callClaudeJson, isClaudeMisconfigured } from './claudeProvider.js';
 
 const DEFAULT_TIME_ZONE = 'Europe/Moscow';
@@ -249,6 +249,9 @@ export async function runLogAnalysisOnce(args?: { lookbackHours?: number; timeZo
   contextRange: { sinceMs: number; untilMs: number };
   emitted: boolean;
 } | { ok: false; error: string }> {
+  if (!AI_ENABLED) {
+    return { ok: false, error: 'AI отключён администратором (AI_ENABLED=false)' };
+  }
   const context = await collectLogAnalysisContext(args);
   const { system, user } = buildPrompt(context);
 
@@ -355,6 +358,10 @@ let schedulerStarted = false;
 
 export function startLogAnalysisAgent(args?: { times?: string[]; timeZone?: string }) {
   if (schedulerStarted) return;
+  if (!AI_ENABLED) {
+    logInfo('ai log analysis scheduler skipped: AI_ENABLED=false');
+    return;
+  }
   const enabled = String(process.env.AI_LOG_ANALYSIS_ENABLED ?? 'false').toLowerCase() === 'true';
   if (!enabled) return;
   schedulerStarted = true;

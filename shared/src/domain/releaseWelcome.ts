@@ -8,6 +8,21 @@ export type ReleaseWelcomeContent = {
 
 export const RELEASE_WELCOME_HISTORY: ReleaseWelcomeContent[] = [
   {
+    releaseLabel: 'v1.16.1',
+    title: 'Глобальный рубильник AI: программа работает без нейроагента',
+    intro:
+      'Технический патч поверх 1.16.0. Anthropic API режет запросы с российских IP-адресов на уровне эджа (HTTP 403 forbidden / "Request not allowed") — это политика провайдера для неподдерживаемых стран, а не баланс ключа. На прод-сервере (Moscow VPS) нейрочат и cron-аналитик логов фактически не могли работать, а лишние попытки запросов с того же ключа повышали риск его блокировки. Поэтому в этом релизе добавлен единый серверный рубильник AI_ENABLED: когда он выключен, ни нейрочат, ни аналитика, ни cron-агент не звонят к Claude, кнопка ИИ-агента скрывается в клиенте, а GitHub Action для автоматического PR-ревью переведён в режим ручного запуска (workflow_dispatch). Программа продолжает работать в обычном режиме без AI-функций.',
+    highlights: [
+      'AI_ENABLED — новый env-флаг в backend-api/.env. При false: runChatAssist, runChatAssistStream, runAnalyticsAssist и runLogAnalysisOnce немедленно возвращают «ИИ-агент временно отключён администратором» без обращения к Anthropic.',
+      'startLogAnalysisAgent не запускает scheduler при AI_ENABLED=false (cron-обход логов Sonnet не активируется).',
+      'GET /health теперь возвращает features.aiEnabled. Клиент при старте + каждые 5 минут перечитывает это поле и скрывает кнопку нейрочата, если AI выключен на сервере.',
+      'GitHub Action «Claude Code Review» переключён с pull_request на workflow_dispatch — авто-ревью на PR не запускается, секрет ANTHROPIC_API_KEY больше не обязателен.',
+      'Поведение по умолчанию не меняется: AI_ENABLED=true (если переменной нет в .env — AI включён). На проде в .env прописано AI_ENABLED=false.',
+    ],
+    outro:
+      'Когда подключим forward-прокси через зарубежный VPS — вернём AI_ENABLED=true и нейроагент снова заработает в полном объёме. Спокойной и продуктивной работы!',
+  },
+  {
     releaseLabel: 'v1.16.0',
     title: 'ИИ-агент на Claude API: tools, история чата, streaming, cron-аналитик логов',
     intro:
