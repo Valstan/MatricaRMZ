@@ -12,11 +12,13 @@ export class ClaudeMisconfiguredError extends Error {
 
 function getClient(): Anthropic {
   if (cachedClient) return cachedClient;
-  const apiKey = String(process.env.ANTHROPIC_API_KEY ?? '').trim();
+  const apiKey = String(
+    process.env.MATRICA_AI_CLAUDE_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? '',
+  ).trim();
   if (!apiKey) {
     if (!missingKeyWarned) {
       missingKeyWarned = true;
-      console.warn('[claudeProvider] ANTHROPIC_API_KEY not set — AI assist will fail');
+      console.warn('[claudeProvider] MATRICA_AI_CLAUDE_API_KEY not set — AI assist will fail');
     }
     throw new ClaudeMisconfiguredError();
   }
