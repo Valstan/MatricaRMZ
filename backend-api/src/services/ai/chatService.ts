@@ -3,8 +3,10 @@ import type { AiAgentSuggestion } from '@matricarmz/shared';
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import {
   AI_AGENT_BUSY_MESSAGE,
+  AI_AGENT_DISABLED_MESSAGE,
   AI_AGENT_MISCONFIGURED_MESSAGE,
   AI_CHAT_MAX_TOKENS_DEFAULT,
+  AI_ENABLED,
   CLAUDE_MODEL_ANALYTICS,
   CLAUDE_MODEL_CHAT,
   CLAUDE_TIMEOUT_CHAT_MS,
@@ -219,6 +221,14 @@ export async function runChatAssist(args: {
 }) {
   const startedAt = nowMs();
   const initialModel = CLAUDE_MODEL_CHAT;
+  if (!AI_ENABLED) {
+    return {
+      ok: true as const,
+      reply: { kind: 'info' as const, text: AI_AGENT_DISABLED_MESSAGE },
+      model: initialModel,
+      timeout: false,
+    };
+  }
   const quick = fastPathReply(args.message);
   if (quick) {
     await recordAssistMetrics({
@@ -373,6 +383,27 @@ export async function runChatAssistStream(
 ): Promise<ChatStreamResult> {
   const startedAt = nowMs();
   const initialModel = CLAUDE_MODEL_CHAT;
+  if (!AI_ENABLED) {
+    await handlers.onEvent({ type: 'text', delta: AI_AGENT_DISABLED_MESSAGE });
+    await handlers.onEvent({
+      type: 'done',
+      inputTokens: 0,
+      outputTokens: 0,
+      steps: 0,
+      toolUses: [],
+      text: AI_AGENT_DISABLED_MESSAGE,
+    });
+    return {
+      ok: true,
+      reply: { kind: 'info', text: AI_AGENT_DISABLED_MESSAGE },
+      model: initialModel,
+      timeout: false,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCalls: [],
+      escalated: false,
+    };
+  }
   const quick = fastPathReply(args.message);
   if (quick) {
     await handlers.onEvent({ type: 'text', delta: quick.text });

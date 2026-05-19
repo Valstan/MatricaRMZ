@@ -2,8 +2,10 @@ import { pool } from '../../database/db.js';
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import {
   AI_AGENT_BUSY_MESSAGE,
+  AI_AGENT_DISABLED_MESSAGE,
   AI_AGENT_MISCONFIGURED_MESSAGE,
   AI_ANALYTICS_MAX_TOKENS_DEFAULT,
+  AI_ENABLED,
   CLAUDE_TIMEOUT_ANALYTICS_MS,
   getModelForMode,
   isTimeoutError,
@@ -294,6 +296,9 @@ async function runAnalyticsViaTools(args: {
 export async function runAnalyticsAssist(args: { actorId: string; context: any; message: string }) {
   const startedAt = nowMs();
   const model = getModelForMode('analytics');
+  if (!AI_ENABLED) {
+    return { ok: true as const, replyText: AI_AGENT_DISABLED_MESSAGE, model, timeout: false };
+  }
   if (!AI_ANALYTICS_ENABLED) {
     return { ok: true as const, replyText: 'Аналитические возможности ИИ временно отключены. Доступен только чат.', model, timeout: false };
   }
