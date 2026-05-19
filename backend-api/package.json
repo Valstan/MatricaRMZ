@@ -37,6 +37,7 @@
     "ledger:rotate-data-key:dry-run": "tsx src/scripts/rotateLedgerDataKey.ts --dry-run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@matricarmz/ledger": "workspace:*",
     "@matricarmz/shared": "workspace:*",
     "bcryptjs": "^3.0.2",
