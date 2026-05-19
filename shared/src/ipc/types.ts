@@ -1073,6 +1073,44 @@ export type MatricaApi = {
     create: () => Promise<{ ok: true; id: string; payload: WorkOrderPayload } | { ok: false; error: string }>;
     update: (args: { id: string; payload: WorkOrderPayload }) => Promise<{ ok: true } | { ok: false; error: string }>;
     delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    close: (args: { operationId: string; expectedUpdatedAt?: number }) => Promise<
+      | { ok: true; operationId: string; documentId: string | null; posted: boolean }
+      | { ok: false; error: string }
+    >;
+    assemblyReturn: (args: {
+      engineId: string;
+      reason?: string | null;
+      lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+    }) => Promise<{ ok: true; documentId: string; posted: boolean } | { ok: false; error: string }>;
+  };
+
+  workshops: {
+    list: (args?: { activeOnly?: boolean }) => Promise<
+      | {
+          ok: true;
+          rows: Array<{
+            id: string;
+            code: string;
+            name: string;
+            isActive: boolean;
+            displayOrder: number;
+            deprecatedAt: number | null;
+            metadataJson: string | null;
+            createdAt: number;
+            updatedAt: number;
+          }>;
+        }
+      | { ok: false; error: string }
+    >;
+    upsert: (args: {
+      id?: string;
+      code: string;
+      name: string;
+      isActive?: boolean;
+      displayOrder?: number;
+      metadataJson?: string | null;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
 
   parts: {

@@ -39,6 +39,13 @@ export type UiCaps = {
   canCreateParts: boolean;
   canEditParts: boolean;
   canDeleteParts: boolean;
+
+  canManageWorkshops: boolean;
+  canCloseWorkOrders: boolean;
+  canRevertWorkOrders: boolean;
+  canConfirmEngineDisassemble: boolean;
+  canAssemblyReturn: boolean;
+  canRevertMovements: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -85,6 +92,14 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canViewEmployees = has(perms, 'employees.view');
   const canManageEmployees = has(perms, 'employees.create');
 
+  // Parts-movement / engine-assembly module.
+  const canManageWorkshops = has(perms, 'workshops.manage');
+  const canCloseWorkOrders = has(perms, 'work_orders.close');
+  const canRevertWorkOrders = has(perms, 'work_orders.revert');
+  const canConfirmEngineDisassemble = has(perms, 'engines.disassemble_confirm');
+  const canAssemblyReturn = has(perms, 'warehouse.assembly_return');
+  const canRevertMovements = has(perms, 'movements.revert');
+
   return {
     canViewEmployees,
     canViewEngines,
@@ -120,6 +135,13 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canCreateParts,
     canEditParts,
     canDeleteParts,
+
+    canManageWorkshops,
+    canCloseWorkOrders,
+    canRevertWorkOrders,
+    canConfirmEngineDisassemble,
+    canAssemblyReturn,
+    canRevertMovements,
   };
 }
 

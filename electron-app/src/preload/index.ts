@@ -247,6 +247,18 @@ const matricaApi = {
     create: async () => ipcRenderer.invoke('workOrders:create'),
     update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('workOrders:update', args),
     delete: async (id: string) => ipcRenderer.invoke('workOrders:delete', id),
+    close: async (args: { operationId: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('workOrders:close', args),
+    assemblyReturn: async (args: {
+      engineId: string;
+      reason?: string | null;
+      lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+    }) => ipcRenderer.invoke('workOrders:assemblyReturn', args),
+  },
+  workshops: {
+    list: async (args?: { activeOnly?: boolean }) => ipcRenderer.invoke('workshops:list', args),
+    upsert: async (args: { id?: string; code: string; name: string; isActive?: boolean; displayOrder?: number; metadataJson?: string | null }) =>
+      ipcRenderer.invoke('workshops:upsert', args),
+    delete: async (id: string) => ipcRenderer.invoke('workshops:delete', id),
   },
   tools: {
     list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),

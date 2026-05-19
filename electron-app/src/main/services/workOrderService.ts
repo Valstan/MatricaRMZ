@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { normalizeWorkOrderLine, type WorkOrderPayload } from '@matricarmz/shared';
+import {
+  WORK_ORDER_PAYLOAD_VERSION,
+  normalizeWorkOrderLine,
+  normalizeWorkOrderPayloadV3Fields,
+  type WorkOrderPayload,
+} from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
 
 import { auditLog, operations } from '../database/schema.js';
@@ -247,9 +252,13 @@ function recalcPayload(payload: WorkOrderPayload): WorkOrderPayload {
     manualPayoutRub: member.payoutFrozen ? member.manualPayoutRub : undefined,
   }));
 
+  // Preserve v3 parts-movement module fields (workshopId, workOrderKind, consumed/producedLines, linkedDocumentId).
+  // Without this, recalcPayload would silently wipe new fields when a v3 work order is edited on this client.
+  const v3 = normalizeWorkOrderPayloadV3Fields(rawPayload);
+
   return {
     ...payload,
-    version: 2,
+    version: WORK_ORDER_PAYLOAD_VERSION,
     workGroups,
     freeWorks,
     works,
@@ -259,6 +268,7 @@ function recalcPayload(payload: WorkOrderPayload): WorkOrderPayload {
     payouts,
     partId: null,
     partName: '',
+    ...v3,
   };
 }
 

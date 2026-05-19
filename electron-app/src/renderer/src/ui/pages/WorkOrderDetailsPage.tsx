@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  WORK_ORDER_KIND_LABELS,
+  WorkOrderKind,
   normalizeWorkOrderLine,
   resolveWorkOrderSignatureDecryptions,
   type WorkOrderPayload,
@@ -237,6 +239,7 @@ export function WorkOrderDetailsPage(props: {
   canEditMasterData: boolean;
   canCreateParts?: boolean;
   canCreateEmployees?: boolean;
+  canCloseWorkOrders?: boolean;
   onOpenPart?: (partId: string) => void;
   onOpenService?: (serviceId: string) => void;
   onOpenEmployee?: (employeeId: string) => void;
@@ -249,8 +252,21 @@ export function WorkOrderDetailsPage(props: {
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
+  const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
+  const [closing, setClosing] = useState(false);
   const dirtyRef = useRef(false);
   const { confirm } = useConfirm();
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await window.matrica.workshops.list({ activeOnly: true });
+        if (r.ok) setWorkshops(r.rows);
+      } catch {
+        /* non-fatal */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -898,6 +914,94 @@ export function WorkOrderDetailsPage(props: {
             style={{ width: 150 }}
           />
         </div>
+        {/* Parts-movement module: cex + kind selectors + close button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Цех</span>
+          <select
+            value={payload.workshopId ?? ''}
+            disabled={!props.canEdit || workshops.length === 0}
+            onChange={(e) => {
+              const v = e.target.value;
+              const next: WorkOrderPayload = { ...payload };
+              if (v) next.workshopId = v;
+              else delete next.workshopId;
+              patch(next);
+            }}
+            style={{ minWidth: 140, padding: '4px 6px' }}
+          >
+            <option value="">— не выбран —</option>
+            {workshops.map((w) => (
+              <option key={w.id} value={w.id}>
+                Цех {w.code} — {w.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Тип</span>
+          <select
+            value={payload.workOrderKind ?? ''}
+            disabled={!props.canEdit}
+            onChange={(e) => {
+              const v = e.target.value;
+              const next: WorkOrderPayload = { ...payload };
+              if (v === WorkOrderKind.Repair || v === WorkOrderKind.Assembly) next.workOrderKind = v;
+              else delete next.workOrderKind;
+              patch(next);
+            }}
+            style={{ minWidth: 140, padding: '4px 6px' }}
+          >
+            <option value="">— не выбран —</option>
+            <option value={WorkOrderKind.Repair}>{WORK_ORDER_KIND_LABELS[WorkOrderKind.Repair]}</option>
+            <option value={WorkOrderKind.Assembly}>{WORK_ORDER_KIND_LABELS[WorkOrderKind.Assembly]}</option>
+          </select>
+        </div>
+        {payload.linkedDocumentId ? (
+          <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+            Закрыт. Документ: <code>{payload.linkedDocumentId.slice(0, 8)}…</code>
+          </div>
+        ) : props.canCloseWorkOrders ? (
+          <Button
+            disabled={closing || !payload.workshopId || !payload.workOrderKind}
+            title={
+              !payload.workshopId
+                ? 'Выберите цех'
+                : !payload.workOrderKind
+                  ? 'Выберите тип наряда'
+                  : 'Создаст и проведёт складской документ (repair_recovery / assembly_consumption), наряд переходит в closed'
+            }
+            onClick={async () => {
+              if (!confirm) return;
+              const ok = await confirm({
+                title: 'Закрыть наряд и провести документ?',
+                detail:
+                  payload.workOrderKind === WorkOrderKind.Repair
+                    ? 'Будет создан и проведён документ repair_recovery (детали уходят из ремфонда на склад цеха). Действие необратимо без сторнирования.'
+                    : 'Будет создан и проведён документ assembly_consumption (детали списываются со склада цеха в сборку, привязка к двигателю). Действие необратимо без сторнирования.',
+              });
+              if (!ok) return;
+              setClosing(true);
+              setStatus('Закрываю наряд…');
+              try {
+                // Сохраняем текущее состояние перед закрытием, чтобы payload v3 ушёл на сервер
+                if (props.canEdit && dirtyRef.current) await flushSave(payload);
+                const r = await window.matrica.workOrders.close({ operationId: props.id });
+                if (!r.ok) {
+                  setStatus(`Ошибка закрытия: ${r.error}`);
+                  return;
+                }
+                setStatus(`Закрыто. Документ ${r.documentId ?? '—'} проведён.`);
+                await refresh();
+              } catch (e) {
+                setStatus(`Ошибка: ${String(e)}`);
+              } finally {
+                setClosing(false);
+              }
+            }}
+          >
+            {closing ? 'Закрываю…' : 'Закрыть и провести'}
+          </Button>
+        ) : null}
       </div>
       {status && !status.startsWith('Сохранено') ? (
         <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)', fontSize: 12, marginBottom: 8 }}>{status}</div>

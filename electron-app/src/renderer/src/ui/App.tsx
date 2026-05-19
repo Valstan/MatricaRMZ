@@ -115,6 +115,8 @@ const ToolPropertiesPage = lazyPage('./pages/ToolPropertiesPage.tsx', 'ToolPrope
 const ToolPropertyDetailsPage = lazyPage('./pages/ToolPropertyDetailsPage.tsx', 'ToolPropertyDetailsPage');
 const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
 const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
+const MasterdataWorkshopsPage = lazyPage('./pages/MasterdataWorkshopsPage.tsx', 'MasterdataWorkshopsPage');
+const WarehouseLocationsPage = lazyPage('./pages/WarehouseLocationsPage.tsx', 'WarehouseLocationsPage');
 const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
 const ServicesByBrandPage = lazyPage('./pages/ServicesByBrandPage.tsx', 'ServicesByBrandPage');
@@ -1289,6 +1291,12 @@ export function App() {
         canViewParts: false,
         canManageEmployees: false,
         canViewEmployees: false,
+        canManageWorkshops: false,
+        canCloseWorkOrders: false,
+        canRevertWorkOrders: false,
+        canConfirmEngineDisassemble: false,
+        canAssemblyReturn: false,
+        canRevertMovements: false,
       }
     : capsBase;
   const availableTabs: MenuTabId[] = [
@@ -1307,12 +1315,13 @@ export function App() {
     // ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewMasterData
-      ? (['nomenclature', 'stock_balances', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'] as const)
+      ? (['nomenclature', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'engine_assembly_bom'] as const)
       : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(caps.canViewReports ? (['reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
+    ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
   ];
   const menuState = deriveMenuState(availableTabs, tabsLayout);
@@ -1372,6 +1381,8 @@ export function App() {
     auth: 'Вход',
     notes: 'Заметки',
     settings: 'Настройки',
+    workshops: 'Цеха',
+    warehouse_locations: 'Локации (parts-movement)',
   };
 
   // Gate: без входа показываем только вкладку "Вход".
@@ -3219,6 +3230,18 @@ export function App() {
           />
         )}
 
+        {tab === 'workshops' && (
+          <MasterdataWorkshopsPage canManage={caps.canManageWorkshops} />
+        )}
+
+        {tab === 'warehouse_locations' && (
+          <WarehouseLocationsPage
+            onOpenReport={(presetId: string) =>
+              setTab(presetId === 'part_movement_journal' ? 'reports' : tab)
+            }
+          />
+        )}
+
         {tab === 'contracts' && (
           <ContractsPage
             onOpen={openContract}
@@ -3288,6 +3311,8 @@ export function App() {
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            canConfirmEngineDisassemble={caps.canConfirmEngineDisassemble}
+            canAssemblyReturn={caps.canAssemblyReturn}
             currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
@@ -3371,6 +3396,7 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canCreateParts={caps.canCreateParts}
             canCreateEmployees={caps.canManageEmployees}
+            canCloseWorkOrders={caps.canCloseWorkOrders}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenPart={openPart}

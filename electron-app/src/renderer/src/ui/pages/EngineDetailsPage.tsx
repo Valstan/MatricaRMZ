@@ -18,6 +18,8 @@ import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type Attribu
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
+import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 
 type LinkOpt = SearchSelectOption;
 
@@ -150,6 +152,8 @@ export function EngineDetailsPage(props: {
   canExportReports?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  canConfirmEngineDisassemble?: boolean;
+  canAssemblyReturn?: boolean;
   currentUserProfile?: { fullName: string; position: string } | null;
   onOpenEngineBrand?: (engineBrandId: string) => void;
   onOpenCounterparty?: (counterpartyId: string) => void;
@@ -158,6 +162,8 @@ export function EngineDetailsPage(props: {
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
+  const [dismantleOpen, setDismantleOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
   const [engineBrandId, setEngineBrandId] = useState(String(props.engine.attributes?.engine_brand_id ?? ''));
@@ -884,6 +890,48 @@ export function EngineDetailsPage(props: {
           )}
         </div>
       </SectionCard>
+
+      {(props.canConfirmEngineDisassemble || props.canAssemblyReturn) && (
+        <SectionCard style={{ padding: 12, background: 'rgba(168, 85, 247, 0.08)' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 13 }}>Модуль движения деталей:</strong>
+            {props.canConfirmEngineDisassemble && (
+              <Button
+                onClick={() => setDismantleOpen(true)}
+                title="Создать и провести документ engine_dismantling: годные детали → ремфонд, утиль → утиль"
+              >
+                Разобрать двигатель
+              </Button>
+            )}
+            {props.canAssemblyReturn && (
+              <Button
+                variant="ghost"
+                onClick={() => setReturnOpen(true)}
+                title="Возврат деталей из «в сборке» в ремфонд (доработка) или утиль"
+              >
+                Возврат из сборки
+              </Button>
+            )}
+            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
+              Действия создают складские движения с привязкой к этому двигателю; видны в журнале (отчёт «Журнал движений деталей»).
+            </span>
+          </div>
+        </SectionCard>
+      )}
+
+      <EngineDismantlePreviewDialog
+        open={dismantleOpen}
+        onClose={() => setDismantleOpen(false)}
+        engineId={props.engineId}
+        engineLabel={String(engineNumber || props.engineId)}
+        engineBrandId={engineBrandId || null}
+      />
+      <AssemblyReturnDialog
+        open={returnOpen}
+        onClose={() => setReturnOpen(false)}
+        engineId={props.engineId}
+        engineLabel={String(engineNumber || props.engineId)}
+      />
 
       {props.canViewOperations && (
         <div style={{ background: 'rgba(248, 113, 113, 0.08)', borderRadius: 14, padding: 10 }}>
