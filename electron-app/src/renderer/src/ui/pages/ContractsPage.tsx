@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
+import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useListSelection } from '../hooks/useListSelection.js';
@@ -45,9 +47,28 @@ type Row = {
   daysLeft: number | null;
   progressPct: number | null;
   isFullyExecuted: boolean;
+  enginesPlanned: number;
+  enginesAccepted: number;
+  enginesAtFactory: number;
+  partsPlanned: number;
+  partsCompleted: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
-type SortKey = 'number' | 'internalNumber' | 'counterparty' | 'dateMs' | 'dueDateMs' | 'amount' | 'updatedAt';
+type SortKey =
+  | 'number'
+  | 'internalNumber'
+  | 'counterparty'
+  | 'dateMs'
+  | 'dueDateMs'
+  | 'amount'
+  | 'updatedAt'
+  | 'progressPct'
+  | 'daysLeft'
+  | 'enginesPlanned'
+  | 'enginesAccepted'
+  | 'enginesAtFactory'
+  | 'partsPlanned'
+  | 'partsCompleted';
 type ContractsListUiState = {
   query: string;
   sortKey: SortKey;
@@ -318,6 +339,18 @@ export function ContractsPage(props: {
             const progressPct = progress?.progressPct ?? null;
             const isFullyExecuted = Boolean(progressPct != null && progressPct >= 100);
 
+            let enginesAtFactory = 0;
+            for (const item of relatedItems) {
+              const flags = item.statusFlags ?? {};
+              const arrivedAtFactory =
+                flags.status_storage_received === true ||
+                flags.status_repair_started === true ||
+                flags.status_repaired === true;
+              const shippedOut =
+                flags.status_customer_sent === true || flags.status_customer_accepted === true;
+              if (arrivedAtFactory && !shippedOut) enginesAtFactory += 1;
+            }
+
             return {
               id: String(row.id),
               number: numberRaw == null ? '' : String(numberRaw),
@@ -331,6 +364,11 @@ export function ContractsPage(props: {
               daysLeft,
               progressPct,
               isFullyExecuted,
+              enginesPlanned: Number(progress?.enginePlannedCount ?? 0),
+              enginesAccepted: Number(progress?.engineAcceptedCount ?? 0),
+              enginesAtFactory,
+              partsPlanned: Number(progress?.partPlannedCount ?? 0),
+              partsCompleted: Number(progress?.partCompletedCount ?? 0),
               ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
             };
           } catch {
@@ -347,6 +385,11 @@ export function ContractsPage(props: {
               daysLeft: null,
               progressPct: null,
               isFullyExecuted: false,
+              enginesPlanned: 0,
+              enginesAccepted: 0,
+              enginesAtFactory: 0,
+              partsPlanned: 0,
+              partsCompleted: 0,
             };
           }
         }),
@@ -395,6 +438,13 @@ export function ContractsPage(props: {
       if (key === 'dateMs') return Number(row.dateMs ?? 0);
       if (key === 'dueDateMs') return Number(row.dueDateMs ?? 0);
       if (key === 'amount') return Number(row.contractAmount ?? 0);
+      if (key === 'progressPct') return Number(row.progressPct ?? -1);
+      if (key === 'daysLeft') return Number(row.daysLeft ?? Number.MAX_SAFE_INTEGER);
+      if (key === 'enginesPlanned') return Number(row.enginesPlanned ?? 0);
+      if (key === 'enginesAccepted') return Number(row.enginesAccepted ?? 0);
+      if (key === 'enginesAtFactory') return Number(row.enginesAtFactory ?? 0);
+      if (key === 'partsPlanned') return Number(row.partsPlanned ?? 0);
+      if (key === 'partsCompleted') return Number(row.partsCompleted ?? 0);
       return Number(row.updatedAt ?? 0);
     },
     (row) => row.id,
@@ -405,6 +455,178 @@ export function ContractsPage(props: {
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
   }
+
+  type ColumnDef = ColumnDescriptor & {
+    sortable: boolean;
+    sortKey?: SortKey;
+    headerAlign?: 'left' | 'right';
+    cellAlign?: 'left' | 'right';
+    width?: number;
+    requireShowPreviews?: boolean;
+    render: (row: Row, ctx: { textColor: string }) => React.ReactNode;
+  };
+
+  const allColumns = useMemo<ColumnDef[]>(
+    () => [
+      {
+        id: 'number',
+        label: 'Номер контракта',
+        sortable: true,
+        sortKey: 'number',
+        render: (row) => row.number || '(без номера)',
+      },
+      {
+        id: 'internalNumber',
+        label: 'Внутренний номер контракта',
+        sortable: true,
+        sortKey: 'internalNumber',
+        render: (row) => row.internalNumber || '—',
+      },
+      {
+        id: 'counterparty',
+        label: 'Контрагент',
+        sortable: true,
+        sortKey: 'counterparty',
+        render: (row) => row.counterparty || '—',
+      },
+      {
+        id: 'dateMs',
+        label: 'Дата заключения',
+        sortable: true,
+        sortKey: 'dateMs',
+        render: (row) => (row.dateMs ? formatMoscowDate(row.dateMs) : '—'),
+      },
+      {
+        id: 'dueDateMs',
+        label: 'Дата исполнения',
+        sortable: true,
+        sortKey: 'dueDateMs',
+        render: (row) => (row.dueDateMs ? formatMoscowDate(row.dueDateMs) : '—'),
+      },
+      {
+        id: 'daysLeft',
+        label: 'Дней до исполнения',
+        sortable: true,
+        sortKey: 'daysLeft',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 100,
+        render: (row) => (row.daysLeft == null ? '—' : String(row.daysLeft)),
+      },
+      {
+        id: 'amount',
+        label: 'Сумма контракта (контракт плюс ДС)',
+        sortable: true,
+        sortKey: 'amount',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        render: (row) => formatRuMoney(row.contractAmount),
+      },
+      {
+        id: 'updatedAt',
+        label: 'Дата обновления карточки контракта',
+        sortable: true,
+        sortKey: 'updatedAt',
+        render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
+      },
+      {
+        id: 'enginesPlanned',
+        label: 'Двигателей по контракту',
+        sortable: true,
+        sortKey: 'enginesPlanned',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 110,
+        render: (row) => (row.enginesPlanned > 0 ? String(row.enginesPlanned) : '—'),
+      },
+      {
+        id: 'enginesAccepted',
+        label: 'Двигателей исполнено',
+        sortable: true,
+        sortKey: 'enginesAccepted',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 110,
+        render: (row) =>
+          row.enginesPlanned > 0
+            ? `${row.enginesAccepted} / ${row.enginesPlanned}`
+            : row.enginesAccepted > 0
+              ? String(row.enginesAccepted)
+              : '—',
+      },
+      {
+        id: 'enginesAtFactory',
+        label: 'Двигателей на заводе',
+        sortable: true,
+        sortKey: 'enginesAtFactory',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 110,
+        render: (row) => (row.enginesAtFactory > 0 ? String(row.enginesAtFactory) : '—'),
+      },
+      {
+        id: 'partsCompleted',
+        label: 'Запчасти исполнено',
+        sortable: true,
+        sortKey: 'partsCompleted',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 120,
+        render: (row) =>
+          row.partsPlanned > 0
+            ? `${row.partsCompleted} / ${row.partsPlanned}`
+            : row.partsCompleted > 0
+              ? String(row.partsCompleted)
+              : '—',
+      },
+      {
+        id: 'progressPct',
+        label: 'Прогресс',
+        sortable: true,
+        sortKey: 'progressPct',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 90,
+        render: (row, ctx) => (
+          <span style={{ color: ctx.textColor, fontWeight: 600, fontSize: 12 }}>
+            {row.progressPct != null ? `${Math.round(row.progressPct)}%` : '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'attachmentPreviews',
+        label: 'Превью',
+        sortable: false,
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 220,
+        requireShowPreviews: true,
+        render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} />,
+      },
+    ],
+    [],
+  );
+
+  const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
+  const defaultHidden = useMemo(
+    () => ['daysLeft', 'enginesPlanned', 'enginesAccepted', 'enginesAtFactory', 'partsCompleted'],
+    [],
+  );
+  const columnLayout = useColumnLayout('list:contracts', allColumnIds, defaultHidden);
+  const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
+  const visibleColumns = useMemo(
+    () =>
+      columnLayout.order
+        .map((id) => columnsById.get(id))
+        .filter((col): col is ColumnDef => Boolean(col))
+        .filter((col) => columnLayout.isVisible(col.id))
+        .filter((col) => !col.requireShowPreviews || showPreviews),
+    [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
+  );
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(
+    () => allColumns.map((col) => ({ id: col.id, label: col.label })),
+    [allColumns],
+  );
 
   const contextColumns = useMemo(
     () => [
@@ -464,42 +686,36 @@ export function ContractsPage(props: {
     fontWeight: 700,
     fontSize: 14,
     color: '#111827',
-    cursor: 'pointer',
   };
 
-  const tableHeader = (
-    <thead>
-      <tr style={{ background: '#f9fafb', color: '#111827' }}>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('number')}>
-          Номер контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'number')}
-        </th>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('internalNumber')}>
-          Внутренний номер контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'internalNumber')}
-        </th>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('counterparty')}>
-          Контрагент {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'counterparty')}
-        </th>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('dateMs')}>
-          Дата заключения {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'dateMs')}
-        </th>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('dueDateMs')}>
-          Дата исполнения {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'dueDateMs')}
-        </th>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('amount')}>
-          Сумма контракта (контракт плюс ДС) {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'amount')}
-        </th>
-        <th style={{ ...headerThBase, textAlign: 'left' }} onClick={() => onSort('updatedAt')}>
-          Дата обновления карточки контракта {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'updatedAt')}
-        </th>
-        <th style={{ ...headerCellBorder, padding: 8, width: 80, textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111827' }}>Прогресс</th>
-        {showPreviews && (
-          <th style={{ ...headerCellBorder, padding: 8, width: 220, textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111827' }}>
-            Превью
-          </th>
-        )}
-      </tr>
-    </thead>
-  );
+  function renderTableHeader() {
+    return (
+      <thead>
+        <tr style={{ background: '#f9fafb', color: '#111827' }}>
+          {visibleColumns.map((col) => {
+            const align = col.headerAlign ?? 'left';
+            const baseStyle: React.CSSProperties = {
+              ...headerThBase,
+              textAlign: align,
+              cursor: col.sortable ? 'pointer' : 'default',
+              ...(col.width ? { width: col.width } : {}),
+            };
+            const arrow = col.sortable && col.sortKey ? sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey) : '';
+            return (
+              <th
+                key={col.id}
+                style={baseStyle}
+                onClick={col.sortable && col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
+              >
+                {col.label}
+                {arrow ? ` ${arrow}` : ''}
+              </th>
+            );
+          })}
+        </tr>
+      </thead>
+    );
+  }
 
   function renderContractRow(row: Row) {
     const rowVisual = getProgressBarStyle(row);
@@ -529,27 +745,19 @@ export function ContractsPage(props: {
           if (rowVisual.hoverable) e.currentTarget.style.backgroundColor = 'transparent';
         }}
       >
-        <td style={{ padding: '8px 10px', color: textColor }}>{row.number || '(без номера)'}</td>
-        <td style={{ padding: '8px 10px', color: textColor }}>{row.internalNumber || '—'}</td>
-        <td style={{ padding: '8px 10px', color: textColor }}>{row.counterparty || '—'}</td>
-        <td style={{ padding: '8px 10px', color: textColor }}>
-          {row.dateMs ? formatMoscowDate(row.dateMs) : '—'}
-        </td>
-        <td style={{ padding: '8px 10px', color: textColor }}>
-          {row.dueDateMs ? formatMoscowDate(row.dueDateMs) : '—'}
-        </td>
-        <td style={{ padding: '8px 10px', color: textColor }}>{formatRuMoney(row.contractAmount)}</td>
-        <td style={{ padding: '8px 10px', color: textColor }}>
-          {row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}
-        </td>
-        <td style={{ padding: '8px 10px', textAlign: 'right', color: textColor, fontWeight: 600, fontSize: 12 }}>
-          {row.progressPct != null ? `${Math.round(row.progressPct)}%` : '—'}
-        </td>
-        {showPreviews && (
-          <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-            <ListRowThumbs files={row.attachmentPreviews ?? []} />
-          </td>
-        )}
+        {visibleColumns.map((col) => {
+          const align = col.cellAlign ?? 'left';
+          const cellStyle: React.CSSProperties = {
+            padding: '8px 10px',
+            color: textColor,
+            textAlign: align,
+          };
+          return (
+            <td key={col.id} style={cellStyle}>
+              {col.render(row, { textColor })}
+            </td>
+          );
+        })}
       </tr>
     );
   }
@@ -558,12 +766,12 @@ export function ContractsPage(props: {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
         <table className="list-table">
-          {tableHeader}
+          {renderTableHeader()}
           <tbody>
             {items.map((row) => renderContractRow(row))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={showPreviews ? 9 : 8} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={Math.max(1, visibleColumns.length)} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -634,6 +842,14 @@ export function ContractsPage(props: {
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
+        <ColumnSettingsButton
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleColumnsMode} />
       </div>
 

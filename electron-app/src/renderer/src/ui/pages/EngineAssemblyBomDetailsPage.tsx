@@ -115,8 +115,28 @@ function buildBomPrintSections(lines: BomLine[]): PrintSection[] {
     return [{ id: 'lines-empty', title: 'Строки спецификации', html: '<div class="muted">Нет строк BOM</div>' }];
   }
 
-  const renderRows = (chunk: BomLine[]): string =>
-    [...chunk]
+  const buildKeyResolver = (chunk: BomLine[]) => {
+    const byKey = new Map<string, string>();
+    for (const line of chunk) {
+      const raw = String(line.lineKey ?? '').trim();
+      if (!raw) continue;
+      const label = getLineDisplayLabel(line);
+      byKey.set(raw, label);
+      const normalized = normalizeNodeKey(raw);
+      if (normalized && normalized !== raw && !byKey.has(normalized)) {
+        byKey.set(normalized, label);
+      }
+    }
+    return (raw: string | null | undefined): string => {
+      const key = String(raw ?? '').trim();
+      if (!key) return '—';
+      return byKey.get(key) ?? byKey.get(normalizeNodeKey(key)) ?? key;
+    };
+  };
+
+  const renderRows = (chunk: BomLine[]): string => {
+    const resolveKey = buildKeyResolver(chunk);
+    return [...chunk]
       .sort((a, b) => {
         const ap = Number(a.priority ?? 100);
         const bp = Number(b.priority ?? 100);
@@ -129,19 +149,18 @@ function buildBomPrintSections(lines: BomLine[]): PrintSection[] {
         const qty = String(Number(line.qtyPerUnit ?? 0));
         const required = line.isRequired !== false ? 'Да' : 'Нет';
         const priority = String(Number(line.priority ?? 100));
-        const lineKey = String(line.lineKey ?? '').trim() || '—';
-        const parent = String(line.parentLineKey ?? '').trim() || '—';
+        const parent = resolveKey(line.parentLineKey);
         return `<tr>
           <td>${escapeHtml(type)}</td>
           <td>${escapeHtml(component)}</td>
           <td>${escapeHtml(qty)}</td>
           <td>${escapeHtml(required)}</td>
           <td>${escapeHtml(priority)}</td>
-          <td>${escapeHtml(lineKey)}</td>
           <td>${escapeHtml(parent)}</td>
         </tr>`;
       })
       .join('');
+  };
 
   const renderTable = (chunk: BomLine[]): string => {
     const rows = renderRows(chunk);
@@ -153,8 +172,7 @@ function buildBomPrintSections(lines: BomLine[]): PrintSection[] {
           <th>Кол-во/двиг.</th>
           <th>Обяз.</th>
           <th>Приоритет</th>
-          <th>Узел</th>
-          <th>Родитель</th>
+          <th>Входит в</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
