@@ -5,7 +5,6 @@ import type {
   AiAgentContext,
   AiAgentEvent,
   AiAgentSuggestion,
-  AiAgentOllamaHealthResponse,
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
@@ -14,7 +13,7 @@ import { formatMoscowTime } from '../utils/dateUtils.js';
 
 type ChatItem =
   | { id: string; role: 'user'; text: string; ts: number }
-  | { id: string; role: 'assistant'; text: string; ts: number; kind: AiAgentSuggestion['kind'] };
+  | { id: string; role: 'assistant'; text: string; ts: number; kind: AiAgentSuggestion['kind']; actions?: string[] };
 
 function nowMs() {
   return Date.now();
@@ -48,8 +47,6 @@ export type AiAgentChatHandle = {
   setLoading: (loading: boolean) => void;
 };
 
-type HealthStatus = 'idle' | 'running' | 'ok' | 'fail';
-
 export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   visible: boolean;
   context: AiAgentContext;
@@ -60,35 +57,10 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [text, setText] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [healthStatus, setHealthStatus] = useState<HealthStatus>('idle');
-  const [healthResult, setHealthResult] = useState<AiAgentOllamaHealthResponse | null>(null);
 
-  const healthLabel =
-    healthStatus === 'running'
-      ? 'Проверка связи...'
-      : healthStatus === 'ok'
-        ? 'Связь с Ollama OK'
-        : healthStatus === 'fail'
-          ? 'Связь с Ollama не подтверждена'
-          : 'Проверить связь с Ollama';
-
-  async function runHealthCheck() {
-    if (healthStatus === 'running') return;
-    setHealthStatus('running');
-    setHealthResult(null);
-    const res = (await window.matrica.aiAgent.ollamaHealth({ attempts: 3, timeoutMs: 10_000 })) as AiAgentOllamaHealthResponse;
-    setHealthResult(res);
-    if (res && res.ok) {
-      setHealthStatus('ok');
-    } else {
-      setHealthStatus('fail');
-    }
-  }
-
-  async function send() {
-    const msg = text.trim();
+  async function sendMessage(messageText: string) {
+    const msg = messageText.trim();
     if (!msg || loading) return;
-    setText('');
     const userItem: ChatItem = { id: makeId(), role: 'user', text: msg, ts: nowMs() };
     setItems((prev) => [...prev, userItem]);
     setLoading(true);
@@ -106,16 +78,22 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       return;
     }
     const reply = res.reply;
-    setItems((prev) => [
-      ...prev,
-      {
-        id: makeId(),
-        role: 'assistant',
-        text: reply.text,
-        ts: nowMs(),
-        kind: reply.kind,
-      },
-    ]);
+    const newItem: ChatItem = {
+      id: makeId(),
+      role: 'assistant',
+      text: reply.text,
+      ts: nowMs(),
+      kind: reply.kind,
+      ...(Array.isArray(reply.actions) && reply.actions.length > 0 ? { actions: reply.actions } : {}),
+    };
+    setItems((prev) => [...prev, newItem]);
+  }
+
+  async function send() {
+    const msg = text.trim();
+    if (!msg) return;
+    setText('');
+    await sendMessage(msg);
   }
 
   useImperativeHandle(
@@ -156,37 +134,10 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       }}
     >
       <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontWeight: 900, flex: 1 }}>ИИ‑агент</div>
-        <Button variant="ghost" onClick={() => void runHealthCheck()} disabled={healthStatus === 'running'}>
-          Связь с Ollama
-        </Button>
+        <div style={{ fontWeight: 900, flex: 1 }}>ИИ‑агент (Claude)</div>
         <Button variant="ghost" onClick={props.onClose}>
           Закрыть
         </Button>
-      </div>
-
-      <div style={{ padding: '8px 10px', borderBottom: `1px solid ${theme.colors.border}`, fontSize: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontWeight: 700 }}>{healthLabel}</div>
-          {healthStatus !== 'idle' && (
-            <div style={{ color: healthStatus === 'ok' ? '#1f9d55' : healthStatus === 'fail' ? '#d64545' : theme.colors.muted }}>
-              {healthStatus === 'running' ? '...' : healthStatus === 'ok' ? 'OK' : 'FAIL'}
-            </div>
-          )}
-        </div>
-        {healthResult && 'attempts' in healthResult && Array.isArray(healthResult.attempts) && (
-          <div style={{ marginTop: 6, color: theme.colors.muted }}>
-            {healthResult.attempts.map((a, idx) => (
-              <div key={idx}>
-                #{idx + 1} — {a.ok ? 'ok' : 'fail'} — {a.tookMs}ms{a.error ? ` — ${a.error}` : ''}
-              </div>
-            ))}
-            {'summary' in healthResult && healthResult.summary && <div>Итог: {healthResult.summary}</div>}
-          </div>
-        )}
-        {healthResult && !healthResult.ok && healthResult.error && (
-          <div style={{ marginTop: 6, color: '#d64545' }}>Ошибка: {healthResult.error}</div>
-        )}
       </div>
 
       <div style={{ padding: 10, overflowY: 'auto', flex: '1 1 auto' }}>
@@ -213,6 +164,15 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
               {m.text}
             </div>
             <div style={{ fontSize: 10, color: theme.colors.muted, marginTop: 2 }}>{formatTime(m.ts)}</div>
+            {m.role === 'assistant' && 'actions' in m && m.actions && m.actions.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, justifyContent: 'flex-start' }}>
+                {m.actions.map((a, idx) => (
+                  <Button key={idx} variant="ghost" onClick={() => void sendMessage(a)} disabled={loading}>
+                    {a}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {loading && <div style={{ color: theme.colors.muted, fontSize: 12 }}>ИИ‑агент печатает…</div>}

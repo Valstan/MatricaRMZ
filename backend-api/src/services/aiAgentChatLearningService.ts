@@ -14,7 +14,7 @@ const DEFAULT_LIMIT = 1000;
 
 const STATE_SCOPE = 'ai_agent_chat_state';
 const CHAT_SCOPE = 'ai_agent_chat_corpus';
-const OLLAMA_MODEL_CHAT = process.env.OLLAMA_MODEL_CHAT || process.env.OLLAMA_MODEL || 'qwen3:8b';
+const AI_CORPUS_MODEL_LABEL = process.env.AI_CORPUS_MODEL_LABEL || process.env.CLAUDE_MODEL_CHAT || 'claude-haiku-4-5';
 
 type ChatRow = {
   id: string;
@@ -43,8 +43,8 @@ function truncate(text: string, max = 1000) {
 function getReadonlyPool(): Pool | null {
   if (roPool) return roPool;
   if (roPoolInitError) return null;
-  const user = process.env.OLLAMA_DB_RO_USER;
-  const password = process.env.OLLAMA_DB_RO_PASSWORD;
+  const user = process.env.AI_DB_RO_USER || process.env.OLLAMA_DB_RO_USER;
+  const password = process.env.AI_DB_RO_PASSWORD || process.env.OLLAMA_DB_RO_PASSWORD;
   const database = process.env.PGDATABASE;
   if (!user || !password || !database) {
     roPoolInitError = true;
@@ -177,7 +177,7 @@ export function startAiAgentChatLearningService() {
         windowEnd: nowMs(),
         aiAgentUserId: aiAgentId,
         superadminUserId: superadminId,
-        model: OLLAMA_MODEL_CHAT,
+        model: AI_CORPUS_MODEL_LABEL,
         channel: 'chat',
         messages,
       };

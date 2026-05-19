@@ -1,37 +1,44 @@
 import type { AiAgentSuggestion } from '@matricarmz/shared';
 
 import {
-  AI_CHAT_MAX_RESPONSE_TOKENS_DEFAULT,
   AI_AGENT_BUSY_MESSAGE,
-  OLLAMA_TIMEOUT_CHAT_MS,
+  AI_AGENT_MISCONFIGURED_MESSAGE,
+  AI_CHAT_MAX_TOKENS_DEFAULT,
+  CLAUDE_TIMEOUT_CHAT_MS,
   buildContextSummary,
-  callOllama,
   getModelForMode,
   isTimeoutError,
   nowMs,
   truncate,
 } from './common.js';
+import { callClaudeJson, isClaudeMisconfigured } from './claudeProvider.js';
 import { recordAssistMetrics } from './metricsService.js';
 import { ingestRagAssistFact, retrieveRagMemories } from './ragService.js';
 
-const AI_CHAT_MAX_RESPONSE_TOKENS = Number(process.env.AI_CHAT_MAX_RESPONSE_TOKENS ?? AI_CHAT_MAX_RESPONSE_TOKENS_DEFAULT);
+const AI_CHAT_MAX_TOKENS = Number(process.env.AI_CHAT_MAX_TOKENS ?? AI_CHAT_MAX_TOKENS_DEFAULT);
 const AI_CHAT_FAST_PATH_ENABLED = String(process.env.AI_CHAT_FAST_PATH_ENABLED ?? 'true').toLowerCase() === 'true';
 
-function normalizeReply(raw: string) {
-  let reply: AiAgentSuggestion = { kind: 'info', text: raw };
-  try {
-    const j = JSON.parse(raw);
-    if (j && typeof j.text === 'string') {
-      reply = {
-        kind: j.kind === 'question' || j.kind === 'suggestion' ? j.kind : 'info',
-        text: String(j.text),
-        actions: Array.isArray(j.actions) ? j.actions.map((x: any) => String(x)) : undefined,
-      };
-    }
-  } catch {
-    // keep raw text
+type ChatReplyJson = {
+  kind?: string;
+  text?: string;
+  actions?: unknown[];
+};
+
+function normalizeReply(raw: ChatReplyJson | null, fallbackText: string): AiAgentSuggestion {
+  if (!raw || typeof raw !== 'object') {
+    return { kind: 'info', text: truncate(fallbackText, 3000) };
   }
-  return { ...reply, text: truncate(reply.text, 3000) };
+  const kind: AiAgentSuggestion['kind'] =
+    raw.kind === 'question' || raw.kind === 'suggestion' ? raw.kind : 'info';
+  const text = truncate(String(raw.text ?? fallbackText ?? '').trim(), 3000);
+  const actions = Array.isArray(raw.actions)
+    ? raw.actions.map((x) => String(x)).filter((x) => x.length > 0)
+    : null;
+  return {
+    kind,
+    text,
+    ...(actions && actions.length > 0 ? { actions } : {}),
+  };
 }
 
 function fastPathReply(message: string): AiAgentSuggestion | null {
@@ -87,26 +94,54 @@ export async function runChatAssist(args: {
     .join(', ');
 
   const systemPrompt =
-    'Ты помощник в программе Матрица РМЗ. Отвечай кратко, практично и по шагам. ' +
-    'Верни ответ строго в JSON: {"kind":"suggestion|question|info","text":"...","actions":["..."]}. ' +
-    'Не выдумывай несуществующие функции. Если не уверен — задавай уточняющий вопрос.';
+    'Ты помощник в программе Матрица РМЗ — ERP-системе для ремонтно-механического завода. ' +
+    'Отвечай кратко, практично и по шагам, на русском языке. Не выдумывай функции, ' +
+    'которых может не быть в системе. Если не уверен — задай уточняющий вопрос. ' +
+    'Используй переданный контекст (вкладка, открытая сущность) для конкретных подсказок.';
   const userPrompt =
     `Контекст: ${buildContextSummary(args.context, args.lastEvent) || 'н/д'}\n` +
     `Последние события пользователя: ${eventsSummary || 'н/д'}\n` +
-    `Память (релевантные факты):\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'н/д'}\n` +
-    `Сообщение пользователя: ${args.message}\n` +
-    'Дай конкретный ответ для интерфейса MatricaRMZ.';
+    `Память (релевантные факты):\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'н/д'}\n\n` +
+    `Сообщение пользователя: ${args.message}`;
 
   const llmStart = nowMs();
   try {
-    const llmOptions: { timeoutMs?: number; temperature: number; numPredict?: number } = { temperature: 0.1 };
-    if (Number.isFinite(OLLAMA_TIMEOUT_CHAT_MS)) llmOptions.timeoutMs = OLLAMA_TIMEOUT_CHAT_MS;
-    if (Number.isFinite(AI_CHAT_MAX_RESPONSE_TOKENS)) llmOptions.numPredict = AI_CHAT_MAX_RESPONSE_TOKENS;
-    const raw = await callOllama(modelChat, systemPrompt, userPrompt, {
-      ...llmOptions,
+    const json = await callClaudeJson<ChatReplyJson>({
+      model: modelChat,
+      system: systemPrompt,
+      user: userPrompt,
+      toolName: 'reply_to_user',
+      toolDescription:
+        'Сформируй структурированный ответ пользователю Матрица РМЗ. ' +
+        'kind="question" если нужно уточнение, kind="suggestion" если предлагаешь действие, kind="info" для пояснения. ' +
+        'actions — короткие варианты кнопок (опционально, до 4 элементов).',
+      schema: {
+        properties: {
+          kind: {
+            type: 'string',
+            enum: ['info', 'question', 'suggestion'],
+            description: 'Тип ответа',
+          },
+          text: {
+            type: 'string',
+            description: 'Текст ответа пользователю на русском языке, кратко и по делу',
+          },
+          actions: {
+            type: 'array',
+            description: 'Опциональные варианты быстрых действий (максимум 4)',
+            items: { type: 'string', description: 'Короткое название действия' },
+          },
+        },
+        required: ['kind', 'text'],
+      },
+      options: {
+        timeoutMs: CLAUDE_TIMEOUT_CHAT_MS,
+        maxTokens: AI_CHAT_MAX_TOKENS,
+        temperature: 0.2,
+      },
     });
     const llmMs = nowMs() - llmStart;
-    const reply = normalizeReply(raw);
+    const reply = normalizeReply(json, 'Не удалось сформировать ответ.');
     await ingestRagAssistFact({
       actorId: args.actorId,
       context: args.context,
@@ -126,6 +161,7 @@ export async function runChatAssist(args: {
   } catch (error) {
     const llmMs = nowMs() - llmStart;
     const timeout = isTimeoutError(error);
+    const misconfigured = isClaudeMisconfigured(error);
     await recordAssistMetrics({
       actorId: args.actorId,
       mode: 'chat',
@@ -135,9 +171,22 @@ export async function runChatAssist(args: {
       context: args.context,
       timings: { totalMs: nowMs() - startedAt, ragMs, llmMs },
     });
-    if (timeout) {
-      return { ok: true as const, reply: { kind: 'info' as const, text: AI_AGENT_BUSY_MESSAGE }, model: modelChat, timeout: true };
+    if (misconfigured) {
+      return {
+        ok: true as const,
+        reply: { kind: 'info' as const, text: AI_AGENT_MISCONFIGURED_MESSAGE },
+        model: modelChat,
+        timeout: false,
+      };
     }
-    return { ok: false as const, error: String(error ?? 'ошибка обращения к Ollama'), model: modelChat, timeout: false };
+    if (timeout) {
+      return {
+        ok: true as const,
+        reply: { kind: 'info' as const, text: AI_AGENT_BUSY_MESSAGE },
+        model: modelChat,
+        timeout: true,
+      };
+    }
+    return { ok: false as const, error: String(error ?? 'ошибка обращения к Claude'), model: modelChat, timeout: false };
   }
 }

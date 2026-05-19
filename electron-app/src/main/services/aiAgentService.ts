@@ -5,8 +5,6 @@ import type {
   AiAgentAssistResponse,
   AiAgentLogRequest,
   AiAgentLogResponse,
-  AiAgentOllamaHealthRequest,
-  AiAgentOllamaHealthResponse,
 } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
@@ -46,26 +44,6 @@ export async function aiAgentLogEvent(
     const j = r.json as any;
     if (!j?.ok) return { ok: false, error: 'bad response' };
     return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
-}
-
-export async function aiAgentOllamaHealth(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  args: AiAgentOllamaHealthRequest,
-): Promise<AiAgentOllamaHealthResponse> {
-  try {
-    const r = await httpAuthed(db, apiBaseUrl, '/ai/ollama-health', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args ?? {}),
-    });
-    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
-    const j = r.json as any;
-    if (!j || typeof j.ok !== 'boolean') return { ok: false, error: 'bad response' };
-    return j as AiAgentOllamaHealthResponse;
   } catch (e) {
     return { ok: false, error: String(e) };
   }

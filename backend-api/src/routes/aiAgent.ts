@@ -3,14 +3,7 @@ import { z } from 'zod';
 
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
-import {
-  OLLAMA_HEALTH_ATTEMPTS,
-  OLLAMA_HEALTH_TIMEOUT_MS,
-  callOllamaHealthWithTimeout,
-  getModelForMode,
-  logSnapshot,
-  nowMs,
-} from '../services/ai/common.js';
+import { logSnapshot } from '../services/ai/common.js';
 import { runChatAssist } from '../services/ai/chatService.js';
 import { isAnalyticsQuery, runAnalyticsAssist } from '../services/ai/analyticsService.js';
 import { ingestRagEventFact } from '../services/ai/ragService.js';
@@ -18,55 +11,6 @@ import { ingestRagEventFact } from '../services/ai/ragService.js';
 export const aiAgentRouter = Router();
 aiAgentRouter.use(requireAuth);
 aiAgentRouter.use(requirePermission(PermissionCode.ChatUse));
-
-const ollamaHealthSchema = z.object({
-  attempts: z.number().int().min(1).max(5).optional(),
-  timeoutMs: z.number().int().min(1000).max(30_000).optional(),
-});
-
-aiAgentRouter.post('/ollama-health', async (req, res) => {
-  try {
-    const parsed = ollamaHealthSchema.safeParse(req.body ?? {});
-    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-
-    const attempts = parsed.data.attempts ?? OLLAMA_HEALTH_ATTEMPTS;
-    const timeoutMs = parsed.data.timeoutMs ?? OLLAMA_HEALTH_TIMEOUT_MS;
-    const modelChat = getModelForMode('chat');
-    const modelAnalytics = getModelForMode('analytics');
-    const targets = [
-      { name: 'chat', model: modelChat },
-      { name: 'analytics', model: modelAnalytics },
-    ];
-    const results: Array<{ ok: boolean; tookMs: number; error?: string; model: string; target: string }> = [];
-    for (const target of targets) {
-      for (let i = 0; i < attempts; i += 1) {
-        const start = nowMs();
-        try {
-          const health = await callOllamaHealthWithTimeout(target.model, timeoutMs);
-          const tookMs = nowMs() - start;
-          results.push(
-            health.ok
-              ? { ok: true, tookMs, model: target.model, target: target.name }
-              : { ok: false, tookMs, error: health.detail, model: target.model, target: target.name },
-          );
-        } catch (e) {
-          const tookMs = nowMs() - start;
-          results.push({ ok: false, tookMs, error: String(e ?? 'ollama error'), model: target.model, target: target.name });
-        }
-      }
-    }
-
-    const ok = results.every((r) => r.ok);
-    const totalMs = results.reduce((sum, r) => sum + (r.tookMs || 0), 0);
-    const expected = attempts * targets.length;
-    const summary = ok
-      ? `ok (${expected}/${expected}), total ${totalMs}ms`
-      : `fail (${results.filter((r) => r.ok).length}/${expected})`;
-    return res.json({ ok, attempts: results, summary, models: { chat: modelChat, analytics: modelAnalytics } });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 const assistSchema = z.object({
   message: z.string().min(1).max(5000),

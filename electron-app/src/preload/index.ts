@@ -510,7 +510,6 @@ const matricaApi = {
   aiAgent: {
     assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
     logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),
-    ollamaHealth: async (args: unknown) => ipcRenderer.invoke('ai:ollama-health', args),
   },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),

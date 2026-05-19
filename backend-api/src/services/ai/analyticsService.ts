@@ -2,15 +2,19 @@ import { pool } from '../../database/db.js';
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import {
   AI_AGENT_BUSY_MESSAGE,
-  OLLAMA_TIMEOUT_ANALYTICS_MS,
-  callOllamaJson,
+  AI_AGENT_MISCONFIGURED_MESSAGE,
+  AI_ANALYTICS_MAX_TOKENS_DEFAULT,
+  CLAUDE_TIMEOUT_ANALYTICS_MS,
   getModelForMode,
   isTimeoutError,
   nowMs,
   truncate,
 } from './common.js';
+import { callClaudeJson, isClaudeMisconfigured } from './claudeProvider.js';
 import { recordAssistMetrics } from './metricsService.js';
 import { retrieveRagMemories } from './ragService.js';
+
+const AI_ANALYTICS_MAX_TOKENS = Number(process.env.AI_ANALYTICS_MAX_TOKENS ?? AI_ANALYTICS_MAX_TOKENS_DEFAULT);
 
 const AI_ANALYTICS_ENABLED = String(process.env.AI_ANALYTICS_ENABLED ?? 'true').toLowerCase() === 'true';
 const MAX_ROWS = 200;
@@ -150,31 +154,84 @@ async function runHeuristicQuery(message: string, policy: AccessPolicy) {
   return { ok: false as const, error: 'Точная эвристика не нашлась, попробуйте сформулировать запрос точнее.' };
 }
 
+type IntentJson = { intent?: string; needsSql?: boolean };
+
 async function detectAnalyticsIntent(model: string, message: string) {
-  const system = 'Определи тип аналитического запроса. Верни JSON: {"intent":"count|list|search|aggregate|compare|other","needsSql":true|false}.';
-  const user = `Запрос: ${message}`;
-  const json = await callOllamaJson(model, system, user, { timeoutMs: Math.min(OLLAMA_TIMEOUT_ANALYTICS_MS, 20_000), temperature: 0 });
+  const system = 'Определи тип аналитического запроса в системе Матрица РМЗ.';
+  const user = `Запрос пользователя: ${message}`;
+  const json = await callClaudeJson<IntentJson>({
+    model,
+    system,
+    user,
+    toolName: 'classify_intent',
+    toolDescription: 'Классифицируй тип аналитического запроса пользователя.',
+    schema: {
+      properties: {
+        intent: {
+          type: 'string',
+          enum: ['count', 'list', 'search', 'aggregate', 'compare', 'other'],
+          description: 'Тип запроса',
+        },
+        needsSql: {
+          type: 'boolean',
+          description: 'Требуется ли выполнение SQL для ответа',
+        },
+      },
+      required: ['intent', 'needsSql'],
+    },
+    options: { timeoutMs: Math.min(CLAUDE_TIMEOUT_ANALYTICS_MS, 20_000), temperature: 0, maxTokens: 256 },
+  });
   const intent = String(json?.intent ?? 'other');
   return { intent, needsSql: json?.needsSql !== false };
 }
 
+type SqlProposalJson = { sql?: string; params?: unknown[]; note?: string };
+
 async function proposeSql(model: string, message: string, policy: AccessPolicy, memories: string[]) {
   const allowed = Array.from(policy.allowedTables.values()).sort().join(', ');
   const systemPrompt =
-    'Ты помощник аналитик. Верни строго JSON: {"sql":"SELECT ...","params":[...],"note":"коротко"}.\n' +
-    'Правила: только SELECT, без комментариев, только таблицы из списка.';
+    'Ты SQL-помощник в системе Матрица РМЗ (PostgreSQL).\n' +
+    'Правила: только SELECT-запросы, без комментариев, без точек с запятой внутри, ' +
+    'используй только перечисленные таблицы. Для подсчётов используй count(*)::int. ' +
+    'Параметризованные значения передавай через $1, $2 и т.д. с соответствующим массивом params.';
   const userPrompt =
     `Доступные таблицы: ${allowed}\n` +
-    `Контекст памяти:\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'н/д'}\n` +
-    `Запрос пользователя: ${message}\n` +
-    `Сформируй SQL с LIMIT не более ${MAX_ROWS}.`;
-  const json = await callOllamaJson(model, systemPrompt, userPrompt, {
-    timeoutMs: OLLAMA_TIMEOUT_ANALYTICS_MS,
-    temperature: 0,
-    numPredict: 260,
+    `Контекст памяти (релевантные факты пользователя):\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'н/д'}\n\n` +
+    `Запрос пользователя: ${message}\n\n` +
+    `Сформируй один SELECT-запрос с LIMIT не более ${MAX_ROWS}.`;
+  const json = await callClaudeJson<SqlProposalJson>({
+    model,
+    system: systemPrompt,
+    user: userPrompt,
+    toolName: 'propose_sql',
+    toolDescription: 'Сформируй SQL-запрос для ответа на вопрос пользователя.',
+    schema: {
+      properties: {
+        sql: {
+          type: 'string',
+          description: 'SQL SELECT-запрос (PostgreSQL), один statement, с LIMIT',
+        },
+        params: {
+          type: 'array',
+          description: 'Массив параметров для $1, $2, ... в SQL (пустой если параметров нет)',
+          items: { type: 'string', description: 'Значение параметра' },
+        },
+        note: {
+          type: 'string',
+          description: 'Краткое описание что делает запрос на русском (для пользователя)',
+        },
+      },
+      required: ['sql', 'note'],
+    },
+    options: { timeoutMs: CLAUDE_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: AI_ANALYTICS_MAX_TOKENS },
   });
-  if (!json || typeof json.sql !== 'string') return { ok: false as const, error: 'LLM не вернула SQL-запрос.' };
-  return { ok: true as const, sql: String(json.sql), params: Array.isArray(json.params) ? json.params : [], note: String(json.note ?? '') };
+  if (!json || typeof json.sql !== 'string') return { ok: false as const, error: 'Claude не вернул SQL-запрос.' };
+  return {
+    ok: true as const,
+    sql: String(json.sql),
+    params: Array.isArray(json.params) ? json.params : [],
+    note: String(json.note ?? ''),
+  };
 }
 
 export async function runAnalyticsAssist(args: { actorId: string; context: any; message: string }) {
@@ -231,6 +288,7 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
       proposed = await proposeSql(model, args.message, policy, memories);
     } catch (e) {
       const timeout = isTimeoutError(e);
+      const misconfigured = isClaudeMisconfigured(e);
       await recordAssistMetrics({
         actorId: args.actorId,
         mode: 'analytics',
@@ -240,8 +298,9 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
         context: args.context,
         timings: { totalMs: nowMs() - startedAt, ragMs, sqlPlanMs: nowMs() - planStart },
       });
+      if (misconfigured) return { ok: true as const, replyText: AI_AGENT_MISCONFIGURED_MESSAGE, model, timeout: false };
       if (timeout) return { ok: true as const, replyText: AI_AGENT_BUSY_MESSAGE, model, timeout: true };
-      return { ok: false as const, error: String(e ?? 'ошибка обращения к Ollama'), model, timeout: false };
+      return { ok: false as const, error: String(e ?? 'ошибка обращения к Claude'), model, timeout: false };
     }
     sqlPlanMs = nowMs() - planStart;
     if (!proposed.ok) {

@@ -546,8 +546,6 @@ import type {
   AiAgentAssistResponse,
   AiAgentLogRequest,
   AiAgentLogResponse,
-  AiAgentOllamaHealthRequest,
-  AiAgentOllamaHealthResponse,
 } from '../domain/aiAgent.js';
 import type {
   EngineAssemblyBomDetails,
@@ -1445,7 +1443,6 @@ export type MatricaApi = {
   aiAgent: {
     assist: (args: AiAgentAssistRequest) => Promise<AiAgentAssistResponse>;
     logEvent: (args: AiAgentLogRequest) => Promise<AiAgentLogResponse>;
-    ollamaHealth: (args: AiAgentOllamaHealthRequest) => Promise<AiAgentOllamaHealthResponse>;
   };
 };
 
