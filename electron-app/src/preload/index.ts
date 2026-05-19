@@ -510,6 +510,30 @@ const matricaApi = {
   aiAgent: {
     assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
     logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),
+    conversationsList: async (args?: { limit?: number }) =>
+      ipcRenderer.invoke('ai:conversations:list', args ?? {}),
+    conversationMessages: async (args: { conversationId: string; limit?: number }) =>
+      ipcRenderer.invoke('ai:conversations:get', args),
+    conversationDelete: async (args: { conversationId: string }) =>
+      ipcRenderer.invoke('ai:conversations:delete', args),
+    conversationSearch: async (args: { conversationId: string; query: string; limit?: number }) =>
+      ipcRenderer.invoke('ai:conversations:search', args),
+    assistStream: async (args: unknown, onEvent: (ev: unknown) => void) => {
+      const channelId = `ai:assist:stream:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+      const listener = (_e: unknown, ev: unknown) => {
+        try {
+          onEvent(ev);
+        } catch {
+          // ignore listener errors so they don't kill the stream
+        }
+      };
+      ipcRenderer.on(channelId, listener);
+      try {
+        return await ipcRenderer.invoke('ai:assist:stream', { channelId, args });
+      } finally {
+        ipcRenderer.removeListener(channelId, listener);
+      }
+    },
   },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),

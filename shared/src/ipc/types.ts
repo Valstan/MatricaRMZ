@@ -544,8 +544,13 @@ import type {
 import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
+  AiAgentConversationDeleteResponse,
+  AiAgentConversationMessagesResponse,
+  AiAgentConversationSearchResponse,
+  AiAgentConversationsListResponse,
   AiAgentLogRequest,
   AiAgentLogResponse,
+  AiAgentStreamEvent,
 } from '../domain/aiAgent.js';
 import type {
   EngineAssemblyBomDetails,
@@ -1443,6 +1448,14 @@ export type MatricaApi = {
   aiAgent: {
     assist: (args: AiAgentAssistRequest) => Promise<AiAgentAssistResponse>;
     logEvent: (args: AiAgentLogRequest) => Promise<AiAgentLogResponse>;
+    conversationsList: (args: { limit?: number }) => Promise<AiAgentConversationsListResponse>;
+    conversationMessages: (args: { conversationId: string; limit?: number }) => Promise<AiAgentConversationMessagesResponse>;
+    conversationDelete: (args: { conversationId: string }) => Promise<AiAgentConversationDeleteResponse>;
+    conversationSearch: (args: { conversationId: string; query: string; limit?: number }) => Promise<AiAgentConversationSearchResponse>;
+    assistStream: (
+      args: AiAgentAssistRequest,
+      onEvent: (ev: AiAgentStreamEvent) => void,
+    ) => Promise<AiAgentAssistResponse>;
   };
 };
 
