@@ -563,6 +563,61 @@ const TOOLS: Record<string, ToolEntry> = {
     requires: ['masterdata.view', 'reports.view', 'engines.view'],
     handler: (input, ctx) => executeSafeSql(input, ctx),
   },
+  get_parts_demand_priority: {
+    def: {
+      name: 'get_parts_demand_priority',
+      description:
+        'Приоритеты ремонта по деталям: где qty в ремфонде (repair_fund) ниже прогнозируемой потребности сборки. ' +
+        'Сортирует по дефициту убывающе. Параметры: horizonDays (1..31, default 7), engineBrandIds[].',
+      input_schema: {
+        type: 'object',
+        properties: {
+          horizonDays: { type: 'integer', description: '1..31, default 7' },
+          engineBrandIds: { type: 'array', items: { type: 'string' } },
+          limit: { type: 'integer' },
+        },
+      },
+    },
+    requires: ['parts.view', 'engines.view', 'reports.view'],
+    handler: (input) => getPartsDemandPriority(input),
+  },
+  get_movement_anomalies: {
+    def: {
+      name: 'get_movement_anomalies',
+      description:
+        'Аномалии в журнале движений склада за последние N часов (default 48): ' +
+        'серии сторно от одного пользователя, движения вне рабочих часов МСК (08:00-18:00), ' +
+        'списания в сборку без привязки к двигателю.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          sinceHours: { type: 'integer', description: 'Default 48' },
+          limit: { type: 'integer' },
+        },
+      },
+    },
+    requires: ['reports.view', 'engines.view'],
+    handler: (input) => getMovementAnomalies(input),
+  },
+  get_workshop_throughput: {
+    def: {
+      name: 'get_workshop_throughput',
+      description:
+        'Выработка цеха: сумма qty отремонтированных деталей (movement_type=repair_in) по складу цеха ' +
+        '(warehouse_id вида workshop_*) за период. Группировка по цеху и номенклатуре.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          workshopWarehouseId: { type: 'string', description: 'Например, workshop_1. Если пусто — все цеха.' },
+          fromDateMs: { type: 'integer', description: 'Default — 30 дней назад' },
+          toDateMs: { type: 'integer', description: 'Default — сейчас' },
+          limit: { type: 'integer' },
+        },
+      },
+    },
+    requires: ['reports.view', 'engines.view'],
+    handler: (input) => getWorkshopThroughput(input),
+  },
 };
 
 export const FULL_TOOL_NAMES: ReadonlyArray<string> = Object.keys(TOOLS);
@@ -580,6 +635,140 @@ export function getToolDefinitions(names: ReadonlyArray<string>): ClaudeToolDef[
   return names
     .map((n) => TOOLS[n]?.def)
     .filter((d): d is ClaudeToolDef => Boolean(d));
+}
+
+async function getPartsDemandPriority(input: Record<string, unknown>): Promise<ToolResult> {
+  const horizonDays = Math.min(31, Math.max(1, Number(input.horizonDays ?? 7)));
+  const brandIds = Array.isArray(input.engineBrandIds)
+    ? input.engineBrandIds.filter((v) => typeof v === 'string').map(String)
+    : [];
+  const limit = Math.min(MAX_ROWS, Math.max(1, Number(input.limit ?? 50)));
+
+  try {
+    const forecast = await computeAssemblyForecastFromServer({
+      horizonDays,
+      targetEnginesPerDay: 4,
+      sameBrandBatchSize: 2,
+      ...(brandIds.length > 0 ? { engineBrandIds: brandIds } : {}),
+      workingWeekdays: [1, 2, 3, 4, 5, 6],
+    });
+    if (!('rows' in forecast) || !Array.isArray(forecast.rows)) {
+      return jsonResult({ horizonDays, rows: [] });
+    }
+    type ShortageRow = {
+      nomenclatureId: string;
+      nomenclatureName: string;
+      deficitQty: number;
+      reasons: string[];
+    };
+    const aggByNom = new Map<string, ShortageRow>();
+    for (const row of forecast.rows as Array<Record<string, unknown>>) {
+      const components = Array.isArray(row.componentDetails) ? (row.componentDetails as Array<Record<string, unknown>>) : [];
+      for (const comp of components) {
+        const deficit = Number(comp.deficitQty ?? 0);
+        if (deficit <= 0) continue;
+        const id = String(comp.componentNomenclatureId ?? '');
+        if (!id) continue;
+        const name = String(comp.componentNomenclatureName ?? '');
+        const dayLabel = String(row.dayLabel ?? '');
+        const brand = String(row.engineBrand ?? '');
+        const cur = aggByNom.get(id) ?? { nomenclatureId: id, nomenclatureName: name, deficitQty: 0, reasons: [] };
+        cur.deficitQty += deficit;
+        if (cur.reasons.length < 5) cur.reasons.push(`${dayLabel} · ${brand}: дефицит ${deficit} шт`);
+        aggByNom.set(id, cur);
+      }
+    }
+    const sorted = Array.from(aggByNom.values())
+      .sort((a, b) => b.deficitQty - a.deficitQty)
+      .slice(0, limit);
+    return jsonResult({ horizonDays, total: sorted.length, rows: sorted });
+  } catch (e) {
+    return { content: `Ошибка прогноза: ${String(e)}`, isError: true };
+  }
+}
+
+async function getMovementAnomalies(input: Record<string, unknown>): Promise<ToolResult> {
+  const sinceHours = Math.max(1, Math.min(720, Number(input.sinceHours ?? 48)));
+  const sinceMs = Date.now() - sinceHours * 60 * 60 * 1000;
+  const limit = Math.min(MAX_ROWS, Math.max(1, Number(input.limit ?? 100)));
+
+  const reversalSql = `
+    SELECT performed_by AS user, COUNT(*) AS reversal_count
+    FROM erp_reg_stock_movements
+    WHERE movement_type LIKE 'reversal_%' AND performed_at >= $1
+    GROUP BY performed_by
+    HAVING COUNT(*) >= 3
+    ORDER BY reversal_count DESC
+    LIMIT $2
+  `;
+  const offHoursSql = `
+    SELECT id, performed_by AS user, performed_at,
+           movement_type, warehouse_id, qty, nomenclature_id, engine_id
+    FROM erp_reg_stock_movements
+    WHERE performed_at >= $1
+      AND (
+        EXTRACT(HOUR FROM (to_timestamp(performed_at / 1000) AT TIME ZONE 'Europe/Moscow')) < 8
+        OR EXTRACT(HOUR FROM (to_timestamp(performed_at / 1000) AT TIME ZONE 'Europe/Moscow')) >= 18
+      )
+    ORDER BY performed_at DESC
+    LIMIT $2
+  `;
+  const orphanAssemblyConsumptionSql = `
+    SELECT id, performed_by AS user, performed_at, movement_type, warehouse_id, qty, nomenclature_id
+    FROM erp_reg_stock_movements
+    WHERE performed_at >= $1
+      AND movement_type LIKE 'assembly_consumption_%'
+      AND engine_id IS NULL
+    ORDER BY performed_at DESC
+    LIMIT $2
+  `;
+
+  try {
+    const [reversals, offHours, orphans] = await Promise.all([
+      pool.query(reversalSql, [sinceMs, limit]),
+      pool.query(offHoursSql, [sinceMs, limit]),
+      pool.query(orphanAssemblyConsumptionSql, [sinceMs, limit]),
+    ]);
+    return jsonResult({
+      sinceHours,
+      reversalSeriesByUser: reversals.rows,
+      offHoursMovements: offHours.rows,
+      assemblyConsumptionWithoutEngine: orphans.rows,
+    });
+  } catch (e) {
+    return { content: `Ошибка запроса аномалий: ${String(e)}`, isError: true };
+  }
+}
+
+async function getWorkshopThroughput(input: Record<string, unknown>): Promise<ToolResult> {
+  const workshopFilter = typeof input.workshopWarehouseId === 'string' ? String(input.workshopWarehouseId).trim() : '';
+  const fromMs = Number(input.fromDateMs ?? Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const toMs = Number(input.toDateMs ?? Date.now());
+  const limit = Math.min(MAX_ROWS, Math.max(1, Number(input.limit ?? 100)));
+
+  const params: unknown[] = [fromMs, toMs];
+  const conditions: string[] = ["movement_type = 'repair_in'", 'performed_at BETWEEN $1 AND $2'];
+  if (workshopFilter) {
+    params.push(workshopFilter);
+    conditions.push(`warehouse_id = $${params.length}`);
+  } else {
+    conditions.push(`warehouse_id LIKE 'workshop_%'`);
+  }
+  params.push(limit);
+  const sql = `
+    SELECT warehouse_id, nomenclature_id, SUM(qty)::int AS qty_repaired, COUNT(*)::int AS records
+    FROM erp_reg_stock_movements
+    WHERE ${conditions.join(' AND ')}
+    GROUP BY warehouse_id, nomenclature_id
+    ORDER BY qty_repaired DESC
+    LIMIT $${params.length}
+  `;
+  try {
+    const result = await pool.query(sql, params);
+    return jsonResult({ fromMs, toMs, ...(workshopFilter ? { workshopWarehouseId: workshopFilter } : {}), rows: result.rows });
+  } catch (e) {
+    return { content: `Ошибка запроса выработки: ${String(e)}`, isError: true };
+  }
 }
 
 export async function executeTool(toolUse: ClaudeToolUse, ctx: ToolContext): Promise<ToolResult> {

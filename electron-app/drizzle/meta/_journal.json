@@ -78,6 +78,20 @@
       "when": 1779494400000,
       "tag": "0010_bom_brand_links",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779494400001,
+      "tag": "0011_parts_movement_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779494400002,
+      "tag": "0012_movement_hashchain",
+      "breakpoints": true
     }
   ]
 }

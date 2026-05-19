@@ -24,6 +24,8 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     all[PermissionCode.ClientsManage] = false;
     all[PermissionCode.ChatAdminView] = false;
     all[PermissionCode.ChatExport] = false;
+    all[PermissionCode.WorkshopsManage] = false;
+    all[PermissionCode.MovementsRevert] = false;
   }
   return all;
 }
@@ -60,12 +62,14 @@ export async function getEffectivePermissionsForUser(userId: string): Promise<Re
     .limit(10_000);
   for (const d of delegations) base[d.permCode] = true;
 
-  // Политика безопасности: `admin.users.manage` доступен только admin/superadmin.
+  // Политика безопасности: admin-only коды доступны только admin/superadmin.
   if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.AdminUsersManage] = false;
   if (role !== 'admin' && role !== 'superadmin') base[PermissionCode.ClientsManage] = false;
   if (role !== 'admin' && role !== 'superadmin') {
     base[PermissionCode.ChatAdminView] = false;
     base[PermissionCode.ChatExport] = false;
+    base[PermissionCode.WorkshopsManage] = false;
+    base[PermissionCode.MovementsRevert] = false;
   } else {
     base[PermissionCode.ChatAdminView] = true;
     base[PermissionCode.ChatExport] = true;

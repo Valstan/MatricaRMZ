@@ -872,6 +872,26 @@ export const directoryServices = pgTable(
   }),
 );
 
+export const directoryWorkshops = pgTable(
+  'directory_workshops',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    displayOrder: integer('display_order').notNull().default(0),
+    metadataJson: text('metadata_json'),
+    deprecatedAt: bigint('deprecated_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('directory_workshops_code_uq').on(t.code).where(sql`${t.deletedAt} is null`),
+    nameIdx: index('directory_workshops_name_idx').on(t.name),
+  }),
+);
+
 export const erpDocumentHeaders = pgTable(
   'erp_document_headers',
   {
@@ -882,6 +902,7 @@ export const erpDocumentHeaders = pgTable(
     status: text('status').notNull().default('draft'),
     authorId: uuid('author_id').references(() => erpEmployeeCards.id),
     departmentId: text('department_id'),
+    workshopId: uuid('workshop_id').references(() => directoryWorkshops.id),
     payloadJson: text('payload_json'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
@@ -892,6 +913,7 @@ export const erpDocumentHeaders = pgTable(
     docNoUq: uniqueIndex('erp_document_headers_doc_no_uq').on(t.docNo),
     docTypeDateIdx: index('erp_document_headers_type_date_idx').on(t.docType, t.docDate),
     statusIdx: index('erp_document_headers_status_idx').on(t.status),
+    workshopIdx: index('erp_document_headers_workshop_idx').on(t.workshopId).where(sql`${t.workshopId} is not null`),
   }),
 );
 
@@ -1158,16 +1180,20 @@ export const erpRegStockMovements = pgTable(
     movementType: text('movement_type').notNull(),
     qty: integer('qty').notNull().default(0),
     direction: text('direction').notNull(),
+    engineId: uuid('engine_id').references(() => entities.id),
     counterpartyId: uuid('counterparty_id').references(() => erpCounterparties.id),
     reason: text('reason'),
     performedAt: bigint('performed_at', { mode: 'number' }).notNull(),
     performedBy: text('performed_by'),
+    prevHash: text('prev_hash'),
+    selfHash: text('self_hash'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   (t) => ({
     nomenclatureWarehouseIdx: index('erp_reg_stock_movements_nomenclature_warehouse_idx').on(t.nomenclatureId, t.warehouseId),
     headerIdx: index('erp_reg_stock_movements_header_idx').on(t.documentHeaderId),
     performedAtIdx: index('erp_reg_stock_movements_performed_at_idx').on(t.performedAt),
+    engineIdx: index('erp_reg_stock_movements_engine_idx').on(t.engineId).where(sql`${t.engineId} is not null`),
   }),
 );
 

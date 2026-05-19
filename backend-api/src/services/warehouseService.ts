@@ -1,8 +1,16 @@
-import { randomUUID } from 'node:crypto';
-import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import { PART_TEMPLATE_ID_ATTR_CODE, WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART } from '@matricarmz/shared';
 
+import {
+  AssemblyReturnMode,
+  StockMovementType,
+  WAREHOUSE_LOCATION_REPAIR_FUND,
+  WAREHOUSE_LOCATION_SCRAP,
+  WAREHOUSE_LOCATION_ASSEMBLY_IN_PROGRESS,
+  isWorkshopWarehouseId,
+} from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import {
   attributeDefs,
@@ -12,6 +20,7 @@ import {
   directoryParts,
   directoryServices,
   directoryTools,
+  directoryWorkshops,
   entities,
   entityTypes,
   erpCounterparties,
@@ -28,11 +37,31 @@ import {
   erpRegStockMovements,
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
+import { EnginePhase, setEnginePhase } from './enginePhaseService.js';
 
 const INCOMING_DOC_TYPES = ['inventory_opening', 'purchase_receipt', 'production_release', 'repair_recovery', 'engine_dismantling'] as const;
-const STOCK_DOC_TYPES = [...INCOMING_DOC_TYPES, 'stock_receipt', 'stock_issue', 'stock_transfer', 'stock_writeoff', 'stock_inventory'] as const;
+const STOCK_DOC_TYPES = [
+  ...INCOMING_DOC_TYPES,
+  'stock_receipt',
+  'stock_issue',
+  'stock_transfer',
+  'stock_writeoff',
+  'stock_inventory',
+  'assembly_consumption',
+  'assembly_return',
+] as const;
 type StockDocType = (typeof STOCK_DOC_TYPES)[number];
 type IncomingDocType = (typeof INCOMING_DOC_TYPES)[number];
+
+/**
+ * Header.payload_json флаг, переключающий ветку проводки для уже существующих docType
+ * (`engine_dismantling`, `repair_recovery`) на новую семантику модуля движения деталей.
+ * Документы без этого флага идут через generic-incoming-ветку (как раньше).
+ */
+const PARTS_MOVEMENT_MODULE_MARKER = 'parts_movement_v1' as const;
+
+/** Включает ленивый расчёт hash-chain поверх erp_reg_stock_movements (Этап 3). */
+const HASHCHAIN_ENABLED = String(process.env.MATRICA_STOCK_MOVEMENT_HASHCHAIN_ENABLED ?? '').trim().toLowerCase() === 'true';
 
 type ResultOk<T> = { ok: true } & T;
 type ResultErr = { ok: false; error: string };
@@ -85,6 +114,7 @@ type PlannedMovement = {
   delta: number;
   reason: string | null;
   counterpartyId: string | null;
+  engineId?: string | null;
 };
 
 type PlannedIncomingRow = {
@@ -2519,6 +2549,11 @@ export async function postWarehouseDocument(args: {
     }
 
     const headerPayload = parseJsonObject(header.payloadJson ?? null);
+    const headerDocType = String(header.docType);
+    const headerModule = strField(headerPayload, 'module');
+    const usePartsMovement = headerModule === PARTS_MOVEMENT_MODULE_MARKER;
+    const headerEngineId = strField(headerPayload, 'engineId') ?? null;
+    const headerWorkshopWarehouseId = strField(headerPayload, 'workshopWarehouseId') ?? null;
     const lines = await db
       .select(documentLineSelectFields())
       .from(erpDocumentLines)
@@ -2533,8 +2568,133 @@ export async function postWarehouseDocument(args: {
       if (!nomenclatureId) return { ok: false, error: `В строке ${line.lineNo} не задана номенклатура` };
       const reason = strField(payload, 'reason') ?? strField(headerPayload, 'reason') ?? null;
       const counterpartyId = strField(headerPayload, 'counterpartyId') ?? null;
+      const lineEngineId = strField(payload, 'engineId') ?? headerEngineId;
 
-      if (String(header.docType) === 'stock_receipt' || isIncomingDocType(String(header.docType))) {
+      // ─── Parts-movement module branches (new docType semantics) ───
+      if (usePartsMovement && headerDocType === 'engine_dismantling') {
+        if (qty <= 0) continue;
+        const targetLocation = strField(payload, 'targetLocation') ?? WAREHOUSE_LOCATION_REPAIR_FUND;
+        if (targetLocation !== WAREHOUSE_LOCATION_REPAIR_FUND && targetLocation !== WAREHOUSE_LOCATION_SCRAP) {
+          return { ok: false, error: `В строке ${line.lineNo} некорректное назначение разборки: ${targetLocation}` };
+        }
+        const movementType =
+          targetLocation === WAREHOUSE_LOCATION_SCRAP ? StockMovementType.DismantleScrapIn : StockMovementType.DismantleIn;
+        planned.push({
+          nomenclatureId,
+          warehouseId: targetLocation,
+          movementType,
+          direction: 'in',
+          qty,
+          delta: qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+      } else if (usePartsMovement && headerDocType === 'repair_recovery') {
+        if (qty <= 0) continue;
+        const targetWarehouseId =
+          strField(payload, 'targetWarehouseId') ?? headerWorkshopWarehouseId ?? null;
+        if (!targetWarehouseId || !isWorkshopWarehouseId(targetWarehouseId)) {
+          return {
+            ok: false,
+            error: `В строке ${line.lineNo} склад цеха (target) не указан или не соответствует формату workshop_*`,
+          };
+        }
+        planned.push({
+          nomenclatureId,
+          warehouseId: WAREHOUSE_LOCATION_REPAIR_FUND,
+          movementType: StockMovementType.RepairOut,
+          direction: 'out',
+          qty,
+          delta: -qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+        planned.push({
+          nomenclatureId,
+          warehouseId: targetWarehouseId,
+          movementType: StockMovementType.RepairIn,
+          direction: 'in',
+          qty,
+          delta: qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+      } else if (headerDocType === 'assembly_consumption') {
+        if (qty <= 0) continue;
+        const sourceWarehouseId =
+          strField(payload, 'sourceWarehouseId') ?? headerWorkshopWarehouseId ?? null;
+        if (!sourceWarehouseId) {
+          return { ok: false, error: `В строке ${line.lineNo} не указан склад-источник списания в сборку` };
+        }
+        if (!lineEngineId) {
+          return { ok: false, error: `Для списания в сборку обязательна привязка к двигателю (engineId в header или строке)` };
+        }
+        planned.push({
+          nomenclatureId,
+          warehouseId: sourceWarehouseId,
+          movementType: StockMovementType.AssemblyConsumptionOut,
+          direction: 'out',
+          qty,
+          delta: -qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+        planned.push({
+          nomenclatureId,
+          warehouseId: WAREHOUSE_LOCATION_ASSEMBLY_IN_PROGRESS,
+          movementType: StockMovementType.AssemblyConsumptionIn,
+          direction: 'in',
+          qty,
+          delta: qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+      } else if (headerDocType === 'assembly_return') {
+        if (qty <= 0) continue;
+        const mode = strField(payload, 'returnMode') ?? strField(headerPayload, 'returnMode');
+        if (mode !== AssemblyReturnMode.Rework && mode !== AssemblyReturnMode.Scrap) {
+          return {
+            ok: false,
+            error: `В строке ${line.lineNo} некорректный режим возврата: '${mode ?? ''}' (ожидается 'rework' или 'scrap')`,
+          };
+        }
+        if (!lineEngineId) {
+          return { ok: false, error: `Для возврата из сборки обязательна привязка к двигателю` };
+        }
+        const targetWarehouseId =
+          mode === AssemblyReturnMode.Rework ? WAREHOUSE_LOCATION_REPAIR_FUND : WAREHOUSE_LOCATION_SCRAP;
+        const inMovementType =
+          mode === AssemblyReturnMode.Rework
+            ? StockMovementType.AssemblyReturnInRework
+            : StockMovementType.AssemblyReturnInScrap;
+        planned.push({
+          nomenclatureId,
+          warehouseId: WAREHOUSE_LOCATION_ASSEMBLY_IN_PROGRESS,
+          movementType: StockMovementType.AssemblyReturnOut,
+          direction: 'out',
+          qty,
+          delta: -qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+        planned.push({
+          nomenclatureId,
+          warehouseId: targetWarehouseId,
+          movementType: inMovementType,
+          direction: 'in',
+          qty,
+          delta: qty,
+          reason,
+          counterpartyId,
+          engineId: lineEngineId,
+        });
+      } else if (headerDocType === 'stock_receipt' || isIncomingDocType(headerDocType)) {
         if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
         planned.push({ nomenclatureId, warehouseId, movementType: 'receipt', direction: 'in', qty, delta: qty, reason, counterpartyId });
@@ -2629,18 +2789,49 @@ export async function postWarehouseDocument(args: {
           updatedAt: ts,
         });
       }
+      const movementId = randomUUID();
+      let prevHash: string | null = null;
+      let selfHash: string | null = null;
+      if (HASHCHAIN_ENABLED) {
+        const lastChainRow = await db
+          .select({ selfHash: erpRegStockMovements.selfHash })
+          .from(erpRegStockMovements)
+          .where(isNotNull(erpRegStockMovements.selfHash))
+          .orderBy(desc(erpRegStockMovements.performedAt), desc(erpRegStockMovements.createdAt), desc(erpRegStockMovements.id))
+          .limit(1);
+        prevHash = lastChainRow[0]?.selfHash ?? null;
+        const canonical = JSON.stringify({
+          id: movementId,
+          nomenclatureId: movement.nomenclatureId,
+          warehouseId: movement.warehouseId,
+          documentHeaderId: args.documentId,
+          movementType: movement.movementType,
+          qty: movement.qty,
+          direction: movement.direction,
+          engineId: movement.engineId ?? null,
+          counterpartyId: movement.counterpartyId ?? null,
+          reason: movement.reason ?? null,
+          performedAt: ts,
+          performedBy: args.actor.username,
+          prevHash,
+        });
+        selfHash = createHash('sha256').update(canonical).digest('hex');
+      }
       await db.insert(erpRegStockMovements).values({
-        id: randomUUID(),
+        id: movementId,
         nomenclatureId: movement.nomenclatureId,
         warehouseId: movement.warehouseId,
         documentHeaderId: args.documentId,
         movementType: movement.movementType,
         qty: movement.qty,
         direction: movement.direction,
+        engineId: movement.engineId ?? null,
         counterpartyId: movement.counterpartyId,
         reason: movement.reason,
         performedAt: ts,
         performedBy: args.actor.username,
+        prevHash,
+        selfHash,
         createdAt: ts,
       });
     }
@@ -2701,10 +2892,13 @@ export async function postWarehouseDocument(args: {
           movement_type: String(movement.movementType),
           qty: Number(movement.qty),
           direction: String(movement.direction),
+          engine_id: movement.engineId,
           counterparty_id: movement.counterpartyId,
           reason: movement.reason,
           performed_at: Number(movement.performedAt),
           performed_by: movement.performedBy,
+          prev_hash: movement.prevHash,
+          self_hash: movement.selfHash,
           created_at: Number(movement.createdAt),
         },
         actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
@@ -2712,6 +2906,25 @@ export async function postWarehouseDocument(args: {
       });
     }
     if (ledgerPayloads.length > 0) signAndAppendDetailed(ledgerPayloads);
+
+    // Engine phase transitions (Stage 2): only when the document is a parts-movement v1 document
+    // tied to a specific engine_id via header payload. Failures are logged but never block posting.
+    if (usePartsMovement && headerEngineId) {
+      let nextPhase: EnginePhase | null = null;
+      if (headerDocType === 'engine_dismantling') nextPhase = EnginePhase.Disassembled;
+      if (headerDocType === 'assembly_consumption') nextPhase = EnginePhase.InAssembly;
+      if (nextPhase) {
+        const phaseResult = await setEnginePhase({
+          engineId: headerEngineId,
+          phase: nextPhase,
+          actor: { id: args.actor.id, username: args.actor.username },
+          reasonDocumentId: args.documentId,
+        });
+        if (!phaseResult.ok) {
+          console.warn('[warehouseService] engine_phase transition skipped:', phaseResult.error);
+        }
+      }
+    }
     return { ok: true, id: args.documentId, posted: true };
   } catch (e) {
     return { ok: false, error: String(e) };

@@ -22,12 +22,22 @@ export const PermissionCode = {
   WorkOrdersCreate: 'work_orders.create',
   WorkOrdersEdit: 'work_orders.edit',
   WorkOrdersPrint: 'work_orders.print',
+  WorkOrdersClose: 'work_orders.close',
+  WorkOrdersRevert: 'work_orders.revert',
 
   // engines & operations
   EnginesView: 'engines.view',
   EnginesEdit: 'engines.edit',
+  EnginesDisassembleConfirm: 'engines.disassemble_confirm',
   OperationsView: 'operations.view',
   OperationsEdit: 'operations.edit',
+
+  // workshops (parts-movement module)
+  WorkshopsManage: 'workshops.manage',
+
+  // warehouse parts-movement
+  WarehouseAssemblyReturn: 'warehouse.assembly_return',
+  MovementsRevert: 'movements.revert',
 
   // defect act (будущий модуль)
   DefectActView: 'defect_act.view',
@@ -132,6 +142,46 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.WorkOrdersCreate, group: 'Наряды', titleRu: 'Создание нарядов' },
   { code: PermissionCode.WorkOrdersEdit, group: 'Наряды', titleRu: 'Редактирование нарядов' },
   { code: PermissionCode.WorkOrdersPrint, group: 'Наряды', titleRu: 'Печать нарядов' },
+  {
+    code: PermissionCode.WorkOrdersClose,
+    group: 'Наряды',
+    titleRu: 'Закрытие нарядов (с проводкой движений)',
+    descriptionRu: 'Закрытие наряда автоматически создаёт и проводит складской документ (repair_recovery или assembly_consumption).',
+  },
+  {
+    code: PermissionCode.WorkOrdersRevert,
+    group: 'Наряды',
+    titleRu: 'Сторнирование закрытого наряда',
+    descriptionRu: 'Создаёт зеркальную сторнирующую запись для движений, проведённых при закрытии наряда.',
+  },
+
+  {
+    code: PermissionCode.EnginesDisassembleConfirm,
+    group: 'Двигатели',
+    titleRu: 'Подтверждение разборки двигателя',
+    descriptionRu: 'Проведение документа engine_dismantling — оприходование годных деталей в ремфонд и утиля в утиль.',
+  },
+
+  {
+    code: PermissionCode.WorkshopsManage,
+    group: 'Справочники',
+    titleRu: 'Управление справочником цехов',
+    adminOnly: true,
+  },
+
+  {
+    code: PermissionCode.WarehouseAssemblyReturn,
+    group: 'Склад',
+    titleRu: 'Возврат деталей из сборки',
+    descriptionRu: 'Создание документа assembly_return: возврат в ремфонд (rework) или утиль (scrap).',
+  },
+  {
+    code: PermissionCode.MovementsRevert,
+    group: 'Склад',
+    titleRu: 'Сторнирование движения склада',
+    descriptionRu: 'Создание зеркальной reversal-записи для отдельного движения склада.',
+    adminOnly: true,
+  },
 
   { code: PermissionCode.ReportsView, group: 'Отчёты', titleRu: 'Просмотр отчётов' },
   { code: PermissionCode.ReportsExport, group: 'Отчёты', titleRu: 'Экспорт отчётов' },

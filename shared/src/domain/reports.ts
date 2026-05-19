@@ -17,7 +17,12 @@ export type ReportPresetId =
   | 'engine_movements'
   | 'engines_list'
   | 'warehouse_stock_path_audit'
-  | 'assembly_forecast_7d';
+  | 'assembly_forecast_7d'
+  | 'part_movement_journal'
+  | 'workshop_throughput'
+  | 'engine_readiness_to_assemble'
+  | 'defect_returns_summary'
+  | 'movement_integrity_audit';
 
 export type ReportFilterOption = {
   value: string;
@@ -776,6 +781,179 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'plannedEngines', label: 'Кол-во двигателей', kind: 'number', align: 'right' },
       { key: 'status', label: 'Статус сборки' },
       { key: 'requiredComponentsSummary', label: 'Комплектующие' },
+    ],
+  },
+  {
+    id: 'part_movement_journal',
+    title: 'Журнал движений деталей',
+    description:
+      'История всех движений по партиям деталей: разборка → ремфонд → склад цеха → сборка/возврат. Фильтрация по складу, типу движения, документу и двигателю.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'multi_select',
+        key: 'warehouseIds',
+        label: 'Склады',
+        labelHint:
+          'Логические локации: repair_fund, workshop_1..workshop_7, assembly_in_progress, scrap, default. Пустой список = все.',
+        optionsSource: 'warehouses',
+      },
+      {
+        type: 'multi_select',
+        key: 'movementTypes',
+        label: 'Типы движений',
+        labelHint:
+          'dismantle_in (в ремфонд), dismantle_scrap_in (в утиль при разборке), repair_out/_in (ремонт), assembly_consumption_out/_in (списание в сборку), assembly_return_out/_in_rework/_in_scrap (возврат), reversal_* (сторно).',
+        options: [
+          { value: 'dismantle_in', label: 'Разборка → ремфонд' },
+          { value: 'dismantle_scrap_in', label: 'Разборка → утиль' },
+          { value: 'repair_out', label: 'Ремонт: списано из ремфонда' },
+          { value: 'repair_in', label: 'Ремонт: приход на склад цеха' },
+          { value: 'assembly_consumption_out', label: 'Сборка: списание со склада' },
+          { value: 'assembly_consumption_in', label: 'Сборка: приход на «в сборке»' },
+          { value: 'assembly_return_out', label: 'Возврат из сборки' },
+          { value: 'assembly_return_in_rework', label: 'Возврат → ремфонд (доработка)' },
+          { value: 'assembly_return_in_scrap', label: 'Возврат → утиль' },
+          { value: 'receipt', label: 'Приход (generic)' },
+          { value: 'issue', label: 'Расход (generic)' },
+          { value: 'writeoff', label: 'Списание' },
+          { value: 'transfer_in', label: 'Перемещение: приход' },
+          { value: 'transfer_out', label: 'Перемещение: расход' },
+        ],
+      },
+      {
+        type: 'text',
+        key: 'engineId',
+        label: 'ID двигателя',
+        placeholder: 'UUID (опц.)',
+        labelHint: 'Фильтр по engineId в записях движений — все движения, связанные с конкретным двигателем.',
+      },
+      {
+        type: 'text',
+        key: 'nomenclatureSearch',
+        label: 'Деталь (поиск по названию/коду)',
+        placeholder: 'часть имени или кода',
+      },
+    ],
+    columns: [
+      { key: 'performedAt', label: 'Дата/время', kind: 'datetime' },
+      { key: 'movementTypeLabel', label: 'Тип движения' },
+      { key: 'direction', label: 'Направление' },
+      { key: 'warehouseLabel', label: 'Локация' },
+      { key: 'nomenclatureName', label: 'Деталь' },
+      { key: 'nomenclatureCode', label: 'Код' },
+      { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
+      { key: 'engineId', label: 'Двигатель' },
+      { key: 'documentDocNo', label: '№ документа' },
+      { key: 'documentDocType', label: 'Тип документа' },
+      { key: 'performedBy', label: 'Исполнитель' },
+      { key: 'reason', label: 'Причина' },
+    ],
+  },
+  {
+    id: 'workshop_throughput',
+    title: 'Выработка цехов',
+    description: 'Сумма отремонтированных деталей (movement_type=repair_in) по складу цеха и номенклатуре за период.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'multi_select',
+        key: 'warehouseIds',
+        label: 'Склады цехов',
+        labelHint: 'Фильтр по warehouse_id вида workshop_*. Пусто = все цеха.',
+        optionsSource: 'warehouses',
+      },
+    ],
+    columns: [
+      { key: 'warehouseLabel', label: 'Цех (склад)' },
+      { key: 'nomenclatureName', label: 'Деталь' },
+      { key: 'nomenclatureCode', label: 'Код' },
+      { key: 'qtyRepaired', label: 'Отремонтировано, шт', kind: 'number', align: 'right' },
+      { key: 'records', label: 'Записей', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'engine_readiness_to_assemble',
+    title: 'Готовность двигателей к сборке',
+    description:
+      'Для каждого двигателя в фазах received/disassembled — список нехватающих деталей по BOM ' +
+      '(требуется − qty на workshop_* и repair_fund). Фаза двигателя берётся из EAV engine_phase.',
+    filters: [
+      {
+        type: 'multi_select',
+        key: 'engineBrandIds',
+        label: 'Марки двигателей',
+        optionsSource: 'brands',
+      },
+      {
+        type: 'checkbox',
+        key: 'showOnlyShortages',
+        label: 'Только с дефицитом',
+      },
+    ],
+    columns: [
+      { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineBrand', label: 'Марка' },
+      { key: 'enginePhase', label: 'Фаза' },
+      { key: 'totalComponents', label: 'Компонентов', kind: 'number', align: 'right' },
+      { key: 'componentsShort', label: 'Дефицитных', kind: 'number', align: 'right' },
+      { key: 'totalShortQty', label: 'Σ дефицит, шт', kind: 'number', align: 'right' },
+      { key: 'shortageSummary', label: 'Дефициты (TOP-5)' },
+    ],
+  },
+  {
+    id: 'defect_returns_summary',
+    title: 'Сводка возвратов брака из сборки',
+    description:
+      'Возвраты деталей из сборки за период: суммы по mode (rework/scrap), по двигателям и номенклатуре. ' +
+      'Источник: movement_type=assembly_return_in_rework/scrap.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'select',
+        key: 'mode',
+        label: 'Режим возврата',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'rework', label: 'На доработку (rework)' },
+          { value: 'scrap', label: 'В утиль (scrap)' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'modeLabel', label: 'Режим' },
+      { key: 'engineId', label: 'Двигатель' },
+      { key: 'nomenclatureName', label: 'Деталь' },
+      { key: 'nomenclatureCode', label: 'Код' },
+      { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
+      { key: 'returns', label: 'Возвратов, шт', kind: 'number', align: 'right' },
+      { key: 'reasons', label: 'Причины' },
+    ],
+  },
+  {
+    id: 'movement_integrity_audit',
+    title: 'Проверка целостности журнала движений',
+    description:
+      'Hash-chain аудит erp_reg_stock_movements: где prev_hash не совпадает с self_hash предыдущей записи. ' +
+      'Записи без хэшей считаются «до-цепочечными» (включены в БД до активации hash-chain).',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период (опц.)', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'checkbox',
+        key: 'includePreChain',
+        label: 'Включать записи без хэша (pre-chain)',
+      },
+    ],
+    columns: [
+      { key: 'status', label: 'Статус' },
+      { key: 'performedAt', label: 'Дата/время', kind: 'datetime' },
+      { key: 'movementId', label: 'ID движения' },
+      { key: 'movementType', label: 'Тип движения' },
+      { key: 'warehouseId', label: 'Склад' },
+      { key: 'prevHash', label: 'prev_hash (фрагмент)' },
+      { key: 'selfHash', label: 'self_hash (фрагмент)' },
+      { key: 'expectedPrev', label: 'Ожидалось prev_hash' },
+      { key: 'detail', label: 'Детали' },
     ],
   },
 ];

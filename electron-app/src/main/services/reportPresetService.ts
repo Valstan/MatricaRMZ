@@ -5,6 +5,9 @@ import { BrowserWindow } from 'electron';
 import {
   REPORT_PRESET_DEFINITIONS,
   STATUS_CODES,
+  StockMovementType,
+  WarehouseDocumentTypeLabels,
+  warehouseLocationLabel,
   aggregateContractExecutionProgress,
   collectEngineBrandIdsFromContractSections,
   sumEngineBrandQtyByBrandFromContractSections,
@@ -34,7 +37,19 @@ import {
   assemblyForecastStatusLabelRu,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBom, erpEngineAssemblyBomBrandLinks, erpNomenclature, erpRegStockBalance, operations } from '../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  entities,
+  entityTypes,
+  erpDocumentHeaders,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
+  erpNomenclature,
+  erpRegStockBalance,
+  erpRegStockMovements,
+  operations,
+} from '../database/schema.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
 import { httpAuthed } from './httpClient.js';
 import { prependUtf8Bom } from './reportCsvEncoding.js';
@@ -2482,6 +2497,457 @@ async function buildEnginesListReport(
   };
 }
 
+const MOVEMENT_TYPE_LABELS: Record<string, string> = {
+  [StockMovementType.Receipt]: 'Приход',
+  [StockMovementType.Issue]: 'Расход',
+  [StockMovementType.TransferIn]: 'Перемещение (приход)',
+  [StockMovementType.TransferOut]: 'Перемещение (расход)',
+  [StockMovementType.Writeoff]: 'Списание',
+  [StockMovementType.InventorySurplus]: 'Инвентаризация: излишек',
+  [StockMovementType.InventoryShortage]: 'Инвентаризация: недостача',
+  [StockMovementType.DismantleIn]: 'Разборка → ремфонд',
+  [StockMovementType.DismantleScrapIn]: 'Разборка → утиль',
+  [StockMovementType.RepairOut]: 'Ремонт: списано из ремфонда',
+  [StockMovementType.RepairIn]: 'Ремонт: приход на склад цеха',
+  [StockMovementType.AssemblyConsumptionOut]: 'Сборка: списание со склада',
+  [StockMovementType.AssemblyConsumptionIn]: 'Сборка: приход на «в сборке»',
+  [StockMovementType.AssemblyReturnOut]: 'Возврат: уход из «в сборке»',
+  [StockMovementType.AssemblyReturnInRework]: 'Возврат → ремфонд (доработка)',
+  [StockMovementType.AssemblyReturnInScrap]: 'Возврат → утиль',
+};
+
+function movementTypeLabel(value: string | null | undefined): string {
+  const key = String(value ?? '').trim();
+  if (!key) return '—';
+  if (MOVEMENT_TYPE_LABELS[key]) return MOVEMENT_TYPE_LABELS[key]!;
+  if (key.startsWith('reversal_')) return `Сторно: ${MOVEMENT_TYPE_LABELS[key.slice('reversal_'.length)] ?? key.slice('reversal_'.length)}`;
+  return key;
+}
+
+function docTypeLabel(value: string | null | undefined): string {
+  const key = String(value ?? '').trim();
+  if (!key) return '';
+  const known = (WarehouseDocumentTypeLabels as Record<string, string>)[key];
+  return known ?? key;
+}
+
+async function buildPartMovementJournalReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const startMs = Number((filters as Record<string, unknown> | undefined)?.startMs ?? 0);
+  const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
+  const warehouseFilter = asArray(filters?.warehouseIds);
+  const movementTypeFilter = asArray(filters?.movementTypes);
+  const engineIdFilter = String((filters as Record<string, unknown> | undefined)?.engineId ?? '').trim();
+  const nomenclatureSearch = String((filters as Record<string, unknown> | undefined)?.nomenclatureSearch ?? '')
+    .trim()
+    .toLowerCase();
+
+  const movementRows = await db
+    .select()
+    .from(erpRegStockMovements)
+    .orderBy(erpRegStockMovements.performedAt);
+
+  const headerRows = await db.select().from(erpDocumentHeaders);
+  const headerById = new Map<string, { docNo: string; docType: string }>();
+  for (const row of headerRows as Array<{ id: unknown; docNo: unknown; docType: unknown }>) {
+    headerById.set(String(row.id), {
+      docNo: String(row.docNo ?? ''),
+      docType: String(row.docType ?? ''),
+    });
+  }
+
+  const nomenRows = await db
+    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt));
+  const nomenById = new Map<string, { code: string; name: string }>();
+  for (const row of nomenRows as Array<{ id: unknown; code: unknown; name: unknown }>) {
+    nomenById.set(String(row.id), {
+      code: String(row.code ?? ''),
+      name: String(row.name ?? ''),
+    });
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalQty = 0;
+  for (const raw of movementRows as Array<Record<string, unknown>>) {
+    const performedAt = Number(raw.performedAt ?? 0);
+    if (startMs > 0 && performedAt < startMs) continue;
+    if (endMs > 0 && performedAt > endMs) continue;
+
+    const warehouseId = String(raw.warehouseId ?? '');
+    if (warehouseFilter.length > 0 && !warehouseFilter.includes(warehouseId)) continue;
+
+    const movementType = String(raw.movementType ?? '');
+    if (movementTypeFilter.length > 0 && !movementTypeFilter.includes(movementType)) continue;
+
+    const engineId = raw.engineId ? String(raw.engineId) : '';
+    if (engineIdFilter && engineId !== engineIdFilter) continue;
+
+    const nomenclatureId = String(raw.nomenclatureId ?? '');
+    const nomen = nomenById.get(nomenclatureId);
+    if (nomenclatureSearch) {
+      const hay = `${nomen?.name ?? ''} ${nomen?.code ?? ''}`.toLowerCase();
+      if (!hay.includes(nomenclatureSearch)) continue;
+    }
+
+    const headerId = raw.documentHeaderId ? String(raw.documentHeaderId) : '';
+    const header = headerId ? headerById.get(headerId) : undefined;
+    const qty = Number(raw.qty ?? 0);
+    totalQty += qty;
+
+    rows.push({
+      performedAt,
+      movementTypeLabel: movementTypeLabel(movementType),
+      direction: raw.direction === 'in' ? 'Приход' : raw.direction === 'out' ? 'Расход' : String(raw.direction ?? ''),
+      warehouseLabel: warehouseLocationLabel(warehouseId, null),
+      nomenclatureName: nomen?.name ?? '',
+      nomenclatureCode: nomen?.code ?? '',
+      qty,
+      engineId,
+      documentDocNo: header?.docNo ?? '',
+      documentDocType: docTypeLabel(header?.docType ?? ''),
+      performedBy: raw.performedBy ? String(raw.performedBy) : '',
+      reason: raw.reason ? String(raw.reason) : '',
+    });
+  }
+
+  rows.sort((a, b) => Number(b.performedAt ?? 0) - Number(a.performedAt ?? 0));
+
+  const preset = getPreset('part_movement_journal');
+  return {
+    ok: true,
+    presetId: 'part_movement_journal',
+    title: preset.title,
+    subtitle: rows.length === 0 ? 'Нет движений по фильтру' : `Записей: ${rows.length}`,
+    columns: preset.columns,
+    rows,
+    totals: { totalQty, movements: rows.length },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildWorkshopThroughputReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const startMs = Number((filters as Record<string, unknown> | undefined)?.startMs ?? 0);
+  const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
+  const warehouseFilter = asArray(filters?.warehouseIds);
+  const movementRows = await db.select().from(erpRegStockMovements);
+  const nomenRows = await db
+    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt));
+  const nomenById = new Map<string, { code: string; name: string }>();
+  for (const row of nomenRows as Array<{ id: unknown; code: unknown; name: unknown }>) {
+    nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+  }
+
+  type Bucket = { qty: number; records: number };
+  const agg = new Map<string, Bucket>();
+  for (const raw of movementRows as Array<Record<string, unknown>>) {
+    const movementType = String(raw.movementType ?? '');
+    if (movementType !== StockMovementType.RepairIn) continue;
+    const warehouseId = String(raw.warehouseId ?? '');
+    if (!warehouseId.startsWith('workshop_')) continue;
+    if (warehouseFilter.length > 0 && !warehouseFilter.includes(warehouseId)) continue;
+    const performedAt = Number(raw.performedAt ?? 0);
+    if (startMs > 0 && performedAt < startMs) continue;
+    if (endMs > 0 && performedAt > endMs) continue;
+    const nomenclatureId = String(raw.nomenclatureId ?? '');
+    const key = `${warehouseId}::${nomenclatureId}`;
+    const cur = agg.get(key) ?? { qty: 0, records: 0 };
+    cur.qty += Number(raw.qty ?? 0);
+    cur.records += 1;
+    agg.set(key, cur);
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalQty = 0;
+  for (const [key, v] of agg.entries()) {
+    const [warehouseId, nomenclatureId] = key.split('::');
+    const nomen = nomenById.get(String(nomenclatureId ?? ''));
+    totalQty += v.qty;
+    rows.push({
+      warehouseLabel: warehouseLocationLabel(String(warehouseId ?? ''), null),
+      nomenclatureName: nomen?.name ?? '',
+      nomenclatureCode: nomen?.code ?? '',
+      qtyRepaired: v.qty,
+      records: v.records,
+    });
+  }
+  rows.sort((a, b) => Number(b.qtyRepaired ?? 0) - Number(a.qtyRepaired ?? 0));
+  const preset = getPreset('workshop_throughput');
+  return {
+    ok: true,
+    presetId: 'workshop_throughput',
+    title: preset.title,
+    subtitle: rows.length === 0 ? 'Нет данных по фильтру' : `Цех × деталь: ${rows.length}`,
+    columns: preset.columns,
+    rows,
+    totals: { totalRepaired: totalQty, lines: rows.length },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildEngineReadinessToAssembleReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const brandFilter = asArray(filters?.engineBrandIds);
+  const showOnlyShortages = Boolean((filters as Record<string, unknown> | undefined)?.showOnlyShortages);
+  const snapshot = await loadSnapshot(db);
+  const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
+  if (!engineTypeId) {
+    const preset = getPreset('engine_readiness_to_assemble');
+    return {
+      ok: true,
+      presetId: 'engine_readiness_to_assemble',
+      title: preset.title,
+      subtitle: 'Нет сущностей-двигателей',
+      columns: preset.columns,
+      rows: [],
+      generatedAt: Date.now(),
+    };
+  }
+
+  const balanceRows = await db.select().from(erpRegStockBalance);
+  const stockByNom = new Map<string, number>();
+  for (const raw of balanceRows as Array<Record<string, unknown>>) {
+    const warehouseId = String(raw.warehouseId ?? '');
+    if (!warehouseId.startsWith('workshop_') && warehouseId !== 'repair_fund') continue;
+    const nomenclatureId = String(raw.nomenclatureId ?? '');
+    if (!nomenclatureId) continue;
+    const avail = Math.max(0, Math.floor(Number(raw.qty ?? 0) - Number(raw.reservedQty ?? 0)));
+    stockByNom.set(nomenclatureId, (stockByNom.get(nomenclatureId) ?? 0) + avail);
+  }
+
+  let bomLines: Array<Record<string, unknown>> = [];
+  try {
+    bomLines = (await db.select().from(erpEngineAssemblyBom)) as Array<Record<string, unknown>>;
+  } catch {
+    bomLines = [];
+  }
+
+  const engineRows = Array.from(snapshot.entitiesById.values()).filter((e) => e.typeId === engineTypeId);
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  for (const engine of engineRows) {
+    const attrs = snapshot.attrsByEntity.get(engine.id) ?? {};
+    const brandId = String(attrs.engine_brand_id ?? '').trim();
+    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    const phase = String(attrs.engine_phase ?? '').trim();
+    if (phase && phase !== 'received' && phase !== 'disassembled') continue;
+    const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engine.id));
+    const brandLabel = brandId ? normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId) : '';
+
+    const totalComponents = bomLines.length;
+    const shortages: Array<{ name: string; need: number; have: number }> = [];
+    for (const line of bomLines) {
+      const nomenclatureId = String((line as Record<string, unknown>).componentNomenclatureId ?? '');
+      const need = Math.max(0, Math.floor(Number((line as Record<string, unknown>).qtyPerUnit ?? 0)));
+      if (need === 0 || !nomenclatureId) continue;
+      const have = stockByNom.get(nomenclatureId) ?? 0;
+      if (have < need) {
+        shortages.push({
+          name: `${nomenclatureId.slice(0, 8)}`,
+          need,
+          have,
+        });
+      }
+    }
+    const totalShortQty = shortages.reduce((acc, s) => acc + Math.max(0, s.need - s.have), 0);
+    if (showOnlyShortages && shortages.length === 0) continue;
+
+    rows.push({
+      engineNumber,
+      engineBrand: brandLabel,
+      enginePhase: phase || '—',
+      totalComponents,
+      componentsShort: shortages.length,
+      totalShortQty,
+      shortageSummary: shortages
+        .slice(0, 5)
+        .map((s) => `${s.name}: ${s.have}/${s.need}`)
+        .join('; '),
+    });
+  }
+  rows.sort((a, b) => Number(b.componentsShort ?? 0) - Number(a.componentsShort ?? 0));
+  const preset = getPreset('engine_readiness_to_assemble');
+  return {
+    ok: true,
+    presetId: 'engine_readiness_to_assemble',
+    title: preset.title,
+    subtitle: rows.length === 0 ? 'Нет двигателей по фильтру' : `Двигателей: ${rows.length}`,
+    columns: preset.columns,
+    rows,
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildDefectReturnsSummaryReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const startMs = Number((filters as Record<string, unknown> | undefined)?.startMs ?? 0);
+  const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
+  const modeFilter = String((filters as Record<string, unknown> | undefined)?.mode ?? 'all');
+
+  const movementRows = await db.select().from(erpRegStockMovements);
+  const nomenRows = await db
+    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt));
+  const nomenById = new Map<string, { code: string; name: string }>();
+  for (const row of nomenRows as Array<{ id: unknown; code: unknown; name: unknown }>) {
+    nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+  }
+
+  type Bucket = { qty: number; returns: number; reasons: Set<string>; mode: string };
+  const agg = new Map<string, Bucket>();
+  for (const raw of movementRows as Array<Record<string, unknown>>) {
+    const movementType = String(raw.movementType ?? '');
+    let mode: string;
+    if (movementType === StockMovementType.AssemblyReturnInRework) mode = 'rework';
+    else if (movementType === StockMovementType.AssemblyReturnInScrap) mode = 'scrap';
+    else continue;
+    if (modeFilter !== 'all' && modeFilter !== mode) continue;
+    const performedAt = Number(raw.performedAt ?? 0);
+    if (startMs > 0 && performedAt < startMs) continue;
+    if (endMs > 0 && performedAt > endMs) continue;
+    const engineId = raw.engineId ? String(raw.engineId) : '—';
+    const nomenclatureId = String(raw.nomenclatureId ?? '');
+    const key = `${mode}::${engineId}::${nomenclatureId}`;
+    const cur = agg.get(key) ?? { qty: 0, returns: 0, reasons: new Set<string>(), mode };
+    cur.qty += Number(raw.qty ?? 0);
+    cur.returns += 1;
+    const reason = raw.reason ? String(raw.reason).trim() : '';
+    if (reason) cur.reasons.add(reason);
+    agg.set(key, cur);
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalQty = 0;
+  for (const [key, v] of agg.entries()) {
+    const [, engineId, nomenclatureId] = key.split('::');
+    const nomen = nomenById.get(String(nomenclatureId ?? ''));
+    totalQty += v.qty;
+    rows.push({
+      modeLabel: v.mode === 'rework' ? 'На доработку' : 'В утиль',
+      engineId: String(engineId ?? '—'),
+      nomenclatureName: nomen?.name ?? '',
+      nomenclatureCode: nomen?.code ?? '',
+      qty: v.qty,
+      returns: v.returns,
+      reasons: Array.from(v.reasons).slice(0, 3).join('; '),
+    });
+  }
+  rows.sort((a, b) => Number(b.qty ?? 0) - Number(a.qty ?? 0));
+  const preset = getPreset('defect_returns_summary');
+  return {
+    ok: true,
+    presetId: 'defect_returns_summary',
+    title: preset.title,
+    subtitle: rows.length === 0 ? 'Нет возвратов по фильтру' : `Возвратов: ${rows.length}`,
+    columns: preset.columns,
+    rows,
+    totals: { totalReturnedQty: totalQty, returns: rows.length },
+    generatedAt: Date.now(),
+  };
+}
+
+async function buildMovementIntegrityAuditReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const startMs = Number((filters as Record<string, unknown> | undefined)?.startMs ?? 0);
+  const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
+  const includePreChain = Boolean((filters as Record<string, unknown> | undefined)?.includePreChain);
+
+  const allRows = (await db.select().from(erpRegStockMovements)) as Array<Record<string, unknown>>;
+  const sorted = [...allRows].sort((a, b) => {
+    const ap = Number(a.performedAt ?? 0);
+    const bp = Number(b.performedAt ?? 0);
+    if (ap !== bp) return ap - bp;
+    const ac = Number(a.createdAt ?? 0);
+    const bc = Number(b.createdAt ?? 0);
+    if (ac !== bc) return ac - bc;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+  });
+
+  let chainPrevHash: string | null = null;
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let okCount = 0;
+  let brokenCount = 0;
+  let preChainCount = 0;
+  for (const raw of sorted) {
+    const performedAt = Number(raw.performedAt ?? 0);
+    const movementId = String(raw.id ?? '');
+    const movementType = String(raw.movementType ?? '');
+    const warehouseId = String(raw.warehouseId ?? '');
+    const selfHash = raw.selfHash ? String(raw.selfHash) : null;
+    const prevHash = raw.prevHash ? String(raw.prevHash) : null;
+
+    if (!selfHash) {
+      preChainCount += 1;
+      if (!includePreChain) continue;
+      if (startMs > 0 && performedAt < startMs) continue;
+      if (endMs > 0 && performedAt > endMs) continue;
+      rows.push({
+        status: 'pre-chain',
+        performedAt,
+        movementId,
+        movementType,
+        warehouseId,
+        prevHash: '',
+        selfHash: '',
+        expectedPrev: '',
+        detail: 'Запись создана до активации hash-chain',
+      });
+      continue;
+    }
+
+    const expectedPrev = chainPrevHash;
+    const isBroken = expectedPrev !== prevHash;
+    if (isBroken) {
+      brokenCount += 1;
+      if (startMs > 0 && performedAt < startMs) continue;
+      if (endMs > 0 && performedAt > endMs) continue;
+      rows.push({
+        status: 'BROKEN',
+        performedAt,
+        movementId,
+        movementType,
+        warehouseId,
+        prevHash: prevHash ? prevHash.slice(0, 12) : '(null)',
+        selfHash: selfHash.slice(0, 12),
+        expectedPrev: expectedPrev ? expectedPrev.slice(0, 12) : '(null)',
+        detail: `Ожидалось prev_hash=${expectedPrev ?? '(null)'}, фактически ${prevHash ?? '(null)'}`,
+      });
+    } else {
+      okCount += 1;
+    }
+    chainPrevHash = selfHash;
+  }
+
+  const preset = getPreset('movement_integrity_audit');
+  return {
+    ok: true,
+    presetId: 'movement_integrity_audit',
+    title: preset.title,
+    subtitle:
+      brokenCount > 0
+        ? `НАРУШЕНА цепочка: ${brokenCount} разрыв(ов) из ${okCount + brokenCount} hashed`
+        : `Цепочка целостна: ${okCount} hashed-записей, ${preChainCount} pre-chain`,
+    columns: preset.columns,
+    rows,
+    totals: { okHashed: okCount, brokenLinks: brokenCount, preChain: preChainCount },
+    generatedAt: Date.now(),
+  };
+}
+
 async function buildWarehouseStockPathAuditReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
@@ -3481,6 +3947,16 @@ export async function buildReportByPreset(
         return buildWarehouseStockPathAuditReport(db, args.filters);
       case 'assembly_forecast_7d':
         return buildAssemblyForecast7dReport(db, args.filters, ctx);
+      case 'part_movement_journal':
+        return buildPartMovementJournalReport(db, args.filters);
+      case 'workshop_throughput':
+        return buildWorkshopThroughputReport(db, args.filters);
+      case 'engine_readiness_to_assemble':
+        return buildEngineReadinessToAssembleReport(db, args.filters);
+      case 'defect_returns_summary':
+        return buildDefectReturnsSummaryReport(db, args.filters);
+      case 'movement_integrity_audit':
+        return buildMovementIntegrityAuditReport(db, args.filters);
       default:
         return { ok: false, error: `Неизвестный пресет: ${String(args.presetId)}` };
     }
