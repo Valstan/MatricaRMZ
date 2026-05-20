@@ -1,18 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  NOMENCLATURE_ITEM_TYPE_HAS_STOCK,
+  NOMENCLATURE_ITEM_TYPE_LABELS,
   WORK_ORDER_KIND_DESCRIPTIONS,
   WORK_ORDER_KIND_LABELS,
   WORK_ORDER_KIND_ORDER,
   WorkOrderKind,
   normalizeWorkOrderLine,
   resolveWorkOrderSignatureDecryptions,
+  type NomenclatureItemType,
   type WorkOrderPayload,
   type WorkOrderWorkGroup,
   type WorkOrderWorkLine,
 } from '@matricarmz/shared';
-
-import { listAllParts } from '../utils/partsPagination.js';
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -49,7 +50,7 @@ type EmployeeInfo = {
   employmentStatus?: string | null;
 };
 type EngineInfo = { id: string; engineNumber?: string; engineBrandId?: string | null; engineBrandName?: string };
-type PartInfo = { id: string; name: string; article?: string };
+type PartInfo = { id: string; name: string; article?: string; itemType?: NomenclatureItemType };
 
 function normalizeLookupValue(value: string): string {
   return String(value || '')
@@ -349,8 +350,9 @@ export function WorkOrderDetailsPage(props: {
   const partOptions: LinkOpt[] = useMemo(
     () =>
       parts.map((p) => {
-        const hint = joinOptionHint([p.article && `Артикул ${p.article}`]);
-        const search = joinOptionSearch([p.name, p.id, p.article]);
+        const typeLabel = p.itemType ? NOMENCLATURE_ITEM_TYPE_LABELS[p.itemType] : null;
+        const hint = joinOptionHint([typeLabel, p.article && `Артикул ${p.article}`]);
+        const search = joinOptionSearch([p.name, p.id, p.article, typeLabel]);
         return buildSearchOption({
           id: p.id,
           label: p.name,
@@ -412,15 +414,26 @@ export function WorkOrderDetailsPage(props: {
       } as EngineInfo));
       setEngines(engineInfo);
 
-      // Загрузка деталей (для поля «Наименование изделия» в строках работ).
-      const partsResult = await listAllParts().catch(() => ({ ok: false as const, error: 'load failed' }));
-      if (partsResult.ok) {
-        const partInfo = (partsResult.parts as any[])
-          .map((p): PartInfo => ({
-            id: String(p.id),
-            name: String(p.name ?? '').trim() || String(p.id),
-            ...(p.article ? { article: String(p.article) } : {}),
-          }))
+      // Загрузка изделий из складской номенклатуры — единый источник истины.
+      // Берём все позиции с остатками (HAS_STOCK), т.е. всё кроме service.
+      // Это видит и зеркала старых деталей (spec_json.source=part, тот же UUID),
+      // и позиции, забитые напрямую в номенклатуру (например, готовые узлы и продукты).
+      const nomResult = await window.matrica.warehouse.nomenclatureList({ limit: 5000 }).catch(() => null);
+      if (nomResult && nomResult.ok && Array.isArray(nomResult.rows)) {
+        const partInfo = nomResult.rows
+          .filter((row: Record<string, unknown>) => {
+            const itemType = String(row.itemType ?? '') as NomenclatureItemType;
+            return Boolean(NOMENCLATURE_ITEM_TYPE_HAS_STOCK[itemType]) && Boolean(row.isActive ?? true);
+          })
+          .map((row: Record<string, unknown>): PartInfo => {
+            const itemType = String(row.itemType ?? '') as NomenclatureItemType;
+            return {
+              id: String(row.id),
+              name: String(row.name ?? '').trim() || String(row.id),
+              ...(row.sku ? { article: String(row.sku) } : row.code ? { article: String(row.code) } : {}),
+              ...(itemType ? { itemType } : {}),
+            };
+          })
           .filter((p) => p.name.trim().length > 0)
           .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
         setParts(partInfo);
@@ -1209,32 +1222,25 @@ export function WorkOrderDetailsPage(props: {
                     </div>
                   </td>
                   <td>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6, alignItems: 'start' }}>
-                      <SearchSelect
-                        value={line.partId || null}
-                        options={partOptions}
-                        disabled={!props.canEdit}
-                        placeholder="Выберите изделие"
-                        onChange={(next) => {
-                          const part = next ? parts.find((p) => p.id === next) : null;
-                          const freeWorks = payload.freeWorks.map((item, rowIdx) =>
-                            rowIdx === idx
-                              ? {
-                                  ...item,
-                                  partId: next || null,
-                                  partName: part?.name || '',
-                                }
-                              : item,
-                          );
-                          patch({ ...payload, freeWorks });
-                        }}
-                      />
-                      {line.partId && props.onOpenPart ? (
-                        <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenPart?.(line.partId as string)}>
-                          Открыть
-                        </Button>
-                      ) : null}
-                    </div>
+                    <SearchSelect
+                      value={line.partId || null}
+                      options={partOptions}
+                      disabled={!props.canEdit}
+                      placeholder="Выберите изделие"
+                      onChange={(next) => {
+                        const part = next ? parts.find((p) => p.id === next) : null;
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) =>
+                          rowIdx === idx
+                            ? {
+                                ...item,
+                                partId: next || null,
+                                partName: part?.name || '',
+                              }
+                            : item,
+                        );
+                        patch({ ...payload, freeWorks });
+                      }}
+                    />
                   </td>
                   <td>
                     <Input
