@@ -44,5 +44,41 @@ describe('normalizeWorkOrderLine', () => {
     expect(line.productNumber).toBeUndefined();
     expect(line.engineId).toBeUndefined();
     expect(line.engineNumber).toBeUndefined();
+    expect(line.partId).toBeUndefined();
+    expect(line.partName).toBeUndefined();
+  });
+
+  it('preserves part selection fields', () => {
+    const line = normalizeWorkOrderLine(
+      {
+        serviceName: 'Сборка',
+        unit: 'шт',
+        qty: 1,
+        priceRub: 100,
+        partId: 'part-1',
+        partName: 'Гильза 1Ч-12',
+      },
+      3,
+    );
+
+    expect(line.partId).toBe('part-1');
+    expect(line.partName).toBe('Гильза 1Ч-12');
+  });
+
+  it('omits partName when partId is missing', () => {
+    const line = normalizeWorkOrderLine(
+      {
+        serviceName: 'Работа',
+        unit: 'шт',
+        qty: 1,
+        priceRub: 10,
+        partId: '',
+        partName: 'Лишнее имя',
+      },
+      4,
+    );
+
+    expect(line.partId).toBeUndefined();
+    expect(line.partName).toBeUndefined();
   });
 });

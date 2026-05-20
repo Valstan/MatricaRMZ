@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  WORK_ORDER_KIND_DESCRIPTIONS,
   WORK_ORDER_KIND_LABELS,
+  WORK_ORDER_KIND_ORDER,
   WorkOrderKind,
   normalizeWorkOrderLine,
   resolveWorkOrderSignatureDecryptions,
@@ -9,6 +11,8 @@ import {
   type WorkOrderWorkGroup,
   type WorkOrderWorkLine,
 } from '@matricarmz/shared';
+
+import { listAllParts } from '../utils/partsPagination.js';
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -45,6 +49,7 @@ type EmployeeInfo = {
   employmentStatus?: string | null;
 };
 type EngineInfo = { id: string; engineNumber?: string; engineBrandId?: string | null; engineBrandName?: string };
+type PartInfo = { id: string; name: string; article?: string };
 
 function normalizeLookupValue(value: string): string {
   return String(value || '')
@@ -252,6 +257,7 @@ export function WorkOrderDetailsPage(props: {
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
+  const [parts, setParts] = useState<PartInfo[]>([]);
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [closing, setClosing] = useState(false);
   const dirtyRef = useRef(false);
@@ -340,6 +346,20 @@ export function WorkOrderDetailsPage(props: {
       }),
     [engines],
   );
+  const partOptions: LinkOpt[] = useMemo(
+    () =>
+      parts.map((p) => {
+        const hint = joinOptionHint([p.article && `Артикул ${p.article}`]);
+        const search = joinOptionSearch([p.name, p.id, p.article]);
+        return buildSearchOption({
+          id: p.id,
+          label: p.name,
+          ...(hint ? { hintText: hint } : {}),
+          ...(search ? { searchText: search } : {}),
+        });
+      }),
+    [parts],
+  );
 
   async function loadRefs() {
     try {
@@ -391,10 +411,27 @@ export function WorkOrderDetailsPage(props: {
         engineBrandName: String(e.engineBrand ?? ''),
       } as EngineInfo));
       setEngines(engineInfo);
+
+      // Загрузка деталей (для поля «Наименование изделия» в строках работ).
+      const partsResult = await listAllParts().catch(() => ({ ok: false as const, error: 'load failed' }));
+      if (partsResult.ok) {
+        const partInfo = (partsResult.parts as any[])
+          .map((p): PartInfo => ({
+            id: String(p.id),
+            name: String(p.name ?? '').trim() || String(p.id),
+            ...(p.article ? { article: String(p.article) } : {}),
+          }))
+          .filter((p) => p.name.trim().length > 0)
+          .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        setParts(partInfo);
+      } else {
+        setParts([]);
+      }
     } catch {
       setServices([]);
       setEmployees([]);
       setEngines([]);
+      setParts([]);
     }
   }
 
@@ -580,7 +617,7 @@ export function WorkOrderDetailsPage(props: {
     if (!payload) return;
     patch({
       ...payload,
-      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: null, engineNumber: '', engineBrandId: null, engineBrandName: '' }],
+      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: null, engineNumber: '', engineBrandId: null, engineBrandName: '', partId: null, partName: '' }],
     });
   }
 
@@ -610,14 +647,16 @@ export function WorkOrderDetailsPage(props: {
 
     const linesTable = (lines: WorkOrderWorkLine[]) =>
       lines.length
-        ? `<table><thead><tr><th>Вид работ</th><th>№ изделия</th><th>Двигатель</th><th>Марка</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${lines
+        ? `<table><thead><tr><th>№ двигателя</th><th>Марка</th><th>Вид работ</th><th>Наименование изделия</th><th>№ изделия</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${lines
             .map(
               (line) =>
-                `<tr><td>${escapeHtml(line.serviceName || '—')}</td><td>${escapeHtml(line.productNumber || '—')}</td><td>${escapeHtml(
-                  line.engineNumber || '—',
-                )}</td><td>${escapeHtml(line.engineBrandName || '—')}</td><td>${escapeHtml(String(line.qty ?? 0))}</td><td>${escapeHtml(
-                  line.unit || '—',
-                )}</td><td>${escapeHtml(money(line.priceRub ?? 0))}</td><td>${escapeHtml(money(line.amountRub ?? 0))}</td></tr>`,
+                `<tr><td>${escapeHtml(line.engineNumber || '—')}</td><td>${escapeHtml(line.engineBrandName || '—')}</td><td>${escapeHtml(
+                  line.serviceName || '—',
+                )}</td><td>${escapeHtml(line.partName || '—')}</td><td>${escapeHtml(line.productNumber || '—')}</td><td>${escapeHtml(
+                  String(line.qty ?? 0),
+                )}</td><td>${escapeHtml(line.unit || '—')}</td><td>${escapeHtml(money(line.priceRub ?? 0))}</td><td>${escapeHtml(
+                  money(line.amountRub ?? 0),
+                )}</td></tr>`,
             )
             .join('')}</tbody></table>`
         : `<div class="muted">Нет данных</div>`;
@@ -942,65 +981,105 @@ export function WorkOrderDetailsPage(props: {
           <select
             value={payload.workOrderKind ?? ''}
             disabled={!props.canEdit}
+            title={payload.workOrderKind ? WORK_ORDER_KIND_DESCRIPTIONS[payload.workOrderKind] : 'Тип наряда не выбран — работы только для учёта зарплат'}
             onChange={(e) => {
               const v = e.target.value;
               const next: WorkOrderPayload = { ...payload };
-              if (v === WorkOrderKind.Repair || v === WorkOrderKind.Assembly) next.workOrderKind = v;
-              else delete next.workOrderKind;
+              if (
+                v === WorkOrderKind.Regular ||
+                v === WorkOrderKind.Repair ||
+                v === WorkOrderKind.Assembly ||
+                v === WorkOrderKind.Manufacturing
+              ) {
+                next.workOrderKind = v;
+              } else {
+                delete next.workOrderKind;
+              }
               patch(next);
             }}
-            style={{ minWidth: 140, padding: '4px 6px' }}
+            style={{ minWidth: 160, padding: '4px 6px' }}
           >
             <option value="">— не выбран —</option>
-            <option value={WorkOrderKind.Repair}>{WORK_ORDER_KIND_LABELS[WorkOrderKind.Repair]}</option>
-            <option value={WorkOrderKind.Assembly}>{WORK_ORDER_KIND_LABELS[WorkOrderKind.Assembly]}</option>
+            {WORK_ORDER_KIND_ORDER.map((kind) => (
+              <option key={kind} value={kind}>
+                {WORK_ORDER_KIND_LABELS[kind]}
+              </option>
+            ))}
           </select>
         </div>
         {payload.linkedDocumentId ? (
           <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
             Закрыт. Документ: <code>{payload.linkedDocumentId.slice(0, 8)}…</code>
           </div>
+        ) : payload.workOrderKind === WorkOrderKind.Regular && String(status).includes('Закрыто') ? (
+          <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Закрыт (без складского документа)</div>
         ) : props.canCloseWorkOrders ? (
-          <Button
-            disabled={closing || !payload.workshopId || !payload.workOrderKind}
-            title={
-              !payload.workshopId
+          (() => {
+            const kind = payload.workOrderKind;
+            const isRegular = kind === WorkOrderKind.Regular;
+            const needsWorkshop = !isRegular;
+            const needsEngine = kind === WorkOrderKind.Assembly;
+            const closeDisabled =
+              closing ||
+              !kind ||
+              (needsWorkshop && !payload.workshopId);
+            const tooltip = !kind
+              ? 'Выберите тип наряда'
+              : needsWorkshop && !payload.workshopId
                 ? 'Выберите цех'
-                : !payload.workOrderKind
-                  ? 'Выберите тип наряда'
-                  : 'Создаст и проведёт складской документ (repair_recovery / assembly_consumption), наряд переходит в closed'
-            }
-            onClick={async () => {
-              if (!confirm) return;
-              const ok = await confirm({
-                title: 'Закрыть наряд и провести документ?',
-                detail:
-                  payload.workOrderKind === WorkOrderKind.Repair
-                    ? 'Будет создан и проведён документ repair_recovery (детали уходят из ремфонда на склад цеха). Действие необратимо без сторнирования.'
-                    : 'Будет создан и проведён документ assembly_consumption (детали списываются со склада цеха в сборку, привязка к двигателю). Действие необратимо без сторнирования.',
-              });
-              if (!ok) return;
-              setClosing(true);
-              setStatus('Закрываю наряд…');
-              try {
-                // Сохраняем текущее состояние перед закрытием, чтобы payload v3 ушёл на сервер
-                if (props.canEdit && dirtyRef.current) await flushSave(payload);
-                const r = await window.matrica.workOrders.close({ operationId: props.id });
-                if (!r.ok) {
-                  setStatus(`Ошибка закрытия: ${r.error}`);
-                  return;
-                }
-                setStatus(`Закрыто. Документ ${r.documentId ?? '—'} проведён.`);
-                await refresh();
-              } catch (e) {
-                setStatus(`Ошибка: ${String(e)}`);
-              } finally {
-                setClosing(false);
-              }
-            }}
-          >
-            {closing ? 'Закрываю…' : 'Закрыть и провести'}
-          </Button>
+                : isRegular
+                  ? 'Закроет наряд без складских движений (только учёт зарплат)'
+                  : kind === WorkOrderKind.Repair
+                    ? 'Создаст и проведёт документ repair_recovery — отремонтированные детали уйдут на склад цеха'
+                    : kind === WorkOrderKind.Manufacturing
+                      ? 'Создаст и проведёт документ production_release — изготовленные детали поступят на склад цеха'
+                      : 'Создаст и проведёт документ assembly_consumption — детали спишутся со склада цеха в сборку';
+            const buttonLabel = isRegular ? 'Закрыть наряд' : 'Закрыть и провести';
+            const confirmTitle = isRegular ? 'Закрыть наряд?' : 'Закрыть наряд и провести документ?';
+            const confirmDetail = isRegular
+              ? 'Наряд перейдёт в статус "closed" без складских движений. Действие нельзя отменить.'
+              : kind === WorkOrderKind.Repair
+                ? 'Будет создан и проведён документ repair_recovery (детали уходят из ремфонда на склад цеха). Действие необратимо без сторнирования.'
+                : kind === WorkOrderKind.Manufacturing
+                  ? 'Будет создан и проведён документ production_release (новые детали поступают на склад цеха). Действие необратимо без сторнирования.'
+                  : 'Будет создан и проведён документ assembly_consumption (детали списываются со склада цеха в сборку, привязка к двигателю). Действие необратимо без сторнирования.';
+            return (
+              <Button
+                disabled={closeDisabled}
+                title={tooltip}
+                onClick={async () => {
+                  if (!confirm) return;
+                  if (needsEngine) {
+                    // operations.engineEntityId требуется только для Assembly, проверяется на сервере.
+                  }
+                  const ok = await confirm({ title: confirmTitle, detail: confirmDetail });
+                  if (!ok) return;
+                  setClosing(true);
+                  setStatus('Закрываю наряд…');
+                  try {
+                    if (props.canEdit && dirtyRef.current) await flushSave(payload);
+                    const r = await window.matrica.workOrders.close({ operationId: props.id });
+                    if (!r.ok) {
+                      setStatus(`Ошибка закрытия: ${r.error}`);
+                      return;
+                    }
+                    setStatus(
+                      isRegular
+                        ? 'Закрыто (без складского документа).'
+                        : `Закрыто. Документ ${r.documentId ?? '—'} проведён.`,
+                    );
+                    await refresh();
+                  } catch (e) {
+                    setStatus(`Ошибка: ${String(e)}`);
+                  } finally {
+                    setClosing(false);
+                  }
+                }}
+              >
+                {closing ? 'Закрываю…' : buttonLabel}
+              </Button>
+            );
+          })()
         ) : null}
       </div>
       {status && !status.startsWith('Сохранено') ? (
@@ -1017,10 +1096,11 @@ export function WorkOrderDetailsPage(props: {
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
-              <col />
-              <col style={{ width: '100px' }} />
               <col style={{ width: '130px' }} />
               <col style={{ width: '140px' }} />
+              <col />
+              <col style={{ width: '220px' }} />
+              <col style={{ width: '100px' }} />
               <col style={{ width: '65px' }} />
               <col style={{ width: '50px' }} />
               <col style={{ width: '80px' }} />
@@ -1029,10 +1109,11 @@ export function WorkOrderDetailsPage(props: {
             </colgroup>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>Вид работ</th>
-                <th style={{ textAlign: 'left' }}>№ изделия</th>
                 <th style={{ textAlign: 'left' }}>№ двигателя</th>
                 <th style={{ textAlign: 'left' }}>Марка двигателя</th>
+                <th style={{ textAlign: 'left' }}>Вид работ</th>
+                <th style={{ textAlign: 'left' }}>Наименование изделия</th>
+                <th style={{ textAlign: 'left' }}>№ изделия</th>
                 <th style={{ textAlign: 'right' }}>Кол-во</th>
                 <th style={{ textAlign: 'right' }}>Ед.</th>
                 <th style={{ textAlign: 'right' }}>Цена</th>
@@ -1063,6 +1144,36 @@ export function WorkOrderDetailsPage(props: {
                   : allServiceOptions;
                 return (
                 <tr key={`free-work-line-${idx}`}>
+                  <td>
+                    <SearchSelect
+                      value={line.engineId || null}
+                      options={engineOptions}
+                      disabled={!props.canEdit}
+                      placeholder="Выберите двигатель"
+                      onChange={(next) => {
+                        const eng = next ? engines.find((e) => e.id === next) : null;
+                        const freeWorks = payload.freeWorks.map((item, rowIdx) =>
+                          rowIdx === idx
+                            ? {
+                                ...item,
+                                engineId: next || null,
+                                engineNumber: eng?.engineNumber || '',
+                                engineBrandId: eng?.engineBrandId || null,
+                                engineBrandName: eng?.engineBrandName || '',
+                              }
+                            : item,
+                        );
+                        patch({ ...payload, freeWorks });
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <Input
+                      value={engineInfo?.engineBrandName || line.engineBrandName || ''}
+                      disabled
+                      placeholder="—"
+                    />
+                  </td>
                   <td>
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6, alignItems: 'start' }}>
                       <SearchSelectWithCreate
@@ -1098,6 +1209,34 @@ export function WorkOrderDetailsPage(props: {
                     </div>
                   </td>
                   <td>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6, alignItems: 'start' }}>
+                      <SearchSelect
+                        value={line.partId || null}
+                        options={partOptions}
+                        disabled={!props.canEdit}
+                        placeholder="Выберите изделие"
+                        onChange={(next) => {
+                          const part = next ? parts.find((p) => p.id === next) : null;
+                          const freeWorks = payload.freeWorks.map((item, rowIdx) =>
+                            rowIdx === idx
+                              ? {
+                                  ...item,
+                                  partId: next || null,
+                                  partName: part?.name || '',
+                                }
+                              : item,
+                          );
+                          patch({ ...payload, freeWorks });
+                        }}
+                      />
+                      {line.partId && props.onOpenPart ? (
+                        <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenPart?.(line.partId as string)}>
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td>
                     <Input
                       value={line.productNumber || ''}
                       disabled={!props.canEdit}
@@ -1106,36 +1245,6 @@ export function WorkOrderDetailsPage(props: {
                         const freeWorks = payload.freeWorks.map((item, rowIdx) => (rowIdx === idx ? { ...item, productNumber: e.target.value } : item));
                         patch({ ...payload, freeWorks });
                       }}
-                    />
-                  </td>
-                  <td>
-                    <SearchSelect
-                      value={line.engineId || null}
-                      options={engineOptions}
-                      disabled={!props.canEdit}
-                      placeholder="Выберите двигатель"
-                      onChange={(next) => {
-                        const eng = next ? engines.find((e) => e.id === next) : null;
-                        const freeWorks = payload.freeWorks.map((item, rowIdx) =>
-                          rowIdx === idx
-                            ? {
-                                ...item,
-                                engineId: next || null,
-                                engineNumber: eng?.engineNumber || '',
-                                engineBrandId: eng?.engineBrandId || null,
-                                engineBrandName: eng?.engineBrandName || '',
-                              }
-                            : item,
-                        );
-                        patch({ ...payload, freeWorks });
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <Input
-                      value={engineInfo?.engineBrandName || line.engineBrandName || ''}
-                      disabled
-                      placeholder="—"
                     />
                   </td>
                   <td style={rightCellStyle}>
@@ -1202,7 +1311,7 @@ export function WorkOrderDetailsPage(props: {
               })}
               {payload.freeWorks.length === 0 && (
                 <tr>
-                  <td colSpan={props.canEdit ? 9 : 8} style={{ color: 'var(--muted)' }}>
+                  <td colSpan={props.canEdit ? 10 : 9} style={{ color: 'var(--muted)' }}>
                     Работы не добавлены
                   </td>
                 </tr>

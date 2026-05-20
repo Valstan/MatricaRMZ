@@ -21,6 +21,10 @@ export type WorkOrderWorkLine = {
   engineNumber?: string;
   engineBrandId?: string | null;
   engineBrandName?: string;
+  // Наименование изделия (деталь из справочника). Используется backend-ом при закрытии
+  // наряда: для Repair/Manufacturing → producedLines, для Assembly → consumedLines.
+  partId?: string | null;
+  partName?: string;
 };
 
 export type WorkOrderAuditTrailItem = {
@@ -64,6 +68,13 @@ export function normalizeWorkOrderLine(line: unknown, lineNo: number): WorkOrder
   const productNumber = String(raw.productNumber ?? '').trim();
   if (productNumber) result.productNumber = productNumber;
 
+  const partId = raw.partId ? String(raw.partId).trim() : '';
+  if (partId) {
+    result.partId = partId;
+    const partName = String(raw.partName ?? '').trim();
+    if (partName) result.partName = partName;
+  }
+
   const engineId = raw.engineId ? String(raw.engineId).trim() : '';
   if (engineId) {
     result.engineId = engineId;
@@ -79,16 +90,36 @@ export function normalizeWorkOrderLine(line: unknown, lineNo: number): WorkOrder
 }
 
 export const WorkOrderKind = {
+  Regular: 'regular',
   Repair: 'repair',
   Assembly: 'assembly',
+  Manufacturing: 'manufacturing',
 } as const;
 
 export type WorkOrderKind = (typeof WorkOrderKind)[keyof typeof WorkOrderKind];
 
 export const WORK_ORDER_KIND_LABELS: Record<WorkOrderKind, string> = {
-  [WorkOrderKind.Repair]: 'Ремонтный',
-  [WorkOrderKind.Assembly]: 'Сборочный',
+  [WorkOrderKind.Regular]: 'Обычный',
+  [WorkOrderKind.Repair]: 'Ремонт',
+  [WorkOrderKind.Assembly]: 'Сборка',
+  [WorkOrderKind.Manufacturing]: 'Изготовление',
 };
+
+/** Короткое описание складского эффекта типа наряда — используется в модалке выбора и подсказках. */
+export const WORK_ORDER_KIND_DESCRIPTIONS: Record<WorkOrderKind, string> = {
+  [WorkOrderKind.Regular]: 'Промежуточные работы — только для учёта зарплат, без движений по складу.',
+  [WorkOrderKind.Repair]: 'Деталь отремонтирована — поступает на склад текущего цеха.',
+  [WorkOrderKind.Assembly]: 'Сборка двигателя — детали списываются со склада цеха.',
+  [WorkOrderKind.Manufacturing]: 'Изготовление новой детали — поступает на склад текущего цеха.',
+};
+
+/** Порядок типов в модалке создания и селекторах. */
+export const WORK_ORDER_KIND_ORDER: readonly WorkOrderKind[] = [
+  WorkOrderKind.Regular,
+  WorkOrderKind.Repair,
+  WorkOrderKind.Assembly,
+  WorkOrderKind.Manufacturing,
+];
 
 /** Строка планируемого расхода деталей на сборочном наряде. */
 export type WorkOrderConsumedLine = {
@@ -167,7 +198,12 @@ function normalizeProducedLine(raw: unknown, lineNo: number): WorkOrderProducedL
 }
 
 function isWorkOrderKind(value: unknown): value is WorkOrderKind {
-  return value === WorkOrderKind.Repair || value === WorkOrderKind.Assembly;
+  return (
+    value === WorkOrderKind.Regular ||
+    value === WorkOrderKind.Repair ||
+    value === WorkOrderKind.Assembly ||
+    value === WorkOrderKind.Manufacturing
+  );
 }
 
 /**

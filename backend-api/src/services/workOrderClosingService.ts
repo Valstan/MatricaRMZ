@@ -11,6 +11,7 @@ import {
   workshopWarehouseId,
   type WorkOrderConsumedLine,
   type WorkOrderProducedLine,
+  type WorkOrderWorkLine,
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
@@ -62,6 +63,74 @@ function buildDocNo(prefix: string, workOrderNumber: number, operationId: string
   return `${prefix}-WO${workOrderNumber}-${suffix}`;
 }
 
+/** Собирает массив строк работ из любого поля v2/v3-payload. */
+function collectWorkLines(rawPayload: Record<string, unknown>): WorkOrderWorkLine[] {
+  const result: WorkOrderWorkLine[] = [];
+  const free = rawPayload.freeWorks;
+  if (Array.isArray(free)) {
+    for (const line of free) if (line && typeof line === 'object') result.push(line as WorkOrderWorkLine);
+  }
+  const groups = rawPayload.workGroups;
+  if (Array.isArray(groups)) {
+    for (const group of groups) {
+      if (!group || typeof group !== 'object') continue;
+      const lines = (group as { lines?: unknown }).lines;
+      if (!Array.isArray(lines)) continue;
+      for (const line of lines) if (line && typeof line === 'object') result.push(line as WorkOrderWorkLine);
+    }
+  }
+  if (result.length === 0 && Array.isArray(rawPayload.works)) {
+    for (const line of rawPayload.works) if (line && typeof line === 'object') result.push(line as WorkOrderWorkLine);
+  }
+  return result;
+}
+
+/**
+ * Сворачивает строки работ в produced-lines (по partId + targetWarehouseId).
+ * Использует склад цеха по умолчанию, если в строке не указано иначе.
+ */
+function buildProducedLinesFromWorkLines(workLines: WorkOrderWorkLine[], targetWarehouseId: string): WorkOrderProducedLine[] {
+  const acc = new Map<string, WorkOrderProducedLine>();
+  let lineNo = 0;
+  for (const line of workLines) {
+    const partId = line.partId ? String(line.partId).trim() : '';
+    const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
+    if (!partId || qty <= 0) continue;
+    const key = `${partId}@${targetWarehouseId}`;
+    const existing = acc.get(key);
+    if (existing) {
+      existing.qty += qty;
+    } else {
+      lineNo += 1;
+      acc.set(key, { lineNo, nomenclatureId: partId, qty, targetWarehouseId });
+    }
+  }
+  return Array.from(acc.values());
+}
+
+/**
+ * Сворачивает строки работ в consumed-lines (по partId + sourceWarehouseId).
+ * Использует склад цеха как источник, если в строке не указано иначе.
+ */
+function buildConsumedLinesFromWorkLines(workLines: WorkOrderWorkLine[], sourceWarehouseId: string): WorkOrderConsumedLine[] {
+  const acc = new Map<string, WorkOrderConsumedLine>();
+  let lineNo = 0;
+  for (const line of workLines) {
+    const partId = line.partId ? String(line.partId).trim() : '';
+    const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
+    if (!partId || qty <= 0) continue;
+    const key = `${partId}@${sourceWarehouseId}`;
+    const existing = acc.get(key);
+    if (existing) {
+      existing.qty += qty;
+    } else {
+      lineNo += 1;
+      acc.set(key, { lineNo, nomenclatureId: partId, qty, sourceWarehouseId });
+    }
+  }
+  return Array.from(acc.values());
+}
+
 /**
  * Close a work-order operation and post the matching warehouse document.
  *
@@ -107,8 +176,26 @@ export async function closeWorkOrderAndPostDocument(args: {
       return { ok: true, operationId: args.operationId, documentId: v3.linkedDocumentId, posted: true };
     }
 
+    const workOrderNumber = Number((rawPayload as { workOrderNumber?: number }).workOrderNumber ?? 0);
+    const engineEntityId = String(op.engineEntityId ?? '');
+    const engineIdForMovements = engineEntityId || null;
+
+    // --- Regular: закрытие без складского документа ------------------------------
+    // Промежуточные работы — только для расчёта зарплат, ничего не списываем и не пополняем.
+    if (v3.workOrderKind === WorkOrderKind.Regular) {
+      await db
+        .update(operations)
+        .set({
+          status: 'closed',
+          updatedAt: nowMs(),
+          syncStatus: 'pending',
+        })
+        .where(eq(operations.id, args.operationId));
+      return { ok: true, operationId: args.operationId, documentId: null, posted: false };
+    }
+
     if (!v3.workOrderKind) {
-      return { ok: false, error: 'У наряда не задан тип (workOrderKind: repair | assembly)' };
+      return { ok: false, error: 'У наряда не задан тип (workOrderKind: regular | repair | assembly | manufacturing)' };
     }
     if (!v3.workshopId) {
       return { ok: false, error: 'У наряда не задан цех (workshopId)' };
@@ -119,9 +206,7 @@ export async function closeWorkOrderAndPostDocument(args: {
       return { ok: false, error: 'Указанный цех не найден или не активен' };
     }
 
-    const engineEntityId = String(op.engineEntityId ?? '');
-    const engineIdForMovements = engineEntityId || null;
-    const workOrderNumber = Number((rawPayload as { workOrderNumber?: number }).workOrderNumber ?? 0);
+    const workLines = collectWorkLines(rawPayload);
 
     let docType: string;
     let docNoPrefix: string;
@@ -130,9 +215,16 @@ export async function closeWorkOrderAndPostDocument(args: {
     let lineInputs: Array<{ qty: number; nomenclatureId: string; payloadJson: string }>;
 
     if (v3.workOrderKind === WorkOrderKind.Repair) {
-      const produced = (v3.producedLines ?? []) as WorkOrderProducedLine[];
+      // Авто-сборка producedLines из строк работ, если массив не задан явно.
+      const produced =
+        v3.producedLines && v3.producedLines.length > 0
+          ? (v3.producedLines as WorkOrderProducedLine[])
+          : buildProducedLinesFromWorkLines(workLines, workshopWh);
       if (produced.length === 0) {
-        return { ok: false, error: 'Для ремонтного наряда нужны строки производимых деталей (producedLines)' };
+        return {
+          ok: false,
+          error: 'Для ремонтного наряда нужно указать «Наименование изделия» и количество хотя бы в одной строке работ',
+        };
       }
       docType = 'repair_recovery';
       docNoPrefix = 'REP';
@@ -150,10 +242,44 @@ export async function closeWorkOrderAndPostDocument(args: {
           }),
         };
       });
+    } else if (v3.workOrderKind === WorkOrderKind.Manufacturing) {
+      // Изготовление: новые детали поступают на склад текущего цеха (production_release).
+      const produced =
+        v3.producedLines && v3.producedLines.length > 0
+          ? (v3.producedLines as WorkOrderProducedLine[])
+          : buildProducedLinesFromWorkLines(workLines, workshopWh);
+      if (produced.length === 0) {
+        return {
+          ok: false,
+          error: 'Для наряда-изготовления нужно указать «Наименование изделия» и количество хотя бы в одной строке работ',
+        };
+      }
+      docType = 'production_release';
+      docNoPrefix = 'MFG';
+      initialStatus = 'planned';
+      needsPlanStep = false;
+      lineInputs = produced.map((line) => {
+        const targetWarehouseId = isWorkshopWarehouseId(line.targetWarehouseId) ? line.targetWarehouseId : workshopWh;
+        return {
+          qty: Math.max(0, Math.trunc(line.qty)),
+          nomenclatureId: line.nomenclatureId,
+          payloadJson: JSON.stringify({
+            nomenclatureId: line.nomenclatureId,
+            targetWarehouseId,
+            warehouseId: targetWarehouseId,
+          }),
+        };
+      });
     } else if (v3.workOrderKind === WorkOrderKind.Assembly) {
-      const consumed = (v3.consumedLines ?? []) as WorkOrderConsumedLine[];
+      const consumed =
+        v3.consumedLines && v3.consumedLines.length > 0
+          ? (v3.consumedLines as WorkOrderConsumedLine[])
+          : buildConsumedLinesFromWorkLines(workLines, workshopWh);
       if (consumed.length === 0) {
-        return { ok: false, error: 'Для сборочного наряда нужны строки расходуемых деталей (consumedLines)' };
+        return {
+          ok: false,
+          error: 'Для сборочного наряда нужно указать «Наименование изделия» и количество хотя бы в одной строке работ',
+        };
       }
       if (!engineIdForMovements) {
         return { ok: false, error: 'У сборочного наряда не привязан двигатель (operations.engineEntityId)' };
@@ -192,6 +318,13 @@ export async function closeWorkOrderAndPostDocument(args: {
       workOrderNumber,
     };
     if (engineIdForMovements) headerPayloadObj.engineId = engineIdForMovements;
+    // Для production_release generic-incoming-ветка warehouseService использует header.warehouseId
+    // и header.expectedDate для buildPlannedIncomingRows. Repair/Assembly идут через parts_movement_v1.
+    if (v3.workOrderKind === WorkOrderKind.Manufacturing) {
+      headerPayloadObj.warehouseId = workshopWh;
+      headerPayloadObj.expectedDate = ts;
+      headerPayloadObj.sourceType = 'production_release';
+    }
     const headerPayloadJson = JSON.stringify(headerPayloadObj);
 
     const created = await createWarehouseDocument({

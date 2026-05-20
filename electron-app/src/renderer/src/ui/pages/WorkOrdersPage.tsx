@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import type { WorkOrderKind } from '@matricarmz/shared';
+
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
@@ -7,6 +9,7 @@ import { ListContextMenu } from '../components/ListContextMenu.js';
 import { WarehouseListPager, type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListColumnsToggle } from '../components/ListColumnsToggle.js';
+import { WorkOrderKindPickerDialog } from '../components/WorkOrderKindPickerDialog.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
@@ -58,6 +61,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState<string>('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const [kindPickerOpen, setKindPickerOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const width = useWindowWidth();
   const { isMultiColumn, toggle: toggleColumnsMode } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1600;
@@ -142,6 +147,41 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
   async function copyRows(items: Row[]) {
     await copyRowsToClipboard(items, contextColumns);
     setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  async function createWithKind(kind: WorkOrderKind) {
+    if (creating) return;
+    setKindPickerOpen(false);
+    setCreating(true);
+    setStatus('Создание наряда…');
+    try {
+      const r = await window.matrica.workOrders.create();
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      const operationId = r.id;
+      // Прокидываем выбранный тип в свежий наряд: get → patch → update.
+      try {
+        const got = await window.matrica.workOrders.get(operationId);
+        if (got.ok && got.payload) {
+          const nextPayload = { ...got.payload, workOrderKind: kind };
+          const upd = await window.matrica.workOrders.update({ id: operationId, payload: nextPayload });
+          if (!upd.ok) {
+            setStatus(`Наряд создан, но тип не сохранён: ${upd.error}. Установите вручную в карточке.`);
+          } else {
+            setStatus('');
+          }
+        }
+      } catch (e) {
+        setStatus(`Наряд создан, но не удалось установить тип: ${String(e)}. Установите вручную.`);
+      }
+      await props.onOpen(operationId);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function deleteRows(ids: string[]) {
@@ -312,16 +352,10 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && (
           <Button
-            onClick={async () => {
-              const r = await window.matrica.workOrders.create();
-              if (!r.ok) {
-                setStatus(`Ошибка: ${r.error}`);
-                return;
-              }
-              await props.onOpen(r.id);
-            }}
+            disabled={creating}
+            onClick={() => setKindPickerOpen(true)}
           >
-            Создать наряд
+            {creating ? 'Создание…' : 'Создать наряд'}
           </Button>
         )}
         <div style={{ width: '50%', minWidth: 260 }}>
@@ -353,6 +387,13 @@ export function WorkOrdersPage(props: { onOpen: (id: string) => Promise<void>; c
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       ) : null}
+      <WorkOrderKindPickerDialog
+        open={kindPickerOpen}
+        onClose={() => setKindPickerOpen(false)}
+        onPick={(kind) => {
+          void createWithKind(kind);
+        }}
+      />
     </div>
   );
 }
