@@ -1779,8 +1779,8 @@ export function WorkOrderDetailsPage(props: {
           <Input
             type="date"
             value={toInputDate(payload.orderDate)}
-            disabled={!canEditNow}
-            onChange={(e) => patch({ ...payload, orderDate: fromInputDate(e.target.value) ?? payload.orderDate })}
+            disabled
+            title="Дата создания наряда — проставляется автоматически при выписке и не изменяется (как и номер)."
             style={{ width: 150 }}
           />
         </div>
@@ -2024,8 +2024,9 @@ export function WorkOrderDetailsPage(props: {
             {props.canCloseWorkOrders ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Button
+                  tone="success"
                   disabled={closing}
-                  title="Списать зарезервированные детали со складов и закрыть наряд"
+                  title="Наряд выполнен: списать зарезервированные детали со складов и закрыть наряд (проводка)."
                   onClick={async () => {
                     if (!confirm) return;
                     const ok = await confirm({
@@ -2058,7 +2059,7 @@ export function WorkOrderDetailsPage(props: {
                     }
                   }}
                 >
-                  {closing ? 'Работаю…' : 'Провести наряд'}
+                  {closing ? 'Работаю…' : 'Наряд выполнен — провести'}
                 </Button>
                 <Button
                   variant="outline"
