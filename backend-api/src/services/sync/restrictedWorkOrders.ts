@@ -15,7 +15,7 @@
  * rows for non-allowlisted, non-admin actors), so existing operation visibility and
  * the chat/notes privacy semantics are left untouched.
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { SyncTableName } from '@matricarmz/shared';
 
@@ -46,13 +46,9 @@ export async function getRestrictedWorkOrderIds(): Promise<Set<string>> {
   const opRows = await db
     .select({ id: operations.id })
     .from(operations)
-    .where(
-      and(
-        inArray(operations.id, candidateIds),
-        eq(operations.operationType, 'work_order'),
-        isNull(operations.deletedAt),
-      ),
-    )
+    // Restrict regardless of deletedAt: soft-deleted work orders still retain their
+    // meta_json payload, so a tombstone would otherwise leak the order's content.
+    .where(and(inArray(operations.id, candidateIds), eq(operations.operationType, 'work_order')))
     .limit(50_000);
   return new Set(opRows.map((r) => String(r.id)));
 }
