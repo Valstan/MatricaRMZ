@@ -4,44 +4,36 @@
 >
 > Если работы в потоке нет — `Status: IDLE` и пустые секции. Команда `/start` это увидит и не будет ничего навязывать.
 
-**Status:** ACTIVE (эпик «черновики/восстановление + не сохранять пустые карточки» в потоке — 5 ниток в `main`, не выпущены; остаток — deferred-create masterdata + 3d)
-**Updated:** 2026-06-29 (Claude Opus 4.8, машина `rmz4val`)
-**Branch:** main (= origin/main, `81a3a816`). Дерево чистое, stash пуст, открытых PR нет, лишних локальных веток нет.
-**Last released version:** **v2026.629.1711 на проде.** Пять ниток этой сессии (#660–#664) **в `main`, но НЕ выпущены** — прод всё ещё на v2026.629.1711.
+**Status:** ACTIVE (следующая нитка — **ротация/доаудит ledger-ключей**, security; релиз v2026.630.1141 отгружён)
+**Updated:** 2026-06-30 (Claude Opus 4.8, машина `PC40`)
+**Branch:** main (= origin/main). Дерево чистое, stash пуст, открытых PR нет, только `main`.
+**Last released version:** **v2026.630.1141 на проде** (оба сервиса active, `/health` + `/updates/status` = 2026.630.1141, клиентский HTTP-путь `.exe`/`.blockmap` → 200).
 
 ## Текущая нитка
 
-**Эпик «не сохранять пустые карточки + черновики/восстановление»** — план [`docs/plans/drafts-no-empty-cards-recovery-2026-06.md`](plans/drafts-no-empty-cards-recovery-2026-06.md). За сессию отгружено в `main` (все CDP-верифицированы, CI зелёный):
-- **3b** (#660) — debounced-автосейв снимка наряда в `card_drafts`, draft-aware восстановление, редизайн close-guard (диалог «Не сохранять / Оставить черновик / Сохранить», убран форс-сейв по таймеру), панель восстановления после краха.
-- **3c-раздел «Черновики»** (#661) — `DraftsPage`, таб в «Контроль и аналитика»: список/открыть/удалить.
-- **Phase 2 — deferred-create нарядов** (#662) — `createWorkOrder` без вставки + `updateWorkOrder`=upsert (номер при первом сохранении, «№ новый» до того); + фикс пробела 3b (`flushSave` чистит recovery-черновик).
-- **3c-«Сохранить как черновик»** (#663) — explicit-черновик без материализации; recovery-панель отфильтрована до `kind=recovery`.
-- **Phase 2 — deferred-create заявок** (#664) — тот же приём для supply requests (номер `Z-…`, scope подразделения).
+**Доаудит и дотягивание ротации ledger-ключей (security).** В этой сессии репо сделали публичным (см. ниже) — это вскрыло, что в git-истории лежат ledger-ключи (gitleaks: 10 находок `data-key.json`/`server-key.json`, коммиты 2026-01-27 → 05-13). Они теперь в **приватном** `MatricaRMZ-archive`, не в публичном репо, так что новой экспозиции нет. Но эти ключи **уже были публичны однажды** (инцидент #060/H8, начало 2026) → считать скомпрометированными. H8 (#614–616, v2026.626.2207) уже ротировал подписной ключ и data-key (майская ротация на `k-mq3wacgz`) — задача следующей сессии = **проверить полноту** и дотянуть.
 
 ## Следующий шаг
 
-Развилка (решает владелец):
-1. **Выпустить релиз** (`/reliz`) — 5 ниток верифицированы и ждут в `main`. ⚠️ Менялся `backend-api` (workOrderService/supplyRequestService + IPC) → на проде **нужна пересборка серверных пакетов** (`shared`+`backend-api`+`web-admin`), это **НЕ** renderer-only релиз. **Миграций БД нет** (новых `drizzle/*.sql` в диапазоне нет). После — записать PROGRAM_EFFECTS-строку (она сейчас помечена «не на проде») и COMPLETED.
-2. **Продолжить эпик** — остаток в плане:
-   - **deferred-create договоров/masterdata** — общий `admin:entities:create/get/setAttr` с МНОГО потребителей (AdminPage, ContractDetailsPage, RepairChecklistPanel, шаблоны). **Широкий радиус, высокий риск** — план прямо помечает «отдельный PR с проверкой нескольких типов». Приём: пробросить `initialPayload`/`fallbackTypeId` + upsert через общий путь.
-   - **3d** — распространить автосейв/черновики/3-кнопочный close-guard на прочие details-страницы (двигатель/договор/сотрудник/…) + «Сохранить как черновик» туда же.
-
-Рекомендация: сперва **релиз** (5 готовых ниток на прод), затем браться за masterdata свежей сессией.
+1. **Аудит активных ключей:** убедиться, что **текущие активные** ключи в keyring (активный data-key + подписной server-key на проде) — **НЕ** те, что выставлены в истории архива (`backend-api/ledger/{data-key,server-key}.json` до 2026-05-13). Прод: `ssh matricarmz "cd MatricaRMZ/backend-api && cat ledger/data-key.json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"activeKeyId\") or list(d))'"` — сверить activeKeyId с тем, что в истории архива (`gh ... -R Valstan/MatricaRMZ-archive`).
+2. **Если активный ключ выставлен** → ротировать: `pnpm --filter @matricarmz/backend-api exec tsx src/scripts/rotateLedgerDataKey.ts --dry-run` затем без `--dry-run` (с остановленным/рестартуемым backend; делает бэкап `state.json`). Подписной — отдельно (как в H8).
+3. **Контекст ограничения:** старые ключи **остаются в keyring навсегда** (нужны для replay `blocks/`), и исторически-публичные данные экспонированы **необратимо** — ротация защищает только **будущие** данные. Это осознанная граница H8.
 
 ## Контекст
 
-- **План эпика:** [`docs/plans/drafts-no-empty-cards-recovery-2026-06.md`](plans/drafts-no-empty-cards-recovery-2026-06.md) — статус каждой под-фазы (✅ 1/2a/2b/3a/3b/3c/Phase2-наряды/Phase2-заявки; остаток — masterdata + 3d).
-- **Связанные коммиты:** #660 `a356c366` · #661 `e6126e2e` · #662 `05227a4a` · #663 `e4f420cb` · #664 `81a3a816`.
-- **Прод:** v2026.629.1711, оба сервиса active (по прошлому релизу). Эти 5 ниток на прод не уезжали.
+- **План:** [`docs/plans/security-hardening-2026-06.md`](plans/security-hardening-2026-06.md) (H8-нитка); rotate-скрипт `backend-api/src/scripts/rotateLedgerDataKey.ts` (хедер описывает поведение: keyring enc:v2, перешифровка state.json, blocks не трогает).
+- **🆕 Миграция репо (эта сессия):** `Valstan/MatricaRMZ` → **PUBLIC** со свежей 1-коммитной историей (биллинг GitHub Actions упал → публичный = бесплатные минуты). Старая история (1739 коммитов + PR/issues/releases + Actions-секреты) → приватный **`Valstan/MatricaRMZ-archive`**. Тот же URL → прод-remote не менялся. Детали — память [[repo-public-split-archive]] + `PROJECT_STATE.md`.
+- **Прод:** v2026.630.1141, оба сервиса active. Деплой выполнен (reset на снимок — ledger-ключи/`state.json` целы; серверная пересборка; артефакты; ledger-publish; 2 рестарта — второй снял `stale_manifest`).
 - **Открытых PR:** нет. **Stash:** пуст. **Локальные ветки:** только `main`. **Un-pushed:** нет.
-- **Архитектура deferred-create (для продолжения):** create() возвращает id + пустой payload без вставки (sentinel «новый»: `workOrderNumber:0` / `requestNumber:''`); update()=upsert материализует строку + номер при первом сохранении; рендер открывает карточку через `initialPayload` (App.tsx `newWorkOrderSeed`/`newRequestSeed`); details-страница при отсутствии строки сидится из recovery-черновика или `initialPayload`; «Удалить» скрыта до материализации.
+- **Релизные нитки сессии:** drafts/recovery + Phase 2 deferred-create (#660–#667) → выпущены в v2026.630.1141. Подробности — `COMPLETED.md`.
 
 ## Открытые вопросы для пользователя
 
-- **Релиз сейчас или продолжаем эпик?** В этой сессии релиз был предложен и отложен («Стоп»), затем сделаны ещё 2 нитки. 5 ниток ждут выпуска.
+- Нет блокирующих. (Ротация ledger-ключей — это нитка, не вопрос.)
 
 ## Не забыть (low-priority)
 
-1. **При релизе этих 5 ниток:** PROGRAM_EFFECTS-строка от 2026-06-29 («черновики и защита данных») сейчас помечена «⏳ в `main`, не выпущено» — заменить на «На проде с vX.Y.Z». COMPLETED-строка (#660–#664) помечена «в main, до релиза» — обновить релизом.
-2. **Backend менялся** → релиз требует серверной пересборки (`-F shared -F backend-api -F web-admin build`), не путать с renderer-only (memory `renderer-only-release-skips-prod-build` тут НЕ применима).
-3. **CDP-уроки сессии** записаны в [`docs/machines/rmz4val.md`](machines/rmz4val.md): поля даты = react-datepicker (не `input[type=date]`); навигация по табам — открывать dept только если таб не виден; стек держать долгоживущей задачей.
+1. **Другие твои ПК:** на каждом один раз `git fetch && git reset --hard origin/main` — у них старая история (тот же URL указывает на новый репо). Иначе `git pull` не пройдёт (разъехались).
+2. **`ANTHROPIC_API_KEY` НЕ перенесён** на публичный репо → Claude PR-ревью выключен. Добавить секрет, когда понадобится (значения в прод-env нет; сцеплено с Anthropic geo-block, см. PENDING 🔴).
+3. **Локальные теги** `v2026.629.1711`/`v2026.628.2326` указывают на коммиты старой истории (нет в новом репо) — безвредный мусор, можно почистить (`git tag -d`).
+4. **Мастердата-эпик остаток** (товары/услуги nomenclature-путь + 3d) — отложен в пользу security-нитки; в PENDING 🟡 + план [`docs/plans/drafts-no-empty-cards-recovery-2026-06.md`](plans/drafts-no-empty-cards-recovery-2026-06.md).
