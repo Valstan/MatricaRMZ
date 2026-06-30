@@ -57,6 +57,15 @@
 2. **Идентичность:** подтвердить реальные логины Рамзии и Купцовой (резолвлю из БД, владелец подтверждает) + что allowlist именно {Рамзия rw, Купцова r, супер-админ r}.
 3. **Обобщение:** хард-скоуп на Рамзию сейчас vs общий механизм «приватные наряды на оператора» (рекомендую минимально-сейчас/обобщить-позже — решение 3).
 
+## Прогресс
+
+- **2026-06-30: Phases 0-2 отгружены в `main`** (CDP-verified; едут со следующим клиентским релизом, на проде ещё нет).
+  - **Phase 0** (#4): дата завершения пустая по умолчанию + стираема. Корень — UI `value={... ?? Date.now()}` ([`WorkOrderDetailsPage.tsx:1835`](../../electron-app/src/renderer/src/ui/pages/WorkOrderDetailsPage.tsx)); backend `completedDate` не форсил (0 refs). Решение 6 — выполнено (UI-часть; backend не требовался).
+  - **Phase 1a** (#5): дата создания immutable (read-only); кнопка сборки → «Наряд выполнен — провести» (tone success). Решение 7 (UI-часть). **Решение 8 (single-tx атомарность) — ОТЛОЖЕНО:** идемпотентность `postAssemblyWorkOrder` уже есть (guard'ы `op.status='closed'`/`doc.status='posted'`), узкая дыра post-после-release; полная обёртка = рефактор shared warehouse-posting, marginal-value низкий. → PENDING.
+  - **Phase 2** (#6): инлайн-селектор типа (`listWorkOrders`+`workOrderKind`, клиентский фильтр). Решение 9. **Поиск-по-внутренностям и колонки/сорт/тогл — уже были** (`q` haystack включает `JSON.stringify(payload)`), часть C правок не потребовала.
+  - **CDP-verify** (`.verifier-electron/cdp-wo-verify.mjs`, PASS): фильтр 17→15→17, immutable дата `disabled`, дата выполнения `value=""`. Кнопка «выполнен» на сборке — статическая строка (typecheck), live требует draft-state (резерв склада, не гонял).
+- **Открыто:** Phase 3 (изоляция Рамзии — следующая сессия) + отложенные (single-tx атомарность; со-локация даты+кнопки в карточке).
+
 ## Гейты / verify
 
 Каждая фаза: `shared`+`ledger` build → `corepack pnpm -r typecheck` + lint → `backend-api test` → **CDP e2e-smoke** (verifier-electron) при UI-правках. Phase 1 — verify атомарности проводки. Phase 3 — обязательный dual-role live-verify + adversarial-review диффа фильтра (security). Ответ brain через `mailbox/to-brain/` при появлении переносимого паттерна (row-level visibility на sync-границе → углубление #063, рефлекс #009).
