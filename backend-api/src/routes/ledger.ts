@@ -614,6 +614,22 @@ ledgerRouter.get('/state/changes', async (req, res) => {
   });
 });
 
+// Phase 3e: pre-sync purge list — restricted work-order ids a non-allowlisted client
+// must delete locally (orders that leaked before the read-isolation gate shipped).
+// Empty for admins/superadmins and allowlisted readers. Idempotent; the client runs it
+// each sync and DELETEs the matching local operations rows.
+ledgerRouter.get('/state/restricted-purge', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const role = String(actor.role ?? '').toLowerCase();
+  const isAdmin = role === 'admin' || role === 'superadmin';
+  if (isAdmin || isAllowlistedReader(String(actor.username ?? ''))) {
+    return res.json({ ok: true, ids: [] });
+  }
+  const ids = Array.from(await getRestrictedWorkOrderIds());
+  return res.json({ ok: true, ids });
+});
+
 ledgerRouter.get('/blocks', (req, res) => {
   // Raw ledger blocks carry full plaintext rows (incl. employee PII) with per-tx
   // Ed25519 signatures, so they cannot be PII-redacted server-side without breaking
