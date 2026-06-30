@@ -22,6 +22,11 @@ import {
   getSharedNoteIds,
   getOwnedNoteIds,
 } from '../services/sync/syncPrivacy.js';
+import {
+  getRestrictedWorkOrderIds,
+  isAllowlistedReader,
+  isRestrictedWorkOrderVisible,
+} from '../services/sync/restrictedWorkOrders.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
@@ -312,6 +317,21 @@ ledgerRouter.get('/state/query', async (req, res) => {
       privacyRows = privacyRows.filter((r) => privacyFilter(queryTable, r));
     }
   }
+  // Restricted work-order isolation (Phase 3c): hide another person's restricted work
+  // orders from non-admin, non-allowlisted actors — same gate as /state/changes.
+  if (!queryIsAdmin && queryTable === SyncTableName.Operations) {
+    const restrictedWoIds = await getRestrictedWorkOrderIds();
+    if (restrictedWoIds.size > 0) {
+      const allowed = isAllowlistedReader(String(actor.username ?? ''));
+      privacyRows = privacyRows.filter((r) =>
+        isRestrictedWorkOrderVisible(String(r['id'] ?? ''), {
+          restrictedIds: restrictedWoIds,
+          actorIsAdmin: queryIsAdmin,
+          actorIsAllowlisted: allowed,
+        }),
+      );
+    }
+  }
   // Apply the shared pull read-authz: strips credentials (everyone) + sensitive
   // PII/HR for non-self operators, and drops admin-only tables (audit_log).
   // (security-hardening-2026-06 H5 + H1-B)
@@ -459,6 +479,21 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
       }
     }
 
+    // Restricted work-order isolation (Phase 3c): same gate as /state/changes.
+    if (!snapIsAdmin && tableName === SyncTableName.Operations) {
+      const restrictedWoIds = await getRestrictedWorkOrderIds();
+      if (restrictedWoIds.size > 0) {
+        const allowed = isAllowlistedReader(String(actor.username ?? ''));
+        privacyRows = privacyRows.filter((r) =>
+          isRestrictedWorkOrderVisible(String(r['id'] ?? ''), {
+            restrictedIds: restrictedWoIds,
+            actorIsAdmin: snapIsAdmin,
+            actorIsAllowlisted: allowed,
+          }),
+        );
+      }
+    }
+
     // Shared pull read-authz: credential strip (everyone) + sensitive PII/HR for
     // non-self operators. (security-hardening-2026-06 H1-B)
     const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
@@ -521,7 +556,7 @@ ledgerRouter.get('/state/changes', async (req, res) => {
   if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const pull = await pullChangesSince(
     parsed.data.since,
-    { id: String(actor.id), role: String(actor.role) },
+    { id: String(actor.id), role: String(actor.role), username: String(actor.username ?? '') },
     parsed.data.limit ?? 5000,
     { clientId: parsed.data.client_id ?? null },
   );

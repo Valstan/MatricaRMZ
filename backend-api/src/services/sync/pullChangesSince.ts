@@ -13,7 +13,7 @@
  */
 import type { SyncPullResponse } from '@matricarmz/shared';
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
-import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
 import {
@@ -39,6 +39,7 @@ import {
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
 import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 import { PRIVACY_TABLES, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
+import { getRestrictedWorkOrderIds, isAllowlistedReader } from './restrictedWorkOrders.js';
 import { isPullTableAllowedForRole } from './pullReadFilter.js';
 
 // ── PG table map (same structure used by /state/snapshot) ────────────
@@ -133,7 +134,7 @@ function pgRowToChange(
 
 export async function pullChangesSince(
   since: number,
-  actor: { id: string; role: string },
+  actor: { id: string; role: string; username?: string },
   limit = 5000,
   opts?: { clientId?: string | null },
 ): Promise<SyncPullResponse> {
@@ -166,6 +167,12 @@ export async function pullChangesSince(
   const allChanges: ChangeRow[] = [];
   const sharedNoteIds = (!actorIsAdmin && !actorIsPending) ? await getSharedNoteIds(actorId) : new Set<string>();
 
+  // Restricted work-order isolation (Phase 3c): exclude another person's restricted
+  // work orders from non-admin, non-allowlisted operators at the SQL level.
+  const restrictedWoIds = !actorIsAdmin ? await getRestrictedWorkOrderIds() : new Set<string>();
+  const actorReadsRestricted =
+    actorIsAdmin || (restrictedWoIds.size > 0 ? isAllowlistedReader(String(actor?.username ?? '')) : false);
+
   for (const [tableName, entry] of Object.entries(PG_SYNC_TABLES)) {
     // Admin-only pull tables (audit_log) are never synced to non-admins. (H1-B)
     if (!isPullTableAllowedForRole(tableName, actorRole)) continue;
@@ -193,6 +200,11 @@ export async function pullChangesSince(
 
     // Pending users should not see most privacy tables at all
     if (actorIsPending && isPrivacy) continue;
+
+    // Restricted work orders: hide owners' restricted orders from non-allowlisted operators.
+    if (tableName === SyncTableName.Operations && !actorReadsRestricted && restrictedWoIds.size > 0) {
+      conditions.push(notInArray(pgTable.id, Array.from(restrictedWoIds)));
+    }
 
     const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
 
