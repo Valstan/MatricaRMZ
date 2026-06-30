@@ -4,36 +4,37 @@
 >
 > Если работы в потоке нет — `Status: IDLE` и пустые секции. Команда `/start` это увидит и не будет ничего навязывать.
 
-**Status:** ACTIVE (следующая нитка — **ротация/доаудит ledger-ключей**, security; релиз v2026.630.1141 отгружён)
+**Status:** ACTIVE (следующая нитка — **доработка нарядов** по батчу директив brain 2026-06-30; релиз v2026.630.1141 на проде)
 **Updated:** 2026-06-30 (Claude Opus 4.8, машина `PC40`)
-**Branch:** main (= origin/main). Дерево чистое, stash пуст, открытых PR нет, только `main`.
-**Last released version:** **v2026.630.1141 на проде** (оба сервиса active, `/health` + `/updates/status` = 2026.630.1141, клиентский HTTP-путь `.exe`/`.blockmap` → 200).
+**Branch:** на момент записи — `docs/ledger-audit-verdict-and-brain-intake` (docs-PR, см. ниже); после мержа → `main`. Дерево чистое, stash пуст.
+**Last released version:** **v2026.630.1141 на проде** (оба сервиса active, `/health` = 2026.630.1141).
 
 ## Текущая нитка
 
-**Доаудит и дотягивание ротации ledger-ключей (security).** В этой сессии репо сделали публичным (см. ниже) — это вскрыло, что в git-истории лежат ledger-ключи (gitleaks: 10 находок `data-key.json`/`server-key.json`, коммиты 2026-01-27 → 05-13). Они теперь в **приватном** `MatricaRMZ-archive`, не в публичном репо, так что новой экспозиции нет. Но эти ключи **уже были публичны однажды** (инцидент #060/H8, начало 2026) → считать скомпрометированными. H8 (#614–616, v2026.626.2207) уже ротировал подписной ключ и data-key (майская ротация на `k-mq3wacgz`) — задача следующей сессии = **проверить полноту** и дотянуть.
+**Закрыта:** доаудит ротации ledger-ключей (next-step H8) — ✅ **активные ключи чисты, ротация не нужна, H8 полон** (см. `COMPLETED.md` / `PENDING §security/6` / план `security-hardening-2026-06.md`). Побочно убран orphan-ledger в прод-checkout `backend-api/ledger/` (150 МБ, gitignored).
+
+**Следующая (выбрана как самая конкретная из батча brain 2026-06-30):** доработка **нарядов** — карточка + список, парные письма, делать одной согласованной доработкой списка. Детали — `PENDING_FOLLOWUPS.md` §«Owner directives — батч 2026-06-30».
 
 ## Следующий шаг
 
-1. **Аудит активных ключей:** убедиться, что **текущие активные** ключи в keyring (активный data-key + подписной server-key на проде) — **НЕ** те, что выставлены в истории архива (`backend-api/ledger/{data-key,server-key}.json` до 2026-05-13). Прод: `ssh matricarmz "cd MatricaRMZ/backend-api && cat ledger/data-key.json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"activeKeyId\") or list(d))'"` — сверить activeKeyId с тем, что в истории архива (`gh ... -R Valstan/MatricaRMZ-archive`).
-2. **Если активный ключ выставлен** → ротировать: `pnpm --filter @matricarmz/backend-api exec tsx src/scripts/rotateLedgerDataKey.ts --dry-run` затем без `--dry-run` (с остановленным/рестартуемым backend; делает бэкап `state.json`). Подписной — отдельно (как в H8).
-3. **Контекст ограничения:** старые ключи **остаются в keyring навсегда** (нужны для replay `blocks/`), и исторически-публичные данные экспонированы **необратимо** — ротация защищает только **будущие** данные. Это осознанная граница H8.
+1. **Карточка наряда** (`from-brain/2026-06-30-naryad-card-completion-button-dates`): кнопка «наряд выполнен» на наряде **на сборку** (сейчас нет, дата завершения уже непустая и не стирается — баг) + **атомарная идемпотентная проводка** (pool #043); семантика 4 дат (создание immutable, остальные пустые/ручные, реальная-завершения стираема); колонки-по-датам + поиск-по-внутренностям в списке.
+2. **Список нарядов** (`from-brain/2026-06-30-naryad-list-filter-roles-isolation`): фильтр по типу прямо в списке (без отдельных кнопок) + ⚠️ **ролевая изоляция нарядов Рамзии на серверном sync-чокпойнте** (не UI-only; allowlist Рамзия/Купцова/супер-админ; отчёты+зарплата с тем же гейтом; pre-sync DELETE утёкшего; родня H1/B2, pool #063/#054).
+3. Начать с разведки кода нарядов (`WorkOrderDetailsPage.tsx`, `WorkOrdersPage.tsx`, `workOrderClosingService.ts`, sync pull-чокпойнт `makePullReadFilter`) → точечный план → PR-flow под гейтами + verify на реальном наряде (атомарность проводки — особенно).
 
 ## Контекст
 
-- **План:** [`docs/plans/security-hardening-2026-06.md`](plans/security-hardening-2026-06.md) (H8-нитка); rotate-скрипт `backend-api/src/scripts/rotateLedgerDataKey.ts` (хедер описывает поведение: keyring enc:v2, перешифровка state.json, blocks не трогает).
-- **🆕 Миграция репо (эта сессия):** `Valstan/MatricaRMZ` → **PUBLIC** со свежей 1-коммитной историей (биллинг GitHub Actions упал → публичный = бесплатные минуты). Старая история (1739 коммитов + PR/issues/releases + Actions-секреты) → приватный **`Valstan/MatricaRMZ-archive`**. Тот же URL → прод-remote не менялся. Детали — память [[repo-public-split-archive]] + `PROJECT_STATE.md`.
-- **Прод:** v2026.630.1141, оба сервиса active. Деплой выполнен (reset на снимок — ledger-ключи/`state.json` целы; серверная пересборка; артефакты; ledger-publish; 2 рестарта — второй снял `stale_manifest`).
-- **Открытых PR:** нет. **Stash:** пуст. **Локальные ветки:** только `main`. **Un-pushed:** нет.
-- **Релизные нитки сессии:** drafts/recovery + Phase 2 deferred-create (#660–#667) → выпущены в v2026.630.1141. Подробности — `COMPLETED.md`.
+- **docs-PR этой сессии:** `docs/ledger-audit-verdict-and-brain-intake` — вердикт аудита (COMPLETED + PENDING §6 + plan) + интейк батча brain 2026-06-30 в PENDING + ack в `mailbox/to-brain/`. Смержить до начала нарядов.
+- **Прод:** v2026.630.1141, оба сервиса active. `MATRICA_LEDGER_DIR=/home/valstan/matricarmz-ledger` (env `/etc/matricarmz/matricarmz.env`).
+- **Батч brain 2026-06-30:** 7 писем разобраны. 2 dev-директивы (наряды, см. выше); 3 zavod-идеи (рекламация / engine-identity / intake-без-договора → `/zavod`); ADR-0006 mirror-secrets (⏳ ждёт KARMAN-рецепт); g119 (pooled feedback). Ack отправлен в `to-brain`.
+- **Открытых PR:** docs-PR этой сессии (в работе). **Stash:** пуст.
 
 ## Открытые вопросы для пользователя
 
-- Нет блокирующих. (Ротация ledger-ключей — это нитка, не вопрос.)
+- Нет блокирующих. Перед нарядами — подтвердить, что начинаем именно с них (а не с другой нитки из PENDING).
 
 ## Не забыть (low-priority)
 
-1. **Другие твои ПК:** на каждом один раз `git fetch && git reset --hard origin/main` — у них старая история (тот же URL указывает на новый репо). Иначе `git pull` не пройдёт (разъехались).
-2. **`ANTHROPIC_API_KEY` НЕ перенесён** на публичный репо → Claude PR-ревью выключен. Добавить секрет, когда понадобится (значения в прод-env нет; сцеплено с Anthropic geo-block, см. PENDING 🔴).
-3. **Локальные теги** `v2026.629.1711`/`v2026.628.2326` указывают на коммиты старой истории (нет в новом репо) — безвредный мусор, можно почистить (`git tag -d`).
-4. **Мастердата-эпик остаток** (товары/услуги nomenclature-путь + 3d) — отложен в пользу security-нитки; в PENDING 🟡 + план [`docs/plans/drafts-no-empty-cards-recovery-2026-06.md`](plans/drafts-no-empty-cards-recovery-2026-06.md).
+1. **`ANTHROPIC_API_KEY` НЕ перенесён** на публичный репо → Claude PR-ревью выключен. Добавить секрет, когда понадобится (сцеплено с Anthropic geo-block, PENDING 🔴).
+2. **Другие ПК:** на каждом один раз `git fetch && git reset --hard origin/main` — у них старая история (тот же URL → новый репо).
+3. **Локальные stale-теги** `v2026.629.1711`/`v2026.628.2326` — ✅ почищены 2026-06-30.
+4. **Деплой пересоздаёт orphan-ledger** в `backend-api/ledger/` (cwd=`backend-api` без `MATRICA_LEDGER_DIR`) — безвреден (gitignored), но если мешает, выяснить какой шаг деплоя стартует из `backend-api/` без env.
