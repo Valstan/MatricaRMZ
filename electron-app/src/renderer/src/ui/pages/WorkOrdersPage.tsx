@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  WORK_ORDER_KIND_LABELS,
+  WORK_ORDER_KIND_ORDER,
   WORK_ORDER_STATUS_LABELS,
+  WorkOrderKind,
   deriveWorkOrderStatusCode,
-  type WorkOrderKind,
   type WorkOrderPayload,
   type WorkOrderStatusCode,
 } from '@matricarmz/shared';
@@ -51,6 +53,7 @@ type Row = {
   engineBrand: string;
   engineNumber: string;
   acceptedByEmployeeId: string | null;
+  workOrderKind: string;
 };
 
 /** Палитра подсветки по вычисляемому статусу наряда (Этап 3). */
@@ -90,12 +93,14 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   const { state: listState, patchState } = useListUiState('list:work_orders', {
     query: '',
     month: '',
+    typeKind: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:work_orders');
   const query = String(listState.query ?? '');
   const month = String(listState.month ?? '');
+  const typeKind = String(listState.typeKind ?? '');
   const [rows, setRows] = useState<Row[]>([]);
   const [empSurnames, setEmpSurnames] = useState<Map<string, string>>(new Map());
   const [status, setStatus] = useState<string>('');
@@ -171,8 +176,15 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     [empSurnames],
   );
 
+  // Инлайн-фильтр по типу наряда: чисто клиентский, поверх уже загруженного списка
+  // (директива: «фильтрация прямо в текущем списке», без отдельных экранов/запросов).
+  const filteredRows = useMemo(
+    () => (typeKind ? rows.filter((row) => row.workOrderKind === typeKind) : rows),
+    [rows, typeKind],
+  );
+
   const sorted = useSortedItems(
-    rows,
+    filteredRows,
     listState.sortKey as SortKey,
     listState.sortDir,
     (row, key) => {
@@ -452,6 +464,30 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         </div>
         <div style={{ width: 180 }}>
           <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
+        </div>
+        <div style={{ width: 180 }}>
+          <select
+            value={typeKind}
+            onChange={(e) => patchState({ typeKind: e.target.value })}
+            title="Фильтр по типу наряда — применяется сразу, поверх текущего списка"
+            style={{
+              width: '100%',
+              height: 32,
+              padding: '0 8px',
+              borderRadius: 6,
+              border: '1px solid var(--border, #d1d5db)',
+              background: 'var(--input-bg, #fff)',
+              color: 'var(--text)',
+              fontSize: 13,
+            }}
+          >
+            <option value="">Все типы</option>
+            {WORK_ORDER_KIND_ORDER.map((k) => (
+              <option key={k} value={k}>
+                {WORK_ORDER_KIND_LABELS[k]}
+              </option>
+            ))}
+          </select>
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
           Применить фильтр

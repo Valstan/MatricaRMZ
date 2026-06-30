@@ -371,6 +371,7 @@ export async function listWorkOrders(
         engineBrand: string;
         engineNumber: string;
         acceptedByEmployeeId: string | null;
+        workOrderKind: string;
       }>;
     }
   | { ok: false; error: string }
@@ -408,6 +409,7 @@ export async function listWorkOrders(
       engineBrand: string;
       engineNumber: string;
       acceptedByEmployeeId: string | null;
+      workOrderKind: string;
     }> = [];
 
     for (const row of rows) {
@@ -454,6 +456,7 @@ export async function listWorkOrders(
         engineBrand: engineInfo.engineBrand,
         engineNumber: engineInfo.engineNumber,
         acceptedByEmployeeId: getWorkOrderAcceptedByEmployeeId(payload),
+        workOrderKind: String(payload.workOrderKind ?? WorkOrderKind.Regular),
       });
     }
 
