@@ -1,0 +1,34 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # ESLint runs without type-aware rules (no `project` in eslint.config.mjs),
+      # so no package build is required — unlike the typecheck workflow.
+      # Per-package `lint` scripts pin `--max-warnings 0`: the repo is at zero
+      # warnings, so any newly-introduced warning (not just errors) fails the job.
+      - name: Lint
+        run: pnpm -r lint

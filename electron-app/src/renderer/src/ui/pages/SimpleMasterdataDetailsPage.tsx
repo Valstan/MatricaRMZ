@@ -1,0 +1,1051 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
+import { SectionCard } from '../components/SectionCard.js';
+import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { DraggableFieldList } from '../components/DraggableFieldList.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
+import { DuplicateWarningDialog } from '../components/DuplicateWarningDialog.js';
+import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import type { DuplicateCandidate, FileRef } from '@matricarmz/shared';
+import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+
+type PhotoFileRef = FileRef & { isObsolete?: boolean };
+
+function parseIdArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x ?? '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((x) => String(x ?? '').trim()).filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return [];
+}
+
+export function SimpleMasterdataDetailsPage(props: {
+  title: string;
+  entityId: string;
+  ownerType?: string;
+  typeCode?: string;
+  canEdit: boolean;
+  canViewFiles: boolean;
+  canUploadFiles: boolean;
+  onOpenCustomer?: (customerId: string) => void;
+  onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
+}) {
+  const [status, setStatus] = useState<string>('');
+  const [name, setName] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
+  const [attachments, setAttachments] = useState<unknown>([]);
+  const [shop, setShop] = useState<string>('');
+  const [article, setArticle] = useState<string>('');
+  const [unit, setUnit] = useState<string>('');
+  const [price, setPrice] = useState<string>('');
+  const [photos, setPhotos] = useState<PhotoFileRef[]>([]);
+  const [mainPhotoId, setMainPhotoId] = useState<string | null>(null);
+  const [photoThumbs, setPhotoThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
+  const thumbsRef = useRef(photoThumbs);
+  const [entityTypeId, setEntityTypeId] = useState<string>('');
+  const [defs, setDefs] = useState<AttributeDefRow[]>([]);
+  const [coreDefsReady, setCoreDefsReady] = useState(false);
+  const [defsLoaded, setDefsLoaded] = useState(false);
+  const [unitOptions, setUnitOptions] = useState<SearchSelectOption[]>([]);
+  const [storeOptions, setStoreOptions] = useState<SearchSelectOption[]>([]);
+  const [unitTypeId, setUnitTypeId] = useState<string>('');
+  const [storeTypeId, setStoreTypeId] = useState<string>('');
+  /** Для услуг: ограничение «применимо к маркам двигателей». Пусто = универсальная услуга. */
+  const [engineBrandIds, setEngineBrandIds] = useState<string[]>([]);
+  const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
+  const uploadFlow = useFileUploadFlow();
+  const dirtyRef = useRef(false);
+
+  // Duplicate detection state
+  const [dupCandidates, setDupCandidates] = useState<DuplicateCandidate[]>([]);
+  const [dupDialogOpen, setDupDialogOpen] = useState(false);
+  const [pendingSaveAction, setPendingSaveAction] = useState<'save' | 'saveAndClose' | null>(null);
+  const dupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function load() {
+    try {
+      setStatus('Загрузка…');
+      const details = await window.matrica.admin.entities.get(props.entityId);
+      const attrs = details?.attributes ?? {};
+      setName(String(attrs.name ?? ''));
+      setDescription(String(attrs.description ?? ''));
+      setAttachments(attrs.attachments ?? []);
+      setShop(String(attrs.shop ?? ''));
+      setArticle(String(attrs.article ?? ''));
+      setUnit(String(attrs.unit ?? ''));
+      setPrice(attrs.price != null ? String(attrs.price) : '');
+      const nextPhotos = Array.isArray(attrs.photos) ? attrs.photos.filter(isFileRef) : [];
+      setPhotos(nextPhotos);
+      setMainPhotoId(nextPhotos[0]?.id ?? null);
+      if (props.typeCode === 'service') {
+        setEngineBrandIds(parseIdArray(attrs.engine_brand_ids));
+      }
+      dirtyRef.current = false;
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function loadDefs() {
+    if (!props.typeCode) return;
+    setDefsLoaded(false);
+    try {
+      const types = await window.matrica.admin.entityTypes.list();
+      const type = (types as any[]).find((t) => String(t.code) === String(props.typeCode)) ?? null;
+      if (!type?.id) return;
+      setEntityTypeId(String(type.id));
+      const rows = await window.matrica.admin.attributeDefs.listByEntityType(String(type.id));
+      setDefs(rows as AttributeDefRow[]);
+      setDefsLoaded(true);
+      setCoreDefsReady(false);
+    } catch {
+      setDefs([]);
+      setDefsLoaded(true);
+    }
+  }
+
+  function isFileRef(x: any): x is PhotoFileRef {
+    return x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string';
+  }
+
+  useEffect(() => {
+    thumbsRef.current = photoThumbs;
+  }, [photoThumbs]);
+
+  useEffect(() => {
+    if (!props.canViewFiles) return;
+    let alive = true;
+    const run = async () => {
+      for (const f of photos) {
+        if (!alive) return;
+        const cur = thumbsRef.current[f.id];
+        if (cur && (cur.status === 'loading' || cur.status === 'done' || cur.status === 'error')) continue;
+        setPhotoThumbs((p) => ({ ...p, [f.id]: { dataUrl: null, status: 'loading' } }));
+        try {
+          const r = await window.matrica.files.previewGet({ fileId: f.id });
+          if (!alive) return;
+          if (r.ok) setPhotoThumbs((p) => ({ ...p, [f.id]: { dataUrl: r.dataUrl ?? null, status: 'done' } }));
+          else setPhotoThumbs((p) => ({ ...p, [f.id]: { dataUrl: null, status: 'error' } }));
+        } catch {
+          if (!alive) return;
+          setPhotoThumbs((p) => ({ ...p, [f.id]: { dataUrl: null, status: 'error' } }));
+        }
+      }
+    };
+    void run();
+    return () => {
+      alive = false;
+    };
+  }, [props.canViewFiles, photos]);
+
+  useEffect(() => {
+    void loadDefs();
+  }, [props.typeCode]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const types = await window.matrica.admin.entityTypes.list();
+        const unitType = (types as any[]).find((t) => String(t.code) === 'unit') ?? null;
+        const storeType = (types as any[]).find((t) => String(t.code) === 'customer') ?? null;
+        if (!alive) return;
+        setUnitTypeId(unitType?.id ? String(unitType.id) : '');
+        setStoreTypeId(storeType?.id ? String(storeType.id) : '');
+        if (unitType?.id) {
+          const rows = await window.matrica.admin.entities.listByEntityType(String(unitType.id));
+          setUnitOptions(mapEntityRowsToSearchOptions(rows));
+        }
+        if (storeType?.id) {
+          const rows = await window.matrica.admin.entities.listByEntityType(String(storeType.id));
+          setStoreOptions(mapEntityRowsToSearchOptions(rows));
+        }
+        if (props.typeCode === 'service') {
+          const engineBrandType = (types as any[]).find((t) => String(t.code) === 'engine_brand') ?? null;
+          if (engineBrandType?.id) {
+            const rows = await window.matrica.admin.entities.listByEntityType(String(engineBrandType.id));
+            if (alive) setEngineBrandOptions(mapEntityRowsToSearchOptions(rows));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [props.typeCode]);
+
+  async function createLookupEntity(typeId: string, label: string) {
+    const name = label.trim();
+    if (!typeId || !name) return null;
+    const created = await window.matrica.admin.entities.create(typeId);
+    if (!created?.ok || !created.id) return null;
+    await window.matrica.admin.entities.setAttr(created.id, 'name', name);
+    return created.id;
+  }
+
+  function normalizeNumberValue(raw: string): number | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.replace(',', '.');
+    const value = Number(normalized);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  useEffect(() => {
+    if (!props.canEdit || !entityTypeId || !defsLoaded || coreDefsReady) return;
+    const isService = props.typeCode === 'service';
+    const desired = [
+      { code: 'name', name: 'Название', dataType: 'text', sortOrder: 10 },
+      { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 20 },
+      ...(isService ? [] : [
+        { code: 'shop', name: 'Магазин', dataType: 'text', sortOrder: 30 },
+        { code: 'article', name: 'Артикул', dataType: 'text', sortOrder: 40 },
+      ]),
+      { code: 'unit', name: 'Ед. измерения', dataType: 'text', sortOrder: 50 },
+      { code: 'price', name: 'Цена', dataType: 'number', sortOrder: 60 },
+      ...(isService ? [
+        {
+          code: 'engine_brand_ids',
+          name: 'Марки двигателей',
+          dataType: 'json',
+          sortOrder: 70,
+          metaJson: JSON.stringify({ linkTargetTypeCode: 'engine_brand', multi: true }),
+        },
+      ] : []),
+      { code: 'attachments', name: 'Файлы', dataType: 'json', sortOrder: 300 },
+      ...(isService ? [] : [
+        { code: 'photos', name: 'Фото', dataType: 'json', sortOrder: 310 },
+      ]),
+    ];
+    void ensureAttributeDefs(entityTypeId, desired, defs).then((next) => {
+      if (next.length !== defs.length) setDefs(next);
+      setCoreDefsReady(true);
+    });
+  }, [props.canEdit, entityTypeId, defsLoaded, coreDefsReady]);
+
+  async function saveName() {
+    if (!props.canEdit) return;
+    try {
+      setStatus('Сохранение…');
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, 'name', name.trim());
+      if (!r?.ok) {
+        throw new Error(r?.error ?? 'save failed');
+      }
+      setStatus('Сохранено');
+      setTimeout(() => setStatus(''), 700);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+      throw e;
+    }
+  }
+
+  async function saveDescription() {
+    if (!props.canEdit) return;
+    try {
+      setStatus('Сохранение…');
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, 'description', description.trim() || null);
+      if (!r?.ok) {
+        throw new Error(r?.error ?? 'save failed');
+      }
+      setStatus('Сохранено');
+      setTimeout(() => setStatus(''), 700);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+      throw e;
+    }
+  }
+
+  async function saveFiles(code: 'attachments' | 'photos', value: unknown, setter: (v: unknown) => void) {
+    if (!props.canEdit) return { ok: false as const, error: 'no permission' };
+    try {
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, code, value);
+      if (!r?.ok) return { ok: false as const, error: r?.error ?? 'save failed' };
+      setter(value);
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  }
+
+  async function saveField(code: string, value: unknown) {
+    if (!props.canEdit) return;
+    try {
+      setStatus('Сохранение…');
+      const r = await window.matrica.admin.entities.setAttr(props.entityId, code, value);
+      if (!r?.ok) {
+        throw new Error(r?.error ?? 'save failed');
+      }
+      setStatus('Сохранено');
+      setTimeout(() => setStatus(''), 700);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+      throw e;
+    }
+  }
+
+  // --- Duplicate detection ---
+
+  const checkDuplicates = useCallback(async () => {
+    if (!entityTypeId || !props.canEdit) return;
+    const parsedPrice = price.trim() ? normalizeNumberValue(price) : undefined;
+    const queryName = name.trim();
+    const queryArticle = article.trim();
+    if (!queryName && !queryArticle) {
+      setDupCandidates([]);
+      return;
+    }
+    try {
+      const dupQuery: { name?: string; article?: string; price?: number } = {};
+      if (queryName) dupQuery.name = queryName;
+      if (queryArticle) dupQuery.article = queryArticle;
+      if (parsedPrice != null) dupQuery.price = parsedPrice;
+      const candidates = await window.matrica.admin.entities.findDuplicates({
+        entityTypeId,
+        query: dupQuery,
+        excludeEntityId: props.entityId,
+      });
+      setDupCandidates(candidates);
+    } catch {
+      // ignore errors during duplicate check
+    }
+  }, [entityTypeId, props.canEdit, props.entityId, name, article, price]);
+
+  // Debounced duplicate check on field changes
+  useEffect(() => {
+    if (!entityTypeId) return;
+    if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+    dupTimerRef.current = setTimeout(() => {
+      void checkDuplicates();
+    }, 600);
+    return () => {
+      if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+    };
+  }, [checkDuplicates, entityTypeId]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+    };
+  }, []);
+
+  async function checkDuplicatesBeforeSave(action: 'save' | 'saveAndClose') {
+    if (!entityTypeId) {
+      // No type info, just save
+      if (action === 'saveAndClose') await saveAllAndClose();
+      else await saveAll();
+      return;
+    }
+    // Run check immediately (don't wait for debounce)
+    const parsedPrice = price.trim() ? normalizeNumberValue(price) : undefined;
+    const queryName = name.trim();
+    const queryArticle = article.trim();
+    if (!queryName && !queryArticle) {
+      if (action === 'saveAndClose') await saveAllAndClose();
+      else await saveAll();
+      return;
+    }
+    try {
+      const dupQuery: { name?: string; article?: string; price?: number } = {};
+      if (queryName) dupQuery.name = queryName;
+      if (queryArticle) dupQuery.article = queryArticle;
+      if (parsedPrice != null) dupQuery.price = parsedPrice;
+      const candidates = await window.matrica.admin.entities.findDuplicates({
+        entityTypeId,
+        query: dupQuery,
+        excludeEntityId: props.entityId,
+      });
+      if (candidates.length > 0) {
+        setDupCandidates(candidates);
+        setPendingSaveAction(action);
+        setDupDialogOpen(true);
+        return;
+      }
+    } catch {
+      // ignore, proceed with save
+    }
+    // No duplicates found
+    if (action === 'saveAndClose') await saveAllAndClose();
+    else await saveAll();
+  }
+
+  async function handleDuplicateAction(action: 'cancel' | 'merge' | 'replace' | 'continue', candidateId?: string) {
+    setDupDialogOpen(false);
+    if (action === 'cancel') {
+      setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'merge' && candidateId) {
+      // Merge: copy all non-empty fields from new to existing, then delete new
+      try {
+        setStatus('Объединение…');
+        if (name.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'name', name.trim());
+        if (description.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'description', description.trim());
+        if (shop.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'shop', shop.trim());
+        if (article.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'article', article.trim());
+        if (unit.trim()) await window.matrica.admin.entities.setAttr(candidateId, 'unit', unit.trim());
+        const p = normalizeNumberValue(price);
+        if (p != null) await window.matrica.admin.entities.setAttr(candidateId, 'price', p);
+        // Delete the new (empty or partially filled) entity
+        await window.matrica.admin.entities.softDelete(props.entityId);
+        setStatus('Объединено');
+        setTimeout(() => setStatus(''), 1200);
+        dirtyRef.current = false;
+        props.onClose();
+      } catch (e) {
+        setStatus(`Ошибка объединения: ${String(e)}`);
+      }
+      setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'replace' && candidateId) {
+      // Replace: delete old entity, save new data to current (new) entity
+      try {
+        setStatus('Замена…');
+        await window.matrica.admin.entities.softDelete(candidateId);
+        // Now save current entity's data (it already has the right entityId)
+        await saveAll();
+        setStatus('Заменено');
+        setTimeout(() => setStatus(''), 1200);
+        if (pendingSaveAction === 'saveAndClose') {
+          dirtyRef.current = false;
+          props.onClose();
+        }
+      } catch (e) {
+        setStatus(`Ошибка замены: ${String(e)}`);
+      }
+      setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'continue') {
+      // Save as new despite duplicates
+      if (pendingSaveAction === 'saveAndClose') await saveAllAndClose();
+      else await saveAll();
+      setPendingSaveAction(null);
+      return;
+    }
+    setPendingSaveAction(null);
+  }
+
+  async function saveAll() {
+    if (!props.canEdit) return;
+    const errors: string[] = [];
+    async function trySave(fn: () => Promise<void>) {
+      try { await fn(); } catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+    }
+    await trySave(() => saveName());
+    await trySave(() => saveDescription());
+    await trySave(() => saveField('shop', shop.trim() || null));
+    await trySave(() => saveField('article', article.trim() || null));
+    await trySave(() => saveField('unit', unit.trim() || null));
+    const parsedPrice = normalizeNumberValue(price);
+    if (price.trim() && parsedPrice == null) {
+      errors.push('Цена должна быть числом');
+    } else {
+      await trySave(() => saveField('price', parsedPrice));
+    }
+    if (props.typeCode === 'service') {
+      await trySave(() => saveField('engine_brand_ids', engineBrandIds.length > 0 ? engineBrandIds : null));
+    }
+    dirtyRef.current = false;
+    if (errors.length > 0) {
+      setStatus(`Частично сохранено. Ошибки (${errors.length}): ${errors[0]}`);
+      throw new Error(errors.join('; '));
+    }
+  }
+
+  async function saveAllAndClose() {
+    await checkDuplicatesBeforeSave('saveAndClose');
+  }
+
+  async function handleDelete() {
+    if (!props.canEdit) return;
+    try {
+      setStatus('Удаление…');
+      const r = await window.matrica.admin.entities.softDelete(props.entityId);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Удалено');
+      setTimeout(() => setStatus(''), 900);
+      props.onClose();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, [props.entityId]);
+
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllAndClose();
+      },
+      reset: async () => {
+        await load();
+        dirtyRef.current = false;
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        if (!entityTypeId) return;
+        const created = await window.matrica.admin.entities.create(entityTypeId);
+        if (created?.ok && 'id' in created) {
+          await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+          if (description.trim()) await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim());
+          if (shop.trim()) await window.matrica.admin.entities.setAttr(created.id, 'shop', shop.trim());
+          if (article.trim()) await window.matrica.admin.entities.setAttr(created.id, 'article', article.trim());
+          if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
+          const p = normalizeNumberValue(price);
+          if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [
+    name,
+    description,
+    shop,
+    article,
+    unit,
+    price,
+    engineBrandIds,
+    props.canEdit,
+    props.typeCode,
+    entityTypeId,
+    props.registerCardCloseActions,
+  ]);
+
+  useLiveDataRefresh(
+    async () => {
+      if (dirtyRef.current) return;
+      await load();
+    },
+    { intervalMs: 20000 },
+  );
+
+  const ownerType = props.ownerType ?? 'masterdata';
+  const activePhoto = useMemo(() => photos.find((p) => p.id === mainPhotoId) ?? photos[0] ?? null, [photos, mainPhotoId]);
+
+  function isObsoleteFile(file: PhotoFileRef): boolean {
+    return file.isObsolete === true;
+  }
+
+  async function togglePhotoObsoleteFlag(fileId: string, nextObsolete: boolean) {
+    if (!props.canEdit || !props.canUploadFiles) return;
+    const nextPhotos = photos.map((file) => {
+      if (file.id !== fileId) return file;
+      if (nextObsolete) return { ...file, isObsolete: true } as PhotoFileRef;
+      const { isObsolete: _isObsolete, ...clean } = file;
+      return clean as PhotoFileRef;
+    });
+    const saved = await saveFiles('photos', nextPhotos, (v) => setPhotos(Array.isArray(v) ? v.filter(isFileRef) : []));
+    if (!saved.ok) {
+      uploadFlow.setStatusWithTimeout(`Неуспешно: ${saved.error}`, 4500);
+      return;
+    }
+    uploadFlow.setStatusWithTimeout(nextObsolete ? 'Фото помечено как «Устаревшая версия»' : 'Пометка снята', 1600);
+  }
+
+  const photosBlock = (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <strong>Фото</strong>
+        <div style={{ flex: 1 }} />
+        {activePhoto && props.canUploadFiles && props.canEdit && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              void togglePhotoObsoleteFlag(activePhoto.id, !isObsoleteFile(activePhoto));
+            }}
+          >
+            {isObsoleteFile(activePhoto) ? 'Снять пометку' : 'Пометить устаревшей'}
+          </Button>
+        )}
+        {props.canUploadFiles && props.canEdit && (
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              const pickResult = await window.matrica.files.pick();
+              if (!pickResult.ok || !pickResult.paths?.length) return;
+              const uploads = await uploadFlow.buildTasks(pickResult.paths);
+              if (!uploads) {
+                uploadFlow.setStatusWithTimeout('Загрузка отменена пользователем', 1500);
+                return;
+              }
+              uploadFlow.setStatus('');
+              const uploadResult = await uploadFlow.runUploads<FileRef>(
+                uploads,
+                async (task) => {
+                  const r = await window.matrica.files.upload({
+                    path: task.path,
+                    fileName: task.fileName,
+                    scope: { ownerType, ownerId: props.entityId, category: 'photos' },
+                  });
+                  return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
+                },
+                { continueOnError: true },
+              );
+              const added = uploadResult.successes.map((x) => x.value);
+              const failed = uploadResult.failures.map((f) => `${f.task.fileName}: ${f.error}`);
+              if (added.length === 0) {
+                uploadFlow.setProgress({ active: false, percent: 0, label: '' });
+                uploadFlow.setStatusWithTimeout(`Неуспешно: ${failed[0] ?? 'не удалось загрузить файлы'}`, 4500);
+                return;
+              }
+              const merged = [...photos];
+              for (const f of added) {
+                if (!merged.find((x) => x.id === f.id)) merged.push(f);
+              }
+              uploadFlow.setProgress({ active: true, percent: 98, label: 'Сохранение изменений...' });
+              const saved = await saveFiles('photos', merged, (v) => setPhotos(Array.isArray(v) ? v.filter(isFileRef) : []));
+              uploadFlow.setProgress({ active: false, percent: 0, label: '' });
+              if (!saved.ok) failed.push(`сохранение: ${saved.error}`);
+              if (!mainPhotoId && merged[0]) setMainPhotoId(merged[0].id);
+              if (failed.length > 0) {
+                uploadFlow.setStatusWithTimeout(`Неуспешно: ${failed[0]}`, 4500);
+                return;
+              }
+              uploadFlow.setStatusWithTimeout(`Успешно: прикреплено файлов — ${added.length}`, 1400);
+            }}
+          >
+            Добавить фото
+          </Button>
+        )}
+      </div>
+      {uploadFlow.status ? (
+        <div style={{ marginBottom: 8, color: uploadFlow.status.startsWith('Неуспешно') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{uploadFlow.status}</div>
+      ) : null}
+      {uploadFlow.progress.active ? (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>
+            <span>{uploadFlow.progress.label}</span>
+            <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 0, background: 'var(--border)', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
+                height: '100%',
+                background: 'var(--button-primary-bg)',
+                transition: 'width 0.2s ease',
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+      {activePhoto ? (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {isObsoleteFile(activePhoto) ? (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                width: 'fit-content',
+                padding: '3px 10px',
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#991b1b',
+                background: '#fee2e2',
+                border: '1px solid #fecaca',
+              }}
+            >
+              Устаревшая версия
+            </div>
+          ) : null}
+          <div style={{ overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+            {photoThumbs[activePhoto.id]?.dataUrl ? (
+              <img
+                src={photoThumbs[activePhoto.id]?.dataUrl ?? ''}
+                alt=""
+                style={{ width: '100%', height: 320, objectFit: 'contain', display: 'block', background: 'var(--surface)' }}
+              />
+            ) : (
+              <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)' }}>
+                Предпросмотр недоступен
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {photos.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setMainPhotoId(p.id)}
+                style={{
+                  border: p.id === activePhoto.id ? '2px solid var(--input-border-focus)' : '1px solid var(--border)',
+                  borderRadius: 0,
+                  overflow: 'hidden',
+                  padding: 0,
+                  position: 'relative',
+                  background: 'var(--surface)',
+                  width: 80,
+                  height: 80,
+                  cursor: 'pointer',
+                }}
+              >
+                {photoThumbs[p.id]?.dataUrl ? (
+                  <img
+                    src={photoThumbs[p.id]?.dataUrl ?? ''}
+                    alt=""
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      ...(isObsoleteFile(p) ? { filter: 'grayscale(35%) brightness(0.9)' } : {}),
+                    }}
+                  />
+                ) : (
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)' }}>
+                    Фото
+                  </div>
+                )}
+                {isObsoleteFile(p) ? (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 2,
+                      right: 2,
+                      bottom: 2,
+                      padding: '2px 4px',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      color: '#fff',
+                      background: 'rgba(153, 27, 27, 0.9)',
+                    }}
+                  >
+                    Устаревшая версия
+                  </div>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ color: 'var(--subtle)' }}>Фото не добавлены.</div>
+      )}
+    </div>
+  );
+
+  const attachmentsBlock = (
+    <AttachmentsPanel
+      title="Файлы"
+      value={attachments}
+      canView={props.canViewFiles}
+      canUpload={props.canUploadFiles && props.canEdit}
+      scope={{ ownerType, ownerId: props.entityId, category: 'attachments' }}
+      onChange={(next) => saveFiles('attachments', next, setAttachments)}
+    />
+  );
+
+  const isService = props.typeCode === 'service';
+
+  const mainFields = orderFieldsByDefs(
+    [
+      {
+        code: 'name',
+        defaultOrder: 10,
+        label: 'Название',
+        value: name,
+        render: (
+          <Input
+            value={name}
+            disabled={!props.canEdit}
+            onChange={(e) => { dirtyRef.current = true; setName(e.target.value); }}
+          />
+        ),
+      },
+      {
+        code: 'description',
+        defaultOrder: 20,
+        label: 'Описание',
+        value: description,
+        render: (
+          <textarea
+            value={description}
+            disabled={!props.canEdit}
+            onChange={(e) => { dirtyRef.current = true; setDescription(e.target.value); }}
+            rows={3}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 0,
+              border: '1px solid var(--input-border)',
+              background: props.canEdit ? 'var(--input-bg)' : 'var(--input-bg-disabled)',
+              color: 'var(--text)',
+              fontSize: 14,
+              lineHeight: 1.4,
+              resize: 'vertical',
+            }}
+          />
+        ),
+      },
+      ...(isService ? [] : [{
+        code: 'shop',
+        defaultOrder: 30,
+        label: 'Магазин',
+        value: shop,
+        render: (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+            <SearchSelectWithCreate
+              value={storeOptions.find((o) => o.label === shop)?.id ?? null}
+              options={storeOptions}
+              disabled={!props.canEdit}
+              canCreate={props.canEdit}
+              createLabel="Добавить контрагента"
+              onChange={(next) => {
+                dirtyRef.current = true;
+                const label = storeOptions.find((o) => o.id === next)?.label ?? '';
+                setShop(label);
+              }}
+              onCreate={async (label) => {
+                const id = await createLookupEntity(storeTypeId, label);
+                if (!id) return null;
+                const opt = { id, label: label.trim() };
+                setStoreOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+                dirtyRef.current = true;
+                setShop(label.trim());
+                return id;
+              }}
+            />
+            {props.onOpenCustomer && storeOptions.find((o) => o.label === shop)?.id ? (
+              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCustomer?.(storeOptions.find((o) => o.label === shop)?.id ?? '')}>
+                Открыть
+              </Button>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        code: 'article',
+        defaultOrder: 40,
+        label: 'Артикул',
+        value: article,
+        render: (
+          <Input
+            value={article}
+            disabled={!props.canEdit}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setArticle(e.target.value);
+            }}
+          />
+        ),
+      },
+      ]),
+      {
+        code: 'unit',
+        defaultOrder: 50,
+        label: 'Ед. измерения',
+        value: unit,
+        render: (
+          <SearchSelectWithCreate
+            value={unitOptions.find((o) => o.label === unit)?.id ?? null}
+            options={unitOptions}
+            disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel="Добавить единицу"
+            onChange={(next) => {
+              dirtyRef.current = true;
+              const label = unitOptions.find((o) => o.id === next)?.label ?? '';
+              setUnit(label);
+            }}
+            onCreate={async (label) => {
+              const id = await createLookupEntity(unitTypeId, label);
+              if (!id) return null;
+              const opt = { id, label: label.trim() };
+              setUnitOptions((prev) => [...prev, opt].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+              dirtyRef.current = true;
+              setUnit(label.trim());
+              return id;
+            }}
+          />
+        ),
+      },
+      {
+        code: 'price',
+        defaultOrder: 60,
+        label: 'Цена',
+        value: price,
+        render: (
+          <Input
+            type="number"
+            step="0.01"
+            value={price}
+            disabled={!props.canEdit}
+            onChange={(e) => { dirtyRef.current = true; setPrice(e.target.value); }}
+            placeholder="0"
+          />
+        ),
+      },
+      ...(isService ? [{
+        code: 'engine_brand_ids',
+        defaultOrder: 70,
+        label: 'Марки двигателей',
+        value: engineBrandIds.length,
+        render: (
+          <div style={{ display: 'grid', gap: 4 }}>
+            <MultiSearchSelect
+              values={engineBrandIds}
+              options={engineBrandOptions}
+              placeholder="Все марки (универсальная услуга)"
+              disabled={!props.canEdit}
+              onChange={(next) => {
+                dirtyRef.current = true;
+                setEngineBrandIds(next);
+              }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+              Если пусто — услуга предлагается в любом наряде. Если выбраны марки — только в нарядах по этим маркам двигателя.
+            </span>
+          </div>
+        ),
+      }] : []),
+      ...(isService ? [] : [
+        { code: 'photos', defaultOrder: 300, label: 'Фото', value: photos.length, render: photosBlock },
+      ]),
+      { code: 'attachments', defaultOrder: 310, label: 'Файлы', value: Array.isArray(attachments) ? attachments.length : 0, render: attachmentsBlock },
+    ],
+    defs,
+  );
+
+  const headerTitle = isService ? '' : (name.trim() ? name.trim() : props.title);
+
+  return (
+    <EntityCardShell
+      title={headerTitle}
+      layout="two-column"
+      cardActions={
+        <CardActionBar
+          canEdit={props.canEdit}
+          cardLabel={isService ? 'Услуга' : undefined}
+          onSave={() => {
+            void saveAll().catch(() => undefined);
+          }}
+          onCopyToNew={() => {
+            void (async () => {
+              if (!entityTypeId) return;
+              const created = await window.matrica.admin.entities.create(entityTypeId);
+              if (created?.ok && 'id' in created) {
+                await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+                if (description.trim()) await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim());
+                if (shop.trim()) await window.matrica.admin.entities.setAttr(created.id, 'shop', shop.trim());
+                if (article.trim()) await window.matrica.admin.entities.setAttr(created.id, 'article', article.trim());
+                if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
+                const p = normalizeNumberValue(price);
+                if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
+              }
+            })();
+          }}
+          onSaveAndClose={() => {
+            void saveAllAndClose()
+              .then(() => props.onClose())
+              .catch(() => undefined);
+          }}
+          onReset={() => {
+            void load().then(() => {
+              dirtyRef.current = false;
+            });
+          }}
+          onDelete={() => void handleDelete()}
+          deleteConfirmDetail={`Будет удалена (помечена удалённой) запись справочника «${props.title}» (${props.typeCode}): «${name.trim() || props.entityId}».`}
+          onClose={() => props.requestClose?.()}
+        />
+      }
+      status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
+    >
+        <SectionCard style={{ padding: 12 }}>
+          <DraggableFieldList
+            items={mainFields}
+            getKey={(f) => f.code}
+            canDrag={props.canEdit}
+            onReorder={(next) => {
+              if (!entityTypeId) return;
+              void persistFieldOrder(
+                next.map((f) => f.code),
+                defs,
+                { entityTypeId },
+              ).then(() => setDefs([...defs]));
+            }}
+            renderItem={(field, itemProps, _dragHandleProps, state) => (
+              <div
+                {...itemProps}
+                className="card-row"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(160px, 200px) 1fr',
+                  gap: 8,
+                  alignItems: 'center',
+                  padding: '4px 6px',
+                  border: state.isOver ? '1px dashed var(--input-border-focus)' : '1px solid var(--card-row-border)',
+                  background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
+                }}
+              >
+                <div
+                  style={{
+                    color: 'var(--subtle)',
+                    alignSelf: field.code === 'description' ? 'start' : 'center',
+                    paddingTop: field.code === 'description' ? 6 : 0,
+                  }}
+                >
+                  {field.label}
+                </div>
+                {field.render}
+              </div>
+            )}
+          />
+        </SectionCard>
+      
+      {uploadFlow.renameDialog}
+      <DuplicateWarningDialog
+        open={dupDialogOpen}
+        candidates={dupCandidates}
+        newEntityData={(() => {
+          const d: { name?: string; article?: string; price?: number } = {};
+          const nt = name.trim();
+          const at = article.trim();
+          if (nt) d.name = nt;
+          if (at) d.article = at;
+          if (price.trim()) {
+            const p = normalizeNumberValue(price);
+            if (p != null) d.price = p;
+          }
+          return d;
+        })()}
+        onAction={handleDuplicateAction}
+      />
+    </EntityCardShell>
+  );
+}

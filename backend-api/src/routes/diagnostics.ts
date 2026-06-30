@@ -1,0 +1,212 @@
+import { Router } from 'express';
+import { z } from 'zod';
+
+import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
+import { PermissionCode } from '../auth/permissions.js';
+import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
+import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
+import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
+import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
+import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
+import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
+import { deleteAllCriticalEvents, deleteCriticalEventById, listCriticalEvents } from '../services/criticalEventsService.js';
+import { resolveLoginsToFullNames } from '../services/employeeAuthService.js';
+
+export const diagnosticsRouter = Router();
+
+diagnosticsRouter.use(requireAuth);
+
+diagnosticsRouter.get('/consistency', requirePermission(PermissionCode.ClientsManage), async (_req, res) => {
+  try {
+    const report = await getConsistencyReport();
+    return res.json({ ok: true, report });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.post('/consistency/run', requirePermission(PermissionCode.ClientsManage), async (_req, res) => {
+  try {
+    await runServerSnapshot();
+    const report = await getConsistencyReport();
+    return res.json({ ok: true, report });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.SyncUse), async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(1).max(200),
+    syncRunId: z.string().min(1).max(120).optional(),
+    serverSeq: z.number().int().nonnegative().optional(),
+    tables: z.record(z.any()).optional(),
+    entityTypes: z.record(z.any()).optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
+    const snapshot = await storeClientSnapshot(parsed.data.clientId, {
+      syncRunId: parsed.data.syncRunId ?? null,
+      serverSeq: parsed.data.serverSeq ?? null,
+      tables: parsed.data.tables ?? {},
+      entityTypes: parsed.data.entityTypes ?? {},
+    });
+    const autoheal = await evaluateAutohealForClient(parsed.data.clientId);
+    return res.json({ ok: true, snapshot, autoheal });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.post('/entity-diff/report', requirePermission(PermissionCode.SyncUse), async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(1).max(200),
+    entityId: z.string().uuid(),
+    entity: z.object({
+      id: z.string().uuid(),
+      createdAt: z.number().int().optional().nullable(),
+      updatedAt: z.number().int().optional().nullable(),
+      attributes: z.record(z.unknown()).optional(),
+    }),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const clientEntity = {
+      id: parsed.data.entity.id,
+      createdAt: parsed.data.entity.createdAt ?? null,
+      updatedAt: parsed.data.entity.updatedAt ?? null,
+      attributes: parsed.data.entity.attributes ?? {},
+    };
+    const diff = await storeEntityDiff({
+      clientId: parsed.data.clientId,
+      entityId: parsed.data.entityId,
+      clientEntity,
+    });
+    return res.json({ ok: true, diff });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/entity-diff', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(1).max(200),
+    entityId: z.string().uuid(),
+  });
+  const parsed = schema.safeParse({ clientId: req.query.clientId, entityId: req.query.entityId });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const diff = await getLatestEntityDiff(parsed.data.clientId, parsed.data.entityId);
+    return res.json({ ok: true, diff });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/clients/:clientId/last-error', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const clientId = String(req.params.clientId || '').trim();
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId обязателен' });
+  try {
+    const { findLastClientSyncError } = await import('../services/diagnosticsLogsService.js');
+    const result = findLastClientSyncError(clientId);
+    return res.json({ ok: true, result });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/sync-schema', requirePermission(PermissionCode.SyncUse), async (_req, res) => {
+  try {
+    const schema = await getSyncSchemaSnapshot();
+    return res.json({ ok: true, schema });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/sync-pipeline-health', requirePermission(PermissionCode.ClientsManage), async (_req, res) => {
+  try {
+    const report = await getSyncPipelineHealth();
+    return res.json(report);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.post('/ledger/replay', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
+    const result = await replayLedgerToDb({ id: actor.id, username: actor.username, role: actor.role });
+    return res.json({ ok: true, applied: result.applied });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.get('/critical-events', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const role = String(actor?.role ?? '').trim().toLowerCase();
+  if (role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для superadmin' });
+  }
+  const parsed = z
+    .object({
+      days: z.coerce.number().int().min(1).max(30).optional(),
+      limit: z.coerce.number().int().min(1).max(1000).optional(),
+    })
+    .safeParse(req.query ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const days = Number(parsed.data.days ?? 3);
+    const limit = Number(parsed.data.limit ?? 300);
+    const events = listCriticalEvents({ days, limit });
+    const fullNames = await resolveLoginsToFullNames(events.map((e) => e.username));
+    const enriched = events.map((e) => ({
+      ...e,
+      fullName: e.username ? (fullNames[e.username.trim().toLowerCase()] ?? null) : null,
+    }));
+    return res.json({ ok: true, days, limit, events: enriched });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.delete('/critical-events/:id', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const role = String(actor?.role ?? '').trim().toLowerCase();
+  if (role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для superadmin' });
+  }
+  const parsed = z
+    .object({
+      id: z.string().uuid(),
+    })
+    .safeParse(req.params ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  try {
+    const result = deleteCriticalEventById(parsed.data.id);
+    return res.json({ ok: true, deleted: result.deleted });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+diagnosticsRouter.delete('/critical-events', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const role = String(actor?.role ?? '').trim().toLowerCase();
+  if (role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для superadmin' });
+  }
+  try {
+    const result = deleteAllCriticalEvents();
+    return res.json({ ok: true, deleted: result.deleted });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});

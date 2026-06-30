@@ -1,0 +1,42 @@
+name: Watchdog Build (Go)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "watchdog/**"
+      - ".github/workflows/watchdog-build.yml"
+  pull_request:
+    paths:
+      - "watchdog/**"
+      - ".github/workflows/watchdog-build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+
+      - name: go vet
+        run: cd watchdog && go vet ./...
+
+      - name: Build (windows/amd64)
+        # -H=windowsgui → GUI-subsystem binary: no console window when the Scheduled
+        # Task runs it (operators must not see a terminal). File log is unaffected.
+        run: cd watchdog && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H=windowsgui" -o matricarmz-watchdog.exe .
+
+      - name: Report size
+        run: ls -la watchdog/matricarmz-watchdog.exe
+
+      - name: Upload unsigned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matricarmz-watchdog-unsigned
+          path: watchdog/matricarmz-watchdog.exe

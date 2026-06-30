@@ -1,0 +1,709 @@
+import { sql } from 'drizzle-orm';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+// Временные поля храним как Unix-time в миллисекундах (int),
+// чтобы одинаково жить в SQLite и PostgreSQL.
+
+export const entityTypes = sqliteTable(
+  'entity_types',
+  {
+    id: text('id').primaryKey(), // uuid
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    codeIdx: uniqueIndex('entity_types_code_uq').on(t.code),
+    syncStatusIdx: index('entity_types_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const entities = sqliteTable(
+  'entities',
+  {
+    id: text('id').primaryKey(), // uuid
+    typeId: text('type_id').notNull(), // uuid
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('entities_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const attributeDefs = sqliteTable(
+  'attribute_defs',
+  {
+    id: text('id').primaryKey(), // uuid
+    entityTypeId: text('entity_type_id').notNull(), // uuid
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    dataType: text('data_type').notNull(),
+    isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    metaJson: text('meta_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    codePerTypeIdx: uniqueIndex('attribute_defs_type_code_uq').on(t.entityTypeId, t.code),
+    syncStatusIdx: index('attribute_defs_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const attributeValues = sqliteTable(
+  'attribute_values',
+  {
+    id: text('id').primaryKey(), // uuid
+    entityId: text('entity_id').notNull(), // uuid
+    attributeDefId: text('attribute_def_id').notNull(), // uuid
+    valueJson: text('value_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    perEntityAttrIdx: uniqueIndex('attribute_values_entity_attr_uq').on(t.entityId, t.attributeDefId),
+    syncStatusIdx: index('attribute_values_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const operations = sqliteTable(
+  'operations',
+  {
+    id: text('id').primaryKey(), // uuid
+    engineEntityId: text('engine_entity_id').notNull(), // uuid
+    operationType: text('operation_type').notNull(),
+    status: text('status').notNull(),
+    note: text('note'),
+    performedAt: integer('performed_at'),
+    performedBy: text('performed_by'),
+    metaJson: text('meta_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('operations_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const auditLog = sqliteTable(
+  'audit_log',
+  {
+    id: text('id').primaryKey(), // uuid
+    actor: text('actor').notNull(),
+    action: text('action').notNull(),
+    entityId: text('entity_id'),
+    tableName: text('table_name'),
+    payloadJson: text('payload_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('audit_log_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+// -----------------------------
+// Chat (sync tables)
+// -----------------------------
+export const chatMessages = sqliteTable(
+  'chat_messages',
+  {
+    id: text('id').primaryKey(), // uuid
+    senderUserId: text('sender_user_id').notNull(), // uuid
+    senderUsername: text('sender_username').notNull(),
+    recipientUserId: text('recipient_user_id'), // uuid | null (общий чат)
+    messageType: text('message_type').notNull(), // text/file/deep_link/text_notify
+    bodyText: text('body_text'),
+    payloadJson: text('payload_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('chat_messages_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const chatReads = sqliteTable(
+  'chat_reads',
+  {
+    id: text('id').primaryKey(), // uuid
+    messageId: text('message_id').notNull(), // uuid
+    userId: text('user_id').notNull(), // uuid
+    readAt: integer('read_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    msgUserUq: uniqueIndex('chat_reads_message_user_uq').on(t.messageId, t.userId),
+    syncStatusIdx: index('chat_reads_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+// -----------------------------
+// Notes (sync tables)
+// -----------------------------
+export const notes = sqliteTable(
+  'notes',
+  {
+    id: text('id').primaryKey(), // uuid
+    ownerUserId: text('owner_user_id').notNull(), // uuid
+    title: text('title').notNull(),
+    bodyJson: text('body_json'),
+    importance: text('importance').notNull().default('normal'),
+    dueAt: integer('due_at'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    ownerSortIdx: index('notes_owner_sort_idx').on(t.ownerUserId, t.sortOrder),
+    syncStatusIdx: index('notes_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const noteShares = sqliteTable(
+  'note_shares',
+  {
+    id: text('id').primaryKey(), // uuid
+    noteId: text('note_id').notNull(), // uuid
+    recipientUserId: text('recipient_user_id').notNull(), // uuid
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    noteRecipientUq: uniqueIndex('note_shares_note_recipient_uq').on(t.noteId, t.recipientUserId),
+    recipientSortIdx: index('note_shares_recipient_sort_idx').on(t.recipientUserId, t.sortOrder),
+    syncStatusIdx: index('note_shares_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+// Черновики/recovery-снимки карточек в работе (owner-private, sync). card_id — id целевого
+// документа (может ещё не существовать: черновик новой, не сохранённой карточки).
+export const cardDrafts = sqliteTable(
+  'card_drafts',
+  {
+    id: text('id').primaryKey(), // uuid
+    ownerUserId: text('owner_user_id').notNull(), // uuid
+    cardType: text('card_type').notNull(),
+    cardId: text('card_id').notNull(), // uuid целевого документа
+    kind: text('kind').notNull().default('recovery'),
+    title: text('title'),
+    payloadJson: text('payload_json'),
+    baseUpdatedAt: integer('base_updated_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    ownerKindIdx: index('card_drafts_owner_kind_idx').on(t.ownerUserId, t.kind),
+    ownerCardIdx: index('card_drafts_owner_card_idx').on(t.ownerUserId, t.cardType, t.cardId),
+    syncStatusIdx: index('card_drafts_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+export const userPresence = sqliteTable(
+  'user_presence',
+  {
+    id: text('id').primaryKey(), // uuid (userId)
+    userId: text('user_id').notNull(), // uuid
+    lastActivityAt: integer('last_activity_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    userUq: uniqueIndex('user_presence_user_uq').on(t.userId),
+    syncStatusIdx: index('user_presence_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
+// -----------------------------
+// ERP strict model (phase-in)
+// -----------------------------
+export const erpPartTemplates = sqliteTable(
+  'erp_part_templates',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    specJson: text('spec_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_part_templates_code_uq').on(t.code),
+  }),
+);
+
+export const erpPartCards = sqliteTable(
+  'erp_part_cards',
+  {
+    id: text('id').primaryKey(),
+    templateId: text('template_id').notNull(),
+    serialNo: text('serial_no'),
+    cardNo: text('card_no'),
+    attrsJson: text('attrs_json'),
+    status: text('status').notNull().default('active'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    templateIdx: index('erp_part_cards_template_idx').on(t.templateId),
+    cardNoIdx: index('erp_part_cards_card_no_idx').on(t.cardNo),
+  }),
+);
+
+export const erpToolTemplates = sqliteTable(
+  'erp_tool_templates',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    specJson: text('spec_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_tool_templates_code_uq').on(t.code),
+  }),
+);
+
+export const erpToolCards = sqliteTable(
+  'erp_tool_cards',
+  {
+    id: text('id').primaryKey(),
+    templateId: text('template_id').notNull(),
+    serialNo: text('serial_no'),
+    cardNo: text('card_no'),
+    attrsJson: text('attrs_json'),
+    status: text('status').notNull().default('active'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    templateIdx: index('erp_tool_cards_template_idx').on(t.templateId),
+    cardNoIdx: index('erp_tool_cards_card_no_idx').on(t.cardNo),
+  }),
+);
+
+export const erpCounterparties = sqliteTable(
+  'erp_counterparties',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    attrsJson: text('attrs_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_counterparties_code_uq').on(t.code),
+    nameIdx: index('erp_counterparties_name_idx').on(t.name),
+  }),
+);
+
+export const erpContracts = sqliteTable(
+  'erp_contracts',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    counterpartyId: text('counterparty_id'),
+    startsAt: integer('starts_at'),
+    endsAt: integer('ends_at'),
+    attrsJson: text('attrs_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_contracts_code_uq').on(t.code),
+    counterpartyIdx: index('erp_contracts_counterparty_idx').on(t.counterpartyId),
+  }),
+);
+
+export const erpEmployeeCards = sqliteTable(
+  'erp_employee_cards',
+  {
+    id: text('id').primaryKey(),
+    personnelNo: text('personnel_no'),
+    fullName: text('full_name').notNull(),
+    roleCode: text('role_code'),
+    attrsJson: text('attrs_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),
+    fullNameIdx: index('erp_employee_cards_full_name_idx').on(t.fullName),
+  }),
+);
+
+export const erpDocumentHeaders = sqliteTable(
+  'erp_document_headers',
+  {
+    id: text('id').primaryKey(),
+    docType: text('doc_type').notNull(),
+    docNo: text('doc_no').notNull(),
+    docDate: integer('doc_date').notNull(),
+    status: text('status').notNull().default('draft'),
+    authorId: text('author_id'),
+    departmentId: text('department_id'),
+    workshopId: text('workshop_id'),
+    payloadJson: text('payload_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    postedAt: integer('posted_at'),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    docNoUq: uniqueIndex('erp_document_headers_doc_no_uq').on(t.docNo),
+    typeDateIdx: index('erp_document_headers_type_date_idx').on(t.docType, t.docDate),
+    statusIdx: index('erp_document_headers_status_idx').on(t.status),
+  }),
+);
+
+export const erpDocumentLines = sqliteTable(
+  'erp_document_lines',
+  {
+    id: text('id').primaryKey(),
+    headerId: text('header_id').notNull(),
+    lineNo: integer('line_no').notNull(),
+    partCardId: text('part_card_id'),
+    nomenclatureId: text('nomenclature_id'),
+    qty: integer('qty').notNull().default(0),
+    price: integer('price'),
+    payloadJson: text('payload_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    headerLineUq: uniqueIndex('erp_document_lines_header_line_uq').on(t.headerId, t.lineNo),
+    partIdx: index('erp_document_lines_part_idx').on(t.partCardId),
+    nomenclatureIdx: index('erp_document_lines_nomenclature_idx').on(t.nomenclatureId),
+  }),
+);
+
+export const erpNomenclature = sqliteTable(
+  'erp_nomenclature',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull(),
+    sku: text('sku'),
+    name: text('name').notNull(),
+    itemType: text('item_type').notNull().default('material'),
+    category: text('category'),
+    directoryKind: text('directory_kind'),
+    directoryRefId: text('directory_ref_id'),
+    groupId: text('group_id'),
+    unitId: text('unit_id'),
+    barcode: text('barcode'),
+    minStock: integer('min_stock'),
+    maxStock: integer('max_stock'),
+    defaultBrandId: text('default_brand_id'),
+    isSerialTracked: integer('is_serial_tracked', { mode: 'boolean' }).notNull().default(false),
+    defaultWarehouseId: text('default_warehouse_id'),
+    specJson: text('spec_json'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code),
+    skuUq: uniqueIndex('erp_nomenclature_sku_uq').on(t.sku),
+    itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
+    categoryIdx: index('erp_nomenclature_category_idx').on(t.category),
+    directoryKindIdx: index('erp_nomenclature_directory_kind_idx').on(t.directoryKind),
+    groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
+    defaultBrandIdx: index('erp_nomenclature_default_brand_idx').on(t.defaultBrandId),
+    nameIdx: index('erp_nomenclature_name_idx').on(t.name),
+  }),
+);
+
+export const erpEngineAssemblyBom = sqliteTable(
+  'erp_engine_assembly_bom',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    /** Устарело: привязка к номенклатуре «двигатель»; марки BOM теперь в erp_engine_assembly_bom_brand_links. */
+    engineNomenclatureId: text('engine_nomenclature_id'),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('draft'),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    notes: text('notes'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
+  }),
+);
+
+/** Связь BOM ↔ марки двигателей (M:N). */
+export const erpEngineAssemblyBomBrandLinks = sqliteTable(
+  'erp_engine_assembly_bom_brand_links',
+  {
+    id: text('id').primaryKey(),
+    bomId: text('bom_id').notNull(),
+    engineBrandId: text('engine_brand_id').notNull(),
+    isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
+      .on(t.bomId, t.engineBrandId)
+      .where(sql`${t.deletedAt} is null`),
+    bomIdx: index('erp_eabbl_bom_idx').on(t.bomId),
+    brandIdx: index('erp_eabbl_brand_idx').on(t.engineBrandId),
+  }),
+);
+
+export const erpEngineAssemblyBomLines = sqliteTable(
+  'erp_engine_assembly_bom_lines',
+  {
+    id: text('id').primaryKey(),
+    bomId: text('bom_id').notNull(),
+    componentNomenclatureId: text('component_nomenclature_id').notNull(),
+    componentType: text('component_type').notNull().default('other'),
+    qtyPerUnit: integer('qty_per_unit').notNull().default(1),
+    variantGroup: text('variant_group'),
+    isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(true),
+    priority: integer('priority').notNull().default(100),
+    notes: text('notes'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    bomIdx: index('erp_engine_assembly_bom_lines_bom_idx').on(t.bomId),
+    componentIdx: index('erp_engine_assembly_bom_lines_component_idx').on(t.componentNomenclatureId),
+    bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq').on(
+      t.bomId,
+      t.variantGroup,
+      t.componentNomenclatureId,
+      t.componentType,
+    ),
+  }),
+);
+
+export const erpEngineInstances = sqliteTable(
+  'erp_engine_instances',
+  {
+    id: text('id').primaryKey(),
+    nomenclatureId: text('nomenclature_id').notNull(),
+    serialNumber: text('serial_number').notNull(),
+    contractId: text('contract_id'),
+    currentStatus: text('current_status').notNull().default('in_stock'),
+    warehouseLocationId: text('warehouse_location_id'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: integer('last_server_seq'),
+  },
+  (t) => ({
+    nomenclatureSerialUq: uniqueIndex('erp_engine_instances_nomenclature_serial_uq').on(t.nomenclatureId, t.serialNumber),
+    serialIdx: index('erp_engine_instances_serial_idx').on(t.serialNumber),
+    contractIdx: index('erp_engine_instances_contract_idx').on(t.contractId),
+    warehouseLocationIdx: index('erp_engine_instances_warehouse_location_idx').on(t.warehouseLocationId),
+    statusIdx: index('erp_engine_instances_status_idx').on(t.currentStatus),
+  }),
+);
+
+export const erpRegStockBalance = sqliteTable(
+  'erp_reg_stock_balance',
+  {
+    id: text('id').primaryKey(),
+    nomenclatureId: text('nomenclature_id'),
+    partCardId: text('part_card_id'),
+    warehouseLocationId: text('warehouse_location_id'),
+    qty: integer('qty').notNull().default(0),
+    reservedQty: integer('reserved_qty').notNull().default(0),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    partLocationUq: uniqueIndex('erp_reg_stock_balance_part_location_uq').on(t.partCardId, t.warehouseLocationId),
+    nomenclatureLocationUq: uniqueIndex('erp_reg_stock_balance_nomenclature_location_uq').on(t.nomenclatureId, t.warehouseLocationId),
+    warehouseLocationIdx: index('erp_reg_stock_balance_warehouse_location_idx').on(t.warehouseLocationId),
+  }),
+);
+
+export const erpRegStockMovements = sqliteTable(
+  'erp_reg_stock_movements',
+  {
+    id: text('id').primaryKey(),
+    nomenclatureId: text('nomenclature_id').notNull(),
+    warehouseLocationId: text('warehouse_location_id'),
+    documentHeaderId: text('document_header_id'),
+    movementType: text('movement_type').notNull(),
+    qty: integer('qty').notNull().default(0),
+    direction: text('direction').notNull(),
+    engineId: text('engine_id'),
+    counterpartyId: text('counterparty_id'),
+    reason: text('reason'),
+    performedAt: integer('performed_at').notNull(),
+    performedBy: text('performed_by'),
+    prevHash: text('prev_hash'),
+    selfHash: text('self_hash'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({
+    nomenclatureLocationIdx: index('erp_reg_stock_movements_nomenclature_warehouse_location_idx').on(t.nomenclatureId, t.warehouseLocationId),
+    warehouseLocationIdx: index('erp_reg_stock_movements_warehouse_location_idx').on(t.warehouseLocationId),
+    headerIdx: index('erp_reg_stock_movements_header_idx').on(t.documentHeaderId),
+    performedAtIdx: index('erp_reg_stock_movements_performed_at_idx').on(t.performedAt),
+    engineIdx: index('erp_reg_stock_movements_engine_idx').on(t.engineId),
+  }),
+);
+
+export const erpRegPartUsage = sqliteTable(
+  'erp_reg_part_usage',
+  {
+    id: text('id').primaryKey(),
+    partCardId: text('part_card_id').notNull(),
+    engineId: text('engine_id'),
+    documentLineId: text('document_line_id'),
+    qty: integer('qty').notNull().default(0),
+    usedAt: integer('used_at').notNull(),
+  },
+  (t) => ({
+    partUsedAtIdx: index('erp_reg_part_usage_part_used_at_idx').on(t.partCardId, t.usedAt),
+  }),
+);
+
+export const erpRegContractSettlement = sqliteTable(
+  'erp_reg_contract_settlement',
+  {
+    id: text('id').primaryKey(),
+    contractId: text('contract_id').notNull(),
+    documentHeaderId: text('document_header_id').notNull(),
+    amount: integer('amount').notNull().default(0),
+    direction: text('direction').notNull().default('debit'),
+    at: integer('at').notNull(),
+  },
+  (t) => ({
+    contractAtIdx: index('erp_reg_contract_settlement_contract_at_idx').on(t.contractId, t.at),
+  }),
+);
+
+export const erpRegEmployeeAccess = sqliteTable(
+  'erp_reg_employee_access',
+  {
+    id: text('id').primaryKey(),
+    employeeId: text('employee_id').notNull(),
+    scope: text('scope').notNull(),
+    allowed: integer('allowed', { mode: 'boolean' }).notNull().default(true),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    employeeScopeUq: uniqueIndex('erp_reg_employee_access_employee_scope_uq').on(t.employeeId, t.scope),
+  }),
+);
+
+export const erpJournalDocuments = sqliteTable(
+  'erp_journal_documents',
+  {
+    id: text('id').primaryKey(),
+    documentHeaderId: text('document_header_id').notNull(),
+    eventType: text('event_type').notNull(),
+    eventPayloadJson: text('event_payload_json'),
+    eventAt: integer('event_at').notNull(),
+  },
+  (t) => ({
+    headerEventAtIdx: index('erp_journal_documents_header_event_at_idx').on(t.documentHeaderId, t.eventAt),
+    eventAtIdx: index('erp_journal_documents_event_at_idx').on(t.eventAt),
+  }),
+);
+
+export const warehouseCommandOutbox = sqliteTable(
+  'warehouse_command_outbox',
+  {
+    id: text('id').primaryKey(),
+    clientOperationId: text('client_operation_id').notNull(),
+    commandType: text('command_type').notNull(),
+    aggregateType: text('aggregate_type').notNull().default('warehouse_document'),
+    aggregateId: text('aggregate_id'),
+    payloadJson: text('payload_json').notNull(),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextRetryAt: integer('next_retry_at').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    clientOperationIdUq: uniqueIndex('warehouse_command_outbox_client_operation_id_uq').on(t.clientOperationId),
+    statusNextRetryIdx: index('warehouse_command_outbox_status_next_retry_idx').on(t.status, t.nextRetryAt),
+    aggregateIdx: index('warehouse_command_outbox_aggregate_idx').on(t.aggregateType, t.aggregateId),
+  }),
+);
+
+export const syncState = sqliteTable('sync_state', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+

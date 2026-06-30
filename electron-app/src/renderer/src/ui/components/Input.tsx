@@ -1,0 +1,44 @@
+import React, { useState } from 'react';
+
+import { UnifiedDateInput } from './UnifiedDateInput.js';
+
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>((props, ref) => {
+  const inputType = String(props.type ?? 'text');
+  if (inputType === 'date' || inputType === 'datetime-local') {
+    return <UnifiedDateInput {...props} ref={ref} />;
+  }
+
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      {...props}
+      ref={ref}
+      style={{
+        width: '100%',
+        padding: 'var(--ui-input-padding, 4px 6px)',
+        border: focused ? '1px solid var(--input-border-focus)' : '1px solid var(--input-border)',
+        borderRadius: 'var(--ui-radius-sm)',
+        outline: 'none',
+        background: props.disabled ? 'var(--input-bg-disabled)' : 'var(--input-bg)',
+        color: 'var(--text)',
+        fontSize: 'var(--ui-input-font-size, 13px)',
+        lineHeight: 1.2,
+        minHeight: 'var(--ui-input-height, 28px)',
+        boxShadow: focused ? 'var(--input-shadow-focus)' : 'var(--input-shadow)',
+        ...(props.style ?? {}),
+      }}
+      onFocus={(e) => {
+        setFocused(true);
+        props.onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        props.onBlur?.(e);
+      }}
+    />
+  );
+});
+
+Input.displayName = 'Input';
+
+

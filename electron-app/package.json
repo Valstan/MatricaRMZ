@@ -1,0 +1,112 @@
+{
+  "name": "@matricarmz/electron-app",
+  "version": "2026.630.1141",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Valstan/MatricaRMZ.git"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "prebuild": "corepack pnpm -C ../ledger build",
+    "build": "electron-vite build",
+    "pretypecheck": "corepack pnpm -C .. --filter @matricarmz/shared build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretypecheck:test": "corepack pnpm -C .. --filter @matricarmz/shared build",
+    "typecheck:test": "tsc -p tsconfig.vitest.json --noEmit",
+    "lint": "eslint src electron.vite.config.ts drizzle.config.ts --max-warnings 0",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "dist": "pnpm build && electron-builder",
+    "gen-icon": "node scripts/gen-icon.mjs"
+  },
+  "dependencies": {
+    "@matricarmz/shared": "workspace:*",
+    "@tanstack/react-virtual": "^3.13.26",
+    "better-sqlite3": "^12.10.0",
+    "date-fns": "^4.1.0",
+    "drizzle-orm": "^0.45.2",
+    "jszip": "^3.10.1",
+    "react": "^18.3.1",
+    "react-datepicker": "^9.1.0",
+    "react-dom": "^18.3.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/react": "^18.3.15",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "drizzle-kit": "^0.30.1",
+    "electron": "^41.7.1",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^4.0.17"
+  },
+  "build": {
+    "appId": "ru.matricarmz.app",
+    "productName": "MatricaRMZ",
+    "executableName": "MatricaRMZ",
+    "buildDependenciesFromSource": true,
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png"
+    },
+    "files": [
+      "dist/main/**/*",
+      "dist/preload/**/*",
+      "dist/renderer/**/*",
+      "drizzle/**/*",
+      "package.json",
+      "release-info.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "signtoolOptions": {
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      },
+      "extraResources": [
+        {
+          "from": "build/watchdog/matricarmz-watchdog.exe",
+          "to": "matricarmz-watchdog.exe"
+        }
+      ],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "runAfterFinish": true,
+      "include": "installer/installer.nsh",
+      "language": 1049
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Valstan",
+        "repo": "MatricaRMZ",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [".claude/**"],
+  "ignoreBinaries": ["pg_dump", "electron-builder", "tsx"],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs"]
+    },
+    "backend-api": {
+      "entry": ["src/scripts/*.ts", "src/tests/**/*.test.ts", "src/tests/fixtures/*.ts"]
+    },
+    "electron-app": {
+      "entry": [
+        "src/main/index.ts",
+        "src/preload/index.ts",
+        "src/preload/update.ts",
+        "src/renderer/src/main.tsx",
+        "src/renderer/src/ui/pages/*.tsx",
+        "electron.vite.config.ts"
+      ]
+    }
+  }
+}

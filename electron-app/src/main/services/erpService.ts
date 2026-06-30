@@ -1,0 +1,1742 @@
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { filterRowsTiered } from '@matricarmz/shared';
+import type { GlobalSearchResponse, PartMetadata, PartSpec } from '@matricarmz/shared';
+
+import { httpAuthed } from './httpClient.js';
+import { SettingsKey, settingsGetNumber } from './settingsStore.js';
+import {
+  enqueueWarehouseCommand,
+  listDueWarehouseCommands,
+  markWarehouseCommandApplied,
+  markWarehouseCommandFailed,
+} from './warehouseCommandOutboxService.js';
+import {
+  erpDocumentHeaders,
+  erpDocumentLines,
+  erpNomenclature,
+  erpRegStockBalance,
+  erpRegStockMovements,
+} from '../database/schema.js';
+
+type ErpModule = 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
+type ErpCardModule = 'parts' | 'tools' | 'employees';
+
+function normalizeApiBaseUrl(raw: string): string {
+  return String(raw ?? '').trim().replace(/\/+$/, '');
+}
+
+function apiBaseCandidates(baseUrl: string): string[] {
+  const base = normalizeApiBaseUrl(baseUrl);
+  if (!base) return [];
+  const candidates = new Set<string>();
+  candidates.add(base);
+  if (base.endsWith('/api')) {
+    candidates.add(base.replace(/\/api$/, ''));
+  } else {
+    candidates.add(`${base}/api`);
+  }
+  if (base.endsWith('/api/v1')) {
+    candidates.add(base.replace(/\/api\/v1$/, ''));
+  } else {
+    candidates.add(`${base}/api/v1`);
+  }
+  return Array.from(candidates);
+}
+
+function pathCandidates(path: string): string[] {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  const candidates = new Set<string>();
+  candidates.add(normalized);
+  if (normalized.startsWith('/api/')) {
+    candidates.add(normalized.replace(/^\/api/, ''));
+  } else {
+    candidates.add(`/api${normalized}`);
+  }
+  return Array.from(candidates);
+}
+
+function formatHttpError(
+  r: { status: number; json?: any; text?: string },
+  path?: string,
+): string {
+  if (r?.status === 404) {
+    if (path?.startsWith('/warehouse/')) {
+      return 'HTTP 404: Warehouse API недоступно на сервере (проверьте пути /warehouse, /api/warehouse и настройки nginx/proxy).';
+    }
+    if (path?.startsWith('/erp/')) {
+      return 'HTTP 404: ERP API недоступно на сервере (проверьте пути /erp, /api/erp и настройки nginx/proxy).';
+    }
+    return 'HTTP 404: API недоступно на сервере (проверьте настройки nginx/proxy).';
+  }
+  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
+  const rawMsg =
+    typeof jsonErr === 'string'
+      ? jsonErr
+      : jsonErr != null
+        ? JSON.stringify(jsonErr)
+        : typeof r.text === 'string' && r.text.trim()
+          ? r.text.trim()
+          : '';
+  const msg = rawMsg
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
+}
+
+type OfflineReadMeta = {
+  dataSource: 'remote' | 'local';
+  isStale: boolean;
+  lastSyncedAt: number | null;
+};
+
+async function buildOfflineReadMeta(db: BetterSQLite3Database, dataSource: 'remote' | 'local'): Promise<OfflineReadMeta> {
+  const lastSyncedAt = await settingsGetNumber(db, SettingsKey.LastAppliedAt, 0);
+  return {
+    dataSource,
+    isStale: dataSource === 'local',
+    lastSyncedAt: Number(lastSyncedAt) > 0 ? Number(lastSyncedAt) : null,
+  };
+}
+
+async function localWarehouseNomenclatureList(
+  db: BetterSQLite3Database,
+  args?: {
+    id?: string;
+    search?: string;
+    itemType?: string;
+    directoryKind?: string;
+    directoryRefId?: string;
+    groupId?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; meta: OfflineReadMeta }> {
+  const where = [isNull(erpNomenclature.deletedAt)];
+  if (args?.id) where.push(eq(erpNomenclature.id, String(args.id)));
+  if (args?.itemType) where.push(eq(erpNomenclature.itemType, String(args.itemType)));
+  if (args?.directoryKind) where.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+  if (args?.directoryRefId) where.push(eq(erpNomenclature.directoryRefId, String(args.directoryRefId)));
+  if (args?.groupId) where.push(eq(erpNomenclature.groupId, String(args.groupId)));
+  if (args?.isActive !== undefined) where.push(eq(erpNomenclature.isActive, Boolean(args.isActive)));
+  const rows = await db
+    .select()
+    .from(erpNomenclature)
+    .where(and(...where))
+    .orderBy(asc(erpNomenclature.name), asc(erpNomenclature.code));
+  const search = String(args?.search ?? '').trim();
+  // fuzzyFallback: false — keep the offline result equivalent to the server's
+  // SQL search (layout variants + compact matching, no tier-3 fuzzy).
+  const filtered = filterRowsTiered(
+    rows,
+    search,
+    (row) => ({
+      label: String(row.name ?? ''),
+      searchText: `${String(row.code ?? '')} ${String(row.sku ?? '')} ${String(row.barcode ?? '')}`,
+    }),
+    { fuzzyFallback: false },
+  ).rows;
+  const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
+  const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
+  const page = limit == null ? filtered : filtered.slice(offset, offset + limit + 1);
+  const hasMore = limit == null ? false : page.length > limit;
+  return {
+    ok: true,
+    rows: (hasMore ? page.slice(0, limit!) : page) as Array<Record<string, unknown>>,
+    hasMore,
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseNomenclatureGroupCounts(
+  db: BetterSQLite3Database,
+  args?: { search?: string; itemType?: string; directoryKind?: string },
+): Promise<{ ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> }> {
+  const where = [isNull(erpNomenclature.deletedAt)];
+  if (args?.itemType) where.push(eq(erpNomenclature.itemType, String(args.itemType)));
+  if (args?.directoryKind) where.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
+  let allRows = await db
+    .select({ groupId: erpNomenclature.groupId, name: erpNomenclature.name, code: erpNomenclature.code })
+    .from(erpNomenclature)
+    .where(and(...where));
+  const search = String(args?.search ?? '').trim().toLowerCase();
+  if (search) {
+    allRows = allRows.filter((row) => `${String(row.code ?? '')} ${String(row.name ?? '')}`.toLowerCase().includes(search));
+  }
+  const countMap = new Map<string | null, number>();
+  for (const row of allRows) {
+    const key = row.groupId ?? null;
+    countMap.set(key, (countMap.get(key) ?? 0) + 1);
+  }
+  return {
+    ok: true,
+    rows: Array.from(countMap.entries()).map(([groupId, cnt]) => ({
+      groupId,
+      groupName: 'Без группы',
+      count: cnt,
+    })),
+  };
+}
+
+async function localWarehouseStockList(
+  db: BetterSQLite3Database,
+  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; searchSimilar?: boolean; meta: OfflineReadMeta }> {
+  const where = [];
+  // Phase 2.4 PR 2: warehouseId-аргумент теперь uuid warehouse_location_id (UI после PR 1 шлёт UUID).
+  // Legacy callers с code-форматом упадут в empty result — это намеренная стимуляция миграции.
+  if (args?.warehouseId) where.push(eq(erpRegStockBalance.warehouseLocationId, String(args.warehouseId)));
+  if (args?.nomenclatureId) where.push(eq(erpRegStockBalance.nomenclatureId, String(args.nomenclatureId)));
+  const balances = await db
+    .select()
+    .from(erpRegStockBalance)
+    .where(where.length > 0 ? and(...where) : undefined)
+    .orderBy(asc(erpRegStockBalance.warehouseLocationId));
+  const nomenclatureIds = Array.from(new Set(balances.map((row) => String(row.nomenclatureId ?? '')).filter(Boolean)));
+  const nomRows =
+    nomenclatureIds.length > 0
+      ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
+      : [];
+  const byId = new Map(nomRows.map((row) => [String(row.id), row] as const));
+  const search = String(args?.search ?? '').trim();
+  const base = balances
+    .map((row) => {
+      const nom = byId.get(String(row.nomenclatureId ?? ''));
+      const qty = Number(row.qty ?? 0);
+      const reservedQty = Number(row.reservedQty ?? 0);
+      return {
+        ...row,
+        nomenclatureCode: nom?.code ?? null,
+        nomenclatureName: nom?.name ?? null,
+        itemType: nom?.itemType ?? null,
+        minStock: nom?.minStock ?? null,
+        maxStock: nom?.maxStock ?? null,
+        availableQty: qty - reservedQty,
+      } as Record<string, unknown>;
+    })
+    .filter((row) => {
+      if (args?.lowStockOnly !== true) return true;
+      const minStock = Number(row.minStock ?? NaN);
+      const qty = Number(row.qty ?? 0);
+      return Number.isFinite(minStock) ? qty <= minStock : false;
+    });
+  const searched = filterRowsTiered(base, search, (row) => ({
+    label: String(row.nomenclatureName ?? ''),
+    searchText: `${String(row.nomenclatureCode ?? '')} ${String(row.warehouseId ?? '')}`,
+  }));
+  const mapped = searched.rows;
+  const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
+  const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
+  const page = limit == null ? mapped : mapped.slice(offset, offset + limit + 1);
+  const hasMore = limit == null ? false : page.length > limit;
+  return {
+    ok: true,
+    rows: hasMore ? page.slice(0, limit!) : page,
+    hasMore,
+    searchSimilar: searched.similarMode,
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function erpAuthed(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  path: string,
+  init: RequestInit,
+) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const first = await httpAuthed(db, apiBaseUrl, normalizedPath, init);
+  if (first.status !== 404 || !normalizedPath.startsWith('/erp/')) return first;
+
+  const base = normalizeApiBaseUrl(apiBaseUrl);
+  for (const baseCandidate of apiBaseCandidates(base)) {
+    for (const pathCandidate of pathCandidates(normalizedPath)) {
+      if (baseCandidate === base && pathCandidate === normalizedPath) continue;
+      const fallback = await httpAuthed(db, baseCandidate, pathCandidate, init);
+      if (fallback.ok || fallback.status !== 404) return fallback;
+    }
+  }
+  return first;
+}
+
+async function localWarehouseDocumentsList(
+  db: BetterSQLite3Database,
+  args?: {
+    status?: string;
+    docType?: string;
+    excludeCancelled?: boolean;
+    statusIn?: string[];
+    fromDate?: number;
+    toDate?: number;
+    search?: string;
+    warehouseId?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; meta: OfflineReadMeta }> {
+  const where = [isNull(erpDocumentHeaders.deletedAt)];
+  if (args?.status) where.push(eq(erpDocumentHeaders.status, String(args.status)));
+  if (args?.docType) where.push(eq(erpDocumentHeaders.docType, String(args.docType)));
+  if (args?.fromDate !== undefined) where.push(sql`${erpDocumentHeaders.docDate} >= ${Math.trunc(Number(args.fromDate))}`);
+  if (args?.toDate !== undefined) where.push(sql`${erpDocumentHeaders.docDate} <= ${Math.trunc(Number(args.toDate))}`);
+  const headerRows = await db
+    .select()
+    .from(erpDocumentHeaders)
+    .where(and(...where))
+    .orderBy(desc(erpDocumentHeaders.docDate), desc(erpDocumentHeaders.createdAt));
+  const statusIn = Array.isArray(args?.statusIn) ? new Set(args!.statusIn.map((x) => String(x).trim()).filter(Boolean)) : null;
+  const filtered = headerRows.filter((row) => {
+    if (statusIn) return statusIn.size > 0 && statusIn.has(String(row.status));
+    if (args?.excludeCancelled === true && String(row.status) === 'cancelled') return false;
+    const payload = String(row.payloadJson ?? '');
+    if (args?.warehouseId && !payload.includes(String(args.warehouseId))) return false;
+    const search = String(args?.search ?? '').trim().toLowerCase();
+    if (!search) return true;
+    return `${String(row.docNo ?? '')} ${String(row.docType ?? '')} ${payload}`.toLowerCase().includes(search);
+  });
+  const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
+  const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
+  const page = limit == null ? filtered : filtered.slice(offset, offset + limit + 1);
+  const hasMore = limit == null ? false : page.length > limit;
+  return {
+    ok: true,
+    rows: (hasMore ? page.slice(0, limit!) : page) as Array<Record<string, unknown>>,
+    hasMore,
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseDocumentGet(
+  db: BetterSQLite3Database,
+  id: string,
+): Promise<{ ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> }; meta: OfflineReadMeta } | { ok: false; error: string }> {
+  const header = await db
+    .select()
+    .from(erpDocumentHeaders)
+    .where(and(eq(erpDocumentHeaders.id, String(id)), isNull(erpDocumentHeaders.deletedAt)))
+    .limit(1);
+  const row = header[0];
+  if (!row) return { ok: false, error: 'Документ не найден в локальном кэше' };
+  const lines = await db
+    .select()
+    .from(erpDocumentLines)
+    .where(and(eq(erpDocumentLines.headerId, String(id)), isNull(erpDocumentLines.deletedAt)))
+    .orderBy(asc(erpDocumentLines.lineNo));
+  return {
+    ok: true,
+    document: {
+      header: row as Record<string, unknown>,
+      lines: lines as Array<Record<string, unknown>>,
+    },
+    meta: await buildOfflineReadMeta(db, 'local'),
+  };
+}
+
+async function localWarehouseMovementsList(
+  db: BetterSQLite3Database,
+  args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number },
+): Promise<{ ok: true; rows: Array<Record<string, unknown>>; meta: OfflineReadMeta }> {
+  const where = [];
+  if (args?.nomenclatureId) where.push(eq(erpRegStockMovements.nomenclatureId, String(args.nomenclatureId)));
+  // Phase 2.4 PR 2: warehouseId-аргумент теперь uuid warehouse_location_id.
+  if (args?.warehouseId) where.push(eq(erpRegStockMovements.warehouseLocationId, String(args.warehouseId)));
+  if (args?.documentHeaderId) where.push(eq(erpRegStockMovements.documentHeaderId, String(args.documentHeaderId)));
+  if (args?.fromDate !== undefined) where.push(sql`${erpRegStockMovements.performedAt} >= ${Math.trunc(Number(args.fromDate))}`);
+  if (args?.toDate !== undefined) where.push(sql`${erpRegStockMovements.performedAt} <= ${Math.trunc(Number(args.toDate))}`);
+  const limit = Math.max(1, Math.min(10_000, Math.trunc(Number(args?.limit ?? 500))));
+  const rows = await db
+    .select()
+    .from(erpRegStockMovements)
+    .where(where.length > 0 ? and(...where) : undefined)
+    .orderBy(desc(erpRegStockMovements.performedAt))
+    .limit(limit);
+  return { ok: true, rows: rows as Array<Record<string, unknown>>, meta: await buildOfflineReadMeta(db, 'local') };
+}
+
+export async function erpDictionaryList(db: BetterSQLite3Database, apiBaseUrl: string, moduleName: ErpModule) {
+  const path = `/erp/dictionary/${encodeURIComponent(moduleName)}`;
+  try {
+    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: 'bad erp dictionary response' };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function erpDictionaryUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { moduleName: ErpModule; id?: string; code: string; name: string; payloadJson?: string | null },
+) {
+  const path = `/erp/dictionary/${encodeURIComponent(args.moduleName)}`;
+  try {
+    const r = await erpAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(args.id ? { id: args.id } : {}),
+        code: args.code,
+        name: args.name,
+        ...(args.payloadJson !== undefined ? { payloadJson: args.payloadJson } : {}),
+      }),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function erpCardsList(db: BetterSQLite3Database, apiBaseUrl: string, moduleName: ErpCardModule) {
+  const path = `/erp/cards/${encodeURIComponent(moduleName)}`;
+  try {
+    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: 'bad erp cards response' };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function erpCardsUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: {
+    moduleName: ErpCardModule;
+    id?: string;
+    templateId?: string | null;
+    serialNo?: string | null;
+    cardNo?: string | null;
+    status?: string | null;
+    payloadJson?: string | null;
+    fullName?: string | null;
+    personnelNo?: string | null;
+    roleCode?: string | null;
+  },
+) {
+  const path = `/erp/cards/${encodeURIComponent(args.moduleName)}`;
+  try {
+    const r = await erpAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function erpDocumentsList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { status?: string; docType?: string },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.status) qp.set('status', args.status);
+    if (args?.docType) qp.set('docType', args.docType);
+    const path = `/erp/documents${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: 'bad erp documents response' };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function erpDocumentsCreate(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: {
+    docType: string;
+    docNo: string;
+    docDate?: number;
+    departmentId?: string | null;
+    authorId?: string | null;
+    payloadJson?: string | null;
+    lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
+  },
+) {
+  const path = '/erp/documents';
+  try {
+    const r = await erpAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function erpDocumentsPost(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  documentId: string,
+) {
+  const path = `/erp/documents/${encodeURIComponent(documentId)}/post`;
+  try {
+    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? documentId) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+async function warehouseAuthed(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  path: string,
+  init: RequestInit,
+  httpOpts?: { timeoutMs?: number; attempts?: number },
+) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const first = await httpAuthed(db, apiBaseUrl, normalizedPath, init, httpOpts);
+  if (first.status !== 404 || !normalizedPath.startsWith('/warehouse/')) return first;
+
+  const base = normalizeApiBaseUrl(apiBaseUrl);
+  for (const baseCandidate of apiBaseCandidates(base)) {
+    for (const pathCandidate of pathCandidates(normalizedPath)) {
+      if (baseCandidate === base && pathCandidate === normalizedPath) continue;
+      const fallback = await httpAuthed(db, baseCandidate, pathCandidate, init, httpOpts);
+      if (fallback.ok || fallback.status !== 404) return fallback;
+    }
+  }
+  return first;
+}
+
+async function warehouseDocumentCreateRemote(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const path = '/warehouse/documents';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function warehouseDocumentCancelRemote(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+  args?: { clientOperationId?: string; expectedUpdatedAt?: number },
+): Promise<{ ok: true; id: string; status: string } | { ok: false; error: string }> {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/cancel`;
+  try {
+    const body: Record<string, unknown> = {};
+    if (args?.clientOperationId) body.clientOperationId = args.clientOperationId;
+    if (args?.expectedUpdatedAt != null) body.expectedUpdatedAt = Math.trunc(Number(args.expectedUpdatedAt));
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      ...(Object.keys(body).length > 0
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {}),
+    });
+    if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true, id: String(r.json.id ?? id), status: String(r.json.status ?? 'cancelled') };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function drainWarehouseCommandOutboxOnce(db: BetterSQLite3Database, apiBaseUrl: string): Promise<void> {
+  const due = await listDueWarehouseCommands(db, 15);
+  for (const row of due) {
+    try {
+      if (row.commandType === 'document_upsert') {
+        const payload = { ...row.body, clientOperationId: row.clientOperationId };
+        const result = await warehouseDocumentCreateRemote(db, apiBaseUrl, payload);
+        if (!result.ok) {
+          await markWarehouseCommandFailed(db, row.id, result.error);
+          continue;
+        }
+      } else if (row.commandType === 'document_cancel') {
+        const documentId = String(row.body.documentId ?? '').trim();
+        if (!documentId) {
+          await markWarehouseCommandFailed(db, row.id, 'documentId is required');
+          continue;
+        }
+        const cancelExtras: { clientOperationId?: string; expectedUpdatedAt?: number } = {};
+        if (row.clientOperationId) cancelExtras.clientOperationId = row.clientOperationId;
+        const ev = Number((row.body as { expectedUpdatedAt?: unknown }).expectedUpdatedAt ?? 0);
+        if (Number.isFinite(ev) && ev !== 0) cancelExtras.expectedUpdatedAt = Math.trunc(ev);
+        const result = await warehouseDocumentCancelRemote(
+          db,
+          apiBaseUrl,
+          documentId,
+          Object.keys(cancelExtras).length > 0 ? cancelExtras : undefined,
+        );
+        if (!result.ok) {
+          await markWarehouseCommandFailed(db, row.id, result.error);
+          continue;
+        }
+      }
+      await markWarehouseCommandApplied(db, row.id);
+    } catch (e) {
+      await markWarehouseCommandFailed(db, row.id, String(e));
+    }
+  }
+}
+
+export async function warehouseNomenclatureList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: {
+    id?: string;
+    search?: string;
+    itemType?: string;
+    directoryKind?: string;
+    directoryRefId?: string;
+    groupId?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.id) qp.set('id', args.id);
+    if (args?.search) qp.set('search', args.search);
+    if (args?.itemType) qp.set('itemType', args.itemType);
+    if (args?.directoryKind) qp.set('directoryKind', args.directoryKind);
+    if (args?.directoryRefId) qp.set('directoryRefId', args.directoryRefId);
+    if (args?.groupId) qp.set('groupId', args.groupId);
+    if (args?.isActive !== undefined) qp.set('isActive', args.isActive ? 'true' : 'false');
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
+    const path = `/warehouse/nomenclature${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 60_000 });
+    if (!r.ok) {
+      const local = await localWarehouseNomenclatureList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
+  } catch (e) {
+    const local = await localWarehouseNomenclatureList(db, args);
+    return { ...local, warning: String(e) } as const;
+  }
+}
+
+// L3 server search (Ctrl+K palette). Server-only; on any failure return empty — the renderer
+// still has L1/L2. No local SQLite fallback (the heavy datasets aren't fully cached client-side).
+export async function globalSearchQuery(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { q: string; limit?: number },
+): Promise<GlobalSearchResponse> {
+  const query = String(args?.q ?? '').trim();
+  if (!query) return { query: '', hits: [], truncated: false };
+  try {
+    const qp = new URLSearchParams();
+    qp.set('q', query);
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    const r = await httpAuthed(db, apiBaseUrl, `/search?${qp.toString()}`, { method: 'GET' }, { timeoutMs: 15_000 });
+    if (!r.ok || !r.json || typeof r.json !== 'object') return { query, hits: [], truncated: false };
+    const json = r.json as Partial<GlobalSearchResponse>;
+    return {
+      query: typeof json.query === 'string' ? json.query : query,
+      hits: Array.isArray(json.hits) ? json.hits : [],
+      truncated: Boolean(json.truncated),
+    };
+  } catch {
+    return { query, hits: [], truncated: false };
+  }
+}
+
+export async function warehouseNomenclatureGroupCounts(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { search?: string; itemType?: string; directoryKind?: string },
+): Promise<{ ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> } | { ok: false; error: string }> {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.search) qp.set('search', args.search);
+    if (args?.itemType) qp.set('itemType', args.itemType);
+    if (args?.directoryKind) qp.set('directoryKind', args.directoryKind);
+    const path = `/warehouse/nomenclature/group-counts${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 15_000 });
+    if (!r.ok) {
+      return localWarehouseNomenclatureGroupCounts(db, args);
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> };
+  } catch {
+    return localWarehouseNomenclatureGroupCounts(db, args);
+  }
+}
+
+export async function warehouseLookupsGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+) {
+  const path = '/warehouse/lookups';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; lookups: Record<string, unknown> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureItemTypesList(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/nomenclature/item-types';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureItemTypeUpsert(db: BetterSQLite3Database, apiBaseUrl: string, args: Record<string, unknown>) {
+  const path = '/warehouse/nomenclature/item-types';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String((r.json as any).id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureItemTypeDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/nomenclature/item-types/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return { ok: true as const, id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePropertiesList(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/nomenclature/properties';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePropertyUpsert(db: BetterSQLite3Database, apiBaseUrl: string, args: Record<string, unknown>) {
+  const path = '/warehouse/nomenclature/properties';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String((r.json as any).id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePropertyDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/nomenclature/properties/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return { ok: true as const, id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureTemplatesList(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/nomenclature/templates';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureTemplateUpsert(db: BetterSQLite3Database, apiBaseUrl: string, args: Record<string, unknown>) {
+  const path = '/warehouse/nomenclature/templates';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String((r.json as any).id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureTemplateDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/nomenclature/templates/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    return { ok: true as const, id };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/nomenclature';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclatureDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/nomenclature/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePartSpecsList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { templateId?: string; engineBrandId?: string },
+) {
+  const qs = new URLSearchParams();
+  if (args?.templateId) qs.set('templateId', String(args.templateId));
+  if (args?.engineBrandId) qs.set('engineBrandId', String(args.engineBrandId));
+  const query = qs.toString();
+  const path = `/warehouse/part-specs${query ? `?${query}` : ''}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      rows: Array<{ id: string; name: string; isActive: boolean; templateName: string | null; metadata: PartMetadata } & PartSpec>;
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePartSpecGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  nomenclatureId: string,
+) {
+  const path = `/warehouse/nomenclature/${encodeURIComponent(nomenclatureId)}/part-spec`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      spec: PartSpec | null;
+      metadata: PartMetadata | null;
+      name: string | null;
+      isActive: boolean | null;
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDirectoryPartCreate(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { name: string; code?: string | null },
+) {
+  const path = '/warehouse/directory-parts';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: String(args?.name ?? ''), ...(args?.code !== undefined ? { code: args.code } : {}) }),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; part: { id: string } };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function engineDedupeAnalyze(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/engines/dedupe';
+  try {
+    const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      totalEngines: number;
+      groups: Array<{
+        kind: 'exact' | 'similar';
+        engines: Array<{ id: string; engineNumber: string; engineBrand: string; createdAt: number; opsCount: number }>;
+      }>;
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function engineDedupeMerge(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { survivorId: string; loserIds: string[] },
+) {
+  const path = '/engines/dedupe/merge';
+  try {
+    // Non-idempotent destructive merge — generous timeout, NO auto-retry (a retried POST
+    // would re-run against partially-merged state).
+    const r = await httpAuthed(
+      db,
+      apiBaseUrl,
+      path,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ survivorId: String(args.survivorId), loserIds: (args.loserIds ?? []).map(String) }),
+      },
+      { timeoutMs: 60_000, attempts: 1 },
+    );
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      report: { survivorId: string; merged: Array<{ loserId: string; opsRepointed: number; attrsFilled: number }> };
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehousePartsDedupeAnalyze(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/parts-dedupe';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      totalParts: number;
+      groups: Array<{
+        kind: 'exact' | 'code-collision' | 'fuzzy';
+        parts: Array<{
+          id: string;
+          name: string;
+          code: string | null;
+          isActive: boolean;
+          createdAt: number;
+          usage: {
+            stockBalances: number;
+            stockMovements: number;
+            bomLines: number;
+            docLines: number;
+            brandLinks: number;
+            hasNomenclature: boolean;
+          };
+        }>;
+      }>;
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehousePartsDedupeMerge(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { survivorId: string; mergedIds: string[] },
+) {
+  const path = '/warehouse/parts-dedupe/merge';
+  try {
+    // Merge is a non-idempotent server mutation that can take a while (repoints stock,
+    // movements, BOM, docs, acts). Give it a generous timeout and DISABLE auto-retry —
+    // a retried POST would re-run on partially-merged state and surface a spurious error.
+    const r = await warehouseAuthed(
+      db,
+      apiBaseUrl,
+      path,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ survivorId: String(args.survivorId), mergedIds: (args.mergedIds ?? []).map(String) }),
+      },
+      { timeoutMs: 60_000, attempts: 1 },
+    );
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      report: {
+        survivorId: string;
+        merged: Array<{
+          loserId: string;
+          repointed: { stockBalances: number; stockMovements: number; bomLines: number; docLines: number; operations: number };
+          bomLinesDropped: number;
+          brandLinksAdded: number;
+        }>;
+        fills: string[];
+        conflicts: string[];
+      };
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function maintenanceEmptyCardsAnalyze(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/maintenance/empty-cards';
+  try {
+    const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as {
+      ok: true;
+      total: number;
+      groups: Array<{
+        kind: 'engine' | 'contract' | 'employee' | 'work_order' | 'supply_request';
+        label: string;
+        rows: Array<{ id: string; kind: string; label: string; createdAt: number }>;
+      }>;
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function maintenanceEmptyCardsDelete(db: BetterSQLite3Database, apiBaseUrl: string, args: { ids: string[] }) {
+  const path = '/maintenance/empty-cards/delete';
+  try {
+    // Destructive soft-delete — generous timeout, NO auto-retry (a retried POST would re-scan
+    // and re-delete already-removed rows, surfacing a spurious mismatch).
+    const r = await httpAuthed(
+      db,
+      apiBaseUrl,
+      path,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: (args.ids ?? []).map(String) }),
+      },
+      { timeoutMs: 60_000, attempts: 1 },
+    );
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; deleted: number; skipped: Array<{ id: string; reason: string }> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseNomenclaturePartSpecUpdate(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  nomenclatureId: string,
+  spec: Record<string, unknown>,
+  metadata?: PartMetadata,
+) {
+  const path = `/warehouse/nomenclature/${encodeURIComponent(nomenclatureId)}/part-spec`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      // Phase 3 Stage E: metadata (residual part fields) rides alongside the spec columns;
+      // backend route schema expects it as a sibling of code/templateId in the body.
+      body: JSON.stringify({ ...spec, ...(metadata !== undefined ? { metadata } : {}) }),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; spec: PartSpec; metadata: PartMetadata | null };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseEngineInstancesList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { nomenclatureId?: string; contractId?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
+    if (args?.contractId) qp.set('contractId', args.contractId);
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.status) qp.set('status', args.status);
+    if (args?.search) qp.set('search', args.search);
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
+    const path = `/warehouse/engine-instances${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseEngineInstanceUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/engine-instances';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseEngineInstanceDelete(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/engine-instances/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseContractSectionsGet(
+  apiBaseUrl: string,
+  contractId: string,
+) {
+  const path = `/warehouse/contracts/${encodeURIComponent(contractId)}/sections`;
+  try {
+    const r = await fetch(`${apiBaseUrl}${path}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      return { ok: false as const, error: formatHttpError({ status: r.status, text }, path) };
+    }
+    const json = (await r.json().catch(() => null)) as { ok?: boolean; error?: string; sections?: string[] } | null;
+    if (!json?.ok) return { ok: false as const, error: String(json?.error ?? 'unknown') };
+    return { ok: true as const, sections: Array.isArray(json.sections) ? json.sections : [] };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseStockList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
+) {
+  try {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    const qp = new URLSearchParams();
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
+    if (args?.search) qp.set('search', args.search);
+    if (args?.lowStockOnly !== undefined) qp.set('lowStockOnly', args.lowStockOnly ? 'true' : 'false');
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
+    const path = `/warehouse/stock${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) {
+      const local = await localWarehouseStockList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
+  } catch (e) {
+    const local = await localWarehouseStockList(db, args);
+    return { ...local, warning: String(e) } as const;
+  }
+}
+
+export async function warehouseEngineOutputAnalytics(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { metric?: string; bucket?: string; from?: string; to?: string; workshopId?: string },
+) {
+  const qp = new URLSearchParams();
+  if (args?.metric) qp.set('metric', String(args.metric));
+  if (args?.bucket) qp.set('bucket', String(args.bucket));
+  if (args?.from) qp.set('from', String(args.from));
+  if (args?.to) qp.set('to', String(args.to));
+  if (args?.workshopId) qp.set('workshopId', String(args.workshopId));
+  const path = `/warehouse/analytics/engine-output${qp.toString() ? `?${qp.toString()}` : ''}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 60_000 });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; result: unknown };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDocumentsList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: {
+    status?: string;
+    docType?: string;
+    excludeCancelled?: boolean;
+    /** Список статусов для отображения; пустой массив — явно «ничего не показывать». */
+    statusIn?: string[];
+    fromDate?: number;
+    toDate?: number;
+    search?: string;
+    warehouseId?: string;
+    limit?: number;
+    offset?: number;
+  },
+) {
+  try {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    const qp = new URLSearchParams();
+    if (args?.status) qp.set('status', args.status);
+    if (args?.docType) qp.set('docType', args.docType);
+    if (args?.excludeCancelled === true) qp.set('excludeCancelled', 'true');
+    if (args?.statusIn !== undefined) qp.set('statusIn', args.statusIn.join(','));
+    if (args?.fromDate !== undefined) qp.set('fromDate', String(Math.trunc(args.fromDate)));
+    if (args?.toDate !== undefined) qp.set('toDate', String(Math.trunc(args.toDate)));
+    if (args?.search) qp.set('search', args.search);
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
+    const path = `/warehouse/documents${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) {
+      const local = await localWarehouseDocumentsList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
+  } catch (e) {
+    const local = await localWarehouseDocumentsList(db, args);
+    return { ...local, warning: String(e) } as const;
+  }
+}
+
+export async function warehouseDocumentGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) {
+      const local = await localWarehouseDocumentGet(db, id);
+      if (!local.ok) return { ok: false as const, error: formatHttpError(r, path) };
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return {
+      ...(r.json as { ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
+  } catch (e) {
+    const local = await localWarehouseDocumentGet(db, id);
+    if (!local.ok) return { ok: false as const, error: String(e) };
+    return { ...local, warning: String(e) } as const;
+  }
+}
+
+export async function warehouseDocumentCreate(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const result = await warehouseDocumentCreateRemote(db, apiBaseUrl, args);
+  if (result.ok) {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    return { ok: true as const, id: result.id, queued: false };
+  }
+  const queued = await enqueueWarehouseCommand(db, {
+    commandType: 'document_upsert',
+    aggregateType: 'warehouse_document',
+    aggregateId: args.id == null ? null : String(args.id),
+    body: args,
+  });
+  return {
+    ok: true as const,
+    id: String(args.id ?? queued.id),
+    queued: true,
+    clientOperationId: queued.clientOperationId,
+    warning: result.error,
+  };
+}
+
+export async function warehouseDocumentPost(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+  args?: { expectedUpdatedAt?: number },
+) {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/post`;
+  try {
+    const body: Record<string, unknown> = {};
+    if (args?.expectedUpdatedAt != null) body.expectedUpdatedAt = Math.trunc(Number(args.expectedUpdatedAt));
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      ...(Object.keys(body).length > 0
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {}),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Ремфонд Ф1: занос годных к ремонту деталей двигателя в ремонтный фонд из дефектовки.
+ * Требует онлайн-бэкенд (резолв номенклатуры + проводка прихода) — в офлайне просто
+ * вернёт ошибку (оператор повторит online); очередь outbox тут не нужна.
+ */
+export async function warehouseRepairFundIntake(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> },
+) {
+  const path = '/warehouse/repair-fund/intake-from-engine';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Ремфонд Ф3: захват номерных экземпляров деталей двигателя (личные набитые номера).
+ * Требует онлайн-бэкенд (резолв номенклатуры + идемпотентный upsert) — в офлайне
+ * вернёт ошибку. Ответ содержит актуальный список экземпляров двигателя для мгновенного
+ * обновления вида (без ожидания синка).
+ */
+export async function warehouseRepairFundCaptureInstances(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: {
+    engineId: string;
+    instances: Array<{ partId: string; partLabel: string; stampedNumber: string; classification: string }>;
+  },
+) {
+  const path = '/warehouse/repair-fund/instances/capture-from-engine';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Ремфонд Ф3.1: ручная отметка экземпляра «отремонтирована» (in_fund↔repaired) с карточки
+ * двигателя. Требует онлайн-бэкенд. Ответ содержит актуальный список экземпляров двигателя
+ * для мгновенного обновления вида (без ожидания синка).
+ */
+export async function warehouseRepairFundSetInstanceRepaired(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { operationId: string; repaired: boolean },
+) {
+  const path = `/warehouse/repair-fund/instances/${encodeURIComponent(args.operationId)}/repaired`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repaired: args.repaired }),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDocumentPlan(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/plan`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDocumentCancel(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+  args?: { expectedUpdatedAt?: number },
+) {
+  const result = await warehouseDocumentCancelRemote(db, apiBaseUrl, id, args);
+  if (result.ok) {
+    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    return { ok: true as const, id: result.id, status: result.status, queued: false };
+  }
+  const queued = await enqueueWarehouseCommand(db, {
+    commandType: 'document_cancel',
+    aggregateType: 'warehouse_document',
+    aggregateId: id,
+    body: { documentId: id, ...(args?.expectedUpdatedAt != null ? { expectedUpdatedAt: args.expectedUpdatedAt } : {}) },
+  });
+  return {
+    ok: true as const,
+    id,
+    status: 'cancel_queued',
+    queued: true,
+    clientOperationId: queued.clientOperationId,
+    warning: result.error,
+  };
+}
+
+export async function warehouseForecastIncomingGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { from: number; to: number; warehouseId?: string },
+) {
+  try {
+    const qp = new URLSearchParams();
+    qp.set('from', String(Math.trunc(args.from)));
+    qp.set('to', String(Math.trunc(args.to)));
+    if (args.warehouseId) qp.set('warehouseId', String(args.warehouseId));
+    const path = `/warehouse/forecast/incoming?${qp.toString()}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.engineBrandId) qp.set('engineBrandId', args.engineBrandId);
+    if (args?.engineNomenclatureId) qp.set('engineNomenclatureId', args.engineNomenclatureId);
+    if (args?.status) qp.set('status', args.status);
+    const path = `/warehouse/assembly-bom${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomSchemaGet(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/assembly-bom/schema';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; schema: Record<string, unknown>; updatedAt: number };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomSchemaSet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> },
+) {
+  const path = '/warehouse/assembly-bom/schema';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        schema: args.schema,
+        ...(args.renames && args.renames.length > 0 ? { renames: args.renames } : {}),
+      }),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; schema: Record<string, unknown>; updatedAt: number; renamedLineCount?: number };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomSchemaUsageGet(db: BetterSQLite3Database, apiBaseUrl: string) {
+  const path = '/warehouse/assembly-bom/schema/usage';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; bom: Record<string, unknown> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/assembly-bom';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomDelete(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomActivateDefault(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}/activate-default`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomArchive(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}/archive`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id ?? id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomHistory(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  engineBrandId: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(engineBrandId)}/history`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyBomPrint(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+) {
+  const path = `/warehouse/assembly-bom/${encodeURIComponent(id)}/print`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; payload: Record<string, unknown> };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseForecastBomGet(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineBrandId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] },
+) {
+  try {
+    const qp = new URLSearchParams();
+    qp.set('engineBrandId', args.engineBrandId);
+    if (args.targetEnginesPerDay !== undefined) qp.set('targetEnginesPerDay', String(Math.trunc(args.targetEnginesPerDay)));
+    if (args.horizonDays !== undefined) qp.set('horizonDays', String(Math.trunc(args.horizonDays)));
+    if (args.warehouseIds && args.warehouseIds.length > 0) qp.set('warehouseIds', args.warehouseIds.join(','));
+    const path = `/warehouse/forecast/bom?${qp.toString()}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json as { ok: true; rows: Array<Record<string, unknown>>; warnings?: string[] };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseMovementsList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
+    if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
+    if (args?.documentHeaderId) qp.set('documentHeaderId', args.documentHeaderId);
+    if (args?.fromDate !== undefined) qp.set('fromDate', String(Math.trunc(args.fromDate)));
+    if (args?.toDate !== undefined) qp.set('toDate', String(Math.trunc(args.toDate)));
+    if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
+    const path = `/warehouse/movements${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) {
+      const local = await localWarehouseMovementsList(db, args);
+      return { ...local, warning: formatHttpError(r, path) } as const;
+    }
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return {
+      ...(r.json as { ok: true; rows: Array<Record<string, unknown>> }),
+      meta: await buildOfflineReadMeta(db, 'remote'),
+    };
+  } catch (e) {
+    const local = await localWarehouseMovementsList(db, args);
+    return { ...local, warning: String(e) } as const;
+  }
+}

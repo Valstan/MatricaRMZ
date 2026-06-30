@@ -1,0 +1,96 @@
+name: Release Electron (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+
+      # The watchdog is bundled into the installer as a Windows extraResource
+      # (electron-app build.win.extraResources). It must exist before
+      # electron-builder packs, so build it here into the path package.json
+      # references. It ships UNSIGNED — code-signing is not available to this
+      # project (no CA cert), same as the client itself.
+      - name: Build watchdog binary (windows/amd64)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p electron-app/build/watchdog
+          cd watchdog
+          go vet ./...
+          # -H=windowsgui builds a GUI-subsystem binary so the per-user Scheduled
+          # Task (logon + every 15 min) never flashes a console window at operators.
+          # The watchdog logs to %APPDATA%\MatricaRMZ\watchdog.log regardless of stdout.
+          go build -trimpath -ldflags "-s -w -H=windowsgui" -o ../electron-app/build/watchdog/matricarmz-watchdog.exe .
+        shell: bash
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Write release info (Yandex/GitHub)
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
+        run: node scripts/write-release-info.mjs
+
+      - name: Build shared
+        run: pnpm -C shared build
+
+      - name: Build electron app
+        run: pnpm -C electron-app build
+
+      # On a v* tag: publish the GitHub Release (electron-builder makes it as a
+      # draft unless releaseType: release, which package.json sets). On a manual
+      # workflow_dispatch (a branch, no tag): build only, publish nothing — used
+      # to produce a test installer artifact for on-machine verification.
+      - name: Publish release (Windows x64)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pnpm -C electron-app exec electron-builder --win --x64 --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+
+      - name: Upload test installer artifact (non-tag builds)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: matricarmz-installer-test
+          path: electron-app/release/*.exe
+          if-no-files-found: error
+
+      - name: Upload artifacts to Yandex Disk
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_FOLDER: ${{ vars.YANDEX_DISK_FOLDER }}
+        run: node scripts/upload-yandex-disk.mjs --dir electron-app/release
+
+

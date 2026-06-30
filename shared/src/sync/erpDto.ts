@@ -1,0 +1,188 @@
+import { z } from 'zod';
+
+import { ErpSyncTableName } from './erpTables.js';
+
+const baseErpFields = {
+  id: z.string().uuid(),
+  created_at: z.number().int(),
+  updated_at: z.number().int(),
+  deleted_at: z.number().int().nullable().optional(),
+} as const;
+
+export const erpPartTemplateRowSchema = z.object({
+  ...baseErpFields,
+  code: z.string().min(1),
+  name: z.string().min(1),
+  spec_json: z.string().nullable().optional(),
+  is_active: z.boolean(),
+});
+
+export const erpPartCardRowSchema = z.object({
+  ...baseErpFields,
+  template_id: z.string().uuid(),
+  serial_no: z.string().nullable().optional(),
+  card_no: z.string().nullable().optional(),
+  attrs_json: z.string().nullable().optional(),
+  status: z.string().min(1),
+});
+
+export const erpDocumentHeaderRowSchema = z.object({
+  ...baseErpFields,
+  doc_type: z.string().min(1),
+  doc_no: z.string().min(1),
+  doc_date: z.number().int(),
+  status: z.string().min(1),
+  author_id: z.string().uuid().nullable().optional(),
+  department_id: z.string().nullable().optional(),
+  workshop_id: z.string().uuid().nullable().optional(),
+  payload_json: z.string().nullable().optional(),
+  posted_at: z.number().int().nullable().optional(),
+});
+
+export const erpDocumentLineRowSchema = z.object({
+  ...baseErpFields,
+  header_id: z.string().uuid(),
+  line_no: z.number().int().nonnegative(),
+  part_card_id: z.string().uuid().nullable().optional(),
+  nomenclature_id: z.string().uuid().nullable().optional(),
+  qty: z.number().int(),
+  price: z.number().int().nullable().optional(),
+  payload_json: z.string().nullable().optional(),
+});
+
+export const erpNomenclatureRowSchema = z.object({
+  ...baseErpFields,
+  code: z.string().min(1),
+  sku: z.string().nullable().optional(),
+  name: z.string().min(1),
+  item_type: z.string().min(1),
+  category: z.string().nullable().optional(),
+  directory_kind: z.string().nullable().optional(),
+  directory_ref_id: z.string().uuid().nullable().optional(),
+  group_id: z.string().uuid().nullable().optional(),
+  unit_id: z.string().uuid().nullable().optional(),
+  barcode: z.string().nullable().optional(),
+  min_stock: z.number().int().nullable().optional(),
+  max_stock: z.number().int().nullable().optional(),
+  default_brand_id: z.string().uuid().nullable().optional(),
+  is_serial_tracked: z.boolean().optional(),
+  default_warehouse_id: z.string().nullable().optional(),
+  spec_json: z.string().nullable().optional(),
+  is_active: z.boolean(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+export const erpEngineInstanceRowSchema = z.object({
+  ...baseErpFields,
+  nomenclature_id: z.string().uuid(),
+  serial_number: z.string().min(1),
+  contract_id: z.string().uuid().nullable().optional(),
+  current_status: z.string().min(1),
+  // Phase 2.4 PR 3: warehouse_id колонка удалена, но zod ловит ещё legacy-payload от старых клиентов.
+  warehouse_id: z.string().nullable().optional(),
+  warehouse_location_id: z.string().uuid().nullable().optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+});
+
+export const erpEngineAssemblyBomRowSchema = z.object({
+  ...baseErpFields,
+  name: z.string().min(1),
+  engine_nomenclature_id: z.string().uuid().nullable().optional(),
+  version: z.number().int().min(1),
+  status: z.enum(['draft', 'active', 'archived']),
+  is_default: z.boolean(),
+  notes: z.string().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+/** Связь BOM ↔ марка двигателя (M:N). */
+export const erpEngineAssemblyBomBrandLinkRowSchema = z.object({
+  ...baseErpFields,
+  bom_id: z.string().uuid(),
+  engine_brand_id: z.string().uuid(),
+  is_primary: z.boolean(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+export const erpEngineAssemblyBomLineRowSchema = z.object({
+  ...baseErpFields,
+  bom_id: z.string().uuid(),
+  component_nomenclature_id: z.string().uuid(),
+  // component_type — произвольный typeId из глобальной схемы BOM (включая кастомные).
+  // Раньше был жёсткий enum из 7 значений — он отбрасывал кастомные типы при sync,
+  // и пользовательские правки спецификации «исчезали».
+  component_type: z.string().min(1).max(64),
+  qty_per_unit: z.number().min(0),
+  variant_group: z.string().nullable().optional(),
+  is_required: z.boolean(),
+  priority: z.number().int(),
+  notes: z.string().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+});
+
+export const erpRegisterStockBalanceRowSchema = z.object({
+  id: z.string().uuid(),
+  nomenclature_id: z.string().uuid().nullable().optional(),
+  part_card_id: z.string().uuid().nullable().optional(),
+  // Phase 2.4 PR 3: warehouse_id колонка удалена, но zod ловит ещё legacy-payload от старых клиентов.
+  warehouse_id: z.string().nullable().optional(),
+  warehouse_location_id: z.string().uuid().nullable().optional(),
+  qty: z.number().int(),
+  reserved_qty: z.number().int().nullable().optional(),
+  updated_at: z.number().int(),
+});
+
+export const erpRegisterStockMovementRowSchema = z.object({
+  id: z.string().uuid(),
+  nomenclature_id: z.string().uuid(),
+  // Phase 2.4 PR 3: warehouse_id колонка удалена, но zod ловит ещё legacy-payload от старых клиентов.
+  warehouse_id: z.string().nullable().optional(),
+  warehouse_location_id: z.string().uuid().nullable().optional(),
+  document_header_id: z.string().uuid().nullable().optional(),
+  movement_type: z.string().min(1),
+  qty: z.number().int(),
+  direction: z.string().min(1),
+  engine_id: z.string().uuid().nullable().optional(),
+  counterparty_id: z.string().uuid().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  performed_at: z.number().int(),
+  performed_by: z.string().nullable().optional(),
+  prev_hash: z.string().nullable().optional(),
+  self_hash: z.string().nullable().optional(),
+  created_at: z.number().int(),
+});
+
+export const erpJournalDocumentRowSchema = z.object({
+  id: z.string().uuid(),
+  document_header_id: z.string().uuid(),
+  event_type: z.string().min(1),
+  event_payload_json: z.string().nullable().optional(),
+  event_at: z.number().int(),
+});
+
+export const erpSyncRowSchemaByTable = {
+  [ErpSyncTableName.Nomenclature]: erpNomenclatureRowSchema,
+  [ErpSyncTableName.EngineAssemblyBom]: erpEngineAssemblyBomRowSchema,
+  [ErpSyncTableName.EngineAssemblyBomLines]: erpEngineAssemblyBomLineRowSchema,
+  [ErpSyncTableName.EngineInstances]: erpEngineInstanceRowSchema,
+  [ErpSyncTableName.PartTemplates]: erpPartTemplateRowSchema,
+  [ErpSyncTableName.PartCards]: erpPartCardRowSchema,
+  [ErpSyncTableName.ToolTemplates]: erpPartTemplateRowSchema,
+  [ErpSyncTableName.ToolCards]: erpPartCardRowSchema,
+  [ErpSyncTableName.Counterparties]: erpPartTemplateRowSchema,
+  [ErpSyncTableName.Contracts]: erpPartTemplateRowSchema,
+  [ErpSyncTableName.EmployeeCards]: erpPartTemplateRowSchema,
+  [ErpSyncTableName.DocumentHeaders]: erpDocumentHeaderRowSchema,
+  [ErpSyncTableName.DocumentLines]: erpDocumentLineRowSchema,
+  [ErpSyncTableName.RegisterStockBalance]: erpRegisterStockBalanceRowSchema,
+  [ErpSyncTableName.RegisterStockMovements]: erpRegisterStockMovementRowSchema,
+  [ErpSyncTableName.RegisterPartUsage]: erpJournalDocumentRowSchema,
+  [ErpSyncTableName.RegisterContractSettlement]: erpJournalDocumentRowSchema,
+  [ErpSyncTableName.RegisterEmployeeAccess]: erpJournalDocumentRowSchema,
+  [ErpSyncTableName.JournalDocuments]: erpJournalDocumentRowSchema,
+} as const;

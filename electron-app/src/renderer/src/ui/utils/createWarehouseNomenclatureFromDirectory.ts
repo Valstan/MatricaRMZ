@@ -1,0 +1,243 @@
+import type { NomenclatureItemType, WarehouseLookupOption } from '@matricarmz/shared';
+
+import type { NomenclatureCreateConfig } from '../pages/nomenclatureDirectoryPresets.js';
+import { buildNomenclatureCode } from './nomenclatureCode.js';
+
+export async function createSourceEntityForDirectoryKind(kind: string, label: string): Promise<string | null> {
+  const normalizedKind = String(kind ?? '').trim().toLowerCase();
+  if (!normalizedKind) return null;
+  const typeCandidates: Record<string, string[]> = {
+    part: ['part'],
+    tool: ['tool'],
+    good: ['good', 'product'],
+    service: ['service'],
+    engine_brand: ['engine_brand'],
+  };
+  const candidates = typeCandidates[normalizedKind] ?? [normalizedKind];
+  const typeList = await window.matrica.admin.entityTypes.list();
+  if (!Array.isArray(typeList)) return null;
+  const found = candidates
+    .map((code) => typeList.find((row) => String(row.code ?? '').trim().toLowerCase() === code))
+    .find(Boolean) as { id?: string } | undefined;
+  const typeId = String(found?.id ?? '').trim();
+  if (!typeId) return null;
+  const created = await window.matrica.admin.entities.create(typeId);
+  if (!created?.ok || !created.id) return null;
+  const entityId = String(created.id);
+  const trimmedLabel = String(label ?? '').trim() || 'Новая позиция';
+  for (const attrCode of ['name', 'title', 'label']) {
+    const setRes = await window.matrica.admin.entities.setAttr(entityId, attrCode, trimmedLabel);
+    if (setRes?.ok) break;
+  }
+  return entityId;
+}
+
+export type CreateNomenclatureLineFromPresetResult =
+  | { ok: true; nomenclatureId: string }
+  | { ok: false; error: string }
+  | { ok: false; duplicateNomenclatureId: string; message: string };
+
+function labelNorm(s: string | null | undefined) {
+  return String(s ?? '').trim().toLowerCase();
+}
+
+function findNomenclatureGroupId(groups: WarehouseLookupOption[] | undefined, exactLabels: string[]): string | null {
+  const rows = groups ?? [];
+  for (const want of exactLabels) {
+    const t = labelNorm(want);
+    const hit = rows.find((g) => labelNorm(g.label) === t);
+    if (hit?.id) return String(hit.id);
+  }
+  return null;
+}
+
+/** Группа склада по виду справочника / типу позиции. Учитывает новые имена групп сидинга. */
+export function pickWarehouseNomenclatureGroupId(
+  groups: WarehouseLookupOption[] | undefined,
+  directoryKind: string,
+): string | null {
+  const dk = String(directoryKind ?? '').trim().toLowerCase();
+  if (dk === 'tool') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Инструмент и оснастка',
+      'Инструменты',
+      'Инструмент и оснастка',
+    ]);
+  }
+  if (dk === 'good' || dk === 'product') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Товары',
+      'Товары',
+      'Готовая продукция',
+      'Покупные комплектующие',
+    ]);
+  }
+  if (dk === 'service') {
+    return findNomenclatureGroupId(groups, [
+      'Услуги · Собственные',
+      'Услуги · Подрядчиков',
+      'Услуги',
+    ]);
+  }
+  if (dk === 'part') {
+    return findNomenclatureGroupId(groups, [
+      'Производство · Детали собственного изготовления',
+      'Детали',
+    ]);
+  }
+  if (dk === 'assembly') {
+    return findNomenclatureGroupId(groups, [
+      'Производство · Сборочные единицы (узлы)',
+      'Сборочные единицы',
+      'Узлы',
+    ]);
+  }
+  if (dk === 'engine') {
+    return findNomenclatureGroupId(groups, [
+      'Производство · Готовая продукция (двигатели)',
+      'Готовая продукция',
+      'Двигатели',
+    ]);
+  }
+  if (dk === 'component') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Покупные детали и комплектующие',
+      'Комплектующие',
+    ]);
+  }
+  if (dk === 'material') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Материалы и сырьё',
+      'Материалы',
+    ]);
+  }
+  if (dk === 'consumable') {
+    return findNomenclatureGroupId(groups, [
+      'Закупка · Расходные материалы',
+      'Расходники',
+    ]);
+  }
+  return null;
+}
+
+/**
+ * Создание позиции как в каталоге номенклатуры: деталь через warehouse.nomenclatureDirectoryPartCreate, остальное — источник + warehouse.nomenclatureUpsert.
+ */
+export async function createNomenclatureLineFromPreset(args: {
+  directoryKind: string;
+  createConfig: NomenclatureCreateConfig;
+  displayName: string;
+}): Promise<CreateNomenclatureLineFromPresetResult> {
+  const directoryKind = String(args.directoryKind ?? '').trim().toLowerCase();
+  const displayName = String(args.displayName ?? '').trim();
+  const createConfig = args.createConfig;
+  const nameForRow = displayName || createConfig.name;
+
+  // Типы номенклатуры с отдельной карточкой-источником в справочнике.
+  // Для остальных (assembly/engine/component/material/consumable) source-карточка не нужна —
+  // позиция создаётся прямо в номенклатуре с указанным item_type, без directoryRefId.
+  const KINDS_WITH_DIRECTORY_SOURCE = new Set(['part', 'tool', 'good', 'product', 'service', 'engine_brand']);
+
+  let sourceId: string | null = null;
+  if (directoryKind === 'part') {
+    let createdPart: any | null = null;
+    let rawErr = 'не удалось создать деталь';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      createdPart = await window.matrica.warehouse.nomenclatureDirectoryPartCreate({
+        name: nameForRow,
+        code: buildNomenclatureCode(createConfig.codePrefix),
+      });
+      if (createdPart?.ok && createdPart.part?.id) {
+        rawErr = '';
+        break;
+      }
+      rawErr = createdPart && 'error' in createdPart ? String(createdPart.error ?? '') : rawErr;
+      const duplicateMatch = rawErr.match(/duplicate part exists:\s*([0-9a-f-]{36})/i);
+      if (!duplicateMatch?.[1]) {
+        return { ok: false, error: rawErr };
+      }
+      const dupPartId = String(duplicateMatch[1]);
+      // Если для дубликата уже есть позиция номенклатуры — открываем её, не плодим повтор.
+      const existing = await window.matrica.warehouse.nomenclatureList({ directoryKind: 'part', directoryRefId: dupPartId, limit: 1 }).catch(() => null);
+      const existingRow = (existing && existing.ok) ? (existing.rows ?? [])[0] ?? null : null;
+      if (existingRow?.id) {
+        return { ok: false, duplicateNomenclatureId: String(existingRow.id), message: rawErr };
+      }
+      // Дубликат-карточка есть, а номенклатуры для неё ещё нет («зомби»-запись после ранее
+      // неуспешной попытки). Используем uuid дубликата как sourceId и продолжаем — после
+      // v1.20.3 backend сам зеркалит запись из entities в directory_parts если надо.
+      sourceId = dupPartId;
+      break;
+    }
+    if (!sourceId) {
+      if (!createdPart?.ok || !createdPart?.part?.id) {
+        return { ok: false, error: rawErr || 'не удалось создать деталь' };
+      }
+      sourceId = String(createdPart.part.id);
+    }
+  } else if (KINDS_WITH_DIRECTORY_SOURCE.has(directoryKind)) {
+    sourceId = await createSourceEntityForDirectoryKind(directoryKind, nameForRow);
+    if (!sourceId) {
+      return { ok: false, error: `Не удалось создать карточку источника для «${directoryKind}». Проверьте типы справочников (например, «good» / «service») и права.` };
+    }
+  }
+  // else (assembly/engine/component/material/consumable) — sourceId остаётся null,
+  // позиция номенклатуры создаётся без directoryRefId.
+
+  const lookups = await window.matrica.warehouse.lookupsGet();
+  if (!lookups?.ok) {
+    return { ok: false, error: String(lookups?.error ?? 'не удалось загрузить справочники склада') };
+  }
+  const groups = lookups.lookups?.nomenclatureGroups as WarehouseLookupOption[] | undefined;
+  const groupId =
+    pickWarehouseNomenclatureGroupId(groups, directoryKind) ?? String(groups?.[0]?.id ?? '').trim();
+  const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
+  if (!groupId || !unitId) {
+    return { ok: false, error: 'Не найдены группа номенклатуры или единица измерения по умолчанию (Склад → Номенклатура).' };
+  }
+
+  const templatesRes = await window.matrica.warehouse.nomenclatureTemplatesList();
+  if (!templatesRes?.ok) {
+    return { ok: false, error: String(templatesRes?.error ?? 'не удалось загрузить шаблоны номенклатуры') };
+  }
+  const templates = (templatesRes.rows ?? []).map((row) => ({
+    id: String((row as { id?: string }).id ?? ''),
+    code: String((row as { code?: string }).code ?? '').trim().toLowerCase(),
+    itemTypeCode: String((row as { itemTypeCode?: string }).itemTypeCode ?? '').trim().toLowerCase(),
+    directoryKind: String((row as { directoryKind?: string }).directoryKind ?? '').trim().toLowerCase(),
+  }));
+  const itemTypeCode = String(createConfig.itemType ?? '').trim().toLowerCase() as NomenclatureItemType;
+  const defaultCode = `default_${directoryKind}`;
+  const bestTemplate =
+    templates.find((t) => t.id && t.code === defaultCode) ??
+    templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && t.directoryKind === directoryKind) ??
+    templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && !t.directoryKind) ??
+    templates.find((t) => t.id && !t.itemTypeCode && (t.directoryKind === directoryKind || !t.directoryKind)) ??
+    null;
+  if (!bestTemplate?.id) {
+    return {
+      ok: false,
+      error: `Не найден шаблон номенклатуры для типа «${itemTypeCode}» и источника «${directoryKind}». Настройте шаблон в «Склад → Номенклатура».`,
+    };
+  }
+
+  const created = await window.matrica.warehouse.nomenclatureUpsert({
+    code: buildNomenclatureCode(createConfig.codePrefix),
+    name: nameForRow,
+    itemType: createConfig.itemType,
+    category: createConfig.category,
+    directoryKind: String(args.directoryKind ?? '').trim(),
+    directoryRefId: sourceId,
+    groupId,
+    unitId,
+    specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
+    isActive: true,
+  });
+  if (!created?.ok) {
+    return { ok: false, error: String(created.error ?? 'не удалось создать позицию номенклатуры') };
+  }
+  if (!created.id) {
+    return { ok: false, error: 'Не удалось создать позицию номенклатуры' };
+  }
+  return { ok: true, nomenclatureId: String(created.id) };
+}

@@ -1,0 +1,588 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ChatDeepLinkPayload } from '@matricarmz/shared';
+
+import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
+import { SearchSelect } from '../components/SearchSelect.js';
+import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
+
+type ActionType = 'create' | 'update' | 'delete' | 'session' | 'other';
+
+type AuditRow = {
+  id: string;
+  createdAt: number;
+  actor: string;
+  action: string;
+  actionType: ActionType;
+  section: string;
+  actionText: string;
+  documentLabel: string;
+  clientId: string | null;
+  tableName: string | null;
+  entityId: string | null;
+};
+
+type AdminUserDirectoryItem = {
+  login: string;
+  fullName: string;
+};
+
+const REPORT_TIME_ZONE_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+function reportDateParts(epochMs: number) {
+  const shifted = new Date(epochMs + REPORT_TIME_ZONE_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
+function dateTimeToMoscowMs(year: number, month: number, day: number, hour: number, minute = 0, second = 0) {
+  return Date.UTC(year, month - 1, day, hour, minute, second) - REPORT_TIME_ZONE_OFFSET_MS;
+}
+
+type DailyRow = {
+  login: string;
+  fullName: string;
+  onlineMs: number;
+  onlineHours: number;
+  activeMs: number;
+  activeHours: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  totalChanged: number;
+};
+
+const CLIENT_SUMMARY_CUTOFF_HOUR = 21;
+
+function todayIsoDate() {
+  const d = reportDateParts(Date.now());
+  const y = d.year;
+  const m = String(d.month).padStart(2, '0');
+  const day = String(d.day).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dateStartMs(localDate: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(localDate ?? '').trim());
+  if (!m) return null;
+  return dateTimeToMoscowMs(Number(m[1]), Number(m[2]), Number(m[3]), 0);
+}
+
+function dateEndMs(localDate: string): number | null {
+  const start = dateStartMs(localDate);
+  if (start == null) return null;
+  return start + 24 * 60 * 60 * 1000 - 1;
+}
+
+function formatOnlineHours(ms: number) {
+  const totalMin = Math.round(Math.max(0, Number(ms ?? 0)) / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h} ч ${String(m).padStart(2, '0')} мин`;
+}
+
+function toInitials(fullName: string, fallback: string) {
+  const normalized = String(fullName ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cleanFallback = String(fallback ?? '').trim() || '-';
+  if (!normalized) return cleanFallback;
+  const parts = normalized.split(' ').filter(Boolean);
+  if (parts.length === 0) return cleanFallback;
+  const surname = parts[0];
+  const initials = parts
+    .slice(1)
+    .map((part) => (String(part ?? '').trim() ? `${String(part).trim().slice(0, 1).toUpperCase()}.` : ''))
+    .join('');
+  if (!initials) return surname;
+  return `${surname} ${initials}`;
+}
+
+function formatAuditDate(ms: number) {
+  return formatMoscowLongDateTime(ms);
+}
+
+function formatClientId(rawClientId: string | null) {
+  const normalized = String(rawClientId ?? '').trim();
+  if (!normalized) return '-';
+  const short = normalized.split('-')[0];
+  return short || '-';
+}
+
+function describeAction(row: AuditRow) {
+  const action = String(row.action ?? '').trim().toLowerCase();
+  const fromText = String(row.actionText ?? '').trim();
+  const section = String(row.section ?? '').trim();
+  const target = String(row.documentLabel ?? '').trim();
+  const normalizedFromText = fromText.toLowerCase();
+  const sectionLabel = section ? `«${section}»` : '';
+  const sectionLower = section.toLowerCase();
+  const targetLabel = target ? `«${target}»` : '';
+  const exactActionByCode: Record<string, string> = {
+    'engine.create': 'Создал двигатель',
+    'engine.update': 'Редактировал двигатель',
+    'engine.delete': 'Удалил двигатель',
+    'engine.edit_done': 'Редактировал двигатель',
+    'ui.engine.edit_done': 'Редактировал двигатель',
+    'part.create': 'Создал деталь',
+    'part.update': 'Редактировал деталь',
+    'part.delete': 'Удалил деталь',
+    'supply_request.create': 'Создал заявку',
+    'supply_request.update': 'Редактировал заявку',
+    'supply_request.delete': 'Удалил заявку',
+    'ui.supply_request.edit_done': 'Редактировал заявку',
+    'employee.create': 'Создал сотрудника',
+    'employee.update': 'Редактировал карточку сотрудника',
+    'employee.delete': 'Удалил сотрудника',
+    'tool.create': 'Добавил инструмент',
+    'tool.update': 'Редактировал инструмент',
+    'tool.delete': 'Удалил инструмент',
+    'masterdata.create': 'Добавил запись справочника',
+    'masterdata.update': 'Редактировал запись справочника',
+    'masterdata.delete': 'Удалил запись справочника',
+    'sync.create': 'Добавил запись синхронизации',
+    'sync.update': 'Редактировал запись синхронизации',
+    'sync.delete': 'Удалил запись синхронизации',
+    'files.create': 'Добавил файл',
+    'files.update': 'Редактировал файл',
+    'files.delete': 'Удалил файл',
+  };
+  const createBySection: Record<string, string> = {
+    'заявки': 'Создал заявку',
+    'двигатели': 'Добавил двигатель',
+    'детали': 'Добавил деталь',
+    'сотрудники': 'Создал сотрудника',
+    'инструменты': 'Добавил инструмент',
+    'справочники': 'Добавил запись справочника',
+    'синхронизация': 'Добавил запись синхронизации',
+    'файлы': 'Добавил файл',
+  };
+  const updateBySection: Record<string, string> = {
+    'заявки': 'Редактировал заявку',
+    'двигатели': 'Редактировал двигатель',
+    'детали': 'Редактировал деталь',
+    'сотрудники': 'Редактировал карточку сотрудника',
+    'инструменты': 'Редактировал инструмент',
+    'справочники': 'Редактировал запись справочника',
+    'синхронизация': 'Редактировал запись синхронизации',
+    'файлы': 'Редактировал файл',
+  };
+  const deleteBySection: Record<string, string> = {
+    'заявки': 'Удалил заявку',
+    'двигатели': 'Удалил двигатель',
+    'детали': 'Удалил деталь',
+    'сотрудники': 'Удалил сотрудника',
+    'инструменты': 'Удалил инструмент',
+    'справочники': 'Удалил запись справочника',
+    'синхронизация': 'Удалил запись синхронизации',
+    'файлы': 'Удалил файл',
+  };
+  const openBySection: Record<string, string> = {
+    'сотрудники': 'Открыл карточку сотрудника',
+    'заявки': 'Открыл заявку',
+    'детали': 'Открыл карточку детали',
+    'двигатели': 'Открыл карточку двигателя',
+    'инструменты': 'Открыл карточку инструмента',
+    'файлы': 'Открыл карточку файла',
+    'справочники': 'Открыл запись справочника',
+    'синхронизация': 'Открыл запись синхронизации',
+  };
+  const openCard = openBySection[sectionLower] || 'Открыл карточку';
+  const formatBySection = (actionText: string) => {
+    if (targetLabel) return `${actionText} ${targetLabel}`;
+    if (sectionLabel) return `${actionText} в ${sectionLabel}`;
+    return actionText;
+  };
+
+  const genericByType = {
+    create: new Set([
+      'создал запись',
+      'создал запись.',
+      'создал двигатель',
+      'создал деталь',
+      'создал заявку',
+      'создал заявку.',
+      'создал карточку двигателя',
+    ]),
+    update: new Set([
+      'изменил запись',
+      'изменил запись.',
+      'изменил карточку двигателя',
+      'изменил карточку двигателя.',
+      'изменил заявку',
+      'изменил заявку.',
+      'изменил статус заявки',
+    ]),
+    delete: new Set(['удалил запись', 'удалил запись.', 'удалил деталь', 'удалил деталь.', 'удалил заявку', 'удалил заявку.']),
+  };
+
+  if (action === 'app.session.start') return 'Зашел в систему';
+  if (action === 'app.session.stop') return 'Вышел из системы';
+  if (exactActionByCode[action]) return formatBySection(exactActionByCode[action]!);
+
+  if (action === 'supply_request.transition') {
+    const match = /^изменил статус заявки:\s*(.+?)\s*->\s*(.+)$/i.exec(fromText);
+    if (match) {
+      const from = String(match[1] ?? '').trim();
+      const to = String(match[2] ?? '').trim();
+      const statusTarget = target || sectionLabel ? `по ${target ? targetLabel : sectionLabel}` : '';
+      return `Сменил статус заявки${statusTarget ? ` ${statusTarget}` : ''}: ${from} → ${to}`;
+    }
+  }
+  if (action.endsWith('.edit_done')) {
+    const base = formatBySection(updateBySection[sectionLower] || 'Редактировал');
+    const summary = fromText.replace(/^изменил [^.]+\.\s*/i, '').trim();
+    return summary ? `${base}. ${summary}` : base;
+  }
+  if (action.includes('.open') || action.includes('.view') || action.includes('.details')) {
+    const actionPhrase = openBySection[sectionLower] || 'Открыл страницу';
+    if (targetLabel) return `${actionPhrase} ${targetLabel}${section ? ` в ${sectionLabel}` : ''}`;
+    if (sectionLabel) return `${actionPhrase} в ${sectionLabel}`;
+    return 'Открыл страницу';
+  }
+
+  if (row.actionType === 'create') {
+    if (fromText && !genericByType.create.has(normalizedFromText)) return fromText;
+    return formatBySection(createBySection[sectionLower] || 'Создал');
+  }
+
+  if (row.actionType === 'update') {
+    if (fromText && !genericByType.update.has(normalizedFromText)) return fromText;
+    return formatBySection(updateBySection[sectionLower] || 'Редактировал');
+  }
+
+  if (row.actionType === 'delete') {
+    if (fromText && !genericByType.delete.has(normalizedFromText)) return fromText;
+    return formatBySection(deleteBySection[sectionLower] || 'Удалил');
+  }
+
+  if (targetLabel) return `${openCard} ${targetLabel}${section ? ` в ${sectionLabel}` : ''}`;
+  if (sectionLabel) return `Заходил в секцию ${sectionLabel}`;
+  if (fromText) return `Выполнил действие: ${fromText}`;
+  if (action) return `Выполнил действие: ${action}`;
+  return 'Выполнил действие';
+}
+
+export function SuperadminAuditPage() {
+  const [fromDate, setFromDate] = useState<string>(todayIsoDate());
+  const [toDate, setToDate] = useState<string>(todayIsoDate());
+  const [reportDate, setReportDate] = useState<string>(todayIsoDate());
+  const [actor, setActor] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<string | null>(null);
+  const [section, setSection] = useState<string | null>(null);
+  const [rows, setRows] = useState<AuditRow[]>([]);
+  const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
+  const [userDirectory, setUserDirectory] = useState<AdminUserDirectoryItem[]>([]);
+  const [status, setStatus] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+
+  const actorOptions = useMemo(() => {
+    const uniq = Array.from(new Set(rows.map((r) => String(r.actor ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
+    return uniq.map((id) => ({ id, label: id }));
+  }, [rows]);
+
+  const actionTypeOptions = useMemo(
+    () => [
+      { id: 'session', label: 'Сессии (включил/выключил)' },
+      { id: 'create', label: 'Создание' },
+      { id: 'update', label: 'Изменение' },
+      { id: 'delete', label: 'Удаление' },
+      { id: 'other', label: 'Прочее' },
+    ],
+    [],
+  );
+  const sectionOptions = useMemo(() => {
+    const uniq = Array.from(new Set(rows.map((r) => String(r.section ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
+    return uniq.map((id) => ({ id, label: id }));
+  }, [rows]);
+
+  const actorFullNameByLogin = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const user of userDirectory) {
+      const login = String(user.login ?? '').trim().toLowerCase();
+      if (!login) continue;
+      const fullName = String(user.fullName ?? '').trim();
+      map.set(login, fullName || user.login || login);
+    }
+    return map;
+  }, [userDirectory]);
+
+  const filteredRows = useMemo(() => {
+    if (!section) return rows;
+    return rows.filter((r) => String(r.section ?? '') === section);
+  }, [rows, section]);
+
+  const getActorInitials = (actor: string) => {
+    const key = String(actor ?? '').trim().toLowerCase();
+    const fullName = actorFullNameByLogin.get(key);
+    return toInitials(fullName || String(actor ?? ''), String(actor ?? '-'));
+  };
+
+  const getDeepLinkPayload = useCallback((row: AuditRow): ChatDeepLinkPayload | null => {
+    const entityId = String(row.entityId ?? '').trim();
+    if (!entityId) return null;
+    const action = String(row.action ?? '').trim().toLowerCase();
+    const section = String(row.section ?? '').trim().toLowerCase();
+    const table = String(row.tableName ?? '').trim().toLowerCase();
+    const tableIs = (...aliases: string[]) => aliases.includes(table);
+
+    if (action.startsWith('ui.engine.') || action.startsWith('engine.') || section === 'двигатели' || tableIs('engine', 'engines')) {
+      return { kind: 'app_link', tab: 'engine', engineId: entityId };
+    }
+    if (
+      action.startsWith('ui.supply_request.') ||
+      action.startsWith('supply_request.') ||
+      section === 'заявки' ||
+      tableIs('supply_request', 'supply_requests', 'request', 'requests')
+    ) {
+      return { kind: 'app_link', tab: 'request', requestId: entityId };
+    }
+    if (action.startsWith('part.') || section === 'детали' || tableIs('part', 'parts')) {
+      return { kind: 'app_link', tab: 'part', partId: entityId };
+    }
+    if (tableIs('tool_property', 'tool_properties') || action.startsWith('tool_property.') || action.includes('tool_property')) {
+      return { kind: 'app_link', tab: 'tool_property', toolPropertyId: entityId };
+    }
+    if (action.startsWith('tool.') || section === 'инструменты' || tableIs('tool', 'tools')) {
+      return { kind: 'app_link', tab: 'tool', toolId: entityId };
+    }
+    if (action.startsWith('employee.') || section === 'сотрудники' || tableIs('employee', 'employees')) {
+      return { kind: 'app_link', tab: 'employee', employeeId: entityId };
+    }
+    if (tableIs('contract', 'contracts')) {
+      return { kind: 'app_link', tab: 'contract', contractId: entityId };
+    }
+    if (tableIs('counterparty', 'counterparties', 'customer', 'customers')) {
+      return { kind: 'app_link', tab: 'counterparty', counterpartyId: entityId };
+    }
+    if (tableIs('product', 'products')) {
+      return { kind: 'app_link', tab: 'product', productId: entityId };
+    }
+    if (tableIs('service', 'services')) {
+      return { kind: 'app_link', tab: 'service', serviceId: entityId };
+    }
+    if (tableIs('engine_brand', 'engine_brands') || action.startsWith('engine_brand.')) {
+      return { kind: 'app_link', tab: 'engine_brand', engineBrandId: entityId };
+    }
+    return null;
+  }, []);
+
+  const handleClickLink = useCallback(async (link: ChatDeepLinkPayload) => {
+    try {
+      const result = await window.matrica.app.navigateDeepLink(link);
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'не удалось открыть документ'}`);
+      }
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    setStatus('');
+    try {
+      const fromMs = fromDate ? dateStartMs(fromDate) : null;
+      const toMs = toDate ? dateEndMs(toDate) : null;
+      const [listRes, summaryRes, usersRes] = await Promise.all([
+        window.matrica.admin.audit.list({
+          limit: 4000,
+          ...(fromMs != null ? { fromMs } : {}),
+          ...(toMs != null ? { toMs } : {}),
+          ...(actor ? { actor } : {}),
+          ...(actionType ? { actionType: actionType as ActionType } : {}),
+        }),
+        window.matrica.admin.audit.dailySummary({ date: reportDate, cutoffHour: CLIENT_SUMMARY_CUTOFF_HOUR }),
+        window.matrica.admin.users.list(),
+      ]);
+      if (!listRes?.ok) throw new Error(String((listRes as any)?.error ?? 'list error'));
+      if (!summaryRes?.ok) throw new Error(String((summaryRes as any)?.error ?? 'daily summary error'));
+      if (usersRes?.ok) {
+        setUserDirectory(
+          Array.isArray(usersRes.users)
+            ? usersRes.users.map((u: { login?: string; username?: string; fullName?: string | null }) => ({
+                login: String(u.login ?? u.username ?? '').trim().toLowerCase(),
+                fullName: String(u.fullName ?? '').trim(),
+              }))
+            : [],
+        );
+      } else {
+        setUserDirectory([]);
+      }
+      setRows(Array.isArray((listRes as any).rows) ? ((listRes as any).rows as AuditRow[]) : []);
+      setDailyRows(Array.isArray((summaryRes as any).rows) ? ((summaryRes as any).rows as DailyRow[]) : []);
+      setStatus('Журнал и сводка обновлены.');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadAll();
+  }, []);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 8, color: 'var(--muted)' }}>
+        Раздел доступен только суперадминистратору. Здесь видно кто, где и что изменил, а также сводка по всем клиентам на 21:00.
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Button onClick={loadAll} disabled={loading}>
+          {loading ? 'Обновление...' : 'Обновить'}
+        </Button>
+        <div style={{ width: 160 }}>
+          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>с даты</div>
+        </div>
+        <div style={{ width: 160 }}>
+          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>по дату</div>
+        </div>
+        <div style={{ width: 260 }}>
+          <SearchSelect value={actor} options={actorOptions} placeholder="Аккаунт" onChange={setActor} />
+        </div>
+        <div style={{ width: 260 }}>
+          <SearchSelect value={actionType} options={actionTypeOptions} placeholder="Тип действия" onChange={setActionType} />
+        </div>
+        <div style={{ width: 220 }}>
+          <SearchSelect value={section} options={sectionOptions} placeholder="Раздел" onChange={setSection} />
+        </div>
+        {(actor || actionType || section) && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setActor(null);
+              setActionType(null);
+              setSection(null);
+            }}
+          >
+            Сбросить фильтры
+          </Button>
+        )}
+      </div>
+
+      <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ width: 160 }}>
+          <Input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+        </div>
+        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Сводка на 21:00</div>
+      </div>
+
+      {status && (
+        <div style={{ marginTop: 8, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)' }}>
+          {status}
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <div style={{ padding: 10, fontWeight: 700, background: 'var(--surface2)' }}>
+          Сводный отчет по клиентам ({String(CLIENT_SUMMARY_CUTOFF_HOUR).padStart(2, '0')}:00)
+        </div>
+        <table className="list-table">
+          <thead>
+            <tr style={{ background: 'var(--button-primary-bg)', color: 'var(--button-primary-text)' }}>
+              <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
+              <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>ФИО</th>
+              <th data-col-kind="num" title="Программа была открыта и жива" style={{ textAlign: 'left', padding: 8 }}>Онлайн</th>
+              <th data-col-kind="num" title="Активно за работой (есть ввод, без простоя)" style={{ textAlign: 'left', padding: 8 }}>Активно</th>
+              <th data-col-kind="num" title="Создано" style={{ textAlign: 'left', padding: 8 }}>Создано</th>
+              <th data-col-kind="num" title="Изменено" style={{ textAlign: 'left', padding: 8 }}>Изменено</th>
+              <th data-col-kind="num" title="Удалено" style={{ textAlign: 'left', padding: 8 }}>Удалено</th>
+              <th data-col-kind="num" title="Всего изменений" style={{ textAlign: 'left', padding: 8 }}>Всего изменений</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dailyRows.map((r) => (
+              <tr key={r.login}>
+                <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.login}</td>
+                <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.fullName || '-'}</td>
+                <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatOnlineHours(r.onlineMs)}</td>
+                <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatOnlineHours(r.activeMs)}</td>
+                <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.created}</td>
+                <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.updated}</td>
+                <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.deleted}</td>
+                <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.totalChanged}</td>
+              </tr>
+            ))}
+            {dailyRows.length === 0 && (
+              <tr>
+                <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={8}>
+                  Нет данных за выбранный день.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginTop: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <div style={{ padding: 10, fontWeight: 700, background: 'var(--surface2)' }}>Журнал действий пользователей</div>
+        <table className="list-table">
+          <thead>
+            <tr style={{ background: 'var(--surface-2)', color: 'var(--text)' }}>
+              <th data-col-kind="date" title="Время" style={{ textAlign: 'left', padding: 8 }}>Время</th>
+              <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
+              <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Имя сотрудника</th>
+              <th data-col-kind="text" style={{ textAlign: 'left', padding: 8 }}>Действие</th>
+              <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Раздел/документ</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Клиент</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((r) => {
+              const link = getDeepLinkPayload(r);
+              return (
+                <tr key={r.id}>
+                  <td data-col-kind="date" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatAuditDate(r.createdAt)}</td>
+                  <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.actor}</td>
+                  <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{getActorInitials(r.actor)}</td>
+                  <td data-col-kind="text" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{describeAction(r)}</td>
+                  <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
+                    {r.section}
+                    {r.documentLabel ? (
+                      <>
+                        {' / '}
+                        {link ? (
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              void handleClickLink(link);
+                            }}
+                            style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+                            title={`Перейти к документу: ${r.documentLabel}`}
+                          >
+                            {r.documentLabel}
+                          </a>
+                        ) : (
+                          r.documentLabel
+                        )}
+                      </>
+                    ) : (
+                      ''
+                    )}
+                  </td>
+                  <td style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatClientId(r.clientId)}</td>
+                </tr>
+              );
+            })}
+            {filteredRows.length === 0 && (
+              <tr>
+                <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={6}>
+                  Действий не найдено.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+

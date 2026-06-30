@@ -1,0 +1,531 @@
+import { Router } from 'express';
+import { randomUUID, createHash } from 'node:crypto';
+import { mkdirSync, createWriteStream, createReadStream } from 'node:fs';
+import { readFile as readFileAsync, unlink as unlinkAsync, writeFile as writeFileAsync } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { z } from 'zod';
+
+import { db } from '../database/db.js';
+import { changeRequests, fileAssets } from '../database/schema.js';
+import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
+import { PermissionCode } from '../auth/permissions.js';
+import { canAccessFile } from '../services/fileAccessService.js';
+import { and, eq, isNull } from 'drizzle-orm';
+import { deletePath, ensureFolderDeep, getDownloadHref, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
+import { getEmployeeAuthById } from '../services/employeeAuthService.js';
+
+// Multipart parser (no 3rd party): we accept base64 payload for MVP.
+// NOTE: For large files, Electron will stream later; for now keep it simple.
+
+export const filesRouter = Router();
+filesRouter.use(requireAuth);
+
+const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 250 * 1024 * 1024; // hard safety cap
+const MAX_PREVIEW_BYTES = 3 * 1024 * 1024; // base64 upload size cap for thumbnail payload (decoded bytes)
+
+type UploadScope = { ownerType: string; ownerId: string; category: string };
+
+function uploadsDir(): string {
+  // default under backend-api/uploads (systemd WorkingDirectory points to backend-api)
+  return process.env.MATRICA_UPLOADS_DIR?.trim() || 'uploads';
+}
+
+function previewRelPathForFile(args: { fileId: string; mime: string }): string {
+  const id = String(args.fileId || '').trim();
+  const mime = String(args.mime || '').trim().toLowerCase();
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+  return join('previews', `${id}.${ext}`);
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+function safeFilename(name: string): string {
+  // minimal sanitization (keep extension, remove path separators)
+  const base = name.replaceAll('\\', '/').split('/').pop() || 'file';
+  return base.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
+}
+
+function safePathSegment(raw: string, fallback: string): string {
+  const s = String(raw || '').trim().replaceAll('\\', '/').split('/').filter(Boolean).join('_');
+  const cleaned = s.replaceAll(/[^a-zA-Z0-9а-яА-Я._-]+/g, '_').replaceAll(/_+/g, '_').slice(0, 120);
+  return cleaned || fallback;
+}
+
+function yandexDiskPathForFile(args: { baseYandexPath: string; fileId: string; fileName: string; scope?: UploadScope | null }): string {
+  const base = args.baseYandexPath.replace(/\/+$/, '') || '/';
+  if (!args.scope) {
+    return `${base}/${args.fileId}_${args.fileName}`;
+  }
+  // Special scope for chat temporary files: keep them under a single folder `${base}/chat-files`.
+  // This is used by the Chat module to enforce retention cleanup by folder.
+  if (args.scope.ownerType === 'chat' && args.scope.category === 'chat-files') {
+    return `${base}/chat-files/${args.fileId}_${args.fileName}`;
+  }
+  const ownerType = safePathSegment(args.scope.ownerType, 'owner');
+  const ownerId = safePathSegment(args.scope.ownerId, 'id');
+  const category = safePathSegment(args.scope.category, 'files');
+  return `${base}/${ownerType}/${ownerId}/${category}/${args.fileId}_${args.fileName}`;
+}
+
+filesRouter.get('/:id/meta', requirePermission(PermissionCode.FilesView), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+
+    return res.json({
+      ok: true,
+      file: {
+        id: row.id,
+        name: row.name,
+        size: Number(row.size),
+        mime: row.mime ?? null,
+        sha256: row.sha256,
+        createdAt: Number(row.createdAt),
+      },
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.get('/:id/preview', requirePermission(PermissionCode.FilesView), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+
+    const rel = row.previewLocalRelPath ? String(row.previewLocalRelPath) : '';
+    if (!rel) return res.json({ ok: true, preview: null });
+
+    const abs = join(uploadsDir(), rel);
+    try {
+      const bytes = await readFileAsync(abs);
+      const mime = row.previewMime ? String(row.previewMime) : 'image/png';
+      return res.json({
+        ok: true,
+        preview: { mime, size: bytes.length, dataBase64: bytes.toString('base64') },
+      });
+    } catch {
+      // If file is missing/unreadable - treat as no preview (best-effort).
+      return res.json({ ok: true, preview: null });
+    }
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.post('/:id/preview', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const schema = z.object({
+      mime: z.string().min(1).max(200),
+      dataBase64: z.string().min(1),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const mime = String(parsed.data.mime || '').trim().toLowerCase();
+    if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp') {
+      return res.status(400).json({ ok: false, error: `unsupported preview mime: ${mime}` });
+    }
+
+    const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
+    if (!bytes.length) return res.status(400).json({ ok: false, error: 'пустой предварительный просмотр' });
+    if (bytes.length > MAX_PREVIEW_BYTES) return res.status(400).json({ ok: false, error: `preview too large (>${MAX_PREVIEW_BYTES} bytes)` });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+
+    const rel = previewRelPathForFile({ fileId: id, mime });
+    const abs = join(uploadsDir(), rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    await writeFileAsync(abs, bytes);
+
+    await db
+      .update(fileAssets)
+      .set({
+        previewMime: mime,
+        previewSize: bytes.length,
+        previewLocalRelPath: rel,
+      })
+      .where(eq(fileAssets.id, id as any));
+
+    return res.json({ ok: true, preview: { mime, size: bytes.length } });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Large files: client uploads directly to Yandex.Disk using returned pre-signed URL (href).
+filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
+  try {
+    const schema = z.object({
+      name: z.string().min(1).max(400),
+      mime: z.string().max(200).optional().nullable(),
+      size: z.number().int().positive(),
+      sha256: z.string().min(16).max(128),
+      scope: z
+        .object({
+          ownerType: z.string().min(1).max(64),
+          ownerId: z.string().min(1).max(200),
+          category: z.string().min(1).max(64),
+        })
+        .optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const size = parsed.data.size;
+    if (size > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `file too large (>${MAX_UPLOAD_BYTES} bytes)` });
+
+    // de-dup
+    const existing = await db.select().from(fileAssets).where(and(eq(fileAssets.sha256, parsed.data.sha256), isNull(fileAssets.deletedAt))).limit(1);
+    if (existing[0]) {
+      const row = existing[0] as any;
+      // If it already exists as yandex asset, allow re-upload by returning a fresh uploadUrl
+      // (important if a previous init happened but the client didn't finish PUT).
+      if (row.storageKind === 'yandex' && row.yandexDiskPath) {
+        const diskPath = String(row.yandexDiskPath);
+        const href = await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
+
+        return res.json({
+          ok: true,
+          file: {
+            id: row.id,
+            name: row.name,
+            size: Number(row.size),
+            mime: row.mime ?? null,
+            sha256: row.sha256,
+            createdAt: Number(row.createdAt),
+          },
+          uploadUrl: href,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        file: {
+          id: row.id,
+          name: row.name,
+          size: Number(row.size),
+          mime: row.mime ?? null,
+          sha256: row.sha256,
+          createdAt: Number(row.createdAt),
+        },
+        uploadUrl: null,
+      });
+    }
+
+    const baseYandexPath = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim(); // e.g. /MatricaRMZ/releases
+    if (!baseYandexPath) {
+      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH не настроен' });
+    }
+
+    const actor = (req as AuthenticatedRequest).user;
+    const id = randomUUID();
+    const createdAt = nowMs();
+    const name = safeFilename(parsed.data.name);
+    const mime = parsed.data.mime ? String(parsed.data.mime) : null;
+    const diskPath = yandexDiskPathForFile({
+      baseYandexPath,
+      fileId: id,
+      fileName: name,
+      scope: (parsed.data.scope ?? null) as any,
+    });
+
+    // Get pre-signed upload URL (href). Client will PUT directly to it.
+    // Ensure base folder exists on Yandex.Disk (mkdir is idempotent).
+    await ensureFolderDeep(baseYandexPath.replace(/\/+$/, '') || '/');
+    const href = await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
+
+    await db.insert(fileAssets).values({
+      id,
+      createdAt,
+      createdByUserId: actor.id,
+      name,
+      mime,
+      size,
+      sha256: parsed.data.sha256,
+      storageKind: 'yandex',
+      localRelPath: null,
+      yandexDiskPath: diskPath,
+    });
+
+    return res.json({ ok: true, file: { id, name, size, mime, sha256: parsed.data.sha256, createdAt }, uploadUrl: href });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+
+    if (row.storageKind === 'yandex') {
+      const diskPath = String(row.yandexDiskPath || '');
+      if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
+      const href = await getDownloadHref(diskPath);
+      return res.json({ ok: true, url: href });
+    }
+
+    // For local files, client can just GET /files/:id (stream). Return relative path for convenience.
+    return res.json({ ok: true, url: null });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Upload endpoint: accepts JSON { name, mime?, dataBase64 }.
+// Server decides storage:
+// - <=10MB: store locally
+// - >10MB: store to Yandex.Disk
+filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
+  try {
+    const schema = z.object({
+      name: z.string().min(1).max(400),
+      mime: z.string().max(200).optional().nullable(),
+      dataBase64: z.string().min(1),
+      scope: z
+        .object({
+          ownerType: z.string().min(1).max(64),
+          ownerId: z.string().min(1).max(200),
+          category: z.string().min(1).max(64),
+        })
+        .optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
+    if (!bytes.length) return res.status(400).json({ ok: false, error: 'файл пуст' });
+    if (bytes.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `размер файла слишком большой (> ${MAX_UPLOAD_BYTES} байт)` });
+
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+
+    // de-dup by sha256 (so links are stable and cacheable)
+    const existing = await db.select().from(fileAssets).where(and(eq(fileAssets.sha256, sha256), isNull(fileAssets.deletedAt))).limit(1);
+    if (existing[0]) {
+      const row = existing[0] as any;
+      return res.json({
+        ok: true,
+        file: {
+          id: row.id,
+          name: row.name,
+          size: Number(row.size),
+          mime: row.mime ?? null,
+          sha256: row.sha256,
+          createdAt: Number(row.createdAt),
+        },
+      });
+    }
+
+    const id = randomUUID();
+    const createdAt = nowMs();
+    const actor = (req as AuthenticatedRequest).user;
+    const name = safeFilename(parsed.data.name);
+    const mime = parsed.data.mime ? String(parsed.data.mime) : null;
+    const size = bytes.length;
+
+    const baseYandexPath = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim(); // e.g. /MatricaRMZ/releases
+
+    if (size <= MAX_LOCAL_BYTES) {
+      const rel = join('local', id.slice(0, 2), `${id}_${name}`);
+      const abs = join(uploadsDir(), rel);
+      mkdirSync(dirname(abs), { recursive: true });
+      await new Promise<void>((resolve, reject) => {
+        const ws = createWriteStream(abs);
+        ws.on('error', reject);
+        ws.on('finish', () => resolve());
+        ws.end(bytes);
+      });
+
+      await db.insert(fileAssets).values({
+        id,
+        createdAt,
+        createdByUserId: actor.id,
+        name,
+        mime,
+        size,
+        sha256,
+        storageKind: 'local',
+        localRelPath: rel,
+        yandexDiskPath: null,
+      });
+
+      return res.json({ ok: true, file: { id, name, size, mime, sha256, createdAt } });
+    }
+
+    // Yandex.Disk
+    if (!baseYandexPath) {
+      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH не настроен (обязательно для больших файлов)' });
+    }
+    const diskPath = yandexDiskPathForFile({
+      baseYandexPath,
+      fileId: id,
+      fileName: name,
+      scope: (parsed.data.scope ?? null) as any,
+    });
+    await uploadBytes({ diskPath, bytes, mime });
+
+    await db.insert(fileAssets).values({
+      id,
+      createdAt,
+      createdByUserId: actor.id,
+      name,
+      mime,
+      size,
+      sha256,
+      storageKind: 'yandex',
+      localRelPath: null,
+      yandexDiskPath: diskPath,
+    });
+
+    return res.json({ ok: true, file: { id, name, size, mime, sha256, createdAt } });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+
+    if (row.storageKind === 'local') {
+      const rel = String(row.localRelPath || '');
+      if (!rel) return res.status(500).json({ ok: false, error: 'локальный относительный путь не указан' });
+      const abs = join(uploadsDir(), rel);
+      // set headers
+      res.setHeader('Content-Type', row.mime || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
+      return createReadStream(abs).pipe(res);
+    }
+
+    if (row.storageKind === 'yandex') {
+      const diskPath = String(row.yandexDiskPath || '');
+      if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
+      const href = await getDownloadHref(diskPath);
+      const r = await fetch(href);
+      if (!r.ok) return res.status(502).json({ ok: false, error: `ошибка загрузки из Yandex: HTTP ${r.status}` });
+      res.setHeader('Content-Type', row.mime || r.headers.get('content-type') || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
+      const buf = Buffer.from(await r.arrayBuffer());
+      return res.end(buf);
+    }
+
+    return res.status(500).json({ ok: false, error: `неизвестный тип хранения: ${String(row.storageKind)}` });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+
+    const rows = await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1);
+    const row = rows[0] as any;
+    if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
+
+    const actorRole = String(actor.role || '').toLowerCase();
+    const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
+    const ownerUserId = row.createdByUserId ? String(row.createdByUserId) : null;
+    if (!actorIsAdmin && ownerUserId && ownerUserId !== actor.id) {
+      const ts = nowMs();
+      const ownerUser = ownerUserId ? await getEmployeeAuthById(ownerUserId) : null;
+      const ownerUsername = ownerUser ? ownerUser.fullName || ownerUser.login || ownerUser.id : null;
+
+      await db.insert(changeRequests).values({
+        id: randomUUID(),
+        status: 'pending',
+        tableName: 'file_assets',
+        rowId: id as any,
+        rootEntityId: null,
+        beforeJson: JSON.stringify({ id, deleted_at: null }),
+        afterJson: JSON.stringify({ id, deleted_at: ts }),
+        recordOwnerUserId: ownerUserId as any,
+        recordOwnerUsername: ownerUsername,
+        changeAuthorUserId: actor.id as any,
+        changeAuthorUsername: actor.username,
+        note: 'files.delete',
+        createdAt: ts,
+        decidedAt: null,
+        decidedByUserId: null,
+        decidedByUsername: null,
+      });
+
+      return res.json({ ok: true, queued: true });
+    }
+
+    // Удаляем превью (best-effort, хранится локально на сервере)
+    const previewRel = String(row.previewLocalRelPath || '');
+    if (previewRel) {
+      const previewAbs = join(uploadsDir(), previewRel);
+      await unlinkAsync(previewAbs).catch(() => {
+        // ignore
+      });
+    }
+
+    // Удаляем физический файл
+    if (row.storageKind === 'local') {
+      const rel = String(row.localRelPath || '');
+      if (rel) {
+        const abs = join(uploadsDir(), rel);
+        try {
+          await unlinkAsync(abs).catch(() => {
+            // Игнорируем ошибки если файл уже удален
+          });
+        } catch {
+          // Игнорируем ошибки удаления файла
+        }
+      }
+    } else if (row.storageKind === 'yandex') {
+      const diskPath = String(row.yandexDiskPath || '');
+      if (diskPath) {
+        await deletePath(diskPath).catch(() => {
+          // Игнорируем ошибки удаления файла на Yandex.Disk
+        });
+      }
+    }
+
+    // Удаляем запись из БД (soft delete)
+    await db.update(fileAssets).set({ deletedAt: nowMs() }).where(eq(fileAssets.id, id as any));
+
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+

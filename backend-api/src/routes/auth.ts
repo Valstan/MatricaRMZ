@@ -1,0 +1,630 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { and, eq, gt } from 'drizzle-orm';
+import { DEFAULT_UI_CONTROL_SETTINGS, UI_DEFAULTS_VERSION, mergeUiControlSettings, sanitizeUiControlSettings } from '@matricarmz/shared';
+
+import { db } from '../database/db.js';
+import { chatMessages, refreshTokens } from '../database/schema.js';
+import { signAccessToken, signAccessTokenWithTtl, type AuthUser } from '../auth/jwt.js';
+import { hashPassword, verifyPassword } from '../auth/password.js';
+import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
+import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
+import { randomUUID } from 'node:crypto';
+import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
+import { userPermissions } from '../database/schema.js';
+import { describeError, logError } from '../utils/logger.js';
+import {
+  createEmployeeEntity,
+  ensureEmployeeAuthDefs,
+  getEmployeeAuthById,
+  getEmployeeAuthByLogin,
+  getEmployeeTypeId,
+  getSuperadminUserId,
+  getEmployeeProfileById,
+  getEmployeeLoggingSettings,
+  getEmployeeUiProfile,
+  getEmployeeUiSettings,
+  listEmployeesAuth,
+  isLoginTaken,
+  isSuperadminLogin,
+  normalizeRole,
+  setEmployeeNamePartsFromFullName,
+  setEmployeeAuth,
+  setEmployeeLoggingSettings,
+  setEmployeeUiProfile,
+  setEmployeeUiSettings,
+  setEmployeeProfile,
+} from '../services/employeeAuthService.js';
+import { SyncTableName } from '@matricarmz/shared';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
+import { getGlobalUiDefaults, setGlobalUiDefaults } from '../services/clientSettingsService.js';
+
+export const authRouter = Router();
+
+const loginSchema = z.object({
+  username: z.string().min(1).max(100),
+  password: z.string().min(1).max(500),
+});
+
+const registerSchema = z.object({
+  login: z.string().min(1).max(100),
+  password: z.string().min(6).max(500),
+  fullName: z.string().min(1).max(200),
+  position: z.string().min(1).max(200),
+});
+
+const refreshSchema = z.object({
+  refreshToken: z.string().min(20),
+});
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isTransientRefreshDbError(message: string) {
+  const lower = String(message ?? '').toLowerCase();
+  return (
+    lower.includes('timeout') ||
+    lower.includes('trying to connect') ||
+    lower.includes('connection') ||
+    lower.includes('econnrefused') ||
+    lower.includes('econnreset') ||
+    lower.includes('etimedout')
+  );
+}
+
+authRouter.post('/login', async (req, res) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const username = parsed.data.username.trim().toLowerCase();
+    const password = parsed.data.password;
+
+    let u = await getEmployeeAuthByLogin(username);
+    const isBootstrapSuperadmin = isSuperadminLogin(username) && (!u || !u.passwordHash);
+    if (isBootstrapSuperadmin) {
+      const employeeTypeId = await getEmployeeTypeId();
+      if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'тип сотрудника не найден' });
+      await ensureEmployeeAuthDefs();
+      const ts = Date.now();
+      const employeeId = u?.id ?? randomUUID();
+      if (!u) {
+        const created = await createEmployeeEntity(employeeId, ts);
+        if (!created.ok) return res.status(500).json({ ok: false, error: created.error });
+      }
+      const passwordHash = await hashPassword(password);
+      await setEmployeeAuth(employeeId, { login: username, passwordHash, systemRole: 'superadmin', accessEnabled: true });
+      u = await getEmployeeAuthById(employeeId);
+    }
+
+    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(401).json({ ok: false, error: 'неверные учетные данные' });
+
+    const ok = await verifyPassword(password, u.passwordHash);
+    if (!ok) return res.status(401).json({ ok: false, error: 'неверные учетные данные' });
+
+    const role = normalizeRole(u.login, u.systemRole);
+    if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
+    const authUser: AuthUser = { id: u.id, username: u.login, role };
+    const accessToken = await signAccessToken(authUser);
+    const permissions = await getEffectivePermissionsForUser(u.id);
+
+    const refreshToken = generateRefreshToken();
+    const ts = Date.now();
+    const expiresAt = ts + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
+    await db.insert(refreshTokens).values({
+      id: randomUUID(),
+      userId: u.id,
+      tokenHash: hashRefreshToken(refreshToken),
+      expiresAt,
+      createdAt: ts,
+    });
+
+    return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions, fullName: u.fullName ?? '' });
+  } catch (e) {
+    logError('auth login failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.post('/register', async (req, res) => {
+  try {
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const login = parsed.data.login.trim().toLowerCase();
+    const password = parsed.data.password;
+    const fullName = parsed.data.fullName.trim();
+    const position = parsed.data.position.trim();
+
+    if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'логин уже существует' });
+    if (isSuperadminLogin(login)) return res.status(403).json({ ok: false, error: 'логин супер-админа зарезервирован' });
+
+    const ts = Date.now();
+    const employeeId = randomUUID();
+    const created = await createEmployeeEntity(employeeId, ts);
+    if (!created.ok) return res.status(500).json({ ok: false, error: created.error });
+    await ensureEmployeeAuthDefs();
+
+    const passwordHash = await hashPassword(password);
+    await setEmployeeAuth(employeeId, { login, passwordHash, systemRole: 'pending', accessEnabled: true });
+    await setEmployeeProfile(employeeId, { fullName, position });
+    await setEmployeeNamePartsFromFullName(employeeId, fullName);
+
+    const superadminId = await getSuperadminUserId();
+    if (superadminId) {
+      const msgId = randomUUID();
+      const bodyText = `Новый пользователь зарегистрировался: ${fullName} (${position}), логин: ${login}.`;
+      await db.insert(chatMessages).values({
+        id: msgId,
+        senderUserId: employeeId as any,
+        senderUsername: login,
+        recipientUserId: superadminId as any,
+        messageType: 'text',
+        bodyText,
+        payloadJson: null,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+        syncStatus: 'synced',
+      });
+      await recordSyncChanges(
+        { id: 'system', username: 'system', role: 'system' },
+        [
+          {
+            tableName: SyncTableName.ChatMessages,
+            rowId: msgId,
+            op: 'upsert',
+            payload: {
+              id: msgId,
+              sender_user_id: employeeId,
+              sender_username: login,
+              recipient_user_id: superadminId,
+              message_type: 'text',
+              body_text: bodyText,
+              payload_json: null,
+              created_at: ts,
+              updated_at: ts,
+              deleted_at: null,
+              sync_status: 'synced',
+            },
+            ts,
+          },
+        ],
+      );
+    }
+
+    const role = normalizeRole(login, 'pending');
+    const authUser: AuthUser = { id: employeeId, username: login, role };
+    const accessToken = await signAccessToken(authUser);
+    const permissions = await getEffectivePermissionsForUser(employeeId);
+
+    const refreshToken = generateRefreshToken();
+    const expiresAt = ts + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
+    await db.insert(refreshTokens).values({
+      id: randomUUID(),
+      userId: employeeId,
+      tokenHash: hashRefreshToken(refreshToken),
+      expiresAt,
+      createdAt: ts,
+    });
+
+    return res.json({ ok: true, accessToken, refreshToken, user: authUser, permissions });
+  } catch (e) {
+    logError('auth register failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Typeahead for the login screen. Replaces the old /login-options bulk roster
+// dump (a username+role enumeration oracle). Discloses ONLY {login, fullName}
+// for a PREFIX match (>=2 chars) on the login or any name token, capped at 8 and
+// rate-limited by suggestLimiter (app.ts) — minimal disclosure for the UX the
+// owner asked to keep. (security-hardening-2026-06, Phase 3)
+function normalizeLoginQuery(s: string): string {
+  return String(s ?? '').trim().toLowerCase().replaceAll('ё', 'е');
+}
+
+authRouter.get('/login-suggest', async (req, res) => {
+  try {
+    const q = normalizeLoginQuery(req.query.q as string);
+    if (q.length < 2) return res.json({ ok: true, rows: [] });
+    const list = await listEmployeesAuth();
+    if (!list.ok) return res.json({ ok: true, rows: [] }); // fail-soft: no oracle on error
+    const rows = list.rows
+      .map((r) => ({
+        login: r.login ?? '',
+        fullName: r.fullName ?? '',
+        role: normalizeRole(r.login, r.systemRole),
+        accessEnabled: r.accessEnabled === true,
+      }))
+      .filter((r) => r.accessEnabled && r.role !== 'pending' && r.role !== 'employee' && r.login.trim())
+      .filter((r) => {
+        if (normalizeLoginQuery(r.login).startsWith(q)) return true;
+        return normalizeLoginQuery(r.fullName)
+          .split(/\s+/)
+          .filter(Boolean)
+          .some((token) => token.startsWith(q));
+      })
+      .map((r) => ({ login: r.login, fullName: r.fullName }))
+      .sort((a, b) => a.login.localeCompare(b.login, 'ru'))
+      .slice(0, 8);
+    return res.json({ ok: true, rows });
+  } catch {
+    return res.json({ ok: true, rows: [] });
+  }
+});
+
+authRouter.get('/me', requireAuth, async (req, res) => {
+  const user = (req as AuthenticatedRequest).user;
+  const permissions = await getEffectivePermissionsForUser(user.id).catch(() => ({}));
+  return res.json({ ok: true, user, permissions });
+});
+
+authRouter.post('/release-token', requireAuth, async (req, res) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const role = String(user?.role ?? '').toLowerCase();
+    const isAdmin = role === 'admin' || role === 'superadmin';
+    if (!isAdmin) return res.status(403).json({ ok: false, error: 'только для админов' });
+
+    const parsed = z
+      .object({
+        ttlHours: z.number().int().min(1).max(24 * 30).optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const ttlHours = parsed.data.ttlHours ?? 24 * 7;
+    const accessToken = await signAccessTokenWithTtl(user, ttlHours);
+    const expiresAt = Date.now() + ttlHours * 60 * 60 * 1000;
+    return res.json({ ok: true, accessToken, expiresAt, ttlHours });
+  } catch (e) {
+    logError('auth release-token failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/users/:id/permissions-view', requireAuth, async (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const userRow = await getEmployeeAuthById(id);
+    if (!userRow) return res.status(404).json({ ok: false, error: 'сотрудник не найден' });
+    const role = normalizeRole(userRow.login, userRow.systemRole);
+    const username = userRow.fullName || userRow.login || id;
+
+    const allCodes = Object.values(PermissionCode);
+    const effective = await getEffectivePermissionsForUser(id);
+    const base = defaultPermissionsForRole(role);
+
+    const overrides = await db
+      .select({ permCode: userPermissions.permCode, allowed: userPermissions.allowed })
+      .from(userPermissions)
+      .where(eq(userPermissions.userId, id))
+      .limit(10_000);
+
+    const overridesMap: Record<string, boolean> = {};
+    for (const o of overrides) overridesMap[o.permCode] = !!o.allowed;
+
+    return res.json({
+      ok: true,
+      user: { id, username, login: userRow.login, role, isActive: userRow.accessEnabled },
+      allCodes,
+      base,
+      overrides: overridesMap,
+      effective,
+    });
+  } catch (e) {
+    logError('auth permissions view failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/profile', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const profile = await getEmployeeProfileById(actor.id);
+    if (!profile) return res.status(404).json({ ok: false, error: 'профиль не найден' });
+    return res.json({ ok: true, profile });
+  } catch (e) {
+    logError('auth profile get failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const settings = await getEmployeeLoggingSettings(actor.id);
+    return res.json({ ok: true, settings });
+  } catch (e) {
+    logError('auth settings get failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const schema = z.object({
+      loggingEnabled: z.boolean().optional().nullable(),
+      loggingMode: z.enum(['dev', 'prod']).optional().nullable(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const next: { loggingEnabled?: boolean | null; loggingMode?: 'dev' | 'prod' | null } = {};
+    if (parsed.data.loggingEnabled !== undefined) next.loggingEnabled = parsed.data.loggingEnabled;
+    if (parsed.data.loggingMode !== undefined) next.loggingMode = parsed.data.loggingMode;
+    const r = await setEmployeeLoggingSettings(actor.id, next);
+    if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+    const settings = await getEmployeeLoggingSettings(actor.id);
+    return res.json({ ok: true, settings });
+  } catch (e) {
+    logError('auth settings update failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/ui-settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+
+    const globalRaw = await getGlobalUiDefaults();
+    const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
+    const userJson = await getEmployeeUiSettings(actor.id);
+    const userSettings = userJson ? sanitizeUiControlSettings(JSON.parse(userJson)) : null;
+    const effective = userSettings ? mergeUiControlSettings(globalDefaults, userSettings) : globalDefaults;
+
+    return res.json({
+      ok: true,
+      uiDefaultsVersion: Number(globalRaw.version ?? UI_DEFAULTS_VERSION),
+      globalDefaults,
+      userSettings,
+      effective,
+    });
+  } catch (e) {
+    logError('auth ui-settings get failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/ui-settings', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const schema = z.object({
+      uiSettings: z.unknown(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const safeUserSettings = sanitizeUiControlSettings(parsed.data.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+    const saved = await setEmployeeUiSettings(actor.id, safeUserSettings);
+    if (!saved.ok) return res.status(500).json({ ok: false, error: saved.error });
+
+    const globalRaw = await getGlobalUiDefaults();
+    const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
+    const effective = mergeUiControlSettings(globalDefaults, safeUserSettings);
+    return res.json({
+      ok: true,
+      uiDefaultsVersion: Number(globalRaw.version ?? UI_DEFAULTS_VERSION),
+      globalDefaults,
+      userSettings: safeUserSettings,
+      effective,
+    });
+  } catch (e) {
+    logError('auth ui-settings patch failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Workspace-профиль (вкладки/ярлыки/Мой Круг) — подгружается при логине на любом клиенте.
+authRouter.get('/ui-profile', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const profile = await getEmployeeUiProfile(actor.id);
+    return res.json({ ok: true, profile });
+  } catch (e) {
+    logError('auth ui-profile get failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/ui-profile', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const schema = z.object({ profile: z.unknown() });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const saved = await setEmployeeUiProfile(actor.id, parsed.data.profile);
+    if (!saved.ok) return res.status(400).json({ ok: false, error: saved.error });
+    return res.json({ ok: true, profile: saved.profile, stale: saved.stale });
+  } catch (e) {
+    logError('auth ui-profile patch failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.get('/ui-settings/global', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'доступ запрещен' });
+
+    const globalRaw = await getGlobalUiDefaults();
+    const globalDefaults = sanitizeUiControlSettings(JSON.parse(globalRaw.settings));
+    return res.json({ ok: true, uiDefaultsVersion: Number(globalRaw.version ?? UI_DEFAULTS_VERSION), globalDefaults });
+  } catch (e) {
+    logError('auth ui-settings global get failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/ui-settings/global', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'доступ запрещен' });
+    const schema = z.object({
+      uiSettings: z.unknown(),
+      bumpVersion: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const safeSettings = sanitizeUiControlSettings(parsed.data.uiSettings ?? DEFAULT_UI_CONTROL_SETTINGS);
+    const next = await setGlobalUiDefaults({ settings: safeSettings, bumpVersion: parsed.data.bumpVersion !== false });
+    return res.json({
+      ok: true,
+      uiDefaultsVersion: Number(next.version ?? UI_DEFAULTS_VERSION),
+      globalDefaults: sanitizeUiControlSettings(JSON.parse(next.settings)),
+    });
+  } catch (e) {
+    logError('auth ui-settings global patch failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/profile', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    const schema = z.object({
+      fullName: z.string().max(200).optional().nullable(),
+      position: z.string().max(200).optional().nullable(),
+      sectionName: z.string().max(200).optional().nullable(),
+      chatDisplayName: z.string().max(80).optional().nullable(),
+      telegramLogin: z.string().max(80).optional().nullable(),
+      maxLogin: z.string().max(80).optional().nullable(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const patch: {
+      fullName?: string | null;
+      position?: string | null;
+      sectionName?: string | null;
+      chatDisplayName?: string | null;
+      telegramLogin?: string | null;
+      maxLogin?: string | null;
+    } = {};
+    if (parsed.data.fullName !== undefined) patch.fullName = parsed.data.fullName;
+    if (parsed.data.position !== undefined) patch.position = parsed.data.position;
+    if (parsed.data.sectionName !== undefined) patch.sectionName = parsed.data.sectionName;
+    if (parsed.data.chatDisplayName !== undefined) patch.chatDisplayName = parsed.data.chatDisplayName;
+    if (parsed.data.telegramLogin !== undefined) patch.telegramLogin = parsed.data.telegramLogin;
+    if (parsed.data.maxLogin !== undefined) patch.maxLogin = parsed.data.maxLogin;
+    const r = await setEmployeeProfile(actor.id, patch);
+    if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+    const profile = await getEmployeeProfileById(actor.id);
+    return res.json({ ok: true, profile });
+  } catch (e) {
+    logError('auth profile update failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.post('/refresh', async (req, res) => {
+  const parsed = refreshSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  const tokenHash = hashRefreshToken(parsed.data.refreshToken);
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const now = Date.now();
+      const rows = await db
+        .select()
+        .from(refreshTokens)
+        .where(and(eq(refreshTokens.tokenHash, tokenHash), gt(refreshTokens.expiresAt, now)))
+        .limit(1);
+      const rt = rows[0];
+      if (!rt) return res.status(401).json({ ok: false, error: 'недействительный токен обновления' });
+
+      const u = await getEmployeeAuthById(String(rt.userId));
+      if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'пользователь отключен' });
+
+      const role = normalizeRole(u.login, u.systemRole);
+      if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
+      const authUser: AuthUser = { id: u.id, username: u.login, role };
+      const accessToken = await signAccessToken(authUser);
+      const permissions = await getEffectivePermissionsForUser(u.id);
+
+      // Rotation refresh token: удаляем старый, выдаём новый.
+      const newRefreshToken = generateRefreshToken();
+      const expiresAt = now + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
+      await db.delete(refreshTokens).where(eq(refreshTokens.id, rt.id));
+      await db.insert(refreshTokens).values({
+        id: randomUUID(),
+        userId: u.id,
+        tokenHash: hashRefreshToken(newRefreshToken),
+        expiresAt,
+        createdAt: now,
+      });
+
+      return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser, permissions });
+    } catch (e) {
+      const error = String(e);
+      if (attempt < maxAttempts && isTransientRefreshDbError(error)) {
+        await sleep(500);
+        continue;
+      }
+      logError('auth refresh failed', { error, attempt });
+      return res.status(500).json({ ok: false, error });
+    }
+  }
+  return res.status(500).json({ ok: false, error: 'auth refresh failed: exhausted retries' });
+});
+
+authRouter.post('/logout', requireAuth, async (req, res) => {
+  try {
+    const parsed = refreshSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const tokenHash = hashRefreshToken(parsed.data.refreshToken);
+    await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
+    return res.json({ ok: true });
+  } catch (e) {
+    logError('auth logout failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const schema = z.object({
+      currentPassword: z.string().min(1).max(500),
+      newPassword: z.string().min(6).max(500),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+
+    const u = await getEmployeeAuthById(actor.id);
+    if (!u || !u.accessEnabled || !u.passwordHash) return res.status(403).json({ ok: false, error: 'пользователь отключен' });
+
+    const ok = await verifyPassword(parsed.data.currentPassword, u.passwordHash);
+    if (!ok) return res.status(400).json({ ok: false, error: 'некорректный текущий пароль' });
+
+    const passwordHash = await hashPassword(parsed.data.newPassword);
+    const r = await setEmployeeAuth(actor.id, { passwordHash });
+    if (!r.ok) return res.status(500).json({ ok: false, error: r.error });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    logError('auth change-password failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+

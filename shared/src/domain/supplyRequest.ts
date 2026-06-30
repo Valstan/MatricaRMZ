@@ -1,0 +1,100 @@
+export type SupplyRequestStatus =
+  | 'draft'
+  | 'signed'
+  | 'director_approved'
+  | 'accepted'
+  | 'fulfilled_full'
+  | 'fulfilled_partial';
+
+export type SupplyRequestTransitionAction =
+  | 'sign'
+  | 'director_approve'
+  | 'accept'
+  | 'fulfill_full'
+  | 'fulfill_partial';
+
+export type SupplyRequestDelivery = {
+  deliveredAt?: number; // ms epoch
+  qty?: number;
+  note?: string | null;
+};
+
+export type SupplyRequestItem = {
+  lineNo?: number;
+  productId?: string | null;
+  name?: string;
+  qty?: number;
+  unit?: string;
+  note?: string | null;
+  deliveries?: SupplyRequestDelivery[];
+};
+
+export type SupplyRequestSignature = {
+  userId?: string | null;
+  username?: string | null;
+  fullName?: string | null;
+  position?: string | null;
+  signedAt: number; // ms epoch
+};
+
+export type SupplyRequestAuditTrailItem = {
+  at: number;
+  by: string; // username
+  action: string;
+  note?: string | null;
+};
+
+import type { FileRef } from './fileStorage.js';
+
+export type SupplyRequestPayload = {
+  kind: 'supply_request';
+  version: 2;
+
+  // identity
+  operationId: string; // operations.id
+  requestNumber: string;
+
+  // header
+  compiledAt: number; // дата составления
+  sentAt?: number | null; // дата отправки заявки
+  acceptedAt?: number | null; // дата принятия снабжением
+  arrivedAt?: number | null; // дата поступления деталей на завод
+  fulfilledAt?: number | null; // дата исполнения
+
+  title: string;
+  status: SupplyRequestStatus;
+
+  // org links (master-data ids)
+  departmentId: string;
+  workshopId?: string | null;
+  sectionId?: string | null;
+
+  // items
+  items: SupplyRequestItem[];
+
+  // attachments
+  attachments?: FileRef[];
+
+  // signatures / workflow
+  signedByHead?: SupplyRequestSignature | null;
+  approvedByDirector?: SupplyRequestSignature | null;
+  acceptedBySupply?: SupplyRequestSignature | null;
+
+  auditTrail?: SupplyRequestAuditTrailItem[];
+};
+
+/**
+ * «Пустая» заявка снабжения — авто-созданная карточка без содержимого: нет позиций,
+ * вложений и заголовка. Номер/дата проставляются автоматически и содержимым не считаются.
+ * Defensive: принимает сырой payload — используется чисткой пустых карточек на бэкенде.
+ */
+export function isSupplyRequestPayloadEmpty(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return true;
+  const p = payload as Record<string, unknown>;
+  const items = Array.isArray(p.items) ? p.items.length : 0;
+  const attachments = Array.isArray(p.attachments) ? p.attachments.length : 0;
+  const hasTitle = typeof p.title === 'string' && p.title.trim() !== '';
+  return items === 0 && attachments === 0 && !hasTitle;
+}
+
+

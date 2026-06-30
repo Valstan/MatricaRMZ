@@ -1,0 +1,21 @@
+[Unit]
+Description=Cleanup old MatricaRMZ installer .exe files (keep newest N)
+ConditionPathIsDirectory=/opt/matricarmz/updates
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/matricarmz-cleanup-updates.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/matricarmz/updates
+
+# Параметры можно переопределить через drop-in:
+#   sudo systemctl edit matricarmz-cleanup-updates.service
+# и добавить, например:
+#   [Service]
+#   Environment=KEEP_COUNT=5

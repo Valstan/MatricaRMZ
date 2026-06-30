@@ -1,0 +1,56 @@
+{
+  "name": "matricarmz",
+  "private": true,
+  "packageManager": "pnpm@10.26.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Valstan/MatricaRMZ.git"
+  },
+  "workspaces": [
+    "electron-app",
+    "backend-api",
+    "shared",
+    "ledger"
+  ],
+  "scripts": {
+    "setup:dev": "corepack prepare pnpm@10.26.1 --activate && corepack pnpm install && corepack pnpm --filter @matricarmz/shared build",
+    "build:shared": "corepack pnpm --filter @matricarmz/shared build",
+    "db:migrate": "corepack pnpm --filter @matricarmz/backend-api db:migrate",
+    "dev:backend": "corepack pnpm --filter @matricarmz/backend-api dev",
+    "dev:electron": "corepack pnpm --filter @matricarmz/electron-app dev",
+    "dev:web-admin": "corepack pnpm --filter @matricarmz/web-admin dev",
+    "dev": "corepack pnpm -r dev",
+    "build": "corepack pnpm -r build",
+    "lint": "corepack pnpm -r lint",
+    "deadcode": "knip",
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r --workspace-concurrency=1 test",
+    "format": "prettier -w .",
+    "version:bump": "node scripts/bump-version.mjs",
+    "version:bump:minor": "node scripts/bump-version.mjs --minor",
+    "version:bump:major": "node scripts/bump-version.mjs --major",
+    "version:backend:bump": "node scripts/bump-backend-version.mjs",
+    "version:backend:bump:minor": "node scripts/bump-backend-version.mjs --minor",
+    "version:backend:bump:major": "node scripts/bump-backend-version.mjs --major",
+    "release:auto": "node scripts/run-with-backend-env.mjs scripts/release-auto.mjs",
+    "release:ledger-publish": "node scripts/run-with-backend-env.mjs scripts/publish-ledger-release.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.50.0",
+    "@typescript-eslint/parser": "^8.50.0",
+    "eslint": "^9.17.0",
+    "globals": "^16.5.0",
+    "knip": "^6.17.1",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "path-to-regexp@<0.1.13": "0.1.13",
+      "qs@<6.14.2": "6.14.2",
+      "ip-address@<=10.1.0": "10.1.1"
+    }
+  }
+}

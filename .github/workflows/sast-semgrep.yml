@@ -1,0 +1,54 @@
+name: SAST (semgrep)
+
+# Replaces CodeQL, which is unavailable on a private repo without GitHub
+# Advanced Security. Semgrep OSS rules are free and run in Actions. The job is
+# NON-BLOCKING (continue-on-error) so findings never block auto-merge; review
+# them in the step log / the uploaded SARIF artifact. Promote to blocking once
+# the codebase is triaged to a clean baseline.
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Semgrep scan (non-blocking)
+        continue-on-error: true
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/nodejs \
+            --config p/react \
+            --config p/typescript \
+            --severity ERROR --severity WARNING \
+            --exclude 'dist' --exclude 'node_modules' --exclude '*.test.ts' \
+            --metrics off \
+            --text --sarif-output=semgrep.sarif
+
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          if-no-files-found: ignore

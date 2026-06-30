@@ -1,0 +1,230 @@
+import { app, BrowserWindow } from 'electron';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+
+import { getSession } from '../services/authService.js';
+import { deleteBackupCacheFile } from '../services/backupService.js';
+import { onNetworkChange } from '../services/networkService.js';
+import { SyncManager } from '../services/syncManager.js';
+import { logMessageGetEnabled, startLogSender } from '../services/logService.js';
+import { reportPendingUpdateTelemetry } from '../services/updateService.js';
+import { startClientSettingsPolling } from '../services/clientAdminService.js';
+import { appendMainLogLine } from '../utils/logger.js';
+
+import type { IpcContext } from './ipcContext.js';
+import { registerAdminIpc } from './register/admin.js';
+import { registerAuthAndSyncIpc } from './register/authAndSync.js';
+import { registerBackupsIpc } from './register/backups.js';
+import { registerChecklistsIpc } from './register/checklists.js';
+import { registerChatIpc } from './register/chat.js';
+import { registerAiAgentIpc } from './register/aiAgent.js';
+import { registerChangesIpc } from './register/changes.js';
+import { registerEnginesOpsAuditIpc } from './register/enginesOpsAudit.js';
+import { registerMaintenanceIpc } from './register/maintenance.js';
+import { registerDraftsIpc } from './register/drafts.js';
+import { registerEmployeesIpc } from './register/employees.js';
+import { registerFilesIpc } from './register/files.js';
+import { registerLoggingIpc } from './register/logging.js';
+import { registerNotesIpc } from './register/notes.js';
+import { registerPartsIpc } from './register/parts.js';
+import { registerReportsIpc } from './register/reports.js';
+import { registerSettingsIpc } from './register/settings.js';
+import { registerSupplyRequestsIpc } from './register/supplyRequests.js';
+import { registerWorkOrdersIpc } from './register/workOrders.js';
+import { registerWorkOrderTemplatesIpc } from './register/workOrderTemplates.js';
+import { registerWorkOrderSignatureCaptionsIpc } from './register/workOrderSignatureCaptions.js';
+import { registerWorkshopsIpc } from './register/workshops.js';
+import { registerTimesheetsIpc } from './register/timesheets.js';
+import { registerWarehouseLocationsIpc } from './register/warehouseLocations.js';
+import { registerUpdateIpc } from './register/update.js';
+import { registerE2eKeysIpc } from './register/e2eKeys.js';
+import { registerToolsIpc } from './register/tools.js';
+import { registerErpIpc } from './register/erp.js';
+import { openSqliteReadonly } from '../database/db.js';
+
+export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
+  function emitSyncProgress(payload: unknown) {
+    try {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('sync:progress', payload);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  function logToFile(message: string) {
+    appendMainLogLine(app, message);
+  }
+
+  // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
+  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, { onProgress: emitSyncProgress });
+  mgr.startAuto(5 * 60_000);
+  onNetworkChange((next) => {
+    if (!next.online) return;
+    void mgr.runOnce().catch(() => {});
+  });
+
+  // Инициализация системы логирования
+  void logMessageGetEnabled(db).then((enabled) => {
+    if (enabled) {
+      startLogSender(db, mgr.getApiBaseUrl());
+    }
+  });
+
+  // Отгрузить исход последнего обновления (delta/full + байты) один раз после рестарта.
+  void reportPendingUpdateTelemetry(db, mgr.getApiBaseUrl()).catch(() => {});
+
+  async function currentActor(): Promise<string> {
+    const s = await getSession(db).catch(() => null);
+    const u = s?.user?.username;
+    return u && u.trim() ? u.trim() : 'local';
+  }
+
+  async function currentPermissions(): Promise<Record<string, boolean>> {
+    const s = await getSession(db).catch(() => null);
+    const perms = { ...((s?.permissions ?? {}) as Record<string, boolean>) };
+    const role = String(s?.user?.role ?? '').trim().toLowerCase();
+    // Keep admin cards editable when backend sends only masterdata.view.
+    if ((role === 'admin' || role === 'superadmin') && perms['masterdata.view'] === true) {
+      perms['masterdata.edit'] = true;
+    }
+    return perms;
+  }
+
+  // Live DB also stores settings/auth, so use it as sysDb.
+  const sysDb = db;
+  const AUTO_SYNC_MS = 5 * 60_000;
+  let mode: IpcContext['mode'] = () => ({ mode: 'live' as const });
+  let backupSqlite: any | null = null;
+  let backupDb: BetterSQLite3Database | null = null;
+  let currentBackupFilePath: string | null = null;
+
+  function dataDb(): BetterSQLite3Database {
+    return backupDb ?? sysDb;
+  }
+
+  function getMode() {
+    return mode();
+  }
+
+  const ctx: IpcContext = {
+    sysDb,
+    dataDb,
+    mode: getMode,
+    mgr,
+    logToFile,
+    currentActor,
+    currentPermissions,
+  };
+
+  startClientSettingsPolling({
+    db: sysDb,
+    apiBaseUrl: mgr.getApiBaseUrl(),
+    clientId: opts.clientId,
+    version: app.getVersion(),
+    log: logToFile,
+    onSyncProgress: emitSyncProgress,
+  });
+
+  // Register IPC domains
+  registerLoggingIpc(ctx);
+  registerAuthAndSyncIpc(ctx);
+  registerChangesIpc(ctx);
+  registerEnginesOpsAuditIpc(ctx);
+  registerMaintenanceIpc(ctx);
+  registerDraftsIpc(ctx);
+  registerEmployeesIpc(ctx);
+  registerAdminIpc(ctx);
+  registerReportsIpc(ctx);
+  registerUpdateIpc(ctx);
+  registerFilesIpc(ctx);
+  registerChatIpc(ctx);
+  registerNotesIpc(ctx);
+  registerAiAgentIpc(ctx);
+  registerChecklistsIpc(ctx);
+  registerSupplyRequestsIpc(ctx);
+  registerWorkOrdersIpc(ctx);
+  registerWorkOrderTemplatesIpc(ctx);
+  registerWorkOrderSignatureCaptionsIpc(ctx);
+  registerWorkshopsIpc(ctx);
+  registerTimesheetsIpc(ctx);
+  registerWarehouseLocationsIpc(ctx);
+  registerPartsIpc(ctx);
+  registerErpIpc(ctx);
+  registerToolsIpc(ctx);
+  registerE2eKeysIpc(ctx);
+  registerSettingsIpc(ctx);
+
+  registerBackupsIpc(ctx, {
+    enterBackup: async (args) => {
+      try {
+        const backupDate = String(args.backupDate || '').trim();
+        const backupPath = String(args.backupPath || '').trim();
+        if (!backupDate || !backupPath) return { ok: false as const, error: 'backupDate/backupPath required' };
+
+        // Close previous backup DB if any.
+        if (backupSqlite) {
+          try {
+            backupSqlite.close();
+          } catch {
+            // ignore
+          }
+        }
+        backupSqlite = null;
+        backupDb = null;
+        // The previous plaintext snapshot's handle is now closed — delete it.
+        if (currentBackupFilePath && currentBackupFilePath !== backupPath) {
+          void deleteBackupCacheFile(currentBackupFilePath);
+        }
+
+        // Open new snapshot DB in readonly mode.
+        const opened = openSqliteReadonly(backupPath);
+        backupSqlite = opened.sqlite as any;
+        backupDb = opened.db as any;
+        currentBackupFilePath = backupPath;
+
+        mode = () => ({ mode: 'backup' as const, backupDate, backupPath });
+
+        // Stop sync while in view mode.
+        mgr.stopAuto();
+
+        return { ok: true as const };
+      } catch (e) {
+        // Open failed mid-switch (the previous snapshot was already closed/deleted).
+        // Roll back to live mode so we never report 'backup' while dataDb() serves the
+        // live DB, drop the stale path, and resume auto-sync.
+        backupSqlite = null;
+        backupDb = null;
+        currentBackupFilePath = null;
+        mode = () => ({ mode: 'live' as const });
+        mgr.startAuto(AUTO_SYNC_MS);
+        return { ok: false as const, error: String(e) };
+      }
+    },
+    exitBackup: async () => {
+      try {
+        if (backupSqlite) {
+          try {
+            backupSqlite.close();
+          } catch {
+            // ignore
+          }
+        }
+        backupSqlite = null;
+        backupDb = null;
+        // Snapshot handle closed — delete the plaintext copy from userData.
+        if (currentBackupFilePath) {
+          void deleteBackupCacheFile(currentBackupFilePath);
+          currentBackupFilePath = null;
+        }
+        mode = () => ({ mode: 'live' as const });
+        mgr.startAuto(AUTO_SYNC_MS);
+        return { ok: true as const };
+      } catch (e) {
+        return { ok: false as const, error: String(e) };
+      }
+    },
+  });
+}
+
+

@@ -1,0 +1,221 @@
+import { z } from 'zod';
+import { SyncTableName } from './tables.js';
+import {
+  erpEngineInstanceRowSchema,
+  erpEngineAssemblyBomLineRowSchema,
+  erpEngineAssemblyBomRowSchema,
+  erpEngineAssemblyBomBrandLinkRowSchema,
+  erpNomenclatureRowSchema,
+  erpRegisterStockBalanceRowSchema,
+  erpRegisterStockMovementRowSchema,
+} from './erpDto.js';
+import { OperationTypeCode } from '../domain/enums.js';
+
+// Базовые поля синхронизации для всех таблиц.
+export const baseRowFields = {
+  id: z.string().uuid(),
+  created_at: z.number().int(),
+  updated_at: z.number().int(),
+  last_server_seq: z.number().int().nullable().optional(),
+  deleted_at: z.number().int().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+} as const;
+
+export const entityTypeRowSchema = z.object({
+  ...baseRowFields,
+  code: z.string().min(1),
+  name: z.string().min(1),
+});
+
+export const entityRowSchema = z.object({
+  ...baseRowFields,
+  type_id: z.string().uuid(),
+});
+
+export const attributeDefRowSchema = z.object({
+  ...baseRowFields,
+  entity_type_id: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  data_type: z.enum(['text', 'number', 'boolean', 'date', 'json', 'link']),
+  is_required: z.boolean(),
+  sort_order: z.number().int(),
+  meta_json: z.string().nullable().optional(), // JSON-строка, чтобы одинаково жить в SQLite/PG
+});
+
+export const attributeValueRowSchema = z.object({
+  ...baseRowFields,
+  entity_id: z.string().uuid(),
+  attribute_def_id: z.string().uuid(),
+  value_json: z.string().nullable().optional(), // значение в JSON-строке
+});
+
+export const operationRowSchema = z.object({
+  ...baseRowFields,
+  engine_entity_id: z.string().uuid(),
+  operation_type: z.union([z.nativeEnum(OperationTypeCode), z.string().min(1)]),
+  status: z.string().min(1),
+  note: z.string().nullable().optional(),
+  performed_at: z.number().int().nullable().optional(),
+  performed_by: z.string().nullable().optional(),
+  meta_json: z.string().nullable().optional(),
+});
+
+export const auditLogRowSchema = z.object({
+  ...baseRowFields,
+  actor: z.string().min(1),
+  action: z.string().min(1),
+  entity_id: z.string().uuid().nullable().optional(),
+  table_name: z.nativeEnum(SyncTableName).nullable().optional(),
+  payload_json: z.string().nullable().optional(),
+});
+
+export const chatMessageRowSchema = z.object({
+  ...baseRowFields,
+  sender_user_id: z.string().uuid(),
+  sender_username: z.string().min(1),
+  recipient_user_id: z.string().uuid().nullable().optional(), // null => общий чат
+  message_type: z.enum(['text', 'file', 'deep_link', 'text_notify']),
+  body_text: z.string().nullable().optional(),
+  payload_json: z.string().nullable().optional(), // JSON-строка (FileRef / deep-link payload)
+});
+
+export const chatReadRowSchema = z.object({
+  ...baseRowFields,
+  message_id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  read_at: z.number().int(),
+});
+
+export const noteRowSchema = z.object({
+  ...baseRowFields,
+  owner_user_id: z.string().uuid(),
+  title: z.string().min(1),
+  body_json: z.string().nullable().optional(),
+  importance: z.enum(['normal', 'important', 'burning', 'later']),
+  due_at: z.number().int().nullable().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+export const noteShareRowSchema = z.object({
+  ...baseRowFields,
+  note_id: z.string().uuid(),
+  recipient_user_id: z.string().uuid(),
+  hidden: z.boolean(),
+  sort_order: z.number().int().optional(),
+});
+
+export const userPresenceRowSchema = z.object({
+  ...baseRowFields,
+  user_id: z.string().uuid(),
+  last_activity_at: z.number().int(),
+});
+
+// Черновик/recovery-снимок карточки в работе (owner-private). card_id — id целевого
+// документа (может ещё не существовать: черновик новой, не сохранённой карточки).
+export const cardDraftRowSchema = z.object({
+  ...baseRowFields,
+  owner_user_id: z.string().uuid(),
+  card_type: z.string().min(1),
+  card_id: z.string().uuid(),
+  kind: z.enum(['recovery', 'explicit']),
+  title: z.string().nullable().optional(),
+  payload_json: z.string().nullable().optional(),
+  base_updated_at: z.number().int().nullable().optional(),
+});
+
+export const syncRowSchemaByTable = {
+  [SyncTableName.EntityTypes]: entityTypeRowSchema,
+  [SyncTableName.Entities]: entityRowSchema,
+  [SyncTableName.AttributeDefs]: attributeDefRowSchema,
+  [SyncTableName.AttributeValues]: attributeValueRowSchema,
+  [SyncTableName.Operations]: operationRowSchema,
+  [SyncTableName.AuditLog]: auditLogRowSchema,
+  [SyncTableName.ChatMessages]: chatMessageRowSchema,
+  [SyncTableName.ChatReads]: chatReadRowSchema,
+  [SyncTableName.UserPresence]: userPresenceRowSchema,
+  [SyncTableName.Notes]: noteRowSchema,
+  [SyncTableName.NoteShares]: noteShareRowSchema,
+  [SyncTableName.CardDrafts]: cardDraftRowSchema,
+  [SyncTableName.ErpNomenclature]: erpNomenclatureRowSchema,
+  [SyncTableName.ErpEngineAssemblyBom]: erpEngineAssemblyBomRowSchema,
+  [SyncTableName.ErpEngineAssemblyBomLines]: erpEngineAssemblyBomLineRowSchema,
+  [SyncTableName.ErpEngineAssemblyBomBrandLinks]: erpEngineAssemblyBomBrandLinkRowSchema,
+  [SyncTableName.ErpEngineInstances]: erpEngineInstanceRowSchema,
+  [SyncTableName.ErpRegStockBalance]: erpRegisterStockBalanceRowSchema,
+  [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,
+} as const;
+
+export const syncTableUpsertSchema = z.object({
+  table: z.nativeEnum(SyncTableName),
+  rows: z.array(z.unknown()),
+});
+
+export const syncPushRequestSchema = z.object({
+  // Клиентский курсор (для диагностики) и идентификатор рабочего места
+  client_id: z.string().min(1),
+  // Список upsert пачек по таблицам
+  upserts: z.array(syncTableUpsertSchema),
+  // Отпечаток schema snapshot (entity_types + attribute_defs) клиента.
+  schema_fingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+});
+
+export type SyncPushRequest = z.infer<typeof syncPushRequestSchema>;
+
+export const syncIdRemapsSchema = z.object({
+  entity_types: z.record(z.string(), z.string()),
+  attribute_defs: z.record(z.string(), z.string()),
+});
+
+export const syncSkippedRowSchema = z.object({
+  table: z.nativeEnum(SyncTableName),
+  row_id: z.string().uuid(),
+  reason: z.string().min(1),
+  dependency: z.string().optional(),
+  missing_id: z.string().optional(),
+});
+
+export const syncPushSubmitResponseSchema = z.object({
+  ok: z.boolean(),
+  applied: z.number().int().nonnegative().optional(),
+  db_applied: z.number().int().nonnegative().optional(),
+  last_seq: z.number().int().nonnegative().optional(),
+  block_height: z.number().int().nonnegative().optional(),
+  applied_rows: z
+    .array(
+      z.object({
+        table: z.nativeEnum(SyncTableName),
+        rowId: z.string().uuid().optional(),
+        row_id: z.string().uuid().optional(),
+      }),
+    )
+    .optional(),
+  id_remaps: syncIdRemapsSchema.optional(),
+  skipped: z.array(syncSkippedRowSchema).optional(),
+  error: z.string().optional(),
+  action: z.string().optional(),
+  server_fingerprint: z.string().optional(),
+});
+
+export type SyncPushSubmitResponse = z.infer<typeof syncPushSubmitResponseSchema>;
+
+export const syncPullResponseSchema = z.object({
+  sync_protocol_version: z.number().int().min(1).default(2),
+  sync_mode: z.enum(['incremental', 'force_full_pull']).default('incremental'),
+  server_cursor: z.number().int(), // server_seq
+  server_last_seq: z.number().int().default(0), // целевой watermark на момент ответа
+  has_more: z.boolean(),
+  changes: z.array(
+    z.object({
+      table: z.nativeEnum(SyncTableName),
+      row_id: z.string().uuid(),
+      op: z.enum(['upsert', 'delete']),
+      payload_json: z.string(), // JSON строки для унификации
+      server_seq: z.number().int(),
+    }),
+  ),
+});
+
+export type SyncPullResponse = z.infer<typeof syncPullResponseSchema>;
+
+

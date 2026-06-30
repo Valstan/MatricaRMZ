@@ -1,0 +1,8 @@
+packages:
+  - "electron-app"
+  - "backend-api"
+  - "shared"
+  - "web-admin"
+  - "ledger"
+
+

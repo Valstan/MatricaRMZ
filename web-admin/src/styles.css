@@ -1,0 +1,116 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --ui-input-autogrow-min-ch: 10;
+  --ui-input-autogrow-max-ch: 48;
+  --ui-input-autogrow-extra-ch: 2;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+body[data-theme='dark'] {
+  background: #0b1024;
+  color: #e2e8f0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px;
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  flex: 0 0 auto;
+}
+
+.app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+body[data-theme='dark'] .card {
+  background: #0f172a;
+  border-color: #1f2937;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+
+.muted {
+  color: #6b7280;
+}
+
+@keyframes notesBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.notes-blink {
+  animation: notesBlink 1s infinite;
+}
+
+.notes-tab-blink {
+  animation: notesBlink 1s infinite;
+}
+
+body[data-theme='dark'] .muted {
+  color: #94a3b8;
+}
+
+.danger {
+  color: #b91c1c;
+}
+
+body[data-theme='dark'] .danger {
+  color: #f87171;
+}
+
+.chatBlink {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 1;
+  }
+}

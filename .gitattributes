@@ -1,0 +1,13 @@
+# Shell-скрипты должны быть с LF независимо от ОС разработчика —
+# bash на проде падает на CRLF в shebang ("/usr/bin/env bash^M: not found").
+*.sh text eol=lf
+
+# Drizzle SQL-миграции — тоже LF (на проде sha256-сверка с drizzle.__drizzle_migrations).
+*.sql text eol=lf
+
+# Nginx конфиги — LF для совместимости с include на Linux.
+deploy/nginx/*.conf text eol=lf
+
+# Systemd-юниты — LF (на проде в /etc/systemd/system/; CRLF ломает парсинг Environment/ExecStart).
+deploy/systemd/*.service text eol=lf
+deploy/systemd/*.timer text eol=lf

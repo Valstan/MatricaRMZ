@@ -1,0 +1,978 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+
+import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { SectionCard } from '../components/SectionCard.js';
+import { SuggestInput } from '../components/SuggestInput.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useWindowWidth } from '../hooks/useWindowWidth.js';
+import { CardActionBar } from '../components/CardActionBar.js';
+import { useConfirm } from '../components/ConfirmContext.js';
+import { EntityCardShell } from '../components/EntityCardShell.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
+
+type Option = { id: string; label: string };
+type EmployeeOption = Option & { departmentId: string | null };
+
+type ToolPropertyRow = { propertyId: string; value?: string };
+
+type MovementRow = {
+  id: string;
+  movementAt: number;
+  mode: 'received' | 'returned';
+  employeeId?: string | null;
+  confirmed: boolean;
+  confirmedById?: string | null;
+  comment?: string | null;
+};
+
+function toInputDate(ms: number | null) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fromInputDate(v: string): number | null {
+  if (!v) return null;
+  const [y, m, d] = v.split('-').map((x) => Number(x));
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function keyValueTable(rows: Array<[string, string]>) {
+  const body = rows
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || '—')}</td></tr>`)
+    .join('\n');
+  return `<table><tbody>${body}</tbody></table>`;
+}
+
+function fileListHtml(list: unknown) {
+  const items = Array.isArray(list)
+    ? list.filter((x) => x && typeof x === 'object' && typeof (x as any).name === 'string')
+    : [];
+  if (items.length === 0) return '<div class="muted">Нет файлов</div>';
+  return `<ul>${items
+    .map((f) => {
+      const entry = f as { name: string; isObsolete?: boolean };
+      const obsoleteBadge =
+        entry.isObsolete === true
+          ? ' <span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;">Устаревшая версия</span>'
+          : '';
+      return `<li>${escapeHtml(String(entry.name))}${obsoleteBadge}</li>`;
+    })
+    .join('')}</ul>`;
+}
+
+export function ToolDetailsPage(props: {
+  toolId: string;
+  canEdit: boolean;
+  canCreateEmployees?: boolean;
+  canViewFiles: boolean;
+  canUploadFiles: boolean;
+  onOpenToolProperty?: (toolPropertyId: string) => void;
+  onOpenEmployee?: (employeeId: string) => void;
+  onBack: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
+  requestClose?: () => void;
+}) {
+  const windowWidth = useWindowWidth();
+  const compactToolCardLayout = windowWidth < 1280;
+  const stackedToolCardLayout = windowWidth < 980;
+  const [status, setStatus] = useState<string>('');
+  const [toolNumber, setToolNumber] = useState('');
+  const [name, setName] = useState('');
+  const [toolCatalogId, setToolCatalogId] = useState<string>('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [description, setDescription] = useState('');
+  const [departmentId, setDepartmentId] = useState<string>('');
+  const [receivedAt, setReceivedAt] = useState('');
+  const [retiredAt, setRetiredAt] = useState('');
+  const [retireReason, setRetireReason] = useState('');
+  const [photos, setPhotos] = useState<unknown>([]);
+  const [properties, setProperties] = useState<ToolPropertyRow[]>([]);
+  const [movements, setMovements] = useState<MovementRow[]>([]);
+
+  const [propertyOptions, setPropertyOptions] = useState<Option[]>([]);
+  const [propertyValueHints, setPropertyValueHints] = useState<Record<string, string[]>>({});
+  const [toolCatalogOptions, setToolCatalogOptions] = useState<Option[]>([]);
+  const [employeeOptionsAll, setEmployeeOptionsAll] = useState<EmployeeOption[]>([]);
+  const [employeeOptions, setEmployeeOptions] = useState<Option[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<Option[]>([]);
+  const [currentDepartmentId, setCurrentDepartmentId] = useState<string | null>(null);
+
+  const [newMoveDate, setNewMoveDate] = useState<string>('');
+  const [newMoveMode, setNewMoveMode] = useState<'received' | 'returned'>('received');
+  const [newMoveEmployeeId, setNewMoveEmployeeId] = useState<string>('');
+  const [newMoveConfirmed, setNewMoveConfirmed] = useState<boolean>(false);
+  const [newMoveConfirmedById, setNewMoveConfirmedById] = useState<string>('');
+  const [newMoveComment, setNewMoveComment] = useState<string>('');
+  const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
+
+  const dirtyRef = useRef(false);
+  const { confirm: confirmModal } = useConfirm();
+
+  const employeeLabelById = useMemo(() => new Map(employeeOptions.map((o) => [o.id, o.label])), [employeeOptions]);
+  const departmentLabelById = useMemo(() => new Map(departmentOptions.map((o) => [o.id, o.label])), [departmentOptions]);
+
+  async function refresh() {
+    try {
+      setStatus('Загрузка...');
+      const r = await window.matrica.tools.get(props.toolId);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      const attrs = (r as any).tool?.attributes ?? {};
+      setToolNumber(String(attrs.tool_number ?? ''));
+      setName(String(attrs.name ?? ''));
+      setToolCatalogId(attrs.tool_catalog_id ? String(attrs.tool_catalog_id) : '');
+      setSerialNumber(String(attrs.serial_number ?? ''));
+      setDescription(String(attrs.description ?? ''));
+      setDepartmentId(attrs.department_id ? String(attrs.department_id) : '');
+      const receivedMs = attrs.received_at ? Number(attrs.received_at) : null;
+      const retiredMs = attrs.retired_at ? Number(attrs.retired_at) : null;
+      setReceivedAt(toInputDate(receivedMs));
+      setRetiredAt(toInputDate(retiredMs));
+      setRetireReason(String(attrs.retire_reason ?? ''));
+      setPhotos(attrs.photos ?? []);
+      const propsList = Array.isArray(attrs.properties) ? attrs.properties : [];
+      const normalized: ToolPropertyRow[] = propsList
+        .map((p: any) =>
+          p && typeof p === 'object' ? { propertyId: String(p.propertyId ?? ''), value: p.value != null ? String(p.value) : '' } : null,
+        )
+        .filter(Boolean) as ToolPropertyRow[];
+      setProperties(normalized);
+      setStatus('');
+      dirtyRef.current = false;
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function refreshMovements() {
+    try {
+      const r = await window.matrica.tools.movements.list(props.toolId);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      setMovements((r as any).movements ?? []);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function loadOptions() {
+    const [propsRes, catalogRes, employeesRes, typeRes, scopeRes] = await Promise.all([
+      window.matrica.tools.properties.list().catch(() => null),
+      window.matrica.tools.catalog.list().catch(() => null),
+      window.matrica.tools.employees.list({ departmentId: departmentId || null }).catch(() => null),
+      window.matrica.admin.entityTypes.list().catch(() => null),
+      window.matrica.tools.scope().catch(() => null),
+    ]);
+    if (propsRes && (propsRes as any).ok) {
+      const list = (propsRes as any).items ?? [];
+      setPropertyOptions(list.map((p: any) => ({ id: String(p.id), label: String(p.name ?? '(без названия)') })));
+    }
+    if (catalogRes && (catalogRes as any).ok) {
+      const list = (catalogRes as any).items ?? [];
+      setToolCatalogOptions(list.map((p: any) => ({ id: String(p.id), label: String(p.name ?? '(без названия)') })));
+    }
+    if (employeesRes && (employeesRes as any).ok) {
+      const list = (employeesRes as any).employees ?? [];
+      setEmployeeOptionsAll(
+        list.map((e: any) => ({
+          id: String(e.id),
+          label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id),
+          departmentId: e.departmentId ? String(e.departmentId) : null,
+        })),
+      );
+    }
+    if (scopeRes && (scopeRes as any).ok) {
+      setCurrentDepartmentId((scopeRes as any).departmentId ?? null);
+    }
+    if (typeRes) {
+      const types = (typeRes as any) ?? [];
+      const departmentType = types.find((t: any) => String(t.code) === 'department');
+      if (departmentType?.id) {
+        const deps = await window.matrica.admin.entities.listByEntityType(String(departmentType.id));
+        const list = (deps as any) ?? [];
+        setDepartmentOptions(
+          list.map((d: any) => ({ id: String(d.id), label: String(d.displayName ?? d.name ?? d.id) })),
+        );
+      }
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    void refreshMovements();
+    void loadOptions();
+  }, [props.toolId]);
+
+  function movePropertyRow(from: number, to: number) {
+    const next = moveArrayItem(properties, from, to);
+    void updateProperties(next);
+  }
+
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    props.registerCardCloseActions({
+      isDirty: () => dirtyRef.current,
+      saveAndClose: async () => {
+        await saveAllFields();
+      },
+      reset: async () => {
+        await refresh();
+        await refreshMovements();
+        dirtyRef.current = false;
+      },
+      closeWithoutSave: () => {
+        dirtyRef.current = false;
+      },
+      copyToNew: async () => {
+        const r = await window.matrica.tools.create();
+        if (r?.ok && r.id) {
+          await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
+          await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+        }
+      },
+    });
+    return () => { props.registerCardCloseActions?.(null); };
+  }, [toolNumber, name, serialNumber, description, departmentId, toolCatalogId, receivedAt, retiredAt, retireReason, props.registerCardCloseActions]);
+
+  useEffect(() => {
+    const dept = departmentId || currentDepartmentId || null;
+    void window.matrica.tools.employees.list({ departmentId: dept }).then((r: any) => {
+      if (!r?.ok) return;
+      const list = (r as any).employees ?? [];
+      setEmployeeOptionsAll(
+        list.map((e: any) => ({
+          id: String(e.id),
+          label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id),
+          departmentId: e.departmentId ? String(e.departmentId) : null,
+        })),
+      );
+      setEmployeeOptions(list.map((e: any) => ({ id: String(e.id), label: String(e.label ?? e.fullName ?? e.displayName ?? e.name ?? e.id) })));
+    });
+  }, [departmentId, currentDepartmentId]);
+
+  useLiveDataRefresh(
+    async () => {
+      if (dirtyRef.current) return;
+      await refresh();
+      await refreshMovements();
+    },
+    { intervalMs: 20000 },
+  );
+
+  useEffect(() => {
+    if (employeeOptions.length > 0) return;
+    const filtered = employeeOptionsAll.map((e) => ({ id: e.id, label: e.label }));
+    setEmployeeOptions(filtered);
+  }, [employeeOptionsAll]);
+
+  async function saveAttribute(code: string, value: unknown) {
+    if (!props.canEdit) return;
+    const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code, value });
+    if (!r.ok) setStatus(`Ошибка: ${r.error}`);
+    else setStatus('');
+  }
+
+  async function saveAllFields() {
+    await saveAttribute('tool_number', toolNumber.trim());
+    await saveAttribute('name', name.trim());
+    await saveAttribute('serial_number', serialNumber.trim());
+    await saveAttribute('description', description.trim());
+    await saveAttribute('department_id', departmentId || null);
+    await saveAttribute('tool_catalog_id', toolCatalogId || null);
+    await saveAttribute('received_at', fromInputDate(receivedAt));
+    await saveAttribute('retired_at', fromInputDate(retiredAt));
+    await saveAttribute('retire_reason', retireReason.trim());
+    await saveAttribute('properties', properties);
+    await saveAttribute('photos', photos);
+    dirtyRef.current = false;
+  }
+
+  async function updateProperties(next: ToolPropertyRow[]) {
+    dirtyRef.current = true;
+    setProperties(next);
+  }
+
+  async function createDepartment(label: string): Promise<string | null> {
+    if (!props.canEdit) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const types = await window.matrica.admin.entityTypes.list().catch(() => []);
+    const departmentTypeId = (types as any[]).find((t) => String(t.code) === 'department')?.id;
+    if (!departmentTypeId) {
+      setStatus('Ошибка: не найден справочник подразделений');
+      return null;
+    }
+    const created = await window.matrica.admin.entities.create(String(departmentTypeId));
+    if (!created.ok || !created.id) {
+      setStatus(`Ошибка: ${(created as any).error ?? 'не удалось создать подразделение'}`);
+      return null;
+    }
+    await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
+    setDepartmentOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return created.id;
+  }
+
+  async function createEmployeeOption(label: string): Promise<string | null> {
+    if (props.canCreateEmployees !== true) return null;
+    const clean = label.trim();
+    if (!clean) return null;
+    const created = await window.matrica.employees.create();
+    if (!created?.ok || !created?.id) {
+      setStatus(`Ошибка: ${!created?.ok && created ? created.error : 'не удалось создать сотрудника'}`);
+      return null;
+    }
+    const chunks = clean.split(/\s+/).filter(Boolean);
+    const lastName = chunks[0] ?? clean;
+    const firstName = chunks[1] ?? '';
+    const middleName = chunks.slice(2).join(' ');
+    await window.matrica.employees.setAttr(created.id, 'last_name', lastName);
+    if (firstName) await window.matrica.employees.setAttr(created.id, 'first_name', firstName);
+    if (middleName) await window.matrica.employees.setAttr(created.id, 'middle_name', middleName);
+    await window.matrica.employees.setAttr(created.id, 'full_name', clean);
+    const dept = departmentId || currentDepartmentId || null;
+    if (dept) await window.matrica.employees.setAttr(created.id, 'department_id', dept);
+    const createdEmployee: EmployeeOption = { id: created.id, label: clean, departmentId: dept };
+    setEmployeeOptionsAll((prev) => [...prev, createdEmployee].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    setEmployeeOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    return created.id;
+  }
+
+  async function ensureValueHints(propertyId: string) {
+    if (!propertyId || propertyValueHints[propertyId]) return;
+    const r = await window.matrica.tools.properties.valueHints(propertyId).catch(() => null);
+    if (!r || !(r as any).ok) return;
+    setPropertyValueHints((prev) => ({ ...prev, [propertyId]: (r as any).values ?? [] }));
+  }
+
+  useEffect(() => {
+    const ids = Array.from(new Set(properties.map((p) => p.propertyId).filter(Boolean)));
+    ids.forEach((id) => void ensureValueHints(id));
+  }, [properties.map((p) => p.propertyId).join('|')]);
+
+  async function addMovement() {
+    if (editingMovementId) {
+      await updateMovement();
+      return;
+    }
+    const movementAt = fromInputDate(newMoveDate) ?? Date.now();
+    const r = await window.matrica.tools.movements.add({
+      toolId: props.toolId,
+      movementAt,
+      mode: newMoveMode,
+      employeeId: newMoveEmployeeId || null,
+      confirmed: newMoveConfirmed,
+      confirmedById: newMoveConfirmed ? newMoveConfirmedById || null : null,
+      comment: newMoveComment.trim() || null,
+    });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    setNewMoveDate('');
+    setNewMoveMode('received');
+    setNewMoveEmployeeId('');
+    setNewMoveConfirmed(false);
+    setNewMoveConfirmedById('');
+    setNewMoveComment('');
+    await refreshMovements();
+  }
+
+  async function updateMovement() {
+    if (!editingMovementId) return;
+    const movementAt = fromInputDate(newMoveDate) ?? Date.now();
+    const r = await window.matrica.tools.movements.update({
+      id: editingMovementId,
+      toolId: props.toolId,
+      movementAt,
+      mode: newMoveMode,
+      employeeId: newMoveEmployeeId || null,
+      confirmed: newMoveConfirmed,
+      confirmedById: newMoveConfirmed ? newMoveConfirmedById || null : null,
+      comment: newMoveComment.trim() || null,
+    });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    setEditingMovementId(null);
+    setNewMoveDate('');
+    setNewMoveMode('received');
+    setNewMoveEmployeeId('');
+    setNewMoveConfirmed(false);
+    setNewMoveConfirmedById('');
+    setNewMoveComment('');
+    await refreshMovements();
+  }
+
+  function startEditMovement(m: MovementRow) {
+    setEditingMovementId(m.id);
+    setNewMoveDate(toInputDate(m.movementAt));
+    setNewMoveMode(m.mode);
+    setNewMoveEmployeeId(m.employeeId ?? '');
+    setNewMoveConfirmed(m.confirmed);
+    setNewMoveConfirmedById(m.confirmedById ?? '');
+    setNewMoveComment(m.comment ?? '');
+  }
+
+  async function deleteMovement(m: MovementRow) {
+    const ok = await confirmModal({
+      detail: `Будет удалена запись движения инструмента «${name.trim() || props.toolId}» от ${formatMoscowDate(m.movementAt)} (${m.mode === 'returned' ? 'возврат' : 'получение'}).`,
+    });
+    if (!ok) return;
+    const r = await window.matrica.tools.movements.delete({ id: m.id, toolId: props.toolId });
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    if (editingMovementId === m.id) {
+      setEditingMovementId(null);
+      setNewMoveDate('');
+      setNewMoveMode('received');
+      setNewMoveEmployeeId('');
+      setNewMoveConfirmed(false);
+      setNewMoveConfirmedById('');
+      setNewMoveComment('');
+    }
+    await refreshMovements();
+  }
+
+  function printToolCard() {
+    const mainRows: Array<[string, string]> = [
+      ['Табельный номер', toolNumber],
+      ['Наименование', name],
+      ['Серийный номер', serialNumber],
+      ['Описание', description],
+      ['Подразделение', departmentLabelById.get(departmentId) ?? departmentId ?? '—'],
+      ['Дата поступления', receivedAt || '—'],
+      ['Дата снятия', retiredAt || '—'],
+      ['Причина снятия', retireReason || '—'],
+    ];
+    const propRows: Array<[string, string]> = properties.map((p) => {
+      const label = propertyOptions.find((o) => o.id === p.propertyId)?.label ?? p.propertyId;
+      const val = p.value?.trim() || '—';
+      return [label || '—', val];
+    });
+    const movRows: Array<[string, string]> = movements.map((m) => {
+      const who = m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—';
+      const confirmedBy = m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—';
+      return [
+        formatMoscowDate(m.movementAt),
+        `${m.mode === 'returned' ? 'Вернул' : 'Получил'}; сотрудник: ${who}; подтверждение: ${
+          m.confirmed ? `да (${confirmedBy})` : 'нет'
+        }; комментарий: ${m.comment ?? ''}`,
+      ];
+    });
+    openPrintPreview({
+      title: 'Карточка инструмента',
+      ...(name ? { subtitle: `Наименование: ${name}` } : {}),
+      sections: [
+        { id: 'main', title: 'Основные данные', html: keyValueTable(mainRows) },
+        { id: 'props', title: 'Свойства инструмента', html: propRows.length ? keyValueTable(propRows) : '<div class="muted">Нет данных</div>' },
+        { id: 'moves', title: 'Движение инструмента', html: movRows.length ? keyValueTable(movRows) : '<div class="muted">Нет данных</div>' },
+        { id: 'files', title: 'Фото', html: fileListHtml(photos) },
+      ],
+    });
+  }
+
+  const baseRowGridTemplate = stackedToolCardLayout ? '1fr' : 'minmax(140px, 220px) minmax(0, 1fr)';
+  const propertyRowGridTemplate = compactToolCardLayout
+    ? '1fr'
+    : 'minmax(120px, 180px) minmax(220px, 1fr) minmax(220px, 1fr) 80px';
+  const movementPrimaryGridTemplate = compactToolCardLayout
+    ? '1fr'
+    : 'minmax(110px, 140px) minmax(140px, 1fr) minmax(140px, 1fr) minmax(180px, 1fr)';
+  const movementSecondaryGridTemplate = compactToolCardLayout
+    ? '1fr'
+    : 'minmax(110px, 140px) minmax(160px, 1fr) minmax(220px, 1fr)';
+
+  const cardActionBar = (
+    <CardActionBar
+      canEdit={props.canEdit}
+      cardLabel="Инструмент"
+      onCopyToNew={() => {
+        void (async () => {
+          const r = await window.matrica.tools.create();
+          if (r?.ok && r.id) {
+            await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
+            await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+          }
+        })();
+      }}
+      onSave={() => { void saveAllFields().catch(() => undefined); }}
+      onSaveAndClose={() => { void saveAllFields().then(() => props.onBack()); }}
+      onReset={() => {
+        void (async () => {
+          await refresh();
+          await refreshMovements();
+          dirtyRef.current = false;
+        })();
+      }}
+      onPrint={printToolCard}
+      onClose={() => {
+        void (async () => {
+          if (dirtyRef.current) {
+            if (window.confirm('Сохранить изменения перед выходом?')) {
+              await saveAllFields();
+            } else {
+              dirtyRef.current = false;
+            }
+          }
+          props.onBack();
+        })();
+      }}
+      onDelete={() => {
+        void (async () => {
+          const r = await window.matrica.tools.delete(props.toolId);
+          if (!r.ok) {
+            setStatus(`Ошибка удаления: ${r.error}`);
+            return;
+          }
+          props.onBack();
+        })();
+      }}
+      deleteLabel="Удалить инструмент"
+      deleteConfirmDetail={`Будет удалён инструмент «${name.trim() || props.toolId}»${toolNumber ? `, таб. № ${toolNumber}` : ''}. Действие обычно нельзя отменить.`}
+    />
+  );
+
+  return (
+    <EntityCardShell
+      title=""
+      layout="two-column"
+      cardActions={cardActionBar}
+      status={status ? <span style={{ fontSize: 12, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', marginLeft: 8 }}>{status}</span> : undefined}
+    >
+
+      <SectionCard>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Табельный номер</div>
+          <Input
+            value={toolNumber}
+            onChange={(e) => { setToolNumber(e.target.value); dirtyRef.current = true; }}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Наименование</div>
+          <SearchSelectWithCreate
+            value={toolCatalogId || null}
+            options={toolCatalogOptions}
+            disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel="+Добавить инструмент"
+            onChange={(next) => {
+              dirtyRef.current = true;
+              const label = toolCatalogOptions.find((o) => o.id === next)?.label ?? '';
+              setToolCatalogId(next ?? '');
+              if (label) setName(label);
+            }}
+            onCreate={async (label) => {
+              const r = await window.matrica.tools.catalog.create({ name: label.trim() });
+              if (!r.ok) {
+                setStatus(`Ошибка: ${r.error}`);
+                return null;
+              }
+              const id = (r as any).id as string;
+              setToolCatalogOptions((prev) => [...prev, { id, label }]);
+              dirtyRef.current = true;
+              setToolCatalogId(id);
+              setName(label);
+              return id;
+            }}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Серийный номер</div>
+          <Input
+            value={serialNumber}
+            onChange={(e) => { setSerialNumber(e.target.value); dirtyRef.current = true; }}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Описание</div>
+          <Input
+            value={description}
+            onChange={(e) => { setDescription(e.target.value); dirtyRef.current = true; }}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Подразделение</div>
+          <SearchSelectWithCreate
+            value={departmentId}
+            options={departmentOptions}
+            placeholder="Выберите подразделение"
+            disabled={!props.canEdit}
+            canCreate={props.canEdit}
+            createLabel="Новое подразделение"
+            onChange={(next) => {
+              dirtyRef.current = true;
+              setDepartmentId(next ?? '');
+            }}
+            onCreate={async (label) => {
+              const id = await createDepartment(label);
+              if (!id) return null;
+              dirtyRef.current = true;
+              setDepartmentId(id);
+              return id;
+            }}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Дата поступления</div>
+          <Input
+            type="date"
+            value={receivedAt}
+            onChange={(e) => { setReceivedAt(e.target.value); dirtyRef.current = true; }}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Дата снятия</div>
+          <Input
+            type="date"
+            value={retiredAt}
+            onChange={(e) => { setRetiredAt(e.target.value); dirtyRef.current = true; }}
+            disabled={!props.canEdit}
+          />
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Причина снятия</div>
+          <Input
+            value={retireReason}
+            onChange={(e) => { setRetireReason(e.target.value); dirtyRef.current = true; }}
+            disabled={!props.canEdit}
+          />
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Свойства инструмента"
+        actions={
+          props.canEdit ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                const next = [...properties, { propertyId: '', value: '' }];
+                void updateProperties(next);
+              }}
+            >
+              Добавить свойство
+            </Button>
+          ) : undefined
+        }
+      >
+        {properties.length === 0 && <div style={{ color: 'var(--subtle)' }}>Нет свойств.</div>}
+        {properties.map((row, idx) => {
+          const hints = row.propertyId ? propertyValueHints[row.propertyId] ?? [] : [];
+          return (
+            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: propertyRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+              <div>Свойство</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
+                <SearchSelectWithCreate
+                  value={row.propertyId}
+                  options={propertyOptions}
+                  disabled={!props.canEdit}
+                  canCreate={props.canEdit}
+                  createLabel="+Добавить новое свойство"
+                  onChange={(next) => {
+                    const nextRows = properties.map((p, i) => (i === idx ? { ...p, propertyId: next ?? '', value: p.value ?? '' } : p));
+                    void updateProperties(nextRows);
+                    if (next) void ensureValueHints(next);
+                  }}
+                  onCreate={async (label) => {
+                    const r = await window.matrica.tools.properties.create();
+                    if (!r.ok) {
+                      setStatus(`Ошибка: ${(r as any).error}`);
+                      return null;
+                    }
+                    const id = (r as any).id as string;
+                    await window.matrica.tools.properties.setAttr({ id, code: 'name', value: label.trim() });
+                    setPropertyOptions((prev) => [...prev, { id, label }]);
+                    return id;
+                  }}
+                />
+                {row.propertyId && props.onOpenToolProperty ? (
+                  <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenToolProperty?.(row.propertyId as string)}>
+                    Открыть
+                  </Button>
+                ) : null}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <SuggestInput
+                  value={row.value ?? ''}
+                  onChange={(nextValue) => {
+                    const nextRows = properties.map((p, i) => (i === idx ? { ...p, value: nextValue } : p));
+                    void updateProperties(nextRows);
+                  }}
+                  options={hints.map((h) => ({ value: h }))}
+                  disabled={!props.canEdit}
+                  placeholder="Значение свойства"
+                  onCreate={async (label) => label.trim() || null}
+                />
+              </div>
+              {props.canEdit ? (
+                <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', justifySelf: compactToolCardLayout ? 'start' : undefined }}>
+                  <RowReorderButtons
+                    canMoveUp={idx > 0}
+                    canMoveDown={idx < properties.length - 1}
+                    onMoveUp={() => movePropertyRow(idx, idx - 1)}
+                    onMoveDown={() => movePropertyRow(idx, idx + 1)}
+                  />
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      void (async () => {
+                        const propLabel = propertyOptions.find((o) => o.id === row.propertyId)?.label ?? row.propertyId;
+                        const ok = await confirmModal({
+                          detail: `Удалить из карточки инструмента «${name.trim() || props.toolId}» строку свойства «${propLabel}»?`,
+                        });
+                        if (!ok) return;
+                        const nextRows = properties.filter((_p, i) => i !== idx);
+                        void updateProperties(nextRows);
+                      })();
+                    }}
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Удалить
+                  </Button>
+                </div>
+              ) : (
+                <div />
+              )}
+            </div>
+          );
+        })}
+      </SectionCard>
+
+      <SectionCard title="Движение инструмента">
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementPrimaryGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <div>Дата</div>
+          <Input type="date" value={newMoveDate} onChange={(e) => setNewMoveDate(e.target.value)} disabled={!props.canEdit} />
+          <select
+            value={newMoveMode}
+            onChange={(e) => setNewMoveMode(e.target.value as 'received' | 'returned')}
+            disabled={!props.canEdit}
+            style={{ height: 'var(--ui-input-height, 32px)', width: '100%' }}
+          >
+            <option value="received">Получил</option>
+            <option value="returned">Вернул</option>
+          </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
+            <SearchSelectWithCreate
+              value={newMoveEmployeeId}
+              options={employeeOptions}
+              placeholder="Сотрудник"
+              disabled={!props.canEdit}
+              canCreate={props.canCreateEmployees === true}
+              createLabel="Новый сотрудник"
+              onChange={(next) => setNewMoveEmployeeId(next ?? '')}
+              onCreate={async (label) => {
+                const id = await createEmployeeOption(label);
+                if (!id) return null;
+                setNewMoveEmployeeId(id);
+                return id;
+              }}
+            />
+            {newMoveEmployeeId && props.onOpenEmployee ? (
+              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(newMoveEmployeeId)}>
+                Открыть
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementSecondaryGridTemplate, gap: 8, padding: '4px 6px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => setNewMoveConfirmed(e.target.checked)} disabled={!props.canEdit} />
+            Подтверждено
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
+            <SearchSelectWithCreate
+              value={newMoveConfirmedById}
+              options={employeeOptions}
+              placeholder="Заведующий"
+              disabled={!props.canEdit || !newMoveConfirmed}
+              canCreate={props.canCreateEmployees === true}
+              createLabel="Новый сотрудник"
+              onChange={(next) => setNewMoveConfirmedById(next ?? '')}
+              onCreate={async (label) => {
+                const id = await createEmployeeOption(label);
+                if (!id) return null;
+                setNewMoveConfirmedById(id);
+                return id;
+              }}
+            />
+            {newMoveConfirmedById && props.onOpenEmployee ? (
+              <Button
+                variant="outline"
+                tone="neutral"
+                size="sm"
+                onClick={() => props.onOpenEmployee?.(newMoveConfirmedById)}
+              >
+                Открыть
+              </Button>
+            ) : null}
+          </div>
+          <Input
+            value={newMoveComment}
+            onChange={(e) => setNewMoveComment(e.target.value)}
+            placeholder="Комментарий"
+            disabled={!props.canEdit}
+          />
+        </div>
+        {props.canEdit && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Button tone="success" onClick={() => void addMovement()}>
+                {editingMovementId ? 'Сохранить движение' : 'Добавить движение'}
+              </Button>
+              {editingMovementId && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setEditingMovementId(null);
+                    setNewMoveDate('');
+                    setNewMoveMode('received');
+                    setNewMoveEmployeeId('');
+                    setNewMoveConfirmed(false);
+                    setNewMoveConfirmedById('');
+                    setNewMoveComment('');
+                  }}
+                >
+                  Отмена
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div style={{ border: '1px solid var(--border)', overflow: 'hidden', marginTop: 6 }}>
+          <table className="list-table">
+            <thead>
+              <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="date" title="Дата">Дата</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="text">Режим</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="name">Сотрудник</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="text">Подтверждение</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="text">Комментарий</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
+                    Нет движений
+                  </td>
+                </tr>
+              )}
+              {movements.map((m) => (
+                <tr
+                  key={m.id}
+                  style={{
+                    borderBottom: '1px solid var(--border)',
+                    cursor: props.canEdit ? 'pointer' : 'default',
+                    background: editingMovementId === m.id ? 'var(--card-row-drag-bg)' : undefined,
+                  }}
+                  onClick={() => {
+                    if (!props.canEdit) return;
+                    startEditMovement(m);
+                  }}
+                >
+                  <td data-col-kind="date" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>
+                    {m.movementAt ? formatMoscowDate(m.movementAt) : '—'}
+                  </td>
+                  <td data-col-kind="text" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>{m.mode === 'returned' ? 'Вернул' : 'Получил'}</td>
+                  <td data-col-kind="name" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{m.employeeId ? employeeLabelById.get(m.employeeId) ?? m.employeeId : '—'}</span>
+                      {m.employeeId && props.onOpenEmployee ? (
+                        <Button
+                          variant="outline"
+                          tone="neutral"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onOpenEmployee?.(m.employeeId as string);
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td data-col-kind="text" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{m.confirmed ? `Да (${m.confirmedById ? employeeLabelById.get(m.confirmedById) ?? m.confirmedById : '—'})` : 'Нет'}</span>
+                      {m.confirmedById && props.onOpenEmployee ? (
+                        <Button
+                          variant="outline"
+                          tone="neutral"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onOpenEmployee?.(m.confirmedById as string);
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td data-col-kind="text" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--subtle)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ flex: 1 }}>{m.comment || '—'}</span>
+                      {props.canEdit && (
+                        <Button
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteMovement(m);
+                          }}
+                          style={{ color: 'var(--danger)' }}
+                        >
+                          Удалить
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      <AttachmentsPanel
+        title="Фото инструмента"
+        value={photos}
+        canView={props.canViewFiles}
+        canUpload={props.canUploadFiles && props.canEdit}
+        scope={{ ownerType: 'tool', ownerId: props.toolId, category: 'photos' }}
+        onChange={async (next) => {
+          dirtyRef.current = true;
+          setPhotos(next);
+          return { ok: true as const };
+        }}
+      />
+    </EntityCardShell>
+  );
+}

@@ -1,0 +1,50 @@
+name: Typecheck
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared + ledger (required for typecheck of dependents)
+        run: |
+          pnpm --filter @matricarmz/shared build
+          pnpm --filter @matricarmz/ledger build
+
+      - name: Typecheck shared
+        run: pnpm --filter @matricarmz/shared typecheck
+
+      - name: Typecheck ledger
+        run: pnpm --filter @matricarmz/ledger typecheck
+
+      - name: Typecheck backend-api
+        run: pnpm --filter @matricarmz/backend-api typecheck
+
+      - name: Typecheck electron-app
+        run: pnpm --filter @matricarmz/electron-app typecheck
+
+      - name: Typecheck electron-app test config
+        run: pnpm --filter @matricarmz/electron-app typecheck:test
+
+      - name: Typecheck web-admin
+        run: pnpm --filter @matricarmz/web-admin typecheck

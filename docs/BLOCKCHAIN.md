@@ -1,0 +1,62 @@
+# MatricaRMZ — блокчейн‑слой (ledger)
+
+Ledger — **источник истины** для синхронизации доменных данных.
+Клиенты синхронизируются **только** через ledger (legacy `/sync/*` отключены).
+
+## Что делает ledger сейчас
+- Неизменяемый журнал изменений по доменным таблицам (EAV, операции, чат, аудит).
+- Защита истории через хэши блоков (невозможность «подменить историю» без рассинхрона).
+- Шифрование чувствительных полей (`meta_json`, `payload_json`) при хранении в ledger.
+- SQL‑база используется как **проекция** для UI/быстрых отчетов и служебных выборок.
+
+## Синхронизация и проекции
+- Push: `POST /ledger/tx/submit`
+- Pull: `GET /ledger/state/changes?since=...`
+- Full snapshot: `GET /ledger/state/snapshot`
+- Запросы к состоянию: `GET /ledger/state/query?table=...`
+- Checkpoint: `GET /ledger/checkpoint/latest`, `POST /ledger/checkpoint/build`
+- Legacy `GET/POST /sync/*` возвращают `410 Gone`.
+- Клиент синкается по протоколу v2 (`sync_protocol_version=2`), сервер может требовать v2 (`SYNC_V2_ENFORCE=1`).
+
+Важно: быстрые отчеты и админ‑выборки читаются из SQL‑проекции, а не напрямую из ledger.
+Ledger остаётся источником истины, проекции обновляются при применении транзакций.
+
+Чтобы новые доменные таблицы не "забывали" добавлять в синхронизацию, на старте backend
+включен guard: любые таблицы с колонками `sync_status`/`last_server_seq` **обязаны**
+присутствовать в `SyncTableName` и `LedgerTableName`. По умолчанию guard логирует
+ошибку и продолжает запуск, строгий режим включается `MATRICA_SYNC_GUARD=strict`.
+Полное отключение: `MATRICA_SYNC_GUARD=off` (не рекомендуется).
+
+## Где ledger особенно полезен
+- **Акты/документы**: on‑chain хэши файлов и метаданные для проверки подлинности.
+- **Процессы ремонта**: фиксация стадийных операций как событий для доказуемого таймлайна.
+- **Аудит**: неизменяемый журнал действий пользователей и админ‑операций.
+- **Обновления**: on‑chain реестр релизов (version/fileName/size/SHA256).
+- **Диагностика**: контроль целостности данных клиент ↔ сервер.
+
+## Основные эндпоинты
+- `POST /ledger/tx/submit` — запись транзакций.
+- `GET /ledger/state/changes?since=...` — изменения для клиента.
+- `GET /ledger/state/query?table=...` — запросы к состоянию.
+- `GET /ledger/blocks?since=...` — синхронизация блоков между узлами.
+- `POST /ledger/releases/publish` — публикация релиза в on‑chain реестр (admin).
+- `GET /ledger/releases/latest` — последний релиз.
+
+## Автодиагностика и autoheal
+- Клиенты регулярно отправляют snapshots консистентности в `POST /diagnostics/consistency/report`.
+- Серверный эталон для сравнения берётся из ledger-state (а не из SQL-проекции).
+- При drift backend может автоматически ставить remediation-команды в `client_settings.syncRequest*`:
+  - `force_full_pull_v2`
+  - `reset_sync_state_and_pull`
+  - `deep_repair`
+- Клиент выполняет команду идемпотентно (по `syncRequestId`) и отправляет ack в `POST /client/settings/sync-request/ack`.
+- В периоды нагрузки pull может адаптировать размер страницы (`MATRICA_SYNC_PULL_ADAPTIVE_ENABLED`), не меняя консистентность данных.
+
+## End‑to‑end шифрование
+- Включается на клиенте через `MATRICA_LEDGER_E2E=1`.
+- Шифруются поля `meta_json` и `payload_json` **до** отправки в ledger.
+- Сервер дополнительно шифрует только незашифрованные payload.
+
+## Важные заметки
+- Блокчейн не обеспечивает конфиденциальность сам по себе — для этого используется шифрование.
+- Ledger‑ключи (`server-key.json`, `data-key.json`) хранятся только на сервере.

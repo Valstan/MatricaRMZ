@@ -1,0 +1,184 @@
+import type { PartSpec, PartSpecBrandLink } from '@matricarmz/shared';
+
+export type PaginatedPartsResult =
+  | {
+      ok: true;
+      parts: unknown[];
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+// --- Phase 2 (Variant A) part-spec source -----------------------------------
+// Stage D swaps the option/brand-part consumers from the legacy parts.list onto
+// the directory_parts-backed part-spec list. We expose the same legacy row shape
+// ({ name, article, brandLinks }) so mapPartRowsToSearchOptions and the brand-part
+// readers keep working unchanged. The part-template axis was removed in Phase 3.5
+// (plans/parts-templates-deprecation-2026-06.md) — no more templateName resolution.
+export type PartSpecRow = {
+  id: string;
+  name: string;
+  article: string;
+  brandLinks: Array<{ id: string; engineBrandId: string | null; assemblyUnitNumber: string | null; quantity: number }>;
+};
+
+const PART_SPECS_CACHE_MS = 30_000;
+let partSpecsCache: { expiresAt: number; promise?: Promise<PartSpecRow[]>; rows?: PartSpecRow[] } | null = null;
+
+async function fetchPartSpecRows(): Promise<PartSpecRow[]> {
+  const specs = await window.matrica.warehouse.nomenclaturePartSpecsList();
+  if (!specs?.ok) throw new Error(specs?.error ?? 'unknown');
+  return specs.rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name ?? ''),
+    article: String(r.code ?? ''),
+    brandLinks: Array.isArray(r.brandLinks) ? r.brandLinks : [],
+  }));
+}
+
+export async function listAllPartSpecs(args: { engineBrandId?: string } = {}): Promise<PaginatedPartsResult> {
+  const now = Date.now();
+  try {
+    let rows: PartSpecRow[];
+    if (partSpecsCache?.rows && partSpecsCache.expiresAt > now) {
+      rows = partSpecsCache.rows;
+    } else if (partSpecsCache?.promise && partSpecsCache.expiresAt > now) {
+      rows = await partSpecsCache.promise;
+    } else {
+      const promise = fetchPartSpecRows();
+      partSpecsCache = { promise, expiresAt: now + PART_SPECS_CACHE_MS };
+      rows = await promise;
+      partSpecsCache = { rows, expiresAt: now + PART_SPECS_CACHE_MS };
+    }
+    const brandId = typeof args.engineBrandId === 'string' ? args.engineBrandId.trim() : '';
+    const parts = brandId
+      ? rows.filter((row) => row.brandLinks.some((link) => String(link.engineBrandId ?? '').trim() === brandId))
+      : rows;
+    return { ok: true, parts };
+  } catch (error) {
+    partSpecsCache = null;
+    return { ok: false, error: String(error ?? 'unknown') };
+  }
+}
+
+export function invalidateListAllPartSpecsCache() {
+  partSpecsCache = null;
+}
+
+// --- Phase 3 Stage G: part-spec brand-links (read-modify-write) --------------
+// The legacy per-link CRUD (`window.matrica.parts.partBrandLinks.{list,upsert,delete}`)
+// wrote EAV `part_engine_brand` and mirrored into directory_parts.brandLinksJson.
+// Stage G drops the EAV path: brand-links now live only in the part-spec, which the
+// backend exposes as a whole-spec upsert (no per-link endpoint). These helpers wrap
+// nomenclaturePartSpecGet + nomenclaturePartSpecUpdate to give the call sites the same
+// list/upsert/delete shape, while preserving the other spec fields (code/templateId/
+// dimensions) and leaving metadata untouched. Upsert dedup (match by linkId, else by
+// engineBrandId — one link per part+brand) mirrors the legacy backend upsertPartBrandLink.
+
+export type PartSpecBrandLinkRow = {
+  id: string;
+  engineBrandId: string;
+  assemblyUnitNumber: string;
+  quantity: number;
+};
+
+type SpecBrandLink = PartSpecBrandLink;
+type SpecShape = PartSpec;
+
+const EMPTY_SPEC: SpecShape = { code: null, dimensions: [], brandLinks: [] };
+
+async function readPartSpec(partId: string): Promise<{ ok: true; spec: SpecShape } | { ok: false; error: string }> {
+  const r = await window.matrica.warehouse.nomenclaturePartSpecGet({ nomenclatureId: partId });
+  if (!r?.ok) return { ok: false, error: r?.error ?? 'unknown' };
+  const spec = (r.spec ?? EMPTY_SPEC) as SpecShape;
+  return { ok: true, spec: { ...EMPTY_SPEC, ...spec, brandLinks: Array.isArray(spec.brandLinks) ? spec.brandLinks : [] } };
+}
+
+async function writePartSpec(partId: string, spec: SpecShape): Promise<{ ok: true } | { ok: false; error: string }> {
+  const w = await window.matrica.warehouse.nomenclaturePartSpecUpdate({
+    nomenclatureId: partId,
+    spec,
+  });
+  if (!w?.ok) return { ok: false, error: w?.error ?? 'unknown' };
+  invalidateListAllPartSpecsCache();
+  return { ok: true };
+}
+
+export async function listPartSpecBrandLinks(args: {
+  partId: string;
+}): Promise<{ ok: true; brandLinks: PartSpecBrandLinkRow[] } | { ok: false; error: string }> {
+  try {
+    const r = await readPartSpec(String(args.partId));
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      brandLinks: r.spec.brandLinks.map((l) => ({
+        id: String(l.id ?? ''),
+        engineBrandId: String(l.engineBrandId ?? ''),
+        assemblyUnitNumber: String(l.assemblyUnitNumber ?? ''),
+        quantity: Number(l.quantity) || 0,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertPartSpecBrandLink(args: {
+  partId: string;
+  engineBrandId: string;
+  assemblyUnitNumber: string;
+  quantity: number;
+  linkId?: string;
+  // Т4: галочки актов на привязке. undefined = не трогать текущее значение
+  // (правка количества/узла не должна стирать флаги); false = явно снять.
+  inCompletenessAct?: boolean;
+  inDefectAct?: boolean;
+}): Promise<{ ok: true; linkId: string } | { ok: false; error: string }> {
+  try {
+    const r = await readPartSpec(String(args.partId));
+    if (!r.ok) return r;
+    const links = [...r.spec.brandLinks];
+    const engineBrandId = String(args.engineBrandId ?? '').trim();
+    const assemblyUnitNumber = String(args.assemblyUnitNumber ?? '').trim();
+    const quantity = Math.max(0, Math.floor(Number(args.quantity) || 0));
+
+    let idx = -1;
+    if (args.linkId) idx = links.findIndex((l) => String(l.id) === String(args.linkId));
+    if (idx < 0) idx = links.findIndex((l) => String(l.engineBrandId ?? '') === engineBrandId);
+
+    const prev = idx >= 0 ? links[idx] : null;
+    const linkId = idx >= 0 ? String(links[idx]?.id || '') || crypto.randomUUID() : crypto.randomUUID();
+    const next: SpecBrandLink = {
+      id: linkId,
+      engineBrandId: engineBrandId || null,
+      assemblyUnitNumber: assemblyUnitNumber || null,
+      quantity,
+      ...((args.inCompletenessAct ?? prev?.inCompletenessAct) ? { inCompletenessAct: true } : {}),
+      ...((args.inDefectAct ?? prev?.inDefectAct) ? { inDefectAct: true } : {}),
+    };
+    if (idx >= 0) links[idx] = next;
+    else links.push(next);
+
+    const w = await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
+    if (!w.ok) return w;
+    return { ok: true, linkId };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deletePartSpecBrandLink(args: {
+  partId: string;
+  linkId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const r = await readPartSpec(String(args.partId));
+    if (!r.ok) return r;
+    const links = r.spec.brandLinks.filter((l) => String(l.id) !== String(args.linkId));
+    return await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}

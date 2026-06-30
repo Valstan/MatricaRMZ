@@ -1,0 +1,674 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
+import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
+import { createHash, randomUUID } from 'node:crypto';
+import { asc, gt, isNull } from 'drizzle-orm';
+import {
+  createSignedCheckpoint,
+  ensureLedgerBootstrap,
+  getLedgerLastSeq,
+  getSignedCheckpoint,
+  listBlocksSince,
+  queryState,
+  signAndAppend,
+} from '../ledger/ledgerService.js';
+import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
+import { pullChangesSince } from '../services/sync/pullChangesSince.js';
+import { makePullReadFilter, isPullTableAllowedForRole } from '../services/sync/pullReadFilter.js';
+import {
+  isPrivacyTable,
+  makePrivacyRowFilter,
+  getSharedNoteIds,
+  getOwnedNoteIds,
+} from '../services/sync/syncPrivacy.js';
+import { idempotencyCache } from '../services/sync/idempotencyCache.js';
+import type { AuthenticatedRequest } from '../auth/middleware.js';
+import { db } from '../database/db.js';
+import {
+  attributeDefs,
+  attributeValues,
+  auditLog,
+  chatMessages,
+  chatReads,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomLines,
+  erpNomenclature,
+  erpRegStockBalance,
+  erpRegStockMovements,
+  entities,
+  entityTypes,
+  notes,
+  noteShares,
+  cardDrafts,
+  operations,
+  syncState,
+  userPresence,
+} from '../database/schema.js';
+
+export const ledgerRouter = Router();
+
+const syncRowSchemas: Record<string, (payload: unknown) => boolean> = Object.fromEntries(
+  Object.entries(syncRowSchemaByTable).map(([table, schema]) => [table, (payload: unknown) => schema.safeParse(payload).success]),
+);
+
+const txSchema = z.object({
+  type: z.enum(['upsert', 'delete', 'grant', 'revoke', 'presence', 'chat'] satisfies LedgerTxType[] as any),
+  table: z.nativeEnum(LedgerTableName),
+  row: z.record(z.unknown()).optional(),
+  row_id: z.string().uuid().optional(),
+});
+
+type SchemaSnapshotPayload = {
+  entity_types: Array<Record<string, unknown>>;
+  attribute_defs: Array<Record<string, unknown>>;
+  fingerprint: string;
+};
+
+function buildSchemaFingerprint(snapshot: Omit<SchemaSnapshotPayload, 'fingerprint'>): string {
+  const entityPairs = snapshot.entity_types
+    .map((row) => `${String(row.code ?? '')}:${String(row.id ?? '')}`)
+    .sort((a, b) => a.localeCompare(b));
+  const attrPairs = snapshot.attribute_defs
+    .map((row) => `${String(row.entity_type_id ?? '')}::${String(row.code ?? '')}:${String(row.id ?? '')}`)
+    .sort((a, b) => a.localeCompare(b));
+  const payload = JSON.stringify({ entityPairs, attrPairs });
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+async function getServerSchemaSnapshot(): Promise<SchemaSnapshotPayload> {
+  const typeRows = await db.select().from(entityTypes).where(isNull(entityTypes.deletedAt)).orderBy(asc(entityTypes.code));
+  const defRows = await db
+    .select()
+    .from(attributeDefs)
+    .where(isNull(attributeDefs.deletedAt))
+    .orderBy(asc(attributeDefs.entityTypeId), asc(attributeDefs.code));
+  const entityTypesSyncRows = typeRows.map((row) => SyncTableRegistry.toSyncRow(SyncTableName.EntityTypes, row));
+  const attrDefsSyncRows = defRows.map((row) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeDefs, row));
+  const fingerprint = buildSchemaFingerprint({
+    entity_types: entityTypesSyncRows,
+    attribute_defs: attrDefsSyncRows,
+  });
+  return {
+    entity_types: entityTypesSyncRows,
+    attribute_defs: attrDefsSyncRows,
+    fingerprint,
+  };
+}
+
+ledgerRouter.get('/schema/snapshot', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  try {
+    const snapshot = await getServerSchemaSnapshot();
+    return res.json({ ok: true, ...snapshot });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+ledgerRouter.post('/tx/submit', async (req, res) => {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const parsed = z
+    .object({
+      txs: z.array(txSchema).min(1).max(5000),
+      idempotency_key: z.string().uuid().optional(),
+      schema_fingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  // ── Idempotency check ──────────────────────────────────
+  const idemKey = parsed.data.idempotency_key;
+  if (idemKey) {
+    const cached = idempotencyCache.get(idemKey);
+    if (cached !== undefined && cached !== null) {
+      // Replay the cached successful response
+      return res.json(cached);
+    }
+  }
+
+  try {
+    const clientSchemaFingerprint = parsed.data.schema_fingerprint ?? null;
+    if (clientSchemaFingerprint) {
+      const serverSnapshot = await getServerSchemaSnapshot();
+      if (serverSnapshot.fingerprint !== clientSchemaFingerprint) {
+        return res.status(409).json({
+          ok: false,
+          error: 'schema_outdated',
+          action: 'pull_schema',
+          server_fingerprint: serverSnapshot.fingerprint,
+        });
+      }
+    }
+    const txs = parsed.data.txs.map((tx) => ({
+      type: tx.type,
+      table: tx.table,
+      ...(tx.row != null ? { row: tx.row } : {}),
+      ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
+    }));
+    const result = await applyLedgerTxs(txs, { id: user.id, username: user.username, role: user.role });
+    const response = {
+      ok: true,
+      applied: result.ledgerApplied,
+      db_applied: result.dbApplied,
+      last_seq: result.lastSeq,
+      block_height: result.blockHeight,
+      applied_rows: result.appliedRows ?? [],
+      id_remaps: result.idRemaps,
+      skipped: result.skipped,
+    };
+
+    // Cache the successful response for idempotency replay
+    if (idemKey) {
+      idempotencyCache.set(idemKey, response);
+    }
+
+    return res.json(response);
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: String(e) });
+  }
+});
+
+ledgerRouter.get('/state/query', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  const parsed = z
+    .object({
+      table: z.nativeEnum(LedgerTableName),
+      id: z.string().uuid().optional(),
+      filter: z.string().optional(),
+      sort_by: z.string().optional(),
+      sort_dir: z.enum(['asc', 'desc']).optional(),
+      include_deleted: z.coerce.boolean().optional(),
+      date_field: z.string().optional(),
+      date_from: z.coerce.number().int().optional(),
+      date_to: z.coerce.number().int().optional(),
+      like_field: z.string().optional(),
+      like: z.string().optional(),
+      regex_field: z.string().optional(),
+      regex: z.string().max(200).optional(),
+      regex_flags: z.string().optional(),
+      or_filter: z.string().optional(),
+      cursor_value: z.union([z.string(), z.number()]).optional(),
+      cursor_id: z.string().uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(20000).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    })
+    .superRefine((data, ctx) => {
+      if ((data.like && !data.like_field) || (!data.like && data.like_field)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'like и like_field должны быть указаны вместе' });
+      }
+      if ((data.regex && !data.regex_field) || (!data.regex && data.regex_field)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'regex и regex_field должны быть указаны вместе' });
+      }
+      if (data.regex_flags && !/^[gimsuy]*$/.test(data.regex_flags)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'regex_flags must match /^[gimsuy]*$/' });
+      }
+      // ReDoS guard: reject a quantifier applied to a group that itself ends in a
+      // quantifier — the classic exponential-backtracking shape, e.g. (a+)+, (.*)*,
+      // (x+)*. Combined with the length cap above this blocks the common catastrophic
+      // patterns without a native re2 dependency. (security-hardening-2026-06, Phase 3)
+      if (data.regex && /[+*]\)[+*]/.test(data.regex)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'regex: вложенные квантификаторы запрещены (защита от ReDoS)',
+        });
+      }
+      if ((data.cursor_value != null || data.cursor_id) && !data.sort_by) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'cursor-пагинация требует sort_by' });
+      }
+      if (data.date_from != null && data.date_to != null && data.date_from > data.date_to) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'date_from должен быть <= date_to' });
+      }
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  let filter: Record<string, string> | undefined;
+  if (parsed.data.filter) {
+    try {
+      filter = JSON.parse(parsed.data.filter) as Record<string, string>;
+      const entries = Object.entries(filter);
+      if (entries.length === 0) {
+        return res.status(400).json({ ok: false, error: 'фильтр не должен быть пустым' });
+      }
+      for (const [k, v] of entries) {
+        if (!k || typeof v !== 'string' || !v.trim()) {
+          return res.status(400).json({ ok: false, error: 'значения фильтра должны быть непустыми строками' });
+        }
+      }
+    } catch {
+      return res.status(400).json({ ok: false, error: 'некорректный json-фильтр' });
+    }
+  }
+  let orFilter: Array<Record<string, string>> | undefined;
+  if (parsed.data.or_filter) {
+    try {
+      orFilter = JSON.parse(parsed.data.or_filter) as Array<Record<string, string>>;
+      if (!Array.isArray(orFilter) || orFilter.length === 0) {
+        return res.status(400).json({ ok: false, error: 'or_filter должен быть непустым массивом' });
+      }
+      if (orFilter.length > 50) {
+        return res.status(400).json({ ok: false, error: 'or_filter слишком большой' });
+      }
+      for (const clause of orFilter) {
+        if (!clause || typeof clause !== 'object') {
+          return res.status(400).json({ ok: false, error: 'or_filter должен содержать объекты' });
+        }
+        const entries = Object.entries(clause);
+        if (entries.length === 0) {
+          return res.status(400).json({ ok: false, error: 'условия or_filter не должны быть пустыми' });
+        }
+        for (const [k, v] of entries) {
+          if (!k || typeof v !== 'string' || !v.trim()) {
+            return res.status(400).json({ ok: false, error: 'значения or_filter должны быть непустыми строками' });
+          }
+        }
+      }
+    } catch {
+      return res.status(400).json({ ok: false, error: 'некорректный json или фильтр or_filter' });
+    }
+  }
+  const opts = {
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    ...(filter ? { filter } : {}),
+    ...(orFilter ? { orFilter } : {}),
+    ...(parsed.data.sort_by ? { sortBy: parsed.data.sort_by } : {}),
+    ...(parsed.data.sort_dir ? { sortDir: parsed.data.sort_dir } : {}),
+    ...(parsed.data.include_deleted != null ? { includeDeleted: parsed.data.include_deleted } : {}),
+    ...(parsed.data.date_field ? { dateField: parsed.data.date_field } : {}),
+    ...(parsed.data.date_from != null ? { dateFrom: parsed.data.date_from } : {}),
+    ...(parsed.data.date_to != null ? { dateTo: parsed.data.date_to } : {}),
+    ...(parsed.data.like_field ? { likeField: parsed.data.like_field } : {}),
+    ...(parsed.data.like ? { like: parsed.data.like } : {}),
+    ...(parsed.data.regex_field ? { regexField: parsed.data.regex_field } : {}),
+    ...(parsed.data.regex ? { regex: parsed.data.regex } : {}),
+    ...(parsed.data.regex_flags ? { regexFlags: parsed.data.regex_flags } : {}),
+    ...(parsed.data.cursor_value != null ? { cursorValue: parsed.data.cursor_value } : {}),
+    ...(parsed.data.cursor_id ? { cursorId: parsed.data.cursor_id } : {}),
+    ...(parsed.data.limit != null ? { limit: parsed.data.limit } : {}),
+    ...(parsed.data.offset != null ? { offset: parsed.data.offset } : {}),
+  };
+  const rows = queryState(parsed.data.table, opts);
+  const queryTable = String(parsed.data.table);
+  // Per-user privacy: chat/notes are private — an operator must not read other
+  // people's chats/notes via this endpoint. Mirrors /state/changes (pullChangesSince)
+  // so all three pull surfaces agree. (security-hardening-2026-06 H1-A)
+  const queryRole = String(actor.role ?? '').toLowerCase();
+  const queryIsAdmin = queryRole === 'admin' || queryRole === 'superadmin';
+  const queryIsPending = queryRole === 'pending';
+  let privacyRows = rows as Array<Record<string, unknown>>;
+  if (!queryIsAdmin && isPrivacyTable(queryTable)) {
+    if (queryIsPending) {
+      privacyRows = [];
+    } else {
+      const sharedNoteIds = queryTable === SyncTableName.Notes ? await getSharedNoteIds(String(actor.id)) : new Set<string>();
+      const ownedNoteIds = queryTable === SyncTableName.NoteShares ? await getOwnedNoteIds(String(actor.id)) : new Set<string>();
+      const privacyFilter = makePrivacyRowFilter(
+        { id: String(actor.id), isAdmin: queryIsAdmin, isPending: queryIsPending },
+        { sharedNoteIds, ownedNoteIds },
+      );
+      privacyRows = privacyRows.filter((r) => privacyFilter(queryTable, r));
+    }
+  }
+  // Apply the shared pull read-authz: strips credentials (everyone) + sensitive
+  // PII/HR for non-self operators, and drops admin-only tables (audit_log).
+  // (security-hardening-2026-06 H5 + H1-B)
+  if (!isPullTableAllowedForRole(queryTable, actor.role)) {
+    return res.json({ ok: true, rows: [] });
+  }
+  const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
+  const visibleRows = privacyRows.filter((r) => readFilter(queryTable, r));
+  return res.json({ ok: true, rows: visibleRows });
+});
+
+// PG table mapping for snapshot (source of truth).
+const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Record<string, unknown> }> = {
+  [SyncTableName.EntityTypes]: { drizzle: entityTypes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.EntityTypes, r) },
+  [SyncTableName.Entities]: { drizzle: entities, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Entities, r) },
+  [SyncTableName.AttributeDefs]: { drizzle: attributeDefs, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeDefs, r) },
+  [SyncTableName.AttributeValues]: { drizzle: attributeValues, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeValues, r) },
+  [SyncTableName.Operations]: { drizzle: operations, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Operations, r) },
+  [SyncTableName.AuditLog]: { drizzle: auditLog, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AuditLog, r) },
+  [SyncTableName.ChatMessages]: { drizzle: chatMessages, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatMessages, r) },
+  [SyncTableName.ChatReads]: { drizzle: chatReads, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatReads, r) },
+  [SyncTableName.UserPresence]: { drizzle: userPresence, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserPresence, r) },
+  [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
+  [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
+  [SyncTableName.CardDrafts]: { drizzle: cardDrafts, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.CardDrafts, r) },
+  [LedgerTableName.ErpNomenclature]: {
+    drizzle: erpNomenclature,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, r),
+  },
+  [LedgerTableName.ErpEngineAssemblyBom]: {
+    drizzle: erpEngineAssemblyBom,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBom, r),
+  },
+  [LedgerTableName.ErpEngineAssemblyBomLines]: {
+    drizzle: erpEngineAssemblyBomLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomLines, r),
+  },
+  [LedgerTableName.ErpRegStockBalance]: {
+    drizzle: erpRegStockBalance,
+    // Phase 2.4 PR 3: warehouse_id column dropped — sync отдаёт только warehouse_location_id.
+    toSyncRow: (r: any) => ({
+      id: String(r.id),
+      nomenclature_id: r.nomenclatureId ?? null,
+      part_card_id: r.partCardId ?? null,
+      warehouse_location_id: r.warehouseLocationId ?? null,
+      qty: Number(r.qty ?? 0),
+      reserved_qty: Number(r.reservedQty ?? 0),
+      updated_at: Number(r.updatedAt),
+    }),
+  },
+  [LedgerTableName.ErpRegStockMovements]: {
+    drizzle: erpRegStockMovements,
+    toSyncRow: (r: any) => ({
+      id: String(r.id),
+      nomenclature_id: String(r.nomenclatureId),
+      warehouse_location_id: r.warehouseLocationId ?? null,
+      document_header_id: r.documentHeaderId ?? null,
+      movement_type: String(r.movementType),
+      qty: Number(r.qty ?? 0),
+      direction: String(r.direction),
+      counterparty_id: r.counterpartyId ?? null,
+      reason: r.reason ?? null,
+      performed_at: Number(r.performedAt),
+      performed_by: r.performedBy ?? null,
+      created_at: Number(r.createdAt),
+    }),
+  },
+};
+
+ledgerRouter.get('/state/snapshot', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const parsed = z
+    .object({
+      table: z.nativeEnum(LedgerTableName),
+      limit: z.coerce.number().int().min(1).max(20000).optional(),
+      cursor_id: z.string().optional(),
+      include_deleted: z.coerce.boolean().optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const limit = parsed.data.limit ?? 5000;
+  const tableName = String(parsed.data.table);
+
+  // Admin-only pull tables (audit_log) are not synced to operators. (H1-B)
+  if (!isPullTableAllowedForRole(tableName, actor.role)) {
+    return res.json({ ok: true, table: tableName, rows: [], has_more: false, next_cursor_id: null, server_last_seq: getLedgerLastSeq() });
+  }
+
+  // Use PG as the source of truth for sync tables (avoids ledger state duplicates).
+  const pgEntry = PG_SYNC_TABLES[tableName];
+  if (pgEntry) {
+    const pgTable = pgEntry.drizzle;
+    const includeDeleted = parsed.data.include_deleted ?? false;
+    const cursorId = parsed.data.cursor_id ?? null;
+
+    let query = db
+      .select()
+      .from(pgTable)
+      .$dynamic();
+
+    const conditions: any[] = [];
+    if (!includeDeleted && 'deletedAt' in pgTable) {
+      conditions.push(isNull(pgTable.deletedAt));
+    }
+    if (cursorId && 'id' in pgTable) {
+      conditions.push(gt(pgTable.id, cursorId));
+    }
+    if (conditions.length === 1) {
+      query = query.where(conditions[0]);
+    } else if (conditions.length > 1) {
+      const { and } = await import('drizzle-orm');
+      query = query.where(and(...conditions));
+    }
+
+    if ('id' in pgTable) {
+      query = query.orderBy(asc(pgTable.id));
+    }
+
+    const dbRows = await query.limit(limit + 1);
+    const page = dbRows.slice(0, limit);
+    const hasMore = dbRows.length > limit;
+    const nextCursorId = hasMore ? String((page.at(-1) as any)?.id ?? '') : null;
+    const syncRows = page.map((r: any) => pgEntry.toSyncRow(r));
+
+    // Per-user privacy: chat/notes are private — the cold snapshot must filter
+    // them per actor just like /state/changes (pullChangesSince) already does;
+    // otherwise an operator could pull everyone's chats/notes via a cold sync.
+    // (security-hardening-2026-06 H1-A — closes the snapshot privacy gap)
+    const snapRole = String(actor.role ?? '').toLowerCase();
+    const snapIsAdmin = snapRole === 'admin' || snapRole === 'superadmin';
+    const snapIsPending = snapRole === 'pending';
+    let privacyRows = syncRows as Array<Record<string, unknown>>;
+    if (!snapIsAdmin && isPrivacyTable(tableName)) {
+      if (snapIsPending) {
+        privacyRows = [];
+      } else {
+        const sharedNoteIds = tableName === SyncTableName.Notes ? await getSharedNoteIds(String(actor.id)) : new Set<string>();
+        const ownedNoteIds = tableName === SyncTableName.NoteShares ? await getOwnedNoteIds(String(actor.id)) : new Set<string>();
+        const privacyFilter = makePrivacyRowFilter(
+          { id: String(actor.id), isAdmin: snapIsAdmin, isPending: snapIsPending },
+          { sharedNoteIds, ownedNoteIds },
+        );
+        privacyRows = privacyRows.filter((r) => privacyFilter(tableName, r));
+      }
+    }
+
+    // Shared pull read-authz: credential strip (everyone) + sensitive PII/HR for
+    // non-self operators. (security-hardening-2026-06 H1-B)
+    const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
+    const visibleRows = privacyRows.filter((r: any) => readFilter(tableName, r as Record<string, unknown>));
+
+    return res.json({
+      ok: true,
+      table: tableName,
+      rows: visibleRows,
+      has_more: hasMore,
+      next_cursor_id: nextCursorId || null,
+      server_last_seq: getLedgerLastSeq(),
+    });
+  }
+
+  // Fallback to in-memory ledger state for non-sync tables (release_registry, etc.)
+  const rows = queryState(parsed.data.table, {
+    includeDeleted: parsed.data.include_deleted ?? false,
+    sortBy: 'id',
+    sortDir: 'asc',
+    limit: limit + 1,
+    ...(parsed.data.cursor_id ? { cursorValue: parsed.data.cursor_id, cursorId: parsed.data.cursor_id } : {}),
+  }) as Array<Record<string, unknown>>;
+  const page = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const nextCursorId = hasMore ? String(page.at(-1)?.id ?? '') : null;
+  return res.json({
+    ok: true,
+    table: parsed.data.table,
+    rows: page,
+    has_more: hasMore,
+    next_cursor_id: nextCursorId || null,
+    server_last_seq: getLedgerLastSeq(),
+  });
+});
+
+ledgerRouter.get('/state/changes', async (req, res) => {
+  const syncV2Enforced = String(process.env.SYNC_V2_ENFORCE ?? '').trim() === '1';
+  const parsed = z
+    .object({
+      since: z.coerce.number().int().nonnegative().default(0),
+      limit: z.coerce.number().int().min(1).max(20000).optional(),
+      client_id: z.string().min(1).max(200).optional(),
+      sync_protocol_version: z.coerce.number().int().optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const protocolVersion = Number(parsed.data.sync_protocol_version ?? 1);
+  if (syncV2Enforced && protocolVersion < 2) {
+    return res.status(426).json({
+      ok: false,
+      error: 'требуется обновление протокола синхронизации',
+      required_sync_protocol_version: 2,
+    });
+  }
+  if (parsed.data.since === 0) {
+    await ensureLedgerBootstrap().catch(() => null);
+  }
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const pull = await pullChangesSince(
+    parsed.data.since,
+    { id: String(actor.id), role: String(actor.role) },
+    parsed.data.limit ?? 5000,
+    { clientId: parsed.data.client_id ?? null },
+  );
+  const invalidCounts = new Map<string, number>();
+  const filtered = pull.changes.filter((ch) => {
+    const validator = syncRowSchemas[String(ch.table)];
+    if (!validator) return true;
+    try {
+      const payload = JSON.parse(String(ch.payload_json ?? ''));
+      const ok = validator(payload);
+      if (!ok) invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
+      return ok;
+    } catch {
+      invalidCounts.set(String(ch.table), (invalidCounts.get(String(ch.table)) ?? 0) + 1);
+      return false;
+    }
+  });
+  // Shared pull read-authz: credentials (everyone) + sensitive PII/HR for
+  // non-self operators. audit_log is skipped upstream in pullChangesSince. (H1-B)
+  const readFilter = await makePullReadFilter({ id: String(actor.id), role: String(actor.role) });
+  const visible = filtered.filter((ch) => {
+    try {
+      return readFilter(String(ch.table), JSON.parse(String(ch.payload_json ?? '{}')));
+    } catch {
+      return true;
+    }
+  });
+  const lastSeq = pull.server_cursor;
+  const clientId = parsed.data.client_id ?? actor?.id ?? null;
+  if (clientId) {
+    const now = Date.now();
+    await db
+      .insert(syncState)
+      .values({
+        clientId: String(clientId),
+        lastPulledServerSeq: lastSeq,
+        lastPulledAt: now,
+        lastPushedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: syncState.clientId,
+        set: {
+          lastPulledServerSeq: lastSeq,
+          lastPulledAt: now,
+        },
+      });
+  }
+  return res.json({
+    sync_protocol_version: 2,
+    sync_mode: 'incremental',
+    server_cursor: pull.server_cursor,
+    server_last_seq: pull.server_last_seq,
+    has_more: pull.has_more,
+    changes: visible,
+  });
+});
+
+ledgerRouter.get('/blocks', (req, res) => {
+  // Raw ledger blocks carry full plaintext rows (incl. employee PII) with per-tx
+  // Ed25519 signatures, so they cannot be PII-redacted server-side without breaking
+  // signature verification. Operators get filtered data via /state/changes instead
+  // and have no consumer for /blocks — restrict raw blocks to admins.
+  // (security-hardening-2026-06, Phase 3)
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const role = String(user.role ?? '').toLowerCase();
+  if (role !== 'admin' && role !== 'superadmin') {
+    return res.status(403).json({ ok: false, error: 'только для админов' });
+  }
+  const parsed = z
+    .object({
+      since: z.coerce.number().int().nonnegative().default(0),
+      limit: z.coerce.number().int().min(1).max(2000).optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const blocks = listBlocksSince(parsed.data.since, parsed.data.limit ?? 200);
+  const lastHeight = blocks.at(-1)?.height ?? parsed.data.since;
+  return res.json({ ok: true, last_height: lastHeight, blocks });
+});
+
+ledgerRouter.get('/checkpoint/latest', (_req, res) => {
+  const checkpoint = getSignedCheckpoint();
+  return res.json({ ok: true, checkpoint });
+});
+
+ledgerRouter.post('/checkpoint/build', (req, res) => {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const role = String(user.role ?? '').toLowerCase();
+  if (role !== 'admin' && role !== 'superadmin') return res.status(403).json({ ok: false, error: 'только для админов' });
+  void createSignedCheckpoint()
+    .then((checkpoint) => res.json({ ok: true, checkpoint }))
+    .catch((e) => res.status(500).json({ ok: false, error: String(e) }));
+});
+
+ledgerRouter.post('/releases/publish', (req, res) => {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const role = String(user.role ?? '').toLowerCase();
+  const isAdmin = role === 'admin' || role === 'superadmin';
+  if (!isAdmin) return res.status(403).json({ ok: false, error: 'только для админов' });
+
+  const parsed = z
+    .object({
+      version: z.string().min(1),
+      notes: z.string().optional(),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+      fileName: z.string().min(1).optional(),
+      size: z.number().int().positive().optional(),
+      metadata: z.record(z.unknown()).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  const now = Date.now();
+  const row = {
+    id: randomUUID(),
+    version: parsed.data.version,
+    notes: parsed.data.notes ?? null,
+    sha256: parsed.data.sha256 ?? null,
+    file_name: parsed.data.fileName ?? null,
+    size: parsed.data.size ?? null,
+    payload_json: parsed.data.metadata ? JSON.stringify(parsed.data.metadata) : null,
+    created_at: now,
+    created_by_user_id: user.id,
+    created_by_username: user.username,
+  };
+  const result = signAndAppend([
+    {
+      type: 'upsert',
+      table: LedgerTableName.ReleaseRegistry,
+      row,
+      row_id: row.id,
+      actor: { userId: user.id, username: user.username, role: user.role },
+      ts: now,
+    },
+  ]);
+  return res.json({ ok: true, applied: result.applied, last_seq: result.lastSeq });
+});
+
+ledgerRouter.get('/releases/latest', (req, res) => {
+  const rows = queryState(LedgerTableName.ReleaseRegistry, {
+    sortBy: 'created_at',
+    sortDir: 'desc',
+    limit: 1,
+    includeDeleted: false,
+  });
+  return res.json({ ok: true, release: rows[0] ?? null });
+});

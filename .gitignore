@@ -1,0 +1,109 @@
+node_modules
+dist
+build
+.cache
+.pnpm-store
+.eslintcache
+.idea
+.vscode
+.cursor
+.DS_Store
+
+# Env files
+.env
+.env.*.local
+.env.dev
+.env.dev.local
+.env.bak*
+.env.*.bak*
+
+# verifier-electron runtime (logs, PIDs)
+.verifier-electron/
+
+# MCP server config (machine-specific absolute paths)
+.mcp.json
+
+# Local clones of related repos (not part of this monorepo)
+/brain_matrica/
+/docs/inbox-from-brain/
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# SQLite
+*.sqlite
+*.sqlite3
+
+# Electron
+*.log
+
+# Local release helper cache (downloaded installers)
+.release-cache/
+
+# Release artifacts (не коммитим артефакты сборки)
+electron-app/release
+electron-app/dist
+web-admin/dist
+
+# Editor/IDE extension packages — never belong in the repo
+*.vsix
+
+# Backend uploads (runtime storage)
+backend-api/uploads
+
+# Backend runtime data (ledger, logs)
+backend-api/ledger
+backend-api/ledger.bak-*
+backend-api/logs
+
+# Stray runtime data created when backend is launched with the wrong CWD
+# (e.g. `cd backend-api && pnpm dev` writes ./ledger/blocks/ inside that dir,
+# producing the nested path `backend-api/backend-api/`). Pure runtime junk —
+# never commit, never serve.
+backend-api/backend-api/
+
+# Drizzle journal backups (создаются скриптами восстановления journal)
+backend-api/drizzle/meta/*.bak.*
+electron-app/drizzle/meta/*.bak.*
+
+# Ledger package runtime artifacts (do not commit generated chain/state)
+ledger/blocks/
+ledger/bootstrap.json
+ledger/data-key.json
+ledger/index.json
+ledger/server-key.json
+ledger/state.json
+
+# Claude Code worktrees and local session data — игнорируем содержимое .claude/
+# поэлементно (а не как директорию), чтобы можно было re-include шарящиеся
+# между разработчиками артефакты типа slash-команд и agents.
+.claude/*
+!.claude/commands/
+!.claude/commands/**
+!.claude/agents/
+!.claude/agents/**
+!.claude/skills/
+!.claude/skills/**
+# Shared project hooks/config (brain #010 SessionStart git-sync hook).
+# settings.local.json stays ignored — it is machine-local.
+!.claude/settings.json
+
+# electron-builder icon resources live under electron-app/build (buildResources).
+# The broad `build` ignore above would drop them — re-include the committed icons.
+!electron-app/build/
+!electron-app/build/icon.ico
+!electron-app/build/icon.png
+# Watchdog binary is a build artifact (Go output / CI), bundled as extraResources — not committed.
+electron-app/build/watchdog/
+
+
+
+# Offline delta hit-rate harness inputs (real release .blockmap files), opt-in.
+# Consumed by electron-app/src/main/services/blockmapDelta.measure.test.ts.
+electron-app/.delta-blockmaps/
+
+# Scratch / voice-note temp files at repo root (e.g. tmp_golosovye_*.txt) — never commit.
+/tmp_*

@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Обновление MatricaRMZ</title>
+    <style>
+      :root {
+        --accent: #2563eb;
+        --done: #16a34a;
+        --error: #dc2626;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --ink: #0f172a;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 0; padding: 0; color: var(--ink);
+        position: relative; overflow: hidden;
+        background: linear-gradient(160deg, #f8fafc 0%, #eef2ff 100%);
+      }
+      .decor { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+      .part { position: absolute; opacity: 0.10; color: #1e3a8a; }
+      .part svg { display: block; }
+      .p1 { top: 8%; left: 6%; animation: drift1 13s ease-in-out infinite; }
+      .p2 { top: 62%; left: 12%; animation: drift2 17s ease-in-out infinite; }
+      .p3 { top: 18%; right: 8%; animation: drift2 15s ease-in-out infinite; }
+      .p4 { top: 70%; right: 14%; animation: drift1 19s ease-in-out infinite; }
+      .p5 { top: 40%; left: 46%; animation: drift1 21s ease-in-out infinite; opacity: 0.07; }
+      .p6 { top: 84%; left: 60%; animation: drift2 14s ease-in-out infinite; }
+      .spin { animation: spin 9s linear infinite; }
+      .spin-rev { animation: spin 12s linear infinite reverse; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes drift1 { 0%,100% { transform: translateY(0) translateX(0); } 50% { transform: translateY(-14px) translateX(8px); } }
+      @keyframes drift2 { 0%,100% { transform: translateY(0) translateX(0); } 50% { transform: translateY(12px) translateX(-10px); } }
+
+      .content { position: relative; z-index: 1; padding: 18px 20px; }
+      h2 { margin: 0 0 14px; font-size: 18px; font-weight: 600; }
+
+      .stepper { display: flex; align-items: flex-start; gap: 0; margin: 0 0 16px; }
+      .step { flex: 1; text-align: center; position: relative; }
+      .step .dot {
+        width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 6px;
+        display: flex; align-items: center; justify-content: center;
+        background: #fff; border: 2px solid var(--line); color: var(--muted);
+        font-size: 13px; font-weight: 600; position: relative; z-index: 1;
+      }
+      .step .lbl { font-size: 11px; color: var(--muted); line-height: 1.2; }
+      .step::before {
+        content: ''; position: absolute; top: 13px; left: -50%; width: 100%; height: 2px;
+        background: var(--line); z-index: 0;
+      }
+      .step:first-child::before { display: none; }
+      .step.done .dot { background: var(--done); border-color: var(--done); color: #fff; }
+      .step.done::before { background: var(--done); }
+      .step.active .dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px rgba(37,99,235,0.12); }
+      .step.active .lbl { color: var(--accent); font-weight: 600; }
+      .step.err .dot { background: var(--error); border-color: var(--error); color: #fff; }
+      .step.err .lbl { color: var(--error); font-weight: 600; }
+
+      .msg { font-size: 14px; margin: 0 0 10px; }
+      .bar { height: 12px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+      .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #7c3aed); transition: width 0.25s ease; }
+      .fill.err { background: var(--error); }
+      .pstats { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .pct { font-weight: 600; color: var(--ink); }
+      .ver { margin-top: 12px; font-size: 12px; color: var(--muted); }
+      .ver b { color: var(--ink); font-weight: 600; }
+
+      .delta-badge { display: none; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 12.5px; }
+      .delta-badge svg { flex: 0 0 auto; }
+      .delta-badge b { font-weight: 600; }
+
+      .err-box { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 13px; }
+      .err-box .hint { margin-top: 6px; color: #b91c1c; font-size: 12px; }
+
+      details { margin-top: 14px; }
+      summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+      .log { margin-top: 8px; font-size: 11px; color: #6b7280; max-height: 160px; overflow: auto; }
+      .log-item { margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .part, .spin, .spin-rev, .fill { animation: none !important; transition: none !important; }
+        .decor { opacity: 0.6; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="decor" aria-hidden="true" id="decor"></div>
+    <div class="content">
+      <h2>Обновление MatricaRMZ</h2>
+      <div class="stepper" id="stepper"></div>
+      <div class="msg" id="msg">Проверяем обновления…</div>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+      <div class="pstats">
+        <span id="size"></span>
+        <span id="speed"></span>
+        <span class="pct" id="pct">0%</span>
+      </div>
+      <div class="delta-badge" id="deltabadge">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+        <span id="deltabadgetext"></span>
+      </div>
+      <div class="ver" id="ver"></div>
+      <div class="err-box" id="errbox"><div id="errtext"></div><div class="hint" id="errhint"></div></div>
+      <details id="logwrap" style="display:none">
+        <summary>Подробности</summary>
+        <div class="log" id="log"></div>
+      </details>
+    </div>
+
+    <script>
+      (function () {
+        var GEAR =
+          '<svg width="54" height="54" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0 6a2 2 0 110-4 2 2 0 010 4z"/><path d="M21 12l-2-1 1-2-2-2-2 1-1-2h-2l-1 2-2-1-2 2 1 2-2 1v2l2 1-1 2 2 2 2-1 1 2h2l1-2 2 1 2-2-1-2 2-1v-2z" opacity=".55"/></svg>';
+        var BOLT = '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l8 4.6v8.8L12 20l-8-4.6V6.6L12 2zm0 5a5 5 0 100 10 5 5 0 000-10z"/></svg>';
+        var PISTON = '<svg width="36" height="48" viewBox="0 0 24 32" fill="currentColor"><rect x="7" y="1" width="10" height="13" rx="2"/><rect x="9" y="14" width="6" height="10"/><circle cx="12" cy="27" r="4"/></svg>';
+        var RING = '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="8"/></svg>';
+
+        var decor = document.getElementById('decor');
+        if (decor) {
+          decor.innerHTML =
+            '<span class="part p1"><span class="spin">' + GEAR + '</span></span>' +
+            '<span class="part p2"><span class="spin-rev">' + GEAR + '</span></span>' +
+            '<span class="part p3">' + BOLT + '</span>' +
+            '<span class="part p4">' + PISTON + '</span>' +
+            '<span class="part p5">' + RING + '</span>' +
+            '<span class="part p6"><span class="spin">' + GEAR + '</span></span>';
+        }
+
+        var STAGES = [
+          { key: 'checking', label: 'Проверка' },
+          { key: 'downloading', label: 'Скачивание' },
+          { key: 'verifying', label: 'Целостность' },
+          { key: 'installing', label: 'Установка' },
+          { key: 'restarting', label: 'Перезапуск' },
+        ];
+        var stepperEl = document.getElementById('stepper');
+        var stepEls = STAGES.map(function (s) {
+          var d = document.createElement('div');
+          d.className = 'step';
+          d.innerHTML = '<div class="dot"></div><div class="lbl">' + s.label + '</div>';
+          if (stepperEl) stepperEl.appendChild(d);
+          return { el: d, dot: d.querySelector('.dot') };
+        });
+
+        function stageIndex(stage) {
+          for (var i = 0; i < STAGES.length; i++) if (STAGES[i].key === stage) return i;
+          return 0;
+        }
+
+        function renderStepper(stage) {
+          var isError = stage === 'error';
+          var isUpToDate = stage === 'uptodate';
+          var cur = isError ? -1 : isUpToDate ? STAGES.length : stageIndex(stage);
+          // На error подсветим как ошибочный тот этап, где сейчас процесс (по последней не-error стадии — приближённо «Целостность»/текущий).
+          for (var i = 0; i < stepEls.length; i++) {
+            var cls = 'step';
+            if (isUpToDate) { cls += ' done'; }
+            else if (isError) { cls += i < 2 ? ' done' : i === 2 ? ' err' : ''; }
+            else if (i < cur) cls += ' done';
+            else if (i === cur) cls += ' active';
+            stepEls[i].el.className = cls;
+            var done = /\bdone\b/.test(cls);
+            var err = /\berr\b/.test(cls);
+            stepEls[i].dot.textContent = err ? '!' : done ? '✓' : String(i + 1);
+          }
+        }
+
+        function fmtMb(bytes) { return (Math.max(0, Number(bytes) || 0) / 1048576).toFixed(1); }
+        function fmtEta(sec) {
+          sec = Math.max(0, Math.round(Number(sec) || 0));
+          if (sec >= 60) { var m = Math.floor(sec / 60); var s = sec % 60; return '~' + m + ' мин ' + (s < 10 ? '0' + s : s) + ' с'; }
+          return '~' + sec + ' с';
+        }
+
+        function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+
+        function render(state) {
+          state = state || {};
+          var stage = typeof state.stage === 'string' ? state.stage : 'checking';
+          var pct = Number.isFinite(Number(state.pct)) ? Math.max(0, Math.min(100, Math.floor(Number(state.pct)))) : 0;
+          var isError = stage === 'error';
+
+          renderStepper(stage);
+          setText('msg', typeof state.message === 'string' ? state.message : '');
+
+          var fill = document.getElementById('fill');
+          if (fill) { fill.style.width = pct + '%'; fill.className = 'fill' + (isError ? ' err' : ''); }
+          setText('pct', pct + '%');
+
+          // Размер скачанного
+          var t = state.transferredBytes, total = state.totalBytes;
+          var sizeStr = '';
+          if (t != null) sizeStr = total != null && total > 0 ? fmtMb(t) + ' / ' + fmtMb(total) + ' МБ' : fmtMb(t) + ' МБ';
+          setText('size', sizeStr);
+
+          // Скорость + ETA (только на скачивании)
+          var speedStr = '';
+          if (stage === 'downloading' && state.bytesPerSecond != null && Number(state.bytesPerSecond) > 0) {
+            speedStr = fmtMb(state.bytesPerSecond) + ' МБ/с';
+            if (state.etaSeconds != null) speedStr += ' · осталось ' + fmtEta(state.etaSeconds);
+          }
+          setText('speed', speedStr);
+
+          // Бейдж «лёгкое обновление» — только в delta-режиме (есть полный размер для сравнения)
+          var deltaBadge = document.getElementById('deltabadge');
+          if (deltaBadge) {
+            var full = state.deltaFullBytes;
+            if (stage === 'downloading' && full != null && Number(full) > 0 && total != null && Number(total) > 0) {
+              var dMb = Math.max(1, Math.round(Number(total) / 1048576));
+              var fMb = Math.max(1, Math.round(Number(full) / 1048576));
+              var txt = document.getElementById('deltabadgetext');
+              if (txt) txt.innerHTML = 'Лёгкое обновление — загрузка только изменений: <b>~' + dMb + ' МБ</b> вместо ~' + fMb + ' МБ';
+              deltaBadge.style.display = 'flex';
+            } else {
+              deltaBadge.style.display = 'none';
+            }
+          }
+
+          // Версия как дата сборки
+          var from = typeof state.versionFromLabel === 'string' ? state.versionFromLabel : '';
+          var to = typeof state.versionToLabel === 'string' ? state.versionToLabel : '';
+          var verEl = document.getElementById('ver');
+          if (verEl) {
+            if (to) verEl.innerHTML = from ? 'Сборка от <b>' + from + '</b> → <b>' + to + '</b>' : 'Новая сборка: <b>' + to + '</b>';
+            else verEl.textContent = '';
+          }
+
+          // Ошибка
+          var errbox = document.getElementById('errbox');
+          if (errbox) {
+            if (isError) {
+              errbox.style.display = 'block';
+              setText('errtext', state.errorText || (typeof state.message === 'string' ? state.message : 'Произошла ошибка обновления.'));
+              setText('errhint', 'Программа продолжит работу; обновление будет повторено автоматически.');
+            } else {
+              errbox.style.display = 'none';
+            }
+          }
+
+          // Лог (в «Подробности»)
+          var logs = Array.isArray(state.logs) ? state.logs : [];
+          var logwrap = document.getElementById('logwrap');
+          var logEl = document.getElementById('log');
+          if (logEl) {
+            logEl.innerHTML = '';
+            logs.forEach(function (line) {
+              var item = document.createElement('div');
+              item.className = 'log-item';
+              item.textContent = String(line || '');
+              logEl.appendChild(item);
+            });
+          }
+          if (logwrap) logwrap.style.display = logs.length ? 'block' : 'none';
+        }
+
+        renderStepper('checking');
+        var api = window.matricaUpdate;
+        if (api && typeof api.onState === 'function') api.onState(render);
+      })();
+    </script>
+  </body>
+</html>

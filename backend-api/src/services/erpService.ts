@@ -1,0 +1,584 @@
+import { randomUUID } from 'node:crypto';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { LedgerTableName } from '@matricarmz/ledger';
+
+import { db } from '../database/db.js';
+import {
+  erpDocumentHeaders,
+  erpDocumentLines,
+  erpContracts,
+  erpCounterparties,
+  erpEmployeeCards,
+  erpJournalDocuments,
+  erpNomenclature,
+  erpPartTemplates,
+  erpRegContractSettlement,
+  erpRegStockBalance,
+  erpToolCards,
+  erpToolTemplates,
+} from '../database/schema.js';
+import { signAndAppendDetailed } from '../ledger/ledgerService.js';
+import { WAREHOUSE_LOCATION_DEFAULT_UUID } from './warehouseLocationsService.js';
+
+const MASTERDATA_MODULES = ['parts', 'tools', 'counterparties', 'contracts', 'employees'] as const;
+type MasterdataModule = (typeof MASTERDATA_MODULES)[number];
+
+function isModuleName(v: string): v is MasterdataModule {
+  return MASTERDATA_MODULES.includes(v as MasterdataModule);
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+type DictionaryRow = {
+  id: string;
+  code: string;
+  name: string;
+  specJson?: string | null;
+  attrsJson?: string | null;
+  isActive: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type CardRow = {
+  id: string;
+  templateId?: string | null;
+  serialNo?: string | null;
+  cardNo?: string | null;
+  attrsJson?: string | null;
+  status?: string | null;
+  fullName?: string | null;
+  roleCode?: string | null;
+  personnelNo?: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export async function listErpDictionary(moduleName: string): Promise<{ ok: true; rows: DictionaryRow[] } | { ok: false; error: string }> {
+  try {
+    if (!isModuleName(moduleName)) return { ok: false, error: `Unknown module: ${moduleName}` };
+    if (moduleName === 'parts') {
+      const rows = await db.select().from(erpPartTemplates).where(isNull(erpPartTemplates.deletedAt)).orderBy(asc(erpPartTemplates.name));
+      return { ok: true, rows: rows as any };
+    }
+    if (moduleName === 'tools') {
+      const rows = await db.select().from(erpToolTemplates).where(isNull(erpToolTemplates.deletedAt)).orderBy(asc(erpToolTemplates.name));
+      return { ok: true, rows: rows as any };
+    }
+    if (moduleName === 'counterparties') {
+      const rows = await db.select().from(erpCounterparties).where(isNull(erpCounterparties.deletedAt)).orderBy(asc(erpCounterparties.name));
+      return { ok: true, rows: rows as any };
+    }
+    if (moduleName === 'contracts') {
+      const rows = await db.select().from(erpContracts).where(isNull(erpContracts.deletedAt)).orderBy(asc(erpContracts.name));
+      return { ok: true, rows: rows as any };
+    }
+    if (moduleName === 'employees') {
+      const rows = await db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).orderBy(asc(erpEmployeeCards.fullName));
+      return {
+        ok: true,
+        rows: (rows as any[]).map((r) => ({
+          id: String(r.id),
+          code: String(r.personnelNo ?? ''),
+          name: String(r.fullName ?? ''),
+          attrsJson: r.attrsJson ?? null,
+          isActive: !!r.isActive,
+          createdAt: Number(r.createdAt),
+          updatedAt: Number(r.updatedAt),
+        })),
+      };
+    }
+    return { ok: true, rows: [] };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertErpDictionary(moduleName: string, args: { id?: string; code: string; name: string; payloadJson?: string | null }) {
+  try {
+    if (!isModuleName(moduleName)) return { ok: false as const, error: `Unknown module: ${moduleName}` };
+    const id = String(args.id || randomUUID());
+    const ts = nowMs();
+
+    if (moduleName === 'parts') {
+      await db
+        .insert(erpPartTemplates)
+        .values({ id, code: args.code, name: args.name, specJson: args.payloadJson ?? null, isActive: true, createdAt: ts, updatedAt: ts, deletedAt: null })
+        .onConflictDoUpdate({
+          target: erpPartTemplates.id,
+          set: { code: args.code, name: args.name, specJson: args.payloadJson ?? null, updatedAt: ts, deletedAt: null },
+        });
+      return { ok: true as const, id };
+    }
+    if (moduleName === 'tools') {
+      await db
+        .insert(erpToolTemplates)
+        .values({ id, code: args.code, name: args.name, specJson: args.payloadJson ?? null, isActive: true, createdAt: ts, updatedAt: ts, deletedAt: null })
+        .onConflictDoUpdate({
+          target: erpToolTemplates.id,
+          set: { code: args.code, name: args.name, specJson: args.payloadJson ?? null, updatedAt: ts, deletedAt: null },
+        });
+      return { ok: true as const, id };
+    }
+    if (moduleName === 'counterparties') {
+      await db
+        .insert(erpCounterparties)
+        .values({ id, code: args.code, name: args.name, attrsJson: args.payloadJson ?? null, isActive: true, createdAt: ts, updatedAt: ts, deletedAt: null })
+        .onConflictDoUpdate({
+          target: erpCounterparties.id,
+          set: { code: args.code, name: args.name, attrsJson: args.payloadJson ?? null, updatedAt: ts, deletedAt: null },
+        });
+      return { ok: true as const, id };
+    }
+    if (moduleName === 'contracts') {
+      await db
+        .insert(erpContracts)
+        .values({
+          id,
+          code: args.code,
+          name: args.name,
+          counterpartyId: null,
+          startsAt: null,
+          endsAt: null,
+          attrsJson: args.payloadJson ?? null,
+          isActive: true,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: erpContracts.id,
+          set: { code: args.code, name: args.name, attrsJson: args.payloadJson ?? null, updatedAt: ts, deletedAt: null },
+        });
+      return { ok: true as const, id };
+    }
+    if (moduleName === 'employees') {
+      await db
+        .insert(erpEmployeeCards)
+        .values({
+          id,
+          personnelNo: args.code,
+          fullName: args.name,
+          roleCode: null,
+          attrsJson: args.payloadJson ?? null,
+          isActive: true,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: erpEmployeeCards.id,
+          set: { personnelNo: args.code, fullName: args.name, attrsJson: args.payloadJson ?? null, updatedAt: ts, deletedAt: null },
+        });
+      return { ok: true as const, id };
+    }
+    return { ok: false as const, error: 'Неподдерживаемый модуль для словарей' };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function listErpCards(moduleName: string): Promise<{ ok: true; rows: CardRow[] } | { ok: false; error: string }> {
+  try {
+    if (!isModuleName(moduleName)) return { ok: false, error: `Unknown module: ${moduleName}` };
+    // 'parts' card module removed (migration 0060): dead part-card subsystem.
+    if (moduleName === 'tools') {
+      const rows = await db.select().from(erpToolCards).where(isNull(erpToolCards.deletedAt)).orderBy(asc(erpToolCards.updatedAt));
+      return { ok: true, rows: rows as any };
+    }
+    if (moduleName === 'employees') {
+      const rows = await db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).orderBy(asc(erpEmployeeCards.fullName));
+      return {
+        ok: true,
+        rows: (rows as any[]).map((r) => ({
+          id: String(r.id),
+          fullName: String(r.fullName),
+          personnelNo: r.personnelNo ? String(r.personnelNo) : null,
+          roleCode: r.roleCode ? String(r.roleCode) : null,
+          attrsJson: r.attrsJson ?? null,
+          createdAt: Number(r.createdAt),
+          updatedAt: Number(r.updatedAt),
+        })),
+      };
+    }
+    return { ok: true, rows: [] };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function upsertErpCard(
+  moduleName: string,
+  args: {
+    id?: string;
+    templateId?: string | null;
+    serialNo?: string | null;
+    cardNo?: string | null;
+    status?: string | null;
+    payloadJson?: string | null;
+    fullName?: string | null;
+    personnelNo?: string | null;
+    roleCode?: string | null;
+  },
+) {
+  try {
+    if (!isModuleName(moduleName)) return { ok: false as const, error: `Unknown module: ${moduleName}` };
+    const id = String(args.id || randomUUID());
+    const ts = nowMs();
+
+    // 'parts' card module removed (migration 0060): dead part-card subsystem.
+
+    if (moduleName === 'tools') {
+      if (!args.templateId) return { ok: false as const, error: 'templateId обязателен для карточки инструмента' };
+      const exists = await db
+        .select({ id: erpToolTemplates.id })
+        .from(erpToolTemplates)
+        .where(and(eq(erpToolTemplates.id, args.templateId), isNull(erpToolTemplates.deletedAt)))
+        .limit(1);
+      if (!exists[0]) return { ok: false as const, error: 'шаблон инструмента не найден' };
+
+      await db
+        .insert(erpToolCards)
+        .values({
+          id,
+          templateId: args.templateId,
+          serialNo: args.serialNo ?? null,
+          cardNo: args.cardNo ?? null,
+          attrsJson: args.payloadJson ?? null,
+          status: args.status ?? 'active',
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: erpToolCards.id,
+          set: {
+            templateId: args.templateId,
+            serialNo: args.serialNo ?? null,
+            cardNo: args.cardNo ?? null,
+            attrsJson: args.payloadJson ?? null,
+            status: args.status ?? 'active',
+            updatedAt: ts,
+            deletedAt: null,
+          },
+        });
+      return { ok: true as const, id };
+    }
+
+    if (moduleName === 'employees') {
+      const fullName = String(args.fullName ?? '').trim();
+      if (!fullName) return { ok: false as const, error: 'fullName обязателен для карточки сотрудника' };
+      await db
+        .insert(erpEmployeeCards)
+        .values({
+          id,
+          personnelNo: args.personnelNo ?? null,
+          fullName,
+          roleCode: args.roleCode ?? null,
+          attrsJson: args.payloadJson ?? null,
+          isActive: true,
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: erpEmployeeCards.id,
+          set: {
+            personnelNo: args.personnelNo ?? null,
+            fullName,
+            roleCode: args.roleCode ?? null,
+            attrsJson: args.payloadJson ?? null,
+            updatedAt: ts,
+            deletedAt: null,
+          },
+        });
+      return { ok: true as const, id };
+    }
+
+    return { ok: false as const, error: 'Неподдерживаемый модуль для карточек' };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Resolves a batch of part_card_id values to their corresponding nomenclature_id
+ * via erp_nomenclature.directory_ref_id where directory_kind = 'part'.
+ */
+async function resolveNomenclatureIdsByPartCards(partCardIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (partCardIds.length === 0) return result;
+  const rows = await db
+    .select({ id: erpNomenclature.id, directoryRefId: erpNomenclature.directoryRefId })
+    .from(erpNomenclature)
+    .where(
+      and(
+        eq(erpNomenclature.directoryKind, 'part'),
+        inArray(erpNomenclature.directoryRefId, partCardIds as any),
+        isNull(erpNomenclature.deletedAt),
+      ),
+    );
+  for (const row of rows) {
+    const refId = String(row.directoryRefId ?? '').trim();
+    if (refId) result.set(refId, row.id);
+  }
+  return result;
+}
+
+export async function createErpDocument(args: {
+  docType: string;
+  docNo: string;
+  docDate?: number;
+  departmentId?: string | null;
+  authorId?: string | null;
+  payloadJson?: string | null;
+  lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
+}) {
+  try {
+    const ts = nowMs();
+    const docId = randomUUID();
+    const docDate = Number(args.docDate ?? ts);
+    await db.insert(erpDocumentHeaders).values({
+      id: docId,
+      docType: String(args.docType || 'parts_issue'),
+      docNo: String(args.docNo),
+      docDate,
+      status: 'draft',
+      authorId: args.authorId ?? null,
+      departmentId: args.departmentId ?? null,
+      payloadJson: args.payloadJson ?? null,
+      createdAt: ts,
+      updatedAt: ts,
+      postedAt: null,
+      deletedAt: null,
+    });
+    const linePartCardIds = (args.lines ?? []).map((l) => String(l.partCardId ?? '').trim()).filter(Boolean);
+    const nomenclatureByPartCard = await resolveNomenclatureIdsByPartCards(Array.from(new Set(linePartCardIds)));
+    const lines = (args.lines ?? []).map((line, idx) => {
+      const partCardId = String(line.partCardId ?? '').trim() || null;
+      const nomenclatureId = partCardId ? nomenclatureByPartCard.get(partCardId) ?? null : null;
+      return {
+        id: randomUUID(),
+        headerId: docId,
+        lineNo: idx + 1,
+        partCardId,
+        nomenclatureId,
+        qty: Math.trunc(Number(line.qty || 0)),
+        price: line.price == null ? null : Math.trunc(Number(line.price)),
+        payloadJson: line.payloadJson ?? null,
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+      };
+    });
+    if (lines.length > 0) await db.insert(erpDocumentLines).values(lines);
+    await db.insert(erpJournalDocuments).values({
+      id: randomUUID(),
+      documentHeaderId: docId,
+      eventType: 'created',
+      eventPayloadJson: JSON.stringify({ docType: args.docType, lines: lines.length }),
+      eventAt: ts,
+    });
+    return { ok: true as const, id: docId };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function listErpDocuments(args?: { status?: string; docType?: string }) {
+  try {
+    const rows = await db.select().from(erpDocumentHeaders).where(isNull(erpDocumentHeaders.deletedAt)).orderBy(asc(erpDocumentHeaders.docDate));
+    const filtered = rows.filter((r) => {
+      if (args?.status && String(r.status) !== String(args.status)) return false;
+      if (args?.docType && String(r.docType) !== String(args.docType)) return false;
+      return true;
+    });
+    return { ok: true as const, rows: filtered };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function postErpDocument(args: { documentId: string; actor: { id: string; username: string; role?: string } }) {
+  try {
+    const ts = nowMs();
+    const header = await db
+      .select()
+      .from(erpDocumentHeaders)
+      .where(and(eq(erpDocumentHeaders.id, args.documentId), isNull(erpDocumentHeaders.deletedAt)))
+      .limit(1);
+    if (!header[0]) return { ok: false as const, error: 'Документ не найден' };
+    if (String(header[0].status) === 'posted') return { ok: true as const, id: args.documentId, posted: true };
+
+    const lines = await db
+      .select()
+      .from(erpDocumentLines)
+      .where(and(eq(erpDocumentLines.headerId, args.documentId), isNull(erpDocumentLines.deletedAt)))
+      .orderBy(asc(erpDocumentLines.lineNo));
+
+    const partIds = Array.from(new Set(lines.map((l) => String(l.partCardId ?? '')).filter(Boolean)));
+    const nomenclatureByPartCard = await resolveNomenclatureIdsByPartCards(partIds);
+    const existingStocks =
+      partIds.length === 0
+        ? []
+        : await db
+            .select()
+            .from(erpRegStockBalance)
+            .where(inArray(erpRegStockBalance.partCardId, partIds as any));
+    const stockByPart = new Map<string, { id: string; qty: number; warehouseLocationId: string | null; nomenclatureId: string | null }>();
+    for (const row of existingStocks as any[]) stockByPart.set(String(row.partCardId), {
+      id: String(row.id),
+      qty: Number(row.qty),
+      warehouseLocationId: row.warehouseLocationId ? String(row.warehouseLocationId) : null,
+      nomenclatureId: row.nomenclatureId ? String(row.nomenclatureId) : null,
+    });
+
+    const docType = String(header[0].docType);
+    const deltaSign = docType === 'parts_receipt' ? 1 : docType === 'parts_issue' || docType === 'parts_writeoff' ? -1 : 0;
+    const ledgerRows: Array<{ table: LedgerTableName; row: Record<string, unknown>; rowId: string }> = [];
+
+    for (const line of lines as any[]) {
+      const partCardId = String(line.partCardId ?? '');
+      if (!partCardId) continue;
+      const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
+      const delta = qty * deltaSign;
+      const cur = stockByPart.get(partCardId);
+      const nextQty = (cur?.qty ?? 0) + delta;
+      const resolvedNomenclatureId = nomenclatureByPartCard.get(partCardId) ?? null;
+      const effectiveNomenclatureId = cur?.nomenclatureId ?? resolvedNomenclatureId;
+      if (cur) {
+        const updateSet: Record<string, unknown> = { qty: nextQty, updatedAt: ts };
+        if (!cur.nomenclatureId && effectiveNomenclatureId) updateSet.nomenclatureId = effectiveNomenclatureId;
+        await db.update(erpRegStockBalance).set(updateSet).where(eq(erpRegStockBalance.id, cur.id));
+        ledgerRows.push({
+          table: LedgerTableName.ErpRegStockBalance,
+          rowId: cur.id,
+          row: {
+            id: cur.id,
+            part_card_id: partCardId,
+            nomenclature_id: effectiveNomenclatureId,
+            warehouse_location_id: cur.warehouseLocationId ?? null,
+            qty: nextQty,
+            updated_at: ts,
+          },
+        });
+      } else {
+        const stockId = randomUUID();
+        // Phase 2.4 PR 3: warehouse_id column dropped — INSERT ставит FK warehouseLocationId напрямую.
+        await db.insert(erpRegStockBalance).values({
+          id: stockId,
+          partCardId,
+          nomenclatureId: effectiveNomenclatureId,
+          warehouseLocationId: WAREHOUSE_LOCATION_DEFAULT_UUID,
+          qty: nextQty,
+          updatedAt: ts,
+        });
+        ledgerRows.push({
+          table: LedgerTableName.ErpRegStockBalance,
+          rowId: stockId,
+          row: {
+            id: stockId,
+            part_card_id: partCardId,
+            nomenclature_id: effectiveNomenclatureId,
+            warehouse_location_id: WAREHOUSE_LOCATION_DEFAULT_UUID,
+            qty: nextQty,
+            updated_at: ts,
+          },
+        });
+      }
+
+      // parts_issue part-usage register removed (migration 0060): dead part-card subsystem.
+    }
+
+    const headerPayload = (() => {
+      try {
+        return header[0].payloadJson ? JSON.parse(String(header[0].payloadJson)) : {};
+      } catch {
+        return {};
+      }
+    })() as any;
+    const contractId = headerPayload?.contractId ? String(headerPayload.contractId) : '';
+    if (contractId) {
+      const amount = (lines as any[]).reduce((sum, l) => sum + Math.max(0, Number(l.qty ?? 0)) * Math.max(0, Number(l.price ?? 0)), 0);
+      const regId = randomUUID();
+      await db.insert(erpRegContractSettlement).values({
+        id: regId,
+        contractId,
+        documentHeaderId: args.documentId,
+        amount: Math.trunc(amount),
+        direction: docType === 'parts_receipt' ? 'debit' : 'credit',
+        at: ts,
+      });
+      ledgerRows.push({
+        table: LedgerTableName.ErpRegContractSettlement,
+        rowId: regId,
+        row: { id: regId, contract_id: contractId, document_header_id: args.documentId, amount: Math.trunc(amount), direction: docType === 'parts_receipt' ? 'debit' : 'credit', at: ts },
+      });
+    }
+
+    await db
+      .update(erpDocumentHeaders)
+      .set({ status: 'posted', postedAt: ts, updatedAt: ts })
+      .where(eq(erpDocumentHeaders.id, args.documentId));
+    const journalId = randomUUID();
+    await db.insert(erpJournalDocuments).values({
+      id: journalId,
+      documentHeaderId: args.documentId,
+      eventType: 'posted',
+      eventPayloadJson: JSON.stringify({ by: args.actor.username }),
+      eventAt: ts,
+    });
+
+    const txPayloads = [
+      {
+        type: 'upsert' as const,
+        table: LedgerTableName.ErpDocumentHeaders,
+        row_id: args.documentId,
+        row: { id: args.documentId, status: 'posted', posted_at: ts, updated_at: ts },
+        actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+        ts,
+      },
+      {
+        type: 'upsert' as const,
+        table: LedgerTableName.ErpJournalDocuments,
+        row_id: journalId,
+        row: { id: journalId, document_header_id: args.documentId, event_type: 'posted', event_payload_json: JSON.stringify({ by: args.actor.username }), event_at: ts },
+        actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+        ts,
+      },
+      ...ledgerRows.map((r) => ({
+        type: 'upsert' as const,
+        table: r.table,
+        row_id: r.rowId,
+        row: r.row,
+        actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+        ts,
+      })),
+    ];
+    signAndAppendDetailed(txPayloads);
+
+    return { ok: true as const, id: args.documentId, posted: true };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function getContractSections(contractId: string): Promise<{ ok: true; sections: string[] } | { ok: false; error: string }> {
+  try {
+    const rows = await db.select({ attrsJson: erpContracts.attrsJson }).from(erpContracts).where(and(eq(erpContracts.id, contractId), isNull(erpContracts.deletedAt))).limit(1);
+    if (!rows[0]) return { ok: false, error: 'Contract not found' };
+    const attrs = rows[0].attrsJson ? JSON.parse(rows[0].attrsJson) : {};
+    const contractSections = attrs.contract_sections as any;
+    if (!contractSections) return { ok: true, sections: [] };
+    const sections: string[] = [];
+    if (contractSections.primary?.number) sections.push(contractSections.primary.number);
+    for (const addon of contractSections.addons || []) {
+      if (addon.number) sections.push(addon.number);
+    }
+    return { ok: true, sections };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}

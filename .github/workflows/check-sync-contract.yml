@@ -1,0 +1,35 @@
+name: Check Sync Contract
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-sync-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared + ledger (required by backend tsx imports)
+        run: |
+          pnpm --filter @matricarmz/shared build
+          pnpm --filter @matricarmz/ledger build
+
+      - name: Check sync contract
+        run: pnpm -C backend-api exec tsx src/scripts/checkSyncContract.ts

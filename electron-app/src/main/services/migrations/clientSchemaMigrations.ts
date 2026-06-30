@@ -1,0 +1,543 @@
+import { createHash } from 'node:crypto';
+
+import type Database from 'better-sqlite3';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+
+import { getSqliteHandle } from '../../database/db.js';
+import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from '../settingsStore.js';
+
+export type SyncSchemaColumn = {
+  name: string;
+  notNull: boolean;
+  dataType?: string | null;
+  default?: string | null;
+};
+
+export type SyncSchemaForeignKey = {
+  column: string;
+  refTable: string;
+  refColumn: string;
+  onUpdate?: string | null;
+  onDelete?: string | null;
+};
+
+export type SyncSchemaUniqueConstraint = {
+  columns: string[];
+  isPrimary?: boolean;
+};
+
+export type SyncSchemaTable = {
+  columns: SyncSchemaColumn[];
+  foreignKeys: SyncSchemaForeignKey[];
+  uniqueConstraints?: SyncSchemaUniqueConstraint[];
+};
+
+export type SyncSchemaSnapshot = {
+  generatedAt: number;
+  tables: Record<string, SyncSchemaTable>;
+};
+
+type Migration = {
+  from: number;
+  to: number;
+  name: string;
+  up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
+};
+
+export const CURRENT_CLIENT_SCHEMA_VERSION = 10;
+
+const MIGRATIONS: Migration[] = [
+  {
+    from: 1,
+    to: 2,
+    name: 'baseline no-op migration',
+    up: async () => {
+      // Intentionally empty. Ensures automated migration pipeline is exercised.
+    },
+  },
+  {
+    from: 2,
+    to: 3,
+    name: 'warehouse schema tables and indexes',
+    up: async (_db, sqlite) => {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_nomenclature (
+          id text PRIMARY KEY NOT NULL,
+          code text NOT NULL,
+          name text NOT NULL,
+          item_type text NOT NULL DEFAULT 'material',
+          group_id text,
+          unit_id text,
+          barcode text,
+          min_stock integer,
+          max_stock integer,
+          default_warehouse_id text,
+          spec_json text,
+          is_active integer NOT NULL DEFAULT 1,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_nomenclature_code_uq ON erp_nomenclature(code);
+        CREATE INDEX IF NOT EXISTS erp_nomenclature_item_type_idx ON erp_nomenclature(item_type);
+        CREATE INDEX IF NOT EXISTS erp_nomenclature_group_idx ON erp_nomenclature(group_id);
+        CREATE INDEX IF NOT EXISTS erp_nomenclature_name_idx ON erp_nomenclature(name);
+      `);
+
+      const stockColumns = sqlite.prepare(`PRAGMA table_info('erp_reg_stock_balance')`).all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      const partCardColumn = stockColumns.find((c) => c.name === 'part_card_id');
+      const hasNomenclatureId = stockColumns.some((c) => c.name === 'nomenclature_id');
+      const hasReservedQty = stockColumns.some((c) => c.name === 'reserved_qty');
+      const mustRebuildStockBalance = !hasNomenclatureId || !hasReservedQty || Number(partCardColumn?.notnull ?? 0) === 1;
+
+      if (mustRebuildStockBalance) {
+        const selectNomenclatureExpr = hasNomenclatureId ? 'nomenclature_id' : 'NULL';
+        const selectReservedExpr = hasReservedQty ? 'COALESCE(reserved_qty, 0)' : '0';
+        sqlite.exec(`PRAGMA foreign_keys=OFF;`);
+        sqlite.exec(`
+          CREATE TABLE IF NOT EXISTS __erp_reg_stock_balance_new (
+            id text PRIMARY KEY NOT NULL,
+            nomenclature_id text,
+            part_card_id text,
+            warehouse_id text NOT NULL DEFAULT 'default',
+            qty integer NOT NULL DEFAULT 0,
+            reserved_qty integer NOT NULL DEFAULT 0,
+            updated_at integer NOT NULL
+          );
+        `);
+        sqlite.exec(`
+          INSERT INTO __erp_reg_stock_balance_new (id, nomenclature_id, part_card_id, warehouse_id, qty, reserved_qty, updated_at)
+          SELECT id, ${selectNomenclatureExpr}, part_card_id, warehouse_id, qty, ${selectReservedExpr}, updated_at
+          FROM erp_reg_stock_balance;
+        `);
+        sqlite.exec(`DROP TABLE erp_reg_stock_balance;`);
+        sqlite.exec(`ALTER TABLE __erp_reg_stock_balance_new RENAME TO erp_reg_stock_balance;`);
+        sqlite.exec(`PRAGMA foreign_keys=ON;`);
+      }
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_reg_stock_balance_part_warehouse_uq
+          ON erp_reg_stock_balance(part_card_id, warehouse_id);
+      `);
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_reg_stock_balance_nomenclature_warehouse_uq
+          ON erp_reg_stock_balance(nomenclature_id, warehouse_id);
+      `);
+
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_reg_stock_movements (
+          id text PRIMARY KEY NOT NULL,
+          nomenclature_id text NOT NULL,
+          warehouse_id text NOT NULL DEFAULT 'default',
+          document_header_id text,
+          movement_type text NOT NULL,
+          qty integer NOT NULL DEFAULT 0,
+          direction text NOT NULL,
+          counterparty_id text,
+          reason text,
+          performed_at integer NOT NULL,
+          performed_by text,
+          created_at integer NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_nomenclature_warehouse_idx
+          ON erp_reg_stock_movements(nomenclature_id, warehouse_id);
+        CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_header_idx
+          ON erp_reg_stock_movements(document_header_id);
+        CREATE INDEX IF NOT EXISTS erp_reg_stock_movements_performed_at_idx
+          ON erp_reg_stock_movements(performed_at);
+      `);
+    },
+  },
+  {
+    from: 3,
+    to: 4,
+    name: 'add nomenclature_id to erp_document_lines',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_document_lines')`).all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === 'nomenclature_id')) {
+        sqlite.exec(`ALTER TABLE erp_document_lines ADD COLUMN nomenclature_id text;`);
+      }
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_document_lines_nomenclature_idx ON erp_document_lines(nomenclature_id);`);
+    },
+  },
+  {
+    from: 4,
+    to: 5,
+    name: 'erp_engine_assembly_bom engine_brand_id',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom')`).all() as Array<{ name: string }>;
+      if (cols.length === 0) return;
+      if (cols.some((c) => c.name === 'engine_brand_id')) return;
+
+      sqlite.exec('PRAGMA foreign_keys=OFF;');
+      try {
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;`);
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_idx;`);
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_engine_uq;`);
+
+        sqlite.exec(`
+          CREATE TABLE __erp_engine_assembly_bom_mig (
+            id text PRIMARY KEY NOT NULL,
+            name text NOT NULL,
+            engine_brand_id text NOT NULL,
+            engine_nomenclature_id text,
+            version integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'draft',
+            is_default integer NOT NULL DEFAULT 0,
+            notes text,
+            created_at integer NOT NULL,
+            updated_at integer NOT NULL,
+            deleted_at integer,
+            sync_status text NOT NULL DEFAULT 'synced',
+            last_server_seq integer
+          );
+        `);
+
+        sqlite.exec(`
+          INSERT INTO __erp_engine_assembly_bom_mig (
+            id, name, engine_brand_id, engine_nomenclature_id, version, status, is_default, notes,
+            created_at, updated_at, deleted_at, sync_status, last_server_seq
+          )
+          SELECT
+            b.id,
+            b.name,
+            COALESCE(
+              (SELECT n.default_brand_id FROM erp_nomenclature n
+                WHERE n.id = b.engine_nomenclature_id AND n.default_brand_id IS NOT NULL AND n.deleted_at IS NULL
+                LIMIT 1),
+              (SELECT neb.engine_brand_id FROM erp_nomenclature_engine_brand neb
+                WHERE neb.nomenclature_id = b.engine_nomenclature_id AND neb.deleted_at IS NULL
+                ORDER BY neb.is_default DESC, neb.created_at ASC
+                LIMIT 1),
+              ''
+            ),
+            b.engine_nomenclature_id,
+            b.version,
+            b.status,
+            b.is_default,
+            b.notes,
+            b.created_at,
+            b.updated_at,
+            b.deleted_at,
+            b.sync_status,
+            b.last_server_seq
+          FROM erp_engine_assembly_bom b;
+        `);
+
+        const bad = sqlite
+          .prepare(
+            `SELECT COUNT(*) AS c FROM __erp_engine_assembly_bom_mig WHERE deleted_at IS NULL AND (engine_brand_id IS NULL OR engine_brand_id = '')`,
+          )
+          .get() as { c: number };
+        if (Number(bad?.c ?? 0) > 0) {
+          sqlite.exec(`DROP TABLE __erp_engine_assembly_bom_mig;`);
+          throw new Error(
+            'erp_engine_assembly_bom: cannot resolve engine_brand_id for non-deleted rows; sync masterdata / nomenclature brands first',
+          );
+        }
+
+        sqlite.exec(`DROP TABLE erp_engine_assembly_bom;`);
+        sqlite.exec(`ALTER TABLE __erp_engine_assembly_bom_mig RENAME TO erp_engine_assembly_bom;`);
+
+        sqlite.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_brand_version_uq
+            ON erp_engine_assembly_bom(engine_brand_id, version) WHERE deleted_at IS NULL;
+        `);
+        sqlite.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_active_default_brand_uq
+            ON erp_engine_assembly_bom(engine_brand_id)
+            WHERE deleted_at IS NULL AND status = 'active' AND is_default = 1;
+        `);
+        sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_brand_idx ON erp_engine_assembly_bom(engine_brand_id);`);
+        sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);`);
+      } finally {
+        sqlite.exec('PRAGMA foreign_keys=ON;');
+      }
+    },
+  },
+  {
+    from: 5,
+    to: 6,
+    name: 'bom_lines unique index includes component_type',
+    up: async (_db, sqlite) => {
+      const idx = sqlite
+        .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='erp_engine_assembly_bom_lines_variant_component_uq'`)
+        .get() as { name?: string } | undefined;
+      if (idx?.name) {
+        sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_lines_variant_component_uq;`);
+      }
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_lines_variant_component_uq
+          ON erp_engine_assembly_bom_lines(bom_id, variant_group, component_nomenclature_id, component_type);
+      `);
+    },
+  },
+  {
+    from: 6,
+    to: 7,
+    name: 'warehouse command outbox table',
+    up: async (_db, sqlite) => {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS warehouse_command_outbox (
+          id text PRIMARY KEY NOT NULL,
+          client_operation_id text NOT NULL,
+          command_type text NOT NULL,
+          aggregate_type text NOT NULL DEFAULT 'warehouse_document',
+          aggregate_id text,
+          payload_json text NOT NULL,
+          status text NOT NULL DEFAULT 'pending',
+          attempts integer NOT NULL DEFAULT 0,
+          next_retry_at integer NOT NULL DEFAULT 0,
+          last_error text,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS warehouse_command_outbox_client_operation_id_uq
+          ON warehouse_command_outbox(client_operation_id);
+        CREATE INDEX IF NOT EXISTS warehouse_command_outbox_status_next_retry_idx
+          ON warehouse_command_outbox(status, next_retry_at);
+        CREATE INDEX IF NOT EXISTS warehouse_command_outbox_aggregate_idx
+          ON warehouse_command_outbox(aggregate_type, aggregate_id);
+      `);
+    },
+  },
+  {
+    from: 7,
+    to: 8,
+    name: 'erp_nomenclature directory_kind and directory_ref_id',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_nomenclature')`).all() as Array<{ name: string }>;
+      const names = new Set(cols.map((c) => c.name));
+      if (!names.has('directory_kind')) {
+        sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN directory_kind text;`);
+      }
+      if (!names.has('directory_ref_id')) {
+        sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN directory_ref_id text;`);
+      }
+      sqlite.exec(
+        `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,
+      );
+    },
+  },
+  {
+    from: 8,
+    to: 9,
+    name: 'BOM ↔ engine brands M:N via junction; drop engine_brand_id from BOM',
+    up: async (_db, sqlite) => {
+      // Создаём junction-таблицу
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_engine_assembly_bom_brand_links (
+          id text PRIMARY KEY NOT NULL,
+          bom_id text NOT NULL,
+          engine_brand_id text NOT NULL,
+          is_primary integer NOT NULL DEFAULT 0,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced',
+          last_server_seq integer
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_eabbl_bom_brand_uq
+          ON erp_engine_assembly_bom_brand_links(bom_id, engine_brand_id)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS erp_eabbl_bom_idx
+          ON erp_engine_assembly_bom_brand_links(bom_id);
+        CREATE INDEX IF NOT EXISTS erp_eabbl_brand_idx
+          ON erp_engine_assembly_bom_brand_links(engine_brand_id);
+      `);
+
+      const bomCols = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom')`).all() as Array<{ name: string }>;
+      const hasEngineBrandId = bomCols.some((c) => c.name === 'engine_brand_id');
+      if (hasEngineBrandId) {
+        // Бэкфил junction строк из текущих engine_brand_id
+        const ts = Date.now();
+        sqlite
+          .prepare(
+            `INSERT OR IGNORE INTO erp_engine_assembly_bom_brand_links
+               (id, bom_id, engine_brand_id, is_primary, created_at, updated_at, deleted_at, sync_status)
+             SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2)
+                    || '-' || substr('89ab', 1+(abs(random())%4), 1) || substr(lower(hex(randomblob(2))),2)
+                    || '-' || lower(hex(randomblob(6))),
+                    b.id, b.engine_brand_id, 1, b.created_at, COALESCE(b.updated_at, ?), b.deleted_at, 'synced'
+               FROM erp_engine_assembly_bom b
+               WHERE b.engine_brand_id IS NOT NULL`,
+          )
+          .run(ts);
+
+        // SQLite не умеет DROP COLUMN в старых версиях — пересоздаём таблицу без engine_brand_id
+        sqlite.exec(`PRAGMA foreign_keys=OFF;`);
+        sqlite.exec(`
+          CREATE TABLE __erp_engine_assembly_bom_new (
+            id text PRIMARY KEY NOT NULL,
+            name text NOT NULL,
+            engine_nomenclature_id text,
+            version integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'draft',
+            is_default integer NOT NULL DEFAULT 0,
+            notes text,
+            created_at integer NOT NULL,
+            updated_at integer NOT NULL,
+            deleted_at integer,
+            sync_status text NOT NULL DEFAULT 'synced',
+            last_server_seq integer
+          );
+          INSERT INTO __erp_engine_assembly_bom_new (id, name, engine_nomenclature_id, version, status, is_default, notes, created_at, updated_at, deleted_at, sync_status, last_server_seq)
+          SELECT id, name, engine_nomenclature_id, version, status, is_default, notes, created_at, updated_at, deleted_at, sync_status, last_server_seq
+          FROM erp_engine_assembly_bom;
+          DROP TABLE erp_engine_assembly_bom;
+          ALTER TABLE __erp_engine_assembly_bom_new RENAME TO erp_engine_assembly_bom;
+          CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);
+        `);
+        sqlite.exec(`PRAGMA foreign_keys=ON;`);
+      }
+    },
+  },
+  {
+    from: 9,
+    to: 10,
+    name: 'ensure BOM junction table + drop stale BOM indexes (fresh installs)',
+    up: async (_db, sqlite) => {
+      // Идемпотентный страховочный шаг: drizzle-миграция 0010 уже создаёт junction-таблицу,
+      // здесь повторяем для клиентов, поднявшихся ранее без drizzle-новинок.
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS erp_engine_assembly_bom_brand_links (
+          id text PRIMARY KEY NOT NULL,
+          bom_id text NOT NULL,
+          engine_brand_id text NOT NULL,
+          is_primary integer NOT NULL DEFAULT 0,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced',
+          last_server_seq integer
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_eabbl_bom_brand_uq
+          ON erp_engine_assembly_bom_brand_links(bom_id, engine_brand_id)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS erp_eabbl_bom_idx ON erp_engine_assembly_bom_brand_links(bom_id);
+        CREATE INDEX IF NOT EXISTS erp_eabbl_brand_idx ON erp_engine_assembly_bom_brand_links(engine_brand_id);
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_idx;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_engine_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_brand_version_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_brand_uq;
+        DROP INDEX IF EXISTS erp_engine_assembly_bom_brand_idx;
+        CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);
+      `);
+    },
+  },
+];
+
+function normalizeSchema(snapshot: SyncSchemaSnapshot) {
+  const tables: Record<string, SyncSchemaTable> = {};
+  const tableNames = Object.keys(snapshot.tables || {}).sort((a, b) => a.localeCompare(b));
+  for (const table of tableNames) {
+    const info = snapshot.tables[table];
+    const columns = (info?.columns ?? [])
+      .map((c) => ({
+        name: String(c.name),
+        notNull: !!c.notNull,
+        dataType: c.dataType ?? null,
+        default: c.default ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const foreignKeys = (info?.foreignKeys ?? [])
+      .map((fk) => ({
+        column: String(fk.column),
+        refTable: String(fk.refTable),
+        refColumn: String(fk.refColumn),
+        onUpdate: fk.onUpdate ?? null,
+        onDelete: fk.onDelete ?? null,
+      }))
+      .sort((a, b) => {
+        const ak = `${a.column}:${a.refTable}:${a.refColumn}`;
+        const bk = `${b.column}:${b.refTable}:${b.refColumn}`;
+        return ak.localeCompare(bk);
+      });
+    const uniqueConstraints = (info?.uniqueConstraints ?? [])
+      .map((uq) => ({
+        columns: Array.isArray(uq.columns) ? uq.columns.map(String).sort() : [],
+        isPrimary: !!uq.isPrimary,
+      }))
+      .filter((uq) => uq.columns.length > 0)
+      .sort((a, b) => {
+        const ak = `${a.isPrimary ? 1 : 0}:${a.columns.join(',')}`;
+        const bk = `${b.isPrimary ? 1 : 0}:${b.columns.join(',')}`;
+        return ak.localeCompare(bk);
+      });
+    tables[table] = { columns, foreignKeys, uniqueConstraints };
+  }
+  return { tables };
+}
+
+export function hashServerSchema(snapshot: SyncSchemaSnapshot): string {
+  const normalized = normalizeSchema(snapshot);
+  const raw = JSON.stringify(normalized);
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+function buildMigrationChain(fromVersion: number, toVersion: number): Migration[] | null {
+  if (fromVersion === toVersion) return [];
+  const chain: Migration[] = [];
+  let current = fromVersion;
+  for (let i = 0; i < 1000 && current < toVersion; i += 1) {
+    const next = MIGRATIONS.find((m) => m.from === current);
+    if (!next) return null;
+    chain.push(next);
+    current = next.to;
+  }
+  return current === toVersion ? chain : null;
+}
+
+export async function ensureClientSchemaCompatible(
+  db: BetterSQLite3Database,
+  serverSchema: SyncSchemaSnapshot | null,
+  opts?: { log?: (message: string) => void },
+): Promise<{ action: 'ok' | 'migrated' | 'rebuild'; reason?: string; serverHash?: string | null }> {
+  const log = opts?.log ?? (() => {});
+  const storedVersion = await settingsGetNumber(db, SettingsKey.ClientSchemaVersion, 0);
+  const storedHash = await settingsGetString(db, SettingsKey.ServerSchemaHash);
+  const serverHash = serverSchema ? hashServerSchema(serverSchema) : null;
+
+  if (storedVersion === 0) {
+    await settingsSetNumber(db, SettingsKey.ClientSchemaVersion, CURRENT_CLIENT_SCHEMA_VERSION);
+    if (serverHash) await settingsSetString(db, SettingsKey.ServerSchemaHash, serverHash);
+    return { action: 'ok', reason: 'baseline', serverHash };
+  }
+
+  if (storedVersion > CURRENT_CLIENT_SCHEMA_VERSION) {
+    return { action: 'rebuild', reason: 'client schema downgrade detected', serverHash };
+  }
+
+  if (storedVersion < CURRENT_CLIENT_SCHEMA_VERSION) {
+    const chain = buildMigrationChain(storedVersion, CURRENT_CLIENT_SCHEMA_VERSION);
+    if (!chain) {
+      return { action: 'rebuild', reason: `missing migrations ${storedVersion} -> ${CURRENT_CLIENT_SCHEMA_VERSION}`, serverHash };
+    }
+    const sqlite = getSqliteHandle();
+    if (!sqlite) return { action: 'rebuild', reason: 'sqlite handle unavailable', serverHash };
+    try {
+      for (const m of chain) {
+        log(`schema migration ${m.from} -> ${m.to}: ${m.name}`);
+        await m.up(db, sqlite);
+      }
+      await settingsSetNumber(db, SettingsKey.ClientSchemaVersion, CURRENT_CLIENT_SCHEMA_VERSION);
+      if (serverHash) await settingsSetString(db, SettingsKey.ServerSchemaHash, serverHash);
+      return { action: 'migrated', reason: `migrated ${storedVersion} -> ${CURRENT_CLIENT_SCHEMA_VERSION}`, serverHash };
+    } catch (e) {
+      return { action: 'rebuild', reason: `migration failed: ${String(e)}`, serverHash };
+    }
+  }
+
+  if (serverHash && storedHash && serverHash !== storedHash) {
+    return { action: 'rebuild', reason: 'server schema hash mismatch', serverHash };
+  }
+
+  if (serverHash && serverHash !== storedHash) {
+    await settingsSetString(db, SettingsKey.ServerSchemaHash, serverHash);
+  }
+
+  return { action: 'ok', reason: 'compatible', serverHash };
+}

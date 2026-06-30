@@ -1,0 +1,578 @@
+import React, { useMemo, useState, useEffect } from 'react';
+import type {
+  ReportCellValue,
+  ReportFilterOption,
+  ReportFilterSpec,
+  ReportOptionSource,
+  ReportPresetDefinition,
+  ReportPresetFilters,
+  ReportPresetId,
+  ReportPresetPreviewResult,
+} from '@matricarmz/shared';
+
+import { Button } from '../components/Button.js';
+import { Input } from '../components/Input.js';
+import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
+import { SearchSelect } from '../components/SearchSelect.js';
+import { SectionCard } from '../components/SectionCard.js';
+import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../utils/dateUtils.js';
+import { openPrintPreview } from '../utils/printPreview.js';
+import { buildDefaultFilters, buildReportPrintPreviewSections } from '../utils/reportUtils.js';
+import { renderWorkOrderPayrollFormInnerHtml } from '../utils/workOrderPayrollReportLayoutHtml.js';
+
+type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
+
+function startOfDayMs(value: Date) {
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function endOfDayMs(value: Date) {
+  const d = new Date(value);
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
+
+function toInputDate(value: unknown) {
+  const ms = typeof value === 'number' && Number.isFinite(value) ? value : null;
+  if (ms == null) return '';
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fromInputDate(value: string, mode: 'start' | 'end'): number | null {
+  if (!value) return null;
+  const [yy, mm, dd] = value.split('-').map((x) => Number(x));
+  if (!yy || !mm || !dd) return null;
+  const date = new Date(yy, mm - 1, dd);
+  return mode === 'end' ? endOfDayMs(date) : startOfDayMs(date);
+}
+
+function formatCell(
+  kind: ReportFilterSpec['type'] | 'date' | 'datetime' | 'number' | 'text',
+  value: ReportCellValue,
+  columnKey = '',
+): string {
+  if (value == null) return '';
+  if (kind === 'date' && typeof value === 'number') return formatMoscowDate(value);
+  if (kind === 'datetime' && typeof value === 'number') return formatMoscowDateTime(value);
+  if (kind === 'number' && typeof value === 'number') {
+    const key = String(columnKey).toLowerCase();
+    if (key.includes('pct') || key.includes('progress')) {
+      return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    }
+    if (key.includes('amount') || key.includes('sum') || key.includes('rub')) {
+      return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return formatRuNumber(value, { maximumFractionDigits: 2 });
+  }
+  if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
+  return String(value);
+}
+
+const REPORT_TOTAL_LABELS: Record<string, string> = {
+  employees: 'Сотрудники, шт.',
+  workingEmployees: 'Работают, шт.',
+  firedEmployees: 'Уволены, шт.',
+  firedInPeriod: 'Уволены за период, шт.',
+  counterparties: 'Контрагенты, шт.',
+  tools: 'Инструменты, шт.',
+  inInventory: 'В учете, шт.',
+  retired: 'Списано, шт.',
+  services: 'Услуги, шт.',
+  products: 'Товары, шт.',
+  parts: 'Детали, шт.',
+  brands: 'Марки, шт.',
+  scrapQty: 'Утиль, шт.',
+  missingQty: 'Недокомплект, шт.',
+  deliveredQty: 'Привезено, шт.',
+  remainingNeedQty: 'Остаточная потребность, шт.',
+  engines: 'Двигатели, шт.',
+  contracts: 'Контракты, шт.',
+  totalQty: 'Общий объем, шт.',
+  totalAmountRub: 'Сумма, ₽',
+  orderedQty: 'Заказано, шт.',
+  remainingQty: 'Остаток, шт.',
+  fulfillmentPct: '% выполнения',
+  progressPct: 'Прогресс, %',
+  workOrders: 'Наряды, шт.',
+  lines: 'Записей, шт.',
+  amountRub: 'Сумма, ₽',
+  avgAmountRub: 'Средняя цена, ₽',
+  onSiteQty: 'На заводе, шт.',
+  acceptance: 'Приёмка',
+  shipment: 'Отгрузка',
+  customer_delivery: 'Доставка заказчику',
+  overdueContracts: 'Просрочено, шт.',
+  dueSoonContracts: 'Срок до 30 дней, шт.',
+  withIgk: 'С ИГК, шт.',
+  withoutIgk: 'Без ИГК, шт.',
+  withSeparateAccount: 'С отдельным счетом, шт.',
+  withoutSeparateAccount: 'Без отдельного счета, шт.',
+};
+function reportTotalLabel(key: string): string {
+  return REPORT_TOTAL_LABELS[key] ?? key;
+}
+
+function formatReportTotalValue(key: string, value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value ?? '');
+  const normalizedKey = key.toLowerCase();
+  const isPercent = normalizedKey.includes('pct');
+  if (isPercent) {
+    return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+  const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
+  if (isMoney) {
+    return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return formatRuNumber(value, { maximumFractionDigits: 2 });
+}
+
+function formatReportTotals(totals: Record<string, unknown>): string[] {
+  return Object.entries(totals).map(([key, value]) => {
+    const label = reportTotalLabel(key);
+    return `${label}: ${formatReportTotalValue(key, value)}`;
+  });
+}
+
+function csvDownload(csv: string, fileName: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function binaryDownloadBase64(contentBase64: string, fileName: string, mime: string) {
+  const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function ReportsPage(props: { canExport: boolean }) {
+  const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
+  const [optionSets, setOptionSets] = useState<Partial<Record<ReportOptionSource, ReportFilterOption[]>>>({});
+  const [selectedPresetId, setSelectedPresetId] = useState<ReportPresetId | null>(null);
+  const [filtersByPreset, setFiltersByPreset] = useState<Partial<Record<ReportPresetId, ReportPresetFilters>>>({});
+  const [filterSearchByPreset, setFilterSearchByPreset] = useState<Partial<Record<ReportPresetId, Record<string, string>>>>({});
+  const [preview, setPreview] = useState<PreviewOk | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+
+  const activePreset = useMemo(
+    () => (selectedPresetId ? presets.find((preset) => preset.id === selectedPresetId) ?? null : null),
+    [presets, selectedPresetId],
+  );
+  const activeFilters = useMemo(() => {
+    if (!activePreset) return {};
+    return filtersByPreset[activePreset.id] ?? buildDefaultFilters(activePreset);
+  }, [activePreset, filtersByPreset]);
+  const activeFilterSearch = useMemo(() => {
+    if (!activePreset) return {};
+    return filterSearchByPreset[activePreset.id] ?? {};
+  }, [activePreset, filterSearchByPreset]);
+
+  function patchFilter(key: string, value: unknown) {
+    if (!activePreset) return;
+    setFiltersByPreset((prev) => {
+      const current = prev[activePreset.id] ?? buildDefaultFilters(activePreset);
+      return {
+        ...prev,
+        [activePreset.id]: {
+          ...current,
+          [key]: value,
+        },
+      };
+    });
+  }
+
+  function patchFilterSearch(key: string, value: string) {
+    if (!activePreset) return;
+    setFilterSearchByPreset((prev) => {
+      const current = prev[activePreset.id] ?? {};
+      return {
+        ...prev,
+        [activePreset.id]: {
+          ...current,
+          [key]: value,
+        },
+      };
+    });
+  }
+
+  async function loadPresetMeta() {
+    setBusy(true);
+    setStatus('Загрузка шаблонов...');
+    try {
+      const result = await window.matrica.reports.presetList();
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
+        return;
+      }
+      setPresets(result.presets);
+      setOptionSets(result.optionSets ?? {});
+      setSelectedPresetId((current) => current ?? result.presets[0]?.id ?? null);
+      setFiltersByPreset((prev) => {
+        const next = { ...prev };
+        for (const preset of result.presets) {
+          if (!next[preset.id]) next[preset.id] = buildDefaultFilters(preset);
+        }
+        return next;
+      });
+      setStatus('');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPresetMeta();
+  }, []);
+
+  async function buildPreview() {
+    if (!activePreset) return null;
+    setBusy(true);
+    setStatus('Формирование отчета...');
+    try {
+      const result = await window.matrica.reports.presetPreview({
+        presetId: activePreset.id,
+        filters: activeFilters,
+      });
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
+        setPreview(null);
+        return null;
+      }
+      setPreview(result);
+      setStatus(`Сформировано строк: ${result.rows.length}`);
+      return result;
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+      setPreview(null);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openPreviewWindow() {
+    const report = preview ?? (await buildPreview());
+    if (!report) return;
+    openPrintPreview({
+      title: report.title,
+      ...(report.subtitle ? { subtitle: report.subtitle } : {}),
+      sections: buildReportPrintPreviewSections(report),
+    });
+  }
+
+  async function runPrint() {
+    if (!activePreset) return;
+    setBusy(true);
+    setStatus('Отправка на печать...');
+    try {
+      const result = await window.matrica.reports.presetPrint({
+        presetId: activePreset.id,
+        filters: activeFilters,
+      });
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
+        return;
+      }
+      setStatus('Диалог печати открыт.');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePdf() {
+    if (!activePreset) return;
+    setBusy(true);
+    setStatus('Подготовка PDF...');
+    try {
+      const result = await window.matrica.reports.presetPdf({
+        presetId: activePreset.id,
+        filters: activeFilters,
+      });
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
+        return;
+      }
+      binaryDownloadBase64(result.contentBase64, result.fileName, result.mime);
+      setStatus('PDF сохранен.');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCsv() {
+    if (!activePreset) return;
+    setBusy(true);
+    setStatus('Подготовка CSV...');
+    try {
+      const result = await window.matrica.reports.presetCsv({
+        presetId: activePreset.id,
+        filters: activeFilters,
+      });
+      if (!result?.ok) {
+        setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
+        return;
+      }
+      csvDownload(result.csv, result.fileName);
+      setStatus('CSV сохранен.');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <SectionCard title="Шаблоны отчетов" actions={<Button variant="ghost" onClick={() => void loadPresetMeta()} disabled={busy}>Обновить</Button>}>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ color: 'var(--muted)', fontSize: 12 }}>Готовые пресеты для бухгалтерии и руководства. Фильтры можно изменять перед формированием отчета.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 8 }}>
+            {presets.map((preset) => {
+              const active = selectedPresetId === preset.id;
+              return (
+                <Button
+                  key={preset.id}
+                  variant={active ? 'primary' : 'ghost'}
+                  onClick={() => {
+                    setSelectedPresetId(preset.id);
+                    setPreview(null);
+                  }}
+                  style={{ textAlign: 'left', display: 'grid', gap: 2, justifyItems: 'start' }}
+                >
+                  <span style={{ fontWeight: 800 }}>{preset.title}</span>
+                  <span style={{ fontWeight: 500, fontSize: 12, whiteSpace: 'normal' }}>{preset.description}</span>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title={activePreset ? `Фильтры: ${activePreset.title}` : 'Фильтры'}>
+        {!activePreset ? (
+          <div className="ui-muted">Выберите шаблон отчета.</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+              Для списочных фильтров можно начать вводить текст или вставить его из буфера, чтобы быстро найти нужный объект.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
+              {activePreset.filters.map((filter) => {
+                if (filter.type === 'date_range') {
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <div style={{ fontWeight: 700 }}>{filter.label}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <Input
+                          type="date"
+                          value={toInputDate(activeFilters[filter.startKey])}
+                          onChange={(e) => patchFilter(filter.startKey, fromInputDate(e.target.value, 'start'))}
+                        />
+                        <Input
+                          type="date"
+                          value={toInputDate(activeFilters[filter.endKey])}
+                          onChange={(e) => patchFilter(filter.endKey, fromInputDate(e.target.value, 'end'))}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+                if (filter.type === 'checkbox') {
+                  return (
+                    <label key={filter.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(activeFilters[filter.key])}
+                        onChange={(e) => patchFilter(filter.key, e.target.checked)}
+                      />
+                      <span>{filter.label}</span>
+                    </label>
+                  );
+                }
+                if (filter.type === 'number') {
+                  const raw = activeFilters[filter.key];
+                  const num = typeof raw === 'number' ? raw : Number(raw);
+                  const safe = Number.isFinite(num) ? num : filter.defaultValue ?? 0;
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <Input
+                        type="number"
+                        min={filter.min}
+                        max={filter.max}
+                        step={filter.step ?? 1}
+                        value={String(safe)}
+                        onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
+                        disabled={busy}
+                      />
+                    </div>
+                  );
+                }
+                if (filter.type === 'text') {
+                  const textVal = String(activeFilters[filter.key] ?? filter.defaultValue ?? '');
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <Input
+                        type="text"
+                        value={textVal}
+                        placeholder={filter.placeholder}
+                        onChange={(e) => patchFilter(filter.key, e.target.value)}
+                        disabled={busy}
+                      />
+                    </div>
+                  );
+                }
+                if (filter.type === 'select') {
+                  const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+                  const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
+                  const options = sourceOptions.map((option) => ({
+                    id: option.value,
+                    label: option.label,
+                    ...(option.hintText ? { hintText: option.hintText } : {}),
+                    ...(option.searchText ? { searchText: option.searchText } : {}),
+                  }));
+                  return (
+                    <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                      <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                      <SearchSelect
+                        value={value || null}
+                        options={options}
+                        placeholder="Начните вводить для поиска"
+                        disabled={busy}
+                        query={activeFilterSearch[filter.key] ?? ''}
+                        onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+                        onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
+                      />
+                    </div>
+                  );
+                }
+                const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+                const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
+                return (
+                  <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+                    <span style={{ fontWeight: 700 }}>{filter.label}</span>
+                    <MultiSearchSelect
+                      values={selected}
+                      options={options.map((option) => ({
+                        id: option.value,
+                        label: option.label,
+                        ...(option.hintText ? { hintText: option.hintText } : {}),
+                        ...(option.searchText ? { searchText: option.searchText } : {}),
+                      }))}
+                      placeholder="Начните вводить или вставьте текст"
+                      disabled={busy}
+                      query={activeFilterSearch[filter.key] ?? ''}
+                      onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+                      onChange={(next) => patchFilter(filter.key, next)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button onClick={() => void buildPreview()} disabled={busy}>
+                Сформировать
+              </Button>
+              <Button variant="ghost" tone="info" onClick={() => void openPreviewWindow()} disabled={busy}>
+                Предпросмотр
+              </Button>
+              <Button variant="ghost" tone="neutral" onClick={() => void runPrint()} disabled={busy}>
+                Печать
+              </Button>
+              <Button variant="ghost" tone="success" onClick={() => void savePdf()} disabled={busy || !props.canExport}>
+                Сохранить PDF
+              </Button>
+              <Button variant="ghost" tone="success" onClick={() => void saveCsv()} disabled={busy || !props.canExport}>
+                Сохранить CSV
+              </Button>
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title={preview ? `Результат: ${preview.title}` : 'Результат'}>
+        {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', marginBottom: 8 }}>{status}</div> : null}
+        {!preview ? (
+          <div className="ui-muted">Сформируйте отчет для просмотра данных.</div>
+        ) : (
+          <div className="report-preview-root" style={{ display: 'grid', gap: 8 }}>
+            {preview.subtitle ? <div className="ui-muted">{preview.subtitle}</div> : null}
+            {preview.presetId === 'work_order_payroll' ? (
+              <div className="work-order-payroll-onscreen" dangerouslySetInnerHTML={{ __html: renderWorkOrderPayrollFormInnerHtml(preview) }} />
+            ) : (
+              <>
+                <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
+                  <table className="list-table">
+                    <thead>
+                      <tr>
+                        {preview.columns.map((column) => (
+                          <th
+                            key={column.key}
+                            data-col-kind={column.kind === 'number' ? 'num' : column.kind === 'date' || column.kind === 'datetime' ? 'date' : 'name'}
+                            {...((column.kind === 'number' || column.kind === 'date' || column.kind === 'datetime') ? { title: column.label } : {})}
+                            style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}
+                          >
+                            {column.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row, idx) => (
+                        <tr key={`report-row-${idx}`}>
+                          {preview.columns.map((column) => (
+                            <td
+                              key={`${idx}-${column.key}`}
+                              data-col-kind={column.kind === 'number' ? 'num' : column.kind === 'date' || column.kind === 'datetime' ? 'date' : 'name'}
+                              style={{ textAlign: column.align === 'right' ? 'right' : 'left' }}
+                            >
+                              {formatCell(column.kind ?? 'text', (row[column.key] ?? null) as ReportCellValue, column.key)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      {preview.rows.length === 0 && (
+                        <tr>
+                          <td colSpan={preview.columns.length}>Нет данных</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {preview.totals && Object.keys(preview.totals).length > 0 ? (
+                  <div style={{ fontWeight: 700 }}>
+                    Итого по отчету: {formatReportTotals(preview.totals).join(', ')}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}

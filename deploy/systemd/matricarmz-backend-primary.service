@@ -1,0 +1,17 @@
+[Unit]
+Description=MatricaRMZ backend-api (primary)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/valstan/MatricaRMZ/backend-api
+EnvironmentFile=/etc/matricarmz/matricarmz.env
+Environment=HOST=127.0.0.1
+Environment=MATRICA_INSTANCE_PORT=3001
+ExecStart=/usr/bin/node /home/valstan/MatricaRMZ/backend-api/dist/index.js
+Restart=always
+RestartSec=2
+User=valstan
+
+[Install]
+WantedBy=multi-user.target

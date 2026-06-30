@@ -1,0 +1,15 @@
+[Unit]
+Description=Weekly cleanup of old MatricaRMZ installer .exe files
+Requires=matricarmz-cleanup-updates.service
+
+[Timer]
+# Каждое воскресенье в 03:00 — низкая нагрузка, операторов нет.
+OnCalendar=Sun *-*-* 03:00:00
+# Если сервер был выключен в момент срабатывания — запустить при следующем старте.
+Persistent=true
+# Допустимый разброс старта (для рассредоточения нагрузки на нескольких хостах).
+AccuracySec=15min
+Unit=matricarmz-cleanup-updates.service
+
+[Install]
+WantedBy=timers.target

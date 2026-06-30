@@ -1,0 +1,2254 @@
+/* Global strict UI baseline for MatricaRMZ (Electron renderer). */
+
+/* Basic reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --ui-space-1: 4px;
+  --ui-space-2: 4px;
+  --ui-space-3: 8px;
+  --ui-space-4: 10px;
+  --ui-space-5: 20px;
+  --ui-title-size: 18px;
+  --ui-section-size: 15px;
+  --ui-body-size: 13px;
+  --ui-muted-size: 12px;
+  --ui-table-size: 13px;
+  /** Минимальный размер текста в предпросмотре/таблицах отчётов (читаемость для оператора). */
+  --ui-report-font-size: 14px;
+  --ui-list-font-size: 14px;
+  --ui-card-font-size: 14px;
+  --entity-card-min-width: 520px;
+  --ui-content-max-width: min(95vw, 1400px);
+  --ui-content-block-min-width: 420px;
+  --ui-content-block-max-width: min(95vw, 1200px);
+  --ui-datepicker-scale: 2;
+  --ui-datepicker-font-size: 14px;
+  --ui-button-sm-padding: 4px 8px;
+  --ui-button-sm-height: 26px;
+  --ui-button-sm-font-size: 12px;
+  --ui-button-md-padding: 5px 9px;
+  --ui-button-md-height: 28px;
+  --ui-button-md-font-size: 13px;
+  --ui-button-lg-padding: 8px 12px;
+  --ui-button-lg-height: 34px;
+  --ui-button-lg-font-size: 14px;
+  --ui-input-padding: 4px 6px;
+  --ui-input-height: 28px;
+  --ui-input-font-size: 13px;
+  --ui-input-autogrow-min-ch: 10;
+  --ui-input-autogrow-max-ch: 48;
+  --ui-input-autogrow-extra-ch: 2;
+  --app-bg-from: #e2e8f0;
+  --app-bg-via: #f8fafc;
+  --app-bg-to: #e0f2fe;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --border: rgba(15, 23, 42, 0.18);
+  --border-strong: rgba(15, 23, 42, 0.28);
+  --text: #0b1220;
+  --muted: #334155;
+  --subtle: #64748b;
+  --danger: #b91c1c;
+  --success: #15803d;
+  --warn: #b45309;
+
+  --input-bg: rgba(255, 255, 255, 0.95);
+  --input-bg-disabled: rgba(241, 245, 249, 0.8);
+  --input-border: rgba(15, 23, 42, 0.25);
+  --input-border-focus: #2563eb;
+  --input-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.13);
+  --input-shadow-focus: inset 0 1px 2px rgba(15, 23, 42, 0.1), 0 0 0 2px rgba(37, 99, 235, 0.2);
+
+  --button-primary-bg: linear-gradient(135deg, #2563eb 0%, #1d4ed8 60%, #7c3aed 120%);
+  --button-primary-border: #1e40af;
+  --button-primary-text: #ffffff;
+  --button-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 1px 1px rgba(15, 23, 42, 0.2),
+    0 3px 7px rgba(15, 23, 42, 0.18);
+  --button-ghost-bg: rgba(255, 255, 255, 0.9);
+  --button-ghost-border: rgba(15, 23, 42, 0.25);
+  --button-ghost-text: #0b1220;
+  --button-ghost-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 1px 1px rgba(15, 23, 42, 0.1),
+    0 2px 5px rgba(15, 23, 42, 0.1);
+
+  --ui-radius-sm: 5px;
+  --ui-radius-md: 8px;
+  --ui-radius-lg: 12px;
+
+  --list-row-bg: #f8fafc;
+  --list-row-bg-alt: #eef2f7;
+  --list-row-bg-hover: #e2e8f0;
+  --list-row-border: rgba(15, 23, 42, 0.14);
+  --list-row-text: #0b1220;
+  --list-row-padding-y: 4px;
+  --list-row-padding-x: 6px;
+  --ui-list-cell-default-max-ch: 30;
+  --ui-list-cell-name-max-ch: 44;
+  --ui-list-text-max-ch: 100;
+  --ui-list-auto-columns-enabled: 1;
+  --ui-list-auto-columns-max: 3;
+  --ui-list-auto-columns-gap-px: 10;
+  --list-row-green-bg: #ecfdf3;
+  --list-row-green-alt: #dcfce7;
+  --list-row-green-hover: #bbf7d0;
+
+  --card-panel-bg: #eff6ff;
+  --card-panel-border: rgba(37, 99, 235, 0.28);
+  --ui-section-card-alt-color: #93c5fd;
+  --ui-section-card-alt-odd: 4%;
+  --ui-section-card-alt-even: 8%;
+  --card-row-bg: #e0f2fe;
+  --card-row-bg-hover: #dbeafe;
+  --card-row-border: rgba(37, 99, 235, 0.25);
+  --card-row-gap: 4px;
+  --card-row-padding-y: 4px;
+  --card-row-padding-x: 6px;
+  --card-row-drag-bg: rgba(59, 130, 246, 0.12);
+
+  --tone-success-bg: linear-gradient(135deg, #16a34a 0%, #22c55e 110%);
+  --tone-success-border: #15803d;
+  --tone-success-text: #ffffff;
+  --tone-info-bg: linear-gradient(135deg, #0ea5e9 0%, #2563eb 110%);
+  --tone-info-border: #1d4ed8;
+  --tone-info-text: #ffffff;
+  --tone-warn-bg: linear-gradient(135deg, #f59e0b 0%, #f97316 110%);
+  --tone-warn-border: #c2410c;
+  --tone-warn-text: #111827;
+  --tone-danger-bg: linear-gradient(135deg, #ef4444 0%, #b91c1c 110%);
+  --tone-danger-border: #991b1b;
+  --tone-danger-text: #ffffff;
+  --tone-neutral-bg: linear-gradient(135deg, #e2e8f0 0%, #cbd5f5 110%);
+  --tone-neutral-border: #94a3b8;
+  --tone-neutral-text: #0b1220;
+
+  --chat-mine-bg: #ecfeff;
+  --chat-mine-border: #a5f3fc;
+  --chat-other-bg: #f8fafc;
+  --chat-other-border: #e5e7eb;
+  --chat-menu-bg: #ffffff;
+  --chat-menu-border: rgba(15, 23, 42, 0.18);
+  --chat-menu-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+
+  --role-superadmin-bg: linear-gradient(135deg, #9ca3af 0%, #d1d5db 45%, #6b7280 100%);
+  --role-superadmin-border: #4b5563;
+  --role-superadmin-text: #ffffff;
+  --role-admin-bg: #ffffff;
+  --role-admin-border: #1d4ed8;
+  --role-admin-text: #1d4ed8;
+  --role-user-bg: #ffffff;
+  --role-user-border: #16a34a;
+  --role-user-text: #16a34a;
+}
+
+:root[data-theme='dark'] {
+  --app-bg-from: #0b1024;
+  --app-bg-via: #0b1f3a;
+  --app-bg-to: #2f0b2a;
+  --surface: #0f172a;
+  --surface-2: #111827;
+  --border: rgba(148, 163, 184, 0.2);
+  --border-strong: rgba(148, 163, 184, 0.35);
+  --text: #e2e8f0;
+  --muted: #cbd5e1;
+  --subtle: #94a3b8;
+  --danger: #f87171;
+  --success: #22c55e;
+  --warn: #f59e0b;
+
+  --input-bg: rgba(15, 23, 42, 0.9);
+  --input-bg-disabled: rgba(30, 41, 59, 0.75);
+  --input-border: rgba(148, 163, 184, 0.35);
+  --input-border-focus: #60a5fa;
+  --input-shadow: inset 0 1px 2px rgba(2, 6, 23, 0.5);
+  --input-shadow-focus: inset 0 1px 2px rgba(2, 6, 23, 0.4), 0 0 0 2px rgba(96, 165, 250, 0.22);
+
+  --button-primary-bg: linear-gradient(135deg, #2563eb 0%, #1e40af 60%, #4c1d95 120%);
+  --button-primary-border: #1e3a8a;
+  --button-primary-text: #ffffff;
+  --button-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 1px rgba(2, 6, 23, 0.5),
+    0 3px 8px rgba(2, 6, 23, 0.45);
+  --button-ghost-bg: rgba(15, 23, 42, 0.9);
+  --button-ghost-border: rgba(148, 163, 184, 0.35);
+  --button-ghost-text: #e2e8f0;
+  --button-ghost-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 1px rgba(2, 6, 23, 0.45),
+    0 2px 6px rgba(2, 6, 23, 0.4);
+
+  --list-row-bg: rgba(30, 41, 59, 0.72);
+  --list-row-bg-alt: rgba(30, 41, 59, 0.88);
+  --list-row-bg-hover: rgba(56, 189, 248, 0.2);
+  --list-row-border: rgba(148, 163, 184, 0.28);
+  --list-row-text: #e2e8f0;
+  --list-row-green-bg: rgba(22, 163, 74, 0.22);
+  --list-row-green-alt: rgba(22, 163, 74, 0.32);
+  --list-row-green-hover: rgba(34, 197, 94, 0.35);
+
+  --card-panel-bg: rgba(30, 58, 138, 0.22);
+  --card-panel-border: rgba(96, 165, 250, 0.4);
+  --ui-section-card-alt-color: #3b82f6;
+  --card-row-bg: rgba(14, 116, 144, 0.22);
+  --card-row-bg-hover: rgba(14, 116, 144, 0.32);
+  --card-row-border: rgba(56, 189, 248, 0.3);
+  --card-row-drag-bg: rgba(56, 189, 248, 0.25);
+
+  --tone-success-bg: linear-gradient(135deg, #16a34a 0%, #22c55e 120%);
+  --tone-success-border: #22c55e;
+  --tone-success-text: #f8fafc;
+  --tone-info-bg: linear-gradient(135deg, #0ea5e9 0%, #1d4ed8 120%);
+  --tone-info-border: #3b82f6;
+  --tone-info-text: #f8fafc;
+  --tone-warn-bg: linear-gradient(135deg, #f59e0b 0%, #ea580c 120%);
+  --tone-warn-border: #f59e0b;
+  --tone-warn-text: #0b1220;
+  --tone-danger-bg: linear-gradient(135deg, #ef4444 0%, #b91c1c 120%);
+  --tone-danger-border: #ef4444;
+  --tone-danger-text: #f8fafc;
+  --tone-neutral-bg: linear-gradient(135deg, #1f2937 0%, #111827 120%);
+  --tone-neutral-border: #475569;
+  --tone-neutral-text: #e2e8f0;
+
+  --chat-mine-bg: rgba(14, 116, 144, 0.22);
+  --chat-mine-border: rgba(56, 189, 248, 0.35);
+  --chat-other-bg: rgba(30, 41, 59, 0.65);
+  --chat-other-border: rgba(148, 163, 184, 0.2);
+  --chat-menu-bg: #0f172a;
+  --chat-menu-border: rgba(148, 163, 184, 0.3);
+  --chat-menu-shadow: 0 14px 32px rgba(2, 6, 23, 0.6);
+
+  --role-superadmin-bg: linear-gradient(135deg, #4b5563 0%, #6b7280 45%, #111827 100%);
+  --role-superadmin-border: #9ca3af;
+  --role-superadmin-text: #f8fafc;
+  --role-admin-bg: rgba(30, 58, 138, 0.35);
+  --role-admin-border: #60a5fa;
+  --role-admin-text: #bfdbfe;
+  --role-user-bg: rgba(22, 163, 74, 0.18);
+  --role-user-border: #4ade80;
+  --role-user-text: #bbf7d0;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--text);
+  font-size: 14px; /* medium-ish, readable for accounting UI */
+  line-height: 1.35;
+  background: var(--app-bg-from); /* fallback behind gradient */
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* macOS-like soft rounding via tokens (restyle 2026-06; replaces the former blanket
+   `border-radius: 0 !important`). Form controls + buttons take the small radius; surface
+   classes (.card-panel, .card-row, …) set md/lg themselves. Table cells set no radius →
+   stay square (bookkeeping/Excel density). */
+button,
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  border-radius: var(--ui-radius-sm);
+}
+
+/* Soft-3D interactive feedback for the shared Button. Press = tactile sink; transitions
+   only when the user hasn't asked to reduce motion (G2). */
+.ui-button {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ui-button {
+    transition:
+      transform 0.06s ease,
+      box-shadow 0.06s ease,
+      filter 0.06s ease;
+  }
+}
+
+.ui-button:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.ui-button:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.98);
+}
+
+/* Improve numeric readability */
+code,
+pre,
+kbd,
+samp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tables: crisper look by default */
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+table.list-table {
+  /* Тянуть таблицу на всю ширину контейнера (UI-аудит #1 «пустота справа»): раньше
+     `width: max-content` оставлял списки прижатыми влево с большой пустотой справа на
+     широких экранах (~640px @1920). Теперь `width: 100%` — слабину забирают ТЕКСТОВЫЕ
+     колонки (name/text растут до своих кэпов), а числовые/флаги/даты жёстко узкие
+     (`data-col-kind` max-width 6/12/13ch их не пускает шире). Широкая таблица (контент >
+     контейнера) всё равно переполняет и скроллится горизонтально в list-box. */
+  width: 100%;
+  max-width: 100%;
+  /* Прижать к левому краю, не центрировать: узкая таблица (мало колонок) в широком
+     контейнере раньше центрировалась `margin-inline: auto` → пустой отступ слева, «таблица
+     уехала вправо» (UI-аудит #2, список двигателей). Left-align убирает левый отступ во всех
+     списках, сохраняя естественную ширину. */
+  margin-inline: 0;
+  border-collapse: collapse;
+  font-size: var(--ui-list-font-size);
+  table-layout: auto;
+}
+
+.list-table-wrap {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  /* `visible`, NOT `auto`: overflow-x:auto makes overflow-y compute to `auto`
+     too, turning this wrapper into a scroll container that captures the sticky
+     `<th>` context — so in compact (multi) mode the header unpinned and scrolled
+     away. The real scroll container is the page-level list box (overflow:auto on
+     both axes), which already handles horizontal scroll for wide tables; a wide
+     compact table simply overflows this wrapper and that box scrolls it. Keeping
+     overflow-x visible leaves the sticky `<th>` attached to that real scroll
+     element. Single mode uses `clip` because its cells wrap (no overflow). */
+  overflow-x: visible;
+}
+
+.list-table-wrap--single {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  /* `clip` (not `hidden`): hidden makes this a scroll container, which would
+     capture the sticky `<th>` context from the real scroll element and unpin
+     the virtualized list header. clip clips identically without scrolling. */
+  overflow-x: clip;
+}
+
+table.list-table--single-mode {
+  width: 100%;
+  max-width: 100%;
+  table-layout: auto;
+}
+
+table.list-table--single-mode th,
+table.list-table--single-mode td {
+  width: auto !important;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: 100ch;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+table.list-table--single-mode th[colspan],
+table.list-table--single-mode td[colspan] {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+}
+
+table.list-table th,
+table.list-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(var(--ui-list-cell-default-max-ch) * 1ch);
+}
+
+/* Заголовки колонок переносятся на пробелах, а не обрезаются в «…» (UI-аудит:
+   «Дата прихода»→«Дата прих…»). НО не дробятся внутри слова: `anywhere` схлопывал
+   min-content заголовка до ~1 символа, отчего узкие колонки сжимались и заголовок
+   ломался посреди слова («Версия»→«Верс\nия», «Вариантов»→«Вари\nанто\nв») — UI-аудит
+   проход-2 #4. `break-word` ломает только если слово само не влезает; min-content
+   заголовка = длина самого длинного слова → колонка не уже своего заголовка. */
+table.list-table th {
+  white-space: normal;
+  /* `anywhere` дробил заголовок посреди слова и схлопывал колонку до ~1 символа
+     («Версия»→«Верс\nия», «Вариантов»→«Вари\nан\nтов»). `break-word` оставляет
+     влезающее слово целым и переносит только то, что само не помещается, без
+     клипа и наложения на соседнюю колонку. UI-аудит проход-2 #4. */
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+table.list-table td[colspan],
+table.list-table th[colspan] {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+}
+
+table.list-table th:nth-child(1),
+table.list-table td:nth-child(1) {
+  max-width: calc(var(--ui-list-col-1-max-ch, var(--ui-list-cell-name-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(2),
+table.list-table td:nth-child(2) {
+  max-width: calc(var(--ui-list-col-2-max-ch, var(--ui-list-cell-name-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(3),
+table.list-table td:nth-child(3) {
+  max-width: calc(var(--ui-list-col-3-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(4),
+table.list-table td:nth-child(4) {
+  max-width: calc(var(--ui-list-col-4-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(5),
+table.list-table td:nth-child(5) {
+  max-width: calc(var(--ui-list-col-5-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(6),
+table.list-table td:nth-child(6) {
+  max-width: calc(var(--ui-list-col-6-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(7),
+table.list-table td:nth-child(7) {
+  max-width: calc(var(--ui-list-col-7-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(8),
+table.list-table td:nth-child(8) {
+  max-width: calc(var(--ui-list-col-8-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(9),
+table.list-table td:nth-child(9) {
+  max-width: calc(var(--ui-list-col-9-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table th:nth-child(10),
+table.list-table td:nth-child(10) {
+  max-width: calc(var(--ui-list-col-10-max-ch, var(--ui-list-cell-default-max-ch)) * 1ch);
+}
+
+table.list-table.list-table--single-mode th,
+table.list-table.list-table--single-mode td {
+  max-width: 100ch;
+}
+
+/* Column width policy (restyle stage 3): width follows the DATA, not the header.
+   Pages opt a column in via `data-col-kind` (see ui/utils/listColumnKinds.ts).
+   Narrow data kinds (flag/num/date) stay tight and their (possibly multi-word)
+   header truncates to an ellipsis — full text in the `title` tooltip — instead of
+   a one-glyph column being widened by its caption. Name/text columns get the freed
+   width. Reconciles audit #5 (no mid-word header break) with #2 (squeezed name
+   columns). Attribute selectors sit after the positional nth-child caps so they win
+   on equal specificity; single-mode (3-class selector above) stays more specific and
+   relaxes the caps so wrapped cells fill the width. */
+/* `width: 1%` — классический трюк «схлопнуть колонку до контента»: при `table width:100%`
+   браузер раздаёт лишнюю ширину пропорционально ВСЕМ колонкам, игнорируя их `max-width`
+   (даты раздувались до ~220px). `width:1%` + `nowrap` фиксирует узкие колонки на ширине
+   контента, и всю слабину забирают только текстовые (name/text без `width`). UI-аудит #1. */
+table.list-table th[data-col-kind='flag'],
+table.list-table td[data-col-kind='flag'] {
+  max-width: 6ch;
+  width: 1%;
+}
+
+table.list-table td[data-col-kind='flag'] {
+  text-align: center;
+  white-space: nowrap;
+}
+
+table.list-table th[data-col-kind='num'],
+table.list-table td[data-col-kind='num'] {
+  max-width: 12ch;
+  width: 1%;
+}
+
+table.list-table td[data-col-kind='num'] {
+  text-align: right;
+  white-space: nowrap;
+}
+
+table.list-table th[data-col-kind='date'],
+table.list-table td[data-col-kind='date'] {
+  max-width: 13ch;
+  width: 1%;
+}
+
+table.list-table td[data-col-kind='date'] {
+  white-space: nowrap;
+}
+
+/* flag/num заголовки коротки — держим в одну строку с «…». `date` НЕ здесь:
+   длинные подписи дат («Дата поступления», 16ch > max-width 13ch) обрезались в
+   «Дата поступлен…». Дата-заголовок наследует общий `th { white-space: normal }`
+   выше и переносится на пробеле (значения в `td` остаются nowrap, см. ниже). */
+table.list-table th[data-col-kind='flag'],
+table.list-table th[data-col-kind='num'] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table.list-table th[data-col-kind='name'],
+table.list-table td[data-col-kind='name'] {
+  max-width: 60ch;
+}
+
+table.list-table th[data-col-kind='text'],
+table.list-table td[data-col-kind='text'] {
+  max-width: 80ch;
+}
+
+/* Превью-колонка (вложения, ListRowThumbs): фиксированные 36px-миниатюры, до 5 штук.
+   Раньше колонка резервировала `width: 220px` флекса даже на строках без вложений →
+   пустота при `table width:100%`. `width: 1%` + `nowrap` схлопывает её на фактический
+   контент (часто 0-2 миниатюры), слабину забирают текстовые колонки; `max-width: 14rem`
+   вмещает все 5 миниатюр + gap + padding без клипа (UI-аудит проход-2, per-page #1). */
+table.list-table th[data-col-kind='thumbs'],
+table.list-table td[data-col-kind='thumbs'] {
+  width: 1%;
+  max-width: 14rem;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+/* Филлер-колонка: пустая хвостовая ячейка, которая забирает всю слабину при
+   `table width:100%`. Без неё текстовые колонки (name/text) растекаются — Chromium
+   в table-layout:auto раздаёт лишнюю ширину пропорционально колонкам, ИГНОРИРУЯ их
+   max-width (на разреженных таблицах «Название» раздувалось до ~976px). `width:100%`
+   делает филлер «жадным»: он поглощает излишек, реальные колонки садятся на свой
+   контент/max-width, fill-width сохраняется, пустоты справа нет. UI-аудит проход-2 #2. */
+table.list-table th.list-col-filler,
+table.list-table td.list-col-filler {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+table.list-table.work-order-table {
+  width: max-content;
+  max-width: 100%;
+  margin-inline: 0;
+  table-layout: auto;
+}
+
+table.list-table.work-order-table th,
+table.list-table.work-order-table td {
+  max-width: none;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+table.list-table.supply-request-items-table th,
+table.list-table.supply-request-items-table td {
+  vertical-align: top;
+}
+
+table.list-table tbody tr {
+  background: var(--list-row-bg);
+  color: var(--list-row-text);
+}
+
+table.list-table tbody tr:nth-child(even) {
+  background: var(--list-row-bg-alt);
+}
+
+table.list-table tbody tr:hover {
+  background: var(--list-row-bg-hover);
+}
+
+table.list-table tbody tr[data-list-selected='true'] {
+  background: color-mix(in srgb, var(--list-row-bg-hover) 72%, #60a5fa 28%);
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+table.list-table th {
+  padding: calc(var(--list-row-padding-y) + 2px) var(--list-row-padding-x) !important;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  /* Явный цвет: иначе наследуется color: #fff с thead > tr (градиентные шапки) при светлом фоне у th — текст нечитаем. */
+  color: var(--text);
+  font-weight: 700;
+}
+
+table.list-table td {
+  padding: var(--list-row-padding-y) var(--list-row-padding-x) !important;
+  border-bottom: 1px solid var(--list-row-border);
+}
+
+table.list-table.list-table--catalog {
+  --list-row-bg: var(--list-row-green-bg);
+  --list-row-bg-alt: var(--list-row-green-alt);
+  --list-row-bg-hover: var(--list-row-green-hover);
+}
+
+.list-panel {
+  --list-row-bg: var(--list-row-bg);
+  --list-row-bg-alt: var(--list-row-bg-alt);
+  --list-row-bg-hover: var(--list-row-bg-hover);
+  --list-row-border: var(--list-row-border);
+}
+
+.list-panel--catalog {
+  --list-row-bg: var(--list-row-green-bg);
+  --list-row-bg-alt: var(--list-row-green-alt);
+  --list-row-bg-hover: var(--list-row-green-hover);
+}
+
+.list-row {
+  background: var(--list-row-bg);
+  border-bottom: 1px solid var(--list-row-border);
+  padding: var(--list-row-padding-y) var(--list-row-padding-x);
+  font-size: var(--ui-list-font-size);
+}
+
+.list-row:nth-child(even) {
+  background: var(--list-row-bg-alt);
+}
+
+.list-row:hover {
+  background: var(--list-row-bg-hover);
+}
+
+.card-panel {
+  background: var(--card-panel-bg);
+  border: 1px solid var(--card-panel-border);
+  border-radius: var(--ui-radius-md);
+  padding: var(--ui-space-4);
+  display: grid;
+  gap: var(--ui-space-3);
+  font-size: var(--ui-card-font-size);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.card-panel.ui-section-card {
+  background: color-mix(
+    in srgb,
+    var(--card-panel-bg) calc(100% - var(--ui-section-card-alt-odd)),
+    var(--ui-section-card-alt-color) var(--ui-section-card-alt-odd)
+  );
+}
+
+.card-panel.ui-section-card:nth-child(even) {
+  background: color-mix(
+    in srgb,
+    var(--card-panel-bg) calc(100% - var(--ui-section-card-alt-even)),
+    var(--ui-section-card-alt-color) var(--ui-section-card-alt-even)
+  );
+}
+
+.card-row-list {
+  display: grid;
+  gap: var(--card-row-gap);
+}
+
+.card-row {
+  background: var(--card-row-bg);
+  border: 1px solid var(--card-row-border);
+  border-radius: var(--ui-radius-sm);
+  padding: var(--card-row-padding-y) var(--card-row-padding-x);
+  min-width: 0;
+  font-size: var(--ui-card-font-size);
+}
+
+.card-row:hover {
+  background: var(--card-row-bg-hover);
+}
+
+@keyframes chatBlink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.chatBlink {
+  animation: chatBlink 1s steps(1, end) infinite;
+}
+
+@keyframes notesBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.notes-blink {
+  animation: notesBlink 1s infinite;
+}
+
+.notes-tab-blink {
+  animation: notesBlink 1s infinite;
+}
+
+@keyframes releaseWelcomeAuroraDrift {
+  0% {
+    transform: translate3d(-6%, -4%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, 5%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-6%, -4%, 0) scale(1);
+  }
+}
+
+@keyframes releaseWelcomeStarBlink {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: scale(0.95);
+  }
+  40% {
+    opacity: 0.95;
+    transform: scale(1.1);
+  }
+  70% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+}
+
+@keyframes releaseWelcomeTeleprompterScroll {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes releaseWelcomeEmberPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
+  }
+}
+
+/* Летающие детали двигателя — каждая со своим маршрутом и темпом вращения. */
+@keyframes releaseWelcomePartDriftA {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(13vw, 10vh) rotate(540deg); }
+}
+@keyframes releaseWelcomePartDriftB {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(-12vw, 13vh) rotate(-540deg); }
+}
+@keyframes releaseWelcomePartDriftC {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(11vw, -11vh) rotate(540deg); }
+}
+@keyframes releaseWelcomePartDriftD {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(-10vw, -9vh) rotate(-540deg); }
+}
+@keyframes releaseWelcomePartBob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-26px) rotate(220deg); }
+}
+
+.release-welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* Тёмная вертикальная полоса по центру (по всей высоте сверху донизу) →
+     постепенно светлеет к левому и правому краям. */
+  background:
+    radial-gradient(circle at 14% 12%, rgba(56, 189, 248, 0.26), transparent 38%),
+    radial-gradient(circle at 86% 88%, rgba(129, 140, 248, 0.24), transparent 40%),
+    linear-gradient(to right,
+      rgba(46, 80, 134, 0.98) 0%,
+      rgba(22, 42, 80, 0.99) 27%,
+      rgba(3, 8, 24, 1) 50%,
+      rgba(22, 42, 80, 0.99) 73%,
+      rgba(46, 80, 134, 0.98) 100%);
+  backdrop-filter: blur(2px);
+}
+
+.release-welcome-aurora {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(22px);
+  opacity: 0.4;
+  pointer-events: none;
+  animation: releaseWelcomeAuroraDrift 14s ease-in-out infinite;
+}
+
+.release-welcome-aurora--one {
+  width: 58vmax;
+  height: 58vmax;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.62), rgba(14, 165, 233, 0.06));
+  left: -18vmax;
+  top: -26vmax;
+}
+
+.release-welcome-aurora--two {
+  width: 52vmax;
+  height: 52vmax;
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.5), rgba(124, 58, 237, 0.06));
+  right: -20vmax;
+  top: -20vmax;
+  animation-delay: -3s;
+}
+
+.release-welcome-aurora--three {
+  width: 46vmax;
+  height: 46vmax;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.4), rgba(34, 197, 94, 0.05));
+  bottom: -20vmax;
+  left: 18vmax;
+  animation-delay: -6s;
+}
+
+.release-welcome-parts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.release-welcome-part {
+  position: absolute;
+  display: inline-flex;
+  opacity: 0.42;
+  filter: drop-shadow(0 6px 14px rgba(14, 165, 233, 0.22));
+  will-change: transform;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+
+.release-welcome-part svg {
+  width: 100%;
+  height: 100%;
+}
+
+.release-welcome-part--gear { color: #93c5fd; }
+.release-welcome-part--piston { color: #fcd34d; }
+.release-welcome-part--bolt { color: #cbd5e1; }
+.release-welcome-part--nut { color: #f0abfc; }
+.release-welcome-part--ring { color: #67e8f9; }
+.release-welcome-part--rod { color: #fda4af; }
+.release-welcome-part--valve { color: #86efac; }
+.release-welcome-part--spark { color: #fbbf24; }
+
+.release-welcome-part--gear-1 {
+  top: 6%;  left: 5%;  width: 84px; height: 84px;
+  animation-name: releaseWelcomePartDriftA;
+  animation-duration: 12s;
+}
+.release-welcome-part--piston-1 {
+  top: 12%; right: 8%; width: 76px; height: 76px;
+  animation-name: releaseWelcomePartDriftB;
+  animation-duration: 14s; animation-delay: -4s;
+}
+.release-welcome-part--bolt-1 {
+  top: 36%; left: 3%;  width: 56px; height: 56px;
+  animation-name: releaseWelcomePartDriftC;
+  animation-duration: 10s; animation-delay: -2s;
+}
+.release-welcome-part--nut-1 {
+  top: 70%; left: 7%;  width: 64px; height: 64px;
+  animation-name: releaseWelcomePartDriftD;
+  animation-duration: 13s; animation-delay: -6s;
+}
+.release-welcome-part--ring-1 {
+  top: 78%; left: 30%; width: 72px; height: 72px;
+  animation-name: releaseWelcomePartBob;
+  animation-duration: 6s; animation-delay: -1s;
+}
+.release-welcome-part--gear-2 {
+  top: 4%;  left: 48%; width: 60px; height: 60px;
+  animation-name: releaseWelcomePartDriftD;
+  animation-duration: 15s; animation-delay: -10s;
+}
+.release-welcome-part--rod-1 {
+  top: 40%; right: 4%; width: 70px; height: 70px;
+  animation-name: releaseWelcomePartDriftA;
+  animation-duration: 16s; animation-delay: -8s;
+}
+.release-welcome-part--valve-1 {
+  top: 64%; right: 12%; width: 64px; height: 64px;
+  animation-name: releaseWelcomePartDriftC;
+  animation-duration: 13s; animation-delay: -12s;
+}
+.release-welcome-part--spark-1 {
+  top: 14%; left: 30%; width: 52px; height: 52px;
+  animation-name: releaseWelcomePartBob;
+  animation-duration: 7s; animation-delay: -5s;
+}
+.release-welcome-part--gear-3 {
+  top: 82%; right: 6%; width: 92px; height: 92px;
+  animation-name: releaseWelcomePartDriftB;
+  animation-duration: 17s; animation-delay: -14s;
+}
+.release-welcome-part--bolt-2 {
+  top: 26%; left: 70%; width: 48px; height: 48px;
+  animation-name: releaseWelcomePartBob;
+  animation-duration: 5s; animation-delay: -3s;
+}
+.release-welcome-part--ring-2 {
+  top: 52%; left: 22%; width: 56px; height: 56px;
+  animation-name: releaseWelcomePartDriftA;
+  animation-duration: 11s; animation-delay: -7s;
+}
+.release-welcome-part--nut-2 {
+  top: 90%; left: 52%; width: 52px; height: 52px;
+  animation-name: releaseWelcomePartDriftC;
+  animation-duration: 10s; animation-delay: -9s;
+}
+.release-welcome-part--piston-2 {
+  top: 56%; right: 30%; width: 68px; height: 68px;
+  animation-name: releaseWelcomePartDriftD;
+  animation-duration: 12s; animation-delay: -11s;
+}
+/* Дополнительные детали — гуще населяют фон, разнесены по центру и краям. */
+.release-welcome-part--gear-4 {
+  top: 20%; left: 40%; width: 70px; height: 70px;
+  animation-name: releaseWelcomePartDriftC;
+  animation-duration: 11s; animation-delay: -2s;
+}
+.release-welcome-part--piston-3 {
+  top: 46%; left: 13%; width: 60px; height: 60px;
+  animation-name: releaseWelcomePartDriftA;
+  animation-duration: 9s; animation-delay: -3s;
+}
+.release-welcome-part--bolt-3 {
+  top: 60%; right: 22%; width: 50px; height: 50px;
+  animation-name: releaseWelcomePartBob;
+  animation-duration: 6s; animation-delay: -2s;
+}
+.release-welcome-part--nut-3 {
+  top: 30%; right: 40%; width: 58px; height: 58px;
+  animation-name: releaseWelcomePartDriftB;
+  animation-duration: 12s; animation-delay: -5s;
+}
+.release-welcome-part--ring-3 {
+  top: 8%;  left: 62%; width: 64px; height: 64px;
+  animation-name: releaseWelcomePartDriftD;
+  animation-duration: 10s; animation-delay: -7s;
+}
+.release-welcome-part--rod-2 {
+  top: 72%; left: 44%; width: 66px; height: 66px;
+  animation-name: releaseWelcomePartDriftC;
+  animation-duration: 13s; animation-delay: -4s;
+}
+.release-welcome-part--valve-2 {
+  top: 88%; right: 44%; width: 60px; height: 60px;
+  animation-name: releaseWelcomePartDriftA;
+  animation-duration: 8s; animation-delay: -6s;
+}
+.release-welcome-part--spark-2 {
+  top: 38%; left: 52%; width: 48px; height: 48px;
+  animation-name: releaseWelcomePartBob;
+  animation-duration: 5s; animation-delay: -1s;
+}
+
+.release-welcome-card {
+  position: relative;
+  width: min(1080px, 96vw);
+  /* Растянуто по высоте до упора (сверху донизу). Без рамки и собственного фона:
+     текст лежит прямо на градиенте оверлея, летящие детали видны сквозь карточку.
+     Телесуфлёр-секция (flex ниже) забирает весь свободный рост по вертикали. */
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+  padding: 12px 28px 14px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #e2e8f0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.release-welcome-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  margin: -2px -10px 10px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  background: linear-gradient(120deg, rgba(30, 64, 175, 0.32), rgba(8, 47, 73, 0.34));
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.release-welcome-support {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.release-welcome-support-icon {
+  font-size: 28px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(125, 211, 252, 0.6));
+}
+
+.release-welcome-support-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.release-welcome-support-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #bae6fd;
+  opacity: 0.85;
+}
+
+.release-welcome-support-phone {
+  font-size: 20px;
+  font-weight: 800;
+  color: #f0f9ff;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.release-welcome-support-person {
+  font-size: 12px;
+  color: #cbd5e1;
+  opacity: 0.92;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.release-welcome-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  border: 1px solid rgba(191, 219, 254, 0.55);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.55), rgba(124, 58, 237, 0.45));
+  color: #f0f9ff;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 12px 24px rgba(37, 99, 235, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.release-welcome-title {
+  margin: 2px 0 4px;
+  color: #f8fafc;
+  font-size: clamp(22px, 3.4vw, 34px);
+  line-height: 1.1;
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
+  text-align: center;
+  background: linear-gradient(90deg, #f8fafc 0%, #93c5fd 50%, #f8fafc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Эпиграф-цитата вместо заголовка по теме: мельче title, курсив, «как у философа». */
+.release-welcome-epigraph {
+  margin: 4px auto 6px;
+  max-width: 760px;
+  padding: 0 12px;
+  border: 0;
+  color: #dbeafe;
+  font-size: clamp(15px, 1.9vw, 21px);
+  line-height: 1.4;
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  text-align: center;
+  text-wrap: balance;
+  flex-shrink: 0;
+  text-shadow: 0 1px 10px rgba(15, 23, 42, 0.35);
+}
+
+.release-welcome-subheading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 2px 0 2px;
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #fcd34d;
+  text-transform: uppercase;
+}
+
+.release-welcome-subheading-icon {
+  font-size: 22px;
+  filter: drop-shadow(0 0 6px rgba(252, 211, 77, 0.7));
+}
+
+.release-welcome-list-dot {
+  color: #67e8f9;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.release-welcome-teleprompter-shell {
+  position: relative;
+  /* Гибкая секция: занимает остаток высоты карточки и ужимается на низких экранах. */
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 10px auto 0;
+  width: min(860px, 100%);
+  padding: 16px;
+  border-radius: 24px;
+  border: none;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.3)),
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.04), transparent 46%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(14, 165, 233, 0.05),
+    0 24px 48px rgba(15, 23, 42, 0.26);
+}
+
+.release-welcome-teleprompter-glow {
+  position: absolute;
+  inset: auto;
+  border-radius: 9999px;
+  filter: blur(22px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.release-welcome-teleprompter-glow--one {
+  width: 40%;
+  height: 24%;
+  left: 8%;
+  bottom: -6%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.32), rgba(56, 189, 248, 0.02));
+}
+
+.release-welcome-teleprompter-glow--two {
+  width: 34%;
+  height: 22%;
+  right: 10%;
+  top: -4%;
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.26), rgba(250, 204, 21, 0.02));
+}
+
+.release-welcome-embers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.release-welcome-ember {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(253, 224, 71, 0.92), rgba(249, 115, 22, 0.24) 62%, transparent 76%);
+  filter: blur(0.2px);
+  animation: releaseWelcomeEmberPulse 3.8s ease-in-out infinite;
+}
+
+.release-welcome-ember--1 {
+  top: 10%;
+  left: 12%;
+}
+
+.release-welcome-ember--2 {
+  top: 16%;
+  right: 14%;
+  animation-delay: -0.7s;
+}
+
+.release-welcome-ember--3 {
+  top: 38%;
+  left: 6%;
+  animation-delay: -1.2s;
+}
+
+.release-welcome-ember--4 {
+  bottom: 18%;
+  right: 8%;
+  animation-delay: -1.9s;
+}
+
+.release-welcome-ember--5 {
+  bottom: 10%;
+  left: 18%;
+  animation-delay: -2.6s;
+}
+
+.release-welcome-teleprompter-mask {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  height: 56px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.release-welcome-teleprompter-mask--top {
+  top: 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0));
+}
+
+.release-welcome-teleprompter-mask--bottom {
+  bottom: 16px;
+  background: linear-gradient(0deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0));
+}
+
+.release-welcome-teleprompter-viewport {
+  position: relative;
+  /* Заполняет гибкую shell-секцию и ужимается вместе с ней (вместо фикс. высоты). */
+  flex: 1 1 auto;
+  min-height: 96px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.18);
+}
+
+.release-welcome-teleprompter-track {
+  display: flex;
+  flex-direction: column;
+  animation: releaseWelcomeTeleprompterScroll 54s linear infinite;
+  will-change: transform;
+}
+
+.release-welcome-teleprompter-sequence {
+  display: grid;
+  gap: 16px;
+  padding: 24px 20px;
+}
+
+.release-welcome-teleprompter-item {
+  display: block;
+  font-size: 18px;
+  line-height: 1.68;
+  color: #f8fafc;
+  text-wrap: pretty;
+}
+
+.release-welcome-teleprompter-item--highlight {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 17px;
+  color: #e2e8f0;
+}
+
+.release-welcome-meta {
+  margin-top: 8px;
+  color: #bfdbfe;
+  font-size: 13px;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.release-welcome-actions {
+  margin: 8px 0 6px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+@media (max-width: 820px) {
+  .release-welcome-card {
+    padding: 20px;
+  }
+
+  .release-welcome-teleprompter-shell {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .release-welcome-teleprompter-mask {
+    left: 12px;
+    right: 12px;
+    height: 42px;
+  }
+
+  .release-welcome-teleprompter-mask--top {
+    top: 12px;
+  }
+
+  .release-welcome-teleprompter-mask--bottom {
+    bottom: 12px;
+  }
+
+  .release-welcome-teleprompter-viewport {
+    height: min(42vh, 360px);
+  }
+
+  .release-welcome-teleprompter-sequence {
+    padding: 18px 14px;
+    gap: 14px;
+  }
+
+  .release-welcome-teleprompter-item {
+    font-size: 16px;
+  }
+
+  .release-welcome-teleprompter-item--highlight {
+    font-size: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .release-welcome-aurora,
+  .release-welcome-part,
+  .release-welcome-ember,
+  .release-welcome-teleprompter-track {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .release-welcome-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .release-welcome-support-person {
+    white-space: normal;
+  }
+  .release-welcome-badge {
+    align-self: stretch;
+    justify-content: center;
+  }
+  .release-welcome-part {
+    transform: scale(0.7);
+  }
+}
+
+/* Низкие экраны: окно приветствия ужимается, чтобы кнопка (наверху) и текст влезали. */
+@media (max-height: 760px) {
+  .release-welcome-card {
+    padding: 12px 22px 14px;
+  }
+  .release-welcome-topbar {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+  .release-welcome-support-icon {
+    font-size: 22px;
+  }
+  .release-welcome-support-phone {
+    font-size: 17px;
+  }
+  .release-welcome-support-person {
+    display: none;
+  }
+  .release-welcome-title {
+    font-size: clamp(18px, 3vw, 26px);
+    margin: 0 0 2px;
+  }
+  .release-welcome-epigraph {
+    font-size: clamp(14px, 2.4vw, 17px);
+    margin: 2px auto 4px;
+  }
+  .release-welcome-subheading {
+    font-size: 14px;
+    margin: 0;
+  }
+  .release-welcome-actions {
+    margin: 4px 0;
+  }
+  .release-welcome-teleprompter-shell {
+    margin-top: 6px;
+    padding: 10px;
+  }
+  .release-welcome-teleprompter-viewport {
+    min-height: 72px;
+  }
+  .release-welcome-meta {
+    margin-top: 6px;
+    font-size: 12px;
+  }
+}
+
+.matrica-datepicker-input {
+  width: 100%;
+}
+
+.matrica-datepicker-popper {
+  z-index: 12000 !important;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+}
+
+.matrica-datepicker-calendar {
+  --matrica-datepicker-size-scale: 0.6667;
+  --matrica-datepicker-size-font-scale: 1;
+  transform: scale(calc(var(--ui-datepicker-scale) * var(--matrica-datepicker-size-scale)));
+  transform-origin: top left;
+  font-size: calc(var(--ui-datepicker-font-size) * var(--matrica-datepicker-size-font-scale));
+  width: max-content;
+}
+
+.matrica-datepicker-calendar--small {
+  --matrica-datepicker-size-scale: 0.52;
+  --matrica-datepicker-size-font-scale: 0.88;
+}
+
+.matrica-datepicker-calendar--medium {
+  --matrica-datepicker-size-scale: 0.6667;
+  --matrica-datepicker-size-font-scale: 1;
+}
+
+.matrica-datepicker-calendar--large {
+  --matrica-datepicker-size-scale: 0.8;
+  --matrica-datepicker-size-font-scale: 1.12;
+}
+
+.matrica-datepicker-calendar-container {
+  background: var(--surface);
+}
+
+.matrica-datepicker-size-switcher {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.matrica-datepicker-size-switch-button {
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
+  line-height: 1.2;
+}
+
+.matrica-datepicker-size-switch-button:hover {
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.matrica-datepicker-size-switch-button.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.matrica-datepicker-calendar .react-datepicker__month-container {
+  float: none;
+}
+
+.entity-card-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      min(100%, var(--entity-card-min-width)),
+      min(100%, max(var(--entity-card-min-width), var(--ui-content-block-max-width)))
+    )
+  );
+  gap: 12px;
+  justify-content: center;
+  align-items: start;
+}
+
+.entity-card-grid > * {
+  min-width: 0;
+  width: 100%;
+  max-width: min(100%, var(--ui-content-block-max-width));
+  justify-self: center;
+}
+
+.entity-card-grid input,
+.entity-card-grid select,
+.entity-card-grid textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.entity-card-span-full {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 100%;
+  justify-self: stretch;
+}
+
+.ui-content-viewport {
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-content-viewport > * {
+  width: var(--ui-content-max-width);
+  max-width: 100%;
+  margin-inline: auto;
+  min-width: 0;
+}
+
+/* Карточки с большим количеством колонок растягиваются на всю ширину */
+.ui-content-viewport > .entity-card-shell {
+  width: min(98vw, 1600px) !important;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+/* Карточка двигателя: «Список деталей двигателя» очень широкий — без потолка 1600px. */
+.ui-content-viewport > .entity-card-shell--full-width {
+  width: 100% !important;
+  max-width: 100%;
+}
+
+/* Блок видов работ в наряде — по ширине контента, не больше */
+.work-order-works-panel {
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-width: 900px;
+  margin-inline: auto !important;
+  justify-self: center;
+}
+
+.work-order-works-panel.ui-content-block {
+  width: fit-content !important;
+  max-width: 100% !important;
+}
+
+.ui-content-block {
+  width: min(100%, var(--ui-content-block-max-width));
+  max-width: 100%;
+  justify-self: center;
+}
+
+.ui-content-block.entity-card-span-full {
+  width: 100%;
+  max-width: 100%;
+  justify-self: stretch;
+}
+
+.ui-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  margin-bottom: 2px;
+}
+
+.ui-section-title {
+  margin: 0;
+  font-size: var(--ui-section-size);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ui-muted {
+  color: var(--muted);
+  font-size: var(--ui-muted-size);
+  line-height: 1.3;
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: var(--ui-table-size, var(--ui-body-size));
+}
+
+.ui-table th,
+.ui-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  vertical-align: middle;
+}
+
+.ui-table th {
+  text-align: left;
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.ui-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+  .entity-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Страница шаблона отчёта: на всю ширину области контента (не узкий 1400px столбец). */
+.ui-content-viewport > .report-preset-page {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-inline: 0;
+  box-sizing: border-box;
+}
+
+.report-preset-page > .ui-content-block {
+  width: 100%;
+  max-width: 100%;
+}
+
+.report-preset-split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Карточки фильтров/результата заполняют свои дорожки (иначе ui-content-block режет max-width). */
+.report-preset-split-layout > .ui-content-block {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.report-preset-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 8px;
+}
+
+.report-preset-filter-grid > * {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.report-preset-filter-block {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.report-preset-filter-block-title {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.report-preset-filter-block-selection {
+  border-left: 3px solid rgba(37, 99, 235, 0.55);
+}
+
+.report-preset-filter-block-settings {
+  border-left: 3px solid rgba(22, 163, 74, 0.55);
+}
+
+/* Пресет «Прогноз сборки»: фильтры построчно, без «кубиков» */
+.report-preset-af-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-preset-af-reset-all {
+  width: 100%;
+}
+
+.report-preset-af-row {
+  display: grid;
+  grid-template-columns: minmax(148px, 200px) minmax(0, 1fr) 28px;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.report-preset-af-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.report-preset-af-label[title] {
+  cursor: help;
+  border-bottom: 1px dotted color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.report-preset-af-main {
+  min-width: 0;
+}
+
+.report-preset-af-main input[type='number'] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.report-preset-af-block {
+  display: grid;
+  grid-template-columns: minmax(148px, 200px) minmax(0, 1fr) 28px;
+  gap: 4px 10px;
+  align-items: start;
+}
+
+.report-preset-af-meta {
+  grid-column: 2 / 4;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.report-preset-af-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.report-preset-af-pill {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--button-ghost-border);
+  background: var(--button-ghost-bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.report-preset-af-pill:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.report-preset-af-pill[data-active='true'] {
+  border-color: rgba(37, 99, 235, 0.65);
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.report-preset-af-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-preset-af-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.report-preset-af-tag {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 1280px) {
+  .report-preset-split-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Предпросмотр результата отчёта (страницы «Отчёты» / пресеты): единый минимум 14px */
+.report-preview-root {
+  font-size: var(--ui-report-font-size);
+}
+
+.report-preview-root .ui-muted {
+  font-size: var(--ui-report-font-size);
+}
+
+.report-preview-root table.list-table {
+  font-size: var(--ui-report-font-size);
+}
+
+.report-preview-root .work-order-payroll-onscreen {
+  font-size: var(--ui-report-font-size);
+}
+
+/* —— Отчёт «Прогноз сборки двигателей»: читаемая сетка без «каши» — */
+.report-af {
+  display: grid;
+  gap: 12px;
+  width: fit-content;
+  max-width: min(100%, 1220px);
+  margin-inline: auto;
+  justify-items: stretch;
+}
+
+.report-af__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.report-af__chip {
+  font-size: var(--ui-report-font-size);
+  line-height: 1.35;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  max-width: 100%;
+}
+
+.report-af__table-wrap {
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+
+.report-af-day-list {
+  display: grid;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: center;
+}
+
+.report-af-day {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+  width: min(100%, 1160px);
+}
+
+.report-af-day__head {
+  padding: 8px 10px;
+  font-weight: 800;
+  font-size: var(--ui-report-font-size);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.report-af-day__body {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.report-af-engine {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-2) 12%);
+}
+
+.report-af-engine__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.report-af-engine__head--clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px 6px;
+}
+
+.report-af-engine__head--clickable:hover {
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+.report-af-engine__head--clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.report-af-engine__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-af-engine__print {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--input-border, #cbd5e1);
+  background: var(--card-row-drag-bg, #f8fafc);
+  color: var(--text, #0f172a);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.report-af-engine__print:hover {
+  background: var(--card-row-border, #e2e8f0);
+}
+
+.report-af-engine__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.report-af-engine__chevron::before {
+  content: '▶';
+  font-size: 0.65em;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.report-af-engine__chevron--open {
+  transform: rotate(90deg);
+}
+
+.report-af-engine__brand {
+  font-size: var(--ui-report-font-size);
+  font-weight: 700;
+}
+
+.report-af-engine__parts {
+  display: grid;
+  gap: 4px;
+}
+
+.report-af-engine__part-line {
+  font-size: var(--ui-report-font-size);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.report-af-empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--muted);
+}
+
+.report-af-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--ui-report-font-size);
+}
+
+.report-af-th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 800;
+  font-size: var(--ui-report-font-size);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--surface-2) 0%, #eef2f7 100%);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+/* Компактные служебные колонки; «Марка двигателя» уже, «Расход комплектующих» — остаток ширины. */
+.report-af-th--dayLabel,
+.report-af-td--dayLabel {
+  width: 8%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.report-af-th--engineBrand,
+.report-af-td--engineBrand {
+  width: 18%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: manual;
+}
+
+.report-af-th--plannedEngines,
+.report-af-td--plannedEngines {
+  width: 7%;
+  min-width: 0;
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+.report-af-th--status,
+.report-af-td--status {
+  width: 8%;
+  min-width: 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.report-af-th--requiredComponentsSummary,
+.report-af-td--requiredComponentsSummary {
+  width: 59%;
+  min-width: 0;
+}
+
+.report-af-th--requiredComponentsSummary {
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.report-af-tr--ok {
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+  box-shadow: inset 3px 0 0 0 rgba(22, 163, 74, 0.85);
+}
+
+.report-af-tr--wait {
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  box-shadow: inset 3px 0 0 0 rgba(180, 83, 9, 0.75);
+}
+
+.report-af-tr--short {
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  box-shadow: inset 3px 0 0 0 rgba(185, 28, 28, 0.8);
+}
+
+.report-af-tr--neutral {
+  background: var(--surface);
+}
+
+.report-af-td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  vertical-align: top;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.report-af-tr:last-child .report-af-td {
+  border-bottom: none;
+}
+
+.report-af-td--empty {
+  text-align: center !important;
+  color: var(--subtle);
+  padding: 16px;
+}
+
+.report-af-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: var(--ui-report-font-size);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  border: 1px solid transparent;
+}
+
+.report-af-status--ok {
+  background: color-mix(in srgb, #16a34a 16%, transparent);
+  color: #14532d;
+  border-color: color-mix(in srgb, #16a34a 35%, transparent);
+}
+
+.report-af-status--partial {
+  background: color-mix(in srgb, #d97706 18%, transparent);
+  color: #7c2d12;
+  border-color: color-mix(in srgb, #d97706 40%, transparent);
+}
+
+.report-af-status--bad {
+  background: color-mix(in srgb, #dc2626 14%, transparent);
+  color: #7f1d1d;
+  border-color: color-mix(in srgb, #dc2626 35%, transparent);
+}
+
+.report-af-status--neutral {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.report-af-consume {
+  max-width: 100%;
+  font-size: inherit;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.report-af-consume__row {
+  padding: 6px 0 6px 10px;
+  border-left: 2px solid rgba(37, 99, 235, 0.28);
+  margin-bottom: 6px;
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  border-radius: 0 6px 6px 0;
+}
+
+.report-af-consume__row:last-child {
+  margin-bottom: 0;
+}
+
+.report-af-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.report-af-totals__label {
+  font-weight: 800;
+  font-size: var(--ui-report-font-size);
+  color: var(--text);
+}
+
+.report-af-totals__value {
+  font-size: var(--ui-report-font-size);
+  color: var(--muted);
+}
+
+.report-af-foot {
+  display: grid;
+  gap: 0;
+  margin-top: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.report-af-foot__head {
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: var(--ui-report-font-size);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: linear-gradient(180deg, #f1f5f9 0%, var(--surface-2) 100%);
+  border-bottom: 1px solid var(--border);
+}
+
+.report-af-foot__body {
+  padding: 4px 0 8px;
+}
+
+.report-af-foot__line {
+  padding: 8px 14px 8px 14px;
+  font-size: var(--ui-report-font-size);
+  line-height: 1.5;
+  color: var(--muted);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.report-af-foot__line:last-child {
+  border-bottom: none;
+}
+
+.report-af-foot__line:nth-child(even):not(.report-af-foot__line--lead) {
+  background: rgba(248, 250, 252, 0.85);
+}
+
+.report-af-foot__line--lead {
+  margin: 8px 12px 4px;
+  padding: 8px 12px;
+  font-weight: 800;
+  font-size: var(--ui-report-font-size);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.report-af-foot__line--bullet {
+  padding-left: 22px;
+  position: relative;
+  color: var(--muted);
+}
+
+.report-af-foot__line--bullet::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 1.15em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--subtle);
+  opacity: 0.85;
+}
+
+.report-af-foot__line--text {
+  color: var(--muted);
+}
+
+
