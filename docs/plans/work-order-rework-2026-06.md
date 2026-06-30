@@ -64,7 +64,16 @@
   - **Phase 1a** (#5): дата создания immutable (read-only); кнопка сборки → «Наряд выполнен — провести» (tone success). Решение 7 (UI-часть). **Решение 8 (single-tx атомарность) — ОТЛОЖЕНО:** идемпотентность `postAssemblyWorkOrder` уже есть (guard'ы `op.status='closed'`/`doc.status='posted'`), узкая дыра post-после-release; полная обёртка = рефактор shared warehouse-posting, marginal-value низкий. → PENDING.
   - **Phase 2** (#6): инлайн-селектор типа (`listWorkOrders`+`workOrderKind`, клиентский фильтр). Решение 9. **Поиск-по-внутренностям и колонки/сорт/тогл — уже были** (`q` haystack включает `JSON.stringify(payload)`), часть C правок не потребовала.
   - **CDP-verify** (`.verifier-electron/cdp-wo-verify.mjs`, PASS): фильтр 17→15→17, immutable дата `disabled`, дата выполнения `value=""`. Кнопка «выполнен» на сборке — статическая строка (typecheck), live требует draft-state (резерв склада, не гонял).
-- **Открыто:** Phase 3 (изоляция Рамзии — следующая сессия) + отложенные (single-tx атомарность; со-локация даты+кнопки в карточке).
+- **2026-07-01: Phase 3 (РОЛЕВАЯ ИЗОЛЯЦИЯ Рамзии) собрана и верифицирована** (ветка `feat/wo-ramzia-isolation-sync-gate`, все гейты зелёные):
+  - **3a recon-confirm:** owner-on-push **уже** был (`applyPushBatch:1157` `queueOwner(Operations)`); идентичность резолвлена из БД — restricted=`ramzia`, allowlist=`{ramzia rw, glavbux r, superadmin r}` (владелец подтвердил).
+  - **3b owner-tracking:** **no-op** — `row_owners` уже полный (`wo_missing_owner=0` на проде), бэкофилл не нужен; `audit_log` create-ops пуст.
+  - **3c sync-гейт:** новый `restrictedWorkOrders.ts` (restricted-set по `row_owners.owner_username`, allowlist по login); аддитивный гейт на 3 pull-поверхностях (`pullChangesSince` SQL `notInArray` + `ledger.ts` query/snapshot post-filter через `isRestrictedWorkOrderVisible`). НЕ трогает `PRIVACY_TABLES`/pending → нулевая регрессия.
+  - **3d reports:** `gateRestrictedOperationsRows` в `reports.ts` builder preview/export.
+  - **3e pre-sync purge:** `GET /ledger/state/restricted-purge` + клиентский delete в `syncService.runSync` (idempotent, best-effort).
+  - **3f UI-фильтр:** **пропущен обоснованно** — `listWorkOrders` читает локальную БД; после 3c+3e данных у non-allowlist нет, фильтровать нечего (граница — серверная).
+  - **3g verify:** adversarial-агент → нашёл+закрыл **C1** (AI `get_operations` без гейта) + **M1** (case-sensitive owner-match); **deleted-payload утечка** (22 soft-deleted наряда с `meta_json`) найдена на прод-данных и закрыта (restrict независимо от `deletedAt`). **Dual-role live-verify (CDP + HTTP):** оператор nastya_spec видит 8 нарядов (0 Рамзии), ramzia/admin — 24 (16 Рамзии); restricted-purge 37/0/0. PASS.
+  - **Отложено (L2):** write-block для read-allowlist (glavbux видит, но не должна править) — push-guard, отдельный follow-up.
+- **Открыто:** отложенные (single-tx атомарность; со-локация даты+кнопки в карточке; write-block read-allowlist).
 
 ## Гейты / verify
 
