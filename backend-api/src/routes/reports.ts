@@ -29,6 +29,7 @@ import { PermissionCode } from '../auth/permissions.js';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { type AuthenticatedRequest } from '../auth/middleware.js';
 import { isHiddenAttributeName } from '../services/ai/sensitiveFilter.js';
+import { getRestrictedWorkOrderIds, isAllowlistedReader } from '../services/sync/restrictedWorkOrders.js';
 import { db } from '../database/db.js';
 import {
   attributeDefs,
@@ -707,6 +708,25 @@ reportsRouter.get('/builder/meta', async (_req, res) => {
   }
 });
 
+/**
+ * Phase 3d: drop restricted work orders (Ramzia) from the `operations` report table
+ * for non-admin, non-allowlisted report actors — the same isolation the sync pull
+ * surfaces enforce, applied to the report builder so reports/payroll cannot leak them.
+ */
+async function gateRestrictedOperationsRows(
+  metaName: string,
+  rows: any[],
+  actor: { username?: unknown; role?: unknown } | undefined,
+): Promise<any[]> {
+  if (metaName !== 'operations') return rows;
+  const role = String(actor?.role ?? '').toLowerCase();
+  if (role === 'admin' || role === 'superadmin') return rows;
+  if (isAllowlistedReader(String(actor?.username ?? ''))) return rows;
+  const restricted = await getRestrictedWorkOrderIds();
+  if (restricted.size === 0) return rows;
+  return rows.filter((r) => !restricted.has(String(r?.id ?? '')));
+}
+
 reportsRouter.post('/builder/preview', async (req, res) => {
   try {
     const parsed = previewSchema.safeParse(req.body);
@@ -731,7 +751,8 @@ reportsRouter.post('/builder/preview', async (req, res) => {
       for (const c of cols) selectMap[c.id] = c.col;
       const where = buildGroup(meta, t.filters ?? null);
       const query = db.select(selectMap).from(meta.table);
-      const rows = await (where ? query.where(where) : query).limit(limit);
+      const rawRows = await (where ? query.where(where) : query).limit(limit);
+      const rows = await gateRestrictedOperationsRows(meta.name, rawRows as any[], actor);
       tables.push({
         name: meta.name,
         label: meta.label,
@@ -769,7 +790,8 @@ reportsRouter.post('/builder/export', async (req, res) => {
       for (const c of cols) selectMap[c.id] = c.col;
       const where = buildGroup(meta, t.filters ?? null);
       const query = db.select(selectMap).from(meta.table);
-      const rows = await (where ? query.where(where) : query).limit(limit);
+      const rawRows = await (where ? query.where(where) : query).limit(limit);
+      const rows = await gateRestrictedOperationsRows(meta.name, rawRows as any[], actor);
       tables.push({
         name: meta.name,
         label: meta.label,
