@@ -1,5 +1,6 @@
 import { pool } from '../../database/db.js';
 import { computeAssemblyForecastFromServer } from '../warehouseForecastService.js';
+import { getRestrictedWorkOrderIds, isAllowlistedReaderById } from '../sync/restrictedWorkOrders.js';
 import type { ClaudeToolDef, ClaudeToolUse } from './claudeProvider.js';
 import {
   HIDDEN_TABLES,
@@ -250,7 +251,7 @@ async function getContracts(input: Record<string, unknown>): Promise<ToolResult>
   return jsonResult(sanitizeRows(res.rows ?? []));
 }
 
-async function getOperations(input: Record<string, unknown>): Promise<ToolResult> {
+async function getOperations(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
   const engineId = asString(input, 'engineId').trim();
   const operationType = asString(input, 'operationType').trim();
   const status = asString(input, 'status').trim();
@@ -273,7 +274,15 @@ async function getOperations(input: Record<string, unknown>): Promise<ToolResult
     'select id, engine_entity_id, operation_type, status, note, performed_at, performed_by, created_at ' +
     `from operations where ${conds.join(' and ')} order by performed_at desc nulls last limit ${limit}`;
   const res = await pool.query(sql, params as any[]);
-  return jsonResult(sanitizeRows(res.rows ?? []));
+  let rows = (res.rows ?? []) as Array<Record<string, unknown>>;
+  // Restricted work-order isolation (C1): never expose another person's restricted work
+  // orders (Ramzia) to a non-allowlisted actor via the assistant. Mirrors the sync/report
+  // gates; the operationType filter can target work_order, so this must run regardless.
+  const restricted = await getRestrictedWorkOrderIds();
+  if (restricted.size > 0 && !(await isAllowlistedReaderById(ctx.actorId))) {
+    rows = rows.filter((r) => !restricted.has(String(r.id ?? '')));
+  }
+  return jsonResult(sanitizeRows(rows));
 }
 
 async function queryDiagnosticsSnapshots(input: Record<string, unknown>): Promise<ToolResult> {
@@ -522,7 +531,7 @@ const TOOLS: Record<string, ToolEntry> = {
       },
     },
     requires: ['operations.view'],
-    handler: (input) => getOperations(input),
+    handler: (input, ctx) => getOperations(input, ctx),
   },
   query_diagnostics_snapshots: {
     def: {

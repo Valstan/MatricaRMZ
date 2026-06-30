@@ -15,12 +15,12 @@
  * rows for non-allowlisted, non-admin actors), so existing operation visibility and
  * the chat/notes privacy semantics are left untouched.
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
-import { operations, rowOwners } from '../../database/schema.js';
+import { attributeDefs, attributeValues, operations, rowOwners } from '../../database/schema.js';
 
 /** Logins whose work orders are restricted. Identity is configured by login, not by hardcoded UUID. */
 const RESTRICTED_OWNER_LOGINS = ['ramzia'];
@@ -38,7 +38,12 @@ export async function getRestrictedWorkOrderIds(): Promise<Set<string>> {
     .select({ rowId: rowOwners.rowId })
     .from(rowOwners)
     .where(
-      and(eq(rowOwners.tableName, SyncTableName.Operations), inArray(rowOwners.ownerUsername, RESTRICTED_OWNER_LOGINS)),
+      and(
+        eq(rowOwners.tableName, SyncTableName.Operations),
+        // Case-insensitive: owner_username is written lowercase today, but match
+        // defensively (mirrors isAllowlistedReader) so a mixed-case row cannot leak.
+        inArray(sql`lower(${rowOwners.ownerUsername})`, RESTRICTED_OWNER_LOGINS),
+      ),
     )
     .limit(50_000);
   const candidateIds = ownerRows.map((r) => String(r.rowId));
@@ -57,6 +62,31 @@ export async function getRestrictedWorkOrderIds(): Promise<Set<string>> {
 export function isAllowlistedReader(login: string): boolean {
   if (!login) return false;
   return READER_LOGINS.includes(login.trim().toLowerCase());
+}
+
+/**
+ * Allowlist check by user id — for callers that hold only an actor id (e.g. the AI tool
+ * context) and not the login. Resolves the actor's `login` EAV value, then defers to
+ * isAllowlistedReader. Two simple lookups (no JOIN) to stay easy to stub in tests.
+ */
+export async function isAllowlistedReaderById(actorId: string): Promise<boolean> {
+  if (!actorId) return false;
+  const defRows = await db.select({ id: attributeDefs.id }).from(attributeDefs).where(eq(attributeDefs.code, 'login')).limit(50);
+  const defIds = defRows.map((r) => String(r.id));
+  if (defIds.length === 0) return false;
+  const valRows = await db
+    .select({ v: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.entityId, actorId), inArray(attributeValues.attributeDefId, defIds), isNull(attributeValues.deletedAt)))
+    .limit(1);
+  if (valRows.length === 0) return false;
+  let login = '';
+  try {
+    login = String(JSON.parse(String(valRows[0]!.v ?? '""')) ?? '');
+  } catch {
+    login = '';
+  }
+  return isAllowlistedReader(login);
 }
 
 /**
