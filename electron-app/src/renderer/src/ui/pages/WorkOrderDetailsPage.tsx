@@ -1832,9 +1832,9 @@ export function WorkOrderDetailsPage(props: {
             <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата выполнения</span>
             <Input
               type="date"
-              value={toInputDate(payload.completedDate ?? Date.now())}
+              value={payload.completedDate && payload.completedDate > 0 ? toInputDate(payload.completedDate) : ''}
               disabled={!canEditNow}
-              title="Фактическая дата выполнения работ. По умолчанию — сегодня; укажите прошлую дату, если работы выполнены раньше нажатия кнопки «Закрыть/Провести». На дату складского документа не влияет."
+              title="Фактическая дата выполнения работ. Пустая, пока не указана вручную; можно очистить обратно в пусто. Заполнять не обязательно — при закрытии без даты считается дата проводки. На дату складского документа не влияет."
               onChange={(e) => {
                 const ms = fromInputDate(e.target.value);
                 const next: WorkOrderPayload = { ...payload };
