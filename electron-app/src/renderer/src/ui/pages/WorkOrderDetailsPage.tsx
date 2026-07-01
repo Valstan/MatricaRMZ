@@ -3,8 +3,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   NOMENCLATURE_ITEM_TYPE_HAS_STOCK,
   NOMENCLATURE_ITEM_TYPE_LABELS,
-  WORK_ORDER_APPROVERS,
-  WORK_ORDER_APPROVER_DEFAULT,
   WORK_ORDER_KIND_DESCRIPTIONS,
   WORK_ORDER_KIND_LABELS,
   WORK_ORDER_KIND_ORDER,
@@ -15,6 +13,7 @@ import {
   deriveWorkOrderStatusCode,
   formatEmployeeInitialsSurname,
   getWorkOrderSignatureBlocks,
+  resolveWorkOrderApprover,
   resolveWorkOrderSignatureSlots,
   workOrderSignatureBlockAliases,
   isWorkOrderTemplateKind,
@@ -611,6 +610,19 @@ export function WorkOrderDetailsPage(props: {
           ...(search ? { searchText: search } : {}),
         });
       }),
+    [employees],
+  );
+  // Кандидаты в утверждающие грифа: сотрудник → готовое ФИО «И.О. Фамилия» (как в пресетах грифа).
+  const approverEmployees = useMemo(
+    () =>
+      employees
+        .map((e) => ({
+          id: e.id,
+          label: e.displayName,
+          grifName: formatEmployeeInitialsSurname({ fullName: e.displayName, position: e.position ?? null }),
+          ...(e.position ? { hintText: String(e.position) } : {}),
+        }))
+        .filter((e) => e.label && e.grifName),
     [employees],
   );
   const [recentSignatureEmployeeIds, setRecentSignatureEmployeeIds] = useState<string[]>(() => readRecentSignatureEmployeeIds());
@@ -1319,9 +1331,10 @@ export function WorkOrderDetailsPage(props: {
     const contractInfo = firstEngineId ? engineContractInfo[firstEngineId] : undefined;
 
     // Гриф утверждения (ГОСТ Р 7.0.97 — верхний правый угол, над заголовком).
-    // Вариант (директор / технический директор) выбирается оператором на каждый наряд.
+    // Вариант (директор / технический директор) и, при желании, своя должность + выбранный
+    // из базы сотрудник выбираются оператором на каждый наряд.
     const approvalLinePx = Math.round(160 * (fs.director / WORK_ORDER_PRINT_FONT_DEFAULTS.director));
-    const approver = WORK_ORDER_APPROVERS[settings.approver ?? WORK_ORDER_APPROVER_DEFAULT] ?? WORK_ORDER_APPROVERS[WORK_ORDER_APPROVER_DEFAULT];
+    const approver = resolveWorkOrderApprover(settings);
     const approvalHtml = `<div style="text-align:right;font-size:${fs.director}px;line-height:1.4;"><div style="font-weight:700;">Утверждаю</div><div>${escapeHtml(approver.position)}</div><div style="margin-top:14px;"><span style="display:inline-block;width:${approvalLinePx}px;border-bottom:1px solid #0f172a;"></span>&nbsp;${escapeHtml(approver.name)}</div></div>`;
     const titleHtml = `<div style="text-align:center;font-size:${fs.title}px;font-weight:700;line-height:1.25;">${escapeHtml(headerTitle)}</div>`;
 
@@ -2738,12 +2751,16 @@ export function WorkOrderDetailsPage(props: {
         workOrderKindLabel={payload.workOrderKind ? WORK_ORDER_KIND_LABELS[payload.workOrderKind] : 'этого вида'}
         autoTitle={buildPrintModel(payload, {}).title}
         defaultDateMs={payload.orderDate}
+        approverEmployees={approverEmployees}
         buildHtml={(settings) => buildWorkOrderA4PreviewHtml(buildPrintModel(payload, settings))}
         onChange={(settings) => {
           const cleaned: WorkOrderPrintSettings = {
             ...(settings.titleOverride?.trim() ? { titleOverride: settings.titleOverride.trim() } : {}),
             ...(settings.orderDateOverride ? { orderDateOverride: settings.orderDateOverride } : {}),
             ...(settings.approver === 'technical' ? { approver: 'technical' as const } : {}),
+            ...(settings.approverPositionOverride?.trim() ? { approverPositionOverride: settings.approverPositionOverride.trim() } : {}),
+            ...(settings.approverNameOverride?.trim() ? { approverNameOverride: settings.approverNameOverride.trim() } : {}),
+            ...(settings.approverEmployeeId ? { approverEmployeeId: settings.approverEmployeeId } : {}),
             ...(settings.fontDirector ? { fontDirector: settings.fontDirector } : {}),
             ...(settings.fontTitle ? { fontTitle: settings.fontTitle } : {}),
             ...(settings.fontMeta ? { fontMeta: settings.fontMeta } : {}),

@@ -199,6 +199,12 @@ export type WorkOrderPrintSettings = {
   orderDateOverride?: number;
   /** Кто утверждает наряд в грифе «Утверждаю» (пусто = директор по умолчанию). */
   approver?: WorkOrderApprover;
+  /** Переопределение должности утверждающего в грифе (пусто = должность из пресета approver). */
+  approverPositionOverride?: string;
+  /** Переопределение ФИО утверждающего в грифе — обычно из выбранного сотрудника (пусто = имя из пресета). */
+  approverNameOverride?: string;
+  /** Id выбранного сотрудника-утверждающего — чтобы отразить выбор в панели печати. */
+  approverEmployeeId?: string;
   /** Гриф «Утверждаю · Директор» (верхний правый угол). */
   fontDirector?: number;
   /** Заголовок наряда («Наряд на …»). */
@@ -220,6 +226,21 @@ export const WORK_ORDER_APPROVERS: Record<WorkOrderApprover, { label: string; po
   technical: { label: 'Технический директор', position: 'Технический директор АО «Малмыжский РМЗ»', name: 'В.И. Гурьянов' },
 } as const;
 export const WORK_ORDER_APPROVER_DEFAULT: WorkOrderApprover = 'director';
+
+/**
+ * Действующие должность и ФИО утверждающего для грифа: override оператора (своя должность /
+ * выбранный из базы сотрудник) поверх пресета (директор / технический директор). Единый
+ * источник для печати и превью, чтобы они не разъезжались.
+ */
+export function resolveWorkOrderApprover(
+  settings: WorkOrderPrintSettings | null | undefined,
+): { position: string; name: string } {
+  const key = settings?.approver ?? WORK_ORDER_APPROVER_DEFAULT;
+  const preset = WORK_ORDER_APPROVERS[key] ?? WORK_ORDER_APPROVERS[WORK_ORDER_APPROVER_DEFAULT];
+  const position = String(settings?.approverPositionOverride ?? '').trim() || preset.position;
+  const name = String(settings?.approverNameOverride ?? '').trim() || preset.name;
+  return { position, name };
+}
 
 /** Дефолтные размеры шрифта блоков печати (px) и допустимые диапазоны степперов. */
 export const WORK_ORDER_PRINT_FONT_DEFAULTS = { director: 13, title: 22, meta: 13, crew: 14, works: 14, signatures: 13 } as const;
@@ -499,6 +520,12 @@ function normalizeWorkOrderPrintSettings(raw: unknown): WorkOrderPrintSettings |
   if (Number.isFinite(date) && date > 0) out.orderDateOverride = date;
   // Храним только не-дефолтный вариант; отсутствие = директор (back-compat для старых нарядов).
   if (rec.approver === 'technical') out.approver = 'technical';
+  const approverPosition = String(rec.approverPositionOverride ?? '').trim();
+  if (approverPosition) out.approverPositionOverride = approverPosition;
+  const approverName = String(rec.approverNameOverride ?? '').trim();
+  if (approverName) out.approverNameOverride = approverName;
+  const approverEmployeeId = String(rec.approverEmployeeId ?? '').trim();
+  if (approverEmployeeId) out.approverEmployeeId = approverEmployeeId;
   const director = clampFont(rec.fontDirector, WORK_ORDER_PRINT_FONT_RANGES.director);
   if (director !== undefined) out.fontDirector = director;
   // Back-compat: старое единое поле fontHeader (масштаб всей шапки) → размер заголовка.

@@ -458,6 +458,14 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="пароль"
                         data-autogrow="off"
+                        // Безопасность: даже когда «глазок» раскрывает пароль (type=text), поле
+                        // остаётся чувствительным (autocomplete содержит 'password') → подсказки
+                        // GlobalInputAssist не всплывают и пароль не пишется в историю. Глазок работает.
+                        data-input-assist="off"
+                        autoComplete="current-password"
+                        spellCheck={false}
+                        autoCorrect="off"
+                        autoCapitalize="off"
                         onKeyDown={(e) => {
                           setCapsLockOn(e.getModifierState?.('CapsLock') ?? false);
                           if (e.key === 'Enter') void submitLogin();
@@ -523,6 +531,11 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
                       onChange={(e) => setRegPassword(e.target.value)}
                       placeholder="минимум 6 символов"
                       data-autogrow="off"
+                      data-input-assist="off"
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="off"
                       style={{ background: palette.inputBg, color: palette.text, border: `1px solid ${palette.inputBorder}`, width: '100%' }}
                     />
                     {!regPasswordValid && regPassword && (

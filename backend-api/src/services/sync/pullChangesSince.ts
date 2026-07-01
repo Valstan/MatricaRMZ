@@ -39,7 +39,7 @@ import {
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
 import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 import { PRIVACY_TABLES, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
-import { getRestrictedWorkOrderIds, isAllowlistedReader } from './restrictedWorkOrders.js';
+import { getRestrictedWorkOrderIds, canReadRestrictedWorkOrders } from './restrictedWorkOrders.js';
 import { isPullTableAllowedForRole } from './pullReadFilter.js';
 
 // ── PG table map (same structure used by /state/snapshot) ────────────
@@ -167,11 +167,12 @@ export async function pullChangesSince(
   const allChanges: ChangeRow[] = [];
   const sharedNoteIds = (!actorIsAdmin && !actorIsPending) ? await getSharedNoteIds(actorId) : new Set<string>();
 
-  // Restricted work-order isolation (Phase 3c): exclude another person's restricted
-  // work orders from non-admin, non-allowlisted operators at the SQL level.
-  const restrictedWoIds = !actorIsAdmin ? await getRestrictedWorkOrderIds() : new Set<string>();
-  const actorReadsRestricted =
-    actorIsAdmin || (restrictedWoIds.size > 0 ? isAllowlistedReader(String(actor?.username ?? '')) : false);
+  // Restricted work-order isolation (Phase 3): exclude another person's restricted
+  // work orders at the SQL level from anyone who may not read them. Only the
+  // superadmin and the explicit read-allowlist (owner + accountant) are exempt —
+  // a plain `admin` is NOT (they were the leak: everyone in the admin tier saw them).
+  const actorReadsRestricted = canReadRestrictedWorkOrders(actorRole, String(actor?.username ?? ''));
+  const restrictedWoIds = actorReadsRestricted ? new Set<string>() : await getRestrictedWorkOrderIds();
 
   for (const [tableName, entry] of Object.entries(PG_SYNC_TABLES)) {
     // Admin-only pull tables (audit_log) are never synced to non-admins. (H1-B)

@@ -29,7 +29,7 @@ import { PermissionCode } from '../auth/permissions.js';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { type AuthenticatedRequest } from '../auth/middleware.js';
 import { isHiddenAttributeName } from '../services/ai/sensitiveFilter.js';
-import { getRestrictedWorkOrderIds, isAllowlistedReader } from '../services/sync/restrictedWorkOrders.js';
+import { getRestrictedWorkOrderIds, canReadRestrictedWorkOrders } from '../services/sync/restrictedWorkOrders.js';
 import { db } from '../database/db.js';
 import {
   attributeDefs,
@@ -719,9 +719,9 @@ async function gateRestrictedOperationsRows(
   actor: { username?: unknown; role?: unknown } | undefined,
 ): Promise<any[]> {
   if (metaName !== 'operations') return rows;
-  const role = String(actor?.role ?? '').toLowerCase();
-  if (role === 'admin' || role === 'superadmin') return rows;
-  if (isAllowlistedReader(String(actor?.username ?? ''))) return rows;
+  // Only the superadmin and the read-allowlist may see restricted orders in reports;
+  // plain `admin` is NOT exempt (same tightening as the sync surfaces).
+  if (canReadRestrictedWorkOrders(String(actor?.role ?? ''), String(actor?.username ?? ''))) return rows;
   const restricted = await getRestrictedWorkOrderIds();
   if (restricted.size === 0) return rows;
   return rows.filter((r) => !restricted.has(String(r?.id ?? '')));
