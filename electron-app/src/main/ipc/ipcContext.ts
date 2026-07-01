@@ -15,6 +15,7 @@ export type IpcContext = {
   mgr: SyncManager;
   logToFile: (message: string) => void;
   currentActor: () => Promise<string>;
+  currentViewer: () => Promise<{ login: string; role: string }>;
   currentPermissions: () => Promise<Record<string, boolean>>;
 };
 

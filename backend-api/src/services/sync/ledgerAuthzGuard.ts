@@ -22,6 +22,7 @@
 import { inArray, isNull } from 'drizzle-orm';
 
 import {
+  canEditWorkOrder,
   isOperatorRole,
   isServerOnlyEmployeeAttr,
   ledgerWriteRequirement,
@@ -33,7 +34,7 @@ import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { db } from '../../database/db.js';
 import { attributeDefs, entities, entityTypes } from '../../database/schema.js';
 import type { SyncSkippedRow } from './applyPushBatch.js';
-import { canEditRestrictedWorkOrder, getRestrictedWorkOrderOwners } from './restrictedWorkOrders.js';
+import { getRestrictedWorkOrderOwners } from './restrictedWorkOrders.js';
 import type { SyncWriteActor, SyncWriteInput } from './syncWriteService.js';
 
 function str(v: unknown): string {
@@ -147,7 +148,7 @@ export async function partitionLedgerInputsByAuthz(
     // so admin / legacy `user` (and the read-allowlist accountant) are caught too.
     if (inp.table === SyncTableName.Operations) {
       const owner = restrictedOwners.get(str(inp.row?.['id'] ?? inp.row_id));
-      if (owner && !canEditRestrictedWorkOrder(role, actorUsername, owner)) {
+      if (owner && !canEditWorkOrder({ editorLogin: actorUsername, editorRole: role, ownerLogin: owner })) {
         denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:restricted_work_order' });
         continue;
       }
