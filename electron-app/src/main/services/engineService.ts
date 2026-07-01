@@ -216,7 +216,6 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const arrivalDateDefId = defs['arrival_date'];
   const shippingDateDefId = defs['shipping_date'];
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
-  const scrapDefId = defs['is_scrap'];
   const attachmentsDefId = defs['attachments'];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
@@ -234,7 +233,6 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     contractSectionDefId,
     arrivalDateDefId,
     shippingDateDefId,
-    scrapDefId,
     attachmentsDefId,
   ].filter(Boolean) as string[];
   const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds, ...statusDateDefIds])];
@@ -293,7 +291,6 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     let contractSectionNumber: string | undefined;
     let arrivalDate: number | null | undefined;
     let shippingDate: number | null | undefined;
-    let isScrap: boolean | undefined;
     let attachmentPreviews: Array<{ id: string; name: string; mime: string | null }> = [];
     const statusDateByCode: Partial<Record<StatusCode, number | null>> = {};
 
@@ -340,11 +337,6 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
       if (typeof parsed === 'number' && Number.isFinite(parsed)) statusDateByCode[code] = parsed;
       else statusDateByCode[code] = null;
-    }
-    if (scrapDefId) {
-      const v = rowValues.get(scrapDefId);
-      const raw = v != null ? safeJsonParse(v) : null;
-      isScrap = raw === true || raw === 'true' || raw === 1;
     }
     if (attachmentsDefId) {
       const v = rowValues.get(attachmentsDefId);
@@ -395,7 +387,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(contractSectionNumber ? { contractSectionNumber } : {}),
       arrivalDate: arrivalDate ?? null,
       shippingDate: shippingDate ?? null,
-      isScrap: isScrap === true || statusRejected || crankcaseScrapped,
+      // Утиль = живой флаг «Забракован» (status_rejected) ИЛИ картер в утиле (из engine_inventory).
+      // Прямой legacy-атрибут is_scrap (замороженный февральский импорт, карточкой не правится)
+      // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
+      // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
+      isScrap: statusRejected || crankcaseScrapped,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,
