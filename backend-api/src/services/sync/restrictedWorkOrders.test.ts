@@ -1,92 +1,111 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// isRestrictedWorkOrderVisible / canRead / canEdit are pure, but the module imports db.js at load — stub it.
+// The pure helpers are what we test, but the module imports db.js at load — stub it.
 vi.mock('../../database/db.js', () => ({ db: {} }));
 
 const {
-  isRestrictedWorkOrderVisible,
+  classifyWorkOrderAccess,
+  isWorkOrderVisible,
+  computeWorkOrderPurgeIds,
   isAllowlistedReader,
-  canReadRestrictedWorkOrders,
   canEditRestrictedWorkOrder,
 } = await import('./restrictedWorkOrders.js');
 
-const RESTRICTED = 'op-ramzia-1';
-const ORDINARY = 'op-other-1';
-const restrictedIds = new Set([RESTRICTED]);
+// wo1/wo2 owned by ramzia (restricted+confined), wo3 by valstan, wo4 by sapegin.
+const OWNERS = new Map<string, string>([
+  ['wo1', 'ramzia'],
+  ['wo2', 'ramzia'],
+  ['wo3', 'valstan'],
+  ['wo4', 'sapegin'],
+]);
 
-describe('isRestrictedWorkOrderVisible', () => {
-  it('non-restricted order is visible to everyone (incl. plain operator)', () => {
-    expect(isRestrictedWorkOrderVisible(ORDINARY, { restrictedIds, actorCanRead: false })).toBe(true);
+describe('classifyWorkOrderAccess', () => {
+  it('superadmin sees all', () => {
+    expect(classifyWorkOrderAccess('superadmin', 'valstan', OWNERS)).toEqual({ kind: 'all' });
   });
 
-  it('restricted order is hidden from an actor who may not read it', () => {
-    expect(isRestrictedWorkOrderVisible(RESTRICTED, { restrictedIds, actorCanRead: false })).toBe(false);
+  it('accountant (glavbux) on the read-allowlist sees all, even as admin', () => {
+    expect(classifyWorkOrderAccess('admin', 'glavbux', OWNERS)).toEqual({ kind: 'all' });
   });
 
-  it('restricted order is visible to an actor who may read it', () => {
-    expect(isRestrictedWorkOrderVisible(RESTRICTED, { restrictedIds, actorCanRead: true })).toBe(true);
+  it('confined owner (ramzia) sees only her own work orders', () => {
+    const a = classifyWorkOrderAccess('master', 'Ramzia', OWNERS);
+    expect(a.kind).toBe('own');
+    if (a.kind !== 'own') throw new Error('expected own');
+    expect([...a.ownIds].sort()).toEqual(['wo1', 'wo2']);
+    expect([...a.allIds].sort()).toEqual(['wo1', 'wo2', 'wo3', 'wo4']);
   });
 
-  it('with no restricted ids, every order is visible', () => {
-    const empty = new Set<string>();
-    expect(isRestrictedWorkOrderVisible(RESTRICTED, { restrictedIds: empty, actorCanRead: false })).toBe(true);
+  it('a plain admin (not on the allowlist) is treated as an ordinary operator', () => {
+    const a = classifyWorkOrderAccess('admin', 'someadmin', OWNERS);
+    expect(a.kind).toBe('others');
+    if (a.kind !== 'others') throw new Error('expected others');
+    expect([...a.restrictedIds].sort()).toEqual(['wo1', 'wo2']);
+  });
+
+  it('an ordinary operator sees all except restricted', () => {
+    const a = classifyWorkOrderAccess('master', 'ozerolove', OWNERS);
+    expect(a.kind).toBe('others');
+    if (a.kind !== 'others') throw new Error('expected others');
+    expect([...a.restrictedIds].sort()).toEqual(['wo1', 'wo2']);
   });
 });
 
-describe('isAllowlistedReader', () => {
-  it('owner (ramzia) and accountant (glavbux) are allowlisted', () => {
-    expect(isAllowlistedReader('ramzia')).toBe(true);
-    expect(isAllowlistedReader('glavbux')).toBe(true);
+describe('isWorkOrderVisible', () => {
+  it('all: everything visible', () => {
+    expect(isWorkOrderVisible('wo1', { kind: 'all' })).toBe(true);
   });
 
-  it('is case- and whitespace-insensitive on the login', () => {
-    expect(isAllowlistedReader('  Ramzia ')).toBe(true);
+  it('own: only the owner’s own work orders; other work orders hidden; non-WO rows visible', () => {
+    const access = classifyWorkOrderAccess('master', 'ramzia', OWNERS);
+    expect(isWorkOrderVisible('wo1', access)).toBe(true); // her own
+    expect(isWorkOrderVisible('wo2', access)).toBe(true); // her own
+    expect(isWorkOrderVisible('wo3', access)).toBe(false); // someone else's order
+    expect(isWorkOrderVisible('defect-123', access)).toBe(true); // not a work order → visible
   });
 
-  it('a plain operator and an empty login are not allowlisted', () => {
-    expect(isAllowlistedReader('ozerolove')).toBe(false);
-    expect(isAllowlistedReader('')).toBe(false);
+  it('others: restricted hidden, the rest visible', () => {
+    const access = classifyWorkOrderAccess('master', 'ozerolove', OWNERS);
+    expect(isWorkOrderVisible('wo1', access)).toBe(false); // Ramzia's
+    expect(isWorkOrderVisible('wo3', access)).toBe(true); // normal order
+    expect(isWorkOrderVisible('defect-123', access)).toBe(true);
   });
 });
 
-describe('canReadRestrictedWorkOrders', () => {
-  it('superadmin may read', () => {
-    expect(canReadRestrictedWorkOrders('superadmin', 'valstan')).toBe(true);
+describe('computeWorkOrderPurgeIds', () => {
+  it('confined owner (ramzia) drops everyone else’s work orders, keeps her own', () => {
+    expect(computeWorkOrderPurgeIds('master', 'ramzia', OWNERS).sort()).toEqual(['wo3', 'wo4']);
   });
 
-  it('owner (ramzia) and accountant (glavbux) may read regardless of role', () => {
-    expect(canReadRestrictedWorkOrders('master', 'ramzia')).toBe(true);
-    expect(canReadRestrictedWorkOrders('admin', 'glavbux')).toBe(true);
+  it('ordinary operator drops the restricted (Ramzia) orders', () => {
+    expect(computeWorkOrderPurgeIds('master', 'ozerolove', OWNERS).sort()).toEqual(['wo1', 'wo2']);
   });
 
-  it('a plain admin (not on the allowlist) may NOT read', () => {
-    expect(canReadRestrictedWorkOrders('admin', 'someadmin')).toBe(false);
+  it('plain admin also drops the restricted orders', () => {
+    expect(computeWorkOrderPurgeIds('admin', 'someadmin', OWNERS).sort()).toEqual(['wo1', 'wo2']);
   });
 
-  it('a plain operator and legacy user may NOT read', () => {
-    expect(canReadRestrictedWorkOrders('master', 'ozerolove')).toBe(false);
-    expect(canReadRestrictedWorkOrders('user', 'mubvera')).toBe(false);
+  it('accountant and superadmin drop nothing', () => {
+    expect(computeWorkOrderPurgeIds('admin', 'glavbux', OWNERS)).toEqual([]);
+    expect(computeWorkOrderPurgeIds('superadmin', 'valstan', OWNERS)).toEqual([]);
   });
 });
 
 describe('canEditRestrictedWorkOrder', () => {
-  const OWNER = 'ramzia';
-
-  it('the owner may edit their own restricted order', () => {
-    expect(canEditRestrictedWorkOrder('master', 'ramzia', OWNER)).toBe(true);
-    expect(canEditRestrictedWorkOrder('master', '  Ramzia ', OWNER)).toBe(true);
+  it('the owner and the superadmin may edit; accountant and others may not', () => {
+    expect(canEditRestrictedWorkOrder('master', 'ramzia', 'ramzia')).toBe(true);
+    expect(canEditRestrictedWorkOrder('master', '  Ramzia ', 'ramzia')).toBe(true);
+    expect(canEditRestrictedWorkOrder('superadmin', 'valstan', 'ramzia')).toBe(true);
+    expect(canEditRestrictedWorkOrder('admin', 'glavbux', 'ramzia')).toBe(false);
+    expect(canEditRestrictedWorkOrder('master', 'ozerolove', 'ramzia')).toBe(false);
   });
+});
 
-  it('the superadmin may edit', () => {
-    expect(canEditRestrictedWorkOrder('superadmin', 'valstan', OWNER)).toBe(true);
-  });
-
-  it('the accountant (read-allowlist) may NOT edit', () => {
-    expect(canEditRestrictedWorkOrder('admin', 'glavbux', OWNER)).toBe(false);
-  });
-
-  it('a plain admin and other operators may NOT edit', () => {
-    expect(canEditRestrictedWorkOrder('admin', 'someadmin', OWNER)).toBe(false);
-    expect(canEditRestrictedWorkOrder('master', 'ozerolove', OWNER)).toBe(false);
+describe('isAllowlistedReader', () => {
+  it('owner and accountant are allowlisted; others are not', () => {
+    expect(isAllowlistedReader('ramzia')).toBe(true);
+    expect(isAllowlistedReader('  Glavbux ')).toBe(true);
+    expect(isAllowlistedReader('ozerolove')).toBe(false);
+    expect(isAllowlistedReader('')).toBe(false);
   });
 });
