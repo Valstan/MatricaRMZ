@@ -11,6 +11,7 @@ import {
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
+import { SearchSelect } from './SearchSelect.js';
 import {
   deleteWoPrintTemplate,
   loadWoPrintDefault,
@@ -152,6 +153,8 @@ export function WorkOrderPrintDialog(props: {
   workOrderKindLabel: string;
   autoTitle: string;
   defaultDateMs: number;
+  /** Кандидаты в утверждающие грифа (сотрудники): id, метка и готовое ФИО «И.О. Фамилия» для печати. */
+  approverEmployees?: Array<{ id: string; label: string; grifName: string; hintText?: string }>;
   /** Строит standalone A4-HTML (с #wo-a4) для iframe-превью по заданным настройкам. */
   buildHtml: (settings: WorkOrderPrintSettings) => string;
   onChange: (settings: WorkOrderPrintSettings) => void;
@@ -178,6 +181,30 @@ export function WorkOrderPrintDialog(props: {
 
   function update(patch: Partial<WorkOrderPrintSettings>) {
     applySettings({ ...draft, ...patch });
+  }
+
+  // Выбор пресета грифа сбрасывает ручные override (должность/ФИО/сотрудник) — чтобы
+  // «Директор»/«Технический директор» показывали свои значения, а не залипший override.
+  function selectPresetApprover(key: WorkOrderApprover) {
+    const next = { ...draft, approver: key };
+    delete next.approverPositionOverride;
+    delete next.approverNameOverride;
+    delete next.approverEmployeeId;
+    applySettings(next);
+  }
+
+  // Точечная правка override: пустая строка удаляет ключ (возврат к значению пресета).
+  function setApproverOverride(patch: {
+    approverPositionOverride?: string | undefined;
+    approverNameOverride?: string | undefined;
+    approverEmployeeId?: string | undefined;
+  }) {
+    const next = { ...draft };
+    for (const [k, v] of Object.entries(patch) as [keyof WorkOrderPrintSettings, string | undefined][]) {
+      if (v) (next as Record<string, unknown>)[k] = v;
+      else delete (next as Record<string, unknown>)[k];
+    }
+    applySettings(next);
   }
 
   function onSaveTemplate() {
@@ -273,7 +300,7 @@ export function WorkOrderPrintDialog(props: {
                   <button
                     key={key}
                     type="button"
-                    onClick={() => update({ approver: key })}
+                    onClick={() => selectPresetApprover(key)}
                     title={`${v.position} — ${v.name}`}
                     style={{
                       flex: 1,
@@ -295,6 +322,43 @@ export function WorkOrderPrintDialog(props: {
                 );
               })}
             </div>
+            {(() => {
+              const activeKey = draft.approver ?? WORK_ORDER_APPROVER_DEFAULT;
+              const preset = WORK_ORDER_APPROVERS[activeKey] ?? WORK_ORDER_APPROVERS[WORK_ORDER_APPROVER_DEFAULT];
+              const emp = props.approverEmployees ?? [];
+              const overridden = Boolean(
+                draft.approverPositionOverride?.trim() || draft.approverNameOverride?.trim() || draft.approverEmployeeId,
+              );
+              return (
+                <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
+                  <input
+                    value={draft.approverPositionOverride ?? ''}
+                    onChange={(e) => setApproverOverride({ approverPositionOverride: e.target.value })}
+                    placeholder={`Должность (по умолчанию: ${preset.position})`}
+                    title="Своя должность утверждающего — печатается вместо пресета"
+                    style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: 12 }}
+                  />
+                  <SearchSelect
+                    value={draft.approverEmployeeId ?? null}
+                    options={emp.map((x) => ({ id: x.id, label: x.label, ...(x.hintText ? { hintText: x.hintText } : {}) }))}
+                    placeholder={`Сотрудник для ФИО (по умолчанию: ${preset.name})`}
+                    onChange={(id) => {
+                      const chosen = emp.find((x) => x.id === id);
+                      setApproverOverride({ approverEmployeeId: chosen?.id, approverNameOverride: chosen?.grifName });
+                    }}
+                  />
+                  {overridden ? (
+                    <button
+                      type="button"
+                      onClick={() => selectPresetApprover(activeKey)}
+                      style={{ justifySelf: 'start', fontSize: 11, color: 'var(--subtle)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      ↺ Вернуть к пресету «{preset.label}»
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })()}
           </div>
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 8 }}>

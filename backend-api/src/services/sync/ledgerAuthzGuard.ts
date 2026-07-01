@@ -33,6 +33,7 @@ import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { db } from '../../database/db.js';
 import { attributeDefs, entities, entityTypes } from '../../database/schema.js';
 import type { SyncSkippedRow } from './applyPushBatch.js';
+import { canEditRestrictedWorkOrder, getRestrictedWorkOrderOwners } from './restrictedWorkOrders.js';
 import type { SyncWriteActor, SyncWriteInput } from './syncWriteService.js';
 
 function str(v: unknown): string {
@@ -98,6 +99,14 @@ export async function partitionLedgerInputsByAuthz(
 
   const perms = operatorScoped ? await getEffectivePermissionsForUser(actor.id) : {};
 
+  // Restricted work-order write isolation (Phase 3): map of restricted order id ->
+  // owner login. A restricted order may be edited only by its owner or the superadmin,
+  // regardless of role (so the plain `admin` / legacy `user` bypass below does not let
+  // them through). Fetched once, only when the batch actually touches operations.
+  const hasOps = inputs.some((i) => i.table === SyncTableName.Operations);
+  const restrictedOwners = hasOps ? await getRestrictedWorkOrderOwners() : new Map<string, string>();
+  const actorUsername = String(actor.username ?? '');
+
   const allowed: SyncWriteInput[] = [];
   const denied: SyncSkippedRow[] = [];
   for (const inp of inputs) {
@@ -129,6 +138,17 @@ export async function partitionLedgerInputsByAuthz(
           row_id: inp.row_id,
           reason: `forbidden:employee_auth_attr:${attrCode}`,
         });
+        continue;
+      }
+    }
+
+    // Restricted work-order write isolation (Phase 3): only the owner or the
+    // superadmin may edit a restricted order. Runs BEFORE the non-operator bypass
+    // so admin / legacy `user` (and the read-allowlist accountant) are caught too.
+    if (inp.table === SyncTableName.Operations) {
+      const owner = restrictedOwners.get(str(inp.row?.['id'] ?? inp.row_id));
+      if (owner && !canEditRestrictedWorkOrder(role, actorUsername, owner)) {
+        denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:restricted_work_order' });
         continue;
       }
     }

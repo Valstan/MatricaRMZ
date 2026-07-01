@@ -24,7 +24,7 @@ import {
 } from '../services/sync/syncPrivacy.js';
 import {
   getRestrictedWorkOrderIds,
-  isAllowlistedReader,
+  canReadRestrictedWorkOrders,
   isRestrictedWorkOrderVisible,
 } from '../services/sync/restrictedWorkOrders.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
@@ -317,17 +317,17 @@ ledgerRouter.get('/state/query', async (req, res) => {
       privacyRows = privacyRows.filter((r) => privacyFilter(queryTable, r));
     }
   }
-  // Restricted work-order isolation (Phase 3c): hide another person's restricted work
-  // orders from non-admin, non-allowlisted actors — same gate as /state/changes.
-  if (!queryIsAdmin && queryTable === SyncTableName.Operations) {
+  // Restricted work-order isolation (Phase 3): hide another person's restricted work
+  // orders from anyone who may not read them — same gate as /state/changes. Only the
+  // superadmin and the read-allowlist (owner + accountant) are exempt; plain `admin`
+  // is NOT (that admin-tier bypass was the leak).
+  if (queryTable === SyncTableName.Operations && !canReadRestrictedWorkOrders(queryRole, String(actor.username ?? ''))) {
     const restrictedWoIds = await getRestrictedWorkOrderIds();
     if (restrictedWoIds.size > 0) {
-      const allowed = isAllowlistedReader(String(actor.username ?? ''));
       privacyRows = privacyRows.filter((r) =>
         isRestrictedWorkOrderVisible(String(r['id'] ?? ''), {
           restrictedIds: restrictedWoIds,
-          actorIsAdmin: queryIsAdmin,
-          actorIsAllowlisted: allowed,
+          actorCanRead: false,
         }),
       );
     }
@@ -479,16 +479,15 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
       }
     }
 
-    // Restricted work-order isolation (Phase 3c): same gate as /state/changes.
-    if (!snapIsAdmin && tableName === SyncTableName.Operations) {
+    // Restricted work-order isolation (Phase 3): same gate as /state/changes — only the
+    // superadmin and the read-allowlist are exempt; plain `admin` is NOT.
+    if (tableName === SyncTableName.Operations && !canReadRestrictedWorkOrders(snapRole, String(actor.username ?? ''))) {
       const restrictedWoIds = await getRestrictedWorkOrderIds();
       if (restrictedWoIds.size > 0) {
-        const allowed = isAllowlistedReader(String(actor.username ?? ''));
         privacyRows = privacyRows.filter((r) =>
           isRestrictedWorkOrderVisible(String(r['id'] ?? ''), {
             restrictedIds: restrictedWoIds,
-            actorIsAdmin: snapIsAdmin,
-            actorIsAllowlisted: allowed,
+            actorCanRead: false,
           }),
         );
       }
@@ -621,9 +620,10 @@ ledgerRouter.get('/state/changes', async (req, res) => {
 ledgerRouter.get('/state/restricted-purge', async (req, res) => {
   const actor = (req as AuthenticatedRequest).user;
   if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
-  const role = String(actor.role ?? '').toLowerCase();
-  const isAdmin = role === 'admin' || role === 'superadmin';
-  if (isAdmin || isAllowlistedReader(String(actor.username ?? ''))) {
+  // Anyone who may not read restricted orders must purge them locally — including the
+  // plain `admin` tier (the previous `isAdmin` short-circuit left 10 admins' caches
+  // holding the leaked copies). Empty only for the superadmin and the read-allowlist.
+  if (canReadRestrictedWorkOrders(String(actor.role ?? ''), String(actor.username ?? ''))) {
     return res.json({ ok: true, ids: [] });
   }
   const ids = Array.from(await getRestrictedWorkOrderIds());
