@@ -29,7 +29,8 @@ import { PermissionCode } from '../auth/permissions.js';
 import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { type AuthenticatedRequest } from '../auth/middleware.js';
 import { isHiddenAttributeName } from '../services/ai/sensitiveFilter.js';
-import { resolveWorkOrderAccess, isWorkOrderVisible } from '../services/sync/restrictedWorkOrders.js';
+import { canViewWorkOrder } from '@matricarmz/shared';
+import { getWorkOrderOwners } from '../services/sync/restrictedWorkOrders.js';
 import { db } from '../database/db.js';
 import {
   attributeDefs,
@@ -719,12 +720,16 @@ async function gateRestrictedOperationsRows(
   actor: { username?: unknown; role?: unknown } | undefined,
 ): Promise<any[]> {
   if (metaName !== 'operations') return rows;
-  // Same isolation as the sync surfaces: superadmin + accountant see all; a confined
-  // owner (Ramzia) sees only her own work orders; ordinary operators see all except
-  // restricted. Plain `admin` is NOT exempt.
-  const access = await resolveWorkOrderAccess(String(actor?.role ?? ''), String(actor?.username ?? ''));
-  if (access.kind === 'all') return rows;
-  return rows.filter((r) => isWorkOrderVisible(String(r?.id ?? ''), access));
+  // A report is a server-rendered artifact — filter its work-order rows for the
+  // requesting user with the shared display policy (same rule the client applies).
+  // Non-work-order operation rows (id not in the owner map) are always shown.
+  const viewerLogin = String(actor?.username ?? '');
+  const viewerRole = String(actor?.role ?? '');
+  const owners = await getWorkOrderOwners();
+  return rows.filter((r) => {
+    const owner = owners.get(String(r?.id ?? ''));
+    return owner === undefined ? true : canViewWorkOrder({ viewerLogin, viewerRole, ownerLogin: owner });
+  });
 }
 
 reportsRouter.post('/builder/preview', async (req, res) => {

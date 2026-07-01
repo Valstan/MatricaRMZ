@@ -2517,32 +2517,6 @@ type RunSyncOptions = {
   };
 };
 
-// Phase 3e: remove restricted work orders (Ramzia) that leaked to this client before
-// the server-side read-isolation gate shipped. The server returns the operation ids to
-// drop for a non-allowlisted actor (empty for the owner / read-allowlist / admins).
-// Idempotent and best-effort — it must never fail the surrounding sync.
-async function purgeRestrictedWorkOrders(db: BetterSQLite3Database, apiBaseUrl: string): Promise<void> {
-  try {
-    const res = await fetchAuthed(
-      db,
-      apiBaseUrl,
-      `${apiBaseUrl}/ledger/state/restricted-purge`,
-      { method: 'GET' },
-      { attempts: 1, timeoutMs: 15_000, label: 'pull' },
-    );
-    if (!res.ok) return;
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; ids?: unknown } | null;
-    const ids = Array.isArray(body?.ids) ? (body.ids as unknown[]).map((x) => String(x)).filter(Boolean) : [];
-    if (ids.length === 0) return;
-    for (let i = 0; i < ids.length; i += 500) {
-      await db.delete(operations).where(inArray(operations.id, ids.slice(i, i + 500)));
-    }
-    logSync(`restricted-purge: removed ${ids.length} restricted work order(s) from local cache`);
-  } catch (e) {
-    logSync(`restricted-purge skipped: ${String((e as Error)?.message ?? e)}`);
-  }
-}
-
 export async function runSync(
   db: BetterSQLite3Database,
   clientId: string,
@@ -2590,8 +2564,6 @@ export async function runSync(
     detail: fullPull ? 'подготовка полной синхронизации' : 'подготовка инкрементальной синхронизации',
     progress: fullPull ? 0 : null,
   });
-  // Phase 3e: drop any restricted work orders that leaked here before the isolation gate.
-  await purgeRestrictedWorkOrders(db, currentApiBaseUrl);
   const logRecovery = (reason: string, extra?: Record<string, unknown>) => {
     const suffix = extra
       ? ` ${Object.entries(extra)

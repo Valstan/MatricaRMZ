@@ -21,7 +21,7 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
   ipcMain.handle('workOrders:list', async (_e, args?: { q?: string; month?: string }) => {
     const gate = await requirePermOrResult(ctx, 'work_orders.view');
     if (!gate.ok) return gate as any;
-    return listWorkOrders(ctx.dataDb(), args);
+    return listWorkOrders(ctx.dataDb(), { ...(args ?? {}), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('workOrders:get', async (_e, id: string) => {

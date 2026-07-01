@@ -15,6 +15,7 @@ export * from './domain/repairFundInstance.js';
 export * from './domain/supplyRequest.js';
 export * from './domain/signatureAccess.js';
 export * from './domain/workOrder.js';
+export * from './domain/workOrderAccess.js';
 export * from './domain/workOrderSignatures.js';
 export * from './domain/workshopStats.js';
 export * from './domain/part.js';

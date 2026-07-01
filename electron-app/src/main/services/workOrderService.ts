@@ -5,6 +5,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   WORK_ORDER_PAYLOAD_VERSION,
   WorkOrderKind,
+  canViewWorkOrder,
   findWorkOrderSignatureSlots,
   normalizeWorkOrderLine,
   normalizeWorkOrderPayloadV3Fields,
@@ -350,7 +351,7 @@ async function audit(db: BetterSQLite3Database, actor: string, action: string, p
 
 export async function listWorkOrders(
   db: BetterSQLite3Database,
-  args?: { q?: string; month?: string },
+  args?: { q?: string; month?: string; viewer?: { login: string; role: string } },
 ): Promise<
   | {
       ok: true;
@@ -391,6 +392,7 @@ export async function listWorkOrders(
 
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const month = args?.month ? String(args.month).trim() : '';
+    const viewer = args?.viewer;
 
     const out: Array<{
       id: string;
@@ -415,6 +417,14 @@ export async function listWorkOrders(
     for (const row of rows) {
       const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
       if (!payload) continue;
+      // Display-time isolation: hide work orders the signed-in user may not see
+      // (owner = performed_by). Full DB stays local; this filters the list only.
+      if (
+        viewer &&
+        !canViewWorkOrder({ viewerLogin: viewer.login, viewerRole: viewer.role, ownerLogin: String(row.performedBy ?? '') })
+      ) {
+        continue;
+      }
       const partName = getWorkOrderPartNames(payload).join(', ');
       const workType = getWorkOrderPrimaryWorkType(payload);
       const performerSurnames = getCrewSurnames(payload);

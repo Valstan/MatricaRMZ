@@ -80,6 +80,13 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     return u && u.trim() ? u.trim() : 'local';
   }
 
+  // Login + role of the signed-in user for display-time access filters (e.g. which
+  // work orders to show). Empty when signed out.
+  async function currentViewer(): Promise<{ login: string; role: string }> {
+    const s = await getSession(db).catch(() => null);
+    return { login: String(s?.user?.username ?? '').trim(), role: String(s?.user?.role ?? '').trim() };
+  }
+
   async function currentPermissions(): Promise<Record<string, boolean>> {
     const s = await getSession(db).catch(() => null);
     const perms = { ...((s?.permissions ?? {}) as Record<string, boolean>) };
@@ -114,6 +121,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     mgr,
     logToFile,
     currentActor,
+    currentViewer,
     currentPermissions,
   };
 
