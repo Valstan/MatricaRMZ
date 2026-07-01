@@ -326,10 +326,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       arrivalDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
+    let legacyShippingDate: number | null = null;
     if (shippingDateDefId) {
       const v = rowValues.get(shippingDateDefId);
       const raw = v != null ? safeJsonParse(v) : null;
-      shippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+      legacyShippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
     for (const statusDateDefId of statusDateDefIds) {
       const code = (statusDateDefById as Record<string, StatusCode | undefined>)[statusDateDefId];
@@ -362,13 +363,18 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
         }
       }
     }
-    if (shippingDate == null) {
-      if (statusDateByCode.status_customer_sent != null) {
-        shippingDate = statusDateByCode.status_customer_sent;
-      } else if (statusDateByCode.status_customer_accepted != null) {
-        // Some historical cards have only the final customer acceptance date.
-        shippingDate = statusDateByCode.status_customer_accepted;
-      }
+    // Дата отгрузки в списке = статус-дата «Отправлен заказчику» (status_customer_sent) —
+    // ровно то, что правит карточка. Прямой атрибут shipping_date — замороженный февральский
+    // импорт-legacy (ни одной записи после 2026-02-26); читаем его ТОЛЬКО как исторический
+    // фолбэк, когда статус-даты нет. Раньше список предпочитал legacy → навсегда показывал
+    // импортное значение и игнорировал правки карточки (баг 2Ж03АТ0479; 172 расхождения на проде).
+    if (statusDateByCode.status_customer_sent != null) {
+      shippingDate = statusDateByCode.status_customer_sent;
+    } else if (statusDateByCode.status_customer_accepted != null) {
+      // Some historical cards have only the final customer acceptance date.
+      shippingDate = statusDateByCode.status_customer_accepted;
+    } else {
+      shippingDate = legacyShippingDate;
     }
     const statusRejected = statusFlags.status_rejected === true;
     // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).

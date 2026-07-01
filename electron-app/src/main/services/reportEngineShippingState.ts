@@ -17,7 +17,11 @@ export function resolveEngineShippingState(attrs: Record<string, unknown>): { sh
   const customerAcceptedDate = asNumberOrNull(attrs.status_customer_accepted_date);
   const customerSent = isTruthyFlag(attrs.status_customer_sent);
   const customerAccepted = isTruthyFlag(attrs.status_customer_accepted);
-  const shippingDate = explicitShippingDate ?? customerSentDate ?? customerAcceptedDate;
+  // Статус-дата «Отправлен заказчику» первична — это то, что правит карточка двигателя.
+  // Прямой shipping_date — замороженный февральский импорт-legacy; берём его ТОЛЬКО как
+  // исторический фолбэк, иначе отчёт/фильтр показывают импортное значение и игнорируют
+  // правки карточки (тот же dual-source-баг, что в listEngines — 2Ж03АТ0479).
+  const shippingDate = customerSentDate ?? customerAcceptedDate ?? explicitShippingDate;
   const leftFactory = shippingDate != null || customerSent || customerAccepted;
   return { shippingDate, onSite: !leftFactory };
 }
