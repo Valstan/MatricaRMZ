@@ -598,18 +598,35 @@ export async function setEngineAttribute(
     });
   }
 
-  const existing = await db
+  // Update the NEWEST non-deleted row and collapse any other active duplicates so a
+  // single active value remains (mirrors setEntityAttribute). The old code matched by
+  // (engine, attr) WITHOUT a deletedAt filter or ordering and took limit(1) — with
+  // duplicate/soft-deleted rows it updated an arbitrary one, so the engines LIST (which
+  // reads a non-deleted value) could keep showing a stale duplicate after a card edit.
+  const active = await db
     .select()
     .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, engineId), eq(attributeValues.attributeDefId, defId)))
-    .limit(1);
+    .where(
+      and(
+        eq(attributeValues.entityId, engineId),
+        eq(attributeValues.attributeDefId, defId),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .orderBy(desc(attributeValues.updatedAt));
 
   const payload = JSON.stringify(value);
-  if (existing[0]) {
+  if (active[0]) {
     await db
       .update(attributeValues)
       .set({ valueJson: payload, updatedAt: ts, deletedAt: null, syncStatus: 'pending' })
-      .where(eq(attributeValues.id, existing[0].id));
+      .where(eq(attributeValues.id, active[0].id));
+    for (const dup of active.slice(1)) {
+      await db
+        .update(attributeValues)
+        .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
+        .where(eq(attributeValues.id, dup.id));
+    }
   } else {
     await db.insert(attributeValues).values({
       id: randomUUID(),
