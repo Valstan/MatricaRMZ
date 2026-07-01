@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -255,6 +255,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
               isNull(attributeValues.deletedAt),
             ),
           )
+          // Oldest→newest so the per-(entity,def) map keeps the NEWEST value if stray
+          // duplicate rows exist (defensive; setEntityAttribute now collapses them).
+          .orderBy(asc(attributeValues.updatedAt))
       : [];
 
   const valuesByEntity = new Map<string, Map<string, string | null>>();

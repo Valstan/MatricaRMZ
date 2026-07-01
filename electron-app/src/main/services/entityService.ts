@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
@@ -78,6 +78,9 @@ export async function listEntitiesByType(db: BetterSQLite3Database, entityTypeId
               isNull(attributeValues.deletedAt),
             ),
           )
+          // Oldest→newest so the per-(entity,def) map keeps the NEWEST value if stray
+          // duplicate rows exist (defensive; setEntityAttribute now collapses them).
+          .orderBy(asc(attributeValues.updatedAt))
           .limit(200_000)
       : [];
 
@@ -198,18 +201,35 @@ export async function setEntityAttribute(
     const defId = byCode[code];
     if (!defId) return { ok: false as const, error: `Неизвестный атрибут: ${code}` };
 
-    const existing = await db
+    // Pick the NEWEST non-deleted row for this (entity, attr). The old code matched by
+    // (entity, attr) without a deletedAt filter or ordering and took limit(1) — with
+    // duplicate or soft-deleted rows it could update an arbitrary or already-deleted row,
+    // leaving the value that lists read (they pick a non-deleted row) stale. Update the
+    // newest active row and soft-delete any other active duplicates so exactly one remains.
+    const active = await db
       .select()
       .from(attributeValues)
-      .where(and(eq(attributeValues.entityId, entityId), eq(attributeValues.attributeDefId, defId)))
-      .limit(1);
+      .where(
+        and(
+          eq(attributeValues.entityId, entityId),
+          eq(attributeValues.attributeDefId, defId),
+          isNull(attributeValues.deletedAt),
+        ),
+      )
+      .orderBy(desc(attributeValues.updatedAt));
 
     const payload = JSON.stringify(value);
-    if (existing[0]) {
+    if (active[0]) {
       await db
         .update(attributeValues)
         .set({ valueJson: payload, updatedAt: ts, syncStatus: 'pending' })
-        .where(eq(attributeValues.id, existing[0].id));
+        .where(eq(attributeValues.id, active[0].id));
+      for (const dup of active.slice(1)) {
+        await db
+          .update(attributeValues)
+          .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
+          .where(eq(attributeValues.id, dup.id));
+      }
     } else {
       await db.insert(attributeValues).values({
         id: randomUUID(),
