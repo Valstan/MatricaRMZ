@@ -23,9 +23,9 @@ import {
   getOwnedNoteIds,
 } from '../services/sync/syncPrivacy.js';
 import {
-  getRestrictedWorkOrderIds,
-  canReadRestrictedWorkOrders,
-  isRestrictedWorkOrderVisible,
+  resolveWorkOrderAccess,
+  isWorkOrderVisible,
+  getWorkOrderPurgeIds,
 } from '../services/sync/restrictedWorkOrders.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
@@ -317,19 +317,13 @@ ledgerRouter.get('/state/query', async (req, res) => {
       privacyRows = privacyRows.filter((r) => privacyFilter(queryTable, r));
     }
   }
-  // Restricted work-order isolation (Phase 3): hide another person's restricted work
-  // orders from anyone who may not read them — same gate as /state/changes. Only the
-  // superadmin and the read-allowlist (owner + accountant) are exempt; plain `admin`
-  // is NOT (that admin-tier bypass was the leak).
-  if (queryTable === SyncTableName.Operations && !canReadRestrictedWorkOrders(queryRole, String(actor.username ?? ''))) {
-    const restrictedWoIds = await getRestrictedWorkOrderIds();
-    if (restrictedWoIds.size > 0) {
-      privacyRows = privacyRows.filter((r) =>
-        isRestrictedWorkOrderVisible(String(r['id'] ?? ''), {
-          restrictedIds: restrictedWoIds,
-          actorCanRead: false,
-        }),
-      );
+  // Restricted work-order isolation (Phase 3): confine a restricted owner to their own
+  // work orders and hide restricted orders from ordinary operators — same gate as
+  // /state/changes. Superadmin + accountant see all; plain `admin` is NOT exempt.
+  if (queryTable === SyncTableName.Operations) {
+    const woAccess = await resolveWorkOrderAccess(queryRole, String(actor.username ?? ''));
+    if (woAccess.kind !== 'all') {
+      privacyRows = privacyRows.filter((r) => isWorkOrderVisible(String(r['id'] ?? ''), woAccess));
     }
   }
   // Apply the shared pull read-authz: strips credentials (everyone) + sensitive
@@ -479,17 +473,12 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
       }
     }
 
-    // Restricted work-order isolation (Phase 3): same gate as /state/changes — only the
-    // superadmin and the read-allowlist are exempt; plain `admin` is NOT.
-    if (tableName === SyncTableName.Operations && !canReadRestrictedWorkOrders(snapRole, String(actor.username ?? ''))) {
-      const restrictedWoIds = await getRestrictedWorkOrderIds();
-      if (restrictedWoIds.size > 0) {
-        privacyRows = privacyRows.filter((r) =>
-          isRestrictedWorkOrderVisible(String(r['id'] ?? ''), {
-            restrictedIds: restrictedWoIds,
-            actorCanRead: false,
-          }),
-        );
+    // Restricted work-order isolation (Phase 3): same gate as /state/changes — confine
+    // a restricted owner to their own; hide restricted orders from ordinary operators.
+    if (tableName === SyncTableName.Operations) {
+      const woAccess = await resolveWorkOrderAccess(snapRole, String(actor.username ?? ''));
+      if (woAccess.kind !== 'all') {
+        privacyRows = privacyRows.filter((r) => isWorkOrderVisible(String(r['id'] ?? ''), woAccess));
       }
     }
 
@@ -613,20 +602,18 @@ ledgerRouter.get('/state/changes', async (req, res) => {
   });
 });
 
-// Phase 3e: pre-sync purge list — restricted work-order ids a non-allowlisted client
-// must delete locally (orders that leaked before the read-isolation gate shipped).
-// Empty for admins/superadmins and allowlisted readers. Idempotent; the client runs it
-// each sync and DELETEs the matching local operations rows.
+// Phase 3: pre-sync purge list — work-order ids a client must delete locally to converge
+// with its access (orders that leaked / others' orders for a confined owner). Empty for
+// the superadmin and allowlisted readers. Idempotent; the client runs it each sync and
+// DELETEs the matching local operations rows.
 ledgerRouter.get('/state/restricted-purge', async (req, res) => {
   const actor = (req as AuthenticatedRequest).user;
   if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
-  // Anyone who may not read restricted orders must purge them locally — including the
-  // plain `admin` tier (the previous `isAdmin` short-circuit left 10 admins' caches
-  // holding the leaked copies). Empty only for the superadmin and the read-allowlist.
-  if (canReadRestrictedWorkOrders(String(actor.role ?? ''), String(actor.username ?? ''))) {
-    return res.json({ ok: true, ids: [] });
-  }
-  const ids = Array.from(await getRestrictedWorkOrderIds());
+  // Work orders the client must drop to converge with its access: an ordinary operator
+  // drops the restricted (Ramzia) orders; a confined owner (Ramzia) drops everyone
+  // else's orders (she keeps only her own); readers/superadmin drop nothing. Includes
+  // the plain `admin` tier (the old `isAdmin` short-circuit left admins' caches leaking).
+  const ids = await getWorkOrderPurgeIds(String(actor.role ?? ''), String(actor.username ?? ''));
   return res.json({ ok: true, ids });
 });
 

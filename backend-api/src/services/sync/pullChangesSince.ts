@@ -13,7 +13,7 @@
  */
 import type { SyncPullResponse } from '@matricarmz/shared';
 import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
-import { and, asc, eq, gt, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
 import {
@@ -39,7 +39,7 @@ import {
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
 import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 import { PRIVACY_TABLES, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
-import { getRestrictedWorkOrderIds, canReadRestrictedWorkOrders } from './restrictedWorkOrders.js';
+import { resolveWorkOrderAccess } from './restrictedWorkOrders.js';
 import { isPullTableAllowedForRole } from './pullReadFilter.js';
 
 // ── PG table map (same structure used by /state/snapshot) ────────────
@@ -167,12 +167,11 @@ export async function pullChangesSince(
   const allChanges: ChangeRow[] = [];
   const sharedNoteIds = (!actorIsAdmin && !actorIsPending) ? await getSharedNoteIds(actorId) : new Set<string>();
 
-  // Restricted work-order isolation (Phase 3): exclude another person's restricted
-  // work orders at the SQL level from anyone who may not read them. Only the
-  // superadmin and the explicit read-allowlist (owner + accountant) are exempt —
-  // a plain `admin` is NOT (they were the leak: everyone in the admin tier saw them).
-  const actorReadsRestricted = canReadRestrictedWorkOrders(actorRole, String(actor?.username ?? ''));
-  const restrictedWoIds = actorReadsRestricted ? new Set<string>() : await getRestrictedWorkOrderIds();
+  // Restricted work-order isolation (Phase 3), applied at the SQL level on the
+  // operations table below. Superadmin + accountant see all; a confined owner
+  // (Ramzia) sees only her own; an ordinary operator sees all except restricted.
+  // Plain `admin` is NOT exempt (that admin-tier bypass was the original leak).
+  const woAccess = await resolveWorkOrderAccess(actorRole, String(actor?.username ?? ''));
 
   for (const [tableName, entry] of Object.entries(PG_SYNC_TABLES)) {
     // Admin-only pull tables (audit_log) are never synced to non-admins. (H1-B)
@@ -202,9 +201,20 @@ export async function pullChangesSince(
     // Pending users should not see most privacy tables at all
     if (actorIsPending && isPrivacy) continue;
 
-    // Restricted work orders: hide owners' restricted orders from non-allowlisted operators.
-    if (tableName === SyncTableName.Operations && !actorReadsRestricted && restrictedWoIds.size > 0) {
-      conditions.push(notInArray(pgTable.id, Array.from(restrictedWoIds)));
+    // Restricted work orders (Phase 3): confine a restricted owner to their own work
+    // orders; hide restricted orders from ordinary operators; readers/superadmin unaffected.
+    if (tableName === SyncTableName.Operations) {
+      if (woAccess.kind === 'own') {
+        const ownIds = Array.from(woAccess.ownIds);
+        // Keep every non-work-order row + only the actor's own work orders.
+        conditions.push(
+          ownIds.length > 0
+            ? or(ne(operations.operationType, 'work_order'), inArray(operations.id, ownIds))
+            : ne(operations.operationType, 'work_order'),
+        );
+      } else if (woAccess.kind === 'others' && woAccess.restrictedIds.size > 0) {
+        conditions.push(notInArray(operations.id, Array.from(woAccess.restrictedIds)));
+      }
     }
 
     const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
