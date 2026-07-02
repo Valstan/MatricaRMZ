@@ -1829,36 +1829,6 @@ export function WorkOrderDetailsPage(props: {
             style={{ width: 150 }}
           />
         </div>
-        {isClosed ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
-            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Завершён</span>
-            <span style={{ fontSize: 13, color: 'var(--text)' }}>
-              {payload.completedDate && payload.completedDate > 0
-                ? formatMoscowDate(payload.completedDate)
-                : operationUpdatedAt
-                  ? formatMoscowDate(operationUpdatedAt)
-                  : '—'}
-            </span>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
-            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата выполнения</span>
-            <Input
-              type="date"
-              value={payload.completedDate && payload.completedDate > 0 ? toInputDate(payload.completedDate) : ''}
-              disabled={!canEditNow}
-              title="Фактическая дата выполнения работ. Пустая, пока не указана вручную; можно очистить обратно в пусто. Заполнять не обязательно — при закрытии без даты считается дата проводки. На дату складского документа не влияет."
-              onChange={(e) => {
-                const ms = fromInputDate(e.target.value);
-                const next: WorkOrderPayload = { ...payload };
-                if (ms) next.completedDate = ms;
-                else delete next.completedDate;
-                patch(next);
-              }}
-              style={{ width: 150 }}
-            />
-          </div>
-        )}
         {(() => {
           const code = deriveWorkOrderStatusCode({
             operationStatus: isClosed ? 'closed' : operationStatus,
@@ -2026,6 +1996,37 @@ export function WorkOrderDetailsPage(props: {
             </select>
           </div>
         ) : null}
+        {/* Дата выполнения — рядом с кнопкой закрытия (директива владельца «рядом», батч 2026-06-30) */}
+        {isClosed ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Завершён</span>
+            <span style={{ fontSize: 13, color: 'var(--text)' }}>
+              {payload.completedDate && payload.completedDate > 0
+                ? formatMoscowDate(payload.completedDate)
+                : operationUpdatedAt
+                  ? formatMoscowDate(operationUpdatedAt)
+                  : '—'}
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата выполнения</span>
+            <Input
+              type="date"
+              value={payload.completedDate && payload.completedDate > 0 ? toInputDate(payload.completedDate) : ''}
+              disabled={!canEditNow}
+              title="Фактическая дата выполнения работ. Пустая, пока не указана вручную; можно очистить обратно в пусто. Заполнять не обязательно — при закрытии без даты считается дата проводки. На дату складского документа не влияет."
+              onChange={(e) => {
+                const ms = fromInputDate(e.target.value);
+                const next: WorkOrderPayload = { ...payload };
+                if (ms) next.completedDate = ms;
+                else delete next.completedDate;
+                patch(next);
+              }}
+              style={{ width: 150 }}
+            />
+          </div>
+        )}
         {payload.linkedDocumentId && !isClosed && payload.workOrderKind === WorkOrderKind.Assembly ? (
           // Stage 2 нитки assembly-work-order-from-forecast: промежуточное состояние —
           // наряд сохранён как черновик, детали зарезервированы на складе через reservedQty.
