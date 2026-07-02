@@ -19,7 +19,6 @@
     "warehouse:reclassify-product-to-part:apply": "tsx src/scripts/reclassifyProductToPartItemType.ts --apply",
     "positions:backfill": "tsx src/scripts/backfillEmployeePositions.ts",
     "positions:backfill:apply": "tsx src/scripts/backfillEmployeePositions.ts --apply",
-    "users:migrate": "tsx src/scripts/migrateUsersToEmployees.ts",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
     "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
     "masterdata:seed-nomenclature-groups": "tsx src/scripts/seedNomenclatureGroups.ts",

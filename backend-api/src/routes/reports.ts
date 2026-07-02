@@ -55,7 +55,6 @@ import {
   syncState,
   userPermissions,
   userPresence,
-  users,
 } from '../database/schema.js';
 
 export const reportsRouter = Router();
@@ -303,22 +302,6 @@ const TABLES: TableSpec[] = [
       { id: 'lastPulledServerSeq', label: 'Последний применённый порядковый номер', type: 'number', col: syncState.lastPulledServerSeq },
       { id: 'lastPushedAt', label: 'Последняя отправка', type: 'datetime', col: syncState.lastPushedAt },
       { id: 'lastPulledAt', label: 'Последнее получение', type: 'datetime', col: syncState.lastPulledAt },
-    ],
-  },
-  {
-    name: 'users',
-    label: 'Пользователи',
-    permission: [PermissionCode.AdminUsersManage],
-    table: users,
-    columns: [
-      { id: 'id', label: 'ID', type: 'string', col: users.id },
-      { id: 'username', label: 'Логин', type: 'string', col: users.username },
-      { id: 'passwordHash', label: 'Пароль (хэш)', type: 'string', col: users.passwordHash },
-      { id: 'role', label: 'Роль', type: 'string', col: users.role },
-      { id: 'isActive', label: 'Активен', type: 'boolean', col: users.isActive },
-      { id: 'createdAt', label: 'Создано', type: 'datetime', col: users.createdAt },
-      { id: 'updatedAt', label: 'Обновлено', type: 'datetime', col: users.updatedAt },
-      { id: 'deletedAt', label: 'Удалено', type: 'datetime', col: users.deletedAt },
     ],
   },
   {
