@@ -235,6 +235,9 @@ const matricaApi = {
       dailySummary: async (args?: { date?: string; cutoffHour?: number }) => ipcRenderer.invoke('admin:audit:dailySummary', args),
     },
   },
+  access: {
+    sectionsSelf: async () => ipcRenderer.invoke('access:sections:self'),
+  },
   employees: {
     list: async () => ipcRenderer.invoke('employees:list'),
     get: async (id: string) => ipcRenderer.invoke('employees:get', id),

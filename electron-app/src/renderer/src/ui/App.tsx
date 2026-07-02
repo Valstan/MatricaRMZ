@@ -17,6 +17,7 @@ import type {
   SupplyRequestPayload,
 } from '@matricarmz/shared';
 import {
+  ACCESS_SECTION_CATALOG,
   DEFAULT_UI_CONTROL_SETTINGS,
   DEFAULT_UI_DISPLAY_PREFS,
   DEFAULT_UI_PRESET_ID,
@@ -29,6 +30,13 @@ import {
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
 import { deriveUiCaps } from './auth/permissions.js';
+
+// «Доступ по разделам» (Ф1): таб меню → раздел. Табы вне разделов (заметки, история,
+// настройки) не гейтятся. Membership читается из локальной БД по логину (fail-open:
+// null = атрибут не засеян или superadmin → меню как раньше).
+const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
+  ACCESS_SECTION_CATALOG.flatMap((s) => s.menuTabs.map((t) => [t, s.id] as const)),
+);
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
@@ -139,6 +147,7 @@ const StockInventoryPage = lazyPage('./pages/StockInventoryPage.tsx', 'StockInve
 const RepairFundAuditPage = lazyPage('./pages/RepairFundAuditPage.tsx', 'RepairFundAuditPage');
 const WarehouseAnalyticsPage = lazyPage('./pages/WarehouseAnalyticsPage.tsx', 'WarehouseAnalyticsPage');
 const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopStatsPage');
+const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
 const EngineAssemblyBomPage = lazyPage('./pages/EngineAssemblyBomPage.tsx', 'EngineAssemblyBomPage');
 const EngineAssemblyBomDetailsPage = lazyPage('./pages/EngineAssemblyBomDetailsPage.tsx', 'EngineAssemblyBomDetailsPage');
 const SimpleMasterdataDetailsPage = lazyPage('./pages/SimpleMasterdataDetailsPage.tsx', 'SimpleMasterdataDetailsPage');
@@ -608,6 +617,36 @@ export function App() {
   useAdaptiveListTables();
   const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
+  const [sectionMembership, setSectionMembership] = useState<Partial<Record<string, 'viewer' | 'editor'>> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!authStatus.loggedIn) {
+      setSectionMembership(null);
+      return;
+    }
+    void window.matrica.access
+      .sectionsSelf()
+      .then((m) => {
+        if (!cancelled) setSectionMembership(m && typeof m === 'object' ? m : null);
+      })
+      .catch(() => {
+        if (!cancelled) setSectionMembership(null);
+      });
+    // Периодический рефетч: правка membership действующего пользователя (в т.ч. под тем же
+    // логином) подхватывается без релогина в пределах ~30с.
+    const timer = setInterval(() => {
+      void window.matrica.access
+        .sectionsSelf()
+        .then((m) => {
+          if (!cancelled) setSectionMembership(m && typeof m === 'object' ? m : null);
+        })
+        .catch(() => {});
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [authStatus.loggedIn, authStatus.user?.username]);
   const [pinnedShortcuts, setPinnedShortcuts] = useState<string[]>([]);
   /** Сбрасывает применение устаревшего ответа `shortcuts:get`, если за время запроса уже меняли закрепления локально. */
   const shortcutsMutationEpochRef = useRef(0);
@@ -1603,9 +1642,15 @@ export function App() {
     ...(caps.canViewMasterData ? (['empty_cards'] as const) : []),
     ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops', 'workshop_stats'] as const) : []),
     ...(caps.canViewWarehouseLocations || caps.canManageWarehouseLocations ? (['warehouses_admin'] as const) : []),
-    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit'] as const) : []),
+    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit', 'access_sections'] as const) : []),
   ];
-  const menuState = deriveMenuState(availableTabs, tabsLayout);
+  const sectionGatedTabs = sectionMembership
+    ? availableTabs.filter((t) => {
+        const sectionId = SECTION_BY_TAB.get(t);
+        return !sectionId || sectionMembership[sectionId] != null;
+      })
+    : availableTabs;
+  const menuState = deriveMenuState(sectionGatedTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');
   const userTab: Exclude<
@@ -1663,6 +1708,7 @@ export function App() {
     workshop_stats: 'Статистика цехов',
     employees: 'Сотрудники',
     timesheets: 'Табель',
+    access_sections: 'Доступы по разделам',
     reports: 'Отчёты',
     audit: 'Журнал',
     admin: 'Админ',
@@ -3685,7 +3731,7 @@ export function App() {
                 }
                 setTab(t);
               }}
-              availableTabs={availableTabs}
+              availableTabs={sectionGatedTabs}
               layout={tabsLayout}
               onLayoutChange={persistTabsLayout}
               userLabel={userLabel}
@@ -4107,6 +4153,8 @@ export function App() {
         {tab === 'warehouse_analytics' && <WarehouseAnalyticsPage />}
 
         {tab === 'workshop_stats' && <WorkshopStatsPage />}
+
+        {tab === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
 
         {tab === 'tool' && selectedToolId && (
           <ToolDetailsPage

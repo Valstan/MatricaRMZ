@@ -1,5 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { parseSectionMembership, type SectionMembership } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
@@ -115,6 +116,8 @@ export async function listEmployeesSummary(
     employeeDefByCode.access_enabled,
     employeeDefByCode.system_role,
     employeeDefByCode.attachments,
+    employeeDefByCode.login,
+    employeeDefByCode.section_access,
   ].filter(Boolean) as string[];
 
   const vals =
@@ -182,6 +185,8 @@ export async function listEmployeesSummary(
     const accessEnabled = pick(employeeDefByCode.access_enabled) === true;
     const systemRole = String(pick(employeeDefByCode.system_role) ?? '').trim();
     const attachmentPreviews = toAttachmentPreviews(pick(employeeDefByCode.attachments));
+    const login = String(pick(employeeDefByCode.login) ?? '').trim().toLowerCase();
+    const sectionAccess = parseSectionMembership(pick(employeeDefByCode.section_access));
     return {
       id: entityId,
       displayName: fullName || computedName || undefined,
@@ -199,12 +204,55 @@ export async function listEmployeesSummary(
       updatedAt: Number(row.updatedAt ?? 0),
       accessEnabled,
       systemRole,
+      login: login || null,
+      sectionAccess,
       deleteRequestedAt: null,
       deleteRequestedById: null,
       deleteRequestedByUsername: null,
       ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
     };
   });
+}
+
+/**
+ * Membership «доступа по разделам» текущего пользователя — по логину из локальной БД.
+ * null = атрибут не засеян (legacy) → вызывающий обязан работать fail-open (меню как сейчас).
+ */
+export async function getSectionMembershipByLogin(
+  dataDb: BetterSQLite3Database,
+  login: string,
+): Promise<SectionMembership | null> {
+  const l = String(login ?? '').trim().toLowerCase();
+  if (!l) return null;
+  const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
+  if (!employeeTypeId) return null;
+  const { byCode } = await getDefsByType(dataDb, employeeTypeId);
+  const loginDef = byCode.login;
+  const sectionDef = byCode.section_access;
+  if (!loginDef || !sectionDef) return null;
+  const loginRows = await dataDb
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.attributeDefId, loginDef), isNull(attributeValues.deletedAt)))
+    .limit(20_000);
+  const employeeId = loginRows.find((r) => {
+    const v = safeJsonParse(r.valueJson ? String(r.valueJson) : null);
+    return String(v ?? '').trim().toLowerCase() === l;
+  })?.entityId;
+  if (!employeeId) return null;
+  const rows = await dataDb
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, String(employeeId)),
+        eq(attributeValues.attributeDefId, sectionDef),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!rows[0]) return null;
+  return parseSectionMembership(safeJsonParse(rows[0].valueJson ? String(rows[0].valueJson) : null));
 }
 
 export async function mergeEmployeesToServer(

@@ -6,7 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { deleteEmployeeRemote, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeesToServer } from '../../services/employeeService.js';
+import { deleteEmployeeRemote, getSectionMembershipByLogin, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -21,6 +21,15 @@ async function getEntityTypeIdByCode(ctx: IpcContext, code: string): Promise<str
 }
 
 export function registerEmployeesIpc(ctx: IpcContext) {
+  // Self-read собственного membership «доступа по разделам» — без permission-гейта
+  // (пользователь читает только своё; null = не засеяно → меню работает fail-open).
+  ipcMain.handle('access:sections:self', async () => {
+    const viewer = await ctx.currentViewer();
+    if (!viewer.login) return null;
+    if (String(viewer.role ?? '').toLowerCase() === 'superadmin') return null; // bypass — гейтинг не применяется
+    return getSectionMembershipByLogin(ctx.dataDb(), viewer.login);
+  });
+
   ipcMain.handle('employees:list', async () => {
     const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return [];
