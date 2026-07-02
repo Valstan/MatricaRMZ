@@ -1,10 +1,12 @@
 name: SAST (semgrep)
 
 # Replaces CodeQL, which is unavailable on a private repo without GitHub
-# Advanced Security. Semgrep OSS rules are free and run in Actions. The job is
-# NON-BLOCKING (continue-on-error) so findings never block auto-merge; review
-# them in the step log / the uploaded SARIF artifact. Promote to blocking once
-# the codebase is triaged to a clean baseline.
+# Advanced Security. Semgrep OSS rules are free and run in Actions.
+#
+# PRs: diff-aware BLOCKING gate (--baseline-commit = PR base) — only findings
+# introduced by the PR fail the check, so registry rule drift never blocks
+# unrelated PRs. Pushes to main / manual runs: full scan, non-blocking —
+# review findings in the step log / the uploaded SARIF artifact.
 
 on:
   pull_request:
@@ -20,8 +22,10 @@ jobs:
   semgrep:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout (full history for diff-aware baseline)
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -31,7 +35,24 @@ jobs:
       - name: Install semgrep
         run: pip install semgrep
 
-      - name: Semgrep scan (non-blocking)
+      - name: Semgrep diff-aware scan (blocking, PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/nodejs \
+            --config p/react \
+            --config p/typescript \
+            --severity ERROR --severity WARNING \
+            --exclude 'dist' --exclude 'node_modules' --exclude '*.test.ts' \
+            --metrics off \
+            --baseline-commit "${{ github.event.pull_request.base.sha }}" \
+            --error \
+            --text --sarif-output=semgrep.sarif
+
+      - name: Semgrep full scan (non-blocking, main/dispatch)
+        if: github.event_name != 'pull_request'
         continue-on-error: true
         run: |
           semgrep scan \
