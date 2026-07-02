@@ -11,6 +11,7 @@ import { startClientSettingsPolling } from '../services/clientAdminService.js';
 import { appendMainLogLine } from '../utils/logger.js';
 
 import type { IpcContext } from './ipcContext.js';
+import { installSectionIpcGate } from './sectionGate.js';
 import { registerAdminIpc } from './register/admin.js';
 import { registerAuthAndSyncIpc } from './register/authAndSync.js';
 import { registerBackupsIpc } from './register/backups.js';
@@ -134,7 +135,11 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     onSyncProgress: emitSyncProgress,
   });
 
-  // Register IPC domains
+  // Register IPC domains. Section-гейт (Ф2 «доступа по разделам») оборачивает все
+  // регистрируемые ниже хэндлеры: чтение данных раздела, где пользователя нет в
+  // списках, отклоняется в main-процессе (см. sectionGate.ts; fail-open для
+  // superadmin/незасеянных/незамапленных каналов).
+  const restoreIpcHandle = installSectionIpcGate(ctx);
   registerLoggingIpc(ctx);
   registerAuthAndSyncIpc(ctx);
   registerChangesIpc(ctx);
@@ -233,6 +238,7 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
       }
     },
   });
+  restoreIpcHandle();
 }
 
 

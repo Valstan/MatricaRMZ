@@ -100,12 +100,14 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   {
     id: AccessSection.Directories,
     titleRu: 'Справочники',
-    menuTabs: ['masterdata', 'workshops', 'warehouses_admin'],
+    menuTabs: ['masterdata', 'workshops', 'warehouses_admin', 'empty_cards'],
   },
   {
     id: AccessSection.Administration,
     titleRu: 'Администрирование',
-    menuTabs: ['audit', 'changes', 'admin', 'empty_cards', 'drafts'],
+    // «Изменения» (changes) и «Черновики» (drafts) сознательно ВНЕ разделов: ими
+    // пользуются все роли сегодня — гейтить их значило бы менять поведение в день засева.
+    menuTabs: ['audit', 'admin'],
     restrictedAssign: true,
   },
 ] as const;
