@@ -61,6 +61,9 @@ import { createDirectoryPart, upsertWarehouseNomenclature } from '../services/wa
 const APPLY = process.argv.includes('--apply');
 const fileArgIdx = process.argv.indexOf('--file');
 const FILE = fileArgIdx >= 0 ? process.argv[fileArgIdx + 1] : null;
+// --unit <название единицы из справочника unit>: проставить её CSV-позициям без единицы измерения.
+const unitArgIdx = process.argv.indexOf('--unit');
+const UNIT_NAME = unitArgIdx >= 0 ? String(process.argv[unitArgIdx + 1] ?? '').trim() : null;
 if (!FILE) {
   console.error('usage: tsx importZamenaKrBomNorms.ts --file <utf8-csv> [--apply]');
   process.exit(1);
@@ -277,12 +280,28 @@ async function main() {
     }
   }
 
+  let unitId: string | null = null;
+  if (UNIT_NAME) {
+    const r = await pool.query(
+      `select e.id::text as id
+         from entities e
+         join entity_types et on et.id = e.type_id and et.code = 'unit'
+         join attribute_defs ad on ad.entity_type_id = et.id and ad.code = 'name'
+         join attribute_values av on av.entity_id = e.id and av.attribute_def_id = ad.id and av.deleted_at is null
+        where e.deleted_at is null and lower(trim(both '"' from av.value_json)) = lower($1) limit 1`,
+      [UNIT_NAME],
+    );
+    if (!r.rows[0]) throw new Error(`единица измерения «${UNIT_NAME}» не найдена в справочнике unit`);
+    unitId = String(r.rows[0].id);
+    console.log(`[import] единица по умолчанию: «${UNIT_NAME}» (${unitId.slice(0, 8)}) — только для позиций без единицы`);
+  }
+
   const groups = await loadNomenclatureGroups();
   const neededGroups = Array.from(new Set(items.map((i) => i.groupName)));
   const missingGroups = neededGroups.filter((g) => !groups.has(g));
   console.log(`[import] группы: нужно ${neededGroups.length}, отсутствуют: ${missingGroups.length ? missingGroups.join(', ') : 'нет'}`);
 
-  const stats = { createdParts: 0, adoptedCode: 0, matched: 0, groupChanged: 0, itemTypeChanged: 0, codeFilled: 0, mirrorFailed: 0 };
+  const stats = { createdParts: 0, adoptedCode: 0, matched: 0, groupChanged: 0, itemTypeChanged: 0, codeFilled: 0, unitFilled: 0, mirrorFailed: 0 };
   const plan: string[] = [];
   const nomIdByCsvCode = new Map<string, string>();
 
@@ -368,11 +387,13 @@ async function main() {
     const groupDiffers = targetGroupId != null && String(nom.groupId ?? '') !== targetGroupId;
     const codeDiffers = nextCode !== currentCode;
     const typeDiffers = nextItemType !== currentItemType;
-    if (!groupDiffers && !codeDiffers && !typeDiffers) continue;
+    const unitFills = unitId != null && nom.unitId == null;
+    if (!groupDiffers && !codeDiffers && !typeDiffers && !unitFills) continue;
 
     if (groupDiffers) stats.groupChanged += 1;
     if (typeDiffers) stats.itemTypeChanged += 1;
     if (codeDiffers) stats.codeFilled += 1;
+    if (unitFills) stats.unitFilled += 1;
     plan.push(
       `UPDATE ${currentCode || '(без кода)'} «${String(nom.name)}»:${codeDiffers ? ` code→${nextCode}` : ''}${typeDiffers ? ` type ${currentItemType}→${nextItemType}` : ''}${groupDiffers ? ` группа→${item.groupName}` : ''}`,
     );
@@ -391,7 +412,7 @@ async function main() {
         directoryKind: nom.directoryKind == null ? null : String(nom.directoryKind),
         directoryRefId: nom.directoryRefId == null ? null : String(nom.directoryRefId),
         groupId: targetGroupId ?? (nom.groupId == null ? null : String(nom.groupId)),
-        unitId: nom.unitId == null ? null : String(nom.unitId),
+        unitId: nom.unitId == null ? unitId : String(nom.unitId),
         barcode: nom.barcode == null ? null : String(nom.barcode),
         minStock: nom.minStock == null ? null : Number(nom.minStock),
         maxStock: nom.maxStock == null ? null : Number(nom.maxStock),
@@ -425,7 +446,7 @@ async function main() {
   }
 
   console.log(`[import] детали: найдено по коду/имени ${stats.matched}, новых ${stats.createdParts}, принят артикул у бескодовых ${stats.adoptedCode}`);
-  console.log(`[import] номенклатура: группа изменится у ${stats.groupChanged}, тип у ${stats.itemTypeChanged}, артикул заполнится у ${stats.codeFilled}`);
+  console.log(`[import] номенклатура: группа изменится у ${stats.groupChanged}, тип у ${stats.itemTypeChanged}, артикул заполнится у ${stats.codeFilled}, единица у ${stats.unitFilled}`);
   const planSample = plan.slice(0, 25);
   for (const p of planSample) console.log(`  ${p}`);
   if (plan.length > planSample.length) console.log(`  … +${plan.length - planSample.length} ещё`);
