@@ -17,6 +17,9 @@ type MatricaApiWithEmployeeDefs = Omit<MatricaApi, 'employees' | 'app'> & {
       changeRequestsDecide: (args: { id: string; action: 'approve' | 'reject'; note?: string }) => Promise<any>;
     };
   };
+  access: {
+    sectionsSelf: () => Promise<Partial<Record<string, 'viewer' | 'editor'>> | null>;
+  };
   employees: MatricaApi['employees'] & {
     defs: () => Promise<any[]>;
     resyncFromServer: () => Promise<any>;

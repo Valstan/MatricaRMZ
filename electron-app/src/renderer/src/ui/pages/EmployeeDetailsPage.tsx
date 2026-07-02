@@ -13,7 +13,7 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -621,6 +621,7 @@ export function EmployeeDetailsPage(props: {
         'password_hash',
         'system_role',
         'access_enabled',
+        'section_access',
         'chat_display_name',
       ]);
       const filtered = (defs as AttrDef[]).filter((d) => !base.has(String(d.code)));
@@ -1744,6 +1745,13 @@ export function EmployeeDetailsPage(props: {
                 </label>
               </div>
 
+              <SectionAccessMirror
+                employeeId={props.employeeId}
+                membership={parseSectionMembership((employee?.attributes ?? {})[SECTION_ACCESS_ATTR])}
+                canEdit={meRole === 'superadmin'}
+                onSaved={() => void loadEmployee()}
+              />
+
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Input
                   value={accountPassword}
@@ -1941,5 +1949,68 @@ export function EmployeeDetailsPage(props: {
         </div>
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
     </EntityCardShell>
+  );
+}
+
+/**
+ * Зеркало «доступа по разделам» в карточке пользователя (Ф1): тот же EAV-атрибут
+ * `section_access`, что правит страница «Доступы по разделам» — источник один,
+ * изменения видны с обеих сторон. Правка — только суперадмин (как и страница).
+ */
+function SectionAccessMirror(props: {
+  employeeId: string;
+  membership: Partial<Record<string, 'viewer' | 'editor'>>;
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function setLevel(sectionId: string, level: '' | 'viewer' | 'editor') {
+    setSaving(true);
+    setError('');
+    try {
+      const next: Record<string, 'viewer' | 'editor'> = { ...props.membership } as Record<string, 'viewer' | 'editor'>;
+      if (level) next[sectionId] = level;
+      else delete next[sectionId];
+      const r = await window.matrica.employees.setAttr(props.employeeId, SECTION_ACCESS_ATTR, serializeSectionMembership(next));
+      if (r && (r as { ok?: boolean }).ok === false) {
+        setError((r as { error?: string }).error ?? 'ошибка сохранения');
+        return;
+      }
+      props.onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const seeded = Object.keys(props.membership).length > 0;
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+        <strong style={{ fontSize: 13 }}>Доступ по разделам</strong>
+        <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
+          {seeded ? 'не выбран = раздел скрыт' : 'не настроено — действуют текущие права роли'}
+        </span>
+        {error ? <span style={{ color: 'var(--danger, #dc2626)', fontSize: 12 }}>{error}</span> : null}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 6 }}>
+        {ACCESS_SECTION_CATALOG.map((section) => (
+          <label key={section.id} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+            <select
+              value={props.membership[section.id] ?? ''}
+              disabled={!props.canEdit || saving}
+              onChange={(e) => void setLevel(section.id, e.target.value as '' | 'viewer' | 'editor')}
+              style={{ padding: '4px 6px', border: '1px solid var(--border)', minWidth: 110 }}
+            >
+              <option value="">— нет —</option>
+              <option value="viewer">наблюдатель</option>
+              <option value="editor">редактор</option>
+            </select>
+            {section.titleRu}
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }

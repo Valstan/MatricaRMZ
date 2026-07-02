@@ -52,6 +52,7 @@ export type TabId =
   | 'tool_property'
   | 'employees'
   | 'employee'
+  | 'access_sections'
   | 'timesheets'
   | 'timesheet'
   | 'changes'
@@ -153,6 +154,7 @@ const menuTabSet = new Set<MenuTabId>([
   'engine_assembly_bom',
   'employees',
   'timesheets',
+  'access_sections',
   'reports',
   'audit',
   'admin',
@@ -199,7 +201,7 @@ const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   business: ['contracts', 'counterparties'],
-  people: ['employees', 'timesheets'],
+  people: ['employees', 'timesheets', 'access_sections'],
   control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
@@ -272,6 +274,7 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   counterparties: { icon: '🤝', subtitle: 'Поставщики и партнеры', gradient: 'linear-gradient(135deg, #9333ea 0%, #ec4899 100%)' },
   employees: { icon: '👥', subtitle: 'Сотрудники и профили', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   timesheets: { icon: '🗓️', subtitle: 'Табель учёта рабочего времени (Т-13)', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
+  access_sections: { icon: '🔐', subtitle: 'Кто видит и правит каждый раздел', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
   reports: { icon: '📊', subtitle: 'Аналитика и выгрузки', gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)' },
   changes: { icon: '🧾', subtitle: 'История изменений данных', gradient: 'linear-gradient(135deg, #6b7280 0%, #94a3b8 100%)' },
   drafts: { icon: '🗂️', subtitle: 'Несохранённые черновики карточек', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' },
@@ -523,6 +526,7 @@ export function Tabs(props: {
     workshop_stats: 'Статистика цехов',
     employees: 'Сотрудники',
     timesheets: 'Табель',
+    access_sections: 'Доступы по разделам',
     reports: 'Отчёты',
     audit: 'Журнал',
     empty_cards: 'Пустые карточки',

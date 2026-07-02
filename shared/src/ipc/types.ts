@@ -153,6 +153,8 @@ export type EmployeeListItem = {
   deleteRequestedById?: string | null;
   deleteRequestedByUsername?: string | null;
   personnelNumber?: string | null;
+  login?: string | null;
+  sectionAccess?: Partial<Record<string, 'viewer' | 'editor'>>;
   updatedAt: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
