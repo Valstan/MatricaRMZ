@@ -241,25 +241,6 @@ export const commandIdempotency = pgTable(
 // -----------------------------
 // Auth (server-side only, не участвует в синхронизации)
 // -----------------------------
-export const users = pgTable(
-  'users',
-  {
-    id: uuid('id').primaryKey(),
-    username: text('username').notNull(),
-    passwordHash: text('password_hash').notNull(),
-    role: text('role').notNull().default('user'),
-    isActive: boolean('is_active').notNull().default(true),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-    deletedAt: bigint('deleted_at', { mode: 'number' }),
-  },
-  (t) => ({
-    // Логин должен быть уникален только среди "живых" записей, чтобы можно было
-    // восстановить/создать пользователя заново после soft-delete.
-    usernameUq: uniqueIndex('users_username_uq').on(t.username).where(sql`${t.deletedAt} is null`),
-  }),
-);
-
 export const refreshTokens = pgTable(
   'refresh_tokens',
   {
@@ -523,7 +504,7 @@ export const aiChatHistory = pgTable(
     id: uuid('id').primaryKey(),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id),
+      .references(() => entities.id),
     conversationId: uuid('conversation_id').notNull(),
     role: text('role').notNull(),
     content: text('content').notNull(),
