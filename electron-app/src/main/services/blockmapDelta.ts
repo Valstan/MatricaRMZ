@@ -3,7 +3,9 @@
 // из локальных блоков + Range-загрузок. Чистые функции — вся сеть/IO инжектится.
 import { createWriteStream } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
+
+import { blake2b } from 'blakejs';
 
 export type BlockmapFileEntry = {
   name: string;
@@ -153,6 +155,125 @@ export function measureBlockmapDelta(
     computeDeltaPlan(parseBlockmap(oldBlockmap), parseBlockmap(newBlockmap)),
     maxDownloadRatio,
   );
+}
+
+// ── Локальная генерация blockmap (source-agnostic засев дельта-топлива) ─────
+// Побайтово совместимо с генератором electron-builder (app-builder/pkg/blockmap):
+// content-defined chunking по Рабину (go-rabin: Poly64, window 64, min/avg/max
+// 8/16/32 KiB) + чанк-хэш blake2b с digest 18 байт в base64. Совместимость
+// проверяется opt-in тестом на реальной паре .exe/.blockmap релиза
+// (blockmapDelta.generate.test.ts) — при дрейфе алгоритма upstream чанки просто
+// перестанут совпадать и delta откатится на full (не корректность, а трафик).
+
+const RABIN_POLY64 = 0xbfe6b8a5bf378d83n;
+const CHUNKER_WINDOW = 64;
+const CHUNKER_MIN = 8 * 1024;
+const CHUNKER_AVG = 16 * 1024;
+const CHUNKER_MAX = 32 * 1024;
+
+type RabinTables = {
+  pushHi: Int32Array;
+  pushLo: Int32Array;
+  popHi: Int32Array;
+  popLo: Int32Array;
+};
+
+function polyGf2Degree(p: bigint): number {
+  return p <= 0n ? -1 : p.toString(2).length - 1;
+}
+
+function polyGf2Mod(a: bigint, p: bigint): bigint {
+  const dp = polyGf2Degree(p);
+  for (let da = polyGf2Degree(a); da >= dp; da = polyGf2Degree(a)) {
+    a ^= p << BigInt(da - dp);
+  }
+  return a;
+}
+
+// Таблицы go-rabin NewTable(Poly64, 64): push — сдвиг хэша на байт с редукцией
+// по модулю p(x) (старшие биты гасятся сложением i(x)*x^deg, как в оригинале),
+// pop — вклад выпадающего из окна байта (i(x)*x^((window-1)*8) mod p(x)).
+// 64-битные значения храним парами int32 (hi/lo) — hot-loop без BigInt.
+function buildRabinTables(): RabinTables {
+  const degree = polyGf2Degree(RABIN_POLY64);
+  const mask64 = (1n << 64n) - 1n;
+  const pushHi = new Int32Array(256);
+  const pushLo = new Int32Array(256);
+  const popHi = new Int32Array(256);
+  const popLo = new Int32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    const shifted = BigInt(i) << BigInt(degree);
+    const push = (shifted ^ polyGf2Mod(shifted, RABIN_POLY64)) & mask64;
+    pushHi[i] = Number(push >> 32n) | 0;
+    pushLo[i] = Number(push & 0xffffffffn) | 0;
+    const pop = polyGf2Mod(BigInt(i) << BigInt((CHUNKER_WINDOW - 1) * 8), RABIN_POLY64);
+    popHi[i] = Number(pop >> 32n) | 0;
+    popLo[i] = Number(pop & 0xffffffffn) | 0;
+  }
+  return { pushHi, pushLo, popHi, popLo };
+}
+
+let rabinTables: RabinTables | null = null;
+
+/** Границы чанков как в go-rabin Chunker.Next(): boundary при hash&(avg-1)==avg-1. */
+export function computeBlockmapChunkSizes(data: Buffer): number[] {
+  rabinTables ??= buildRabinTables();
+  const { pushHi, pushLo, popHi, popLo } = rabinTables;
+  const topShift = polyGf2Degree(RABIN_POLY64) - 8 - 32; // бит top-байта в hi-половине
+  const hashMask = CHUNKER_AVG - 1;
+  const len = data.length;
+  const sizes: number[] = [];
+  let start = 0;
+  while (start < len) {
+    if (start + CHUNKER_MIN > len) {
+      sizes.push(len - start);
+      break;
+    }
+    // Прайм окна перед минимальным размером чанка: hash по [start+min-window, start+min).
+    let head = start + CHUNKER_MIN - CHUNKER_WINDOW;
+    let hi = 0;
+    let lo = 0;
+    for (let i = head; i < head + CHUNKER_WINDOW; i += 1) {
+      const top = (hi >>> topShift) & 0xff;
+      const nhi = (((hi << 8) | (lo >>> 24)) ^ pushHi[top]!) | 0;
+      lo = (((lo << 8) | data[i]!) ^ pushLo[top]!) | 0;
+      hi = nhi;
+    }
+    const limit = start + CHUNKER_MAX - CHUNKER_WINDOW;
+    while ((lo & hashMask) !== hashMask && head < limit) {
+      if (head + CHUNKER_WINDOW >= len) break;
+      const popByte = data[head]!;
+      const pushByte = data[head + CHUNKER_WINDOW]!;
+      head += 1;
+      hi ^= popHi[popByte]!;
+      lo ^= popLo[popByte]!;
+      const top = (hi >>> topShift) & 0xff;
+      const nhi = (((hi << 8) | (lo >>> 24)) ^ pushHi[top]!) | 0;
+      lo = (((lo << 8) | pushByte) ^ pushLo[top]!) | 0;
+      hi = nhi;
+    }
+    head += CHUNKER_WINDOW;
+    sizes.push(head - start);
+    start = head;
+  }
+  return sizes;
+}
+
+/** Blockmap файла в формате electron-builder — из локальных байтов (не с сервера). */
+export function generateBlockmap(data: Buffer): Blockmap {
+  const sizes = computeBlockmapChunkSizes(data);
+  const checksums: string[] = [];
+  let offset = 0;
+  for (const size of sizes) {
+    checksums.push(Buffer.from(blake2b(data.subarray(offset, offset + size), undefined, 18)).toString('base64'));
+    offset += size;
+  }
+  return { version: '2', files: [{ name: 'file', offset: 0, checksums, sizes }] };
+}
+
+/** Сериализация как у app-builder: JSON + gzip (parseBlockmap читает оба вида). */
+export function serializeBlockmap(map: Blockmap): Buffer {
+  return gzipSync(Buffer.from(JSON.stringify(map), 'utf8'), { level: 9 });
 }
 
 export async function assembleFromPlan(args: {

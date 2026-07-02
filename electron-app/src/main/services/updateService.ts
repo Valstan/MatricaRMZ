@@ -2732,32 +2732,36 @@ async function fetchServerBlockmap(apiBaseUrl: string, blockmapFileName: string)
 
 // После успешной server-закачки сохраняем blockmap новой версии + sidecar — топливо
 // для delta при СЛЕДУЮЩЕМ обновлении. Любой сбой не критичен (delta просто не включится).
+// Source-agnostic: если кэшированный exe — не серверная сборка (зеркала Yandex/GitHub
+// раздают независимо собранный installer с другим sha — F2) или серверный blockmap
+// недоступен, генерим blockmap ЛОКАЛЬНО из фактических байтов кэша. Checksums тогда
+// описывают реальный локальный файл → copy-блоки корректны независимо от происхождения
+// exe; итоговая сборка всё равно верифицируется по meta.sha256 в tryServerDeltaDownload.
 async function cacheServerDeltaArtifacts(meta: ServerUpdateMeta, apiBaseUrl: string): Promise<void> {
   try {
-    if (!meta.blockmapFileName || !meta.sha256) {
-      await logLan(
-        `delta fuel skipped: server meta has no ${!meta.blockmapFileName ? 'blockmapFileName' : 'sha256'} ` +
-          `(version=${meta.version}) — delta stays disabled until server publishes .blockmap (GOTCHAS M5)`,
-      );
+    const stablePath = getStableInstallerPath();
+    const stableSha = await computeSha256(stablePath).catch(() => null);
+    if (!stableSha) {
+      await logLan('delta fuel skipped: no cached installer to seed from');
       return;
     }
-    // Топливо валидно только если кэшированный stable installer — ровно эта серверная сборка.
-    // Иначе серверный blockmap не совпадёт с кэшированным .exe (Yandex/GitHub раздают
-    // независимо собранный installer с другим sha — F2) и delta при след. обновлении просто
-    // упадёт на integrity. Самовалидация делает helper безопасным для вызова из любой ноги.
-    const stableSha = await computeSha256(getStableInstallerPath()).catch(() => null);
-    if (stableSha !== meta.sha256) {
-      await logLan('delta artifacts skipped: cached installer sha != server build (source differs)');
-      return;
+    if (meta.blockmapFileName && meta.sha256 && stableSha === meta.sha256) {
+      const blockmap = await fetchServerBlockmap(apiBaseUrl, meta.blockmapFileName);
+      if (blockmap) {
+        await writeFile(getCachedBlockmapPath(), blockmap);
+        await writeFile(getCachedInstallerSidecarPath(), JSON.stringify({ version: meta.version, sha256: meta.sha256 }));
+        await logLan(`delta artifacts cached version=${meta.version} blockmap=${blockmap.length}b`);
+        return;
+      }
+      await logLan(`delta fuel: server blockmap ${meta.blockmapFileName} fetch failed — generating locally`);
     }
-    const blockmap = await fetchServerBlockmap(apiBaseUrl, meta.blockmapFileName);
-    if (!blockmap) {
-      await logLan(`delta fuel skipped: failed to fetch server blockmap ${meta.blockmapFileName}`);
-      return;
-    }
+    const { generateBlockmap, serializeBlockmap } = await import('./blockmapDelta.js');
+    const blockmap = serializeBlockmap(generateBlockmap(await readFile(stablePath)));
     await writeFile(getCachedBlockmapPath(), blockmap);
-    await writeFile(getCachedInstallerSidecarPath(), JSON.stringify({ version: meta.version, sha256: meta.sha256 }));
-    await logLan(`delta artifacts cached version=${meta.version} blockmap=${blockmap.length}b`);
+    await writeFile(getCachedInstallerSidecarPath(), JSON.stringify({ version: meta.version, sha256: stableSha }));
+    await logLan(
+      `delta artifacts generated locally version=${meta.version} blockmap=${blockmap.length}b (source-agnostic seed)`,
+    );
   } catch (e) {
     await logLan(`delta artifacts cache failed: ${String(e)}`);
   }
@@ -2773,9 +2777,10 @@ async function cacheDeltaFuel(meta: ServerUpdateMeta): Promise<void> {
 }
 
 // Засев топлива при старте: если топлива нет, но клиент уже на последней версии
-// (serverMeta.version === текущая) и его stable-installer совпадает с серверной сборкой
-// (самопроверка stableSha===meta.sha256 внутри cacheServerDeltaArtifacts) — дотягиваем
-// blockmap текущей версии + пишем sidecar. Делает delta доступной для СЛЕДУЮЩЕГО релиза,
+// (serverMeta.version === текущая) и stable-installer лежит в кэше — дотягиваем/генерим
+// blockmap текущей версии + пишем sidecar (source-agnostic: при sha-расхождении с
+// серверной сборкой blockmap генерится из локальных байтов, см. cacheServerDeltaArtifacts).
+// Делает delta доступной для СЛЕДУЮЩЕГО релиза,
 // не дожидаясь «двух обновлений». Это главный фикс рекуррентного «дельта не включается»:
 // раньше топливо писалось только в момент скачивания и систематически терялось/не писалось
 // (сервер без .blockmap до 620; mirror-источник; cleanup на fallback-ветках) → haveFuel=false
@@ -2784,7 +2789,7 @@ async function cacheDeltaFuel(meta: ServerUpdateMeta): Promise<void> {
 async function ensureDeltaFuelForCurrent(serverMeta: ServerUpdateMeta | null): Promise<void> {
   try {
     if (await readCachedInstallerSidecar().catch(() => null)) return; // топливо уже есть
-    if (!serverMeta?.blockmapFileName || !serverMeta.sha256) return;
+    if (!serverMeta?.version) return;
     if (serverMeta.version !== app.getVersion()) return; // сервер отдаёт latest; сеять можно лишь когда latest == текущая
     const apiBaseUrl = await resolveUpdateApiBaseUrl().catch(() => '');
     if (!apiBaseUrl) return;
