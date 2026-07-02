@@ -1,13 +1,27 @@
 import 'dotenv/config';
 
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
+import { LedgerTableName } from '@matricarmz/ledger';
+import { resolveNomenclatureComponentTypeId } from '@matricarmz/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
-import { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpNomenclature } from '../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  directoryParts,
+  entities,
+  entityTypes,
+  erpEngineAssemblyBomLines,
+  erpNomenclature,
+} from '../database/schema.js';
+import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 import { createEntity, setEntityAttribute } from '../services/adminMasterdataService.js';
-import { getWarehouseAssemblyBom, upsertWarehouseAssemblyBom } from '../services/warehouseBomService.js';
+import { ensureNomenclatureBrandPart } from '../services/bomBrandPartSync.js';
+import { getWarehouseAssemblyBom } from '../services/warehouseBomService.js';
+import { serializeWarehouseBomLineMeta } from '../services/warehouseBomLineMeta.js';
 import { createDirectoryPart, upsertWarehouseNomenclature } from '../services/warehouseService.js';
 
 /**
@@ -437,23 +451,23 @@ async function main() {
       priority: number;
       notes: string | null;
     }>;
-    const mergedLines = existingLines.map((line) => ({
-      componentNomenclatureId: String(line.componentNomenclatureId),
-      componentType: String(line.componentType),
-      qtyPerUnit: Number(line.qtyPerUnit ?? 0),
-      variantGroup: line.variantGroup ?? null,
-      lineKey: line.lineKey ?? null,
-      parentLineKey: line.parentLineKey ?? null,
-      isRequired: line.isRequired !== false,
-      priority: Number(line.priority ?? 100),
-      notes: line.notes ?? null,
-    }));
-    const baseLineByNomId = new Map<string, (typeof mergedLines)[number]>();
-    for (const line of mergedLines) {
-      if (line.variantGroup == null) baseLineByNomId.set(line.componentNomenclatureId, line);
+    // Line-level additive writes instead of upsertWarehouseAssemblyBom: the full-replace
+    // upsert re-validates the WHOLE BOM, and the pre-existing owner-built kit variants on
+    // prod legitimately fail today's stricter schema check (missing required 'ring') —
+    // a legacy state this import must not touch. Direct insert/update + explicit ledger
+    // sign (same payload shape as the service) keeps kits untouched and clients synced.
+    const baseLineByNomId = new Map<string, { id?: string; qtyPerUnit: number }>();
+    for (const line of existingLines) {
+      if (line.variantGroup == null) {
+        const lineId = (line as { id?: string }).id;
+        baseLineByNomId.set(String(line.componentNomenclatureId), {
+          ...(lineId ? { id: lineId } : {}),
+          qtyPerUnit: Number(line.qtyPerUnit ?? 0),
+        });
+      }
     }
-    let added = 0;
-    let updated = 0;
+    const toInsert: Array<{ nomId: string; qty: number; note: string | null }> = [];
+    const toUpdate: Array<{ lineId: string; nomId: string; qty: number }> = [];
     let skippedNew = 0;
     for (const item of items) {
       const qty = item[qtyKey];
@@ -462,52 +476,104 @@ async function main() {
       if (!nomId) continue;
       if (nomId.startsWith('new:')) {
         skippedNew += 1; // dry-run only: part not created yet, would be added on --apply
-        added += 1;
         continue;
       }
       const existing = baseLineByNomId.get(nomId);
       if (existing) {
-        if (existing.qtyPerUnit !== qty) {
-          existing.qtyPerUnit = qty;
-          updated += 1;
-        }
+        if (existing.qtyPerUnit !== qty && existing.id) toUpdate.push({ lineId: existing.id, nomId, qty });
       } else {
-        const line = {
-          componentNomenclatureId: nomId,
-          componentType: 'other',
-          qtyPerUnit: qty,
-          variantGroup: null as string | null,
-          lineKey: null as string | null,
-          parentLineKey: null as string | null,
-          isRequired: true,
-          priority: 100,
-          notes: item.engineNode || null,
-        };
-        mergedLines.push(line);
-        baseLineByNomId.set(nomId, line);
-        added += 1;
+        toInsert.push({ nomId, qty, note: item.engineNode || null });
       }
     }
     console.log(
-      `[import] BOM «${String(header.name)}» (${label}): строк было ${existingLines.length}, добавится ${added}, количество обновится у ${updated}${
+      `[import] BOM «${String(header.name)}» (${label}): строк было ${existingLines.length}, добавится ${toInsert.length + skippedNew}, количество обновится у ${toUpdate.length}${
         !APPLY && skippedNew ? ` (из них ${skippedNew} — по ещё не созданным деталям)` : ''
       }`,
     );
     if (APPLY) {
-      const res = await upsertWarehouseAssemblyBom({
-        id: bomId,
-        name: String(header.name ?? `BOM ${label}`),
-        engineBrandIds: (header.engineBrandIds ?? []).map(String),
-        version: Number(header.version ?? 1),
-        notes: header.notes == null ? null : String(header.notes),
-        lines: mergedLines,
-        actor,
-      });
-      if (!res.ok) console.log(`  ✖ upsert BOM ${label}: ${res.error}`);
-      else if (res.warnings?.length) {
-        console.log(`  BOM ${label}: ${res.warnings.length} warnings (component-type auto-fix), первые 10:`);
-        for (const w of res.warnings.slice(0, 10)) console.log(`    ${w}`);
+      const brandIds = (header.engineBrandIds ?? []).map(String);
+      const ts = Date.now();
+      const newIds: string[] = [];
+      for (const ins of toInsert) {
+        const nomRow = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, ins.nomId)).limit(1);
+        const componentType =
+          resolveNomenclatureComponentTypeId({
+            componentTypeId: nomRow[0]?.componentTypeId ?? null,
+            specJson: nomRow[0]?.specJson ?? null,
+            name: nomRow[0]?.name ?? null,
+            code: nomRow[0]?.code ?? null,
+            category: nomRow[0]?.category ?? null,
+            itemType: nomRow[0]?.itemType ?? null,
+          }) ?? 'other';
+        const lineId = randomUUID();
+        await db.insert(erpEngineAssemblyBomLines).values({
+          id: lineId,
+          bomId,
+          componentNomenclatureId: ins.nomId,
+          componentType,
+          qtyPerUnit: ins.qty,
+          variantGroup: null,
+          isRequired: true,
+          priority: 100,
+          notes: serializeWarehouseBomLineMeta({ text: ins.note, lineKey: null, parentLineKey: null }),
+          createdAt: ts,
+          updatedAt: ts,
+          deletedAt: null,
+          syncStatus: 'synced',
+          lastServerSeq: null,
+        });
+        newIds.push(lineId);
       }
+      for (const upd of toUpdate) {
+        await db
+          .update(erpEngineAssemblyBomLines)
+          .set({ qtyPerUnit: upd.qty, updatedAt: ts })
+          .where(eq(erpEngineAssemblyBomLines.id, upd.lineId));
+      }
+      const touchedIds = [...newIds, ...toUpdate.map((u) => u.lineId)];
+      const savedRows = touchedIds.length
+        ? await db.select().from(erpEngineAssemblyBomLines).where(and(eq(erpEngineAssemblyBomLines.bomId, bomId), isNull(erpEngineAssemblyBomLines.deletedAt)))
+        : [];
+      const touchedSet = new Set(touchedIds);
+      const signRows = savedRows.filter((row) => touchedSet.has(String(row.id)));
+      if (signRows.length > 0) {
+        signAndAppendDetailed(
+          signRows.map((line) => ({
+            type: 'upsert' as const,
+            table: LedgerTableName.ErpEngineAssemblyBomLines,
+            row_id: String(line.id),
+            row: {
+              id: String(line.id),
+              bom_id: String(line.bomId),
+              component_nomenclature_id: String(line.componentNomenclatureId),
+              component_type: String(line.componentType),
+              qty_per_unit: Number(line.qtyPerUnit),
+              variant_group: line.variantGroup ?? null,
+              is_required: Boolean(line.isRequired),
+              priority: Number(line.priority),
+              notes: line.notes ?? null,
+              created_at: Number(line.createdAt),
+              updated_at: Number(line.updatedAt),
+              deleted_at: line.deletedAt == null ? null : Number(line.deletedAt),
+              sync_status: String(line.syncStatus ?? 'synced'),
+              last_server_seq: line.lastServerSeq == null ? null : Number(line.lastServerSeq),
+            },
+            actor: { userId: actor.id, username: actor.username, role: actor.role },
+            ts,
+          })),
+        );
+      }
+      // «Деталь заведена как деталь марки» — the same guarantee hook the service runs
+      // (part visible on the brand card with its qty). Best-effort per line.
+      const hookActor = { id: actor.id, username: actor.username, role: actor.role } as Parameters<typeof ensureNomenclatureBrandPart>[0];
+      for (const ins of toInsert) {
+        const byBrand = new Map<string, number>();
+        for (const brandId of brandIds) byBrand.set(brandId, ins.qty);
+        await ensureNomenclatureBrandPart(hookActor, ins.nomId, byBrand).catch((e) =>
+          console.log(`  ⚠ brand-part guarantee ${ins.nomId}: ${String(e)}`),
+        );
+      }
+      console.log(`  BOM ${label}: вставлено ${newIds.length}, обновлено ${toUpdate.length}, подписано в ledger ${signRows.length}`);
     }
   }
 
