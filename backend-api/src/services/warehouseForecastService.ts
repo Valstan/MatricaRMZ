@@ -405,6 +405,7 @@ export function buildAssemblyForecastKits(input: {
 
     // Edge case #2: фильтр строк, ссылающихся на soft-deleted nomenclature.
     let droppedDueToDeletedNomenclature = 0;
+    let fractionalQtyLines = 0;
     const lineRecords = bomLines
       .map((line) => {
         const compId = String(line.componentNomenclatureId);
@@ -413,7 +414,10 @@ export function buildAssemblyForecastKits(input: {
           droppedDueToDeletedNomenclature += 1;
           return null;
         }
-        const qtyPerEngine = Math.max(0, Math.trunc(Number(line.qtyPerUnit ?? 0)));
+        const rawQty = Number(line.qtyPerUnit ?? 0);
+        // Edge case #6: дробное «кол-во на двигатель» усекается (0.5 → строка выпадает молча).
+        if (Number.isFinite(rawQty) && rawQty > 0 && !Number.isInteger(rawQty)) fractionalQtyLines += 1;
+        const qtyPerEngine = Math.max(0, Math.trunc(rawQty));
         if (!compId || qtyPerEngine <= 0) return null;
         const meta = parseWarehouseBomLineMeta(line.notes);
         const variantGroup = String(line.variantGroup ?? '').trim() || null;
@@ -433,6 +437,13 @@ export function buildAssemblyForecastKits(input: {
         `BOM марки «${brandTitle}»: пропущено ${droppedDueToDeletedNomenclature} ` +
           `${droppedDueToDeletedNomenclature === 1 ? 'строка' : 'строк'} ` +
           `(ссылается на удалённую номенклатуру).`,
+      );
+    }
+    if (fractionalQtyLines > 0) {
+      warnings.push(
+        `BOM марки «${brandTitle}»: ${fractionalQtyLines} ` +
+          `${fractionalQtyLines === 1 ? 'строка' : 'строк'} с дробным «кол-во на двигатель» — ` +
+          `значение усечено до целого (строки с количеством < 1 выпали из прогноза).`,
       );
     }
 
@@ -489,6 +500,31 @@ export function buildAssemblyForecastKits(input: {
 async function loadActiveDefaultBomKits(
   engineBrandFilter?: string[],
 ): Promise<{ kits: AssemblyEngineBrandKit[]; warnings: string[] }> {
+  // Edge case #7: активный default BOM вовсе без активной brand-link молча выпадает
+  // из innerJoin ниже (backfill 0042+0047 гарантировал link, но диагностика нужна).
+  const linklessRows = await db
+    .select({ id: erpEngineAssemblyBom.id, name: erpEngineAssemblyBom.name })
+    .from(erpEngineAssemblyBom)
+    .leftJoin(
+      erpEngineAssemblyBomBrandLinks,
+      and(
+        eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+        isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(erpEngineAssemblyBom.status, 'active'),
+        eq(erpEngineAssemblyBom.isDefault, true),
+        isNull(erpEngineAssemblyBom.deletedAt),
+        isNull(erpEngineAssemblyBomBrandLinks.id),
+      ),
+    );
+  const linklessWarnings = linklessRows.map(
+    (row) =>
+      `Активный default BOM «${String(row.name ?? row.id)}» не связан ни с одной маркой двигателя — исключён из прогноза.`,
+  );
+
   const conditions = [
     eq(erpEngineAssemblyBom.status, 'active'),
     eq(erpEngineAssemblyBom.isDefault, true),
@@ -513,7 +549,7 @@ async function loadActiveDefaultBomKits(
       eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
     )
     .where(and(...conditions));
-  if (headerRowsRaw.length === 0) return { kits: [], warnings: [] };
+  if (headerRowsRaw.length === 0) return { kits: [], warnings: linklessWarnings };
 
   const bomIds = Array.from(new Set(headerRowsRaw.map((row) => String(row.id))));
   const brandIds = Array.from(new Set(headerRowsRaw.map((row) => String(row.engineBrandId))));
@@ -549,7 +585,7 @@ async function loadActiveDefaultBomKits(
   );
   const brandLabels = await loadEngineBrandDisplayNames(brandIds);
 
-  return buildAssemblyForecastKits({
+  const built = buildAssemblyForecastKits({
     headerRows: headerRowsRaw.map((row) => ({
       id: String(row.id),
       name: row.name == null ? null : String(row.name),
@@ -567,6 +603,7 @@ async function loadActiveDefaultBomKits(
     nomenclatureById,
     brandLabels,
   });
+  return { kits: built.kits, warnings: [...linklessWarnings, ...built.warnings] };
 }
 
 export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
