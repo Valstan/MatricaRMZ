@@ -37,6 +37,7 @@
     "masterdata:import-engine-brand-part-matrix": "tsx src/scripts/importEngineBrandPartMatrix.ts",
     "masterdata:import-contracts-goz": "tsx src/scripts/importContractsGoz.ts",
     "masterdata:sync-engines-completeness-csv": "tsx src/scripts/importEnginesFromCompletenessCsv.ts",
+    "warehouse:import-zamena-kr": "tsx src/scripts/importZamenaKrBomNorms.ts",
     "warehouse:directories-dry-run": "tsx src/scripts/dryRunDirectoriesToNomenclature.ts",
     "warehouse:audit-parts-mirror": "tsx src/scripts/auditPartsMirror.ts",
     "warehouse:fix-parts-mirror": "tsx src/scripts/fixPartsMirror.ts",
