@@ -28,7 +28,8 @@
 | 6 | Договоры и контрагенты | contracts, counterparties |
 | 7 | Персонал | employees, timesheets |
 | 8 | Отчёты и аналитика | reports, workshop_stats |
-| 9 | Администрирование | masterdata, workshops, warehouses_admin, audit, changes, empty_cards, drafts, admin (только владелец добавляет) |
+| 9 | Справочники | masterdata, workshops, warehouses_admin _(выделено из «Администрирования» в Ф0: технологу нужен edit справочников, всем операторам — view; иначе автозасев не сохранил бы сегодняшнее поведение)_ |
+| 10 | Администрирование | audit, changes, admin, empty_cards, drafts (только владелец добавляет) |
 
 Точная карта «раздел → entity-types/таблицы sync + permission codes» детализируется в Ф0 (`shared/src/domain/sectionAccess.ts` — единственный источник истины, по образцу `workOrderAccess.ts`).
 
