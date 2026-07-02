@@ -149,6 +149,9 @@ importers:
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
+      blakejs:
+        specifier: ^1.2.1
+        version: 1.2.1
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -2052,6 +2055,9 @@ packages:
 
   bl@4.1.0:
     resolution: {integrity: sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w==}
+
+  blakejs@1.2.1:
+    resolution: {integrity: sha512-QXUSXI3QVc/gJME0dBpXrag1kbzOqCjCX8/b54ntNyW6sjtoqxqRk3LTmXzaJoh71zMsDCjM+47jS7XiwN/+fQ==}
 
   block-iterator@1.1.2:
     resolution: {integrity: sha512-yAHUP44v2K25xLPdrgVTgwtuQctlullzjczu9CoUZom5AP3g4p1R1+aWHjS1GHG9JtcSUVUnbEPiuXiW5YZ24w==}
@@ -6476,6 +6482,8 @@ snapshots:
       buffer: 5.7.1
       inherits: 2.0.4
       readable-stream: 3.6.2
+
+  blakejs@1.2.1: {}
 
   block-iterator@1.1.2: {}
 

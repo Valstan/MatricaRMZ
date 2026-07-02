@@ -12,8 +12,10 @@ import {
   computeDeltaPlan,
   DELTA_DEFAULT_MAX_DOWNLOAD_RATIO,
   formatDeltaReport,
+  generateBlockmap,
   measureBlockmapDelta,
   parseBlockmap,
+  serializeBlockmap,
   summarizeDeltaPlan,
   type Blockmap,
   type DeltaPlan,
@@ -210,5 +212,61 @@ describe('assembleFromPlan', () => {
         downloadRange: async () => Buffer.alloc(3),
       }),
     ).rejects.toThrow(/range size mismatch/);
+  });
+});
+
+describe('generateBlockmap (local source-agnostic seed)', () => {
+  // Детерминированные «данные»: xorshift, без Math.random (стабильные границы чанков).
+  function pseudoRandom(len: number, seed = 0x12345678): Buffer {
+    const buf = Buffer.alloc(len);
+    let s = seed >>> 0;
+    for (let i = 0; i < len; i += 1) {
+      s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+      buf[i] = s & 0xff;
+    }
+    return buf;
+  }
+
+  it('chunk sizes are within [min,max], sum to file size, avg near 16K', () => {
+    const data = pseudoRandom(2 * 1024 * 1024);
+    const map = generateBlockmap(data);
+    const sizes = map.files[0]!.sizes;
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(data.length);
+    for (const s of sizes.slice(0, -1)) {
+      expect(s).toBeGreaterThanOrEqual(8 * 1024);
+      expect(s).toBeLessThanOrEqual(32 * 1024);
+    }
+    const avg = data.length / sizes.length;
+    expect(avg).toBeGreaterThan(10 * 1024);
+    expect(avg).toBeLessThan(28 * 1024);
+  });
+
+  it('self-delta downloads nothing; serialize/parse round-trips', () => {
+    const data = pseudoRandom(512 * 1024, 0xdeadbeef);
+    const map = parseBlockmap(serializeBlockmap(generateBlockmap(data)));
+    const plan = computeDeltaPlan(map, map);
+    expect(plan.downloadSize).toBe(0);
+    expect(plan.totalSize).toBe(data.length);
+  });
+
+  it('local edit invalidates few chunks: most bytes reused (CDC resists shifts)', () => {
+    const oldData = pseudoRandom(1024 * 1024, 0x777);
+    // Вставка 100 байт в середину — сдвиг хвоста; CDC должен пересинхронизироваться.
+    const newData = Buffer.concat([
+      oldData.subarray(0, 500_000),
+      pseudoRandom(100, 0x42),
+      oldData.subarray(500_000),
+    ]);
+    const plan = computeDeltaPlan(generateBlockmap(oldData), generateBlockmap(newData));
+    const report = summarizeDeltaPlan(plan);
+    expect(plan.totalSize).toBe(newData.length);
+    expect(report.savedRatio).toBeGreaterThan(0.9);
+  });
+
+  it('short files (< min chunk) become a single chunk', () => {
+    const data = pseudoRandom(1000, 0x99);
+    const map = generateBlockmap(data);
+    expect(map.files[0]!.sizes).toEqual([1000]);
+    expect(map.files[0]!.checksums).toHaveLength(1);
   });
 });
