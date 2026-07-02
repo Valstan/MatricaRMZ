@@ -265,3 +265,38 @@ describe('buildAssemblyForecastKits — happy path', () => {
     expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['nom-ok']);
   });
 });
+
+describe('buildAssemblyForecastKits — edge case #6: дробный qtyPerUnit', () => {
+  it('0.5 → строка выпадает, 2.5 → усекается до 2; один warning на BOM', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-frac', engineBrandId: 'brand-a' })],
+      lineRows: [
+        line({ bomId: 'bom-frac', componentNomenclatureId: 'nom-half', qtyPerUnit: 0.5 }),
+        line({ bomId: 'bom-frac', componentNomenclatureId: 'nom-two-half', qtyPerUnit: 2.5 }),
+        line({ bomId: 'bom-frac', componentNomenclatureId: 'nom-int', qtyPerUnit: 3 }),
+      ],
+      nomenclatureById: asNomMap([nom({ id: 'nom-half' }), nom({ id: 'nom-two-half' }), nom({ id: 'nom-int' })]),
+      brandLabels,
+    });
+    const fracWarning = result.warnings.find((w) => w.includes('дробным'));
+    expect(fracWarning).toBeDefined();
+    expect(fracWarning).toContain('А-41');
+    expect(fracWarning).toContain('2 строк');
+    expect(result.kits).toHaveLength(1);
+    const parts = result.kits[0]!.parts;
+    expect(parts.map((p) => [p.nomenclatureId, p.qtyPerEngine])).toEqual([
+      ['nom-two-half', 2],
+      ['nom-int', 3],
+    ]);
+  });
+
+  it('целые qtyPerUnit → warning не генерируется', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-int', engineBrandId: 'brand-a' })],
+      lineRows: [line({ bomId: 'bom-int', componentNomenclatureId: 'nom-ok', qtyPerUnit: 2 })],
+      nomenclatureById: asNomMap([nom({ id: 'nom-ok' })]),
+      brandLabels,
+    });
+    expect(result.warnings).toEqual([]);
+  });
+});
