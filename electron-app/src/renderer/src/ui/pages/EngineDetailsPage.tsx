@@ -31,6 +31,16 @@ const FEATURE_ENGINE_DISMANTLE = false;
 
 type LinkOpt = SearchSelectOption;
 
+/** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
+export type EngineCardTab = 'main' | 'details' | 'files' | 'reclamation';
+
+const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
+  { key: 'main', label: 'Основное' },
+  { key: 'details', label: 'Детали и акты' },
+  { key: 'files', label: 'Фото и документы' },
+  { key: 'reclamation', label: 'Рекламация' },
+];
+
 function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
 }
@@ -239,6 +249,7 @@ export function EngineDetailsPage(props: {
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
+  initialTab?: EngineCardTab;
 }) {
   const [dismantleOpen, setDismantleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
@@ -309,6 +320,14 @@ export function EngineDetailsPage(props: {
         ? [{ id: engineBrandId, label: engineBrand }]
         : [];
   const sessionHadChanges = useRef<boolean>(false);
+  // Зеркало sessionHadChanges в state — только чтобы ярлык вкладки «Основное»
+  // мог показать маркер несохранённых изменений (ref не триггерит рендер).
+  const [mainDirty, setMainDirty] = useState(false);
+  const setSessionChanged = (v: boolean) => {
+    sessionHadChanges.current = v;
+    setMainDirty(v);
+  };
+  const [activeTab, setActiveTab] = useState<EngineCardTab>(props.initialTab ?? 'main');
   const initialSnapshot = useRef<{
     engineNumber: string;
     engineBrand: string;
@@ -410,7 +429,8 @@ export function EngineDetailsPage(props: {
       engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
       arrivalDate: toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
     };
-    sessionHadChanges.current = false;
+    setSessionChanged(false);
+    setActiveTab(props.initialTab ?? 'main');
   }, [props.engineId]);
 
   function asNullableText(v: unknown): string | null {
@@ -445,7 +465,7 @@ export function EngineDetailsPage(props: {
 
   /** Взаимоисключение флагов статусов: «Начат ремонт» ↔ остальные; дата начала ремонта при снятии через другой статус не трогаем. */
   function applyStatusCheckboxChange(code: StatusCode, next: boolean) {
-    sessionHadChanges.current = true;
+    setSessionChanged(true);
     setStatusFlags((prev) => {
       const updated: Partial<Record<StatusCode, boolean>> = { ...prev, [code]: next };
       if (code === REPAIR_STARTED_CODE && next) {
@@ -537,7 +557,7 @@ export function EngineDetailsPage(props: {
         }
       }
     }
-    sessionHadChanges.current = false;
+    setSessionChanged(false);
   }
 
   async function handleDelete() {
@@ -582,7 +602,7 @@ export function EngineDetailsPage(props: {
           summaryRu: `Изменил: ${fieldsChanged.join(', ')}`,
         },
       });
-      sessionHadChanges.current = false;
+      setSessionChanged(false);
     } catch {
       // ignore
     }
@@ -600,14 +620,14 @@ export function EngineDetailsPage(props: {
       isDirty: () => sessionHadChanges.current,
       saveAndClose: async () => {
         await saveAllAndClose();
-        sessionHadChanges.current = false;
+        setSessionChanged(false);
       },
       reset: async () => {
         await props.onReload();
-        sessionHadChanges.current = false;
+        setSessionChanged(false);
       },
       closeWithoutSave: () => {
-        sessionHadChanges.current = false;
+        setSessionChanged(false);
       },
       copyToNew: async () => {
         const r = await window.matrica.engines.create();
@@ -783,7 +803,7 @@ export function EngineDetailsPage(props: {
             // field to ~86px in earlier attempts, so we keep both).
             style={{ width: '100%', minWidth: '30ch' }}
             onChange={(e) => {
-              sessionHadChanges.current = true;
+              setSessionChanged(true);
               setEngineNumber(e.target.value);
             }}
           />
@@ -807,14 +827,14 @@ export function EngineDetailsPage(props: {
             onChange={(next) => {
               const nextId = next ?? '';
               const label = next ? engineBrandOptions.find((o) => o.id === next)?.label ?? '' : '';
-              sessionHadChanges.current = true;
+              setSessionChanged(true);
               setEngineBrandId(nextId);
               setEngineBrand(label);
             }}
             onCreate={async (label) => {
               const id = await createMasterDataItem('engine_brand', label);
               if (!id) return null;
-              sessionHadChanges.current = true;
+              setSessionChanged(true);
               setEngineBrandId(id);
               setEngineBrand(label);
               return id;
@@ -843,7 +863,7 @@ export function EngineDetailsPage(props: {
           disabled={!props.canEditEngines}
           style={elasticFieldStyle}
           onChange={(e) => {
-            sessionHadChanges.current = true;
+            setSessionChanged(true);
             setArrivalDate(e.target.value);
           }}
         />
@@ -866,7 +886,7 @@ export function EngineDetailsPage(props: {
                 createLabel="Контрагент"
                 onChange={(next) => {
                   const v = next ?? '';
-                  sessionHadChanges.current = true;
+                  setSessionChanged(true);
                   setCustomerId(v);
                   // Сменили контрагента — сбрасываем контракт/ДС, если они принадлежат другому
                   // контрагенту (его UUID нет в searchText опции контракта).
@@ -910,7 +930,7 @@ export function EngineDetailsPage(props: {
                 createLabel="Номер контракта"
                 onChange={(next) => {
                   const v = next ?? '';
-                  sessionHadChanges.current = true;
+                  setSessionChanged(true);
                   setContractId(v);
                 }}
                 onCreate={async (label) => {
@@ -955,7 +975,7 @@ export function EngineDetailsPage(props: {
               disabled={!props.canEditEngines || !contractId || contractSectionOptions.length === 0}
               showAllWhenEmpty
               onChange={(next) => {
-                sessionHadChanges.current = true;
+                setSessionChanged(true);
                 setContractSectionNumber(next ?? '');
               }}
             />
@@ -976,7 +996,7 @@ export function EngineDetailsPage(props: {
               disabled={!props.canEditEngines || workshopOptions.length === 0}
               showAllWhenEmpty
               onChange={(next) => {
-                sessionHadChanges.current = true;
+                setSessionChanged(true);
                 setWorkshopId(next ?? '');
               }}
             />
@@ -1009,7 +1029,7 @@ export function EngineDetailsPage(props: {
               disabled={!props.canEditEngines}
               style={{ width: 168, minWidth: 168 }}
               onChange={(e) => {
-                sessionHadChanges.current = true;
+                setSessionChanged(true);
                 setStatusDates((prev) => ({ ...prev, [code]: fromInputDate(e.target.value) }));
               }}
             />
@@ -1078,7 +1098,7 @@ export function EngineDetailsPage(props: {
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
           onReset={() => {
             void props.onReload().then(() => {
-              sessionHadChanges.current = false;
+              setSessionChanged(false);
             });
           }}
           onPrint={props.canPrintEngineCard ? handlePrint : undefined}
@@ -1089,10 +1109,39 @@ export function EngineDetailsPage(props: {
       }
       status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div> : null}
     >
+        {/* Вкладки карточки (план reclamation-mvp-2026-07 Ф0). Панели НЕ размонтируются
+            (скрытие через hidden) — save-on-close/черновики/печать работают по state как раньше. */}
+        <div className="entity-card-span-full" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
+          {ENGINE_CARD_TABS.filter((t) => t.key !== 'details' || props.canViewOperations).map((t) => {
+            const active = activeTab === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setActiveTab(t.key)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: '10px 10px 0 0',
+                  border: '1px solid var(--border)',
+                  borderBottom: 'none',
+                  background: active ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+                  fontWeight: active ? 700 : 400,
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  fontSize: 13,
+                }}
+              >
+                {t.label}
+                {t.key === 'main' && mainDirty ? <span style={{ color: 'var(--danger)' }}> ●</span> : null}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Поля + действия — центрированная читаемая колонка (а не прижатая влево
             с пустотой справа): span-full тянется на всю grid-ширину, но внутренний
             контейнер капнут и центрирован, контролы не растягиваются. UI-аудит p2 #5. */}
-        <div className="entity-card-span-full" style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
+        <div className="entity-card-span-full" hidden={activeTab !== 'main'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
         <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
         <DraggableFieldList
           items={mainFields}
@@ -1143,7 +1192,7 @@ export function EngineDetailsPage(props: {
               const dates: Partial<Record<StatusCode, number | null>> = {};
               for (const c of STATUS_CODES) dates[c] = normalizeDateInput(attrs[statusDateCode(c)]);
               setStatusDates(dates);
-              sessionHadChanges.current = false;
+              setSessionChanged(false);
             }}
           >
             Отменить
@@ -1203,7 +1252,7 @@ export function EngineDetailsPage(props: {
       />
 
       {props.canViewOperations && (
-        <div className="entity-card-span-full" style={{ background: 'rgba(99, 102, 241, 0.08)', borderRadius: 14, padding: 10 }}>
+        <div className="entity-card-span-full" hidden={activeTab !== 'details'} style={{ background: 'rgba(99, 102, 241, 0.08)', borderRadius: 14, padding: 10 }}>
           <RepairChecklistPanel
             engineId={props.engineId}
             stage="engine_inventory"
@@ -1232,7 +1281,7 @@ export function EngineDetailsPage(props: {
         </div>
       )}
 
-      <div className="entity-card-span-full">
+      <div className="entity-card-span-full" hidden={activeTab !== 'files'}>
         <EnginePhotoGallery
           value={props.engine.attributes?.attachments}
           canView={props.canViewFiles}
@@ -1247,6 +1296,14 @@ export function EngineDetailsPage(props: {
           canUpload={props.canUploadFiles && props.canEditEngines}
           onChange={saveAttachments}
         />
+      </div>
+
+      <div className="entity-card-span-full" hidden={activeTab !== 'reclamation'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
+        <SectionCard style={{ padding: 16 }}>
+          <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
+            Двигатель не принят по рекламации. Рекламационный учёт появится здесь в следующем обновлении.
+          </div>
+        </SectionCard>
       </div>
     </EntityCardShell>
   );
