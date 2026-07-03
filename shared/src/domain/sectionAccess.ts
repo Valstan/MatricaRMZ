@@ -118,12 +118,16 @@ export function accessSectionMeta(id: string): AccessSectionMeta | null {
   return ACCESS_SECTION_CATALOG.find((s) => s.id === id) ?? null;
 }
 
-/** Tolerant parse of the `section_access` attribute value (JSON string or object). */
+/**
+ * Tolerant parse of the `section_access` attribute value: object, JSON string,
+ * or DOUBLE-encoded JSON string (setEntityAttribute JSON.stringify's the already
+ * serialized membership — prod backfill 2026-07-03 stores it that way).
+ */
 export function parseSectionMembership(raw: unknown): SectionMembership {
   let obj: unknown = raw;
-  if (typeof raw === 'string') {
+  for (let depth = 0; typeof obj === 'string' && depth < 2; depth += 1) {
     try {
-      obj = JSON.parse(raw);
+      obj = JSON.parse(obj);
     } catch {
       return {};
     }

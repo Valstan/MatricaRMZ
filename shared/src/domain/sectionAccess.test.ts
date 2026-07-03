@@ -124,3 +124,11 @@ describe('sectionForLedgerWrite', () => {
     expect(sectionForLedgerWrite({ table: 'erp_engine_assembly_bom_lines' })).toBe(AccessSection.Production);
   });
 });
+
+describe('parseSectionMembership double-encoding', () => {
+  it('parses the double-encoded value the prod backfill stores', () => {
+    const inner = JSON.stringify({ production: 'viewer', supply: 'editor' });
+    expect(parseSectionMembership(JSON.stringify(inner))).toEqual({ production: 'viewer', supply: 'editor' });
+    expect(parseSectionMembership(inner)).toEqual({ production: 'viewer', supply: 'editor' });
+  });
+});
