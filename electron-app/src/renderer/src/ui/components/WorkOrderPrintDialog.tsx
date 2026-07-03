@@ -29,19 +29,6 @@ const A4_PAGE_FULL_PX = A4_HEIGHT_PX; // ≈ 1123
 /** Масштаб листа в превью (zoom — влияет на layout, в отличие от transform:scale). */
 const PREVIEW_SCALE = 0.86;
 
-function msToDateInput(ms: number | undefined): string {
-  if (!ms) return '';
-  const d = new Date(ms);
-  if (!Number.isFinite(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function dateInputToMs(value: string): number | undefined {
-  if (!value) return undefined;
-  const t = new Date(`${value}T00:00:00`).getTime();
-  return Number.isFinite(t) ? t : undefined;
-}
-
 const APPROVER_KEYS = Object.keys(WORK_ORDER_APPROVERS) as WorkOrderApprover[];
 
 type FontKey = 'fontDirector' | 'fontTitle' | 'fontMeta' | 'fontCrew' | 'fontWorks' | 'fontSignatures';
@@ -152,7 +139,6 @@ export function WorkOrderPrintDialog(props: {
   workOrderKind: string;
   workOrderKindLabel: string;
   autoTitle: string;
-  defaultDateMs: number;
   /** Кандидаты в утверждающие грифа (сотрудники): id, метка и готовое ФИО «И.О. Фамилия» для печати. */
   approverEmployees?: Array<{ id: string; label: string; grifName: string; hintText?: string }>;
   /** Строит standalone A4-HTML (с #wo-a4) для iframe-превью по заданным настройкам. */
@@ -297,23 +283,6 @@ export function WorkOrderPrintDialog(props: {
                 {row.label}
               </label>
             ))}
-          </div>
-
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Дата создания (на печати)</div>
-            <input
-              type="date"
-              value={msToDateInput(draft.orderDateOverride ?? props.defaultDateMs)}
-              onChange={(e) => {
-                const ms = dateInputToMs(e.target.value);
-                const next = { ...draft };
-                if (ms !== undefined) next.orderDateOverride = ms;
-                else delete next.orderDateOverride;
-                setDraft(next);
-                props.onChange(next);
-              }}
-              style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)' }}
-            />
           </div>
 
           <div>
