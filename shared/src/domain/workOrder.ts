@@ -205,6 +205,14 @@ export type WorkOrderPrintSettings = {
   approverNameOverride?: string;
   /** Id выбранного сотрудника-утверждающего — чтобы отразить выбор в панели печати. */
   approverEmployeeId?: string;
+  /**
+   * Скрыть реквизит шапки на печати (галочки «Печатать в шапке» панели печати).
+   * Отсутствие/false = печатать. Дата создания / приступить / срок / цех.
+   */
+  hideOrderDate?: boolean;
+  hideStartDate?: boolean;
+  hideDueDate?: boolean;
+  hideWorkshop?: boolean;
   /** Гриф «Утверждаю · Директор» (верхний правый угол). */
   fontDirector?: number;
   /** Заголовок наряда («Наряд на …»). */
@@ -526,6 +534,10 @@ function normalizeWorkOrderPrintSettings(raw: unknown): WorkOrderPrintSettings |
   if (approverName) out.approverNameOverride = approverName;
   const approverEmployeeId = String(rec.approverEmployeeId ?? '').trim();
   if (approverEmployeeId) out.approverEmployeeId = approverEmployeeId;
+  if (rec.hideOrderDate === true) out.hideOrderDate = true;
+  if (rec.hideStartDate === true) out.hideStartDate = true;
+  if (rec.hideDueDate === true) out.hideDueDate = true;
+  if (rec.hideWorkshop === true) out.hideWorkshop = true;
   const director = clampFont(rec.fontDirector, WORK_ORDER_PRINT_FONT_RANGES.director);
   if (director !== undefined) out.fontDirector = director;
   // Back-compat: старое единое поле fontHeader (масштаб всей шапки) → размер заголовка.

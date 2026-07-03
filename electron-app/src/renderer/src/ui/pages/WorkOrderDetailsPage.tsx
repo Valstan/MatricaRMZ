@@ -327,7 +327,7 @@ export function WorkOrderDetailsPage(props: {
   // Stage 2 нитки assembly-work-order-from-forecast: список складов для колонки
   // «Склад деталей» в Assembly-наряде. Подгружается при первом открытии карточки.
   const [warehouseLocations, setWarehouseLocations] = useState<
-    Array<{ id: string; type: 'system' | 'workshop' | 'regular'; code: string; name: string; isActive: boolean }>
+    Array<{ id: string; type: 'system' | 'workshop' | 'regular'; code: string; name: string; workshopId: string | null; isActive: boolean }>
   >([]);
   const [closing, setClosing] = useState(false);
   const [closedLocally, setClosedLocally] = useState(false);
@@ -410,6 +410,7 @@ export function WorkOrderDetailsPage(props: {
               type: row.type,
               code: row.code,
               name: row.name,
+              workshopId: row.workshopId,
               isActive: row.isActive,
             })),
           );
@@ -894,6 +895,12 @@ export function WorkOrderDetailsPage(props: {
       workOrderNumber: 0, // fresh number assigned on materialize (deferred-create)
       orderDate: Number(created.payload.orderDate ?? Date.now()),
     };
+    // Дата печати привязана к исходному наряду — в копии печатаем её собственную дату.
+    if (copyPayload.printSettings?.orderDateOverride != null) {
+      const { orderDateOverride: _drop, ...restPrint } = copyPayload.printSettings;
+      if (Object.keys(restPrint).length) copyPayload.printSettings = restPrint;
+      else delete copyPayload.printSettings;
+    }
 
     const saved = await window.matrica.workOrders.update({
       id: created.id,
@@ -1032,6 +1039,21 @@ export function WorkOrderDetailsPage(props: {
       }
       const newLines = buildLinesFromWorkOrderTemplate(tmpl.lines);
       const overrides = (tmpl.payloadOverrides ?? {}) as Partial<WorkOrderPayload>;
+      // Цех из шаблона («где взять деталь») → склад-источник каждой строки: резолвим
+      // цех в его warehouse_location (склад цеха) и проставляем в sourceWarehouseId.
+      // Дальше склад правится в каждой строке как обычно.
+      const templateWorkshopId = String((overrides.workshopId ?? payload.workshopId) ?? '').trim();
+      if (templateWorkshopId) {
+        const workshop = workshops.find((w) => w.id === templateWorkshopId);
+        const location = warehouseLocations.find(
+          (w) =>
+            (w.workshopId && w.workshopId === templateWorkshopId) ||
+            (workshop != null && w.type === 'workshop' && w.code === `workshop_${workshop.code}`),
+        );
+        if (location) {
+          for (const line of newLines) line.sourceWarehouseId = location.id;
+        }
+      }
       const next = { ...payload, ...overrides, freeWorks: newLines } as WorkOrderPayload;
       patch(next);
       setAppliedHiddenFields(new Set(tmpl.hiddenFields));
@@ -1340,9 +1362,16 @@ export function WorkOrderDetailsPage(props: {
 
     // Строка реквизитов — таблицей. Колонки двигателя только у сборки (вынесены из строк работ),
     // контракт/заказчик — если резолвятся. Каждое значение в своей ячейке.
+    // Плановые даты и цех наряда — печатаются по умолчанию, каждую можно снять
+    // галочкой в панели печати (settings.hide*).
+    const workshop = workshops.find((w) => w.id === String(current.workshopId ?? '').trim());
+    const workshopLabel = workshop ? `Цех ${workshop.code} — ${workshop.name}` : '—';
     const metaCols: Array<{ label: string; value: string }> = [
       { label: '№', value: String(current.workOrderNumber || '—') },
-      { label: 'Дата', value: printDate ? formatMoscowDate(printDate) : '—' },
+      ...(settings.hideOrderDate ? [] : [{ label: 'Дата создания', value: printDate ? formatMoscowDate(printDate) : '—' }]),
+      ...(settings.hideStartDate ? [] : [{ label: 'Приступить', value: current.startDate ? formatMoscowDate(current.startDate) : '—' }]),
+      ...(settings.hideDueDate ? [] : [{ label: 'Срок', value: current.dueDate ? formatMoscowDate(current.dueDate) : '—' }]),
+      ...(settings.hideWorkshop ? [] : [{ label: 'Цех', value: workshopLabel }]),
       ...(isAssembly
         ? [
             { label: 'Марка дв.', value: headerEngineBrand },
@@ -2762,6 +2791,10 @@ export function WorkOrderDetailsPage(props: {
             ...(settings.approverPositionOverride?.trim() ? { approverPositionOverride: settings.approverPositionOverride.trim() } : {}),
             ...(settings.approverNameOverride?.trim() ? { approverNameOverride: settings.approverNameOverride.trim() } : {}),
             ...(settings.approverEmployeeId ? { approverEmployeeId: settings.approverEmployeeId } : {}),
+            ...(settings.hideOrderDate ? { hideOrderDate: true } : {}),
+            ...(settings.hideStartDate ? { hideStartDate: true } : {}),
+            ...(settings.hideDueDate ? { hideDueDate: true } : {}),
+            ...(settings.hideWorkshop ? { hideWorkshop: true } : {}),
             ...(settings.fontDirector ? { fontDirector: settings.fontDirector } : {}),
             ...(settings.fontTitle ? { fontTitle: settings.fontTitle } : {}),
             ...(settings.fontMeta ? { fontMeta: settings.fontMeta } : {}),
