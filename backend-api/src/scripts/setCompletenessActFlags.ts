@@ -366,13 +366,32 @@ const compact = (v: string) => clean(v).toLowerCase().replaceAll('ё', 'е').rep
 export function codeKey(v: string): string {
   return compact(v).replaceAll('сб', '');
 }
-/** Хвостовой числовой ключ («НК-10М сб. 327-00-62» → дополнительно «3270062»). */
-function codeKeys(v: string): string[] {
-  const full = codeKey(v);
-  const out = [full];
-  const tail = full.match(/\d[0-9а-яa-z]*$/)?.[0] ?? '';
-  if (tail && tail !== full && tail.length >= 5) out.push(tail);
-  return out;
+/**
+ * Ключи артикула с вариантами:
+ *  - последний пробельный токен («НК-10М сб. 327-00-62» → и «3270062»);
+ *  - составной «A/B» разворачивается («419-05-7/сб.419-05-12» → оба;
+ *    «3320-372-4/11» → «3320-372-4» и «3320-372-11» — короткий хвост заменяет
+ *    сегмент после последнего дефиса).
+ */
+export function codeKeys(v: string): string[] {
+  const out = new Set<string>();
+  const raw = clean(v);
+  const addVariants = (s: string) => {
+    const segs = s.split('/').map((x) => clean(x)).filter(Boolean);
+    const first = segs[0] ?? '';
+    if (first) out.add(codeKey(first));
+    for (const seg of segs.slice(1)) {
+      const k = codeKey(seg);
+      if (k.length >= 5) out.add(k);
+      else if (first.includes('-')) out.add(codeKey(first.slice(0, first.lastIndexOf('-') + 1) + seg));
+      else if (k) out.add(k);
+    }
+  };
+  addVariants(raw);
+  const lastToken = raw.split(/\s+/).at(-1) ?? '';
+  if (lastToken && lastToken !== raw) addVariants(lastToken);
+  out.delete('');
+  return [...out];
 }
 const nameKey = (v: string) => compact(v);
 const nameTokens = (v: string) =>
@@ -402,6 +421,11 @@ export function nameSimilarity(target: string, candidate: string): number {
   if (nameTokens(target) === nameTokens(candidate)) return 2;
   if (t.length > 8 && levenshtein(t, c) <= 2) return 2;
   if (c.startsWith(t) && c.length - t.length <= 24) return 1; // «… В-59 УМС (сб. …)»
+  // ≥2 общих слова («Коллектор выпускной левый» ⇄ «Трубопровод выпускной левый») —
+  // допустимо только вместе с точным совпадением артикула (ветка 1 матчера).
+  const ts = new Set(nameTokens(target).split('|'));
+  const shared = nameTokens(candidate).split('|').filter((w) => ts.has(w)).length;
+  if (shared >= 2) return 1;
   return 0;
 }
 
