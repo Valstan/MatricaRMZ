@@ -1,6 +1,6 @@
 # Доступ по разделам (section-based ACL) — замена H1-B2
 
-**Status:** ACTIVE — Ф0–Ф2 отгружены (PR #42/#43/#44), Ф3 реализована (PR feat/section-access-f3-write-gate). Осталось: релиз + прод-backfill.
+**Status:** ✅ DONE (2026-07-03) — Ф0–Ф3 отгружены (PR #42/#43/#44/#46), релиз v2026.703.1049 на проде, `access:backfill-sections --apply` выполнен (21/21 логин). Двойная JSON-кодировка membership — фикс #50, грабля GOTCHAS M26.
 **Owner decision:** 2026-07-02 — концепция утверждена владельцем («все ок, согласен, действуй»). Заменяет матрицу H1-B2 ([h1-table-read-authz-2026-06.md](h1-table-read-authz-2026-06.md) §6/§10/§12 — B2 superseded, механика pull-фильтра B2 переиспользуется здесь).
 
 ## Контекст
