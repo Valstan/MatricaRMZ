@@ -552,6 +552,7 @@ export function App() {
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
+  const [engineInitialTab, setEngineInitialTab] = useState<'main' | 'details' | 'files' | 'reclamation'>('main');
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
   const [engineLoading, setEngineLoading] = useState<boolean>(false);
   const [engineOpenError, setEngineOpenError] = useState<string>('');
@@ -2087,7 +2088,13 @@ export function App() {
     }
   }
 
-  async function openEngine(id: string) {
+  async function openEngine(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' }) {
+    setEngineInitialTab(opts?.initialTab ?? 'main');
+    // Смена двигателя: сбросить details ДО переключения, иначе карточка нового id
+    // монтируется (key-ремоунт) с чужими stale-атрибутами и «снимок создания»
+    // (isNewEngine) фиксируется по чужому номеру — трёхвариантный выбор пути при
+    // дубле не предлагается на свежесозданной карточке.
+    setEngineDetails((prev) => (prev && prev.id !== id ? null : prev));
     setSelectedEngineId(id);
     setTab('engine');
     setEngineOpenError('');
@@ -3907,6 +3914,8 @@ export function App() {
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenEngine={(id: string) => void openEngine(id)}
+            onOpenEngineReclamation={(id: string) => void openEngine(id, { initialTab: 'reclamation' })}
+            initialTab={engineInitialTab}
             onOpenEngineBrand={openEngineBrand}
             onOpenCounterparty={openCounterparty}
             onOpenContract={openContract}

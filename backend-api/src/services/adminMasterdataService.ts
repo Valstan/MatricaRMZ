@@ -13,7 +13,7 @@ import {
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, operations, rowOwners } from '../database/schema.js';
-import { findEngineDuplicateByNumber } from './engineNumberGuard.js';
+import { engineHasDuplicateBypassFlag, findEngineDuplicateByNumber } from './engineNumberGuard.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
 const ENGINE_STATUS_CODE_SET: ReadonlySet<string> = new Set(STATUS_CODES);
@@ -1045,7 +1045,10 @@ export async function setEntityAttribute(
   }
   if (code === 'engine_number' && (await isEngineEntityType(String(e[0].typeId)))) {
     const dup = await findEngineDuplicateByNumber(String(value ?? ''), entityId);
-    if (dup) {
+    // Осознанный дубль (повторный заезд / коллизия номера, Ф2): флаг на пишущей
+    // сущности снимает запрет. Клиент пишет флаги ДО номера, поэтому к моменту
+    // проверки флаг уже на сущности; случайный дубль (без флага) блокируется как раньше.
+    if (dup && !(await engineHasDuplicateBypassFlag(entityId))) {
       return {
         ok: false as const,
         error: `Двигатель с номером «${dup.engineNumber}» уже существует. Откройте его карточку вместо создания дубля.`,

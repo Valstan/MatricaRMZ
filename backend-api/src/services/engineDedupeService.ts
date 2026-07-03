@@ -25,6 +25,7 @@ import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 import { setEntityAttribute, softDeleteEntity } from './adminMasterdataService.js';
+import { loadDedupeExemptEngineIds } from './engineNumberGuard.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
@@ -281,8 +282,12 @@ export async function runEngineDedupePass(opts: {
   }
   const codeByDefId = new Map(defs.map((d) => [String(d.id), String(d.code)]));
 
+  // Осознанные дубли (повторный заезд / коллизия номера, Ф2) — вне склейки:
+  // авто-мерж уничтожил бы разделение заездов.
+  const exemptIds = await loadDedupeExemptEngineIds();
   const groups = new Map<string, string[]>();
   for (const eid of engineIds) {
+    if (exemptIds.has(eid)) continue;
     const num = attrsByEngine.get(eid)?.get(String(numberDef.id)) ?? '';
     const key = normalizeLookupCompact(num);
     if (!key) continue;
@@ -526,9 +531,12 @@ export async function analyzeEngineDuplicates(): Promise<
     }
 
     // Canonical key per engine; engines sharing a key are exact duplicates.
+    // Флагованные (повторный заезд / коллизия номера) не показываем оператору как дубли.
+    const exemptIds = await loadDedupeExemptEngineIds();
     const keyById = new Map<string, string>();
     const enginesByKey = new Map<string, string[]>();
     for (const eid of engineIds) {
+      if (exemptIds.has(eid)) continue;
       const key = normalizeLookupCompact(numberById.get(eid) ?? '');
       if (!key) continue;
       keyById.set(eid, key);
@@ -674,6 +682,17 @@ export async function mergeEngineGroup(args: {
     if (!aliveIds.has(survivorId)) return { ok: false as const, error: 'survivor is not an alive engine' };
     const validLosers = loserIds.filter((id) => aliveIds.has(id));
     if (validLosers.length === 0) return { ok: false as const, error: 'no alive losers' };
+
+    // Защита в глубину (Ф2): карточки «повторный заезд»/«коллизия номера» нельзя
+    // мержить ни как survivor, ни как loser — склейка уничтожит разделение заездов.
+    const exemptIds = await loadDedupeExemptEngineIds();
+    const exemptInvolved = [survivorId, ...validLosers].filter((id) => exemptIds.has(id));
+    if (exemptInvolved.length > 0) {
+      return {
+        ok: false as const,
+        error: 'в группе есть карточки «повторный заезд»/«коллизия номера» — они исключены из склейки',
+      };
+    }
 
     const defs = await db
       .select({ id: attributeDefs.id, code: attributeDefs.code })

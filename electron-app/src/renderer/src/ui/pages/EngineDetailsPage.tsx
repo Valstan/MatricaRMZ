@@ -49,8 +49,20 @@ function getStatusLabel(code: StatusCode) {
   return code === 'status_customer_sent' ? 'Дата отгрузки' : STATUS_LABELS[code];
 }
 
-/** Proactive «похожий двигатель уже есть» hint under the engine_number field (#317). */
-function EngineDuplicateHint(props: { matches: EngineDuplicateMatches; showSimilar?: boolean; onOpenEngine?: (engineId: string) => void }) {
+/** Proactive «похожий двигатель уже есть» hint under the engine_number field (#317).
+ * Ф2 (повторный заезд): на создании exact-дубль предлагает три пути (рекламация /
+ * повторный заезд / коллизия номера); при взведённом флаге баннер превращается в
+ * нейтральную панель «прежние заезды с этим номером». */
+function EngineDuplicateHint(props: {
+  matches: EngineDuplicateMatches;
+  showSimilar?: boolean;
+  onOpenEngine?: (engineId: string) => void;
+  bypassFlagSet?: boolean;
+  canChoosePath?: boolean;
+  onChooseReclamation?: (engineId: string) => void;
+  onChooseRepeatArrival?: (previousEngineId: string) => void;
+  onChooseCollision?: () => void;
+}) {
   const { exact, similar } = props.matches;
   const isExact = exact.length > 0;
   // Exact (red) is a hard duplicate guard — always shown. Similar (amber «возможно,
@@ -58,12 +70,27 @@ function EngineDuplicateHint(props: { matches: EngineDuplicateMatches; showSimil
   // gated behind showSimilar.
   const list = isExact ? exact : props.showSimilar ? similar : [];
   if (list.length === 0) return null;
-  const tone = isExact
-    ? { bg: '#fef2f2', border: '#fecaca', fg: '#b91c1c', icon: '⛔' }
-    : { bg: '#fffbeb', border: '#fde68a', fg: '#b45309', icon: '⚠️' };
-  const title = isExact
-    ? `Двигатель с таким номером уже есть (${exact.length})`
-    : `Возможно, похожий двигатель уже есть (${similar.length})`;
+  const asArrivals = isExact && props.bypassFlagSet === true;
+  const tone = asArrivals
+    ? { bg: 'rgba(37, 99, 235, 0.08)', border: 'rgba(37, 99, 235, 0.35)', fg: '#1d4ed8', icon: '🔁' }
+    : isExact
+      ? { bg: '#fef2f2', border: '#fecaca', fg: '#b91c1c', icon: '⛔' }
+      : { bg: '#fffbeb', border: '#fde68a', fg: '#b45309', icon: '⚠️' };
+  const title = asArrivals
+    ? `Прежние заезды с этим номером (${exact.length})`
+    : isExact
+      ? `Двигатель с таким номером уже есть (${exact.length})`
+      : `Возможно, похожий двигатель уже есть (${similar.length})`;
+  const showPaths = isExact && !asArrivals && props.canChoosePath === true;
+  const pathBtnStyle: React.CSSProperties = {
+    background: '#fff',
+    border: '1px solid #d1d5db',
+    borderRadius: 6,
+    padding: '3px 8px',
+    fontSize: 12,
+    cursor: 'pointer',
+    color: '#111827',
+  };
   return (
     <div
       style={{
@@ -106,6 +133,43 @@ function EngineDuplicateHint(props: { matches: EngineDuplicateMatches; showSimil
           </div>
         ))}
       </div>
+      {showPaths && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontWeight: 600 }}>Это не случайный дубль? Выберите путь:</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {props.onChooseReclamation && exact[0] ? (
+              <button
+                type="button"
+                style={pathBtnStyle}
+                title="Двигатель вернулся по рекламации: открыть существующую карточку на вкладке «Рекламация»"
+                onClick={() => props.onChooseReclamation?.(exact[0]!.id)}
+              >
+                Рекламация → открыть карточку
+              </button>
+            ) : null}
+            {props.onChooseRepeatArrival && exact[0] ? (
+              <button
+                type="button"
+                style={pathBtnStyle}
+                title="Тот же двигатель приехал на новый независимый ремонт: эта карточка станет новым заездом с тем же номером"
+                onClick={() => props.onChooseRepeatArrival?.(exact[0]!.id)}
+              >
+                Повторный заезд (новая карточка)
+              </button>
+            ) : null}
+            {props.onChooseCollision ? (
+              <button
+                type="button"
+                style={pathBtnStyle}
+                title="Другой физический двигатель, номер совпал: эта карточка будет помечена «коллизия номера»"
+                onClick={() => props.onChooseCollision?.()}
+              >
+                Другой двигатель (коллизия номера)
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -238,6 +302,8 @@ export function EngineDetailsPage(props: {
   canAssemblyReturn?: boolean;
   currentUserProfile?: { fullName: string; position: string } | null;
   onOpenEngine?: (engineId: string) => void;
+  /** Ф2: открыть карточку другого двигателя сразу на вкладке «Рекламация» (путь «рекламация» из подсказки о дубле). */
+  onOpenEngineReclamation?: (engineId: string) => void;
   onOpenEngineBrand?: (engineBrandId: string) => void;
   onOpenCounterparty?: (counterpartyId: string) => void;
   onOpenContract?: (contractId: string) => void;
@@ -313,6 +379,11 @@ export function EngineDetailsPage(props: {
     toInputDate(props.engine.attributes?.reclamation_shipped_date as number | null | undefined),
   );
   const [reclComment, setReclComment] = useState(String(props.engine.attributes?.reclamation_comment ?? ''));
+
+  // Повторный заезд / коллизия номера (Ф2): осознанный обход запрета дублей.
+  const [repeatArrivalFlag, setRepeatArrivalFlag] = useState(Boolean(props.engine.attributes?.repeat_arrival_flag));
+  const [numberCollisionFlag, setNumberCollisionFlag] = useState(Boolean(props.engine.attributes?.number_collision_flag));
+  const [previousArrivalId, setPreviousArrivalId] = useState(String(props.engine.attributes?.previous_arrival_id ?? ''));
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
   // Резолв id связанной сущности в человекочитаемый label. Пока linkLists ещё не
@@ -403,6 +474,9 @@ export function EngineDetailsPage(props: {
     setReclRepairStatus(String(attrs.reclamation_repair_status ?? ''));
     setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
     setReclComment(String(attrs.reclamation_comment ?? ''));
+    setRepeatArrivalFlag(Boolean(attrs.repeat_arrival_flag));
+    setNumberCollisionFlag(Boolean(attrs.number_collision_flag));
+    setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
     if (newEngineFlagId.current !== props.engineId) {
       newEngineFlagId.current = props.engineId;
       setIsNewEngine(!String(attrs.engine_number ?? '').trim());
@@ -520,6 +594,11 @@ export function EngineDetailsPage(props: {
       const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
 
       const nextValues: Record<string, unknown> = {
+        // Флаги осознанного дубля — ПЕРВЫМИ (до engine_number): гейт запрета дублей
+        // (клиентский и серверный) проверяет флаг на сущности в момент записи номера.
+        repeat_arrival_flag: repeatArrivalFlag,
+        number_collision_flag: numberCollisionFlag,
+        previous_arrival_id: asNullableText(previousArrivalId),
         engine_number: engineNumber,
         engine_brand_id: asNullableText(engineBrandId),
         engine_brand: asNullableText(brandLabel),
@@ -543,6 +622,9 @@ export function EngineDetailsPage(props: {
       nextValues.reclamation_comment = asNullableText(reclComment);
 
       const currentValues: Record<string, unknown> = {
+        repeat_arrival_flag: Boolean(attrs.repeat_arrival_flag),
+        number_collision_flag: Boolean(attrs.number_collision_flag),
+        previous_arrival_id: asNullableText(attrs.previous_arrival_id),
         engine_number: String(attrs.engine_number ?? ''),
         engine_brand_id: asNullableText(attrs.engine_brand_id),
         engine_brand: asNullableText(attrs.engine_brand),
@@ -680,7 +762,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, props.registerCardCloseActions]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
     try {
@@ -799,6 +881,10 @@ export function EngineDetailsPage(props: {
       { code: 'reclamation_repair_status', name: 'Статус рекламационного ремонта', dataType: 'text', sortOrder: 85 },
       { code: 'reclamation_shipped_date', name: 'Дата отправки после рекламации', dataType: 'date', sortOrder: 86 },
       { code: 'reclamation_comment', name: 'Комментарий по рекламации', dataType: 'text', sortOrder: 87 },
+      // Повторный заезд / коллизия номера (Ф2)
+      { code: 'repeat_arrival_flag', name: 'Повторный заезд', dataType: 'boolean', sortOrder: 90 },
+      { code: 'number_collision_flag', name: 'Коллизия номера', dataType: 'boolean', sortOrder: 91 },
+      { code: 'previous_arrival_id', name: 'Прежний заезд (ссылка)', dataType: 'text', sortOrder: 92 },
     ];
     void ensureAttributeDefs(engineTypeId, desired, engineDefs).then((next) => {
       const orderedCodes = desired.map((f) => f.code);
@@ -857,7 +943,51 @@ export function EngineDetailsPage(props: {
               setEngineNumber(e.target.value);
             }}
           />
-          <EngineDuplicateHint matches={dupMatches} showSimilar={isNewEngine} {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})} />
+          {(repeatArrivalFlag || numberCollisionFlag) && (
+            <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  padding: '2px 8px',
+                  borderRadius: 10,
+                  background: 'rgba(37, 99, 235, 0.12)',
+                  color: '#1d4ed8',
+                  border: '1px solid rgba(37, 99, 235, 0.35)',
+                }}
+              >
+                {repeatArrivalFlag ? '🔁 Повторный заезд' : '⚠ Коллизия номера'}
+              </span>
+              {previousArrivalId && props.onOpenEngine ? (
+                <button
+                  type="button"
+                  onClick={() => props.onOpenEngine?.(previousArrivalId)}
+                  style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 11, textDecoration: 'underline', padding: 0 }}
+                >
+                  прежний заезд →
+                </button>
+              ) : null}
+            </div>
+          )}
+          <EngineDuplicateHint
+            matches={dupMatches}
+            showSimilar={isNewEngine}
+            bypassFlagSet={repeatArrivalFlag || numberCollisionFlag}
+            canChoosePath={isNewEngine && props.canEditEngines}
+            {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
+            {...(props.onOpenEngineReclamation ? { onChooseReclamation: props.onOpenEngineReclamation } : {})}
+            onChooseRepeatArrival={(previousEngineId) => {
+              setSessionChanged(true);
+              setRepeatArrivalFlag(true);
+              setNumberCollisionFlag(false);
+              setPreviousArrivalId(previousEngineId);
+            }}
+            onChooseCollision={() => {
+              setSessionChanged(true);
+              setNumberCollisionFlag(true);
+              setRepeatArrivalFlag(false);
+              setPreviousArrivalId('');
+            }}
+          />
         </>
       ),
     },
@@ -1251,6 +1381,9 @@ export function EngineDetailsPage(props: {
               setReclRepairStatus(String(attrs.reclamation_repair_status ?? ''));
               setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
               setReclComment(String(attrs.reclamation_comment ?? ''));
+              setRepeatArrivalFlag(Boolean(attrs.repeat_arrival_flag));
+              setNumberCollisionFlag(Boolean(attrs.number_collision_flag));
+              setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
               setSessionChanged(false);
             }}
           >

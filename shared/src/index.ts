@@ -46,6 +46,7 @@ export * from './domain/clientLabel.js';
 export * from './domain/watchdog.js';
 export * from './domain/globalSearch.js';
 export * from './domain/reclamation.js';
+export * from './domain/repeatArrival.js';
 export * from './ipc/types.js';
 // keep exports sorted manually
 
