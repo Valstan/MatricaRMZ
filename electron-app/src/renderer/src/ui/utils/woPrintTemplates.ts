@@ -29,6 +29,16 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
+/**
+ * Дата печати — данные конкретного наряда, не вёрстка: в шаблонах/умолчаниях она
+ * «замораживала» одну дату для всех нарядов вида. Вырезаем и при сохранении, и при
+ * чтении (чистит уже сохранённые залипшие даты у операторов).
+ */
+function stripOrderScoped(settings: WorkOrderPrintSettings): WorkOrderPrintSettings {
+  const { orderDateOverride: _drop, ...rest } = settings;
+  return rest;
+}
+
 function newId(): string {
   try {
     return window.crypto.randomUUID();
@@ -39,7 +49,11 @@ function newId(): string {
 
 export function loadWoPrintTemplates(): WoPrintTemplate[] {
   const list = readJson<WoPrintTemplate[]>(TEMPLATES_KEY, []);
-  return Array.isArray(list) ? list.filter((t) => t && typeof t.id === 'string' && typeof t.name === 'string') : [];
+  return Array.isArray(list)
+    ? list
+        .filter((t) => t && typeof t.id === 'string' && typeof t.name === 'string')
+        .map((t) => ({ ...t, settings: stripOrderScoped(t.settings ?? {}) }))
+    : [];
 }
 
 /** Сохранить шаблон под именем. Имя уникально: при совпадении перезаписывает существующий. */
@@ -48,9 +62,10 @@ export function saveWoPrintTemplate(name: string, settings: WorkOrderPrintSettin
   if (!trimmed) return loadWoPrintTemplates();
   const list = loadWoPrintTemplates();
   const existing = list.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+  const stored = stripOrderScoped(settings);
   const next = existing
-    ? list.map((t) => (t.id === existing.id ? { ...t, settings: { ...settings } } : t))
-    : [...list, { id: newId(), name: trimmed, settings: { ...settings } }];
+    ? list.map((t) => (t.id === existing.id ? { ...t, settings: stored } : t))
+    : [...list, { id: newId(), name: trimmed, settings: stored }];
   writeJson(TEMPLATES_KEY, next);
   return next;
 }
@@ -67,14 +82,14 @@ export function loadWoPrintDefault(kind: string | null | undefined): WorkOrderPr
   if (!key) return undefined;
   const map = readJson<Record<string, WorkOrderPrintSettings>>(DEFAULTS_KEY, {});
   const v = map?.[key];
-  return v && typeof v === 'object' ? v : undefined;
+  return v && typeof v === 'object' ? stripOrderScoped(v) : undefined;
 }
 
 export function saveWoPrintDefault(kind: string | null | undefined, settings: WorkOrderPrintSettings): void {
   const key = String(kind ?? '').trim();
   if (!key) return;
   const map = readJson<Record<string, WorkOrderPrintSettings>>(DEFAULTS_KEY, {});
-  writeJson(DEFAULTS_KEY, { ...map, [key]: { ...settings } });
+  writeJson(DEFAULTS_KEY, { ...map, [key]: stripOrderScoped(settings) });
 }
 
 export function clearWoPrintDefault(kind: string | null | undefined): void {

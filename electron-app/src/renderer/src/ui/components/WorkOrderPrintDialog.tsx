@@ -273,8 +273,34 @@ export function WorkOrderPrintDialog(props: {
             />
           </div>
 
+          <div style={{ display: 'grid', gap: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Печатать в шапке</div>
+            {(
+              [
+                { key: 'hideOrderDate', label: 'Дата создания' },
+                { key: 'hideStartDate', label: 'Приступить' },
+                { key: 'hideDueDate', label: 'Срок' },
+                { key: 'hideWorkshop', label: 'Цех' },
+              ] as Array<{ key: 'hideOrderDate' | 'hideStartDate' | 'hideDueDate' | 'hideWorkshop'; label: string }>
+            ).map((row) => (
+              <label key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!draft[row.key]}
+                  onChange={(e) => {
+                    const next = { ...draft };
+                    if (e.target.checked) delete next[row.key];
+                    else next[row.key] = true;
+                    applySettings(next);
+                  }}
+                />
+                {row.label}
+              </label>
+            ))}
+          </div>
+
           <div>
-            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Дата (на печати)</div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Дата создания (на печати)</div>
             <input
               type="date"
               value={msToDateInput(draft.orderDateOverride ?? props.defaultDateMs)}
