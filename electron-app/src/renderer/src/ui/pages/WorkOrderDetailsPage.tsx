@@ -1038,6 +1038,20 @@ export function WorkOrderDetailsPage(props: {
         if (!ok) return;
       }
       const newLines = buildLinesFromWorkOrderTemplate(tmpl.lines);
+      // Race guard: справочник parts может ещё не загрузиться к моменту применения —
+      // тогда partName/partArticle пустые (в печати «—»). Дозагружаем такие позиции по id.
+      await Promise.all(
+        newLines
+          .filter((line) => line.partId && !String(line.partName ?? '').trim())
+          .map(async (line) => {
+            const r = await window.matrica.warehouse.nomenclatureList({ id: line.partId as string, limit: 1 }).catch(() => null);
+            const row = r && r.ok ? r.rows[0] : undefined;
+            if (!row) return;
+            if (row.name) line.partName = String(row.name);
+            const article = String((row as Record<string, unknown>).code ?? '').trim();
+            if (article && !String(line.partArticle ?? '').trim()) line.partArticle = article;
+          }),
+      );
       const overrides = (tmpl.payloadOverrides ?? {}) as Partial<WorkOrderPayload>;
       // Цех из шаблона («где взять деталь») → склад-источник каждой строки: резолвим
       // цех в его warehouse_location (склад цеха) и проставляем в sourceWarehouseId.
@@ -1209,6 +1223,15 @@ export function WorkOrderDetailsPage(props: {
     return String(employee.departmentName ?? '').trim();
   }
 
+  /** Имя изделия для печати/строк: сохранённое, иначе по partId из справочника. */
+  function resolvePartName(line: WorkOrderWorkLine): string {
+    const stored = String(line.partName ?? '').trim();
+    if (stored) return stored;
+    const partId = String(line.partId ?? '').trim();
+    if (!partId) return '';
+    return parts.find((p) => p.id === partId)?.name ?? '';
+  }
+
   function resolvePartArticle(line: WorkOrderWorkLine): string {
     const stored = String(line.partArticle ?? '').trim();
     if (stored) return stored;
@@ -1271,7 +1294,7 @@ export function WorkOrderDetailsPage(props: {
                     ? `<td>${escapeHtml(line.engineNumber || '—')}</td><td>${escapeHtml(line.engineBrandName || '—')}</td>`
                     : ''
                 }${showServiceCol ? `<td>${escapeHtml(line.serviceName || '—')}</td>` : ''}<td>${escapeHtml(
-                  line.partName || '—',
+                  resolvePartName(line) || '—',
                 )}</td><td>${escapeHtml(resolvePartArticle(line) || '—')}</td><td>${escapeHtml(line.productNumber || '—')}</td><td>${escapeHtml(
                   String(line.qty ?? 0),
                 )}</td><td>${escapeHtml(line.unit || '—')}</td>${
