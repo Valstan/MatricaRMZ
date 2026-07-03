@@ -148,3 +148,101 @@ describe('partitionLedgerInputsByAuthz', () => {
     expect(allowed.map((i) => i.row_id)).toEqual(['a2']);
   });
 });
+
+// Ф3: section viewer write-gate. Membership rows are loaded via restrictedWorkOrders
+// (attributeDefs + attributeValues selects, drained AFTER the codeByDefId select).
+const { __clearRestrictedPolicyCache } = await import('./restrictedWorkOrders.js');
+
+function pushQueue(table: unknown, rows: any[]) {
+  const q = state.selectByTable.get(table) ?? [];
+  q.push(rows);
+  state.selectByTable.set(table, q);
+}
+
+function seedMembership(rows: Array<{ login: string; membership: object }>) {
+  pushQueue(attributeDefs, [
+    { id: 'def-login', code: 'login' },
+    { id: 'def-sa', code: 'section_access' },
+  ]);
+  const vals: any[] = [];
+  let i = 0;
+  for (const r of rows) {
+    const eid = `emp-m${i++}`;
+    vals.push({ entityId: eid, defId: 'def-login', v: JSON.stringify(r.login) });
+    vals.push({ entityId: eid, defId: 'def-sa', v: JSON.stringify(r.membership) });
+  }
+  return vals;
+}
+
+const { attributeValues } = await import('../../database/schema.js');
+
+describe('section viewer write-gate (Ф3)', () => {
+  beforeEach(() => {
+    __clearRestrictedPolicyCache();
+  });
+
+  it('seeded viewer of production: engine write DENIED; unmapped type still allowed', async () => {
+    seedTypes();
+    const vals = seedMembership([{ login: 'eng', membership: { production: 'viewer' } }]);
+    pushQueue(attributeValues, vals);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+    expect(allowed).toHaveLength(0);
+    expect(denied[0]?.reason).toBe('forbidden:section_viewer:production');
+  });
+
+  it('seeded editor of production: engine write allowed', async () => {
+    seedTypes();
+    const vals = seedMembership([{ login: 'eng', membership: { production: 'editor' } }]);
+    pushQueue(attributeValues, vals);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+    expect(allowed).toHaveLength(1);
+    expect(denied).toHaveLength(0);
+  });
+
+  it('legacy `user` role does NOT bypass the seeded gate (contracts viewer → contract write denied)', async () => {
+    seedTypes();
+    const vals = seedMembership([{ login: 'u', membership: { contracts: 'viewer' } }]);
+    pushQueue(attributeValues, vals);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'entities', row: { id: 'c1', entity_type_id: 't-contract' }, row_id: 'c1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'u', username: 'u', role: 'user' });
+    expect(allowed).toHaveLength(0);
+    expect(denied[0]?.reason).toBe('forbidden:section_viewer:contracts');
+  });
+
+  it('own employee record stays writable for a people-viewer (self-service parity)', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-self', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-name', code: 'full_name' }]);
+    const vals = seedMembership([{ login: 'eng', membership: { people: 'viewer', production: 'editor' } }]);
+    pushQueue(attributeValues, vals);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self', attribute_def_id: 'def-name' }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+    expect(allowed.map((i) => i.row_id)).toEqual(['a1']);
+    expect(denied).toHaveLength(0);
+  });
+
+  it('unseeded membership → fail-open (day-one safety)', async () => {
+    seedTypes();
+    // no membership rows queued → loads drain empty
+    const inputs = [
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+    expect(allowed).toHaveLength(1);
+    expect(denied).toHaveLength(0);
+  });
+});

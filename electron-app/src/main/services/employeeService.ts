@@ -1,6 +1,11 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { parseSectionMembership, type SectionMembership } from '@matricarmz/shared';
+import {
+  parseSectionMembership,
+  restrictedWorkOrderPolicyFromMemberships,
+  type RestrictedWorkOrderPolicy,
+  type SectionMembership,
+} from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
@@ -253,6 +258,48 @@ export async function getSectionMembershipByLogin(
     .limit(1);
   if (!rows[0]) return null;
   return parseSectionMembership(safeJsonParse(rows[0].valueJson ? String(rows[0].valueJson) : null));
+}
+
+/**
+ * Настраиваемые списки закрытых нарядов (Ф3) из локальной БД: membership раздела
+ * restricted_work_orders по всем сотрудникам (editor=владелец, viewer=читатель).
+ * null = ни у кого не засеяно → вызывающий работает по легаси-хардкоду.
+ */
+export async function getRestrictedWorkOrderPolicyLocal(
+  dataDb: BetterSQLite3Database,
+): Promise<RestrictedWorkOrderPolicy | null> {
+  const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
+  if (!employeeTypeId) return null;
+  const { byCode } = await getDefsByType(dataDb, employeeTypeId);
+  const loginDef = byCode.login;
+  const sectionDef = byCode.section_access;
+  if (!loginDef || !sectionDef) return null;
+  const rows = await dataDb
+    .select({
+      entityId: attributeValues.entityId,
+      defId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .where(and(inArray(attributeValues.attributeDefId, [loginDef, sectionDef]), isNull(attributeValues.deletedAt)))
+    .limit(40_000);
+  const loginByEntity = new Map<string, string>();
+  const membershipByEntity = new Map<string, SectionMembership>();
+  for (const r of rows) {
+    const parsed = safeJsonParse(r.valueJson ? String(r.valueJson) : null);
+    if (String(r.defId) === String(loginDef)) {
+      const login = String(parsed ?? '').trim().toLowerCase();
+      if (login) loginByEntity.set(String(r.entityId), login);
+    } else {
+      membershipByEntity.set(String(r.entityId), parseSectionMembership(parsed));
+    }
+  }
+  const memberships: Array<{ login: string; level: 'viewer' | 'editor' | null }> = [];
+  for (const [eid, membership] of membershipByEntity) {
+    const login = loginByEntity.get(eid);
+    if (login) memberships.push({ login, level: membership.restricted_work_orders ?? null });
+  }
+  return restrictedWorkOrderPolicyFromMemberships(memberships);
 }
 
 export async function mergeEmployeesToServer(

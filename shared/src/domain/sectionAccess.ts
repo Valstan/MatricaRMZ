@@ -175,6 +175,70 @@ export function canEditSection(args: {
   return sectionLevelFor(args) === 'editor';
 }
 
+/**
+ * Ф3 write-gate: which section OWNS a ledger write, keyed by the resolved
+ * entity_type code (entities / attribute_values rows). Mirrors the Ф2 client
+ * IPC map (sectionGate.ts PREFIX_RULES). Deliberately NOT mapped (fail-open):
+ * tool/tool_property/tool_catalog (one namespace shared by production and
+ * supply), workshop/section/department/store/link_field_rule (already
+ * superadmin-only in ledgerAuthz), and social/per-owner rows.
+ */
+export const LEDGER_SECTION_BY_ENTITY_TYPE: Readonly<Record<string, AccessSection>> = {
+  engine: AccessSection.Production,
+  engine_node: AccessSection.Production,
+  part: AccessSection.Production,
+  part_template: AccessSection.Production,
+  part_engine_brand: AccessSection.Production,
+  engine_brand: AccessSection.Production,
+  nomenclature: AccessSection.Warehouse,
+  service: AccessSection.Supply,
+  contract: AccessSection.Contracts,
+  customer: AccessSection.Contracts,
+  employee: AccessSection.People,
+  product: AccessSection.Directories,
+  category: AccessSection.Directories,
+  unit: AccessSection.Directories,
+};
+
+/** operations rows: supply requests → supply; everything else is engine-flow work. */
+export const LEDGER_SECTION_BY_OPERATION_TYPE: Readonly<Record<string, AccessSection>> = {
+  supply_request: AccessSection.Supply,
+  work_order: AccessSection.WorkOrders,
+};
+const LEDGER_DEFAULT_OPERATION_SECTION: AccessSection = AccessSection.Production;
+
+/** Non-EAV synced tables owned by one section (ERP warehouse/production tables). */
+export const LEDGER_SECTION_BY_TABLE: Readonly<Record<string, AccessSection>> = {
+  erp_nomenclature: AccessSection.Warehouse,
+  // erp_reg_* NOT mapped: server-computed registers ('open' in ledgerAuthz) — stay fail-open.
+  erp_engine_assembly_bom: AccessSection.Production,
+  erp_engine_assembly_bom_lines: AccessSection.Production,
+  erp_engine_assembly_bom_brand_links: AccessSection.Production,
+  erp_engine_instances: AccessSection.Production,
+};
+
+/**
+ * Section owning a single ledger write, or null when the write is outside the
+ * section model (social rows, schema metadata, unmapped types — fail-open).
+ * Same discriminator logic as ledgerWriteRequirement.
+ */
+export function sectionForLedgerWrite(args: {
+  table: string;
+  entityTypeCode?: string | null;
+  operationType?: string | null;
+}): AccessSection | null {
+  if (args.table === 'entities' || args.table === 'attribute_values') {
+    const code = (args.entityTypeCode ?? '').trim();
+    return code ? (LEDGER_SECTION_BY_ENTITY_TYPE[code] ?? null) : null;
+  }
+  if (args.table === 'operations') {
+    const op = (args.operationType ?? '').trim();
+    if (!op) return LEDGER_DEFAULT_OPERATION_SECTION;
+    return LEDGER_SECTION_BY_OPERATION_TYPE[op] ?? LEDGER_DEFAULT_OPERATION_SECTION;
+  }
+  return LEDGER_SECTION_BY_TABLE[args.table] ?? null;
+}
+
 const ALL_REGULAR_SECTIONS: readonly AccessSection[] = ACCESS_SECTION_CATALOG.filter(
   (s) => !s.restrictedAssign,
 ).map((s) => s.id);

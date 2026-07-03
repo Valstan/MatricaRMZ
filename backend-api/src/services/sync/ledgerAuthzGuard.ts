@@ -27,6 +27,8 @@ import {
   isServerOnlyEmployeeAttr,
   ledgerWriteRequirement,
   operatorMeetsRequirement,
+  sectionForLedgerWrite,
+  sectionLevelFor,
   SyncTableName,
 } from '@matricarmz/shared';
 
@@ -34,7 +36,11 @@ import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { db } from '../../database/db.js';
 import { attributeDefs, entities, entityTypes } from '../../database/schema.js';
 import type { SyncSkippedRow } from './applyPushBatch.js';
-import { getRestrictedWorkOrderOwners } from './restrictedWorkOrders.js';
+import {
+  getRestrictedWorkOrderOwners,
+  getRestrictedWorkOrderPolicy,
+  getSectionMembershipForLogin,
+} from './restrictedWorkOrders.js';
 import type { SyncWriteActor, SyncWriteInput } from './syncWriteService.js';
 
 function str(v: unknown): string {
@@ -106,7 +112,15 @@ export async function partitionLedgerInputsByAuthz(
   // them through). Fetched once, only when the batch actually touches operations.
   const hasOps = inputs.some((i) => i.table === SyncTableName.Operations);
   const restrictedOwners = hasOps ? await getRestrictedWorkOrderOwners() : new Map<string, string>();
+  const restrictedPolicy = hasOps ? await getRestrictedWorkOrderPolicy() : undefined;
   const actorUsername = String(actor.username ?? '');
+
+  // Section viewer write-gate (Ф3): once an actor's membership is seeded, a
+  // section write requires editor level in that section — for EVERY role except
+  // superadmin (membership is the final word; legacy `user` does not bypass).
+  // Unseeded membership (null) or an unmapped write → fail-open, day-one safe.
+  const sectionMembership =
+    role === 'superadmin' ? null : await getSectionMembershipForLogin(actorUsername);
 
   const allowed: SyncWriteInput[] = [];
   const denied: SyncSkippedRow[] = [];
@@ -148,9 +162,31 @@ export async function partitionLedgerInputsByAuthz(
     // so admin / legacy `user` (and the read-allowlist accountant) are caught too.
     if (inp.table === SyncTableName.Operations) {
       const owner = restrictedOwners.get(str(inp.row?.['id'] ?? inp.row_id));
-      if (owner && !canEditWorkOrder({ editorLogin: actorUsername, editorRole: role, ownerLogin: owner })) {
+      if (
+        owner &&
+        !canEditWorkOrder({
+          editorLogin: actorUsername,
+          editorRole: role,
+          ownerLogin: owner,
+          ...(restrictedPolicy ? { policy: restrictedPolicy } : {}),
+        })
+      ) {
         denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:restricted_work_order' });
         continue;
+      }
+    }
+
+    // Section viewer write-gate (Ф3). Own employee record stays writable at any
+    // level (profile self-service parity with the own_employee requirement).
+    if (sectionMembership) {
+      const section = sectionForLedgerWrite({ table: inp.table, entityTypeCode, operationType });
+      const ownEmployeeRow = entityTypeCode === 'employee' && !!ownerEntityId && ownerEntityId === actor.id;
+      if (section && !ownEmployeeRow) {
+        const level = sectionLevelFor({ membership: sectionMembership, role, sectionId: section });
+        if (level !== 'editor') {
+          denied.push({ table: inp.table, row_id: inp.row_id, reason: `forbidden:section_viewer:${section}` });
+          continue;
+        }
       }
     }
 

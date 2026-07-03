@@ -30,7 +30,7 @@ import { getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { type AuthenticatedRequest } from '../auth/middleware.js';
 import { isHiddenAttributeName } from '../services/ai/sensitiveFilter.js';
 import { canViewWorkOrder } from '@matricarmz/shared';
-import { getWorkOrderOwners } from '../services/sync/restrictedWorkOrders.js';
+import { getRestrictedWorkOrderPolicy, getWorkOrderOwners } from '../services/sync/restrictedWorkOrders.js';
 import { db } from '../database/db.js';
 import {
   attributeDefs,
@@ -709,9 +709,10 @@ async function gateRestrictedOperationsRows(
   const viewerLogin = String(actor?.username ?? '');
   const viewerRole = String(actor?.role ?? '');
   const owners = await getWorkOrderOwners();
+  const policy = await getRestrictedWorkOrderPolicy();
   return rows.filter((r) => {
     const owner = owners.get(String(r?.id ?? ''));
-    return owner === undefined ? true : canViewWorkOrder({ viewerLogin, viewerRole, ownerLogin: owner });
+    return owner === undefined ? true : canViewWorkOrder({ viewerLogin, viewerRole, ownerLogin: owner, policy });
   });
 }
 
