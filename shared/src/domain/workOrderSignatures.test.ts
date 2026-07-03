@@ -102,8 +102,8 @@ describe('workOrderSignatures', () => {
     expect(blocks[1]!.defaultCaptions).toEqual(['Работу сдал', 'Работу принял (ОТК)', 'Работу принял']);
   });
 
-  it('uses a forecast date label on the issue block for assembly, plain date otherwise', () => {
-    expect(getWorkOrderSignatureBlocks(WorkOrderKind.Assembly)[0]!.dateLineLabel).toBe('Прогнозируемая дата выполнения');
+  it('omits the issue-block date line for assembly, plain date otherwise', () => {
+    expect(getWorkOrderSignatureBlocks(WorkOrderKind.Assembly)[0]!.dateLineLabel).toBeUndefined();
     expect(getWorkOrderSignatureBlocks(WorkOrderKind.Regular)[0]!.dateLineLabel).toBe('Дата выдачи');
     expect(getWorkOrderSignatureBlocks(WorkOrderKind.Regular)[1]!.dateLineLabel).toBe('Дата выполнения');
   });

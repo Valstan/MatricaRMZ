@@ -1226,7 +1226,9 @@ export function WorkOrderDetailsPage(props: {
       works: settings.fontWorks ?? WORK_ORDER_PRINT_FONT_DEFAULTS.works,
       signatures: settings.fontSignatures ?? WORK_ORDER_PRINT_FONT_DEFAULTS.signatures,
     };
-    const printDate = settings.orderDateOverride ?? current.orderDate;
+    // Дата печати всегда = дата наряда: сохранённые orderDateOverride (в т.ч. залипшие
+    // от старых клиентов/умолчаний) игнорируются — «застрявшая» дата и была этой граблей.
+    const printDate = current.orderDate;
     // Mirror the on-screen template field-hiding for the work-line columns this card supports.
     const showService = !appliedHiddenFields.has('serviceName');
     const showPrice = !appliedHiddenFields.has('priceRub');
@@ -1357,7 +1359,12 @@ export function WorkOrderDetailsPage(props: {
     // из базы сотрудник выбираются оператором на каждый наряд.
     const approvalLinePx = Math.round(160 * (fs.director / WORK_ORDER_PRINT_FONT_DEFAULTS.director));
     const approver = resolveWorkOrderApprover(settings);
-    const approvalHtml = `<div style="text-align:right;font-size:${fs.director}px;line-height:1.4;"><div style="font-weight:700;">Утверждаю</div><div>${escapeHtml(approver.position)}</div><div style="margin-top:14px;"><span style="display:inline-block;width:${approvalLinePx}px;border-bottom:1px solid #0f172a;"></span>&nbsp;${escapeHtml(approver.name)}</div></div>`;
+    // Полная дата создания наряда — слева, на одном уровне с грифом (вариант Б, 2026-07-03).
+    const createdDateHtml =
+      settings.hideOrderDate || !printDate
+        ? ''
+        : `<div style="font-size:${fs.meta + 1}px;font-weight:600;">${formatMoscowDate(printDate)}</div>`;
+    const approvalHtml = `<div style="display:flex;justify-content:space-between;align-items:flex-start;">${createdDateHtml}<div style="margin-left:auto;text-align:right;font-size:${fs.director}px;line-height:1.4;"><div style="font-weight:700;">Утверждаю</div><div>${escapeHtml(approver.position)}</div><div style="margin-top:14px;"><span style="display:inline-block;width:${approvalLinePx}px;border-bottom:1px solid #0f172a;"></span>&nbsp;${escapeHtml(approver.name)}</div></div></div>`;
     const titleHtml = `<div style="text-align:center;font-size:${fs.title}px;font-weight:700;line-height:1.25;">${escapeHtml(headerTitle)}</div>`;
 
     // Строка реквизитов — таблицей. Колонки двигателя только у сборки (вынесены из строк работ),
@@ -1365,13 +1372,17 @@ export function WorkOrderDetailsPage(props: {
     // Плановые даты и цех наряда — печатаются по умолчанию, каждую можно снять
     // галочкой в панели печати (settings.hide*).
     const workshop = workshops.find((w) => w.id === String(current.workshopId ?? '').trim());
-    const workshopLabel = workshop ? `Цех ${workshop.code} — ${workshop.name}` : '—';
-    const metaCols: Array<{ label: string; value: string }> = [
+    // Плановые даты — без года (ДД.ММ): год виден в дате создания у грифа.
+    const shortDate = (ms: number | undefined) => (ms ? formatMoscowDate(ms).slice(0, 5) : '—');
+    // Два яруса (вариант Б): «наряд» (№/даты/цех) и «двигатель/контракт» — длинному
+    // заказчику не тесно, таблица не расползается за поля листа.
+    const tier1: Array<{ label: string; value: string }> = [
       { label: '№', value: String(current.workOrderNumber || '—') },
-      ...(settings.hideOrderDate ? [] : [{ label: 'Дата создания', value: printDate ? formatMoscowDate(printDate) : '—' }]),
-      ...(settings.hideStartDate ? [] : [{ label: 'Приступить', value: current.startDate ? formatMoscowDate(current.startDate) : '—' }]),
-      ...(settings.hideDueDate ? [] : [{ label: 'Срок', value: current.dueDate ? formatMoscowDate(current.dueDate) : '—' }]),
-      ...(settings.hideWorkshop ? [] : [{ label: 'Цех', value: workshopLabel }]),
+      ...(settings.hideStartDate ? [] : [{ label: 'Приступить', value: shortDate(current.startDate) }]),
+      ...(settings.hideDueDate ? [] : [{ label: 'Срок', value: shortDate(current.dueDate) }]),
+      ...(settings.hideWorkshop ? [] : [{ label: 'Цех', value: workshop?.name ?? '—' }]),
+    ];
+    const tier2: Array<{ label: string; value: string }> = [
       ...(isAssembly
         ? [
             { label: 'Марка дв.', value: headerEngineBrand },
@@ -1381,9 +1392,13 @@ export function WorkOrderDetailsPage(props: {
       ...(contractInfo?.contractSuffix ? [{ label: '№ контр.', value: contractInfo.contractSuffix }] : []),
       ...(contractInfo?.counterparty ? [{ label: 'Заказчик', value: contractInfo.counterparty }] : []),
     ];
-    const metaHtml = `<table class="wo-meta"><thead><tr>${metaCols
-      .map((c) => `<th>${escapeHtml(c.label)}</th>`)
-      .join('')}</tr></thead><tbody><tr>${metaCols.map((c) => `<td>${escapeHtml(c.value)}</td>`).join('')}</tr></tbody></table>`;
+    const metaTier = (cols: Array<{ label: string; value: string }>) =>
+      cols.length
+        ? `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr></thead><tbody><tr>${cols
+            .map((c) => `<td>${escapeHtml(c.value)}</td>`)
+            .join('')}</tr></tbody>`
+        : '';
+    const metaHtml = `<table class="wo-meta">${metaTier(tier1)}${metaTier(tier2)}</table>`;
 
     return {
       title: headerTitle,
@@ -1394,7 +1409,7 @@ export function WorkOrderDetailsPage(props: {
         `th, td { padding: 2px 7px; }`,
         // Реквизит-таблица шапки: рамка, центрирование, свой шрифт.
         `[data-print-section="meta"] table.wo-meta { width: 100%; border-collapse: collapse; }`,
-        `[data-print-section="meta"] table.wo-meta th, [data-print-section="meta"] table.wo-meta td { border: 1px solid #0f172a; text-align: center; font-size: ${fs.meta}px; padding: 3px 8px; }`,
+        `[data-print-section="meta"] table.wo-meta th, [data-print-section="meta"] table.wo-meta td { border: 1px solid #0f172a; text-align: center; font-size: ${fs.meta}px; padding: 3px 8px; word-break: break-word; }`,
         `[data-print-section="meta"] table.wo-meta th { background: #f3f4f6; font-weight: 600; }`,
         `[data-print-section="crew"] td, [data-print-section="crew"] th { font-size: ${fs.crew}px; }`,
         `[data-print-section="works"] td, [data-print-section="works"] th { font-size: ${fs.works}px; }`,
@@ -2780,13 +2795,11 @@ export function WorkOrderDetailsPage(props: {
         workOrderKind={payload.workOrderKind ?? ''}
         workOrderKindLabel={payload.workOrderKind ? WORK_ORDER_KIND_LABELS[payload.workOrderKind] : 'этого вида'}
         autoTitle={buildPrintModel(payload, {}).title}
-        defaultDateMs={payload.orderDate}
         approverEmployees={approverEmployees}
         buildHtml={(settings) => buildWorkOrderA4PreviewHtml(buildPrintModel(payload, settings))}
         onChange={(settings) => {
           const cleaned: WorkOrderPrintSettings = {
             ...(settings.titleOverride?.trim() ? { titleOverride: settings.titleOverride.trim() } : {}),
-            ...(settings.orderDateOverride ? { orderDateOverride: settings.orderDateOverride } : {}),
             ...(settings.approver === 'technical' ? { approver: 'technical' as const } : {}),
             ...(settings.approverPositionOverride?.trim() ? { approverPositionOverride: settings.approverPositionOverride.trim() } : {}),
             ...(settings.approverNameOverride?.trim() ? { approverNameOverride: settings.approverNameOverride.trim() } : {}),
