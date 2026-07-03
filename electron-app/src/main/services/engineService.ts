@@ -217,6 +217,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const shippingDateDefId = defs['shipping_date'];
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
+  const reclamationFlagDefId = defs['reclamation_flag'];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
@@ -234,6 +235,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     arrivalDateDefId,
     shippingDateDefId,
     attachmentsDefId,
+    reclamationFlagDefId,
   ].filter(Boolean) as string[];
   const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds, ...statusDateDefIds])];
 
@@ -343,6 +345,12 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       attachmentPreviews = toAttachmentPreviews(raw);
     }
+    let isReclamation = false;
+    if (reclamationFlagDefId) {
+      const v = rowValues.get(reclamationFlagDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
+      isReclamation = raw === true || raw === 'true' || raw === 1;
+    }
 
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
     if (statusDefIds.length > 0) {
@@ -392,6 +400,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       isScrap: statusRejected || crankcaseScrapped,
+      ...(isReclamation ? { isReclamation: true } : {}),
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,

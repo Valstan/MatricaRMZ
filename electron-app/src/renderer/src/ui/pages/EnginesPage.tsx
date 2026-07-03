@@ -25,6 +25,8 @@ type EngineRow = EngineListItem & {
 // ДС подразумевает договор → два зелёных. Бесхозный двигатель = красный (надо привязать).
 const BINDING_GREEN = '#16a34a';
 const BINDING_RED = '#dc2626';
+// Синяя точка «рекламационный» — рядом с точками привязки (план reclamation-mvp-2026-07 Ф1).
+const RECLAMATION_BLUE = '#2563eb';
 
 function bindingDot(color: string): React.ReactNode {
   return (
@@ -46,9 +48,18 @@ function bindingRank(e: EngineListItem): number {
 
 function renderBindingCell(e: EngineListItem): React.ReactNode {
   const status = classifyEngineContractBinding(e);
+  // Точки привязки — первыми, синяя рекламационная — добавляется в конец
+  // (не меняет семантику bindingRank).
+  const recl = e.isReclamation ? bindingDot(RECLAMATION_BLUE) : null;
   const wrap = (dots: React.ReactNode, label: string, title: string) => (
-    <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{dots}</span>
+    <span
+      title={e.isReclamation ? `${title} · Рекламация` : title}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        {dots}
+        {recl}
+      </span>
       <span>{label}</span>
     </span>
   );
@@ -78,6 +89,7 @@ export type EnginesPageUiState = {
   showPreviews: boolean;
   contractDateFrom: string;
   contractDateTo: string;
+  onlyReclamation?: boolean;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -284,6 +296,7 @@ export function EnginesPage(props: {
   const showPreviews = listState.showPreviews !== false;
   const contractDateFrom = String(listState.contractDateFrom ?? '');
   const contractDateTo = String(listState.contractDateTo ?? '');
+  const onlyReclamation = listState.onlyReclamation === true;
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -299,6 +312,7 @@ export function EnginesPage(props: {
     const toMs = endOfInputDate(contractDateTo);
     const hasDateFilter = fromMs != null || toMs != null;
     return tieredFilter.records.filter((engine) => {
+      if (onlyReclamation && engine.isReclamation !== true) return false;
       if (!hasDateFilter) return true;
       const arrivalDate = typeof engine.arrivalDate === 'number' && Number.isFinite(engine.arrivalDate) ? engine.arrivalDate : null;
       if (arrivalDate == null) return false;
@@ -306,7 +320,7 @@ export function EnginesPage(props: {
       if (toMs != null && arrivalDate > toMs) return false;
       return true;
     });
-  }, [tieredFilter, contractDateFrom, contractDateTo]);
+  }, [tieredFilter, contractDateFrom, contractDateTo, onlyReclamation]);
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) {
@@ -532,6 +546,14 @@ export function EnginesPage(props: {
           disabled={!contractDateFrom && !contractDateTo}
         >
           Сбросить даты
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => patchState({ onlyReclamation: !onlyReclamation, page: 0 })}
+          title="Показать только двигатели, принятые по рекламации"
+          style={onlyReclamation ? { background: 'rgba(37, 99, 235, 0.15)' } : undefined}
+        >
+          Рекламационные
         </Button>
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}

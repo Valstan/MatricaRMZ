@@ -19,6 +19,7 @@ export type EngineListItem = {
   arrivalDate?: number | null;
   shippingDate?: number | null;
   isScrap?: boolean;
+  isReclamation?: boolean;
   createdAt?: number;
   updatedAt: number;
   syncStatus: string;
