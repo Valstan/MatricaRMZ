@@ -6,6 +6,7 @@ import {
   canEditSection,
   canViewSection,
   parseSectionMembership,
+  sectionForLedgerWrite,
   sectionLevelFor,
   seedMembershipForRole,
   serializeSectionMembership,
@@ -92,5 +93,34 @@ describe('seedMembershipForRole (day-one: mirrors current factual footprint)', (
     expect(seedMembershipForRole('pending')).toEqual({});
     expect(seedMembershipForRole('employee')).toEqual({});
     expect(seedMembershipForRole(null)).toEqual({});
+  });
+});
+
+// Ф3: ledger write → owning section (server viewer write-gate).
+describe('sectionForLedgerWrite', () => {
+  it('maps EAV rows by entity_type code', () => {
+    expect(sectionForLedgerWrite({ table: 'entities', entityTypeCode: 'engine' })).toBe(AccessSection.Production);
+    expect(sectionForLedgerWrite({ table: 'attribute_values', entityTypeCode: 'contract' })).toBe(AccessSection.Contracts);
+    expect(sectionForLedgerWrite({ table: 'attribute_values', entityTypeCode: 'employee' })).toBe(AccessSection.People);
+    expect(sectionForLedgerWrite({ table: 'entities', entityTypeCode: 'nomenclature' })).toBe(AccessSection.Warehouse);
+  });
+
+  it('unmapped/shared types fail open (null)', () => {
+    expect(sectionForLedgerWrite({ table: 'entities', entityTypeCode: 'tool' })).toBeNull();
+    expect(sectionForLedgerWrite({ table: 'entities', entityTypeCode: 'workshop' })).toBeNull();
+    expect(sectionForLedgerWrite({ table: 'entities', entityTypeCode: '' })).toBeNull();
+    expect(sectionForLedgerWrite({ table: 'notes' })).toBeNull();
+    expect(sectionForLedgerWrite({ table: 'erp_reg_stock_balance' })).toBeNull();
+  });
+
+  it('operations: supply_request → supply, work_order → work_orders, engine-flow default → production', () => {
+    expect(sectionForLedgerWrite({ table: 'operations', operationType: 'supply_request' })).toBe(AccessSection.Supply);
+    expect(sectionForLedgerWrite({ table: 'operations', operationType: 'work_order' })).toBe(AccessSection.WorkOrders);
+    expect(sectionForLedgerWrite({ table: 'operations', operationType: 'engine_intake' })).toBe(AccessSection.Production);
+  });
+
+  it('ERP tables map to warehouse/production', () => {
+    expect(sectionForLedgerWrite({ table: 'erp_nomenclature' })).toBe(AccessSection.Warehouse);
+    expect(sectionForLedgerWrite({ table: 'erp_engine_assembly_bom_lines' })).toBe(AccessSection.Production);
   });
 });

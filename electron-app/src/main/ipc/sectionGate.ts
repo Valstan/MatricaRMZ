@@ -14,6 +14,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import {
   accessSectionMeta,
+  canEditSection,
   canViewSection,
   type AccessSection,
   type SectionMembership,
@@ -75,6 +76,80 @@ const ENTITY_TYPE_SECTION: Readonly<Record<string, AccessSection>> = {
   engine_brand: 'production',
 };
 
+// Мутирующие каналы гейтящихся разделов (Ф3): наблюдателю (viewer) — отказ,
+// нужен editor. Только явный список — verb-эвристика ловила бы личные
+// настройки (reports:favoritesSet) и read-каналы (warehouse:documents:plan).
+const WRITE_CHANNELS = new Set([
+  // production
+  'engine:create',
+  'engine:delete',
+  'engine:setAttr',
+  'engine:dedupe:merge',
+  'ops:add',
+  'parts:create',
+  'parts:delete',
+  'parts:updateAttribute',
+  'parts:partBrandLinks:delete',
+  'warehouse:assemblyBom:upsert',
+  'warehouse:assemblyBom:delete',
+  'warehouse:assemblyBom:archive',
+  'warehouse:assemblyBom:activateDefault',
+  'warehouse:assemblyBom:schema:set',
+  'warehouse:engineInstances:upsert',
+  'warehouse:engineInstances:delete',
+  // work_orders
+  'workOrders:create',
+  'workOrders:update',
+  'workOrders:delete',
+  'workOrders:close',
+  'workOrders:assemblyReturn',
+  'workOrders:postAssembly',
+  'workOrders:saveAssemblyDraft',
+  'workOrders:deleteAssemblyDraft',
+  'workOrderTemplates:delete',
+  'signatureCaptions:add',
+  // supply
+  'supplyRequests:create',
+  'supplyRequests:update',
+  'supplyRequests:delete',
+  'supplyRequests:transition',
+  // warehouse
+  'warehouse:directoryPart:create',
+  'warehouse:documents:create',
+  'warehouse:documents:cancel',
+  'warehouse:documents:post',
+  'warehouse:nomenclature:upsert',
+  'warehouse:nomenclature:delete',
+  'warehouse:nomenclature:itemTypes:upsert',
+  'warehouse:nomenclature:itemTypes:delete',
+  'warehouse:nomenclature:partSpec:update',
+  'warehouse:nomenclature:properties:upsert',
+  'warehouse:nomenclature:properties:delete',
+  'warehouse:nomenclature:templates:upsert',
+  'warehouse:nomenclature:templates:delete',
+  'warehouse:partsDedupe:merge',
+  'warehouse:repairFund:intake',
+  'warehouseLocations:delete',
+  'warehouseLocations:registerUsage',
+  'erp:documents:post',
+  // people
+  'employees:setAttr',
+  'employees:create',
+  'employees:delete',
+  'employees:merge',
+  'employees:resyncFromServer',
+  'timesheets:create',
+  'timesheets:update',
+  'timesheets:delete',
+  'timesheets:addRows',
+  'timesheets:removeRow',
+  'timesheets:setCells',
+  // directories
+  'workshops:upsert',
+  'workshops:delete',
+  'maintenance:emptyCards:delete',
+]);
+
 const TYPE_ARG_CHANNELS = new Set([
   'admin:entities:listByEntityType',
   'admin:entities:create',
@@ -85,6 +160,13 @@ const ENTITY_ARG_CHANNELS = new Set([
   'admin:entities:setAttr',
   'admin:entities:softDelete',
   'admin:entities:deleteInfo',
+  'admin:entities:detachLinksAndDelete',
+]);
+// Мутирующее подмножество generic admin:* каналов (Ф3 — требуют editor).
+const ADMIN_WRITE_CHANNELS = new Set([
+  'admin:entities:create',
+  'admin:entities:setAttr',
+  'admin:entities:softDelete',
   'admin:entities:detachLinksAndDelete',
 ]);
 
@@ -111,13 +193,14 @@ export function createSectionIpcGate(ctx: IpcContext) {
     return value;
   }
 
-  async function isAllowed(sectionId: AccessSection): Promise<boolean> {
+  async function isAllowed(sectionId: AccessSection, level: 'viewer' | 'editor'): Promise<boolean> {
     const viewer = await ctx.currentViewer();
     if (!viewer.login) return true; // не залогинен — auth-контроль на самих хэндлерах
     if (String(viewer.role ?? '').toLowerCase() === 'superadmin') return true;
     const membership = await membershipFor(viewer.login.toLowerCase());
     if (membership == null) return true; // не засеяно (legacy) — fail-open
-    return canViewSection({ membership, role: viewer.role, sectionId });
+    const check = level === 'editor' ? canEditSection : canViewSection;
+    return check({ membership, role: viewer.role, sectionId });
   }
 
   const typeCodeCache = new Map<string, string>(); // entityTypeId → code (типы неизменны в рамках сессии)
@@ -164,11 +247,17 @@ export function createSectionIpcGate(ctx: IpcContext) {
     const prefixSection = matchPrefixRule(channel);
     const entityGated = TYPE_ARG_CHANNELS.has(channel) || ENTITY_ARG_CHANNELS.has(channel);
     if (!prefixSection && !entityGated) return handler;
+    const level: 'viewer' | 'editor' =
+      WRITE_CHANNELS.has(channel) || ADMIN_WRITE_CHANNELS.has(channel) ? 'editor' : 'viewer';
     return async (event: unknown, ...args: unknown[]) => {
       const sectionId = prefixSection ?? (await sectionForEntityArgs(channel, args));
-      if (sectionId && !(await isAllowed(sectionId))) {
+      if (sectionId && !(await isAllowed(sectionId, level))) {
         const title = accessSectionMeta(sectionId)?.titleRu ?? sectionId;
-        throw new Error(`Нет доступа к разделу «${title}» — обратитесь к администратору`);
+        throw new Error(
+          level === 'editor' && (await isAllowed(sectionId, 'viewer'))
+            ? `Раздел «${title}» доступен вам только для просмотра`
+            : `Нет доступа к разделу «${title}» — обратитесь к администратору`,
+        );
       }
       return handler(event, ...args);
     };

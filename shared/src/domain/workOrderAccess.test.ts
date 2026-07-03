@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canEditWorkOrder, canViewWorkOrder } from './workOrderAccess.js';
+import { canEditWorkOrder, canViewWorkOrder, restrictedWorkOrderPolicyFromMemberships } from './workOrderAccess.js';
 
 // ramzia is the restricted (private + confined) owner; glavbux the accountant (reader).
 describe('canViewWorkOrder', () => {
@@ -47,5 +47,45 @@ describe('canEditWorkOrder', () => {
 
   it('a non-restricted order is not blocked by this policy (normal RBAC applies elsewhere)', () => {
     expect(canEditWorkOrder({ editorLogin: 'ozerolove', editorRole: 'master', ownerLogin: 'sapegin' })).toBe(true);
+  });
+});
+
+// Ф3: configurable lists via restricted_work_orders section membership.
+describe('restrictedWorkOrderPolicyFromMemberships', () => {
+  it('editor = owner (also reader), viewer = reader only', () => {
+    const p = restrictedWorkOrderPolicyFromMemberships([
+      { login: 'Olga', level: 'editor' },
+      { login: 'buh2', level: 'viewer' },
+      { login: 'nobody', level: null },
+    ]);
+    expect(p).not.toBeNull();
+    expect([...p!.owners]).toEqual(['olga']);
+    expect([...p!.readers].sort()).toEqual(['buh2', 'olga']);
+  });
+
+  it('returns null when no row carries the section (legacy fallback)', () => {
+    expect(restrictedWorkOrderPolicyFromMemberships([{ login: 'x', level: null }])).toBeNull();
+    expect(restrictedWorkOrderPolicyFromMemberships([])).toBeNull();
+  });
+});
+
+describe('policy-driven canView/canEdit (Ф3)', () => {
+  const policy = restrictedWorkOrderPolicyFromMemberships([
+    { login: 'olga', level: 'editor' },
+    { login: 'buh2', level: 'viewer' },
+  ])!;
+
+  it('membership replaces the hardcode: new owner confined, old hardcoded owner ordinary', () => {
+    expect(canViewWorkOrder({ viewerLogin: 'olga', viewerRole: 'master', ownerLogin: 'sapegin', policy })).toBe(false);
+    expect(canViewWorkOrder({ viewerLogin: 'olga', viewerRole: 'master', ownerLogin: 'olga', policy })).toBe(true);
+    expect(canViewWorkOrder({ viewerLogin: 'ozerolove', viewerRole: 'master', ownerLogin: 'olga', policy })).toBe(false);
+    // ramzia is NOT in this policy → her orders are ordinary now
+    expect(canViewWorkOrder({ viewerLogin: 'ozerolove', viewerRole: 'master', ownerLogin: 'ramzia', policy })).toBe(true);
+  });
+
+  it('viewer-level member reads all, cannot edit the owner’s orders', () => {
+    expect(canViewWorkOrder({ viewerLogin: 'buh2', viewerRole: 'admin', ownerLogin: 'olga', policy })).toBe(true);
+    expect(canEditWorkOrder({ editorLogin: 'buh2', editorRole: 'admin', ownerLogin: 'olga', policy })).toBe(false);
+    expect(canEditWorkOrder({ editorLogin: 'olga', editorRole: 'master', ownerLogin: 'olga', policy })).toBe(true);
   });
 });

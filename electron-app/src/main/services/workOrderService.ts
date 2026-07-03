@@ -13,6 +13,7 @@ import {
   type WorkOrderPayload,
 } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
+import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
 
 import { auditLog, operations } from '../database/schema.js';
 
@@ -393,6 +394,10 @@ export async function listWorkOrders(
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const month = args?.month ? String(args.month).trim() : '';
     const viewer = args?.viewer;
+    // Configurable restricted-orders lists (Ф3); undefined → shared legacy hardcode.
+    const restrictedPolicy = viewer
+      ? ((await getRestrictedWorkOrderPolicyLocal(db).catch(() => null)) ?? undefined)
+      : undefined;
 
     const out: Array<{
       id: string;
@@ -421,7 +426,12 @@ export async function listWorkOrders(
       // (owner = performed_by). Full DB stays local; this filters the list only.
       if (
         viewer &&
-        !canViewWorkOrder({ viewerLogin: viewer.login, viewerRole: viewer.role, ownerLogin: String(row.performedBy ?? '') })
+        !canViewWorkOrder({
+          viewerLogin: viewer.login,
+          viewerRole: viewer.role,
+          ownerLogin: String(row.performedBy ?? ''),
+          ...(restrictedPolicy ? { policy: restrictedPolicy } : {}),
+        })
       ) {
         continue;
       }
