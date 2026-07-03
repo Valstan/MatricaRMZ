@@ -218,6 +218,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
   const reclamationFlagDefId = defs['reclamation_flag'];
+  const repeatArrivalDefId = defs['repeat_arrival_flag'];
+  const numberCollisionDefId = defs['number_collision_flag'];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
@@ -236,6 +238,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     shippingDateDefId,
     attachmentsDefId,
     reclamationFlagDefId,
+    repeatArrivalDefId,
+    numberCollisionDefId,
   ].filter(Boolean) as string[];
   const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds, ...statusDateDefIds])];
 
@@ -345,12 +349,15 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       attachmentPreviews = toAttachmentPreviews(raw);
     }
-    let isReclamation = false;
-    if (reclamationFlagDefId) {
-      const v = rowValues.get(reclamationFlagDefId);
+    const boolAttr = (defIdMaybe: string | undefined): boolean => {
+      if (!defIdMaybe) return false;
+      const v = rowValues.get(defIdMaybe);
       const raw = v != null ? safeJsonParse(v) : null;
-      isReclamation = raw === true || raw === 'true' || raw === 1;
-    }
+      return raw === true || raw === 'true' || raw === 1;
+    };
+    const isReclamation = boolAttr(reclamationFlagDefId);
+    const isRepeatArrival = boolAttr(repeatArrivalDefId);
+    const isNumberCollision = boolAttr(numberCollisionDefId);
 
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
     if (statusDefIds.length > 0) {
@@ -401,6 +408,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       isScrap: statusRejected || crankcaseScrapped,
       ...(isReclamation ? { isReclamation: true } : {}),
+      ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
+      ...(isNumberCollision ? { isNumberCollision: true } : {}),
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,
@@ -489,6 +498,30 @@ export async function findEngineDuplicateByNumber(
     if (num && normalizeLookupCompact(num) === key) return { id, engineNumber: num };
   }
   return null;
+}
+
+/** Флаги осознанного дубля номера (Ф2): «повторный заезд» / «коллизия номера». */
+export async function engineHasDuplicateBypassFlag(
+  db: BetterSQLite3Database,
+  engineId: string,
+  defs: Record<string, string>,
+): Promise<boolean> {
+  const flagDefIds = ['repeat_arrival_flag', 'number_collision_flag'].map((c) => defs[c]).filter(Boolean) as string[];
+  if (flagDefIds.length === 0) return false;
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, engineId),
+        inArray(attributeValues.attributeDefId, flagDefIds),
+        isNull(attributeValues.deletedAt),
+      ),
+    );
+  return rows.some((r) => {
+    const parsed = safeJsonParse(String(r.valueJson ?? ''));
+    return parsed === true || parsed === 'true' || parsed === 1;
+  });
 }
 
 // Too-short numbers make substring search noise (every engine "matches" «1»).
@@ -590,7 +623,10 @@ export async function setEngineAttribute(
 
   if (code === 'engine_number') {
     const dup = await findEngineDuplicateByNumber(db, String(value ?? ''), engineId);
-    if (dup) {
+    // Осознанный дубль (повторный заезд / коллизия номера, Ф2): флаг на этой сущности
+    // снимает запрет. Карточка пишет флаги ДО номера (порядок в saveAllAndClose),
+    // поэтому к моменту проверки флаг уже записан локально.
+    if (dup && !(await engineHasDuplicateBypassFlag(db, engineId, defs))) {
       throw new Error(`Двигатель с номером «${dup.engineNumber}» уже существует. Откройте его карточку вместо создания дубля.`);
     }
   }
