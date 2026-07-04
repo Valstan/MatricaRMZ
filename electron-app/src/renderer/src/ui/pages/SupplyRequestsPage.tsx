@@ -6,6 +6,8 @@ import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { ListSearchBar } from '../components/ListSearchBar.js';
+import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -120,6 +122,12 @@ export function SupplyRequestsPage(props: {
     },
     (row) => row.id,
   );
+  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
+  const getRowId = useCallback((row: Row) => String(row.id), []);
+  const getRowLabel = useCallback((row: Row) => String(row.requestNumber ?? ''), []);
+  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
+  const displayRows = bottomFilter.filtered;
+
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
   }
@@ -269,22 +277,30 @@ export function SupplyRequestsPage(props: {
 
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sorted} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
-            count={sorted.length}
+            count={displayRows.length}
             header={renderTableHeader()}
-            renderCells={(i) => renderRequestCells(sorted[i]!)}
-            getRowKey={(i) => sorted[i]!.id}
-            getRowProps={(i) => rowProps(sorted[i]!)}
+            renderCells={(i) => renderRequestCells(displayRows[i]!)}
+            getRowKey={(i) => displayRows[i]!.id}
+            getRowProps={(i) => rowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
             estimateSize={48}
             emptyState="Ничего не найдено"
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sorted.length}</div>
+      <div style={{ flex: '0 0 auto' }}>
+        <ListSearchBar
+          query={bottomFilter.query}
+          onQueryChange={bottomFilter.setQuery}
+          matched={bottomFilter.matched}
+          total={bottomFilter.total}
+          placeholder="Поиск в списке заявок (и внутри карточек)…"
+        />
+      </div>
     </div>
   );
 }

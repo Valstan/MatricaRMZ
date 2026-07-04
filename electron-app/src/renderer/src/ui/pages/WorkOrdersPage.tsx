@@ -15,6 +15,8 @@ import { ColumnSettingsButton, type ColumnDescriptor } from '../components/Colum
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
+import { ListSearchBar } from '../components/ListSearchBar.js';
+import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { WorkOrderKindPickerDialog } from '../components/WorkOrderKindPickerDialog.js';
@@ -204,7 +206,14 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     (row) => row.id,
   );
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
-  const selection = useListSelection(sorted.map((row) => row.id));
+
+  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
+  const getRowId = useCallback((row: Row) => String(row.id), []);
+  const getRowLabel = useCallback((row: Row) => String(row.workOrderNumber ?? ''), []);
+  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
+  const displayRows = bottomFilter.filtered;
+
+  const selection = useListSelection(displayRows.map((row) => row.id));
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -505,22 +514,30 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sorted} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
-            count={sorted.length}
+            count={displayRows.length}
             header={renderTableHeader()}
-            renderCells={(i) => renderWorkOrderCells(sorted[i]!)}
-            getRowKey={(i) => sorted[i]!.id}
-            getRowProps={(i) => rowProps(sorted[i]!)}
+            renderCells={(i) => renderWorkOrderCells(displayRows[i]!)}
+            getRowKey={(i) => displayRows[i]!.id}
+            getRowProps={(i) => rowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
             estimateSize={44}
             emptyState="Ничего не найдено"
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sorted.length}</div>
+      <div style={{ flex: '0 0 auto' }}>
+        <ListSearchBar
+          query={bottomFilter.query}
+          onQueryChange={bottomFilter.setQuery}
+          matched={bottomFilter.matched}
+          total={bottomFilter.total}
+          placeholder="Поиск в списке нарядов (и внутри карточек)…"
+        />
+      </div>
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       ) : null}

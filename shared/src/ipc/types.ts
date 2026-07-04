@@ -626,6 +626,7 @@ export type MatricaApi = {
   };
   search: {
     global: (args: { q: string; limit?: number }) => Promise<GlobalSearchResponse>;
+    cardContent: (args: { entityIds: string[]; q: string }) => Promise<{ ok: true; ids: string[] } | { ok: false; error: string }>;
   };
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => void;

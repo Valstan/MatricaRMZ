@@ -7,6 +7,8 @@ import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
+import { ListSearchBar } from '../components/ListSearchBar.js';
+import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
@@ -375,6 +377,12 @@ export function EnginesPage(props: {
     return items;
   }, [filtered, sortDir, sortKey, query]);
 
+  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
+  const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
+  const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
+  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
+  const displayRows = bottomFilter.filtered;
+
   type EngineColumn = ColumnDescriptor & {
     sortable: boolean;
     sortKey?: typeof sortKey;
@@ -623,15 +631,15 @@ export function EnginesPage(props: {
         onScroll={onScroll}
       >
         {twoCol ? (
-          <TwoColumnList items={sorted} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
-            count={sorted.length}
+            count={displayRows.length}
             header={renderTableHeader()}
-            renderCells={(i) => renderEngineCells(sorted[i]!)}
-            getRowKey={(i) => String(sorted[i]!.id)}
-            getRowProps={(i) => engineRowProps(sorted[i]!)}
+            renderCells={(i) => renderEngineCells(displayRows[i]!)}
+            getRowKey={(i) => String(displayRows[i]!.id)}
+            getRowProps={(i) => engineRowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
             estimateSize={showPreviews ? 64 : 40}
             emptyState="Ничего не найдено"
@@ -639,8 +647,14 @@ export function EnginesPage(props: {
         )}
       </div>
 
-      <div style={{ padding: '6px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
-        Всего: {sorted.length}
+      <div style={{ flex: '0 0 auto' }}>
+        <ListSearchBar
+          query={bottomFilter.query}
+          onQueryChange={bottomFilter.setQuery}
+          matched={bottomFilter.matched}
+          total={bottomFilter.total}
+          placeholder="Поиск в списке двигателей (и внутри карточек)…"
+        />
       </div>
       {dedupeOpen && (
         <EngineDedupeModal
