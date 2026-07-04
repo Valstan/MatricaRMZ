@@ -178,6 +178,24 @@ export function createApp() {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const webAdminDir = path.resolve(__dirname, '../../web-admin/dist');
   if (existsSync(webAdminDir)) {
+    // CSP только для /admin-ui (vite-сборка без inline-скриптов; 'unsafe-inline' —
+    // для style-атрибутов React). API-ответы CSP не несут — их читают Electron/скрипты,
+    // а глобальная CSP в helmet выключена именно из-за этой SPA (см. createApp выше).
+    const adminUiCsp = [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+    ].join('; ');
+    app.use('/admin-ui', (_req, res, next) => {
+      res.setHeader('Content-Security-Policy', adminUiCsp);
+      next();
+    });
     app.use('/admin-ui', express.static(webAdminDir));
     app.get('/admin-ui/*', (_req, res) => {
       res.sendFile(path.join(webAdminDir, 'index.html'));
