@@ -3,6 +3,7 @@ import { ipcMain } from 'electron';
 import type { PartMetadata } from '@matricarmz/shared';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult } from '../ipcContext.js';
+import { searchEntityCardContent } from '../../services/cardContentSearchService.js';
 import {
   erpCardsList,
   erpCardsUpsert,
@@ -165,6 +166,17 @@ export function registerErpIpc(ctx: IpcContext) {
     return warehouseNomenclatureList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
     },
   );
+
+  // Bottom list filter tier-2: match query against live EAV values of the ids the
+  // page currently displays. Returns ids only (no attribute data crosses the bridge),
+  // so the section read-gate of the calling list is not widened.
+  ipcMain.handle('search:cardContent', async (_e, args?: { entityIds?: string[]; q?: string }) => {
+    if (isViewMode(ctx)) return { ok: true as const, ids: [] as string[] };
+    return searchEntityCardContent(ctx.dataDb(), {
+      entityIds: Array.isArray(args?.entityIds) ? args.entityIds.map(String) : [],
+      q: String(args?.q ?? ''),
+    });
+  });
 
   ipcMain.handle('search:global', async (_e, args?: { q?: string; limit?: number }) => {
     if (isViewMode(ctx)) return { query: '', hits: [], truncated: false };

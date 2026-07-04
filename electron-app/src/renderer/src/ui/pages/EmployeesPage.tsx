@@ -7,6 +7,8 @@ import { ColumnSettingsButton, type ColumnDescriptor } from '../components/Colum
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
+import { ListSearchBar } from '../components/ListSearchBar.js';
+import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -170,7 +172,13 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     });
   }, [filtered, listState.sortDir, listState.sortKey]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
-  const selection = useListSelection(sorted.map((row) => row.id));
+  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
+  const getRowId = useCallback((row: Row) => String(row.id), []);
+  const getRowLabel = useCallback((row: Row) => String(row.displayName ?? ''), []);
+  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
+  const displayRows = bottomFilter.filtered;
+
+  const selection = useListSelection(displayRows.map((row) => row.id));
 
   const headerCellStyle: React.CSSProperties = {
     padding: '10px 12px',
@@ -466,22 +474,30 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sorted} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
-            count={sorted.length}
+            count={displayRows.length}
             header={renderTableHeader()}
-            renderCells={(i) => renderEmployeeCells(sorted[i]!)}
-            getRowKey={(i) => sorted[i]!.id}
-            getRowProps={(i) => rowProps(sorted[i]!)}
+            renderCells={(i) => renderEmployeeCells(displayRows[i]!)}
+            getRowKey={(i) => displayRows[i]!.id}
+            getRowProps={(i) => rowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
             estimateSize={showPreviews ? 56 : 44}
             emptyState={rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sorted.length}</div>
+      <div style={{ flex: '0 0 auto' }}>
+        <ListSearchBar
+          query={bottomFilter.query}
+          onQueryChange={bottomFilter.setQuery}
+          matched={bottomFilter.matched}
+          total={bottomFilter.total}
+          placeholder="Поиск в списке сотрудников (и внутри карточек)…"
+        />
+      </div>
       {assignOpen ? (
         <div onClick={() => setAssignOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 16, width: 380, display: 'flex', flexDirection: 'column', gap: 12 }}>
