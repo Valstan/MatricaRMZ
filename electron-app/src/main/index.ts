@@ -328,8 +328,13 @@ app.whenReady().then(() => {
       const dbPath = join(userData, 'matricarmz.sqlite');
       let dbRecovered = false;
 
+      // Ключ шифрования локальной базы (SQLCipher-класс, план sqlcipher-client-db-2026-07).
+      // null = хост без OS-keyring → работаем плейнтекстом (залогировано в dbKeyService).
+      const { loadOrCreateDbKey } = await import('./services/dbKeyService.js');
+      const dbEncryptionKey = loadOrCreateDbKey(logToFile);
+
       const openMigrateSeed = async () => {
-        const opened = openSqlite(dbPath);
+        const opened = openSqlite(dbPath, dbEncryptionKey);
         const migrationsFolder = join(app.getAppPath(), 'drizzle');
         logToFile(`sqlite migrationsFolder=${migrationsFolder}`);
         migrateSqlite(opened.db, opened.sqlite, migrationsFolder);
