@@ -347,6 +347,56 @@ describe('mergeDirectoryParts happy path', () => {
     expect(tables).toContain('upsert:erp_reg_stock_movements');
     expect(tables).toContain('upsert:erp_engine_assembly_bom_lines');
     expect(tables).toContain('delete:erp_nomenclature');
+
+    // survivor mirror synced: code filled from the loser propagates into erp_nomenclature
+    const mirrorSync = state.updateCalls.find((c) => c.table === erpNomenclature && c.set.code === '303-07-22');
+    expect(mirrorSync).toBeTruthy();
+    expect(report.fills.some((f) => f.includes('зеркало синхронизировано'))).toBe(true);
+    const mirrorLedger = state.ledgerCalls.find((p) => p.type === 'upsert' && p.table === 'erp_nomenclature' && p.row_id === S);
+    expect(mirrorLedger).toBeTruthy();
+    expect(mirrorLedger!.row.code).toBe('303-07-22');
+  });
+});
+
+describe('mergeDirectoryParts survivor mirror sync', () => {
+  it('renames a stale mirror to the directory part name even when no code changes', async () => {
+    // survivor's mirror kept an old name; codes already match → only the name syncs
+    state.selectByTable.set(directoryParts, [
+      [part({ id: S, name: 'Гильза стальная', code: '303-07-22' }), part({ id: L, name: 'Гильза 2', code: '303-07-22' })],
+    ]);
+    state.selectByTable.set(erpNomenclature, [
+      [nom({ id: S, code: '303-07-22', name: 'Гильза (старое имя зеркала)' }), nom({ id: L, code: 'N-2', directoryRefId: L })],
+      [nom({ id: L, code: 'N-2', directoryRefId: L })],
+      [nom({ id: L, code: 'N-2', directoryRefId: L, deletedAt: 999 })],
+    ]);
+
+    const res = await mergeDirectoryParts({ survivorId: S, mergedIds: [L], actor: ACTOR });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    const mirrorSync = state.updateCalls.find((c) => c.table === erpNomenclature && c.set.name === 'Гильза стальная');
+    expect(mirrorSync).toBeTruthy();
+    expect(mirrorSync!.set.code).toBe('303-07-22');
+  });
+
+  it('leaves the mirror untouched when code and name already match', async () => {
+    state.selectByTable.set(directoryParts, [
+      [part({ id: S, name: 'Гильза', code: 'N-1' }), part({ id: L, name: 'Гильза 2', code: 'N-1' })],
+    ]);
+    state.selectByTable.set(erpNomenclature, [
+      [nom({ id: S, code: 'N-1', name: 'Гильза' }), nom({ id: L, code: 'N-2', directoryRefId: L })],
+      [nom({ id: L, code: 'N-2', directoryRefId: L })],
+      [nom({ id: L, code: 'N-2', directoryRefId: L, deletedAt: 999 })],
+    ]);
+
+    const res = await mergeDirectoryParts({ survivorId: S, mergedIds: [L], actor: ACTOR });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    // only mutation on erp_nomenclature is the loser soft-delete
+    const nomUpdates = state.updateCalls.filter((c) => c.table === erpNomenclature);
+    expect(nomUpdates).toHaveLength(1);
+    expect(nomUpdates[0]!.set.deletedAt).not.toBeNull();
   });
 });
 
