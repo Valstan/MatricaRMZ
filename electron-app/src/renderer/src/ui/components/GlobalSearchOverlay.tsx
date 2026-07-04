@@ -5,6 +5,7 @@ import { globalSearchKindLabel, type GlobalSearchHit, type GlobalSearchKind } fr
 
 import { useGlobalSearchScope } from '../context/globalSearchScope.js';
 import { L2_SOURCES, loadAllL2, pickL2Label, type L2Row } from '../services/globalSearchSources.js';
+import { KIND_PATH, UI_SEARCH_ENTRIES, type UiSearchEntry } from '../services/uiSearchRegistry.js';
 import { filterPreparedRecords, prepareRecordSearch, type PreparedRecordSearch } from '../utils/search.js';
 
 type LevelMode = 'auto' | 'page' | 'directories' | 'server';
@@ -33,12 +34,45 @@ const KIND_ORDER: GlobalSearchKind[] = [
   'stock_document',
 ];
 
+// Deep card-content search (tier L2.5) runs over EAV-backed entity kinds only —
+// nomenclature/stock documents are erp_* tables without attribute_values.
+const DEEP_KINDS: GlobalSearchKind[] = [
+  'engine',
+  'employee',
+  'request',
+  'work_order',
+  'tool',
+  'tool_property',
+  'engine_brand',
+  'counterparty',
+  'contract',
+  'service',
+  'product',
+];
+
 const PER_GROUP = 6;
 const SERVER_DEBOUNCE_MS = 250;
+const DEEP_DEBOUNCE_MS = 300;
 const SERVER_MIN_CHARS = 2;
 
-export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void; onSelect: (hit: GlobalSearchHit) => void }) {
-  const { open, onClose, onSelect } = props;
+// Unified result row: an entity hit (opens the card) or a UI surface (opens the tab).
+type RowItem = {
+  key: string;
+  label: string;
+  code?: string;
+  path?: string;
+  note?: string;
+  hit?: GlobalSearchHit;
+  tabId?: string;
+};
+
+export function GlobalSearchOverlay(props: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (hit: GlobalSearchHit) => void;
+  onNavigateTab?: (tabId: string) => void;
+}) {
+  const { open, onClose, onSelect, onNavigateTab } = props;
   const scope = useGlobalSearchScope();
 
   const [query, setQuery] = useState('');
@@ -46,6 +80,7 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
   const [l2Loaded, setL2Loaded] = useState<Partial<Record<GlobalSearchKind, L2Row[]>>>({});
   const [serverHits, setServerHits] = useState<GlobalSearchHit[]>([]);
   const [serverLoading, setServerLoading] = useState(false);
+  const [deepIds, setDeepIds] = useState<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(0);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -58,6 +93,7 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
     setMode('auto');
     setActiveIndex(0);
     setServerHits([]);
+    setDeepIds(new Set());
     const focus = window.setTimeout(() => inputRef.current?.focus(), 0);
     let cancelled = false;
     void (async () => {
@@ -101,6 +137,41 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
     };
   }, [open, mode, query]);
 
+  // Debounced L2.5 deep search inside card content (live EAV values in local SQLite)
+  // across the already-loaded directory rows — «ищет и в карточках, и в базе».
+  useEffect(() => {
+    if (!open || !(mode === 'auto' || mode === 'directories')) {
+      setDeepIds(new Set());
+      return;
+    }
+    const q = query.trim();
+    if (q.length < SERVER_MIN_CHARS) {
+      setDeepIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const entityIds: string[] = [];
+        for (const kind of DEEP_KINDS) {
+          for (const r of l2Loaded[kind] ?? []) {
+            const id = String((r as L2Row).id ?? '');
+            if (id) entityIds.push(id);
+          }
+        }
+        if (entityIds.length === 0) return;
+        const res = await window.matrica.search.cardContent({ entityIds, q });
+        if (!cancelled) setDeepIds(res.ok ? new Set(res.ids) : new Set());
+      } catch {
+        if (!cancelled) setDeepIds(new Set());
+      }
+    }, DEEP_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, mode, query, l2Loaded]);
+
   const l2Prepared = useMemo(() => {
     const out: Partial<Record<GlobalSearchKind, PreparedRecordSearch<L2Row>>> = {};
     for (const src of L2_SOURCES) {
@@ -114,6 +185,16 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
     if (!scope) return null;
     return prepareRecordSearch(scope.rows, scope.getId, scope.getLabel);
   }, [scope]);
+
+  const uiPrepared = useMemo(
+    () =>
+      prepareRecordSearch(
+        UI_SEARCH_ENTRIES,
+        (e) => `${e.tabId}|${e.label}`,
+        (e) => `${e.label} ${(e.synonyms ?? []).join(' ')}`,
+      ),
+    [],
+  );
 
   const hits = useMemo<GlobalSearchHit[]>(() => {
     const q = query.trim();
@@ -153,29 +234,88 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
     });
   }, [query, mode, scope, l1Prepared, l2Prepared, serverHits]);
 
+  // Deep-only hits: ids matched inside card content that tier-1/2/3 did not surface.
+  const deepHits = useMemo<GlobalSearchHit[]>(() => {
+    if (deepIds.size === 0) return [];
+    const already = new Set(hits.map((h) => h.id));
+    const out: GlobalSearchHit[] = [];
+    for (const kind of DEEP_KINDS) {
+      for (const r of l2Loaded[kind] ?? []) {
+        const id = String((r as L2Row).id ?? '');
+        if (!id || !deepIds.has(id) || already.has(id)) continue;
+        out.push({ kind, id, label: pickL2Label(r as L2Row) || id });
+        if (out.length >= PER_GROUP * 2) return out;
+      }
+    }
+    return out;
+  }, [deepIds, hits, l2Loaded]);
+
+  const uiRows = useMemo<UiSearchEntry[]>(() => {
+    const q = query.trim();
+    if (!q || !(mode === 'auto' || mode === 'page')) return [];
+    return filterPreparedRecords(uiPrepared, q).records.slice(0, PER_GROUP);
+  }, [query, mode, uiPrepared]);
+
   const groups = useMemo(() => {
+    const ordered: Array<{ key: string; title: string; rows: RowItem[] }> = [];
+
+    if (uiRows.length) {
+      ordered.push({
+        key: '__ui',
+        title: 'Интерфейс',
+        rows: uiRows.map((e) => ({
+          key: `ui|${e.tabId}|${e.label}`,
+          label: e.label,
+          path: e.path,
+          note: e.surface,
+          tabId: e.tabId,
+        })),
+      });
+    }
+
     const byKind = new Map<GlobalSearchKind, GlobalSearchHit[]>();
     for (const h of hits) {
       const arr = byKind.get(h.kind) ?? [];
       if (arr.length < PER_GROUP) arr.push(h);
       byKind.set(h.kind, arr);
     }
-    const ordered: Array<{ kind: GlobalSearchKind; title: string; hits: GlobalSearchHit[] }> = [];
+    const toRows = (arr: GlobalSearchHit[]): RowItem[] =>
+      arr.map((h) => ({
+        key: `${h.kind}|${h.id}`,
+        label: h.label,
+        ...(h.code ? { code: h.code } : {}),
+        path: KIND_PATH[h.kind],
+        hit: h,
+      }));
     const used = new Set<GlobalSearchKind>();
     for (const kind of KIND_ORDER) {
       const arr = byKind.get(kind);
       if (arr && arr.length) {
-        ordered.push({ kind, title: groupTitle(kind, scope), hits: arr });
+        ordered.push({ key: kind, title: groupTitle(kind, scope), rows: toRows(arr) });
         used.add(kind);
       }
     }
     for (const [kind, arr] of byKind) {
-      if (!used.has(kind) && arr.length) ordered.push({ kind, title: groupTitle(kind, scope), hits: arr });
+      if (!used.has(kind) && arr.length) ordered.push({ key: kind, title: groupTitle(kind, scope), rows: toRows(arr) });
+    }
+
+    if (deepHits.length) {
+      ordered.push({
+        key: '__deep',
+        title: 'Найдено в содержимом карточек',
+        rows: deepHits.map((h) => ({
+          key: `deep|${h.kind}|${h.id}`,
+          label: h.label,
+          path: KIND_PATH[h.kind],
+          note: globalSearchKindLabel(h.kind).toLowerCase(),
+          hit: h,
+        })),
+      });
     }
     return ordered;
-  }, [hits, scope]);
+  }, [uiRows, hits, deepHits, scope]);
 
-  const flat = useMemo(() => groups.flatMap((g) => g.hits), [groups]);
+  const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
 
   useEffect(() => {
     setActiveIndex((i) => (flat.length === 0 ? 0 : Math.min(i, flat.length - 1)));
@@ -186,6 +326,17 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
   }, [activeIndex]);
 
   if (!open) return null;
+
+  const pick = (row: RowItem) => {
+    if (row.hit) {
+      onSelect(row.hit);
+      return;
+    }
+    if (row.tabId && onNavigateTab) {
+      onClose();
+      onNavigateTab(row.tabId);
+    }
+  };
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -205,8 +356,8 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const hit = flat[activeIndex];
-      if (hit) onSelect(hit);
+      const row = flat[activeIndex];
+      if (row) pick(row);
     }
   };
 
@@ -253,7 +404,7 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
               setQuery(e.target.value);
               setActiveIndex(0);
             }}
-            placeholder="Поиск по всему: детали, двигатели, контрагенты, наряды…"
+            placeholder="Поиск по всему: детали, двигатели, наряды, кнопки и разделы…"
             style={{
               width: '100%',
               boxSizing: 'border-box',
@@ -302,7 +453,7 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
             </div>
           )}
           {groups.map((group) => (
-            <div key={group.kind}>
+            <div key={group.key}>
               <div
                 style={{
                   padding: '8px 16px 4px',
@@ -314,37 +465,54 @@ export function GlobalSearchOverlay(props: { open: boolean; onClose: () => void;
               >
                 {group.title}
               </div>
-              {group.hits.map((hit) => {
+              {group.rows.map((row) => {
                 const idx = flatCursor;
                 flatCursor += 1;
                 const isActive = idx === activeIndex;
                 return (
                   <button
-                    key={`${hit.kind}|${hit.id}`}
+                    key={row.key}
                     ref={isActive ? activeRowRef : null}
                     data-testid="global-search-row"
-                    data-kind={hit.kind}
+                    data-kind={row.hit ? row.hit.kind : 'ui'}
                     type="button"
                     onMouseEnter={() => setActiveIndex(idx)}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => onSelect(hit)}
+                    onClick={() => pick(row)}
                     style={{
                       display: 'flex',
-                      alignItems: 'baseline',
-                      gap: 10,
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                      gap: 2,
                       width: '100%',
                       textAlign: 'left',
-                      padding: '8px 16px',
+                      padding: '7px 16px',
                       border: 'none',
                       cursor: 'pointer',
                       background: isActive ? 'var(--surface2)' : 'transparent',
                       color: 'var(--text)',
                     }}
                   >
-                    <span style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {hit.label}
+                    <span style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                      <span style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {row.label}
+                      </span>
+                      {row.code ? <span style={{ flex: '0 0 auto', fontSize: 12, color: 'var(--muted)' }}>{row.code}</span> : null}
+                      {row.note ? <span style={{ flex: '0 0 auto', fontSize: 11, color: 'var(--muted)' }}>{row.note}</span> : null}
                     </span>
-                    {hit.code ? <span style={{ flex: '0 0 auto', fontSize: 12, color: 'var(--muted)' }}>{hit.code}</span> : null}
+                    {row.path ? (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--muted)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {row.path}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
