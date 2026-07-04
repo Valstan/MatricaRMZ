@@ -4575,6 +4575,9 @@ export function App() {
           setGlobalSearchOpen(false);
           void navigateToRoute(searchHitToRoute(hit));
         }}
+        onNavigateTab={(tabId) => {
+          void navigateToRoute({ kind: 'tab', id: tabId });
+        }}
       />
     </Page>
     </ErrorBoundary>
