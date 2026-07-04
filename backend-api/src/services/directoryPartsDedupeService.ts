@@ -727,6 +727,43 @@ export async function mergeDirectoryParts(args: {
           bomLinesDropped,
         });
       }
+
+      // --- survivor mirror sync: the merge may have filled the survivor's code, or the
+      // mirror's code/name may be stale vs the directory part — bring the existing
+      // erp_nomenclature mirror in step. Runs AFTER the loser loop so a code inherited
+      // from a loser is already freed by that loser's soft-deleted mirror (partial
+      // unique 0066).
+      const survivorNom = nomById.get(survivorId);
+      if (survivorNom) {
+        const nextCode = survivorCode ?? String(survivorNom.code);
+        const nextName = String(survivor.name ?? '').trim() || String(survivorNom.name);
+        if (String(survivorNom.code) !== nextCode || String(survivorNom.name) !== nextName) {
+          let nextSpecJson = survivorNom.specJson ?? null;
+          if (survivorCode && nextSpecJson) {
+            try {
+              const spec = JSON.parse(nextSpecJson);
+              if (spec && typeof spec === 'object' && !Array.isArray(spec)) {
+                nextSpecJson = JSON.stringify({ ...spec, article: survivorCode });
+              }
+            } catch {
+              // keep the mirror's specJson as-is if it is not valid JSON
+            }
+          }
+          await tx
+            .update(erpNomenclature)
+            .set({ code: nextCode, name: nextName, specJson: nextSpecJson, updatedAt: ts })
+            .where(eq(erpNomenclature.id, survivorId));
+          allLedgerPayloads.push({
+            type: 'upsert',
+            table: LedgerTableName.ErpNomenclature,
+            row_id: survivorId,
+            row: nomenclatureLedgerRow({ ...survivorNom, code: nextCode, name: nextName, specJson: nextSpecJson } as any, ts),
+            actor: actorRow,
+            ts,
+          });
+          report.fills.push(`складская карточка: зеркало синхронизировано (код «${nextCode}», имя «${nextName}»)`);
+        }
+      }
     });
 
     // Flush ledger + sync AFTER the PG transaction committed. If the tx threw,
