@@ -134,9 +134,9 @@ _(Реакция на утечку ПДн по 152-ФЗ — закрыто 2026-
 
 На машине **оператора** задокументировать `%LOCALAPPDATA%\Programs\MatricaRMZ` / `%APPDATA%\MatricaRMZ` / `pending-update`, мусор (старые .exe, app-X.Y.Z дубли), ротацию `matricarmz.log`, очистку на uninstall. **Нельзя на dev-машине** (клиент не установлен) — нужен доступ к машине оператора. ADR-0001 install-update.
 
-### Электрон 42 — вернуться, когда better-sqlite3 адаптирует `External::New`
+### Электрон 42/43 — РАЗБЛОКИРОВАНО (триггер сработал 2026-07-05), апгрейд не начат
 
-Сейчас на Electron 41 (42 не собирает better-sqlite3 — V8 `External::New` сменил сигнатуру). Триггер: новый релиз better-sqlite3 под Electron 42.
+Сейчас на Electron 41. Триггер снят: better-sqlite3 **v12.10.1** починил V8 `External::New` для E42, **v12.11.1** — Windows-сборку под E42 (у нас уже стоит `better-sqlite3-multiple-ciphers@12.11.1`), **v12.11.2** (2026-07-03) добавил пребилды под **Electron 43**. Апгрейд — отдельная нитка: bump `electron` + rebuild нативных модулей (проверить, что `@electron/rebuild`/`node-abi` знает E42/43 — грабля rmz4val), CI-сборка инсталлера, CDP-smoke, релиз. Форк multiple-ciphers обычно догоняет upstream с лагом — перед стартом свериться с его changelog под E42/43.
 
 ### Финальная визуальная проверка иконки клиента
 
