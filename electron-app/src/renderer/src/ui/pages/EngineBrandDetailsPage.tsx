@@ -23,6 +23,18 @@ import {
   upsertPartSpecBrandLink,
 } from '../utils/partsPagination.js';
 import { buildSearchOption, joinOptionSearch, mapPartRowsToSearchOptions, sortSearchOptions } from '../utils/selectOptions.js';
+import { printRowsPreview } from '../utils/listContextActions.js';
+import { matchesQueryInRecord } from '../utils/search.js';
+
+// Режимы отображения списка деталей марки (директива владельца 2026-07-05):
+// фильтр внутри раздутых карточек + срезы по актам + группировка по узлам + печать среза.
+type BrandPartsView = 'all' | 'completeness' | 'defect' | 'units';
+const BRAND_PARTS_VIEWS: Array<{ id: BrandPartsView; label: string; title: string }> = [
+  { id: 'all', label: 'Все', title: 'Все детали марки' },
+  { id: 'completeness', label: 'Комплектовка', title: 'Только детали акта комплектности' },
+  { id: 'defect', label: 'Дефектовка', title: 'Только детали акта дефектовки' },
+  { id: 'units', label: 'По узлам', title: 'Группировка по узлам (артикул / № сборочной единицы)' },
+];
 
 type PartOption = SearchSelectOption;
 type BrandPartRow = {
@@ -489,6 +501,167 @@ export function EngineBrandDetailsPage(props: {
   const totalPartKinds = selectedParts.length;
   const totalPartsQty = selectedParts.reduce((acc, p) => acc + (Number.isFinite(Number(p.quantity)) ? Math.max(0, Math.floor(Number(p.quantity))) : 0), 0);
 
+  // Фильтр + режим отображения списка деталей.
+  const [partsQuery, setPartsQuery] = useState('');
+  const [partsView, setPartsView] = useState<BrandPartsView>('all');
+  const [openUnits, setOpenUnits] = useState<Record<string, boolean>>({});
+
+  const partUnitKey = (p: BrandPartRow) => (p.article || p.assemblyUnitNumber || '').trim() || 'Без узла';
+
+  const visibleParts = useMemo(() => {
+    const q = partsQuery.trim();
+    let rows = selectedParts;
+    if (q) {
+      rows = rows.filter((p) =>
+        matchesQueryInRecord(q, { label: p.label, article: p.article, assemblyUnitNumber: p.assemblyUnitNumber }),
+      );
+    }
+    if (partsView === 'completeness') rows = rows.filter((p) => p.inCompletenessAct);
+    if (partsView === 'defect') rows = rows.filter((p) => p.inDefectAct);
+    return rows;
+  }, [selectedParts, partsQuery, partsView]);
+
+  const unitGroups = useMemo(() => {
+    if (partsView !== 'units') return [];
+    const map = new Map<string, BrandPartRow[]>();
+    for (const p of visibleParts) {
+      const key = partUnitKey(p);
+      const list = map.get(key);
+      if (list) list.push(p);
+      else map.set(key, [p]);
+    }
+    return [...map.entries()]
+      .map(([key, rows]) => ({
+        key,
+        rows,
+        qty: rows.reduce((acc, p) => acc + Math.max(0, Math.floor(Number(p.quantity) || 0)), 0),
+      }))
+      .sort((a, b) => (a.key === 'Без узла' ? 1 : b.key === 'Без узла' ? -1 : a.key.localeCompare(b.key, 'ru')));
+  }, [partsView, visibleParts]);
+
+  // При активном фильтре узлы раскрыты (оператор ищет конкретное), без фильтра — по клику.
+  const isUnitOpen = (key: string) => (partsQuery.trim() ? openUnits[key] !== false : openUnits[key] === true);
+
+  function printVisibleParts() {
+    const view = BRAND_PARTS_VIEWS.find((v) => v.id === partsView);
+    const q = partsQuery.trim();
+    const rows =
+      partsView === 'units'
+        ? unitGroups.flatMap((g) => g.rows.map((p) => ({ ...p, unit: g.key })))
+        : visibleParts.map((p) => ({ ...p, unit: partUnitKey(p) }));
+    printRowsPreview({
+      title: headerTitle,
+      sectionTitle: [view?.title ?? 'Детали', q ? `фильтр: «${q}»` : '', `строк: ${rows.length}`]
+        .filter(Boolean)
+        .join(' · '),
+      rows,
+      columns: [
+        { title: 'Деталь', value: (p) => p.label },
+        { title: 'Артикул / узел', value: (p) => p.unit === 'Без узла' ? '—' : p.unit },
+        { title: 'Кол-во', value: (p) => String(p.quantity) },
+        { title: 'Акт компл.', value: (p) => (p.inCompletenessAct ? 'да' : '—') },
+        { title: 'Акт деф.', value: (p) => (p.inDefectAct ? 'да' : '—') },
+      ],
+    });
+  }
+
+  function renderPartRow(p: BrandPartRow) {
+    // Артикул приоритетен над legacy-номером сборки; пусто → «не задано».
+    const articleDisplay = (p.article || p.assemblyUnitNumber || '').trim();
+    return (
+      <div
+        key={p.id}
+        data-testid="brand-part-row"
+        onClick={() => props.onOpenPart(p.id)}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(160px, 1fr) minmax(120px, 220px) max-content max-content max-content max-content',
+          alignItems: 'center',
+          gap: 12,
+          padding: '8px 10px',
+          borderRadius: 0,
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          cursor: props.canViewParts ? 'pointer' : 'default',
+        }}
+      >
+        <div style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.label}</div>
+        <div
+          title="Артикул"
+          style={{
+            fontSize: 13,
+            color: articleDisplay ? 'var(--text)' : 'var(--subtle)',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {articleDisplay || 'не задано'}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {(['inCompletenessAct', 'inDefectAct'] as const).map((flag) => (
+            <label
+              key={flag}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--subtle)', cursor: 'pointer' }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={p[flag]}
+                disabled={!props.canEdit || !props.canEditParts}
+                onChange={(e) => {
+                  const nextRow = { ...p, [flag]: e.target.checked } as BrandPartRow;
+                  setBrandParts((prev) => prev.map((x) => (x.id === p.id ? nextRow : x)));
+                  void saveBrandPartActFlags(nextRow);
+                }}
+              />
+              {flag === 'inCompletenessAct' ? 'Акт компл.' : 'Акт деф.'}
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Количество</div>
+          <Input
+            type="number"
+            min={0}
+            value={String(p.quantity)}
+            disabled={!props.canEdit || !props.canEditParts}
+            style={{ width: 96 }}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(e) => {
+              const raw = Number(e.target.value);
+              const nextQty = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+              setBrandParts((prev) => prev.map((x) => (x.id === p.id ? { ...x, quantity: nextQty } : x)));
+            }}
+            onBlur={() => void updateBrandPartRow(p.id, p)}
+          />
+        </div>
+        <Button
+          variant="ghost"
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onOpenPart(p.id);
+          }}
+          disabled={!props.canViewParts}
+        >
+          Открыть
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={(event) => {
+            event.stopPropagation();
+            void detachBrandPart(p.id);
+          }}
+          disabled={!props.canEdit || !props.canEditParts}
+          style={{ color: 'var(--danger)' }}
+        >
+          Убрать
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
@@ -585,105 +758,72 @@ export function EngineBrandDetailsPage(props: {
           </div>
         )}
 
+        {selectedParts.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ flex: '1 1 220px', minWidth: 180 }}>
+              <Input
+                value={partsQuery}
+                onChange={(e) => setPartsQuery(e.target.value)}
+                placeholder="Фильтр: деталь, артикул, узел…"
+              />
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
+              {partsQuery.trim() || partsView !== 'all' ? `${visibleParts.length} из ${selectedParts.length}` : `${selectedParts.length}`}
+            </span>
+            {BRAND_PARTS_VIEWS.map((v) => (
+              <Button
+                key={v.id}
+                variant="ghost"
+                title={v.title}
+                onClick={() => setPartsView(v.id)}
+                style={partsView === v.id ? { background: 'rgba(37, 99, 235, 0.15)' } : undefined}
+              >
+                {v.label}
+              </Button>
+            ))}
+            <Button variant="ghost" title="Распечатать текущий срез списка" onClick={() => printVisibleParts()}>
+              🖨 Печать
+            </Button>
+          </div>
+        )}
+
         {selectedParts.length === 0 ? (
           <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Детали не добавлены.</div>
+        ) : visibleParts.length === 0 ? (
+          <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Ничего не найдено по текущему фильтру.</div>
+        ) : partsView === 'units' ? (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {unitGroups.map((g) => (
+              <div key={g.key} style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+                <div
+                  data-testid="brand-unit-group"
+                  onClick={() => setOpenUnits((prev) => ({ ...prev, [g.key]: !isUnitOpen(g.key) }))}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 10px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{isUnitOpen(g.key) ? '▼' : '▶'}</span>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.key}</span>
+                  <span style={{ fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
+                    {g.rows.length} дет. · {g.qty} шт.
+                  </span>
+                </div>
+                {isUnitOpen(g.key) && (
+                  <div style={{ display: 'grid', gap: 8, padding: '0 10px 10px' }}>
+                    {g.rows.map((p) => renderPartRow(p))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
-            {selectedParts.map((p) => {
-              // Артикул приоритетен над legacy-номером сборки; пусто → «не задано».
-              const articleDisplay = (p.article || p.assemblyUnitNumber || '').trim();
-              return (
-              <div
-                key={p.id}
-                onClick={() => props.onOpenPart(p.id)}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(160px, 1fr) minmax(120px, 220px) max-content max-content max-content max-content',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '8px 10px',
-                  borderRadius: 0,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  cursor: props.canViewParts ? 'pointer' : 'default',
-                }}
-              >
-                <div style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.label}</div>
-                <div
-                  title="Артикул"
-                  style={{
-                    fontSize: 13,
-                    color: articleDisplay ? 'var(--text)' : 'var(--subtle)',
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {articleDisplay || 'не задано'}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  {(['inCompletenessAct', 'inDefectAct'] as const).map((flag) => (
-                    <label
-                      key={flag}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--subtle)', cursor: 'pointer' }}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={p[flag]}
-                        disabled={!props.canEdit || !props.canEditParts}
-                        onChange={(e) => {
-                          const nextRow = { ...p, [flag]: e.target.checked } as BrandPartRow;
-                          setBrandParts((prev) => prev.map((x) => (x.id === p.id ? nextRow : x)));
-                          void saveBrandPartActFlags(nextRow);
-                        }}
-                      />
-                      {flag === 'inCompletenessAct' ? 'Акт компл.' : 'Акт деф.'}
-                    </label>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Количество</div>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={String(p.quantity)}
-                    disabled={!props.canEdit || !props.canEditParts}
-                    style={{ width: 96 }}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const nextQty = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
-                      setBrandParts((prev) => prev.map((x) => (x.id === p.id ? { ...x, quantity: nextQty } : x)));
-                    }}
-                    onBlur={() => void updateBrandPartRow(p.id, p)}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onOpenPart(p.id);
-                  }}
-                  disabled={!props.canViewParts}
-                >
-                  Открыть
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void detachBrandPart(p.id);
-                  }}
-                  disabled={!props.canEdit || !props.canEditParts}
-                  style={{ color: 'var(--danger)' }}
-                >
-                  Убрать
-                </Button>
-              </div>
-              );
-            })}
+            {visibleParts.map((p) => renderPartRow(p))}
           </div>
         )}
 
