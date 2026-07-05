@@ -19,6 +19,7 @@ type DraftRow = {
 
 const CARD_TYPE_LABELS: Record<string, string> = {
   work_order: 'Наряд',
+  supply_request: 'Заявка в снабжение',
 };
 
 function cardTypeLabel(cardType: string): string {
@@ -34,7 +35,10 @@ function formatDateTime(ms: number): string {
   }
 }
 
-export function DraftsPage(props: { onOpenWorkOrder: (id: string) => void | Promise<void> }) {
+export function DraftsPage(props: {
+  onOpenWorkOrder: (id: string) => void | Promise<void>;
+  onOpenSupplyRequest: (id: string) => void | Promise<void>;
+}) {
   const { confirm } = useConfirm();
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -65,6 +69,7 @@ export function DraftsPage(props: { onOpenWorkOrder: (id: string) => void | Prom
   const openDraft = useCallback(
     (d: DraftRow) => {
       if (d.cardType === 'work_order') void props.onOpenWorkOrder(d.cardId);
+      else if (d.cardType === 'supply_request') void props.onOpenSupplyRequest(d.cardId);
     },
     [props],
   );
@@ -132,7 +137,12 @@ export function DraftsPage(props: { onOpenWorkOrder: (id: string) => void | Prom
                 <td style={{ padding: '6px 8px', color: '#64748b' }}>{d.kind === 'explicit' ? 'Черновик' : 'Автосохранение'}</td>
                 <td style={{ padding: '6px 8px', color: '#64748b' }}>{formatDateTime(d.updatedAt)}</td>
                 <td style={{ padding: '6px 8px', display: 'flex', gap: 6 }}>
-                  <Button variant="ghost" tone="success" onClick={() => openDraft(d)} disabled={d.cardType !== 'work_order'}>
+                  <Button
+                    variant="ghost"
+                    tone="success"
+                    onClick={() => openDraft(d)}
+                    disabled={d.cardType !== 'work_order' && d.cardType !== 'supply_request'}
+                  >
                     Открыть
                   </Button>
                   <Button variant="ghost" tone="danger" onClick={() => void deleteDraft(d)} disabled={busy}>
