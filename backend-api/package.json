@@ -75,7 +75,9 @@
     "warehouse:import-base-parts": "tsx src/scripts/importBasePartsList.ts",
     "warehouse:import-v-matrix": "tsx src/scripts/importEngineUnitsVMatrix.ts",
     "warehouse:reconcile-code-name": "tsx src/scripts/reconcileNomenclatureDirectoryCodeName.ts",
-    "warehouse:reconcile-code-name:apply": "tsx src/scripts/reconcileNomenclatureDirectoryCodeName.ts --apply"
+    "warehouse:reconcile-code-name:apply": "tsx src/scripts/reconcileNomenclatureDirectoryCodeName.ts --apply",
+    "warehouse:backfill-units": "tsx src/scripts/backfillNomenclatureUnits.ts",
+    "warehouse:backfill-units:apply": "tsx src/scripts/backfillNomenclatureUnits.ts --apply"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
