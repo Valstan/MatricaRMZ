@@ -5,7 +5,7 @@ import type { PartMetadata } from '@matricarmz/shared';
 
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
-import { intakeRepairFundFromEngine } from '../services/repairFundService.js';
+import { intakeRepairFundFromEngine, previewRepairFundIntakeFromEngine } from '../services/repairFundService.js';
 import { captureStampedInstancesFromEngine, setStampedInstanceRepaired } from '../services/repairFundInstanceService.js';
 import {
   cancelWarehouseDocument,
@@ -936,6 +936,30 @@ warehouseRouter.post('/repair-fund/intake-from-engine', requirePermission(Permis
     engineId: parsed.data.engineId,
     items: parsed.data.items.map((i) => ({ partId: i.partId, partLabel: i.partLabel, qty: i.qty })),
     actor: { id: String(user?.id ?? ''), username: String(user?.username ?? 'unknown') },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Ф3 forecast-remfond-aware: read-only превью дельты заноса (бейдж «дефектовка не занесена»).
+warehouseRouter.post('/repair-fund/intake-preview', requirePermission(PermissionCode.ErpDocumentsView), async (req, res) => {
+  const schema = z.object({
+    engineId: z.string().min(1),
+    items: z
+      .array(
+        z.object({
+          partId: z.string().min(1),
+          partLabel: z.string().optional().default(''),
+          qty: z.coerce.number().int(),
+        }),
+      )
+      .default([]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await previewRepairFundIntakeFromEngine({
+    engineId: parsed.data.engineId,
+    items: parsed.data.items.map((i) => ({ partId: i.partId, partLabel: i.partLabel, qty: i.qty })),
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);

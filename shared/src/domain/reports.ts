@@ -156,6 +156,18 @@ export type ReportPresetPreviewResult =
       totalsByGroup?: Array<{ group: string; totals: ReportTotals }>;
       /** Доп. блоки текста под таблицей (подсказки, пояснения к фильтрам). */
       footerNotes?: string[];
+      /**
+       * Прогноз сборки: структурированные дефициты по номенклатуре (все марки прогноза).
+       * UI строит из них кнопку «Создать заявку в снабжение» (позиции toPurchase > 0).
+       */
+      assemblyDeficits?: Array<{
+        nomenclatureId: string;
+        partLabel: string;
+        deficit: number;
+        repairFundQty: number;
+        coverableByRepairFund: number;
+        toPurchase: number;
+      }>;
       /** Детализация работ по нарядам для печати `work_order_payroll`. */
       payrollWorkLines?: WorkOrderPayrollWorkLine[];
       /** Сумма «Начислено»: Σ amountRub по строкам отчёта (та же база, что итог по начислениям). */

@@ -51,6 +51,12 @@ export type AssemblyForecastComputeInput = {
    * Сумма по bins для номенклатуры должна совпадать с stockByNomenclatureId (после применения incoming — см. ниже).
    */
   warehouseStockBins?: ReadonlyMap<string, ReadonlyArray<AssemblyWarehouseStockBin>>;
+  /**
+   * Остатки ремфонда (локация repair_fund) по nomenclatureId. НЕ участвуют в симуляции
+   * сборки (деталь ещё не отремонтирована) — только обогащают дефицит-рекомендации:
+   * «дефицит N, из них ремфонд может закрыть M → выдать ремнаряд; закупить N−M».
+   */
+  repairFundByNomenclatureId?: ReadonlyMap<string, number>;
   incomingLines: AssemblyForecastIncomingLine[];
   /**
    * UUID марок двигателя из справочника (без суффикса варианта BOM `::...`).
@@ -161,6 +167,12 @@ export type AssemblyDeficitRecommendation = {
   totalPlannedIncoming: number;
   deficit: number;
   usedByBrands: string[];
+  /** Остаток ремфонда по этой номенклатуре (0, если ремфонд-карта не передана). */
+  repairFundQty: number;
+  /** Сколько дефицита теоретически закрывает ремонт: min(deficit, repairFundQty). */
+  coverableByRepairFund: number;
+  /** Остаток к закупке: deficit − coverableByRepairFund. */
+  toPurchase: number;
 };
 
 export type AssemblyHorizonMissingBrand = {
@@ -1188,6 +1200,8 @@ function computeDeficitRecommendations(
     const totalPlannedIncoming = totalIncomingByNomenclature.get(nomenclatureId) ?? 0;
     const deficit = totalRequired - currentStock - totalPlannedIncoming;
     if (deficit <= 0) continue;
+    const repairFundQty = Math.max(0, Math.floor(input.repairFundByNomenclatureId?.get(nomenclatureId) ?? 0));
+    const coverableByRepairFund = Math.min(deficit, repairFundQty);
     recommendations.push({
       nomenclatureId,
       partLabel: meta.partLabel,
@@ -1197,6 +1211,9 @@ function computeDeficitRecommendations(
       totalPlannedIncoming,
       deficit,
       usedByBrands: Array.from(meta.brands).sort((a, b) => a.localeCompare(b, 'ru')),
+      repairFundQty,
+      coverableByRepairFund,
+      toPurchase: deficit - coverableByRepairFund,
     });
   }
 

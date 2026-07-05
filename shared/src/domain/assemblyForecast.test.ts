@@ -549,4 +549,54 @@ describe('assemblyForecast', () => {
     expect(needs.length).toBeGreaterThan(0);
     expect(needs.some((n) => n.requiredQty >= 1 && n.forBrands.includes('Brand A'))).toBe(true);
   });
+
+  it('deficitRecommendations раскладывает дефицит на ремонт (ремфонд) и закупку', () => {
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 2 },
+      { partId: 'p2', brandId: 'b1', brandLabel: 'B1', partName: 'Поршень', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 5,
+      targetEnginesPerDay: 2,
+      warehouseId: null,
+      kits,
+      // p1: нужно 2*2*5=20, на складе 4 → дефицит 16; ремфонд 10 → ремонт 10, закупка 6.
+      // p2: нужно 1*2*5=10, на складе 1 → дефицит 9; ремфонда нет → закупка 9.
+      stockByNomenclatureId: new Map([
+        ['p1', 4],
+        ['p2', 1],
+      ]),
+      repairFundByNomenclatureId: new Map([['p1', 10]]),
+      incomingLines: [],
+    });
+    const d1 = res.deficitRecommendations.find((d) => d.nomenclatureId === 'p1');
+    expect(d1).toBeTruthy();
+    expect(d1?.deficit).toBe(16);
+    expect(d1?.repairFundQty).toBe(10);
+    expect(d1?.coverableByRepairFund).toBe(10);
+    expect(d1?.toPurchase).toBe(6);
+    const d2 = res.deficitRecommendations.find((d) => d.nomenclatureId === 'p2');
+    expect(d2?.repairFundQty).toBe(0);
+    expect(d2?.coverableByRepairFund).toBe(0);
+    expect(d2?.toPurchase).toBe(d2?.deficit);
+  });
+
+  it('deficitRecommendations: ремфонд больше дефицита → закупка 0, ремонт клампится дефицитом', () => {
+    const kits = mergeBrandKits([
+      { partId: 'p1', brandId: 'b1', brandLabel: 'B1', partName: 'Гильза', article: '', qtyPerEngine: 1 },
+    ]);
+    const res = computeAssemblyForecast({
+      horizonDays: 3,
+      targetEnginesPerDay: 1,
+      warehouseId: null,
+      kits,
+      stockByNomenclatureId: new Map([['p1', 0]]),
+      repairFundByNomenclatureId: new Map([['p1', 100]]),
+      incomingLines: [],
+    });
+    const d = res.deficitRecommendations.find((x) => x.nomenclatureId === 'p1');
+    expect(d?.deficit).toBe(3);
+    expect(d?.coverableByRepairFund).toBe(3);
+    expect(d?.toPurchase).toBe(0);
+  });
 });

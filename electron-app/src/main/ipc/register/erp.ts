@@ -34,6 +34,7 @@ import {
   warehouseContractSectionsGet,
   warehouseDocumentPost,
   warehouseRepairFundIntake,
+  warehouseRepairFundIntakePreview,
   warehouseRepairFundCaptureInstances,
   warehouseRepairFundSetInstanceRepaired,
   warehouseDocumentsList,
@@ -437,6 +438,14 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.documents.post');
     if (!gate.ok) return gate as any;
     return warehouseRepairFundIntake(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  // Ф3 forecast-remfond-aware: read-only превью дельты заноса — тот же раздел, view-права.
+  ipcMain.handle('warehouse:repairFund:intakePreview', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: true as const, pendingQty: 0, pendingPositions: 0, skippedNoNom: 0 };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairFundIntakePreview(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle(

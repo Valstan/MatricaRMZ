@@ -100,8 +100,50 @@ function parseExistingOrder(raw: unknown): ExistingAssemblyOrder | null {
   }
 }
 
-export function AssemblyForecastReportView(props: { preview: PreviewOk; onOpenWorkOrder?: (operationId: string) => void }) {
-  const { preview, onOpenWorkOrder } = props;
+export function AssemblyForecastReportView(props: {
+  preview: PreviewOk;
+  onOpenWorkOrder?: (operationId: string) => void;
+  /** Ф2 forecast-remfond-aware: открыть карточку созданной заявки в снабжение (deferred-create seed). */
+  onOpenSupplyRequest?: (id: string, payload: unknown) => void;
+}) {
+  const { preview, onOpenWorkOrder, onOpenSupplyRequest } = props;
+  const [supplyBusy, setSupplyBusy] = useState(false);
+  const [supplyMsg, setSupplyMsg] = useState('');
+  const purchaseDeficits = (preview.assemblyDeficits ?? []).filter((d) => d.toPurchase > 0);
+
+  // Дефицит → предзаполненная заявка в снабжение: позиции toPurchase > 0 (то, что не
+  // закрывается ремонтом из ремфонда). productId = nomenclatureId (part id == nomenclature id).
+  async function handleCreateSupplyRequest() {
+    if (supplyBusy || purchaseDeficits.length === 0 || !onOpenSupplyRequest) return;
+    setSupplyBusy(true);
+    setSupplyMsg('');
+    try {
+      const r = await window.matrica.supplyRequests.create();
+      if (!r.ok) {
+        setSupplyMsg(`Ошибка: ${r.error}`);
+        return;
+      }
+      const today = new Date();
+      const dd = String(today.getDate()).padStart(2, '0');
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const payload = {
+        ...(r.payload as Record<string, unknown>),
+        title: `Дефицит прогноза сборки от ${dd}.${mm}.${today.getFullYear()}`,
+        items: purchaseDeficits.map((d, i) => ({
+          lineNo: i + 1,
+          productId: d.nomenclatureId,
+          name: d.partLabel,
+          qty: d.toPurchase,
+          note: d.coverableByRepairFund > 0 ? `Дефицит ${d.deficit}, ремонтом закрывается ${d.coverableByRepairFund}` : null,
+        })),
+      };
+      onOpenSupplyRequest(r.id, payload);
+    } catch (e) {
+      setSupplyMsg(`Ошибка: ${String(e)}`);
+    } finally {
+      setSupplyBusy(false);
+    }
+  }
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busyRowKey, setBusyRowKey] = useState<string | null>(null);
   const [rowMessageByKey, setRowMessageByKey] = useState<Record<string, { kind: 'success' | 'error'; text: string }>>({});
@@ -315,6 +357,24 @@ export function AssemblyForecastReportView(props: { preview: PreviewOk; onOpenWo
         <div className="report-af-totals">
           <span className="report-af-totals__label">Итого по отчёту</span>
           <span className="report-af-totals__value">{formatReportTotals(preview.totals).join(' · ')}</span>
+        </div>
+      ) : null}
+
+      {purchaseDeficits.length > 0 && onOpenSupplyRequest ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="report-af-engine__print"
+            disabled={supplyBusy}
+            title="Создать заявку в снабжение с предзаполненными позициями закупки (дефицит минус то, что закрывается ремонтом из ремфонда)"
+            onClick={() => void handleCreateSupplyRequest()}
+          >
+            {supplyBusy ? 'Создаю…' : `Создать заявку в снабжение (${purchaseDeficits.length} позиц.)`}
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
+            Позиции с закупкой: дефицит, который не закрывается ремфондом.
+          </span>
+          {supplyMsg ? <span style={{ fontSize: 12, color: 'var(--danger)' }}>{supplyMsg}</span> : null}
         </div>
       ) : null}
 

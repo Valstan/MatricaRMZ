@@ -89,6 +89,25 @@ async function loadNomenclatureStockMap(
   return { map, unknownLocationPositions: unknownLocationNomenclatures.size };
 }
 
+// Ремфонд-осведомлённые дефициты (план forecast-remfond-aware-2026-07 Ф1): остатки локации
+// repair_fund НЕ входят в годный сток (см. выше), но обогащают рекомендации по дефицитам —
+// «сколько дефицита можно закрыть ремонтом вместо закупки». Резерв не вычитаем: фонд не
+// резервируется, а сам расход при закрытии ремнаряда клампится по остатку.
+async function loadRepairFundStockMap(): Promise<Map<string, number>> {
+  const rows = await db.select().from(erpRegStockBalance);
+  const map = new Map<string, number>();
+  for (const row of rows as any[]) {
+    const whLoc = row.warehouseLocationId ? String(row.warehouseLocationId) : '';
+    if (whLoc !== WAREHOUSE_LOCATION_REPAIR_FUND_UUID) continue;
+    const nid = row.nomenclatureId ? String(row.nomenclatureId) : '';
+    if (!nid) continue;
+    const qty = Math.max(0, Math.floor(Number(row.qty ?? 0)));
+    if (qty <= 0) continue;
+    map.set(nid, (map.get(nid) ?? 0) + qty);
+  }
+  return map;
+}
+
 // v1.21.4: карта uuid → имя склада строится из `warehouse_locations` (источник истины).
 // Старый `listWarehouseLookups` основан на legacy EAV, который оставался синхронным
 // с реальностью только частично.
@@ -645,7 +664,11 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
       existingAssemblyOrdersByVariantKey: {} as Record<string, { operationId: string; workOrderNumber: number }>,
     };
   }
-  const [stockResult, whLabels] = await Promise.all([loadNomenclatureStockMap(warehouseIds), loadWarehouseIdToLabelMap()]);
+  const [stockResult, whLabels, repairFundStock] = await Promise.all([
+    loadNomenclatureStockMap(warehouseIds),
+    loadWarehouseIdToLabelMap(),
+    loadRepairFundStockMap(),
+  ]);
   const stock = stockResult.map;
   const stockDataNotes =
     stockResult.unknownLocationPositions > 0
@@ -664,6 +687,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     kits,
     stockByNomenclatureId: stock,
     warehouseStockBins,
+    repairFundByNomenclatureId: repairFundStock,
     incomingLines: [...dbIncomingLines, ...repairIncoming.lines],
     ...(priorityEngineBrandIds?.length ? { priorityEngineBrandIds } : {}),
     ...(workingWeekdays?.length ? { workingWeekdays } : {}),

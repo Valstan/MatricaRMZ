@@ -3684,10 +3684,23 @@ function formatAssemblyDeficitHintsForPriorityBrands(deficitRecommendations: unk
     } else {
       situation = 'к концу горизонта ожидается дефицит при текущих остатках';
     }
+    // Ремфонд-осведомлённость (Ф1 плана forecast-remfond-aware-2026-07): раскладываем дефицит
+    // на «закрыть ремонтом» (фонд есть) и «закупить» (фонда нет) — подсказка снабжению.
+    const repairFundQty = Math.max(0, Math.floor(toNumber(d.repairFundQty)));
+    const coverable = Math.min(deficit, Math.max(0, Math.floor(toNumber(d.coverableByRepairFund))));
+    const toPurchase = Math.max(0, deficit - coverable);
+    let action: string;
+    if (coverable >= deficit) {
+      action = `в ремфонде ${repairFundQty} шт. — весь дефицит закрывается ремонтом: выдать ремнаряд на ~${coverable} шт.`;
+    } else if (coverable > 0) {
+      action = `в ремфонде ${repairFundQty} шт. — ремонтом закрыть ~${coverable} шт. (выдать ремнаряд), закупить ~${toPurchase} шт.`;
+    } else {
+      action = `ремфонд пуст — закупка ~${toPurchase} шт. (заявка в снабжение)`;
+    }
     lines.push({
       deficit,
       text: sanitizeAssemblyForecastOperatorText(
-        `${partLabel} — ${situation}: не хватает ~${deficit} шт. (нужно ~${req}, на складе ${stock}, приход по плану ~${incoming}; марки: ${brPart || '—'})`,
+        `${partLabel} — ${situation}: не хватает ~${deficit} шт. (нужно ~${req}, на складе ${stock}, приход по плану ~${incoming}; марки: ${brPart || '—'}). ${action}`,
       ),
     });
   }
@@ -4000,6 +4013,24 @@ async function buildAssemblyForecast7dReport(
         ...modeHints.map(sanitizeAssemblyForecastOperatorText),
         ...warnings,
       ];
+      // Ф2 плана forecast-remfond-aware-2026-07: структурированные дефициты (все марки, не только
+      // приоритетные) — UI строит из них «Создать заявку в снабжение» по позициям toPurchase > 0.
+      const assemblyDeficits = (Array.isArray(body.deficitRecommendations) ? body.deficitRecommendations : [])
+        .map((raw) => {
+          const d = (raw ?? {}) as Record<string, unknown>;
+          const deficit = Math.max(0, Math.floor(toNumber(d.deficit)));
+          const repairFundQty = Math.max(0, Math.floor(toNumber(d.repairFundQty)));
+          const coverableByRepairFund = Math.min(deficit, Math.max(0, Math.floor(toNumber(d.coverableByRepairFund))));
+          return {
+            nomenclatureId: normalizeText(d.nomenclatureId, ''),
+            partLabel: sanitizeAssemblyForecastOperatorText(normalizeText(d.partLabel, '')),
+            deficit,
+            repairFundQty,
+            coverableByRepairFund,
+            toPurchase: Math.max(0, deficit - coverableByRepairFund),
+          };
+        })
+        .filter((d) => d.nomenclatureId && d.partLabel && d.deficit > 0);
       return {
         report: {
           ok: true,
@@ -4013,6 +4044,7 @@ async function buildAssemblyForecast7dReport(
             plannedEngines: rows.reduce((acc, row) => acc + toNumber(row.plannedEngines), 0),
           },
           ...(footerNotes.length > 0 ? { footerNotes } : {}),
+          ...(assemblyDeficits.length > 0 ? { assemblyDeficits } : {}),
           generatedAt: Date.now(),
         },
       };

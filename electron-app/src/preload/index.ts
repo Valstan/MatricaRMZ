@@ -609,6 +609,8 @@ const matricaApi = {
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
     repairFundIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intake', args),
+    repairFundIntakePreview: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
+      ipcRenderer.invoke('warehouse:repairFund:intakePreview', args),
     repairFundCaptureInstances: async (args: {
       engineId: string;
       instances: Array<{ partId: string; partLabel: string; stampedNumber: string; classification: string }>;

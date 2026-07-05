@@ -4393,6 +4393,7 @@ export function App() {
             userId={authStatus.user?.id ?? ''}
             onBack={() => setTab('reports')}
             onOpenWorkOrder={openWorkOrder}
+            onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
           />
         )}
 

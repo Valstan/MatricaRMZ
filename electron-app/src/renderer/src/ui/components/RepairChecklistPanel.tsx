@@ -402,6 +402,32 @@ export function RepairChecklistPanel(props: {
   }, [answers]);
   // Ремфонд Ф3: строки с личным набитым номером (stamped_number) для поэкземплярного захвата.
   const stampedDraft = useMemo(() => buildStampedInstancesFromInventory(inventoryRawRows(answers)), [answers]);
+  // Ф3 forecast-remfond-aware: бейдж «дефектовка не занесена в ремфонд» — read-only превью дельты
+  // (сравнение текущих годных-к-ремонту с high-water-mark прошлого заноса), дебаунс 600мс.
+  const [intakePending, setIntakePending] = useState<{ qty: number; positions: number } | null>(null);
+  useEffect(() => {
+    if (!isInventoryStage || !props.engineId || repairFundDraft.items.length === 0) {
+      setIntakePending(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await window.matrica.warehouse.repairFundIntakePreview({
+          engineId: props.engineId,
+          items: repairFundDraft.items,
+        });
+        if (cancelled) return;
+        setIntakePending(r.ok && Number(r.pendingQty) > 0 ? { qty: Number(r.pendingQty), positions: Number(r.pendingPositions) } : null);
+      } catch {
+        if (!cancelled) setIntakePending(null);
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isInventoryStage, props.engineId, repairFundDraft, repairFundBusy]);
   const variantFilterActive =
     isInventoryStage && variantFilterOn && !!assemblyVariant && !!variantMembership && variantMembership.size > 0;
   const panelTitle = isInventoryStage
@@ -2368,6 +2394,14 @@ export function RepairChecklistPanel(props: {
           >
             {repairFundBusy ? 'Заносим…' : `🛠️ В ремфонд (${repairFundDraft.items.length})`}
           </Button>
+          {intakePending && (
+            <span
+              style={{ color: '#b45309', fontSize: 12, fontWeight: 600 }}
+              title="По текущей дефектовке есть годные к ремонту детали, которые ещё не занесены в ремонтный фонд. Нажмите «В ремфонд» — занесётся только прирост."
+            >
+              ⚠ Не занесено в ремфонд: {intakePending.qty} шт. ({intakePending.positions} поз.)
+            </span>
+          )}
           {repairFundDraft.items.length === 0 && (
             <span style={{ color: '#64748b', fontSize: 12 }}>Нет деталей «присутствует и ремонтопригодна».</span>
           )}

@@ -97,6 +97,8 @@ export function ReportPresetPage(props: {
   /** Stage 4 нитки assembly-work-order-from-forecast: callback для перехода в карточку наряда,
    * созданного через «Создать наряд на сборку» в Прогнозе сборки двигателей. */
   onOpenWorkOrder?: (operationId: string) => void;
+  /** Ф2 forecast-remfond-aware: открыть карточку заявки в снабжение, созданной из дефицитов прогноза. */
+  onOpenSupplyRequest?: (id: string, payload: unknown) => void;
 }) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
   const [optionSets, setOptionSets] = useState<Partial<Record<ReportOptionSource, ReportFilterOption[]>>>({});
@@ -1055,6 +1057,7 @@ export function ReportPresetPage(props: {
               <AssemblyForecastReportView
                 preview={preview}
                 {...(props.onOpenWorkOrder ? { onOpenWorkOrder: props.onOpenWorkOrder } : {})}
+                {...(props.onOpenSupplyRequest ? { onOpenSupplyRequest: props.onOpenSupplyRequest } : {})}
               />
             ) : (
               <>

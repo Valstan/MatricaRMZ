@@ -1374,6 +1374,27 @@ export async function warehouseDocumentPost(
  * Требует онлайн-бэкенд (резолв номенклатуры + проводка прихода) — в офлайне просто
  * вернёт ошибку (оператор повторит online); очередь outbox тут не нужна.
  */
+// Ф3 forecast-remfond-aware: read-only превью дельты заноса дефектовки в ремфонд.
+export async function warehouseRepairFundIntakePreview(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> },
+) {
+  const path = '/warehouse/repair-fund/intake-preview';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseRepairFundIntake(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
