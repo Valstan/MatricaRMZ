@@ -75,6 +75,49 @@ async function loadEngineIntake(engineId: string): Promise<{ opId: string | null
 }
 
 /**
+ * Ф3 плана forecast-remfond-aware-2026-07: read-only превью дельты заноса — те же шаги
+ * резолва и сравнения с high-water-mark, что у intakeRepairFundFromEngine, но без проводки.
+ * UI показывает бейдж «дефектовка не занесена в ремфонд», если pendingQty > 0.
+ */
+export async function previewRepairFundIntakeFromEngine(args: {
+  engineId: string;
+  items: IntakeItem[];
+}): Promise<Result<{ pendingQty: number; pendingPositions: number; skippedNoNom: number }>> {
+  try {
+    const engineId = String(args.engineId ?? '').trim();
+    if (!engineId) return { ok: false, error: 'Не задан двигатель' };
+    const partIds = [...new Set(args.items.map((i) => String(i.partId ?? '').trim()).filter(Boolean))];
+    const nomMap = partIds.length ? await resolvePartIdToNomenclatureMap(partIds) : new Map<string, string>();
+    const target = new Map<string, number>();
+    let skippedNoNom = 0;
+    for (const item of args.items) {
+      const partId = String(item.partId ?? '').trim();
+      const qty = Math.max(0, Math.trunc(Number(item.qty) || 0));
+      if (!partId || qty <= 0) continue;
+      const nomenclatureId = nomMap.get(partId);
+      if (!nomenclatureId) {
+        skippedNoNom += 1;
+        continue;
+      }
+      target.set(nomenclatureId, (target.get(nomenclatureId) ?? 0) + qty);
+    }
+    const prior = await loadEngineIntake(engineId);
+    let pendingQty = 0;
+    let pendingPositions = 0;
+    for (const [nomenclatureId, qty] of target) {
+      const add = qty - (prior.items.get(nomenclatureId)?.qty ?? 0);
+      if (add > 0) {
+        pendingQty += add;
+        pendingPositions += 1;
+      }
+    }
+    return { ok: true, pendingQty, pendingPositions, skippedNoNom };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
  * Заносит годные к ремонту детали двигателя в ремонтный фонд (только прирост).
  * `items` — уже посчитанный на клиенте список (partId, partLabel, repairable qty),
  * см. `buildRepairFundIntakeFromInventory`.
