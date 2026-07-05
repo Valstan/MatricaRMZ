@@ -25,7 +25,7 @@
   "dependencies": {
     "@matricarmz/shared": "workspace:*",
     "@tanstack/react-virtual": "^3.13.26",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "12.11.1",
     "better-sqlite3-multiple-ciphers": "12.11.1",
     "blakejs": "^1.2.1",
     "date-fns": "^4.1.0",
