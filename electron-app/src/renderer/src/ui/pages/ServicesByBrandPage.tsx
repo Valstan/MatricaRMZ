@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 
 type ServiceRow = {
@@ -105,9 +106,12 @@ export function ServicesByBrandPage(props: {
 
   const dirtyCount = useMemo(() => services.filter((s) => s.dirty).length, [services]);
 
+  // Верхний поиск: имя + внутрь карточки (EAV).
+  const getServiceId = useCallback((s: { id: string }) => String(s.id), []);
+  const deepIds = useCardContentIds(services, getServiceId, query);
   const filteredServices = useMemo(() => {
     return services.filter((s) => {
-      if (!matchesQueryInRecord(query, { name: s.name })) return false;
+      if (!matchesQueryInRecord(query, { name: s.name }) && !(deepIds?.has(String(s.id)) ?? false)) return false;
       if (!selectedBrandId) return true;
       const isUniversal = s.engineBrandIds.length === 0;
       const isBound = s.engineBrandIds.includes(selectedBrandId);
@@ -122,7 +126,7 @@ export function ServicesByBrandPage(props: {
           return true;
       }
     });
-  }, [services, query, selectedBrandId, filterMode]);
+  }, [services, query, deepIds, selectedBrandId, filterMode]);
 
   function toggleService(serviceId: string) {
     if (!selectedBrandId || !props.canEdit) return;

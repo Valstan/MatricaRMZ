@@ -6,6 +6,7 @@ import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTa
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
+import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
 
@@ -75,9 +76,17 @@ export function MasterdataDirectoryPage(props: {
     void refresh();
   }, [refresh]);
 
+  // Верхний поиск: поля строки + внутрь карточки (EAV).
+  const getRowId = useCallback((row: { id: string }) => String(row.id), []);
+  const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(
-    () => rows.filter((row) => matchesQueryInRecord(query, { displayName: row.displayName, searchText: row.searchText })),
-    [query, rows],
+    () =>
+      rows.filter(
+        (row) =>
+          matchesQueryInRecord(query, { displayName: row.displayName, searchText: row.searchText }) ||
+          (deepIds?.has(String(row.id)) ?? false),
+      ),
+    [query, rows, deepIds],
   );
 
   const sorted = useMemo(() => {

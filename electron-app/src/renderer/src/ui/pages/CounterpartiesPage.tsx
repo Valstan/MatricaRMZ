@@ -25,6 +25,7 @@ import {
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
+import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 
@@ -152,9 +153,12 @@ export function CounterpartiesPage(props: {
     { enabled: !!typeId && props.canViewMasterData, intervalMs: 15000 },
   );
 
+  // Верхний поиск: поля строки + внутрь карточки (EAV).
+  const getRowId = useCallback((row: Row) => String(row.id), []);
+  const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(() => {
-    return rows.filter((row) => matchesQueryInRecord(query, row));
-  }, [rows, query]);
+    return rows.filter((row) => matchesQueryInRecord(query, row) || (deepIds?.has(String(row.id)) ?? false));
+  }, [rows, query, deepIds]);
 
   const sorted = useSortedItems(
     filtered,

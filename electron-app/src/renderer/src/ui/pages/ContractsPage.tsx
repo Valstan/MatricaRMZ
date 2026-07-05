@@ -31,6 +31,7 @@ import {
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
+import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
@@ -412,12 +413,15 @@ export function ContractsPage(props: {
     { intervalMs: 15000 },
   );
 
+  // Верхний поиск: поля строки + внутрь карточки (EAV).
+  const getRowId = useCallback((row: { id: string }) => String(row.id), []);
+  const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(() => {
     const fromMs = fromInputDate(contractDateFrom);
     const toMs = endOfInputDate(contractDateTo);
     const hasDateFilter = fromMs != null || toMs != null;
     return rows.filter((row) => {
-      if (!matchesQueryInRecord(query, row)) return false;
+      if (!matchesQueryInRecord(query, row) && !(deepIds?.has(String(row.id)) ?? false)) return false;
       if (!hasDateFilter) return true;
       const contractSignedAt = row.dateMs;
       if (contractSignedAt == null) return false;
@@ -425,7 +429,7 @@ export function ContractsPage(props: {
       if (toMs != null && contractSignedAt > toMs) return false;
       return true;
     });
-  }, [rows, query, contractDateFrom, contractDateTo]);
+  }, [rows, query, deepIds, contractDateFrom, contractDateTo]);
 
   const sorted = useSortedItems(
     filtered,

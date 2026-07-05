@@ -7,7 +7,6 @@ import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
-import { ListSearchBar } from '../components/ListSearchBar.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -17,7 +16,7 @@ import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
-import { filterPreparedRecords, prepareRecordSearch } from '../utils/search.js';
+
 
 type EngineRow = EngineListItem & {
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
@@ -306,17 +305,16 @@ export function EnginesPage(props: {
   // Ф2 (повторный заезд): старые заезды того же номера помечаются «архивный заезд».
   const archivedArrivalIds = useMemo(() => findArchivedArrivalIds(props.engines), [props.engines]);
 
-  const preparedSearch = useMemo(
-    () => prepareRecordSearch(props.engines, (e) => String(e.id), (e) => String(e.engineNumber ?? '')),
-    [props.engines],
-  );
-  const tieredFilter = useMemo(() => filterPreparedRecords(preparedSearch, query), [preparedSearch, query]);
-  const similarMode = tieredFilter.similarMode;
+  // Верхний поиск: tier-1 по полям строки + tier-2 внутрь карточек (EAV).
+  const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
+  const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
+  const deepFilter = useListDeepFilter(props.engines, getRowId, getRowLabel, query);
+  const similarMode = deepFilter.similarMode;
   const filtered = useMemo(() => {
     const fromMs = fromInputDate(contractDateFrom);
     const toMs = endOfInputDate(contractDateTo);
     const hasDateFilter = fromMs != null || toMs != null;
-    return tieredFilter.records.filter((engine) => {
+    return deepFilter.filtered.filter((engine) => {
       if (onlyReclamation && engine.isReclamation !== true) return false;
       if (!hasDateFilter) return true;
       const arrivalDate = typeof engine.arrivalDate === 'number' && Number.isFinite(engine.arrivalDate) ? engine.arrivalDate : null;
@@ -325,7 +323,7 @@ export function EnginesPage(props: {
       if (toMs != null && arrivalDate > toMs) return false;
       return true;
     });
-  }, [tieredFilter, contractDateFrom, contractDateTo, onlyReclamation]);
+  }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation]);
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) {
@@ -377,11 +375,7 @@ export function EnginesPage(props: {
     return items;
   }, [filtered, sortDir, sortKey, query]);
 
-  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
-  const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
-  const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
-  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
-  const displayRows = bottomFilter.filtered;
+  const displayRows = sorted;
 
   type EngineColumn = ColumnDescriptor & {
     sortable: boolean;
@@ -556,9 +550,12 @@ export function EnginesPage(props: {
           <Input
             value={query}
             onChange={(e) => patchState({ query: e.target.value, page: 0 })}
-            placeholder="Поиск по всем данным двигателя…"
+            placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
         </div>
+        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+          {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
+        </span>
         <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           По дате привоза:
         </span>
@@ -647,15 +644,6 @@ export function EnginesPage(props: {
         )}
       </div>
 
-      <div style={{ flex: '0 0 auto' }}>
-        <ListSearchBar
-          query={bottomFilter.query}
-          onQueryChange={bottomFilter.setQuery}
-          matched={bottomFilter.matched}
-          total={bottomFilter.total}
-          placeholder="Поиск в списке двигателей (и внутри карточек)…"
-        />
-      </div>
       {dedupeOpen && (
         <EngineDedupeModal
           onClose={() => setDedupeOpen(false)}

@@ -7,6 +7,7 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 
 type BrandRow = { id: string; name: string };
@@ -91,9 +92,12 @@ export function EngineBrandsPage(props: {
   // returns here: refresh on the live-data pulse (sync-done / focus) and on interval.
   useLiveDataRefresh(loadBrandPartCounts, { enabled: props.canViewMasterData, intervalMs: 20000 });
 
+  // Верхний поиск: имя + внутрь карточки (EAV).
+  const getRowId = useCallback((r: { id: string }) => String(r.id), []);
+  const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(
-    () => rows.filter((r) => matchesQueryInRecord(query, { name: r.name, id: r.id })),
-    [rows, query],
+    () => rows.filter((r) => matchesQueryInRecord(query, { name: r.name, id: r.id }) || (deepIds?.has(String(r.id)) ?? false)),
+    [rows, query, deepIds],
   );
 
   const sortedRows = useMemo(() => {
