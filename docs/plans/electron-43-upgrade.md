@@ -16,9 +16,11 @@
 ## Фазы
 
 ### Фаза A — CI-проба E43 (ГЕЙТ)
-1. ✅ Ветка `chore/electron-43-upgrade`, бамп `electron` `^41.7.1` → `^43.0.0`, `pnpm install` (electron 43.0.0 встал, lockfile обновлён).
-2. ⏳ Commit + push + `gh workflow run "Release Electron (Windows)" --ref chore/electron-43-upgrade`.
-3. ⏳ Дождаться прогона. **Зелёный** (инсталлер собрался = форк скомпилировался под ABI 148) → Фаза B на E43. **Красный** на пересборке `multiple-ciphers` → откат на E42 (42.6.0), повтор пробы.
+1. ✅ Ветка `chore/electron-43-upgrade`, бамп `electron` `^41.7.1` → `^43.0.0`, `pnpm install`.
+2. ✅ Локальные гейты под E43: **typecheck чист** (ни один used API не удалён/изменён), **lint чист**, **`electron-vite build` чист** → JS/TS-сторона полностью E43-совместима.
+3. ✅ Проба #1 (run 28750895375) — **упала** на `electron-builder`, но НЕ на форке: на **plain `better-sqlite3@12.10.0`** (V8 `External::New`/`External::Value`/`SetNativeDataProperty`). Plain — runtime-dep (`drizzle-orm/better-sqlite3/driver.cjs:35` top-level `require`), был застрял на 12.10.0 (до фикса 12.10.1). Транзитивный 12.10.0 у backend-api electron-builder НЕ трогает.
+4. ✅ Фикс: бамп plain `better-sqlite3` `^12.10.0` → `12.11.1` (вровень с форком).
+5. ✅ Проба #2 (run 28751100844) — **ЗЕЛЁНАЯ**. `electron-builder` собрал инсталлер (135MB): **оба** `better-sqlite3@12.11.1` (plain) и `better-sqlite3-multiple-ciphers@12.11.1` (форк) компилируются из исходников под **V8 E43 (ABI 148)**. Опасение из #87 («форку нужна 12.11.2 для E43») — **неверно**: 12.11.1 тянет E43. Целимся в E43, откат на E42 не нужен.
 
 ### Фаза B — верификация + релиз (если A зелёная)
 4. On-machine install-тест артефакта `matricarmz-installer-test` (петля watchdog из `docs/machines/rmz4val.md`): тихий install → клиент грузится без sqlite/ABI-ошибки в `matricarmz.log`.
