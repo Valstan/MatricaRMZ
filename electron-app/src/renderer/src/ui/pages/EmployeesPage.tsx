@@ -7,8 +7,8 @@ import { ColumnSettingsButton, type ColumnDescriptor } from '../components/Colum
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
-import { ListSearchBar } from '../components/ListSearchBar.js';
-import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
+
+import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { type WarehouseListPageSize } from '../components/WarehouseListPager.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -124,14 +124,18 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     { intervalMs: 15000 },
   );
 
+  // Верхний поиск: поля строки + внутрь карточки (EAV).
+  const getRowId = useCallback((row: Row) => String(row.id), []);
+  const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(() => {
-    return rows.filter((row) =>
-      matchesQueryInRecord(query, row, [
-        formatEmploymentStatusAttrForUi(row.employmentStatus),
-        row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
-      ]),
+    return rows.filter(
+      (row) =>
+        matchesQueryInRecord(query, row, [
+          formatEmploymentStatusAttrForUi(row.employmentStatus),
+          row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
+        ]) || (deepIds?.has(String(row.id)) ?? false),
     );
-  }, [rows, query]);
+  }, [rows, query, deepIds]);
   const sortKey = listState.sortKey as SortKey;
   const sortDir = listState.sortDir as 'asc' | 'desc';
 
@@ -172,11 +176,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     });
   }, [filtered, listState.sortDir, listState.sortKey]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
-  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
-  const getRowId = useCallback((row: Row) => String(row.id), []);
-  const getRowLabel = useCallback((row: Row) => String(row.displayName ?? ''), []);
-  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
-  const displayRows = bottomFilter.filtered;
+  const displayRows = sorted;
 
   const selection = useListSelection(displayRows.map((row) => row.id));
 
@@ -451,7 +451,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           </Button>
         )}
         <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника…" />
+          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
         </div>
         {props.canCreate && selection.selectedCount > 0 && (
           <Button variant="ghost" onClick={() => { setAssignWorkshopId(''); setAssignOpen(true); }}>
@@ -488,15 +488,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             emptyState={rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
           />
         )}
-      </div>
-      <div style={{ flex: '0 0 auto' }}>
-        <ListSearchBar
-          query={bottomFilter.query}
-          onQueryChange={bottomFilter.setQuery}
-          matched={bottomFilter.matched}
-          total={bottomFilter.total}
-          placeholder="Поиск в списке сотрудников (и внутри карточек)…"
-        />
       </div>
       {assignOpen ? (
         <div onClick={() => setAssignOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

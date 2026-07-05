@@ -6,8 +6,6 @@ import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
-import { ListSearchBar } from '../components/ListSearchBar.js';
-import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -122,11 +120,7 @@ export function SupplyRequestsPage(props: {
     },
     (row) => row.id,
   );
-  // Нижний поиск: фильтрует отображённый список, заглядывая и внутрь карточек (EAV).
-  const getRowId = useCallback((row: Row) => String(row.id), []);
-  const getRowLabel = useCallback((row: Row) => String(row.requestNumber ?? ''), []);
-  const bottomFilter = useListDeepFilter(sorted, getRowId, getRowLabel);
-  const displayRows = bottomFilter.filtered;
+  const displayRows = sorted;
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -291,15 +285,6 @@ export function SupplyRequestsPage(props: {
             emptyState="Ничего не найдено"
           />
         )}
-      </div>
-      <div style={{ flex: '0 0 auto' }}>
-        <ListSearchBar
-          query={bottomFilter.query}
-          onQueryChange={bottomFilter.setQuery}
-          matched={bottomFilter.matched}
-          total={bottomFilter.total}
-          placeholder="Поиск в списке заявок (и внутри карточек)…"
-        />
       </div>
     </div>
   );

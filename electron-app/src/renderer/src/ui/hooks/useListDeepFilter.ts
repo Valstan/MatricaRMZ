@@ -5,29 +5,22 @@ import { filterPreparedRecords, prepareRecordSearch } from '../utils/search.js';
 const DEEP_DEBOUNCE_MS = 250;
 
 /**
- * Bottom list filter (docs/plans/list-bottom-filter-and-global-search-2026-07.md Ф1).
- * Filters the DISPLAYED rows to the cards that contain the query:
- * tier-1 — sync tiered match over every loaded row field (shared matcher,
- * RU/EN layout correction); tier-2 — async lookup inside card content (live EAV
- * values in local SQLite via search:cardContent) for entity-backed lists.
- * A row survives if either tier matches. Empty query → identity.
+ * Tier-2 of the list filter: ids whose card content (live EAV values in local
+ * SQLite via search:cardContent) matches the query. Debounced; null while the
+ * query is empty, the list is not entity-backed, or the lookup failed.
+ * Union it with the page's own tier-1 row-field match.
  */
-export function useListDeepFilter<T>(
+export function useCardContentIds<T>(
   rows: T[],
   getId: (r: T) => string,
-  getLabel: (r: T) => string,
-  opts?: { entityBacked?: boolean },
-) {
-  const [query, setQuery] = useState('');
+  query: string,
+  enabled = true,
+): Set<string> | null {
   const [deepIds, setDeepIds] = useState<Set<string> | null>(null);
-  const entityBacked = opts?.entityBacked !== false;
-
-  const prepared = useMemo(() => prepareRecordSearch(rows, getId, getLabel), [rows, getId, getLabel]);
-
   const q = query.trim();
 
   useEffect(() => {
-    if (!q || !entityBacked || rows.length === 0) {
+    if (!q || !enabled || rows.length === 0) {
       setDeepIds(null);
       return;
     }
@@ -45,16 +38,40 @@ export function useListDeepFilter<T>(
       window.clearTimeout(timer);
     };
     // rows identity change re-runs the deep pass; getId is expected stable (useCallback/module fn)
-  }, [q, entityBacked, rows, getId]);
+  }, [q, enabled, rows, getId]);
 
-  const filtered = useMemo(() => {
-    if (!q) return rows;
+  return deepIds;
+}
+
+/**
+ * Combined list filter driven by the page's TOP search field (owner directive
+ * 2026-07-05: one search box per list, at the top). A row survives if either
+ * tier matches: tier-1 — sync tiered match over every loaded row field (shared
+ * matcher, RU/EN layout correction, relevance order); tier-2 — async lookup
+ * inside card content (EAV) for entity-backed lists. Empty query → identity.
+ */
+export function useListDeepFilter<T>(
+  rows: T[],
+  getId: (r: T) => string,
+  getLabel: (r: T) => string,
+  query: string,
+  opts?: { entityBacked?: boolean },
+) {
+  const entityBacked = opts?.entityBacked !== false;
+  const deepIds = useCardContentIds(rows, getId, query, entityBacked);
+
+  const prepared = useMemo(() => prepareRecordSearch(rows, getId, getLabel), [rows, getId, getLabel]);
+
+  const q = query.trim();
+
+  const { filtered, similarMode } = useMemo(() => {
+    if (!q) return { filtered: rows, similarMode: false };
     const tier1 = filterPreparedRecords(prepared, q);
-    if (!deepIds || deepIds.size === 0) return tier1.records;
+    if (!deepIds || deepIds.size === 0) return { filtered: tier1.records, similarMode: tier1.similarMode };
     const seen = new Set(tier1.records.map(getId));
     const deepOnly = rows.filter((r) => deepIds.has(getId(r)) && !seen.has(getId(r)));
-    return [...tier1.records, ...deepOnly];
+    return { filtered: [...tier1.records, ...deepOnly], similarMode: tier1.similarMode };
   }, [q, rows, prepared, deepIds, getId]);
 
-  return { query, setQuery, filtered, total: rows.length, matched: q ? filtered.length : rows.length };
+  return { filtered, similarMode, total: rows.length, matched: q ? filtered.length : rows.length };
 }
