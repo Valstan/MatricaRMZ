@@ -238,6 +238,9 @@ function printSupplyRequest(
   });
 }
 
+// Phase 3d: cardType key for this editor's recovery drafts (window.matrica.drafts.*).
+const SUPPLY_REQUEST_DRAFT_TYPE = 'supply_request';
+
 export function SupplyRequestDetailsPage(props: {
   id: string;
   /** Phase 2 (deferred-create): seed for a freshly-created, not-yet-saved request. The operations
@@ -282,6 +285,42 @@ export function SupplyRequestDetailsPage(props: {
   const sessionHadChanges = useRef<boolean>(false);
   const payloadRef = useRef<SupplyRequestPayload | null>(null);
   const itemRowKeysRef = useRef<string[]>([]);
+  // Phase 3d: debounced recovery-draft autosave (same engine as the work-order pilot).
+  // draftTimerRef debounces writes; draftRestoredRef makes the open-time restore run
+  // once per card mount (an explicit reset reloads the committed payload instead).
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+
+  function buildDraftTitle(p: SupplyRequestPayload): string {
+    const num = String(p.requestNumber ?? '').trim();
+    return `Заявка ${num || '(новая)'}${p.title?.trim() ? ` — ${p.title.trim()}` : ''}`;
+  }
+
+  async function saveDraftNow(p: SupplyRequestPayload, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEdit) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: SUPPLY_REQUEST_DRAFT_TYPE,
+        cardId: props.id,
+        kind,
+        title: buildDraftTitle(p),
+        payloadJson: JSON.stringify(p),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    try {
+      await window.matrica.drafts.clear({ cardType: SUPPLY_REQUEST_DRAFT_TYPE, cardId: props.id });
+    } catch {
+      // best-effort
+    }
+  }
 
   function makeRowKey() {
     return `supply-request-item-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -299,17 +338,32 @@ export function SupplyRequestDetailsPage(props: {
     // Phase 2 (deferred-create): no row yet for a freshly-created request → seed from
     // initialPayload. Empty & untouched → не dirty → закрытие не материализует строку.
     const seed = r.ok ? r.payload : props.initialPayload ?? null;
-    if (!seed) {
+    // Phase 3d: an unsaved snapshot (crash / forced close / «оставить черновик») wins over
+    // the committed copy; for a never-materialized new request it IS the seed (first save
+    // materializes the row + number). Once per card mount (draftRestoredRef) so an explicit
+    // reset reloads the committed payload instead of re-reviving the draft.
+    let draft: SupplyRequestPayload | null = null;
+    if (props.canEdit && !draftRestoredRef.current) {
+      try {
+        const d = await window.matrica.drafts.get({ cardType: SUPPLY_REQUEST_DRAFT_TYPE, cardId: props.id });
+        if (d.ok && d.draft?.payloadJson) draft = JSON.parse(d.draft.payloadJson) as SupplyRequestPayload;
+      } catch {
+        // corrupt/absent draft → fall back to the committed payload
+      }
+    }
+    const effective = draft ?? seed;
+    if (!effective) {
       setSaveStatus(`Ошибка: ${r.ok ? 'нет данных' : r.error}`);
       return;
     }
-    setPayload(seed);
-    payloadRef.current = seed;
-    syncItemRowKeys(seed.items ?? []);
-    const json = JSON.stringify(seed);
+    setPayload(effective);
+    payloadRef.current = effective;
+    syncItemRowKeys(effective.items ?? []);
+    const json = JSON.stringify(seed ?? effective);
     lastSavedJson.current = json;
     initialSessionJson.current = json;
-    sessionHadChanges.current = false;
+    sessionHadChanges.current = draft != null;
+    if (draft) draftRestoredRef.current = true;
     setSaveStatus('');
   }
 
@@ -647,11 +701,18 @@ export function SupplyRequestDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setSaveStatus('Сохраняю…');
+      // Cancel any pending autosave so it can't re-write the draft after the commit clears it.
+      if (draftTimerRef.current != null) {
+        window.clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
       const r = await window.matrica.supplyRequests.update({ id: props.id, payload: next });
       if (!r.ok) {
         setSaveStatus(`Ошибка: ${r.error}`);
         return;
       }
+      // A commit supersedes the recovery snapshot — drop it. A later edit re-arms autosave.
+      await clearDraft();
       // Phase 2: the first save materializes the row and assigns the number — reflect it so the
       // card shows the real «Z-…» instead of «новая».
       if (r.requestNumber && next.requestNumber !== r.requestNumber) {
@@ -751,6 +812,23 @@ export function SupplyRequestDetailsPage(props: {
     };
   }, []);
 
+  // Phase 3d: debounced recovery-draft autosave. Fires ~1.5s after the last edit while the
+  // card is dirty & editable; each new edit cancels the pending write (true debounce). The
+  // snapshot persists to card_drafts (synced, owner-private) so a crash / forced close /
+  // «оставить черновик» leaves the unsaved work recoverable on next start.
+  useEffect(() => {
+    if (!props.canEdit || !payload || !sessionHadChanges.current) return;
+    const snapshot = payload;
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [payload, props.canEdit]);
+
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
     props.registerCardCloseActions({
@@ -763,6 +841,15 @@ export function SupplyRequestDetailsPage(props: {
         sessionHadChanges.current = false;
       },
       closeWithoutSave: () => {
+        sessionHadChanges.current = false;
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        if (draftTimerRef.current != null) {
+          window.clearTimeout(draftTimerRef.current);
+          draftTimerRef.current = null;
+        }
+        if (payload && props.canEdit) await saveDraftNow(payload);
         sessionHadChanges.current = false;
       },
       copyToNew: async () => {
@@ -941,6 +1028,24 @@ export function SupplyRequestDetailsPage(props: {
             void saveAllAndClose().then(() => {
               props.onClose();
             });
+          }}
+          onSaveAsDraft={() => {
+            void (async () => {
+              if (!payload || !props.canEdit) return;
+              // Park as an explicit draft — no commit to operations (no row / number for a new
+              // request). Cancel the pending autosave so it can't re-stamp it back to «recovery».
+              if (draftTimerRef.current != null) {
+                window.clearTimeout(draftTimerRef.current);
+                draftTimerRef.current = null;
+              }
+              const ok = await saveDraftNow(payload, 'explicit');
+              if (!ok) {
+                setSaveStatus('Ошибка: не удалось сохранить черновик');
+                return;
+              }
+              sessionHadChanges.current = false;
+              props.onClose();
+            })();
           }}
           onReset={() => {
             void load().then(() => {

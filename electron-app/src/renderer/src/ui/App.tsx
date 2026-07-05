@@ -2218,6 +2218,7 @@ export function App() {
   function restoreDraft(d: { cardType: string; cardId: string }) {
     setRecoveryDrafts(null);
     if (d.cardType === 'work_order') void openWorkOrder(d.cardId);
+    else if (d.cardType === 'supply_request') void openRequest(d.cardId);
   }
 
   async function discardDraft(d: { id: string }) {
@@ -3310,7 +3311,12 @@ export function App() {
                     изменён {new Date(d.updatedAt).toLocaleString('ru-RU')}
                   </div>
                 </div>
-                <Button variant="ghost" tone="success" onClick={() => restoreDraft(d)} disabled={d.cardType !== 'work_order'}>
+                <Button
+                  variant="ghost"
+                  tone="success"
+                  onClick={() => restoreDraft(d)}
+                  disabled={d.cardType !== 'work_order' && d.cardType !== 'supply_request'}
+                >
                   Восстановить
                 </Button>
                 <Button variant="ghost" tone="danger" onClick={() => void discardDraft(d)}>
@@ -4106,7 +4112,7 @@ export function App() {
           <EmptyCardsCleanupPage canEdit={caps.canEditMasterData} />
         )}
 
-        {tab === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} />}
+        {tab === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={openRequest} />}
 
         {tab === 'engine_assembly_bom' && (
           <EngineAssemblyBomPage
