@@ -84,7 +84,7 @@
     "@matricarmz/ledger": "workspace:*",
     "@matricarmz/shared": "workspace:*",
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^12.11.1",
     "bittorrent-tracker": "^11.2.2",
     "cors": "^2.8.5",
     "create-torrent": "^6.1.0",
