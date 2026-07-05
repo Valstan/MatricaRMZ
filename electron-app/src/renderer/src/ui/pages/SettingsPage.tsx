@@ -37,6 +37,9 @@ export function SettingsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [authUser, setAuthUser] = useState<{ id: string; username: string; role: string } | null>(null);
+  // backups.view/run: без права секция скрыта и /backups/nightly не дёргается — иначе каждый
+  // оператор, открывший «Настройки», генерит RBAC-deny в критсобытиях (шум deny-watch).
+  const [backupPerms, setBackupPerms] = useState<{ view: boolean; run: boolean }>({ view: false, run: false });
   const [profileUser, setProfileUser] = useState<{ login: string; role: string } | null>(null);
   const [telegramLogin, setTelegramLogin] = useState<string>('');
   const [maxLogin, setMaxLogin] = useState<string>('');
@@ -203,6 +206,8 @@ export function SettingsPage(props: {
       const auth = await window.matrica.auth.status().catch(() => null);
       if (auth?.loggedIn) {
         setAuthUser(auth.user ?? null);
+        const perms = (auth as any).permissions ?? {};
+        setBackupPerms({ view: perms['backups.view'] === true, run: perms['backups.run'] === true });
         const p = await window.matrica.auth.profileGet().catch(() => null);
         if (p && (p as any).ok && (p as any).profile) {
           const profile = (p as any).profile;
@@ -374,11 +379,15 @@ export function SettingsPage(props: {
 
   useEffect(() => {
     void loadSettings();
-    void refreshBackups();
     void refreshE2eStatus();
     void refreshUpdateDownloadDir();
     void loadSyncConnectionSettings();
   }, []);
+
+  // Список бэкапов — только при праве backups.view (см. backupPerms выше).
+  useEffect(() => {
+    if (backupPerms.view) void refreshBackups();
+  }, [backupPerms.view]);
 
   useEffect(() => {
     const timer = setInterval(() => void refreshLoggingConfig(), 30_000);
@@ -718,6 +727,7 @@ export function SettingsPage(props: {
           </div>
         </div>
 
+        {backupPerms.view && (
         <div style={{ ...sectionBaseStyle, background: 'rgba(236, 72, 153, 0.1)' }}>
           <h3 style={{ marginTop: 0, marginBottom: 10 }}>Ночные резервные копии базы</h3>
           <p style={{ color: 'var(--muted)', marginBottom: 12 }}>
@@ -735,25 +745,27 @@ export function SettingsPage(props: {
               <Button onClick={() => void refreshBackups()} variant="ghost" disabled={backupLoading} title="Обновить список резервных копий">
                 Обновить
               </Button>
-              <Button
-                onClick={() => {
-                  void (async () => {
-                    setStatus('Запуск резервного копирования…');
-                    const r = await window.matrica.backups.nightlyRunNow();
-                    if (r.ok) {
-                      setStatus('Резервное копирование запущено на сервере.');
-                      setTimeout(() => void refreshBackups(), 4000);
-                    } else {
-                      setStatus(`Ошибка: ${formatError(r.error)}`);
-                    }
-                  })();
-                }}
-                variant="ghost"
-                disabled={backupLoading}
-                title="Запустить ночной бэкап прямо сейчас на сервере"
-              >
-                Сделать бэкап сейчас
-              </Button>
+              {backupPerms.run && (
+                <Button
+                  onClick={() => {
+                    void (async () => {
+                      setStatus('Запуск резервного копирования…');
+                      const r = await window.matrica.backups.nightlyRunNow();
+                      if (r.ok) {
+                        setStatus('Резервное копирование запущено на сервере.');
+                        setTimeout(() => void refreshBackups(), 4000);
+                      } else {
+                        setStatus(`Ошибка: ${formatError(r.error)}`);
+                      }
+                    })();
+                  }}
+                  variant="ghost"
+                  disabled={backupLoading}
+                  title="Запустить ночной бэкап прямо сейчас на сервере"
+                >
+                  Сделать бэкап сейчас
+                </Button>
+              )}
               <Button
                 onClick={() => {
                   if (!backupPick) return;
@@ -799,6 +811,7 @@ export function SettingsPage(props: {
             )}
           </div>
         </div>
+        )}
 
         <div style={{ ...sectionBaseStyle, background: 'rgba(234, 179, 8, 0.1)' }}>
           <h3 style={{ marginTop: 0, marginBottom: 10 }}>Обновления</h3>
