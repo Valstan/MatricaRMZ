@@ -162,7 +162,9 @@ export async function touchClientSettings(
       lastHostname: args.hostname ?? null,
       lastPlatform: args.platform ?? null,
       lastArch: args.arch ?? null,
-      lastUsername: args.username ?? null,
+      // undefined = keep the stored value (e.g. an old client sent a username the
+      // server can't verify yet); null = clear (client is logged out).
+      ...(args.username !== undefined ? { lastUsername: args.username } : {}),
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));

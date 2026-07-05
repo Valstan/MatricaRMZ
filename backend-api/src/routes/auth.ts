@@ -38,6 +38,7 @@ import {
 import { SyncTableName } from '@matricarmz/shared';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 import { getGlobalUiDefaults, setGlobalUiDefaults } from '../services/clientSettingsService.js';
+import { ingestServerCriticalEvent } from '../services/criticalEventsService.js';
 
 export const authRouter = Router();
 
@@ -84,6 +85,25 @@ authRouter.post('/login', async (req, res) => {
     let u = await getEmployeeAuthByLogin(username);
     const isBootstrapSuperadmin = isSuperadminLogin(username) && (!u || !u.passwordHash);
     if (isBootstrapSuperadmin) {
+      // Bootstrap (first login sets the superadmin password) is only legal on a
+      // virgin database. On a live system a missing superadmin hash means data
+      // damage or tampering — the first unauthenticated caller must NOT become
+      // superadmin. (security-hardening-2026-06, mediums remainder)
+      const roster = await listEmployeesAuth();
+      const anyPasswordExists = roster.ok && roster.rows.some((r) => r.passwordHash);
+      if (anyPasswordExists) {
+        ingestServerCriticalEvent({
+          eventCode: 'auth.superadmin.bootstrap_blocked',
+          title: 'Попытка bootstrap-входа суперадмина отклонена',
+          humanMessage:
+            'Кто-то попытался задать пароль суперадмина «первым логином» на живой базе (у суперадмина нет пароля, но другие пользователи есть). Вход отклонён — проверьте целостность учётной записи суперадмина.',
+          category: 'auth',
+          severity: 'error',
+          aiDetails: { login: username, ip: String(req.ip ?? '') },
+          dedupMessage: 'superadmin-bootstrap-blocked',
+        });
+        return res.status(401).json({ ok: false, error: 'неверные учетные данные' });
+      }
       const employeeTypeId = await getEmployeeTypeId();
       if (!employeeTypeId) return res.status(500).json({ ok: false, error: 'тип сотрудника не найден' });
       await ensureEmployeeAuthDefs();
@@ -96,6 +116,15 @@ authRouter.post('/login', async (req, res) => {
       const passwordHash = await hashPassword(password);
       await setEmployeeAuth(employeeId, { login: username, passwordHash, systemRole: 'superadmin', accessEnabled: true });
       u = await getEmployeeAuthById(employeeId);
+      ingestServerCriticalEvent({
+        eventCode: 'auth.superadmin.bootstrap',
+        title: 'Bootstrap-вход суперадмина',
+        humanMessage: 'Пароль суперадмина задан первым логином (пустая база). Если это не вы — немедленно смените пароль.',
+        category: 'auth',
+        severity: 'warn',
+        aiDetails: { login: username, ip: String(req.ip ?? '') },
+        dedupMessage: 'superadmin-bootstrap',
+      });
     }
 
     if (!u || !u.accessEnabled || !u.passwordHash) return res.status(401).json({ ok: false, error: 'неверные учетные данные' });
