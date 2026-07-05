@@ -79,11 +79,11 @@ function joinUrl(base: string, path: string) {
   return `${b}/${p}`;
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs: number, headers?: Record<string, string>): Promise<Response> {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(new Error('timeout')), timeoutMs);
   try {
-    return await net.fetch(url, { signal: ac.signal as any });
+    return await net.fetch(url, { signal: ac.signal as any, ...(headers ? { headers } : {}) });
   } finally {
     clearTimeout(t);
   }
@@ -155,7 +155,13 @@ export async function applyRemoteClientSettings(args: {
       (reportedActivity ? `&activeDate=${reportedActivity.activeDate}&activeMs=${reportedActivity.activeMs}` : ''),
   );
   try {
-    const res = await fetchWithTimeout(url, 8_000);
+    // The server only trusts the username/active-time attribution when the
+    // heartbeat carries a valid access token for that login.
+    const res = await fetchWithTimeout(
+      url,
+      8_000,
+      session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : undefined,
+    );
     const json = (await res.json().catch(() => null)) as RemoteSettingsResponse | null;
     if (!res.ok || !json?.ok || !json.settings) {
       args.log?.(`remote settings fetch failed: HTTP ${res.status}`);

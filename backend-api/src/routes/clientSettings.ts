@@ -9,6 +9,7 @@ import {
   touchClientSettings,
 } from '../services/clientSettingsService.js';
 import { ingestServerCriticalEvent } from '../services/criticalEventsService.js';
+import { verifyAccessToken } from '../auth/jwt.js';
 
 export const clientSettingsRouter = Router();
 
@@ -35,6 +36,22 @@ clientSettingsRouter.get('/settings', async (req, res) => {
   });
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
+  // The heartbeat itself stays unauthenticated (pre-login clients need settings),
+  // but user attribution (lastUsername / active-time) is only trusted when the
+  // request carries a valid access token for that same login — otherwise anyone
+  // could spoof activity onto another operator. (security-hardening-2026-06)
+  let trustedUsername: string | null = null;
+  if (parsed.data.username) {
+    const authHeader = String(req.headers.authorization ?? '');
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (token) {
+      const tokenUser = await verifyAccessToken(token).catch(() => null);
+      if (tokenUser && String(tokenUser.username).trim().toLowerCase() === parsed.data.username.trim().toLowerCase()) {
+        trustedUsername = parsed.data.username;
+      }
+    }
+  }
+
   try {
     const row = await getOrCreateClientSettings(parsed.data.clientId);
     const globalUiDefaults = await getGlobalUiDefaults();
@@ -45,12 +62,14 @@ clientSettingsRouter.get('/settings', async (req, res) => {
       platform: parsed.data.platform ?? null,
       arch: parsed.data.arch ?? null,
       ip: ip ? String(ip) : null,
-      username: parsed.data.username ?? null,
+      // trusted → write it; no username sent → logged out, clear; username sent
+      // but unverified (old client / spoof) → keep the stored value untouched.
+      ...(trustedUsername ? { username: trustedUsername } : !parsed.data.username ? { username: null } : {}),
     });
-    if (parsed.data.username && parsed.data.activeDate && parsed.data.activeMs != null) {
+    if (trustedUsername && parsed.data.activeDate && parsed.data.activeMs != null) {
       await recordClientActiveTime({
         clientId: parsed.data.clientId,
-        login: parsed.data.username,
+        login: trustedUsername,
         activeDate: parsed.data.activeDate,
         activeMs: parsed.data.activeMs,
       }).catch(() => {});
