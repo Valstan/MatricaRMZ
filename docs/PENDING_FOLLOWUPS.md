@@ -202,6 +202,10 @@ Phase 2.x (FK `warehouse_location_id`) ✅ на проде (v1.31.0). Остат
 
 ## 🟢 Планы / идеи
 
+### Редизайн спецификации — хвосты (Фаза 4b + backfill) 🗓 since:2026-07-06
+
+Нитка «Позиции + взаимозаменяемые варианты» code-complete в `main` (#93–#97, см. COMPLETED + SESSION_HANDOFF), но **не на проде**. Открыто (после релиза): **Фаза 4b** — переключатель варианта на позицию прямо в сборочном наряде (сейчас `fillAssemblyFromBrandSpec` берёт основной, оператор правит вручную); **backfill** легаси `variantGroup`-строк в явные позиции (опционально — работает и без него). При **первом релизе** редизайна обязателен `db:migrate` (миграция `0073_bom_line_positions.sql`). План: [`plans/engine-spec-position-variants-2026-07.md`](plans/engine-spec-position-variants-2026-07.md).
+
 ### #6 Phase 3.8 — вариант B (offline-specs) — отложено 🗓 since:2026-06-18
 
 Scope A ✅ отгружен (v2026.618.117, см. COMPLETED). **Вариант B (НЕ делаем без явной потребности):** завести `directory_parts` в синк-реестр + клиент читает спеки из синканного SQLite (offline-specs) + снести code/name-зеркало целиком. Это разворот рабочего live-HTTP (Phase 3.7 WS1) + расширение sync-протокола (риск массовой порчи). Поднимать только если понадобится offline-доступ к спекам. План-фундамент: [`plans/_archive/parts-nomenclature-phase3-8.md`](plans/_archive/parts-nomenclature-phase3-8.md).
