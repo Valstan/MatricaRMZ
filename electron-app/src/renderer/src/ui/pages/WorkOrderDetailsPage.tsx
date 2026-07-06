@@ -79,6 +79,13 @@ function contractNumberSuffix(mainNumber: string | null | undefined): string {
 }
 type PartInfo = { id: string; name: string; article?: string; sku?: string; itemType?: NomenclatureItemType };
 
+/**
+ * Вариант детали внутри позиции спецификации марки (Phase 4b). Позиция = строки BOM с общим
+ * `positionKey`; варианты взаимозаменяемы, один `isDefault`. Переключатель на строке наряда
+ * даёт оператору выбрать конкретный вариант позиции, не разыскивая деталь во всём справочнике.
+ */
+type SpecPositionVariant = { id: string; name: string; code: string; isDefault: boolean };
+
 function normalizeLookupValue(value: string): string {
   return String(value || '')
     .toLowerCase()
@@ -325,6 +332,10 @@ export function WorkOrderDetailsPage(props: {
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
   const [assemblyFillBusy, setAssemblyFillBusy] = useState(false);
+  // Phase 4b: карта id номенклатуры → взаимозаменяемые варианты его позиции спецификации.
+  // Каждый вариант позиции ссылается на общий список, поэтому смена варианта на строке
+  // (partId меняется на id другого варианта) сохраняет переключатель. Только позиции с ≥2 вариантами.
+  const [assemblyVariantsByPart, setAssemblyVariantsByPart] = useState<Map<string, SpecPositionVariant[]>>(new Map());
   // Stage 2 нитки assembly-work-order-from-forecast: список складов для колонки
   // «Склад деталей» в Assembly-наряде. Подгружается при первом открытии карточки.
   const [warehouseLocations, setWarehouseLocations] = useState<
@@ -469,6 +480,7 @@ export function WorkOrderDetailsPage(props: {
   useEffect(() => {
     if (!primaryAssemblyEngineBrandId) {
       setAssemblyVariantGroups([]);
+      setAssemblyVariantsByPart(new Map());
       return;
     }
     let alive = true;
@@ -483,21 +495,55 @@ export function WorkOrderDetailsPage(props: {
         const primary = list.find((row) => Boolean(row.isDefault)) ?? list[0];
         if (!primary) {
           setAssemblyVariantGroups([]);
+          setAssemblyVariantsByPart(new Map());
           return;
         }
         const detailsRes = await window.matrica.warehouse.assemblyBomGet(String(primary.id));
         if (!alive || !detailsRes?.ok) return;
         // assemblyBomGet returns { ok, bom: { header, lines } } — lines are under .bom.lines.
-        const lines = Array.isArray((detailsRes as any).bom?.lines) ? ((detailsRes as any).bom.lines as Array<{ variantGroup?: string | null }>) : [];
+        type SpecLine = {
+          componentNomenclatureId?: string;
+          componentNomenclatureName?: string | null;
+          componentNomenclatureCode?: string | null;
+          positionKey?: string | null;
+          isDefaultOption?: boolean;
+          variantGroup?: string | null;
+        };
+        const lines = Array.isArray((detailsRes as any).bom?.lines) ? ((detailsRes as any).bom.lines as SpecLine[]) : [];
         const seen = new Set<string>();
+        // Группируем строки в позиции по positionKey (как коллапс в fillAssemblyFromBrandSpec/прогнозе).
+        const byPosition = new Map<string, SpecPositionVariant[]>();
         for (const line of lines) {
           const vg = String(line?.variantGroup ?? '').trim();
           if (vg) seen.add(vg);
+          const nomId = String(line?.componentNomenclatureId ?? '').trim();
+          const key = String(line?.positionKey ?? '').trim();
+          if (!nomId || !key) continue;
+          const variants = byPosition.get(key) ?? [];
+          if (!variants.some((v) => v.id === nomId)) {
+            variants.push({
+              id: nomId,
+              name: String(line?.componentNomenclatureName ?? '').trim(),
+              code: String(line?.componentNomenclatureCode ?? '').trim(),
+              isDefault: line?.isDefaultOption !== false,
+            });
+          }
+          byPosition.set(key, variants);
+        }
+        // Только позиции с ≥2 вариантами дают переключатель; ключуем по каждому id варианта.
+        const byPart = new Map<string, SpecPositionVariant[]>();
+        for (const variants of byPosition.values()) {
+          if (variants.length < 2) continue;
+          for (const v of variants) byPart.set(v.id, variants);
         }
         if (!alive) return;
         setAssemblyVariantGroups([...seen].sort((a, b) => a.localeCompare(b, 'ru')));
+        setAssemblyVariantsByPart(byPart);
       } catch {
-        if (alive) setAssemblyVariantGroups([]);
+        if (alive) {
+          setAssemblyVariantGroups([]);
+          setAssemblyVariantsByPart(new Map());
+        }
       }
     })();
     return () => {
@@ -2763,6 +2809,48 @@ export function WorkOrderDetailsPage(props: {
                         patch({ ...payload, freeWorks });
                       }}
                     />
+                    {(() => {
+                      // Phase 4b: если деталь строки — вариант позиции спецификации с несколькими
+                      // взаимозаменяемыми вариантами, даём компактный переключатель прямо на строке.
+                      const variants =
+                        payload.workOrderKind === WorkOrderKind.Assembly && line.partId
+                          ? assemblyVariantsByPart.get(String(line.partId))
+                          : undefined;
+                      if (!variants || variants.length < 2) return null;
+                      return (
+                        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>Вариант</span>
+                          <select
+                            value={String(line.partId ?? '')}
+                            disabled={!canEditNow}
+                            title="Взаимозаменяемый вариант этой позиции спецификации марки — выберите фактически используемую деталь"
+                            onChange={(e) => {
+                              const nextId = e.target.value;
+                              const variant = variants.find((v) => v.id === nextId) ?? null;
+                              const fallback = parts.find((p) => p.id === nextId) ?? null;
+                              const freeWorks = payload.freeWorks.map((item, rowIdx) =>
+                                rowIdx === idx
+                                  ? {
+                                      ...item,
+                                      partId: nextId || null,
+                                      partName: variant?.name || fallback?.name || '',
+                                      partArticle: variant?.code || fallback?.article || '',
+                                    }
+                                  : item,
+                              );
+                              patch({ ...payload, freeWorks });
+                            }}
+                            style={{ flex: 1, minWidth: 0, padding: '3px 6px', fontSize: 12 }}
+                          >
+                            {variants.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {`${v.name || v.id}${v.code ? ` (${v.code})` : ''}${v.isDefault ? ' ★' : ''}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td data-col-kind="name">
                     <Input value={resolvePartArticle(line)} disabled placeholder="—" title="Артикул из справочника" />
