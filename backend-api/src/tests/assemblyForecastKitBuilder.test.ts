@@ -23,6 +23,8 @@ type LineRow = {
   qtyPerUnit: number;
   variantGroup: string | null;
   notes: string | null;
+  positionKey?: string | null;
+  isDefaultOption?: boolean;
 };
 type NomMeta = { id: string; code: string | null; name: string | null; deletedAt: number | null };
 
@@ -298,5 +300,53 @@ describe('buildAssemblyForecastKits — edge case #6: дробный qtyPerUnit'
       brandLabels,
     });
     expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('buildAssemblyForecastKits — коллапс позиции к основному варианту (engine-spec-position-variants)', () => {
+  it('позиция с 3 взаимозаменяемыми вариантами → в kit только основной', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-pos', engineBrandId: 'brand-a' })],
+      lineRows: [
+        line({ bomId: 'bom-pos', componentNomenclatureId: 'piston-a', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', isDefaultOption: true }),
+        line({ bomId: 'bom-pos', componentNomenclatureId: 'piston-b', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', isDefaultOption: false }),
+        line({ bomId: 'bom-pos', componentNomenclatureId: 'piston-c', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', isDefaultOption: false }),
+        line({ bomId: 'bom-pos', componentNomenclatureId: 'sleeve-1', componentType: 'sleeve', qtyPerUnit: 6, positionKey: 'sleeve', isDefaultOption: true }),
+      ],
+      nomenclatureById: asNomMap([nom({ id: 'piston-a' }), nom({ id: 'piston-b' }), nom({ id: 'piston-c' }), nom({ id: 'sleeve-1' })]),
+      brandLabels,
+    });
+    expect(result.kits).toHaveLength(1);
+    // только основной поршень (piston-a) + гильза — запасные варианты piston-b/c отброшены
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId).sort()).toEqual(['piston-a', 'sleeve-1']);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('легаси-строки без positionKey — каждая своя позиция, все в kit (поведение не меняется)', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-legacy', engineBrandId: 'brand-a' })],
+      lineRows: [
+        line({ bomId: 'bom-legacy', componentNomenclatureId: 'p1', componentType: 'piston' }),
+        line({ bomId: 'bom-legacy', componentNomenclatureId: 's1', componentType: 'sleeve' }),
+      ],
+      nomenclatureById: asNomMap([nom({ id: 'p1' }), nom({ id: 's1' })]),
+      brandLabels,
+    });
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId).sort()).toEqual(['p1', 's1']);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('позиция без основного варианта → берётся первый + warning', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-nodef', engineBrandId: 'brand-a' })],
+      lineRows: [
+        line({ bomId: 'bom-nodef', componentNomenclatureId: 'x-1', componentType: 'piston', positionKey: 'p', isDefaultOption: false }),
+        line({ bomId: 'bom-nodef', componentNomenclatureId: 'x-2', componentType: 'piston', positionKey: 'p', isDefaultOption: false }),
+      ],
+      nomenclatureById: asNomMap([nom({ id: 'x-1' }), nom({ id: 'x-2' })]),
+      brandLabels,
+    });
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['x-1']);
+    expect(result.warnings.some((w) => w.includes('не отмечен основной вариант'))).toBe(true);
   });
 });
