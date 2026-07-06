@@ -2,11 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import {
-  DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
   normalizeBomRelationKey,
   resolveNomenclatureComponentTypeId,
-  sanitizeWarehouseBomRelationSchema,
-  type WarehouseBomRelationSchema,
 } from '@matricarmz/shared';
 
 import type { AuthUser } from '../auth/jwt.js';
@@ -21,7 +18,6 @@ import {
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 import { ensureNomenclatureBrandPart } from './bomBrandPartSync.js';
-import { getGlobalWarehouseBomRelationSchema } from './clientSettingsService.js';
 import { parseWarehouseBomLineMeta, serializeWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
@@ -57,15 +53,6 @@ function variantScopeKey(v: string | null | undefined): string {
   return s.length > 0 ? s : '__base__';
 }
 
-async function loadSanitizedBomRelationSchema(): Promise<WarehouseBomRelationSchema> {
-  try {
-    const value = await getGlobalWarehouseBomRelationSchema();
-    return sanitizeWarehouseBomRelationSchema(JSON.parse(value.schemaJson) as unknown);
-  } catch {
-    return DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA;
-  }
-}
-
 /** Legacy-колонка `engine_nomenclature_id`: только тип engine, привязанный к марке (если ведёте такие позиции). */
 async function pickEngineNomenclatureIdForBrand(engineBrandId: string): Promise<string | null> {
   const brand = String(engineBrandId).trim();
@@ -91,6 +78,9 @@ type BomLineInput = {
   isRequired?: boolean;
   priority?: number;
   notes?: string | null;
+  positionKey?: string | null;
+  positionLabel?: string | null;
+  isDefaultOption?: boolean;
 };
 
 /** Загружает марки двигателей для набора BOM (через junction-таблицу). */
@@ -281,6 +271,9 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
       isRequired: erpEngineAssemblyBomLines.isRequired,
       priority: erpEngineAssemblyBomLines.priority,
       notes: erpEngineAssemblyBomLines.notes,
+      positionKey: erpEngineAssemblyBomLines.positionKey,
+      positionLabel: erpEngineAssemblyBomLines.positionLabel,
+      isDefaultOption: erpEngineAssemblyBomLines.isDefaultOption,
       createdAt: erpEngineAssemblyBomLines.createdAt,
       updatedAt: erpEngineAssemblyBomLines.updatedAt,
       deletedAt: erpEngineAssemblyBomLines.deletedAt,
@@ -333,6 +326,9 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
         isRequired: Boolean(row.isRequired),
         priority: Number(row.priority ?? 100),
         notes: parsedLineMeta.get(String(row.id))?.text ?? null,
+        positionKey: row.positionKey ?? null,
+        positionLabel: row.positionLabel ?? null,
+        isDefaultOption: Boolean(row.isDefaultOption ?? true),
         createdAt: Number(row.createdAt),
         updatedAt: Number(row.updatedAt),
         deletedAt: row.deletedAt == null ? null : Number(row.deletedAt),
@@ -410,7 +406,6 @@ export async function upsertWarehouseAssemblyBom(args: {
         },
       });
 
-    const sanitizedSchema = await loadSanitizedBomRelationSchema();
     // Пустой BOM — валидное состояние. Backend больше не fabricует skeleton-строки
     // (v1.21.3): если клиент прислал пустой список — сохраняем BOM без строк.
     // Skeleton с пустыми компонентами создаётся явным действием пользователя в UI.
@@ -431,6 +426,9 @@ export async function upsertWarehouseAssemblyBom(args: {
         isRequired: line.isRequired !== false,
         priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
         notesText: line.notes == null ? null : String(line.notes),
+        positionKey: line.positionKey == null ? null : String(line.positionKey).trim() || null,
+        positionLabel: line.positionLabel == null ? null : String(line.positionLabel).trim() || null,
+        isDefaultOption: line.isDefaultOption !== false,
         createdAt: ts,
         updatedAt: ts,
         deletedAt: null,
@@ -514,51 +512,16 @@ export async function upsertWarehouseAssemblyBom(args: {
       };
     });
 
-    const rootId = String(sanitizedSchema.rootTypeId ?? 'engine').trim().toLowerCase();
-    // Required types берём из глобальной схемы как есть (любые typeId), без хардкод-фильтра.
-    // Раньше тут фильтр KNOWN_COMPONENT_TYPES.has(typeId) выкидывал кастомные типы и проверка
-    // полноты BOM пропускала их — пользователь мог сохранить «неполный» BOM и не получить ошибку.
-    const requiredTypes = new Set(
-      sanitizedSchema.nodes
-        .filter((node) => node && node.isActive !== false)
-        .map((node) => String(node.typeId ?? '').trim().toLowerCase())
-        .filter((typeId) => typeId && typeId !== rootId),
-    );
-    // Пустую карточку BOM (ещё без строк) можно создать и постепенно заполнять; полнота по схеме проверяется, когда уже есть строки.
+    // Глобальная схема БОЛЬШЕ НЕ обязательна (план engine-spec-position-variants-2026-07):
+    // у разных марок наборы деталей отличаются (2 картера / плита / блок), поэтому проверка
+    // «в BOM присутствуют все обязательные типы схемы» снята. BOM может содержать любой набор.
+    // Схема остаётся необязательным шаблоном-подсказкой на стороне UI, а не жёстким валидатором.
     const linesByVariantScope = new Map<string, typeof normalizedLines>();
     for (const line of normalizedLines) {
       const sk = variantScopeKey(line.variantGroup);
       const arr = linesByVariantScope.get(sk) ?? [];
       arr.push(line);
       linesByVariantScope.set(sk, arr);
-    }
-    if (requiredTypes.size > 0 && normalizedLines.length > 0) {
-      const onlyBase = linesByVariantScope.size === 1 && linesByVariantScope.has('__base__');
-      if (onlyBase) {
-        const presentTypes = new Set(normalizedLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
-        const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
-        if (missingTypes.length > 0) {
-          return {
-            ok: false,
-            error: `BOM не сохранен: отсутствуют обязательные типы из глобальной схемы: ${missingTypes.join(', ')}`,
-          };
-        }
-      } else {
-        for (const [scope, scopeLines] of linesByVariantScope) {
-          if (scope === '__base__') continue;
-          if (scopeLines.length === 0) continue;
-          // Старые черновики с отдельным variantGroup на каждую строку (__bom_init__*) не требуют полного набора в каждой «подгруппе».
-          if (!scope.startsWith('__kit_')) continue;
-          const presentTypes = new Set(scopeLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
-          const missingTypes = Array.from(requiredTypes).filter((requiredType) => !presentTypes.has(requiredType));
-          if (missingTypes.length > 0) {
-            return {
-              ok: false,
-              error: `BOM не сохранен: в варианте «${scope}» отсутствуют обязательные типы из глобальной схемы: ${missingTypes.join(', ')}`,
-            };
-          }
-        }
-      }
     }
 
     const validationErrors: string[] = [];
@@ -666,6 +629,9 @@ export async function upsertWarehouseAssemblyBom(args: {
           isRequired: line.isRequired,
           priority: line.priority,
           notes: line.notes,
+          positionKey: line.positionKey,
+          positionLabel: line.positionLabel,
+          isDefaultOption: line.isDefaultOption,
           createdAt: line.createdAt,
           updatedAt: line.updatedAt,
           deletedAt: line.deletedAt,

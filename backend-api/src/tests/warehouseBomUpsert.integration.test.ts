@@ -16,7 +16,6 @@ const state = vi.hoisted(() => ({
   insertCalls: [] as Array<{ table: unknown; values: unknown }>,
   updateCalls: [] as Array<{ table: unknown; values: unknown }>,
   ledgerEntries: [] as unknown[],
-  bomSchemaJson: '{"rootTypeId":"engine","nodes":[]}',
 }));
 
 vi.mock('../database/db.js', () => {
@@ -66,12 +65,6 @@ vi.mock('../ledger/ledgerService.js', () => ({
   signAndAppendDetailed: vi.fn((entries: unknown) => {
     state.ledgerEntries.push(entries);
   }),
-}));
-
-vi.mock('../services/clientSettingsService.js', () => ({
-  getGlobalWarehouseBomRelationSchema: vi.fn(() =>
-    Promise.resolve({ schemaJson: state.bomSchemaJson, updatedAt: 1 }),
-  ),
 }));
 
 import {
@@ -159,7 +152,6 @@ beforeEach(() => {
   state.insertCalls.length = 0;
   state.updateCalls.length = 0;
   state.ledgerEntries.length = 0;
-  state.bomSchemaJson = '{"rootTypeId":"engine","nodes":[]}';
   vi.clearAllMocks();
 });
 
@@ -405,5 +397,95 @@ describe('upsertWarehouseAssemblyBom — auto-fix componentType (v1.21.3)', () =
       // warnings либо undefined, либо пустой массив (код возвращает {warnings} только если их > 0)
       expect(result.warnings).toBeUndefined();
     }
+  });
+});
+
+describe('upsertWarehouseAssemblyBom — позиции + варианты (engine-spec-position-variants)', () => {
+  it('сохраняет position_key / position_label / is_default_option как-получено; отсутствующий is_default_option = true', async () => {
+    const bomId = 'bom-positions';
+    primeSuccessSelectsFor(
+      bomId,
+      [
+        makeNomenclatureRow({ id: 'nom-piston-a', name: 'Поршень А', specJson: JSON.stringify({ componentTypeId: 'piston' }) }),
+        makeNomenclatureRow({ id: 'nom-piston-b', name: 'Поршень Б', specJson: JSON.stringify({ componentTypeId: 'piston' }) }),
+      ],
+      [],
+    );
+
+    const result = await upsertWarehouseAssemblyBom({
+      id: bomId,
+      name: 'BOM Positions',
+      engineBrandIds: ['brand-1'],
+      engineNomenclatureId: 'nom-engine',
+      lines: [
+        // Позиция «Поршень»: два взаимозаменяемых варианта, основной — А.
+        { componentNomenclatureId: 'nom-piston-a', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', positionLabel: 'Поршень', isDefaultOption: true },
+        { componentNomenclatureId: 'nom-piston-b', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', positionLabel: 'Поршень', isDefaultOption: false },
+      ],
+      actor,
+    });
+
+    expect(result.ok).toBe(true);
+    const insertedLines = findInsertValues(erpEngineAssemblyBomLines);
+    const arr = insertedLines[0] as Array<{ componentNomenclatureId: string; positionKey: string | null; positionLabel: string | null; isDefaultOption: boolean }>;
+    expect(arr).toHaveLength(2);
+    const a = arr.find((l) => l.componentNomenclatureId === 'nom-piston-a')!;
+    const b = arr.find((l) => l.componentNomenclatureId === 'nom-piston-b')!;
+    expect(a.positionKey).toBe('piston');
+    expect(a.positionLabel).toBe('Поршень');
+    expect(a.isDefaultOption).toBe(true);
+    expect(b.positionKey).toBe('piston');
+    expect(b.isDefaultOption).toBe(false);
+  });
+
+  it('строка без position_* полей сохраняется как позиция-одиночка (position_key=null, is_default_option=true)', async () => {
+    const bomId = 'bom-legacy-shape';
+    primeSuccessSelectsFor(
+      bomId,
+      [makeNomenclatureRow({ id: 'nom-carter', name: 'Картер', specJson: JSON.stringify({ componentTypeId: 'carter' }) })],
+      [],
+    );
+
+    const result = await upsertWarehouseAssemblyBom({
+      id: bomId,
+      name: 'BOM Legacy Shape',
+      engineBrandIds: ['brand-1'],
+      engineNomenclatureId: 'nom-engine',
+      lines: [{ componentNomenclatureId: 'nom-carter', componentType: 'carter', qtyPerUnit: 1 }],
+      actor,
+    });
+
+    expect(result.ok).toBe(true);
+    const arr = findInsertValues(erpEngineAssemblyBomLines)[0] as Array<{ positionKey: string | null; positionLabel: string | null; isDefaultOption: boolean }>;
+    expect(arr[0]!.positionKey).toBeNull();
+    expect(arr[0]!.positionLabel).toBeNull();
+    expect(arr[0]!.isDefaultOption).toBe(true);
+  });
+});
+
+describe('upsertWarehouseAssemblyBom — глобальная схема больше не обязательна (engine-spec-position-variants)', () => {
+  it('сохраняет BOM с произвольным неполным набором типов — без ошибки «отсутствуют обязательные типы»', async () => {
+    // Раньше: глобальная схема требовала присутствия ВСЕХ активных типов в базовом BOM,
+    // иначе upsert возвращал ok:false «отсутствуют обязательные типы из глобальной схемы».
+    // Теперь у каждой марки свой набор — проверка снята, любой набор валиден.
+    const bomId = 'bom-partial-set';
+    primeSuccessSelectsFor(
+      bomId,
+      [makeNomenclatureRow({ id: 'nom-plate', name: 'Плита картера', specJson: JSON.stringify({ componentTypeId: 'carter' }) })],
+      [],
+    );
+
+    const result = await upsertWarehouseAssemblyBom({
+      id: bomId,
+      name: 'BOM Partial Set',
+      engineBrandIds: ['brand-1'],
+      engineNomenclatureId: 'nom-engine',
+      lines: [{ componentNomenclatureId: 'nom-plate', componentType: 'carter', qtyPerUnit: 1 }],
+      actor,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) expect(result.error).not.toContain('обязательные типы');
+    expect(findInsertValues(erpEngineAssemblyBomLines)).toHaveLength(1);
   });
 });

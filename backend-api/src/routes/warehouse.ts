@@ -679,6 +679,9 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
           isRequired: z.boolean().optional(),
           priority: z.coerce.number().int().optional(),
           notes: z.string().nullable().optional(),
+          positionKey: z.string().nullable().optional(),
+          positionLabel: z.string().nullable().optional(),
+          isDefaultOption: z.boolean().optional(),
         }),
       )
       .default([]),
@@ -706,6 +709,9 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
       ...(line.isRequired !== undefined ? { isRequired: line.isRequired } : {}),
       ...(line.priority !== undefined ? { priority: line.priority } : {}),
       ...(line.notes !== undefined ? { notes: line.notes } : {}),
+      ...(line.positionKey !== undefined ? { positionKey: line.positionKey } : {}),
+      ...(line.positionLabel !== undefined ? { positionLabel: line.positionLabel } : {}),
+      ...(line.isDefaultOption !== undefined ? { isDefaultOption: line.isDefaultOption } : {}),
     })),
     actor: {
       id: String(user?.id ?? ''),
