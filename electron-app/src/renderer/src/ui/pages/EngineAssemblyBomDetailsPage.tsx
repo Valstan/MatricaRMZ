@@ -3,9 +3,7 @@ import {
   buildGroupedNomenclatureOptions,
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
   sanitizeWarehouseBomRelationSchema,
-  type WarehouseBomRelationNode,
   type WarehouseBomRelationSchema,
-  type WarehouseBomRelationTypeUsage,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -14,7 +12,6 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { GroupedSearchSelect, type GroupedSearchSelectGroup } from '../components/GroupedSearchSelect.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
@@ -67,13 +64,6 @@ type PreparedLine = BomLine & {
   normalizedLineKey: string | null;
   normalizedParentLineKey: string | null;
   componentLabel: string;
-};
-type DraftSchemaNode = WarehouseBomRelationNode & { originTypeId?: string | null };
-type PendingSchemaRenameConfirm = {
-  safeSchema: WarehouseBomRelationSchema;
-  renames: Array<{ fromTypeId: string; toTypeId: string }>;
-  estimatedAffected: number;
-  activeAffected: number;
 };
 type LineIssue = {
   errors: string[];
@@ -352,16 +342,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [status, setStatus] = useState('');
   const [data, setData] = useState<BomDetails | null>(null);
   const [bomRelationSchema, setBomRelationSchema] = useState<WarehouseBomRelationSchema>(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA);
-  const [schemaStatus, setSchemaStatus] = useState('');
-  const [schemaDraftJson, setSchemaDraftJson] = useState('');
-  const [schemaRootTypeDraft, setSchemaRootTypeDraft] = useState(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA.rootTypeId);
-  const [schemaNodesDraft, setSchemaNodesDraft] = useState<DraftSchemaNode[]>(
-    DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA.nodes.map((node) => ({ ...node, originTypeId: node.typeId })),
-  );
-  const [showSchemaJsonEditor, setShowSchemaJsonEditor] = useState(false);
-  const [showSchemaEditor, setShowSchemaEditor] = useState(false);
-  const [schemaUsageRows, setSchemaUsageRows] = useState<WarehouseBomRelationTypeUsage[]>([]);
-  const [pendingSchemaRenameConfirm, setPendingSchemaRenameConfirm] = useState<PendingSchemaRenameConfirm | null>(null);
   const [savedBomSnapshot, setSavedBomSnapshot] = useState('');
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -385,26 +365,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   const relationNodes = useMemo(
     () => [...(bomRelationSchema.nodes ?? [])].sort((a, b) => (a.sortOrder - b.sortOrder) || a.label.localeCompare(b.label, 'ru')),
     [bomRelationSchema.nodes],
-  );
-  const schemaNodeOptions = useMemo(
-    () =>
-      schemaNodesDraft
-        .map((node) => ({ id: node.typeId, label: `${node.label} (${node.typeId})` }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'ru')),
-    [schemaNodesDraft],
-  );
-  const schemaUsageByTypeId = useMemo(() => {
-    const map = new Map<string, WarehouseBomRelationTypeUsage>();
-    for (const row of schemaUsageRows) {
-      const typeId = String(row.typeId ?? '').trim().toLowerCase();
-      if (!typeId) continue;
-      map.set(typeId, row);
-    }
-    return map;
-  }, [schemaUsageRows]);
-  const schemaEditableRows = useMemo(
-    () => schemaNodesDraft.map((node, idx) => ({ node, idx })).filter((entry) => String(entry.node.typeId) !== String(schemaRootTypeDraft)),
-    [schemaNodesDraft, schemaRootTypeDraft],
   );
   const componentTypeLabelMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -446,15 +406,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   const preparedLines = useMemo(() => prepareLines(data?.lines ?? []), [data?.lines]);
   const bomSnapshot = useMemo(() => buildBomSnapshot(data), [data]);
   const isBomDirty = useMemo(() => Boolean(data) && Boolean(savedBomSnapshot) && bomSnapshot !== savedBomSnapshot, [bomSnapshot, data, savedBomSnapshot]);
-  const isSchemaDirty = useMemo(() => {
-    const persisted = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
-    const draft = sanitizeWarehouseBomRelationSchema({
-      format: 'bom_relation_schema_v1',
-      rootTypeId: schemaRootTypeDraft,
-      nodes: schemaNodesDraft,
-    });
-    return JSON.stringify(draft) !== JSON.stringify(persisted);
-  }, [bomRelationSchema, schemaNodesDraft, schemaRootTypeDraft]);
   const lineValidation = useMemo(
     () => validatePreparedLines(preparedLines, allowedChildrenByType),
     [allowedChildrenByType, preparedLines],
@@ -695,26 +646,15 @@ export function EngineAssemblyBomDetailsPage(props: {
   useEffect(() => {
     let alive = true;
     const loadSchema = async () => {
-      const [schemaResult, usageResult] = await Promise.all([
-        window.matrica.warehouse.assemblyBomSchemaGet(),
-        window.matrica.warehouse.assemblyBomSchemaUsageGet(),
-      ]);
+      // Схема больше не редактируется из карточки BOM (редактор удалён), но нужна как
+      // словарь типов: группировка пикера компонента + метки-типы позиций.
+      const schemaResult = await window.matrica.warehouse.assemblyBomSchemaGet();
       if (!alive) return;
       if (!schemaResult?.ok) {
-        setSchemaStatus(`Ошибка схемы: ${String(schemaResult?.error ?? 'unknown')}`);
+        setStatus(`Ошибка схемы: ${String(schemaResult?.error ?? 'unknown')}`);
         return;
       }
-      const schema = sanitizeWarehouseBomRelationSchema(schemaResult.schema);
-      setBomRelationSchema(schema);
-      setSchemaRootTypeDraft(schema.rootTypeId);
-      setSchemaNodesDraft(schema.nodes.map((node) => ({ ...node, originTypeId: node.typeId })));
-      setSchemaDraftJson(JSON.stringify(schema, null, 2));
-      if (usageResult?.ok) {
-        setSchemaUsageRows((usageResult.rows ?? []) as WarehouseBomRelationTypeUsage[]);
-        setSchemaStatus('');
-      } else {
-        setSchemaStatus(`Предупреждение: не удалось загрузить использование типов (${String(usageResult && !usageResult.ok ? usageResult.error : 'unknown')}).`);
-      }
+      setBomRelationSchema(sanitizeWarehouseBomRelationSchema(schemaResult.schema));
     };
     void loadSchema();
     return () => {
@@ -749,82 +689,9 @@ export function EngineAssemblyBomDetailsPage(props: {
     setStatus('Priority строк пересортирован по глобальной схеме. Нажмите «Сохранить и закрыть», чтобы применить.');
   }, [bomRelationSchema.nodes, data, props.canEdit]);
 
-  const resetSchemaDraft = useCallback(() => {
-    const safe = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
-    setSchemaRootTypeDraft(safe.rootTypeId);
-    setSchemaNodesDraft(safe.nodes.map((node) => ({ ...node, originTypeId: node.typeId })));
-    setSchemaDraftJson(JSON.stringify(safe, null, 2));
-    setSchemaStatus('');
-  }, [bomRelationSchema]);
 
-  const applySchemaDraftJsonToVisual = useCallback(() => {
-    try {
-      const parsed = JSON.parse(schemaDraftJson) as unknown;
-      const safe = sanitizeWarehouseBomRelationSchema(parsed);
-      setSchemaRootTypeDraft(safe.rootTypeId);
-      setSchemaNodesDraft(safe.nodes.map((node) => ({ ...node, originTypeId: node.typeId })));
-      setSchemaStatus('JSON применен к визуальному редактору.');
-    } catch (error) {
-      setSchemaStatus(`Ошибка схемы: ${String(error)}`);
-    }
-  }, [schemaDraftJson]);
 
-  const saveSchemaDraft = useCallback(
-    async (safeSchema: WarehouseBomRelationSchema, renames: Array<{ fromTypeId: string; toTypeId: string }>) => {
-      const result = await window.matrica.warehouse.assemblyBomSchemaSet({
-        schema: safeSchema,
-        ...(renames.length > 0 ? { renames } : {}),
-      });
-      if (!result?.ok) {
-        setSchemaStatus(`Ошибка схемы: ${String(result?.error ?? 'unknown')}`);
-        return;
-      }
-      const nextSchema = sanitizeWarehouseBomRelationSchema(result.schema);
-      setBomRelationSchema(nextSchema);
-      setSchemaRootTypeDraft(nextSchema.rootTypeId);
-      setSchemaNodesDraft(nextSchema.nodes.map((node) => ({ ...node, originTypeId: node.typeId })));
-      setSchemaDraftJson(JSON.stringify(nextSchema, null, 2));
-      const usageResult = await window.matrica.warehouse.assemblyBomSchemaUsageGet();
-      if (usageResult?.ok) {
-        setSchemaUsageRows((usageResult.rows ?? []) as WarehouseBomRelationTypeUsage[]);
-      }
-      setSchemaStatus(`Глобальная схема связей сохранена.${Number(result.renamedLineCount ?? 0) > 0 ? ` Переименовано строк BOM: ${Number(result.renamedLineCount)}.` : ''}`);
-    },
-    [],
-  );
 
-  const requestSchemaDraftSave = useCallback(async () => {
-    try {
-      const renames = schemaNodesDraft
-        .map((node) => ({
-          fromTypeId: String(node.originTypeId ?? '').trim().toLowerCase(),
-          toTypeId: String(node.typeId ?? '').trim().toLowerCase(),
-        }))
-        .filter((row) => row.fromTypeId && row.toTypeId && row.fromTypeId !== row.toTypeId);
-      const safeSchema = sanitizeWarehouseBomRelationSchema({
-        format: 'bom_relation_schema_v1',
-        rootTypeId: schemaRootTypeDraft,
-        nodes: schemaNodesDraft,
-      });
-      if (renames.length > 0) {
-        const stats = renames.reduce(
-          (acc, rename) => {
-            const usage = schemaUsageByTypeId.get(rename.fromTypeId);
-            if (!usage) return acc;
-            acc.estimatedAffected += Number(usage.activeLineCount ?? 0) + Number(usage.draftLineCount ?? 0) + Number(usage.archivedLineCount ?? 0);
-            acc.activeAffected += Number(usage.activeLineCount ?? 0);
-            return acc;
-          },
-          { estimatedAffected: 0, activeAffected: 0 },
-        );
-        setPendingSchemaRenameConfirm({ safeSchema, renames, estimatedAffected: stats.estimatedAffected, activeAffected: stats.activeAffected });
-        return;
-      }
-      await saveSchemaDraft(safeSchema, renames);
-    } catch (error) {
-      setSchemaStatus(`Ошибка схемы: ${String(error)}`);
-    }
-  }, [saveSchemaDraft, schemaNodesDraft, schemaRootTypeDraft, schemaUsageByTypeId]);
 
   const saveBom = useCallback(async (): Promise<boolean> => {
     if (!data) return false;
@@ -877,12 +744,12 @@ export function EngineAssemblyBomDetailsPage(props: {
   }, [data, lineValidation.errors.length, refresh]);
 
   const requestCloseBomCard = useCallback(() => {
-    if (!(showSchemaEditor ? isSchemaDirty : isBomDirty)) {
+    if (!isBomDirty) {
       props.onClose();
       return;
     }
     setCloseConfirmOpen(true);
-  }, [isBomDirty, isSchemaDirty, props, showSchemaEditor]);
+  }, [isBomDirty, props]);
 
   const confirmDeleteBom = useCallback(async () => {
     if (!data) return;
@@ -905,10 +772,10 @@ export function EngineAssemblyBomDetailsPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <CardActionBar
         canEdit={props.canEdit}
-        cardLabel={showSchemaEditor ? 'Глобальная схема BOM' : 'BOM двигателя'}
+        cardLabel="BOM двигателя"
         centerNoWrap
         onPrint={
-          !showSchemaEditor && data
+          data
             ? () => {
                 void (async () => {
                   const printed = await window.matrica.warehouse.assemblyBomPrint(data.header.id);
@@ -945,459 +812,29 @@ export function EngineAssemblyBomDetailsPage(props: {
               }
             : undefined
         }
-        onSave={!showSchemaEditor ? () => void saveBom() : undefined}
-        onSaveAndClose={
-          !showSchemaEditor
-            ? () =>
-                void (async () => {
-                  if (await saveBom()) props.onClose();
-                })()
-            : undefined
+        onSave={() => void saveBom()}
+        onSaveAndClose={() =>
+          void (async () => {
+            if (await saveBom()) props.onClose();
+          })()
         }
         onClose={requestCloseBomCard}
-        onDelete={props.canEdit && !showSchemaEditor && data ? () => setDeleteConfirmOpen(true) : undefined}
+        onDelete={props.canEdit && data ? () => setDeleteConfirmOpen(true) : undefined}
         deleteSkipBuiltInConfirm
         deleteLabel="Удалить спецификацию"
-        extraActionsLeft={
-          showSchemaEditor ? (
-            <>
-              <Button variant="ghost" onClick={() => setShowSchemaEditor(false)}>
-                Выйти из глобальной схемы
-              </Button>
-              <Button variant="ghost" onClick={resetSchemaDraft}>
-                Сбросить черновик
-              </Button>
-              <Button onClick={() => void requestSchemaDraftSave()}>Сохранить схему</Button>
-            </>
-          ) : null
-        }
         extraActionsCenter={
-          showSchemaEditor ? null : (
-            <>
-              <Button
-                variant="ghost"
-                onClick={resortBomLinesBySchema}
-                disabled={!props.canEdit || !data || (data?.lines.length ?? 0) === 0}
-                title="Установить priority строк по sortOrder из глобальной схемы. После клика нажмите «Сохранить и закрыть»."
-              >
-                Пересортировать по схеме
-              </Button>
-              <Button variant="ghost" onClick={() => setShowSchemaEditor(true)}>
-                Глобальная схема
-              </Button>
-            </>
-          )
+          <Button
+            variant="ghost"
+            onClick={resortBomLinesBySchema}
+            disabled={!props.canEdit || !data || (data?.lines.length ?? 0) === 0}
+            title="Установить priority строк по sortOrder (порядок отображения позиций)."
+          >
+            Пересортировать по схеме
+          </Button>
         }
       />
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
-      {schemaStatus ? <div style={{ color: schemaStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{schemaStatus}</div> : null}
-      {showSchemaEditor ? (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, display: 'grid', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ fontWeight: 600 }}>Глобальная схема связей компонентов</div>
-            <div
-              style={{
-                fontSize: 12,
-                borderRadius: 999,
-                padding: '2px 10px',
-                border: '1px solid var(--border)',
-                background: isSchemaDirty ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.12)',
-                color: isSchemaDirty ? 'var(--warning, #b45309)' : '#047857',
-                whiteSpace: 'nowrap',
-              }}
-              title={isSchemaDirty ? 'В черновике есть несохраненные изменения.' : 'Все изменения глобальной схемы сохранены.'}
-            >
-              {isSchemaDirty ? 'Есть несохраненные изменения' : 'Сохранено'}
-            </div>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
-            Размещение: раздел BOM двигателя. Оператор может менять типы компонентов и их допустимые связи. Изменения сразу влияют на кнопки и автосвязи при
-            составлении новых спецификаций.
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
-            Корневой тип редактируется отдельным полем выше. Колонка "Использование в BOM-строках" показывает фактическое использование типа в сохраненных BOM,
-            а не наличие связей в графе.
-          </div>
-          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(260px, 1fr) auto auto' }}>
-            <label style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Корневой тип (обычно двигатель)</span>
-              <SearchSelect
-                value={schemaRootTypeDraft}
-                options={withRecents('schemaRootTypeDraft', schemaNodeOptions)}
-                showAllWhenEmpty
-                placeholder="Выберите корневой тип"
-                onChange={(value) => {
-                  const next = String(value ?? 'engine');
-                  setSchemaRootTypeDraft(next);
-                  pushRecent('schemaRootTypeDraft', next);
-                }}
-              />
-            </label>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                const base = `component_${schemaNodesDraft.length + 1}`;
-                const nextTypeId = normalizeNodeKey(base) || `component_${Date.now()}`;
-                setSchemaNodesDraft((prev) => [
-                  ...prev,
-                  {
-                    typeId: nextTypeId,
-                    label: `Компонент ${prev.length + 1}`,
-                    isActive: true,
-                    childTypeIds: [],
-                    sortOrder: (prev.length + 1) * 10,
-                    originTypeId: null,
-                  },
-                ]);
-              }}
-            >
-              + Добавить тип
-            </Button>
-            <Button variant="ghost" onClick={() => setShowSchemaJsonEditor((prev) => !prev)}>
-              {showSchemaJsonEditor ? 'Скрыть JSON' : 'Показать JSON'}
-            </Button>
-          </div>
-          <div style={{ overflowX: 'auto', border: '1px solid var(--border)' }}>
-            <table className="list-table">
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }} data-col-kind="name">ID типа</th>
-                  <th style={{ textAlign: 'left' }} data-col-kind="name">Название</th>
-                  <th style={{ textAlign: 'left' }} data-col-kind="flag" title="Активен">Активен</th>
-                  <th style={{ textAlign: 'left' }} data-col-kind="num" title="Порядок">Порядок</th>
-                  <th style={{ textAlign: 'left' }}>Разрешенные дочерние типы</th>
-                  <th style={{ textAlign: 'left' }} data-col-kind="text">Использование в BOM-строках</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {schemaEditableRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
-                      Нет дополнительных типов компонентов. Корневой тип управляется отдельно.
-                    </td>
-                  </tr>
-                ) : (
-                  schemaEditableRows.map(({ node, idx }) => (
-                    <tr key={`${node.typeId}-${idx}`}>
-                      <td data-col-kind="name" style={{ minWidth: 150 }}>
-                        <Input
-                          value={node.typeId}
-                          onChange={(e) =>
-                            setSchemaNodesDraft((prev) => {
-                              const next = [...prev];
-                              next[idx] = { ...next[idx], typeId: normalizeNodeKey(e.target.value) || '' } as DraftSchemaNode;
-                              return next;
-                            })
-                          }
-                        />
-                      </td>
-                      <td data-col-kind="name" style={{ minWidth: 220 }}>
-                        <Input
-                          value={node.label}
-                          onChange={(e) =>
-                            setSchemaNodesDraft((prev) => {
-                              const next = [...prev];
-                              next[idx] = { ...next[idx], label: e.target.value } as DraftSchemaNode;
-                              return next;
-                            })
-                          }
-                        />
-                      </td>
-                      <td data-col-kind="flag">
-                        <input
-                          type="checkbox"
-                          checked={node.isActive !== false}
-                          onChange={(e) =>
-                            setSchemaNodesDraft((prev) => {
-                              const next = [...prev];
-                              next[idx] = { ...next[idx], isActive: e.target.checked } as DraftSchemaNode;
-                              return next;
-                            })
-                          }
-                        />
-                      </td>
-                      <td data-col-kind="num" style={{ minWidth: 90 }}>
-                        <Input
-                          value={String(node.sortOrder)}
-                          onChange={(e) =>
-                            setSchemaNodesDraft((prev) => {
-                              const next = [...prev];
-                              next[idx] = { ...next[idx], sortOrder: Number(e.target.value || 0) } as DraftSchemaNode;
-                              return next;
-                            })
-                          }
-                        />
-                      </td>
-                      <td style={{ minWidth: 260 }}>
-                        <MultiSearchSelect
-                          values={node.childTypeIds ?? []}
-                          options={schemaNodesDraft
-                            .filter((candidate, candidateIdx) => candidateIdx !== idx && candidate.typeId)
-                            .filter((candidate) => String(candidate.typeId) !== String(schemaRootTypeDraft))
-                            .map((candidate) => ({
-                              id: candidate.typeId,
-                              label: candidate.label || candidate.typeId,
-                              hintText: candidate.typeId,
-                            }))}
-                          onChange={(nextValues) =>
-                            setSchemaNodesDraft((prev) => {
-                              const next = [...prev];
-                              next[idx] = { ...next[idx], childTypeIds: nextValues } as DraftSchemaNode;
-                              return next;
-                            })
-                          }
-                          placeholder="Выберите дочерние типы"
-                        />
-                      </td>
-                      <td data-col-kind="text" style={{ minWidth: 180, fontSize: 12, color: 'var(--subtle)' }}>
-                        {(() => {
-                          const usage = schemaUsageByTypeId.get(String(node.typeId ?? '').trim().toLowerCase());
-                          if (!usage) return 'не используется';
-                          return `В работе: ${usage.activeLineCount} · Черновик: ${usage.draftLineCount} · Архив: ${usage.archivedLineCount}`;
-                        })()}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              const cloneBase = normalizeNodeKey(`${node.typeId}_copy`) || `copy_${Date.now()}`;
-                              let cloneId = cloneBase;
-                              const existing = new Set(schemaNodesDraft.map((item) => item.typeId));
-                              let counter = 2;
-                              while (existing.has(cloneId)) {
-                                cloneId = `${cloneBase}_${counter}`;
-                                counter += 1;
-                              }
-                              setSchemaNodesDraft((prev) => [
-                                ...prev,
-                                {
-                                  ...node,
-                                  typeId: cloneId,
-                                  label: `${node.label} (копия)`,
-                                  sortOrder: Math.max(...prev.map((item) => Number(item.sortOrder || 0)), 0) + 10,
-                                  originTypeId: null,
-                                },
-                              ]);
-                            }}
-                            style={{ padding: '2px 8px', minHeight: 0 }}
-                          >
-                            Дубль
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              void (async () => {
-                                const usage = schemaUsageByTypeId.get(String(node.typeId ?? '').trim().toLowerCase());
-                                if ((usage?.activeLineCount ?? 0) > 0) {
-                                  setSchemaStatus(`Ошибка схемы: тип "${node.typeId}" используется в active BOM (${usage?.activeLineCount}) и не может быть удален.`);
-                                  return;
-                                }
-                                if (String(node.typeId) === String(schemaRootTypeDraft)) {
-                                  setSchemaStatus('Ошибка схемы: нельзя удалить корневой тип.');
-                                  return;
-                                }
-                                const ok = await confirm({
-                                  detail: `Будет удалён узел глобальной схемы BOM: «${node.label || node.typeId}» (${node.typeId}).`,
-                                });
-                                if (!ok) return;
-                                setSchemaNodesDraft((prev) =>
-                                  prev
-                                    .filter((_, rowIdx) => rowIdx !== idx)
-                                    .map((item) => ({
-                                      ...item,
-                                      childTypeIds: (item.childTypeIds ?? []).filter((childTypeId) => childTypeId !== node.typeId),
-                                    })),
-                                );
-                                setSchemaStatus('');
-                              })();
-                            }}
-                            style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0 }}
-                          >
-                            Удалить
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
-            <div style={{ fontWeight: 600 }}>Граф связей (визуализация)</div>
-            {schemaNodesDraft.length === 0 ? (
-              <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Нет узлов для отображения графа.</div>
-            ) : (
-              schemaNodesDraft
-                .slice()
-                .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
-                .map((node) => (
-                  <div key={`graph-${node.typeId}`} style={{ display: 'grid', gridTemplateColumns: '220px auto', gap: 8, alignItems: 'center' }}>
-                    <div
-                      style={{
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        padding: '4px 8px',
-                        background: String(node.typeId) === String(schemaRootTypeDraft) ? 'rgba(59, 130, 246, 0.12)' : 'var(--surface2)',
-                      }}
-                    >
-                      {node.label} ({node.typeId})
-                    </div>
-                    <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
-                      {(node.childTypeIds ?? []).length === 0
-                        ? 'без дочерних связей'
-                        : (node.childTypeIds ?? [])
-                            .map((childId) => {
-                              const childNode = schemaNodesDraft.find((candidate) => candidate.typeId === childId);
-                              return `-> ${childNode?.label ?? childId}`;
-                            })
-                            .join(', ')}
-                    </div>
-                  </div>
-                ))
-            )}
-          </div>
-          {showSchemaJsonEditor ? (
-            <>
-              <textarea
-                value={schemaDraftJson}
-                onChange={(e) => setSchemaDraftJson(e.target.value)}
-                style={{ width: '100%', minHeight: 180, fontFamily: 'Consolas, monospace', fontSize: 12 }}
-              />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button variant="ghost" onClick={applySchemaDraftJsonToVisual}>
-                  Применить JSON к визуальной схеме
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    const safeSchema = sanitizeWarehouseBomRelationSchema({
-                      format: 'bom_relation_schema_v1',
-                      rootTypeId: schemaRootTypeDraft,
-                      nodes: schemaNodesDraft,
-                    });
-                    setSchemaDraftJson(JSON.stringify(safeSchema, null, 2));
-                    setSchemaStatus('Визуальная схема экспортирована в JSON.');
-                  }}
-                >
-                  Обновить JSON из визуальной схемы
-                </Button>
-              </div>
-            </>
-          ) : null}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              variant="ghost"
-              onClick={resetSchemaDraft}
-            >
-              Сбросить черновик
-            </Button>
-            <Button
-              onClick={() => void requestSchemaDraftSave()}
-            >
-              Сохранить схему
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {pendingSchemaRenameConfirm ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1200,
-            padding: 16,
-          }}
-          onMouseDown={(event) => {
-            if (event.target !== event.currentTarget) return;
-            setPendingSchemaRenameConfirm(null);
-            setSchemaStatus('Сохранение отменено: переименование типов не подтверждено.');
-          }}
-        >
-          <div
-            style={{
-              width: 'min(680px, 100%)',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              borderRadius: 14,
-              background: 'var(--surface)',
-              boxShadow: '0 24px 64px rgba(2, 6, 23, 0.35)',
-              border: '1px solid var(--border)',
-              display: 'grid',
-              gap: 10,
-              padding: 14,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 16 }}>Подтверждение переименования типов</div>
-            <div style={{ fontSize: 13, color: 'var(--subtle)' }}>
-              Будут обновлены строки BOM с прежними типами компонентов. Проверьте список переименований перед сохранением.
-            </div>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-              <table className="list-table">
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left' }} data-col-kind="name">Старый ID типа</th>
-                    <th style={{ textAlign: 'left' }} data-col-kind="name">Новый ID типа</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingSchemaRenameConfirm.renames.map((rename) => (
-                    <tr key={`${rename.fromTypeId}->${rename.toTypeId}`}>
-                      <td data-col-kind="name">{rename.fromTypeId}</td>
-                      <td data-col-kind="name">{rename.toTypeId}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ fontSize: 13 }}>
-              Оценка затрагиваемых строк BOM: <strong>{pendingSchemaRenameConfirm.estimatedAffected}</strong>
-            </div>
-            <div
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                padding: '8px 10px',
-                background: pendingSchemaRenameConfirm.activeAffected > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(148, 163, 184, 0.08)',
-                color: pendingSchemaRenameConfirm.activeAffected > 0 ? 'var(--danger)' : 'var(--subtle)',
-                fontSize: 13,
-              }}
-            >
-              {pendingSchemaRenameConfirm.activeAffected > 0
-                ? `Внимание: будут изменены строки в active BOM (${pendingSchemaRenameConfirm.activeAffected}). Проверьте влияние на текущие спецификации перед подтверждением.`
-                : 'В active BOM затронутых строк не обнаружено.'}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setPendingSchemaRenameConfirm(null);
-                  setSchemaStatus('Сохранение отменено: переименование типов не подтверждено.');
-                }}
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={async () => {
-                  const pending = pendingSchemaRenameConfirm;
-                  setPendingSchemaRenameConfirm(null);
-                  if (!pending) return;
-                  await saveSchemaDraft(pending.safeSchema, pending.renames);
-                }}
-              >
-                Подтвердить и сохранить
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       {closeConfirmOpen ? (
         <div
           style={{
@@ -1425,9 +862,7 @@ export function EngineAssemblyBomDetailsPage(props: {
           >
             <div style={{ fontWeight: 700, fontSize: 16 }}>Закрыть карточку BOM?</div>
             <div style={{ fontSize: 13, color: 'var(--subtle)' }}>
-              {showSchemaEditor
-                ? 'В режиме глобальной схемы есть несохраненные изменения. Выберите действие перед выходом.'
-                : 'В карточке есть несохраненные изменения. Выберите действие перед выходом.'}
+              В карточке есть несохраненные изменения. Выберите действие перед выходом.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={() => setCloseConfirmOpen(false)}>
@@ -1445,11 +880,6 @@ export function EngineAssemblyBomDetailsPage(props: {
               <Button
                 onClick={() => {
                   void (async () => {
-                    if (showSchemaEditor) {
-                      setCloseConfirmOpen(false);
-                      await requestSchemaDraftSave();
-                      return;
-                    }
                     if (await saveBom()) {
                       setCloseConfirmOpen(false);
                       props.onClose();
@@ -1458,7 +888,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                 }}
                 disabled={savingBom}
               >
-                {showSchemaEditor ? 'Сохранить схему' : 'Сохранить и выйти'}
+                Сохранить и выйти
               </Button>
             </div>
           </div>
@@ -1506,8 +936,6 @@ export function EngineAssemblyBomDetailsPage(props: {
           </div>
         </div>
       ) : null}
-      {!showSchemaEditor ? (
-        <>
       {lineValidation.errors.length > 0 ? (
         <div style={{ border: '1px solid var(--danger)', background: 'rgba(239, 68, 68, 0.08)', borderRadius: 8, padding: 8 }}>
           <div style={{ fontWeight: 600, color: 'var(--danger)', marginBottom: 4 }}>Ошибки спецификации</div>
@@ -1828,8 +1256,6 @@ export function EngineAssemblyBomDetailsPage(props: {
           ) : null}
         </>
       )}
-        </>
-      ) : null}
     </div>
   );
 }
