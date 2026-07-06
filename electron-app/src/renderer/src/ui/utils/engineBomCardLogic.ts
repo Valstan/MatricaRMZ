@@ -9,6 +9,9 @@ export type EngineBomLine = {
   isRequired: boolean;
   priority: number;
   notes?: string | null;
+  positionKey?: string | null;
+  positionLabel?: string | null;
+  isDefaultOption?: boolean;
 };
 
 export type EngineBomDetailsForSnapshot = {
@@ -67,6 +70,9 @@ export function buildBomSnapshot(data: EngineBomDetailsForSnapshot | null): stri
       isRequired: line.isRequired !== false,
       priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
       notes: line.notes ?? null,
+      positionKey: line.positionKey ?? null,
+      positionLabel: line.positionLabel ?? null,
+      isDefaultOption: line.isDefaultOption !== false,
     })),
   });
 }

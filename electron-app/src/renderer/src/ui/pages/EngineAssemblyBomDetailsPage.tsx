@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  buildEngineBomSkeletonBlockLines,
   buildGroupedNomenclatureOptions,
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
   sanitizeWarehouseBomRelationSchema,
@@ -15,13 +14,12 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { GroupedSearchSelect, type GroupedSearchSelectGroup } from '../components/GroupedSearchSelect.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
-import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import {
   buildBomSnapshot as buildBomSnapshotShared,
-  computeMissingComponentTypes,
   type EngineBomDetailsForSnapshot,
 } from '../utils/engineBomCardLogic.js';
 import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
@@ -54,10 +52,15 @@ type BomDetails = {
     isRequired: boolean;
     priority: number;
     notes?: string | null;
+    /** Модель «Позиции + варианты»: строки с общим positionKey — взаимозаменяемые варианты одной позиции. */
+    positionKey?: string | null;
+    /** Имя позиции («Картер верхний»). */
+    positionLabel?: string | null;
+    /** Основной вариант позиции (идёт в прогноз/сборку). */
+    isDefaultOption?: boolean;
   }>;
 };
 type BomLine = BomDetails['lines'][number];
-type ViewMode = 'table' | 'tree';
 type PreparedLine = BomLine & {
   idx: number;
   normalizedVariantGroup: string | null;
@@ -229,7 +232,7 @@ function variantScopeKeyPrepared(line: PreparedLine): string {
   return line.normalizedVariantGroup || '__base__';
 }
 
-function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string, string[]>, requiredComponentTypes?: string[]): {
+function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string, string[]>): {
   errors: string[];
   warnings: string[];
   lineIssues: Map<number, LineIssue>;
@@ -333,28 +336,6 @@ function validatePreparedLines(lines: PreparedLine[], relationRules?: Map<string
     }
   }
 
-  if (Array.isArray(requiredComponentTypes) && requiredComponentTypes.length > 0) {
-    const onlyBase = byScope.size === 1 && byScope.has('__base__');
-    if (onlyBase) {
-      const presentTypes = new Set(lines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
-      for (const requiredType of requiredComponentTypes.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean)) {
-        if (presentTypes.has(requiredType)) continue;
-        errors.push(`В спецификации отсутствует обязательный тип компонента "${requiredType}" из глобальной схемы.`);
-      }
-    } else {
-      for (const [scope, scopeLines] of byScope) {
-        if (scope === '__base__') continue;
-        if (scopeLines.length === 0) continue;
-        if (!scope.startsWith('__kit_')) continue;
-        const presentTypes = new Set(scopeLines.map((line) => String(line.componentType ?? '').trim().toLowerCase()).filter(Boolean));
-        for (const requiredType of requiredComponentTypes.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean)) {
-          if (presentTypes.has(requiredType)) continue;
-          errors.push(`В варианте «${scope}» отсутствует обязательный тип компонента "${requiredType}" из глобальной схемы.`);
-        }
-      }
-    }
-  }
-
   return {
     errors: Array.from(new Set(errors)),
     warnings: Array.from(new Set(warnings)),
@@ -387,8 +368,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [savingBom, setSavingBom] = useState(false);
   const [deletingBom, setDeletingBom] = useState(false);
   const [lastSaveWarnings, setLastSaveWarnings] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
-  const [showTechnicalFields, setShowTechnicalFields] = useState(false);
   const [nomenclatureMetaRows, setNomenclatureMetaRows] = useState<
     Array<{
       id: string;
@@ -426,10 +405,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   const schemaEditableRows = useMemo(
     () => schemaNodesDraft.map((node, idx) => ({ node, idx })).filter((entry) => String(entry.node.typeId) !== String(schemaRootTypeDraft)),
     [schemaNodesDraft, schemaRootTypeDraft],
-  );
-  const requiredComponentTypes = useMemo(
-    () => relationNodes.filter((node) => node.isActive !== false && node.typeId !== bomRelationSchema.rootTypeId).map((node) => node.typeId),
-    [bomRelationSchema.rootTypeId, relationNodes],
   );
   const componentTypeLabelMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -471,10 +446,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   const preparedLines = useMemo(() => prepareLines(data?.lines ?? []), [data?.lines]);
   const bomSnapshot = useMemo(() => buildBomSnapshot(data), [data]);
   const isBomDirty = useMemo(() => Boolean(data) && Boolean(savedBomSnapshot) && bomSnapshot !== savedBomSnapshot, [bomSnapshot, data, savedBomSnapshot]);
-  const hasEmptyComponentLines = useMemo(
-    () => (data?.lines ?? []).some((line) => !String(line.componentNomenclatureId ?? '').trim()),
-    [data?.lines],
-  );
   const isSchemaDirty = useMemo(() => {
     const persisted = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
     const draft = sanitizeWarehouseBomRelationSchema({
@@ -485,8 +456,8 @@ export function EngineAssemblyBomDetailsPage(props: {
     return JSON.stringify(draft) !== JSON.stringify(persisted);
   }, [bomRelationSchema, schemaNodesDraft, schemaRootTypeDraft]);
   const lineValidation = useMemo(
-    () => validatePreparedLines(preparedLines, allowedChildrenByType, requiredComponentTypes),
-    [allowedChildrenByType, preparedLines, requiredComponentTypes],
+    () => validatePreparedLines(preparedLines, allowedChildrenByType),
+    [allowedChildrenByType, preparedLines],
   );
   const brandLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -516,73 +487,7 @@ export function EngineAssemblyBomDetailsPage(props: {
     return withRecents('engineBrandId', engineBrandSelectOptions);
   }, [engineBrandSelectOptions, withRecents]);
 
-  const parentOptionsByLineIdx = useMemo(() => {
-    const map = new Map<number, SearchSelectOption[]>();
-    for (const line of preparedLines) {
-      const scope = variantScopeKeyPrepared(line);
-      const options = preparedLines
-        .filter(
-          (candidate) =>
-            candidate.idx !== line.idx &&
-            Boolean(candidate.normalizedLineKey) &&
-            variantScopeKeyPrepared(candidate) === scope,
-        )
-        .map((candidate) => ({
-          id: String(candidate.normalizedLineKey),
-          label: `${candidate.normalizedLineKey} - ${candidate.componentLabel}`,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      map.set(line.idx, options);
-    }
-    return map;
-  }, [preparedLines]);
-  const treeScopes = useMemo(() => {
-    const baseLines = preparedLines.filter((line) => !line.normalizedVariantGroup);
-    const groupNames = Array.from(new Set(preparedLines.map((line) => line.normalizedVariantGroup).filter((value): value is string => Boolean(value))));
-    if (groupNames.length === 0) {
-      return [{ id: 'base-only', title: 'Общая спецификация', lines: preparedLines }];
-    }
-    return groupNames.map((groupName, idx) => ({
-      id: groupName,
-      title: formatAssemblyVariantLabel(groupName, idx),
-      lines: [...baseLines, ...preparedLines.filter((line) => line.normalizedVariantGroup === groupName)],
-    }));
-  }, [preparedLines]);
 
-  const variantBlocks = useMemo(() => {
-    const baseLines = preparedLines.filter((line) => !line.normalizedVariantGroup);
-    const byVariant = new Map<string, PreparedLine[]>();
-    for (const line of preparedLines) {
-      if (!line.normalizedVariantGroup) continue;
-      const arr = byVariant.get(line.normalizedVariantGroup) ?? [];
-      arr.push(line);
-      byVariant.set(line.normalizedVariantGroup, arr);
-    }
-    const ordered = Array.from(byVariant.entries()).sort((a, b) => {
-      const aMin = Math.min(...a[1].map((line) => Number(line.priority ?? 100)));
-      const bMin = Math.min(...b[1].map((line) => Number(line.priority ?? 100)));
-      if (aMin !== bMin) return aMin - bMin;
-      return a[0].localeCompare(b[0], 'ru');
-    });
-    if (ordered.length === 0) {
-      return [
-        {
-          id: '__base__',
-          title: 'Общая спецификация',
-          minPriority: 100,
-          lines: baseLines,
-          variantOnlyLines: [] as PreparedLine[],
-        },
-      ];
-    }
-    return ordered.map(([variantId, variantOnlyLines], idx) => ({
-      id: variantId,
-      title: formatAssemblyVariantLabel(variantId, idx),
-      minPriority: Math.min(...variantOnlyLines.map((line) => Number(line.priority ?? 100))),
-      lines: [...baseLines, ...variantOnlyLines],
-      variantOnlyLines,
-    }));
-  }, [preparedLines]);
 
   const patchLine = useCallback((idx: number, patch: Partial<BomLine>) => {
     setData((prev) => {
@@ -603,52 +508,98 @@ export function EngineAssemblyBomDetailsPage(props: {
         isRequired: current.isRequired !== false,
         priority: Number(current.priority ?? 100),
         notes: current.notes ?? null,
+        positionKey: current.positionKey ?? null,
+        positionLabel: current.positionLabel ?? null,
+        isDefaultOption: current.isDefaultOption !== false,
         ...patch,
       };
       return { ...prev, lines };
     });
   }, []);
 
-  const removeLine = useCallback((idx: number) => {
+
+  // ── Модель «Позиции + взаимозаменяемые варианты» ─────────────────────────
+  const genPositionKey = useCallback(() => `pos-${Math.random().toString(36).slice(2, 9)}`, []);
+
+  // Патч по всем строкам-вариантам одной позиции (label/qty живут на каждом варианте — держим синхронно).
+  const patchPositionLines = useCallback((idxs: number[], patch: Partial<BomLine>) => {
+    const set = new Set(idxs);
+    setData((prev) => (prev ? { ...prev, lines: prev.lines.map((line, i) => (set.has(i) ? { ...line, ...patch } : line)) } : prev));
+  }, []);
+
+  const setDefaultOption = useCallback((idxs: number[], chosenIdx: number) => {
+    const set = new Set(idxs);
+    setData((prev) => (prev ? { ...prev, lines: prev.lines.map((line, i) => (set.has(i) ? { ...line, isDefaultOption: i === chosenIdx } : line)) } : prev));
+  }, []);
+
+  const addPosition = useCallback(() => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            lines: [
+              ...prev.lines,
+              { id: '', componentNomenclatureId: '', componentType: 'other', qtyPerUnit: 1, variantGroup: null, lineKey: null, parentLineKey: null, isRequired: true, priority: 100, positionKey: genPositionKey(), positionLabel: '', isDefaultOption: true },
+            ],
+          }
+        : prev,
+    );
+  }, [genPositionKey]);
+
+  // Добавить взаимозаменяемый вариант детали в позицию. Если позиция была одиночкой
+  // (positionKey пуст — легаси-строка), присваиваем ей сгенерированный ключ, чтобы варианты сгруппировались.
+  const addOption = useCallback((idxs: number[]) => {
     setData((prev) => {
       if (!prev) return prev;
-      const lines = prev.lines.filter((_, i) => i !== idx);
+      const first = idxs.map((i) => prev.lines[i]).find(Boolean);
+      if (!first) return prev;
+      let key = String(first.positionKey ?? '').trim();
+      let lines = prev.lines;
+      if (!key) {
+        key = genPositionKey();
+        const set = new Set(idxs);
+        lines = lines.map((line, i) => (set.has(i) ? { ...line, positionKey: key } : line));
+      }
+      const newLine = {
+        id: '',
+        componentNomenclatureId: '',
+        componentType: 'other',
+        qtyPerUnit: Number(first.qtyPerUnit ?? 1),
+        variantGroup: first.variantGroup ?? null,
+        lineKey: null,
+        parentLineKey: null,
+        isRequired: first.isRequired !== false,
+        priority: Number(first.priority ?? 100),
+        positionKey: key,
+        positionLabel: first.positionLabel ?? '',
+        isDefaultOption: false,
+      };
+      return { ...prev, lines: [...lines, newLine] };
+    });
+  }, [genPositionKey]);
+
+  const removePosition = useCallback((idxs: number[]) => {
+    const set = new Set(idxs);
+    setData((prev) => (prev ? { ...prev, lines: prev.lines.filter((_, i) => !set.has(i)) } : prev));
+  }, []);
+
+  // Удалить один вариант детали. Если удалили основной и в позиции остались варианты — назначаем первый оставшийся основным.
+  const removeOption = useCallback((idx: number) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const removed = prev.lines[idx];
+      let lines = prev.lines.filter((_, i) => i !== idx);
+      if (removed && removed.isDefaultOption !== false) {
+        const key = String(removed.positionKey ?? '').trim();
+        if (key) {
+          const remaining = lines.findIndex((l) => String(l.positionKey ?? '').trim() === key);
+          if (remaining >= 0) lines = lines.map((l, i) => (i === remaining ? { ...l, isDefaultOption: true } : l));
+        }
+      }
       return { ...prev, lines };
     });
   }, []);
 
-  const moveVariantPriority = useCallback((variantId: string, direction: 'up' | 'down') => {
-    setData((prev) => {
-      if (!prev) return prev;
-      const variantIds = Array.from(
-        new Set(prev.lines.map((line) => normalizeVariantGroup(line.variantGroup)).filter((value): value is string => Boolean(value))),
-      ).sort((a, b) => {
-        const aMin = Math.min(...prev.lines.filter((line) => normalizeVariantGroup(line.variantGroup) === a).map((line) => Number(line.priority ?? 100)));
-        const bMin = Math.min(...prev.lines.filter((line) => normalizeVariantGroup(line.variantGroup) === b).map((line) => Number(line.priority ?? 100)));
-        if (aMin !== bMin) return aMin - bMin;
-        return a.localeCompare(b, 'ru');
-      });
-      const currentIdx = variantIds.indexOf(variantId);
-      if (currentIdx < 0) return prev;
-      const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
-      if (swapIdx < 0 || swapIdx >= variantIds.length) return prev;
-      const nextOrder = [...variantIds];
-      const idAtCurrent = nextOrder[currentIdx];
-      const idAtSwap = nextOrder[swapIdx];
-      if (idAtCurrent === undefined || idAtSwap === undefined) return prev;
-      nextOrder[currentIdx] = idAtSwap;
-      nextOrder[swapIdx] = idAtCurrent;
-      const rankByVariant = new Map(nextOrder.map((id, idx) => [id, (idx + 1) * 10] as const));
-      const nextLines = prev.lines.map((line) => {
-        const vg = normalizeVariantGroup(line.variantGroup);
-        if (!vg) return line;
-        const rank = rankByVariant.get(vg);
-        if (rank == null) return line;
-        return { ...line, priority: rank };
-      });
-      return { ...prev, lines: nextLines };
-    });
-  }, []);
 
   const refresh = useCallback(async () => {
     setStatus('Загрузка BOM...');
@@ -712,10 +663,6 @@ export function EngineAssemblyBomDetailsPage(props: {
   // из-за этого после save→refresh карточка становилась грязной без действий пользователя и могла
   // затереть пользовательский выбор stub-строкой. Теперь карточка только сообщает дельту через
   // warning-баннер с кнопкой «+Добавить» — пользователь решает сам. Логика в utils/engineBomCardLogic.
-  const missingComponentTypes = useMemo(
-    () => computeMissingComponentTypes(data, requiredComponentTypes),
-    [data, requiredComponentTypes],
-  );
 
   // Диагностика рассинхрона componentType ↔ componentTypeId номенклатуры (v1.21.3).
   // Источник истины — карточка номенклатуры (specJson.componentTypeId либо derive по имени).
@@ -775,191 +722,9 @@ export function EngineAssemblyBomDetailsPage(props: {
     };
   }, []);
 
-  const renderScopeTree = useCallback(
-    (scope: { id: string; title: string; lines: PreparedLine[] }) => {
-      const lineByKey = new Map<string, PreparedLine>();
-      const childrenByParent = new Map<string | null, PreparedLine[]>();
-      for (const line of scope.lines) {
-        if (line.normalizedLineKey && !lineByKey.has(line.normalizedLineKey)) {
-          lineByKey.set(line.normalizedLineKey, line);
-        }
-      }
-      for (const line of scope.lines) {
-        const parentKey = line.normalizedParentLineKey && lineByKey.has(line.normalizedParentLineKey) ? line.normalizedParentLineKey : null;
-        const list = childrenByParent.get(parentKey) ?? [];
-        list.push(line);
-        childrenByParent.set(parentKey, list);
-      }
-      for (const list of childrenByParent.values()) {
-        list.sort((a, b) => {
-          const byPriority = Number(a.priority ?? 100) - Number(b.priority ?? 100);
-          if (byPriority !== 0) return byPriority;
-          return a.componentLabel.localeCompare(b.componentLabel, 'ru');
-        });
-      }
-      const roots = childrenByParent.get(null) ?? [];
-      const visited = new Set<number>();
-      const renderNode = (line: PreparedLine, depth: number): React.ReactNode => {
-        if (visited.has(line.idx)) return null;
-        visited.add(line.idx);
-        const key = line.normalizedLineKey ?? `line-${line.idx}`;
-        const children = line.normalizedLineKey ? childrenByParent.get(line.normalizedLineKey) ?? [] : [];
-        const issue = lineValidation.lineIssues.get(line.idx);
-        const hasError = Boolean(issue?.errors?.length);
-        const hasWarning = !hasError && Boolean(issue?.warnings?.length);
-        return (
-          <React.Fragment key={`${scope.id}-${key}-${line.idx}`}>
-            <div
-              style={{
-                marginLeft: depth * 18,
-                padding: '6px 8px',
-                borderLeft: depth > 0 ? `2px solid ${hasError ? 'var(--danger)' : hasWarning ? 'var(--warning, #b45309)' : 'var(--border)'}` : 'none',
-                display: 'grid',
-                gridTemplateColumns: 'minmax(220px, 1fr) 160px 56px 180px',
-                gap: 8,
-                alignItems: 'center',
-                borderRadius: 6,
-                background: hasError ? 'rgba(239, 68, 68, 0.08)' : hasWarning ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
-              }}
-            >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{line.componentLabel}</span>
-              <span style={{ color: 'var(--subtle)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{componentTypeLabelMap.get(line.componentType) ?? line.componentType}</span>
-              <span style={{ color: 'var(--subtle)', fontSize: 12 }}>x{Number(line.qtyPerUnit ?? 0)}</span>
-              <span style={{ color: 'var(--subtle)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{line.normalizedLineKey ? `узел: ${line.normalizedLineKey}` : 'без узла'}</span>
-            </div>
-            {issue && (issue.errors.length > 0 || issue.warnings.length > 0) ? (
-              <div style={{ marginLeft: depth * 18 + 8, marginTop: 2, marginBottom: 4 }}>
-                {issue.errors.map((message, messageIdx) => (
-                  <div key={`e-${line.idx}-${messageIdx}`} style={{ color: 'var(--danger)', fontSize: 12 }}>
-                    - {message}
-                  </div>
-                ))}
-                {issue.warnings.map((message, messageIdx) => (
-                  <div key={`w-${line.idx}-${messageIdx}`} style={{ color: 'var(--warning, #b45309)', fontSize: 12 }}>
-                    - {message}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {children.map((child) => renderNode(child, depth + 1))}
-          </React.Fragment>
-        );
-      };
-      return (
-        <div key={scope.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, background: 'var(--surface2)' }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{scope.title}</div>
-          {roots.length === 0 ? (
-            <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Нет корневых узлов в этом варианте.</div>
-          ) : (
-            roots.map((root) => renderNode(root, 0))
-          )}
-        </div>
-      );
-    },
-    [lineValidation.lineIssues],
-  );
 
-  const appendEmptyLineOfType = useCallback((typeId: string, scope: string) => {
-    setData((prev) => {
-      if (!prev) return prev;
-      const isBase = scope === '__base__';
-      const variantGroup = isBase ? null : scope;
-      const baseToken = typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
-        ? globalThis.crypto.randomUUID().slice(0, 8)
-        : Math.random().toString(36).slice(2, 10);
-      const lineKey = normalizeNodeKey(`${scope}-${typeId}-${baseToken}`) || `${typeId}-${baseToken}`;
-      const nextLine: BomLine = {
-        id: '',
-        componentNomenclatureId: '',
-        componentType: typeId,
-        qtyPerUnit: 0,
-        variantGroup,
-        lineKey,
-        parentLineKey: null,
-        isRequired: true,
-        priority: 100,
-        notes: null,
-      };
-      return { ...prev, lines: [...prev.lines, nextLine] };
-    });
-  }, []);
 
-  const appendLinkedComponent = useCallback(
-    (parentIdx: number, childType: string, childComponentId?: string | null) => {
-      setData((prev) => {
-        if (!prev) return prev;
-        const parent = prev.lines[parentIdx];
-        if (!parent) return prev;
-        const parentKeyExisting = normalizeNodeKey(String(parent.lineKey ?? '')) || null;
-        const generatedParentKey = normalizeNodeKey(`${parent.componentType || 'node'}-${parentIdx + 1}-${Date.now()}`) || `node-${Date.now()}`;
-        const parentKey = parentKeyExisting ?? generatedParentKey;
-        const lines = [...prev.lines];
-        lines[parentIdx] = { ...parent, lineKey: parentKey };
-        const normalizedChildComponentId = String(childComponentId ?? '').trim();
-        if (normalizedChildComponentId) {
-          const alreadyExists = lines.some(
-            (line) =>
-              String(line.componentNomenclatureId) === normalizedChildComponentId &&
-              normalizeNodeKey(String(line.parentLineKey ?? '')) === parentKey &&
-              normalizeVariantGroup(line.variantGroup) === normalizeVariantGroup(parent.variantGroup) &&
-              String(line.componentType) === String(childType),
-          );
-          if (alreadyExists) return { ...prev, lines };
-        }
-        const childKey = normalizeNodeKey(`${childType}-${lines.length + 1}-${Date.now()}`) || `${childType}-${Date.now()}`;
-        lines.push({
-          id: '',
-          componentNomenclatureId: normalizedChildComponentId,
-          componentType: childType,
-          qtyPerUnit: 1,
-          variantGroup: parent.variantGroup ?? null,
-          lineKey: childKey,
-          parentLineKey: parentKey,
-          isRequired: true,
-          priority: Math.max(0, Number(parent.priority ?? 100) + 10),
-          notes: null,
-        });
-        return { ...prev, lines };
-      });
-    },
-    [],
-  );
 
-  const appendVariantBlockFromSchema = useCallback(() => {
-    if (!props.canEdit || !data) return;
-    const safeSchema = sanitizeWarehouseBomRelationSchema(bomRelationSchema);
-    // v1.21.3: skeleton может создаваться с пустым stub. Пользователь заполняет компоненты
-    // вручную через GroupedSearchSelect в каждой строке. Backend на сохранении отбрасывает
-    // строки с пустым componentNomenclatureId (FK NOT NULL) — пользователь видит, какие
-    // строки не сохранились, по missing-баннеру.
-    const stub = '';
-    const blockToken =
-      typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
-        ? globalThis.crypto.randomUUID().replace(/-/g, '')
-        : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-    const variantGroupId = `__kit_${blockToken.slice(0, 12)}`;
-    const lineKeyPrefix = `b${blockToken.slice(0, 10)}`;
-    const skeleton = buildEngineBomSkeletonBlockLines({
-      schema: safeSchema,
-      stubComponentNomenclatureId: stub,
-      variantGroupId,
-      lineKeyPrefix,
-    });
-    const appended: BomLine[] = skeleton.map((row) => ({
-      id: '',
-      componentNomenclatureId: row.componentNomenclatureId,
-      componentType: row.componentType,
-      qtyPerUnit: row.qtyPerUnit,
-      variantGroup: row.variantGroup,
-      lineKey: row.lineKey,
-      parentLineKey: row.parentLineKey,
-      isRequired: row.isRequired,
-      priority: row.priority,
-      notes: row.notes,
-    }));
-    setData((prev) => (prev ? { ...prev, lines: [...prev.lines, ...appended] } : prev));
-    setStatus(`Добавлен вариант сборки «${variantGroupId}». Заполните номенклатуру и сохраните BOM.`);
-  }, [bomRelationSchema, data, props.canEdit]);
 
   const resortBomLinesBySchema = useCallback(() => {
     if (!props.canEdit || !data) return;
@@ -1089,6 +854,9 @@ export function EngineAssemblyBomDetailsPage(props: {
           isRequired: line.isRequired !== false,
           priority: Number(line.priority ?? 100),
           notes: line.notes ?? null,
+          positionKey: line.positionKey ?? null,
+          positionLabel: line.positionLabel ?? null,
+          isDefaultOption: line.isDefaultOption !== false,
         })),
       });
       if (!result?.ok) {
@@ -1206,16 +974,6 @@ export function EngineAssemblyBomDetailsPage(props: {
         extraActionsCenter={
           showSchemaEditor ? null : (
             <>
-              <Button
-                variant="primary"
-                title={viewMode === 'table' ? 'Показать дерево связей' : 'Показать таблицу'}
-                onClick={() => setViewMode((m) => (m === 'table' ? 'tree' : 'table'))}
-              >
-                {viewMode === 'table' ? 'Дерево' : 'Таблица'}
-              </Button>
-              <Button variant={showTechnicalFields ? 'primary' : 'ghost'} onClick={() => setShowTechnicalFields((prev) => !prev)}>
-                {showTechnicalFields ? 'Скрыть техполя' : 'Техполя'}
-              </Button>
               <Button
                 variant="ghost"
                 onClick={resortBomLinesBySchema}
@@ -1770,32 +1528,6 @@ export function EngineAssemblyBomDetailsPage(props: {
           ))}
         </div>
       ) : null}
-      {missingComponentTypes.length > 0 && props.canEdit ? (
-        <div style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
-          <div style={{ fontWeight: 600, color: 'var(--warning, #b45309)' }}>
-            По глобальной схеме не хватает строк
-          </div>
-          {missingComponentTypes.map((entry) => (
-            <div key={entry.scope} style={{ display: 'grid', gap: 4 }}>
-              <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
-                {entry.scopeTitle}: отсутствуют типы {entry.missingTypeIds.map((typeId) => componentTypeLabelMap.get(typeId) ?? typeId).join(', ')}
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {entry.missingTypeIds.map((typeId) => (
-                  <Button
-                    key={`add-${entry.scope}-${typeId}`}
-                    variant="ghost"
-                    style={{ padding: '2px 8px', minHeight: 0 }}
-                    onClick={() => appendEmptyLineOfType(typeId, entry.scope)}
-                  >
-                    +Добавить «{componentTypeLabelMap.get(typeId) ?? typeId}»
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
       {componentTypeMismatchedLines.length > 0 ? (
         <div style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
           <div style={{ fontWeight: 600, color: 'var(--warning, #b45309)' }}>
@@ -1893,244 +1625,178 @@ export function EngineAssemblyBomDetailsPage(props: {
             </label>
           </div>
 
-          {viewMode === 'table' ? (
-            <div style={{ display: 'grid', gap: 10, gridAutoRows: 'max-content', alignContent: 'start', flex: 1, minHeight: 0, overflow: 'auto' }}>
-              {data.lines.length === 0 ? (
-                <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface2)', display: 'grid', gap: 8, justifyItems: 'center', textAlign: 'center' }}>
-                  <div style={{ fontWeight: 600 }}>BOM пустая — добавьте строки</div>
-                  <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
-                    Используйте кнопки сверху, чтобы добавить недостающие по схеме типы, или кнопки внизу — для произвольной строки и варианта сборки.
+          {(() => {
+            type PosCard = { posKey: string; label: string; qty: number; typeTag: string; idxs: number[]; defaultIdx: number | null };
+            const positions: PosCard[] = [];
+            const byKey = new Map<string, number>();
+            data.lines.forEach((line, i) => {
+              const key = String(line.positionKey ?? '').trim();
+              if (key) {
+                let pi = byKey.get(key);
+                if (pi === undefined) {
+                  pi = positions.length;
+                  byKey.set(key, pi);
+                  positions.push({ posKey: key, label: String(line.positionLabel ?? ''), qty: Number(line.qtyPerUnit ?? 0), typeTag: String(line.componentType ?? ''), idxs: [], defaultIdx: null });
+                }
+                const card = positions[pi]!;
+                card.idxs.push(i);
+                if (line.isDefaultOption !== false) {
+                  if (card.defaultIdx === null) card.defaultIdx = i;
+                  card.label = String(line.positionLabel ?? card.label);
+                  card.qty = Number(line.qtyPerUnit ?? card.qty);
+                  card.typeTag = String(line.componentType ?? card.typeTag);
+                }
+              } else {
+                positions.push({ posKey: `solo-${i}`, label: String(line.positionLabel ?? ''), qty: Number(line.qtyPerUnit ?? 0), typeTag: String(line.componentType ?? ''), idxs: [i], defaultIdx: i });
+              }
+            });
+            const legacyVariantCount = data.lines.filter((l) => String(l.variantGroup ?? '').trim()).length;
+            return (
+              <div style={{ display: 'grid', gap: 10, gridAutoRows: 'max-content', alignContent: 'start', flex: 1, minHeight: 0, overflow: 'auto' }}>
+                {data.lines.length === 0 ? (
+                  <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface2)', display: 'grid', gap: 8, justifyItems: 'center', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600 }}>Спецификация пустая — добавьте позиции</div>
+                    <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Позиция — деталь узла (например «Картер верхний»). Если к позиции подходит несколько взаимозаменяемых деталей — добавьте варианты и отметьте основной.</div>
                   </div>
-                </div>
-              ) : null}
-              {variantBlocks.filter((block) => data.lines.length > 0 || block.lines.length > 0).map((block, blockIdx) => (
-                <div key={block.id} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'visible' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      padding: '8px 10px',
-                      background: '#eff6ff',
-                      borderBottom: '1px solid var(--border)',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700 }}>{block.title}</div>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Приоритет: {block.minPriority}</span>
-                      {props.canEdit && block.id !== '__base__' ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            style={{ padding: '2px 8px', minHeight: 0 }}
-                            onClick={() => moveVariantPriority(block.id, 'up')}
-                            disabled={blockIdx === 0}
-                            title="Поднять вариант выше"
-                          >
-                            ↑
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            style={{ padding: '2px 8px', minHeight: 0 }}
-                            onClick={() => moveVariantPriority(block.id, 'down')}
-                            disabled={blockIdx === variantBlocks.length - 1}
-                            title="Опустить вариант ниже"
-                          >
-                            ↓
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+                ) : null}
+                {legacyVariantCount > 0 ? (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', background: 'rgba(245, 158, 11, 0.08)', fontSize: 12, color: 'var(--subtle)' }}>
+                    Спецификация содержит старые «варианты сборки» ({legacyVariantCount} строк с variant-group) — показаны как отдельные позиции. При желании объедините взаимозаменяемые детали в одну позицию через «+ вариант детали».
                   </div>
-                  <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
-                    <table className="list-table">
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: 'left' }} data-col-kind="text">Тип</th>
-                          <th style={{ textAlign: 'left' }} data-col-kind="name">Компонент</th>
-                          <th style={{ textAlign: 'left' }} data-col-kind="num" title="Кол-во/двиг.">Кол-во/двиг.</th>
-                          {showTechnicalFields ? <th style={{ textAlign: 'left' }} data-col-kind="name">Группа связки</th> : null}
-                          {showTechnicalFields ? <th style={{ textAlign: 'left' }} data-col-kind="name">Узел</th> : null}
-                          {showTechnicalFields ? <th style={{ textAlign: 'left' }} data-col-kind="name">Родительский узел</th> : null}
-                          <th style={{ textAlign: 'left' }}>Быстрые связи</th>
-                          <th style={{ textAlign: 'left' }} data-col-kind="flag" title="Обяз.">Обяз.</th>
-                          <th style={{ textAlign: 'left' }} data-col-kind="num" title="Приоритет">Приоритет</th>
-                          {props.canEdit ? <th /> : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {block.lines.map((line) => {
-                          const idx = line.idx;
-                          const isSharedBase = !line.normalizedVariantGroup;
-                          return (
-                            <tr
-                      key={line.id || `new-${idx}`}
-                      style={
-                        lineValidation.lineIssues.get(idx)?.errors.length
-                          ? { background: 'rgba(239, 68, 68, 0.08)' }
-                          : lineValidation.lineIssues.get(idx)?.warnings.length
-                            ? { background: 'rgba(245, 158, 11, 0.08)' }
-                            : isSharedBase
-                              ? { background: 'rgba(148,163,184,0.10)' }
-                              : undefined
-                      }
-                    >
-                      <td data-col-kind="text">
-                        <span style={{ color: 'var(--muted)', fontSize: 13 }} title="Тип определяется выбранной номенклатурой">
-                          {componentTypeLabelMap.get(String(line.componentType ?? '').trim().toLowerCase()) ?? line.componentType ?? '—'}
-                        </span>
-                      </td>
-                      <td data-col-kind="name" style={{ minWidth: 260 }}>
-                        <GroupedSearchSelect
-                          value={line.componentNomenclatureId || null}
-                          groups={(() => {
-                            const selectedId = String(line.componentNomenclatureId ?? '').trim();
-                            if (!selectedId || componentItemById.has(selectedId)) return componentGroupedGroups;
-                            const orphanLabel = line.componentNomenclatureName || line.componentNomenclatureCode || `(удалено: ${selectedId.slice(0, 8)})`;
-                            const orphanGroup: GroupedSearchSelectGroup = {
-                              groupId: '__orphan__',
-                              groupLabel: 'Текущий выбор (не найден в справочнике)',
-                              items: [
-                                {
-                                  id: selectedId,
-                                  label: orphanLabel,
-                                  ...(line.componentNomenclatureCode ? { hintText: line.componentNomenclatureCode } : {}),
-                                  componentTypeId: line.componentType ?? null,
-                                },
-                              ],
-                            };
-                            return [orphanGroup, ...componentGroupedGroups];
-                          })()}
-                          onChange={(nextId, nextTypeId) => {
-                            pushRecent('componentNomenclatureId', nextId ?? null);
-                            patchLine(idx, {
-                              componentNomenclatureId: nextId ?? '',
-                              componentType: nextTypeId ?? line.componentType ?? 'other',
-                            });
-                          }}
-                          disabled={!props.canEdit}
-                        />
-                      </td>
-                      <td data-col-kind="num">
+                ) : null}
+                {positions.map((pos) => {
+                  const defaultIdx = pos.defaultIdx ?? pos.idxs[0] ?? -1;
+                  const typeLabel = componentTypeLabelMap.get(String(pos.typeTag ?? '').trim().toLowerCase()) ?? pos.typeTag ?? '';
+                  return (
+                    <div key={pos.posKey} style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface2)', padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <Input
-                          value={String(line.qtyPerUnit ?? 0)}
-                          onChange={(e) => patchLine(idx, { qtyPerUnit: Number(e.target.value || 0) })}
+                          value={pos.label}
+                          placeholder={typeLabel || 'Название позиции'}
+                          onChange={(e) => patchPositionLines(pos.idxs, { positionLabel: e.target.value })}
                           disabled={!props.canEdit}
+                          style={{ flex: 1, minWidth: 180, fontWeight: 600 }}
                         />
-                      </td>
-                      {showTechnicalFields ? (
-                        <td data-col-kind="name">
-                          <Input
-                            value={line.variantGroup ?? ''}
-                            onChange={(e) => patchLine(idx, { variantGroup: e.target.value || null })}
-                            placeholder="Например: набор-а"
-                            disabled={!props.canEdit}
-                          />
-                        </td>
-                      ) : null}
-                      {showTechnicalFields ? (
-                        <td data-col-kind="name">
-                          <Input
-                            value={line.lineKey ?? ''}
-                            onChange={(e) => patchLine(idx, { lineKey: normalizeNodeKey(e.target.value) || null })}
-                            placeholder="Например: гильза-а"
-                            disabled={!props.canEdit}
-                          />
-                        </td>
-                      ) : null}
-                      {showTechnicalFields ? (
-                        <td data-col-kind="name" style={{ minWidth: 220 }}>
-                          <SearchSelect
-                            value={line.parentLineKey ?? null}
-                            options={withRecents('parentLineKey', parentOptionsByLineIdx.get(idx) ?? [])}
-                            placeholder="Без родителя"
-                            showAllWhenEmpty
-                            onChange={(next) => {
-                              pushRecent('parentLineKey', next ?? null);
-                              patchLine(idx, { parentLineKey: next ?? null });
-                            }}
-                            disabled={!props.canEdit}
-                          />
-                        </td>
-                      ) : null}
-                      <td style={{ minWidth: 210 }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {(allowedChildrenByType.get(String(line.componentType)) ?? []).length === 0 ? (
-                            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Нет правил</span>
-                          ) : (
-                            (allowedChildrenByType.get(String(line.componentType)) ?? []).map((childTypeId) => (
-                              <Button
-                                key={`${idx}-${childTypeId}`}
-                                variant="ghost"
-                                onClick={() => {
-                                  appendLinkedComponent(idx, childTypeId, null);
-                                  setStatus('');
-                                }}
-                                style={{ padding: '2px 8px', minHeight: 0 }}
-                                disabled={!props.canEdit}
-                              >
-                                +{componentTypeLabelMap.get(childTypeId) ?? childTypeId}
-                              </Button>
-                            ))
-                          )}
-                        </div>
-                      </td>
-                      <td data-col-kind="flag">
-                        <input
-                          type="checkbox"
-                          checked={line.isRequired !== false}
-                          onChange={(e) => patchLine(idx, { isRequired: e.target.checked })}
-                          disabled={!props.canEdit}
-                        />
-                      </td>
-                      <td data-col-kind="num">
+                        <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Кол-во/двиг.</span>
                         <Input
-                          value={String(line.priority ?? 100)}
-                          onChange={(e) => patchLine(idx, { priority: Number(e.target.value || 0) })}
+                          value={String(pos.qty)}
+                          onChange={(e) => patchPositionLines(pos.idxs, { qtyPerUnit: Number(e.target.value || 0) })}
                           disabled={!props.canEdit}
+                          style={{ width: 72 }}
                         />
-                      </td>
-                      {props.canEdit ? (
-                        <td>
+                        {typeLabel ? (
+                          <span style={{ background: 'var(--surface)', color: 'var(--subtle)', fontSize: 12, padding: '3px 8px', borderRadius: 8, border: '1px solid var(--border)' }} title="Тип определяется выбранной деталью">
+                            {typeLabel}
+                          </span>
+                        ) : null}
+                        {props.canEdit ? (
                           <Button
                             variant="ghost"
+                            style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0, marginLeft: 'auto' }}
                             onClick={() => {
                               void (async () => {
-                                const line = data?.lines[idx];
-                                const nm =
-                                  line?.componentNomenclatureName ||
-                                  line?.componentNomenclatureCode ||
-                                  line?.componentNomenclatureId ||
-                                  'строка';
-                                const ok = await confirm({
-                                  detail: `Будет удалена строка спецификации BOM «${data?.header.name ?? ''}»: «${nm}» (тип ${line?.componentType ?? '—'}, кол-во на узел ${line?.qtyPerUnit ?? '—'}).`,
-                                });
+                                const ok = await confirm({ detail: `Будет удалена позиция «${pos.label || typeLabel || 'без имени'}» (${pos.idxs.length} вариант(ов)) из спецификации «${data?.header.name ?? ''}».` });
                                 if (!ok) return;
-                                removeLine(idx);
+                                removePosition(pos.idxs);
                               })();
                             }}
-                            style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0 }}
-                            disabled={block.id !== '__base__' && isSharedBase}
+                            title="Удалить позицию целиком"
                           >
-                            Удалить
+                            Удалить позицию
                           </Button>
-                        </td>
-                      ) : null}
-                    </tr>
+                        ) : null}
+                      </div>
+                      <div style={{ display: 'grid', gap: 6, marginTop: 8, marginLeft: 4 }}>
+                        {pos.idxs.map((i) => {
+                          const line = data.lines[i]!;
+                          const isDefault = i === defaultIdx;
+                          const issues = lineValidation.lineIssues.get(i);
+                          return (
+                            <div
+                              key={line.id || `opt-${i}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                flexWrap: 'wrap',
+                                padding: '4px 6px',
+                                borderRadius: 8,
+                                background: issues?.errors.length ? 'rgba(239, 68, 68, 0.08)' : undefined,
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name={`pos-${pos.posKey}`}
+                                checked={isDefault}
+                                onChange={() => setDefaultOption(pos.idxs, i)}
+                                disabled={!props.canEdit}
+                                title="Основной вариант — идёт в прогноз и сборку"
+                              />
+                              <div style={{ flex: 1, minWidth: 240 }}>
+                                <GroupedSearchSelect
+                                  value={line.componentNomenclatureId || null}
+                                  groups={(() => {
+                                    const selectedId = String(line.componentNomenclatureId ?? '').trim();
+                                    if (!selectedId || componentItemById.has(selectedId)) return componentGroupedGroups;
+                                    const orphanLabel = line.componentNomenclatureName || line.componentNomenclatureCode || `(удалено: ${selectedId.slice(0, 8)})`;
+                                    const orphanGroup: GroupedSearchSelectGroup = {
+                                      groupId: '__orphan__',
+                                      groupLabel: 'Текущий выбор (не найден в справочнике)',
+                                      items: [
+                                        {
+                                          id: selectedId,
+                                          label: orphanLabel,
+                                          ...(line.componentNomenclatureCode ? { hintText: line.componentNomenclatureCode } : {}),
+                                          componentTypeId: line.componentType ?? null,
+                                        },
+                                      ],
+                                    };
+                                    return [orphanGroup, ...componentGroupedGroups];
+                                  })()}
+                                  onChange={(nextId, nextTypeId) => {
+                                    pushRecent('componentNomenclatureId', nextId ?? null);
+                                    patchLine(i, { componentNomenclatureId: nextId ?? '', componentType: nextTypeId ?? line.componentType ?? 'other' });
+                                  }}
+                                  disabled={!props.canEdit}
+                                />
+                              </div>
+                              {isDefault ? (
+                                <span style={{ background: 'rgba(16,185,129,0.12)', color: '#0f6e56', fontSize: 11, padding: '2px 7px', borderRadius: 8 }}>основной</span>
+                              ) : null}
+                              {props.canEdit ? (
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => {
+                                    void (async () => {
+                                      const nm = line.componentNomenclatureName || line.componentNomenclatureCode || 'вариант';
+                                      const ok = await confirm({ detail: pos.idxs.length > 1 ? `Убрать вариант «${nm}» из позиции?` : `Убрать единственный вариант «${nm}» (позиция станет пустой)?` });
+                                      if (!ok) return;
+                                      removeOption(i);
+                                    })();
+                                  }}
+                                  style={{ color: 'var(--danger)', padding: '2px 6px', minHeight: 0 }}
+                                  title="Убрать этот вариант детали"
+                                >
+                                  ✕
+                                </Button>
+                              ) : null}
+                            </div>
                           );
                         })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8, flex: 1, minHeight: 0, overflow: 'auto' }}>
-              {treeScopes.map((scope) => renderScopeTree(scope))}
-            </div>
-          )}
+                        {props.canEdit ? (
+                          <div>
+                            <Button variant="ghost" onClick={() => addOption(pos.idxs)} style={{ padding: '2px 8px', minHeight: 0 }}>
+                              + вариант детали
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {props.canEdit ? (
             <div
@@ -2149,45 +1815,8 @@ export function EngineAssemblyBomDetailsPage(props: {
                 boxShadow: '0 -6px 16px rgba(15, 23, 42, 0.08)',
               }}
             >
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  setData((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          lines: [
-                            ...prev.lines,
-                            {
-                              id: '',
-                              componentNomenclatureId: '',
-                              componentType: 'other',
-                              qtyPerUnit: 1,
-                              variantGroup: null,
-                              lineKey: null,
-                              parentLineKey: null,
-                              isRequired: true,
-                              priority: 100,
-                            },
-                          ],
-                        }
-                      : prev,
-                  )
-                }
-              >
-                Добавить строку
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => appendVariantBlockFromSchema()}
-                disabled={hasEmptyComponentLines}
-                title={
-                  hasEmptyComponentLines
-                    ? 'Заполните номенклатуру в существующих пустых строках прежде чем добавлять новый вариант.'
-                    : 'Новый набор строк по глобальной схеме со своим вариантом (variant group); связи только внутри набора.'
-                }
-              >
-                Добавить вариант сборки (из схемы)
+              <Button variant="ghost" onClick={() => addPosition()}>
+                + Добавить позицию
               </Button>
               <Button
                 onClick={() => void saveBom()}
