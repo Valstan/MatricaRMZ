@@ -354,6 +354,48 @@ async function loadEngineBrandDisplayNames(brandIds: string[]): Promise<Map<stri
  *   4. Несколько kit-вариантов для одной марки — отдельные комплекты с suffix (без warning, это feature).
  *   5. Несколько active+isDefault BOM для одной марки — используется самый свежий по updatedAt + warning.
  */
+/**
+ * Коллапс позиций к основному варианту для одного kit'а.
+ * Позиция — строки с общим непустым positionKey (взаимозаменяемые варианты детали).
+ * В kit оставляется РОВНО ОДИН вариант позиции — основной (isDefaultOption); остальные
+ * (запасные) отбрасываются, чтобы прогноз не множил спрос по всем вариантам сразу.
+ * Строки с пустым positionKey — позиции-одиночки, проходят как есть. Порядок строк уже
+ * отсортирован по priority/createdAt, поэтому «первый» детерминирован.
+ */
+function collapsePositionsToDefaultOption<
+  T extends { positionKey?: string | null; isDefaultOption?: boolean },
+>(lines: ReadonlyArray<T>, brandTitle: string, warnings: string[]): T[] {
+  const singletons: T[] = [];
+  const groups = new Map<string, T[]>();
+  for (const line of lines) {
+    const key = String(line.positionKey ?? '').trim();
+    if (!key) {
+      singletons.push(line);
+      continue;
+    }
+    const arr = groups.get(key) ?? [];
+    arr.push(line);
+    groups.set(key, arr);
+  }
+  const chosen: T[] = [...singletons];
+  for (const [key, group] of groups) {
+    if (group.length === 1) {
+      chosen.push(group[0]!);
+      continue;
+    }
+    const defaultOption = group.find((l) => l.isDefaultOption !== false);
+    if (defaultOption) {
+      chosen.push(defaultOption);
+    } else {
+      chosen.push(group[0]!);
+      warnings.push(
+        `BOM марки «${brandTitle}»: у позиции «${key}» не отмечен основной вариант — в прогноз взят первый.`,
+      );
+    }
+  }
+  return chosen;
+}
+
 export function buildAssemblyForecastKits(input: {
   headerRows: ReadonlyArray<{
     id: string;
@@ -368,6 +410,8 @@ export function buildAssemblyForecastKits(input: {
     qtyPerUnit: number;
     variantGroup: string | null;
     notes: string | null;
+    positionKey?: string | null;
+    isDefaultOption?: boolean;
   }>;
   nomenclatureById: ReadonlyMap<
     string,
@@ -448,6 +492,8 @@ export function buildAssemblyForecastKits(input: {
           variantGroup,
           lineKey: meta.lineKey,
           parentLineKey: meta.parentLineKey,
+          positionKey: String(line.positionKey ?? '').trim() || null,
+          isDefaultOption: line.isDefaultOption !== false,
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row));
@@ -496,7 +542,12 @@ export function buildAssemblyForecastKits(input: {
             `${droppedDueToBrokenParent === 1 ? 'строка' : 'строк'} с broken parentLineKey.`,
         );
       }
-      const parts = filtered.map((line) => ({
+      // Коллапс позиции к основному варианту: у позиции (общий positionKey) может быть
+      // несколько взаимозаменяемых деталей, но собирают из ОДНОЙ — основной (isDefaultOption).
+      // В прогноз попадает только основной вариант; иначе спрос множился бы по всем вариантам.
+      // Легаси-строки (positionKey=null) — позиции-одиночки, берутся как есть → поведение не меняется.
+      const kitLines = collapsePositionsToDefaultOption(filtered, brandTitle, warnings);
+      const parts = kitLines.map((line) => ({
         partId: line.compId,
         nomenclatureId: line.compId,
         qtyPerEngine: line.qtyPerEngine,
@@ -618,6 +669,8 @@ async function loadActiveDefaultBomKits(
       qtyPerUnit: Number(line.qtyPerUnit ?? 0),
       variantGroup: line.variantGroup == null ? null : String(line.variantGroup),
       notes: line.notes == null ? null : String(line.notes),
+      positionKey: line.positionKey == null ? null : String(line.positionKey),
+      isDefaultOption: line.isDefaultOption !== false,
     })),
     nomenclatureById,
     brandLabels,
