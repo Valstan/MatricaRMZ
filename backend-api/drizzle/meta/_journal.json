@@ -505,6 +505,13 @@
 			"when": 1782950400001,
 			"tag": "0072_drop_legacy_users",
 			"breakpoints": true
+		},
+		{
+			"idx": 72,
+			"version": "7",
+			"when": 1783330818000,
+			"tag": "0073_bom_line_positions",
+			"breakpoints": true
 		}
 	]
 }

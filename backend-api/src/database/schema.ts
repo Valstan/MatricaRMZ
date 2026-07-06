@@ -1279,6 +1279,12 @@ export const erpEngineAssemblyBomLines = pgTable(
     isRequired: boolean('is_required').notNull().default(true),
     priority: integer('priority').notNull().default(100),
     notes: text('notes'),
+    /** Группирует строки-варианты в одну позицию спецификации (в рамках bomId + variantGroup). null = позиция-одиночка. */
+    positionKey: text('position_key'),
+    /** Человекочитаемое имя позиции («Картер верхний»), отдельно от имени детали. */
+    positionLabel: text('position_label'),
+    /** Основной вариант позиции — идёт в прогноз и сборку. Ровно один true на позицию. */
+    isDefaultOption: boolean('is_default_option').notNull().default(true),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),

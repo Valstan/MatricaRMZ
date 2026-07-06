@@ -674,6 +674,12 @@ export type EngineAssemblyBomLine = {
   isRequired: boolean;
   priority: number;
   notes: string | null;
+  /** Ключ позиции — группирует взаимозаменяемые варианты в одну позицию. null = позиция-одиночка. */
+  positionKey?: string | null;
+  /** Имя позиции («Картер верхний»), отдельно от имени детали. */
+  positionLabel?: string | null;
+  /** Основной вариант позиции (идёт в прогноз/сборку). По умолчанию true. */
+  isDefaultOption?: boolean;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -718,6 +724,9 @@ export type EngineAssemblyBomLineInput = {
   isRequired?: boolean;
   priority?: number;
   notes?: string | null;
+  positionKey?: string | null;
+  positionLabel?: string | null;
+  isDefaultOption?: boolean;
 };
 
 export type EngineAssemblyBomUpsertInput = {
