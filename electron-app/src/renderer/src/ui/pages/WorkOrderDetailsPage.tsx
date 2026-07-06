@@ -324,6 +324,7 @@ export function WorkOrderDetailsPage(props: {
   const [parts, setParts] = useState<PartInfo[]>([]);
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
+  const [assemblyFillBusy, setAssemblyFillBusy] = useState(false);
   // Stage 2 нитки assembly-work-order-from-forecast: список складов для колонки
   // «Склад деталей» в Assembly-наряде. Подгружается при первом открытии карточки.
   const [warehouseLocations, setWarehouseLocations] = useState<
@@ -1075,6 +1076,119 @@ export function WorkOrderDetailsPage(props: {
       setStatus(`Применён шаблон «${tmpl.name}»: ${newLines.length} строк${hidNote}.`);
     } finally {
       setWorkOrderTemplateBusy(false);
+    }
+  }
+
+  /**
+   * Заполнить строки сборочного наряда деталями из активной спецификации марки:
+   * берём основной вариант (isDefaultOption) каждой позиции — по одной детали на позицию.
+   * BOM-строка `componentNomenclatureId` кладётся прямо в `partId` (id-пространство совпадает;
+   * close-конвейер резолвит через directory_ref). Марка берётся из существующей строки наряда.
+   */
+  async function fillAssemblyFromBrandSpec(): Promise<void> {
+    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
+    const brandId = primaryAssemblyEngineBrandId;
+    if (!brandId) {
+      setStatus('Укажите марку двигателя в строке наряда, чтобы заполнить детали из спецификации.');
+      return;
+    }
+    if (assemblyFillBusy) return;
+    setAssemblyFillBusy(true);
+    try {
+      const brandName = payload.freeWorks.find((l) => String(l.engineBrandId ?? '').trim() === brandId)?.engineBrandName ?? '';
+      const listRes = await window.matrica.warehouse.assemblyBomList({ engineBrandId: brandId, status: 'active' });
+      if (!listRes?.ok) {
+        setStatus(`Не удалось загрузить спецификации марки: ${listRes?.error ?? 'unknown'}`);
+        return;
+      }
+      const list = (listRes.rows ?? []) as Array<Record<string, unknown>>;
+      const primary = list.find((row) => Boolean(row.isDefault)) ?? list[0];
+      if (!primary) {
+        setStatus('У марки нет активной спецификации BOM.');
+        return;
+      }
+      const detailsRes = await window.matrica.warehouse.assemblyBomGet(String(primary.id));
+      if (!detailsRes?.ok) {
+        setStatus(`Не удалось загрузить спецификацию: ${(detailsRes as { error?: string })?.error ?? 'unknown'}`);
+        return;
+      }
+      type BomLineLite = {
+        componentNomenclatureId?: string;
+        componentNomenclatureName?: string | null;
+        componentNomenclatureCode?: string | null;
+        qtyPerUnit?: number;
+        positionKey?: string | null;
+        isDefaultOption?: boolean;
+      };
+      const bomLines = Array.isArray((detailsRes as { bom?: { lines?: unknown } }).bom?.lines)
+        ? ((detailsRes as { bom: { lines: BomLineLite[] } }).bom.lines)
+        : [];
+      // Коллапс позиций к основному варианту — одна деталь на позицию (как в прогнозе).
+      const chosen: BomLineLite[] = [];
+      const idxByKey = new Map<string, number>();
+      for (const line of bomLines) {
+        if (!String(line.componentNomenclatureId ?? '').trim()) continue;
+        const key = String(line.positionKey ?? '').trim();
+        if (!key) {
+          chosen.push(line);
+          continue;
+        }
+        const existing = idxByKey.get(key);
+        if (existing === undefined) {
+          idxByKey.set(key, chosen.length);
+          chosen.push(line);
+        } else if (line.isDefaultOption !== false && chosen[existing]!.isDefaultOption === false) {
+          chosen[existing] = line;
+        }
+      }
+      if (chosen.length === 0) {
+        setStatus('В спецификации марки нет строк с деталями.');
+        return;
+      }
+      if (payload.freeWorks.some((l) => String(l.partId ?? '').trim())) {
+        const ok = await confirm({
+          title: 'Заполнить из спецификации?',
+          detail: `Строки наряда будут заменены деталями спецификации марки (${chosen.length}). Продолжить?`,
+          confirmLabel: 'Заполнить',
+          cancelLabel: 'Отмена',
+          confirmTone: 'warn',
+        });
+        if (!ok) return;
+      }
+      const newLines: WorkOrderWorkLine[] = chosen.map((line, idx) => {
+        const wl: WorkOrderWorkLine = {
+          lineNo: idx + 1,
+          serviceId: null,
+          serviceName: '',
+          unit: 'шт',
+          qty: Math.max(1, Math.trunc(Number(line.qtyPerUnit ?? 1))),
+          priceRub: 0,
+          amountRub: 0,
+          engineBrandId: brandId,
+          engineBrandName: brandName,
+          partId: String(line.componentNomenclatureId),
+        };
+        const nm = String(line.componentNomenclatureName ?? '').trim();
+        if (nm) wl.partName = nm;
+        const code = String(line.componentNomenclatureCode ?? '').trim();
+        if (code) wl.partArticle = code;
+        return wl;
+      });
+      // Склад-источник строк — склад цеха наряда (как при применении шаблона).
+      const workshopId = String(payload.workshopId ?? '').trim();
+      if (workshopId) {
+        const workshop = workshops.find((w) => w.id === workshopId);
+        const location = warehouseLocations.find(
+          (w) =>
+            (w.workshopId && w.workshopId === workshopId) ||
+            (workshop != null && w.type === 'workshop' && w.code === `workshop_${workshop.code}`),
+        );
+        if (location) for (const line of newLines) line.sourceWarehouseId = location.id;
+      }
+      patch({ ...payload, freeWorks: newLines });
+      setStatus(`Заполнено из спецификации марки${brandName ? ` «${brandName}»` : ''}: ${newLines.length} деталей (основной вариант каждой позиции). Проверьте количества и склад-источник.`);
+    } finally {
+      setAssemblyFillBusy(false);
     }
   }
 
@@ -2037,6 +2151,20 @@ export function WorkOrderDetailsPage(props: {
               </>
             ) : null}
           </div>
+        ) : null}
+        {payload.workOrderKind === WorkOrderKind.Assembly ? (
+          <Button
+            variant="ghost"
+            disabled={!canEditNow || assemblyFillBusy || !primaryAssemblyEngineBrandId}
+            title={
+              !primaryAssemblyEngineBrandId
+                ? 'Добавьте строку и укажите марку двигателя — тогда можно заполнить детали из спецификации марки.'
+                : 'Заполнить строки деталями из активной спецификации марки (основной вариант каждой позиции).'
+            }
+            onClick={() => void fillAssemblyFromBrandSpec()}
+          >
+            Заполнить из спецификации
+          </Button>
         ) : null}
         {payload.workOrderKind === WorkOrderKind.Assembly && assemblyVariantGroups.length >= 2 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
