@@ -6,6 +6,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
+import { loadAllGroupMembers, reexpandPartsForGroup } from '../utils/liveGroupSync.js';
 
 type GroupRow = { id: string; name: string; description: string; brandCount: number };
 
@@ -76,7 +77,7 @@ export function EngineBrandGroupsPage(props: {
   async function removeGroup(row: GroupRow) {
     const ok = await confirm({
       title: 'Удалить группу марок?',
-      detail: `Группа «${row.name}» будет удалена. Уже привязанные к маркам детали останутся как есть (группа — только удобный список).`,
+      detail: `Группа «${row.name}» будет удалена. У деталей с живой привязкой к ней связи, добавленные этой группой, будут сняты; связи, добавленные вручную, останутся.`,
       confirmLabel: 'Удалить',
       confirmTone: 'danger',
     });
@@ -84,6 +85,14 @@ export function EngineBrandGroupsPage(props: {
     const r = await window.matrica.admin.entities.softDelete(row.id);
     if (r?.ok) {
       setRows((prev) => prev.filter((x) => x.id !== row.id));
+      // Симметрия: снять живые связи удалённой группы у деталей (membership без неё —
+      // recompute уберёт её anchor+derived). Best-effort.
+      try {
+        const gm = await loadAllGroupMembers();
+        await reexpandPartsForGroup(row.id, gm);
+      } catch {
+        /* self-heal починит при следующем открытии детали */
+      }
     } else {
       setStatus(`Ошибка удаления: ${String((r as { error?: string })?.error ?? 'unknown')}`);
     }

@@ -65,6 +65,12 @@ export type PartSpecBrandLink = {
   quantity: number;
   inCompletenessAct?: boolean;
   inDefectAct?: boolean;
+  // Живая привязка к группе марок: маркер источника связи.
+  //  - absent  → manual (владеет оператор, авто-логика не трогает);
+  //  - present + engineBrandId → derived (марка применима, т.к. группа sourceGroupId её содержит);
+  //  - present + engineBrandId=null → anchor («деталь следит за группой», когда группа не даёт derived).
+  // Пересобирается recomputePartBrandLinks; см. shared/src/domain/liveGroupLinks.ts.
+  sourceGroupId?: string;
 };
 
 export type PartSpec = {

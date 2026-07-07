@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect, type MultiSearchSelectOption } from '../components/MultiSearchSelect.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
+import { loadAllGroupMembers, reexpandPartsForGroup } from '../utils/liveGroupSync.js';
 
 export function EngineBrandGroupDetailsPage(props: {
   groupId: string;
@@ -83,12 +84,22 @@ export function EngineBrandGroupDetailsPage(props: {
         typeId ?? undefined,
       );
       setDirty(false);
-      setStatus('Сохранено.');
+      // Живая связь: пересобрать brandLinks деталей, следящих за этой группой (марки,
+      // добавленные/убранные сейчас, применяются/снимаются автоматически). Best-effort —
+      // не валим сохранение группы; при неудаче деталь починится при следующем открытии (self-heal).
+      try {
+        setStatus('Сохранено. Пересборка связей деталей...');
+        const gm = await loadAllGroupMembers();
+        const res = await reexpandPartsForGroup(props.groupId, gm);
+        setStatus(res.changed > 0 ? `Сохранено. Обновлено деталей: ${res.changed}.` : 'Сохранено.');
+      } catch {
+        setStatus('Сохранено (связи деталей обновятся при следующем открытии).');
+      }
       if (thenClose) {
         props.onClose();
         return;
       }
-      setTimeout(() => setStatus(''), 2000);
+      setTimeout(() => setStatus(''), 2500);
     } catch (e) {
       setStatus(`Ошибка сохранения: ${String(e)}`);
     } finally {

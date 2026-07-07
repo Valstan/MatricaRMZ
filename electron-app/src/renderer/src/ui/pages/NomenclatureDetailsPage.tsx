@@ -9,6 +9,8 @@ import {
   type PartMetadata,
   type PartSpec,
   type PartSpecBrandLink,
+  recomputePartBrandLinks,
+  livePartGroupIds,
   type WarehouseBomRelationSchema,
   type WarehouseMovementListItem,
   type WarehouseNomenclatureListItem,
@@ -27,6 +29,8 @@ import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { buildPartSpecPayload } from '../utils/partSpecPayload.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
+import { selfHealPart } from '../utils/liveGroupSync.js';
 import {
   appendTemplateProperty,
   parseTemplatePropertiesJson,
@@ -122,6 +126,10 @@ export function NomenclatureDetailsPage(props: {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [groupAttachQty, setGroupAttachQty] = useState<number>(1);
   const [groupAttachStatus, setGroupAttachStatus] = useState<string>('');
+  // Живая привязка: значение SearchSelect «+ привязать группу» (сбрасывается после выбора).
+  const [liveAddSel, setLiveAddSel] = useState<string | null>(null);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
+  const selfHealDoneRef = useRef<string | null>(null);
   const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:nomenclature-field-recents:${props.id}`, 8);
 
   const createLookupEntity = useCallback(async (typeCode: string, label: string): Promise<string | null> => {
@@ -384,19 +392,7 @@ export function NomenclatureDetailsPage(props: {
           const det = await window.matrica.admin.entities.get(String(row.id), String(gt.id)).catch(() => null);
           if (!alive) return;
           const attrs = (det as { attributes?: Record<string, unknown> } | null)?.attributes ?? {};
-          const raw = attrs.engine_brand_ids;
-          const ids = Array.isArray(raw)
-            ? raw.map((x) => String(x)).filter(Boolean)
-            : typeof raw === 'string' && raw.trim()
-              ? (() => {
-                  try {
-                    const p = JSON.parse(raw);
-                    return Array.isArray(p) ? p.map((x) => String(x)).filter(Boolean) : [];
-                  } catch {
-                    return [];
-                  }
-                })()
-              : [];
+          const ids = parseIdArray(attrs.engine_brand_ids);
           const name = String(attrs.name ?? row.displayName ?? '').trim() || String(row.id);
           members.set(String(row.id), ids);
           options.push({ id: String(row.id), label: name, hintText: `${ids.length} марок` });
@@ -407,12 +403,27 @@ export function NomenclatureDetailsPage(props: {
         setBrandGroupMembers(members);
       } catch {
         /* groups stay empty */
+      } finally {
+        if (alive) setGroupsLoaded(true);
       }
     })();
     return () => {
       alive = false;
     };
   }, [isPartClass]);
+
+  // Self-heal (backstop): при открытии детали разово пересобрать её живые связи из текущего
+  // состава групп — чинит дрейф от старых клиентов / удалённых групп. Пишем только при diff.
+  useEffect(() => {
+    if (!isPartClass || !groupsLoaded || partSpec === null) return;
+    if (selfHealDoneRef.current === props.id) return;
+    selfHealDoneRef.current = props.id;
+    if (livePartGroupIds(specBrandLinks).length === 0) return; // деталь не следит ни за одной группой
+    void (async () => {
+      const res = await selfHealPart(props.id, brandGroupMembers);
+      if (res.changed && res.brandLinks) setSpecBrandLinks(res.brandLinks);
+    })();
+  }, [isPartClass, groupsLoaded, partSpec, props.id, specBrandLinks, brandGroupMembers]);
 
   const propertyOptionsForAdd = useMemo(() => {
     const inTpl = new Set(selectedTemplateProperties.map((p) => p.propertyId));
@@ -1064,7 +1075,82 @@ export function NomenclatureDetailsPage(props: {
               </div>
             ) : null}
 
-            {specBrandLinks.length === 0 ? (
+            {canEditNomenclatureFields && brandGroupOptions.length > 0
+              ? (() => {
+                  const liveGroups = livePartGroupIds(specBrandLinks);
+                  const nameOf = (gid: string) => brandGroupOptions.find((o) => o.id === gid)?.label ?? gid;
+                  const addable = brandGroupOptions.filter((o) => !liveGroups.includes(o.id));
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        marginBottom: 8,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        background: 'var(--card-row-bg)',
+                        border: '1px solid var(--card-row-border)',
+                      }}
+                    >
+                      <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }} title="Марки живой группы применяются и обновляются автоматически при изменении её состава">
+                        Живая привязка к группе:
+                      </span>
+                      {liveGroups.length === 0 ? (
+                        <span style={{ fontSize: 12, color: 'var(--subtle)' }}>нет</span>
+                      ) : (
+                        liveGroups.map((gid) => (
+                          <span
+                            key={gid}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: 12,
+                              padding: '2px 6px 2px 8px',
+                              borderRadius: 10,
+                              background: 'var(--accent-soft, rgba(37,99,235,0.12))',
+                              border: '1px solid var(--card-row-border)',
+                              color: 'var(--text)',
+                            }}
+                          >
+                            {nameOf(gid)}
+                            <button
+                              type="button"
+                              title="Отвязать группу (её марки будут сняты, ручные останутся)"
+                              onClick={() => setSpecBrandLinks((prev) => recomputePartBrandLinks(prev, brandGroupMembers, { removeGroup: gid }))}
+                              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--danger)', fontSize: 14, lineHeight: 1, padding: 0 }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))
+                      )}
+                      {addable.length > 0 ? (
+                        <div style={{ minWidth: 200 }}>
+                          <SearchSelect
+                            value={liveAddSel}
+                            options={addable}
+                            placeholder="+ привязать группу…"
+                            showAllWhenEmpty
+                            emptyQueryLimit={50}
+                            onChange={(next) => {
+                              if (next) setSpecBrandLinks((prev) => recomputePartBrandLinks(prev, brandGroupMembers, { addGroup: next }));
+                              setLiveAddSel(null);
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                      <span style={{ fontSize: 11, color: 'var(--subtle)', flexBasis: '100%' }}>
+                        Марки живой группы применяются автоматически; при изменении состава группы применяемость детали обновится. Не забудьте «Сохранить».
+                      </span>
+                    </div>
+                  );
+                })()
+              : null}
+
+            {specBrandLinks.every((l) => l.engineBrandId === null && l.sourceGroupId) ? (
               <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Применяемость не задана</div>
             ) : (
               <div style={{ display: 'grid', gap: 6 }}>
@@ -1074,48 +1160,63 @@ export function NomenclatureDetailsPage(props: {
                   <div>Количество</div>
                   <div />
                 </div>
-                {specBrandLinks.map((link, index) => (
-                  <div key={link.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) 1fr 120px auto', gap: 8, alignItems: 'center' }}>
-                    <SearchSelect
-                      value={link.engineBrandId}
-                      disabled={!canEditNomenclatureFields}
-                      options={specEngineBrandOptions}
-                      placeholder="Марка двигателя"
-                      showAllWhenEmpty
-                      emptyQueryLimit={15}
-                      onChange={(next) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, engineBrandId: next } : b)))}
-                    />
-                    <Input
-                      value={link.assemblyUnitNumber ?? ''}
-                      disabled={!canEditNomenclatureFields}
-                      placeholder="Номер сб. единицы"
-                      onChange={(e) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, assemblyUnitNumber: e.target.value } : b)))}
-                    />
-                    <Input
-                      value={Number.isFinite(link.quantity) ? String(link.quantity) : ''}
-                      type="number"
-                      disabled={!canEditNomenclatureFields}
-                      onChange={(e) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, quantity: Number(e.target.value) } : b)))}
-                    />
-                    {canEditNomenclatureFields ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        style={{ color: 'var(--danger)' }}
-                        onClick={async () => {
-                          const label = link.engineBrandId
-                            ? specEngineBrandOptions.find((o) => o.id === link.engineBrandId)?.label ?? link.engineBrandId
-                            : '';
-                          const ok = await confirm({ detail: `Удалить применяемость${label ? ` к марке «${label}»` : ''}?` });
-                          if (!ok) return;
-                          setSpecBrandLinks((prev) => prev.filter((_, i) => i !== index));
-                        }}
-                      >
-                        Удалить
-                      </Button>
-                    ) : null}
-                  </div>
-                ))}
+                {specBrandLinks.map((link, index) => {
+                  // Anchor-строки (техническая метка «деталь следит за группой») в таблице не показываем.
+                  if (link.engineBrandId === null && link.sourceGroupId) return null;
+                  const derived = Boolean(link.sourceGroupId);
+                  const groupName = derived ? brandGroupOptions.find((o) => o.id === link.sourceGroupId)?.label ?? 'группа' : '';
+                  return (
+                    <div key={link.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) 1fr 120px auto', gap: 8, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <SearchSelect
+                          value={link.engineBrandId}
+                          disabled={!canEditNomenclatureFields || derived}
+                          options={specEngineBrandOptions}
+                          placeholder="Марка двигателя"
+                          showAllWhenEmpty
+                          emptyQueryLimit={15}
+                          onChange={(next) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, engineBrandId: next } : b)))}
+                        />
+                        {derived ? (
+                          <span style={{ fontSize: 11, color: 'var(--subtle)' }} title="Марка добавлена живой привязкой к группе; управляется составом группы">
+                            из группы «{groupName}»
+                          </span>
+                        ) : null}
+                      </div>
+                      <Input
+                        value={link.assemblyUnitNumber ?? ''}
+                        disabled={!canEditNomenclatureFields}
+                        placeholder="Номер сб. единицы"
+                        onChange={(e) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, assemblyUnitNumber: e.target.value } : b)))}
+                      />
+                      <Input
+                        value={Number.isFinite(link.quantity) ? String(link.quantity) : ''}
+                        type="number"
+                        disabled={!canEditNomenclatureFields}
+                        onChange={(e) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, quantity: Number(e.target.value) } : b)))}
+                      />
+                      {canEditNomenclatureFields && !derived ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={async () => {
+                            const label = link.engineBrandId
+                              ? specEngineBrandOptions.find((o) => o.id === link.engineBrandId)?.label ?? link.engineBrandId
+                              : '';
+                            const ok = await confirm({ detail: `Удалить применяемость${label ? ` к марке «${label}»` : ''}?` });
+                            if (!ok) return;
+                            setSpecBrandLinks((prev) => prev.filter((_, i) => i !== index));
+                          }}
+                        >
+                          Удалить
+                        </Button>
+                      ) : (
+                        <span />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

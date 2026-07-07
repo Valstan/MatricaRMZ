@@ -20,7 +20,13 @@ export type PartSpecRow = {
   id: string;
   name: string;
   article: string;
-  brandLinks: Array<{ id: string; engineBrandId: string | null; assemblyUnitNumber: string | null; quantity: number }>;
+  brandLinks: Array<{
+    id: string;
+    engineBrandId: string | null;
+    assemblyUnitNumber: string | null;
+    quantity: number;
+    sourceGroupId?: string;
+  }>;
 };
 
 const PART_SPECS_CACHE_MS = 30_000;
