@@ -3,19 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect, type MultiSearchSelectOption } from '../components/MultiSearchSelect.js';
-
-function parseIdArray(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map((x) => String(x)).filter(Boolean);
-  if (typeof raw === 'string' && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x)).filter(Boolean);
-    } catch {
-      /* ignore */
-    }
-  }
-  return [];
-}
+import { parseIdArray } from '../utils/groupBrandIds.js';
 
 export function EngineBrandGroupDetailsPage(props: {
   groupId: string;
