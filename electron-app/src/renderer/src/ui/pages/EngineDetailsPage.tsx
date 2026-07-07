@@ -86,16 +86,50 @@ function EngineDuplicateHint(props: {
     background: '#fff',
     border: '1px solid #d1d5db',
     borderRadius: 6,
-    padding: '3px 8px',
+    padding: '5px 10px',
     fontSize: 12,
+    fontWeight: 600,
     cursor: 'pointer',
     color: '#111827',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   };
+  // Понятный путь-выбор: заголовок + строка на каждый случай с человеческим описанием
+  // последствия (не только тултип), чтобы оператор сразу понял, что нажать. «Повторный
+  // заезд» выделен — это самый частый не-рекламационный случай (тот же номер, новый ремонт,
+  // возможно другой заказчик).
+  function pathRow(opts: { emphasize?: boolean; title: string; desc: string; button: React.ReactNode }): React.ReactNode {
+    // Вертикальная раскладка (заголовок → описание → кнопка): контейнер подсказки узкий
+    // (сидит в ячейке поля номера), и горизонтальный ряд «текст | кнопка» ужимал описание
+    // до переноса по одному слову. Стек читается при любой ширине.
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          padding: '8px 10px',
+          borderRadius: 8,
+          background: opts.emphasize ? 'rgba(37, 99, 235, 0.08)' : '#ffffff',
+          border: opts.emphasize ? '1.5px solid rgba(37, 99, 235, 0.5)' : '1px solid #e5e7eb',
+        }}
+      >
+        <div style={{ fontWeight: 700, color: '#111827', fontSize: 12.5 }}>{opts.title}</div>
+        <div style={{ color: '#4b5563', fontSize: 11.5, lineHeight: 1.35 }}>{opts.desc}</div>
+        <div style={{ display: 'flex' }}>{opts.button}</div>
+      </div>
+    );
+  }
   return (
     <div
       style={{
         marginTop: 6,
-        maxWidth: '48ch',
+        // width:100% чтобы блок занимал ширину ячейки поля (родитель-flex иначе ужимает его
+        // до min-content и описания путей ломаются по одному слову в строку); cap шире для
+        // читаемости путь-выбора.
+        width: '100%',
+        maxWidth: showPaths ? '62ch' : '48ch',
+        boxSizing: 'border-box',
         padding: '8px 10px',
         background: tone.bg,
         border: `1px solid ${tone.border}`,
@@ -135,39 +169,41 @@ function EngineDuplicateHint(props: {
       </div>
       {showPaths && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontWeight: 600 }}>Это не случайный дубль? Выберите путь:</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {props.onChooseReclamation && exact[0] ? (
-              <button
-                type="button"
-                style={pathBtnStyle}
-                title="Двигатель вернулся по рекламации: открыть существующую карточку на вкладке «Рекламация»"
-                onClick={() => props.onChooseReclamation?.(exact[0]!.id)}
-              >
-                Рекламация → открыть карточку
-              </button>
-            ) : null}
-            {props.onChooseRepeatArrival && exact[0] ? (
-              <button
-                type="button"
-                style={pathBtnStyle}
-                title="Тот же двигатель приехал на новый независимый ремонт: эта карточка станет новым заездом с тем же номером"
-                onClick={() => props.onChooseRepeatArrival?.(exact[0]!.id)}
-              >
-                Повторный заезд (новая карточка)
-              </button>
-            ) : null}
-            {props.onChooseCollision ? (
-              <button
-                type="button"
-                style={pathBtnStyle}
-                title="Другой физический двигатель, номер совпал: эта карточка будет помечена «коллизия номера»"
-                onClick={() => props.onChooseCollision?.()}
-              >
-                Другой двигатель (коллизия номера)
-              </button>
-            ) : null}
-          </div>
+          <div style={{ fontWeight: 700, color: '#111827' }}>Такой номер уже есть в базе. Что это за случай?</div>
+          {props.onChooseReclamation && exact[0]
+            ? pathRow({
+                title: 'Возврат по рекламации',
+                desc: 'Тот же двигатель вернулся по гарантии/рекламации на доработку — работаем в существующей карточке.',
+                button: (
+                  <button type="button" style={pathBtnStyle} onClick={() => props.onChooseReclamation?.(exact[0]!.id)}>
+                    Открыть по рекламации
+                  </button>
+                ),
+              })
+            : null}
+          {props.onChooseRepeatArrival && exact[0]
+            ? pathRow({
+                emphasize: true,
+                title: 'Повторный заезд — новый ремонт',
+                desc: 'Тот же двигатель снова привезли на отдельный ремонт (возможно, другой заказчик/договор). Эта карточка станет новым независимым заездом с тем же номером — история прежнего сохранится.',
+                button: (
+                  <button type="button" style={pathBtnStyle} onClick={() => props.onChooseRepeatArrival?.(exact[0]!.id)}>
+                    Это повторный заезд
+                  </button>
+                ),
+              })
+            : null}
+          {props.onChooseCollision
+            ? pathRow({
+                title: 'Другой двигатель',
+                desc: 'Физически другой двигатель, номер случайно совпал. Карточка будет помечена «коллизия номера».',
+                button: (
+                  <button type="button" style={pathBtnStyle} onClick={() => props.onChooseCollision?.()}>
+                    Это другой двигатель
+                  </button>
+                ),
+              })
+            : null}
         </div>
       )}
     </div>
@@ -945,10 +981,11 @@ export function EngineDetailsPage(props: {
             }}
           />
           {(repeatArrivalFlag || numberCollisionFlag) && (
-            <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <span
                 style={{
                   fontSize: 11,
+                  fontWeight: 700,
                   padding: '2px 8px',
                   borderRadius: 10,
                   background: 'rgba(37, 99, 235, 0.12)',
@@ -957,6 +994,11 @@ export function EngineDetailsPage(props: {
                 }}
               >
                 {repeatArrivalFlag ? '🔁 Повторный заезд' : '⚠ Коллизия номера'}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                {repeatArrivalFlag
+                  ? 'Новый независимый ремонт того же двигателя (не рекламация).'
+                  : 'Другой физический двигатель с совпавшим номером.'}
               </span>
               {previousArrivalId && props.onOpenEngine ? (
                 <button
@@ -1442,6 +1484,7 @@ export function EngineDetailsPage(props: {
         onClose={() => setReturnOpen(false)}
         engineId={props.engineId}
         engineLabel={String(engineNumber || props.engineId)}
+        engineBrandId={engineBrandId || null}
       />
 
       {props.canViewOperations && (

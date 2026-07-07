@@ -335,8 +335,10 @@ const matricaApi = {
     assemblyReturn: async (args: {
       engineId: string;
       reason?: string | null;
+      docDate?: number;
       lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
     }) => ipcRenderer.invoke('workOrders:assemblyReturn', args),
+    assemblyInProgress: async (engineId: string) => ipcRenderer.invoke('workOrders:assemblyInProgress', engineId),
     createRepairFromDefects: async (args: {
       engineId: string;
       engineNumber?: string;
