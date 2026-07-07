@@ -17,27 +17,9 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { DuplicateCandidate, FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
-
-function parseIdArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((x) => String(x ?? '').trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed.map((x) => String(x ?? '').trim()).filter(Boolean);
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return [];
-}
 
 export function SimpleMasterdataDetailsPage(props: {
   title: string;

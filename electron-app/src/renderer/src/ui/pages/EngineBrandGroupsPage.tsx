@@ -5,21 +5,9 @@ import { Input } from '../components/Input.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
 
 type GroupRow = { id: string; name: string; description: string; brandCount: number };
-
-function parseIdArray(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map((x) => String(x)).filter(Boolean);
-  if (typeof raw === 'string' && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x)).filter(Boolean);
-    } catch {
-      /* ignore */
-    }
-  }
-  return [];
-}
 
 export function EngineBrandGroupsPage(props: {
   onOpen: (id: string) => Promise<void>;

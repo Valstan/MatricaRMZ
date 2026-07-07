@@ -11,6 +11,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
 
 type CreateConfig = {
   codePrefix: string;
@@ -21,22 +22,6 @@ type CreateConfig = {
 
 type SortKey = 'code' | 'name' | 'sku' | 'parts' | 'price' | 'brands' | 'unit' | 'description' | 'attachments';
 
-function parseIdArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((x) => String(x ?? '').trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x ?? '').trim()).filter(Boolean);
-    } catch {
-      // ignore
-    }
-  }
-  return [];
-}
 
 export function NomenclatureDirectoryPage(props: {
   onOpen: (id: string) => Promise<void>;

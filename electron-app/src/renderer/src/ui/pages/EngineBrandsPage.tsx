@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -22,6 +24,9 @@ export function EngineBrandsPage(props: {
   const [entityTypeId, setEntityTypeId] = useState<string | null>(null);
   const [rows, setRows] = useState<BrandRow[]>([]);
   const [brandPartCounts, setBrandPartCounts] = useState<Record<string, number>>({});
+  const [groupOptions, setGroupOptions] = useState<SearchSelectOption[]>([]);
+  const [brandToGroups, setBrandToGroups] = useState<Map<string, string[]>>(new Map());
+  const [groupFilterId, setGroupFilterId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,12 +97,58 @@ export function EngineBrandsPage(props: {
   // returns here: refresh on the live-data pulse (sync-done / focus) and on interval.
   useLiveDataRefresh(loadBrandPartCounts, { enabled: props.canViewMasterData, intervalMs: 20000 });
 
-  // Верхний поиск: имя + внутрь карточки (EAV).
+  // Группы марок → опции фильтра + инвертированная карта brandId → [groupId]. Групп немного
+  // (справочник оператора), поэтому N+1 (get на каждую группу) приемлемо — как в других экранах.
+  const loadGroups = useCallback(async () => {
+    if (!props.canViewMasterData) return;
+    try {
+      const types = (await window.matrica.admin.entityTypes.list()) as Array<{ id: string; code: string }>;
+      const gt = types.find((t) => String(t.code) === 'engine_brand_group');
+      if (!gt?.id) {
+        setGroupOptions([]);
+        setBrandToGroups(new Map());
+        return;
+      }
+      const list = (await window.matrica.admin.entities.listByEntityType(gt.id)) as Array<{ id: string; displayName?: string }>;
+      const options: SearchSelectOption[] = [];
+      const inverted = new Map<string, string[]>();
+      for (const row of list) {
+        const det = await window.matrica.admin.entities.get(String(row.id), gt.id).catch(() => null);
+        const attrs = (det as { attributes?: Record<string, unknown> } | null)?.attributes ?? {};
+        const brandIds = parseIdArray(attrs.engine_brand_ids);
+        const name = String(attrs.name ?? row.displayName ?? '').trim() || String(row.id);
+        options.push({ id: String(row.id), label: name, hintText: `${brandIds.length} марок` });
+        for (const bId of brandIds) {
+          const arr = inverted.get(bId);
+          if (arr) arr.push(String(row.id));
+          else inverted.set(bId, [String(row.id)]);
+        }
+      }
+      options.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+      setGroupOptions(options);
+      setBrandToGroups(inverted);
+    } catch {
+      setGroupOptions([]);
+      setBrandToGroups(new Map());
+    }
+  }, [props.canViewMasterData]);
+
+  useEffect(() => {
+    void loadGroups();
+  }, [loadGroups]);
+  useLiveDataRefresh(loadGroups, { enabled: props.canViewMasterData, intervalMs: 20000 });
+
+  // Верхний поиск: имя + внутрь карточки (EAV). Плюс необязательный фильтр по группе марок.
   const getRowId = useCallback((r: { id: string }) => String(r.id), []);
   const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(
-    () => rows.filter((r) => matchesQueryInRecord(query, { name: r.name, id: r.id }) || (deepIds?.has(String(r.id)) ?? false)),
-    [rows, query, deepIds],
+    () =>
+      rows.filter(
+        (r) =>
+          (matchesQueryInRecord(query, { name: r.name, id: r.id }) || (deepIds?.has(String(r.id)) ?? false)) &&
+          (!groupFilterId || (brandToGroups.get(r.id) ?? []).includes(groupFilterId)),
+      ),
+    [rows, query, deepIds, groupFilterId, brandToGroups],
   );
 
   const sortedRows = useMemo(() => {
@@ -209,6 +260,18 @@ export function EngineBrandsPage(props: {
             placeholder="Поиск по наименованию или id..."
           />
         </div>
+        {groupOptions.length > 0 ? (
+          <div style={{ width: 240 }} title="Показать только марки выбранной группы">
+            <SearchSelect
+              value={groupFilterId}
+              options={groupOptions}
+              placeholder="Все группы марок"
+              showAllWhenEmpty
+              emptyQueryLimit={50}
+              onChange={(next) => setGroupFilterId(next)}
+            />
+          </div>
+        ) : null}
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>

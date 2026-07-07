@@ -7,6 +7,7 @@ import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
 
 type ServiceRow = {
   id: string;
@@ -17,23 +18,6 @@ type ServiceRow = {
   /** В UI используем dirty-state — изменения по сравнению с серверной версией. */
   dirty: boolean;
 };
-
-function parseIdArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((x) => String(x ?? '').trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x ?? '').trim()).filter(Boolean);
-    } catch {
-      // ignore
-    }
-  }
-  return [];
-}
 
 type FilterMode = 'all' | 'bound' | 'universal' | 'other';
 
