@@ -74,6 +74,7 @@ const ENTITY_TYPE_SECTION: Readonly<Record<string, AccessSection>> = {
   employee: 'people',
   engine: 'production',
   engine_brand: 'production',
+  engine_brand_group: 'production',
 };
 
 // Мутирующие каналы гейтящихся разделов (Ф3): наблюдателю (viewer) — отказ,

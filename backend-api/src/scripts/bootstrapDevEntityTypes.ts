@@ -63,6 +63,19 @@ async function main() {
   const customerId = await ensureType(EntityTypeCode.Customer, 'Customer');
   await ensureAttr(customerId, 'name', 'Name', AttributeDataType.Text, 10);
 
+  // Engine brand groups — user-defined bundles of engine brands (bulk part attach).
+  const brandGroupId = await ensureType(EntityTypeCode.EngineBrandGroup, 'Engine brand group');
+  await ensureAttr(brandGroupId, 'name', 'Name', AttributeDataType.Text, 10);
+  await ensureAttr(brandGroupId, 'description', 'Description', AttributeDataType.Text, 20);
+  await ensureAttr(
+    brandGroupId,
+    'engine_brand_ids',
+    'Engine brands',
+    AttributeDataType.Json,
+    30,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineBrand, multi: true }),
+  );
+
   // Engine node — used by defect dropdown.
   const nodeId = await ensureType('engine_node', 'Engine node');
   await ensureAttr(nodeId, 'name', 'Name', AttributeDataType.Text, 10);

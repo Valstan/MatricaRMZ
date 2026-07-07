@@ -106,6 +106,8 @@ const EnginesPage = lazyPage('./pages/EnginesPage.tsx', 'EnginesPage');
 const EngineDetailsPage = lazyPage('./pages/EngineDetailsPage.tsx', 'EngineDetailsPage');
 const EngineBrandsPage = lazyPage('./pages/EngineBrandsPage.tsx', 'EngineBrandsPage');
 const EngineBrandDetailsPage = lazyPage('./pages/EngineBrandDetailsPage.tsx', 'EngineBrandDetailsPage');
+const EngineBrandGroupsPage = lazyPage('./pages/EngineBrandGroupsPage.tsx', 'EngineBrandGroupsPage');
+const EngineBrandGroupDetailsPage = lazyPage('./pages/EngineBrandGroupDetailsPage.tsx', 'EngineBrandGroupDetailsPage');
 const ChangesPage = lazyPage('./pages/ChangesPage.tsx', 'ChangesPage');
 const ReportsCatalogPage = lazyPage('./pages/ReportsCatalogPage.tsx', 'ReportsCatalogPage');
 const ReportPresetPage = lazyPage('./pages/ReportPresetPage.tsx', 'ReportPresetPage');
@@ -403,6 +405,8 @@ function appTabTitle(tab: string): string {
     engine: 'Карточка двигателя',
     engine_brands: 'Марки двигателей',
     engine_brand: 'Карточка марки двигателя',
+    engine_brand_groups: 'Группы марок',
+    engine_brand_group: 'Карточка группы марок',
     contracts: 'Контракты',
     contract: 'Карточка контракта',
     counterparties: 'Контрагенты',
@@ -454,6 +458,7 @@ function appTabTitle(tab: string): string {
 const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   engine: 'engines',
   engine_brand: 'engine_brands',
+  engine_brand_group: 'engine_brand_groups',
   request: 'requests',
   work_order: 'work_orders',
   part: 'parts',
@@ -474,6 +479,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
 const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'engine',
   'engine_brand',
+  'engine_brand_group',
   'request',
   'work_order',
   'part',
@@ -557,6 +563,7 @@ export function App() {
   const [engineLoading, setEngineLoading] = useState<boolean>(false);
   const [engineOpenError, setEngineOpenError] = useState<string>('');
   const [selectedEngineBrandId, setSelectedEngineBrandId] = useState<string | null>(null);
+  const [selectedEngineBrandGroupId, setSelectedEngineBrandGroupId] = useState<string | null>(null);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   // Phase 2 (deferred-create): seed for a freshly-created, not-yet-saved supply request (no DB
@@ -1375,6 +1382,7 @@ export function App() {
     setSelectedRequestId(null);
     setSelectedWorkOrderId(null);
     setSelectedEngineBrandId(null);
+    setSelectedEngineBrandGroupId(null);
     setSelectedEmployeeId(null);
     setSelectedProductId(null);
     setSelectedServiceId(null);
@@ -1422,6 +1430,7 @@ export function App() {
     setEngineDetails(null);
     setSelectedEngineId(null);
     setSelectedEngineBrandId(null);
+    setSelectedEngineBrandGroupId(null);
     setSelectedContractId(null);
     setSelectedRequestId(null);
     setSelectedWorkOrderId(null);
@@ -1622,6 +1631,7 @@ export function App() {
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewReports ? (['assembly_forecast'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
+    ...(caps.canViewMasterData ? (['engine_brand_groups'] as const) : []),
     ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests', 'tool_accounting'] as const) : []),
     ...(caps.canViewMasterData ? (['services', 'services_by_brand'] as const) : []),
@@ -1684,6 +1694,7 @@ export function App() {
     engines: 'Двигатели',
     assembly_forecast: 'Прогноз сборки',
     engine_brands: 'Марки двигателей',
+    engine_brand_groups: 'Группы марок',
     counterparties: 'Контрагенты',
     requests: 'Заявки',
     work_orders: 'Наряды',
@@ -1945,6 +1956,7 @@ export function App() {
     if (
       tab === 'engine' ||
       tab === 'engine_brand' ||
+      tab === 'engine_brand_group' ||
       tab === 'request' ||
       tab === 'work_order' ||
       tab === 'part' ||
@@ -2135,6 +2147,11 @@ export function App() {
     setTab('engine_brand');
   }
 
+  async function openEngineBrandGroup(id: string) {
+    setSelectedEngineBrandGroupId(id);
+    setTab('engine_brand_group');
+  }
+
   async function openContract(id: string) {
     setSelectedContractId(id);
     setTab('contract');
@@ -2254,6 +2271,7 @@ export function App() {
     work_order: openWorkOrder,
     engine_brand: openEngineBrand,
     engineBrand: openEngineBrand,
+    engine_brand_group: openEngineBrandGroup,
     service: openService,
     product: openProduct,
     nomenclature: openNomenclature,
@@ -3844,6 +3862,27 @@ export function App() {
             onOpen={openEngineBrand}
             canCreate={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {tab === 'engine_brand_groups' && (
+          <EngineBrandGroupsPage
+            onOpen={openEngineBrandGroup}
+            canCreate={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {tab === 'engine_brand_group' && selectedEngineBrandGroupId && (
+          <EngineBrandGroupDetailsPage
+            key={selectedEngineBrandGroupId}
+            groupId={selectedEngineBrandGroupId}
+            canEdit={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+            onClose={() => {
+              setSelectedEngineBrandGroupId(null);
+              setTabState('engine_brand_groups');
+            }}
           />
         )}
 

@@ -12,6 +12,8 @@ export type TabId =
   | 'engine'
   | 'engine_brands'
   | 'engine_brand'
+  | 'engine_brand_groups'
+  | 'engine_brand_group'
   | 'counterparties'
   | 'counterparty'
   | 'products'
@@ -77,6 +79,7 @@ export type MenuTabId = Exclude<
   | 'employee'
   | 'contract'
   | 'engine_brand'
+  | 'engine_brand_group'
   | 'product'
   | 'service'
   | 'nomenclature_item'
@@ -103,6 +106,7 @@ export type TabsLayoutPrefs = {
 const PARENT_TAB: Record<string, MenuTabId> = {
   engine: 'engines',
   engine_brand: 'engine_brands',
+  engine_brand_group: 'engine_brand_groups',
   work_order: 'work_orders',
   part: 'parts',
   tool: 'tools',
@@ -130,6 +134,7 @@ const menuTabSet = new Set<MenuTabId>([
   'engines',
   'assembly_forecast',
   'engine_brands',
+  'engine_brand_groups',
   'counterparties',
   'requests',
   'work_orders',
@@ -197,7 +202,7 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
 const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
-  production: ['engines', 'assembly_forecast', 'engine_brands', 'parts', 'engine_assembly_bom', 'tools'],
+  production: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   business: ['contracts', 'counterparties'],
@@ -250,6 +255,7 @@ const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   engines: { icon: '⚙️', subtitle: 'Список и карточки двигателей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   assembly_forecast: { icon: '🔮', subtitle: 'Прогноз сборки двигателей', gradient: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)' },
   engine_brands: { icon: '🏷️', subtitle: 'Марки двигателей и нормы', gradient: 'linear-gradient(135deg, #2563eb 0%, #60a5fa 100%)' },
+  engine_brand_groups: { icon: '🗂️', subtitle: 'Группы марок для привязки деталей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%)' },
   parts: { icon: '🧩', subtitle: 'Справочник деталей и узлов', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
   requests: { icon: '📦', subtitle: 'Закупка и потребности', gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)' },
   work_orders: { icon: '🛠️', subtitle: 'Работы и производство', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
@@ -502,6 +508,7 @@ export function Tabs(props: {
     engines: 'Двигатели',
     assembly_forecast: 'Прогноз сборки',
     engine_brands: 'Марки двигателей',
+    engine_brand_groups: 'Группы марок',
     counterparties: 'Контрагенты',
     requests: 'Заявки',
     work_orders: 'Наряды',

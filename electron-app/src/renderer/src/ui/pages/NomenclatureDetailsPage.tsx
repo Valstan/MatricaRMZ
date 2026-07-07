@@ -116,6 +116,12 @@ export function NomenclatureDetailsPage(props: {
   const [specDimensions, setSpecDimensions] = useState<PartDimension[]>([]);
   const [specBrandLinks, setSpecBrandLinks] = useState<PartSpecBrandLink[]>([]);
   const [specEngineBrandOptions, setSpecEngineBrandOptions] = useState<SearchSelectOption[]>([]);
+  // Группы марок: разово подставить все марки группы в применяемость (снимок).
+  const [brandGroupOptions, setBrandGroupOptions] = useState<SearchSelectOption[]>([]);
+  const [brandGroupMembers, setBrandGroupMembers] = useState<Map<string, string[]>>(new Map());
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [groupAttachQty, setGroupAttachQty] = useState<number>(1);
+  const [groupAttachStatus, setGroupAttachStatus] = useState<string>('');
   const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:nomenclature-field-recents:${props.id}`, 8);
 
   const createLookupEntity = useCallback(async (typeCode: string, label: string): Promise<string | null> => {
@@ -355,6 +361,52 @@ export function NomenclatureDetailsPage(props: {
         setSpecEngineBrandOptions(mapEntityRowsToSearchOptions(rows, { fallbackToShortId: true }));
       } catch {
         /* options stay empty */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [isPartClass]);
+
+  // Загрузка групп марок (для разовой привязки детали ко всем маркам группы).
+  useEffect(() => {
+    if (!isPartClass) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const types = await window.matrica.admin.entityTypes.list();
+        const gt = (types as Array<{ id?: unknown; code?: unknown }>).find((t) => String(t.code ?? '') === 'engine_brand_group');
+        if (!alive || !gt?.id) return;
+        const list = (await window.matrica.admin.entities.listByEntityType(String(gt.id))) as Array<{ id: string; displayName?: string }>;
+        const members = new Map<string, string[]>();
+        const options: SearchSelectOption[] = [];
+        for (const row of list) {
+          const det = await window.matrica.admin.entities.get(String(row.id), String(gt.id)).catch(() => null);
+          if (!alive) return;
+          const attrs = (det as { attributes?: Record<string, unknown> } | null)?.attributes ?? {};
+          const raw = attrs.engine_brand_ids;
+          const ids = Array.isArray(raw)
+            ? raw.map((x) => String(x)).filter(Boolean)
+            : typeof raw === 'string' && raw.trim()
+              ? (() => {
+                  try {
+                    const p = JSON.parse(raw);
+                    return Array.isArray(p) ? p.map((x) => String(x)).filter(Boolean) : [];
+                  } catch {
+                    return [];
+                  }
+                })()
+              : [];
+          const name = String(attrs.name ?? row.displayName ?? '').trim() || String(row.id);
+          members.set(String(row.id), ids);
+          options.push({ id: String(row.id), label: name, hintText: `${ids.length} марок` });
+        }
+        if (!alive) return;
+        options.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+        setBrandGroupOptions(options);
+        setBrandGroupMembers(members);
+      } catch {
+        /* groups stay empty */
       }
     })();
     return () => {
@@ -935,6 +987,83 @@ export function NomenclatureDetailsPage(props: {
                 </Button>
               ) : null}
             </div>
+
+            {canEditNomenclatureFields && brandGroupOptions.length > 0 ? (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  marginBottom: 8,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'var(--card-row-bg)',
+                  border: '1px solid var(--card-row-border)',
+                }}
+              >
+                <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>Разом привязать к группе марок:</span>
+                <div style={{ minWidth: 220, flex: 1 }}>
+                  <SearchSelect
+                    value={selectedGroupId}
+                    options={brandGroupOptions}
+                    placeholder="Выберите группу марок…"
+                    showAllWhenEmpty
+                    emptyQueryLimit={50}
+                    onChange={(next) => setSelectedGroupId(next)}
+                  />
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>кол-во/двиг.</span>
+                <Input
+                  type="number"
+                  value={String(groupAttachQty)}
+                  data-autogrow="off"
+                  style={{ width: 70, textAlign: 'right' }}
+                  onChange={(e) => setGroupAttachQty(Math.max(1, Math.trunc(Number(e.target.value) || 1)))}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedGroupId}
+                  onClick={() => {
+                    if (!selectedGroupId) {
+                      setGroupAttachStatus('Выберите группу марок.');
+                      return;
+                    }
+                    const memberIds = brandGroupMembers.get(selectedGroupId) ?? [];
+                    if (memberIds.length === 0) {
+                      setGroupAttachStatus('В выбранной группе нет марок.');
+                      return;
+                    }
+                    const qty = Math.max(1, Math.trunc(Number(groupAttachQty) || 1));
+                    const existing = new Set(specBrandLinks.map((l) => String(l.engineBrandId ?? '')).filter(Boolean));
+                    const toAdd = memberIds.filter((id) => !existing.has(id));
+                    if (toAdd.length === 0) {
+                      setGroupAttachStatus('Все марки этой группы уже в применяемости.');
+                      return;
+                    }
+                    setSpecBrandLinks((prev) => [
+                      ...prev,
+                      ...toAdd.map((brandId) => ({
+                        id: crypto.randomUUID(),
+                        engineBrandId: brandId,
+                        assemblyUnitNumber: null,
+                        quantity: qty,
+                      })),
+                    ]);
+                    const skipped = memberIds.length - toAdd.length;
+                    setGroupAttachStatus(
+                      `Добавлено марок: ${toAdd.length}${skipped > 0 ? `, пропущено (уже были): ${skipped}` : ''}. Не забудьте «Сохранить».`,
+                    );
+                  }}
+                >
+                  Добавить группу
+                </Button>
+                {groupAttachStatus ? <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{groupAttachStatus}</span> : null}
+              </div>
+            ) : null}
+
             {specBrandLinks.length === 0 ? (
               <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Применяемость не задана</div>
             ) : (

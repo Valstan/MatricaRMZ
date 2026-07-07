@@ -64,6 +64,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   const storeTypeId = await ensureEntityType(EntityTypeCode.Store, 'Магазины');
   const engineNodeTypeId = await ensureEntityType(EntityTypeCode.EngineNode, 'Узлы двигателя');
   const linkFieldRuleTypeId = await ensureEntityType(EntityTypeCode.LinkFieldRule, 'Подсказки link-полей');
+  const engineBrandGroupTypeId = await ensureEntityType(EntityTypeCode.EngineBrandGroup, 'Группы марок двигателей');
 
   async function ensureAttrDef(
     entityTypeId: string,
@@ -153,6 +154,19 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(engineTypeId, 'section_id', 'Участок', AttributeDataType.Link, 70, JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Section }));
 
   // Common attachments for all master-data entities (универсально, чтобы "везде" можно было прикреплять файлы).
+  // Группы марок двигателей: название + описание характеристик + список марок (json-массив id,
+  // как engine_brand_ids у услуг). Марка может входить в несколько групп (снимок при привязке детали).
+  await ensureAttrDef(engineBrandGroupTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(engineBrandGroupTypeId, 'description', 'Описание', AttributeDataType.Text, 20);
+  await ensureAttrDef(
+    engineBrandGroupTypeId,
+    'engine_brand_ids',
+    'Марки двигателей',
+    AttributeDataType.Json,
+    30,
+    JSON.stringify({ linkTargetTypeCode: EntityTypeCode.EngineBrand, multi: true }),
+  );
+
   // Category (global tree)
   await ensureAttrDef(categoryTypeId, 'name', 'Название', AttributeDataType.Text, 10);
   await ensureAttrDef(
