@@ -20,6 +20,7 @@ export * from './domain/workOrderAccess.js';
 export * from './domain/workOrderSignatures.js';
 export * from './domain/workshopStats.js';
 export * from './domain/part.js';
+export * from './domain/liveGroupLinks.js';
 export * from './domain/notes.js';
 export * from './domain/aiAgent.js';
 export * from './domain/systemIds.js';

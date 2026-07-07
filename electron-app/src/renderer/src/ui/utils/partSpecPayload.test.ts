@@ -30,7 +30,7 @@ describe('buildPartSpecPayload', () => {
     ]);
   });
 
-  it('drops brand-links without engineBrandId and trims assemblyUnitNumber to null when empty', () => {
+  it('drops brand-links without engineBrandId or sourceGroupId and trims assemblyUnitNumber to null when empty', () => {
     const out = buildPartSpecPayload({
       code: null,
       dimensions: [],
@@ -43,6 +43,32 @@ describe('buildPartSpecPayload', () => {
     expect(out.brandLinks).toEqual([
       { id: 'b1', engineBrandId: 'eb1', assemblyUnitNumber: 'U1', quantity: 3 },
       { id: 'b3', engineBrandId: 'eb3', assemblyUnitNumber: null, quantity: 2 },
+    ]);
+  });
+
+  it('keeps a live-group anchor (engineBrandId=null but sourceGroupId set)', () => {
+    const out = buildPartSpecPayload({
+      code: null,
+      dimensions: [],
+      brandLinks: [{ id: 'a1', engineBrandId: null, assemblyUnitNumber: null, quantity: 0, sourceGroupId: 'g1' }],
+    });
+    expect(out.brandLinks).toEqual([
+      { id: 'a1', engineBrandId: null, assemblyUnitNumber: null, quantity: 0, sourceGroupId: 'g1' },
+    ]);
+  });
+
+  it('carries sourceGroupId and act flags through (does not drop them on a plain card save)', () => {
+    const out = buildPartSpecPayload({
+      code: null,
+      dimensions: [],
+      brandLinks: [
+        { id: 'b1', engineBrandId: 'eb1', assemblyUnitNumber: null, quantity: 1, sourceGroupId: 'g1', inCompletenessAct: true },
+        { id: 'b2', engineBrandId: 'eb2', assemblyUnitNumber: null, quantity: 1, inDefectAct: true },
+      ],
+    });
+    expect(out.brandLinks).toEqual([
+      { id: 'b1', engineBrandId: 'eb1', assemblyUnitNumber: null, quantity: 1, sourceGroupId: 'g1', inCompletenessAct: true },
+      { id: 'b2', engineBrandId: 'eb2', assemblyUnitNumber: null, quantity: 1, inDefectAct: true },
     ]);
   });
 

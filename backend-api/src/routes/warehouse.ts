@@ -410,6 +410,8 @@ warehouseRouter.put('/nomenclature/:id/part-spec', requirePermission(PermissionC
           // Т4: галочки актов на привязке деталь↔марка.
           inCompletenessAct: z.boolean().optional(),
           inDefectAct: z.boolean().optional(),
+          // Живая привязка к группе марок (маркер источника связи; см. shared/liveGroupLinks).
+          sourceGroupId: z.string().optional(),
         }),
       )
       .optional(),
@@ -430,6 +432,7 @@ warehouseRouter.put('/nomenclature/:id/part-spec', requirePermission(PermissionC
         quantity: l.quantity,
         ...(l.inCompletenessAct !== undefined ? { inCompletenessAct: l.inCompletenessAct } : {}),
         ...(l.inDefectAct !== undefined ? { inDefectAct: l.inDefectAct } : {}),
+        ...(l.sourceGroupId !== undefined ? { sourceGroupId: l.sourceGroupId } : {}),
       })),
     },
     ...(parsed.data.metadata !== undefined ? { metadata: parsed.data.metadata as PartMetadata } : {}),
