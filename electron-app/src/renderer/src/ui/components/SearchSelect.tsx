@@ -269,7 +269,10 @@ export function SearchSelect(props: {
             onClick={() => { props.onChange(null); props.onQueryChange?.(''); close(''); }}
             style={{
               flexShrink: 0,
-              padding: '8px 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '6px 9px',
               borderRadius: 10,
               border: '1px solid var(--button-ghost-border)',
               background: 'var(--button-ghost-bg)',
@@ -278,8 +281,16 @@ export function SearchSelect(props: {
               minHeight: 36,
             }}
             title="Очистить"
+            aria-label="Очистить"
           >
-            ✕
+            {/* Красно-белая «стирательная резинка» вместо крестика: наклонный ластик,
+                красный рабочий торец + белый корпус, тёмно-красный контур. */}
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <g transform="rotate(-45 12 12)">
+                <rect x="3" y="9" width="18" height="8" rx="1.6" fill="#ffffff" stroke="#9f1239" strokeWidth="1.5" />
+                <path d="M3 10.6 a1.6 1.6 0 0 1 1.6 -1.6 H10 v8 H4.6 A1.6 1.6 0 0 1 3 15.4 Z" fill="#e11d48" stroke="#9f1239" strokeWidth="1.5" strokeLinejoin="round" />
+              </g>
+            </svg>
           </button>
         )}
       </div>
