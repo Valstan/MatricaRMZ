@@ -1442,6 +1442,7 @@ export function EngineDetailsPage(props: {
         onClose={() => setReturnOpen(false)}
         engineId={props.engineId}
         engineLabel={String(engineNumber || props.engineId)}
+        engineBrandId={engineBrandId || null}
       />
 
       {props.canViewOperations && (
