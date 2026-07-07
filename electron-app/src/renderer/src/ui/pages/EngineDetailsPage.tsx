@@ -99,23 +99,24 @@ function EngineDuplicateHint(props: {
   // заезд» выделен — это самый частый не-рекламационный случай (тот же номер, новый ремонт,
   // возможно другой заказчик).
   function pathRow(opts: { emphasize?: boolean; title: string; desc: string; button: React.ReactNode }): React.ReactNode {
+    // Вертикальная раскладка (заголовок → описание → кнопка): контейнер подсказки узкий
+    // (сидит в ячейке поля номера), и горизонтальный ряд «текст | кнопка» ужимал описание
+    // до переноса по одному слову. Стек читается при любой ширине.
     return (
       <div
         style={{
           display: 'flex',
-          gap: 10,
-          alignItems: 'center',
+          flexDirection: 'column',
+          gap: 6,
           padding: '8px 10px',
           borderRadius: 8,
           background: opts.emphasize ? 'rgba(37, 99, 235, 0.08)' : '#ffffff',
           border: opts.emphasize ? '1.5px solid rgba(37, 99, 235, 0.5)' : '1px solid #e5e7eb',
         }}
       >
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 700, color: '#111827', fontSize: 12.5 }}>{opts.title}</div>
-          <div style={{ color: '#4b5563', fontSize: 11.5, marginTop: 1 }}>{opts.desc}</div>
-        </div>
-        {opts.button}
+        <div style={{ fontWeight: 700, color: '#111827', fontSize: 12.5 }}>{opts.title}</div>
+        <div style={{ color: '#4b5563', fontSize: 11.5, lineHeight: 1.35 }}>{opts.desc}</div>
+        <div style={{ display: 'flex' }}>{opts.button}</div>
       </div>
     );
   }
@@ -123,7 +124,12 @@ function EngineDuplicateHint(props: {
     <div
       style={{
         marginTop: 6,
-        maxWidth: '48ch',
+        // width:100% чтобы блок занимал ширину ячейки поля (родитель-flex иначе ужимает его
+        // до min-content и описания путей ломаются по одному слову в строку); cap шире для
+        // читаемости путь-выбора.
+        width: '100%',
+        maxWidth: showPaths ? '62ch' : '48ch',
+        boxSizing: 'border-box',
         padding: '8px 10px',
         background: tone.bg,
         border: `1px solid ${tone.border}`,
