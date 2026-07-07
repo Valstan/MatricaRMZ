@@ -4,8 +4,6 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '../database/db.js';
 import { userPresence } from '../database/schema.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
-import { recordSyncChanges } from '../services/sync/syncChangeService.js';
-import { SyncTableName } from '@matricarmz/shared';
 
 export const presenceRouter = Router();
 
@@ -38,26 +36,11 @@ presenceRouter.get('/me', async (req, res) => {
           syncStatus: 'synced',
         },
       });
-    await recordSyncChanges(
-      { id: actor.id, username: actor.username ?? actor.id, role: actor.role ?? 'user' },
-      [
-        {
-          tableName: SyncTableName.UserPresence,
-          rowId: actor.id,
-          op: 'upsert',
-          payload: {
-            id: actor.id,
-            user_id: actor.id,
-            last_activity_at: now,
-            created_at: now,
-            updated_at: now,
-            deleted_at: null,
-            sync_status: 'synced',
-          },
-          ts: now,
-        },
-      ],
-    );
+    // Presence is an ephemeral online indicator: it lives ONLY in the
+    // userPresence table (read by chat/notes joins + this /me self-ping). It is
+    // deliberately NOT recorded to the durable, encrypted, fanned-out ledger —
+    // heartbeats otherwise dominate ledger churn and make every client
+    // re-pull/re-decrypt constantly (prod CPU incident 2026-07-07).
 
     const row = await db
       .select({ lastActivityAt: userPresence.lastActivityAt })

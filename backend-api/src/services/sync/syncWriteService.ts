@@ -162,7 +162,14 @@ export async function writeSyncChanges(
   actor: SyncWriteActor,
   opts: SyncWriteOptions = {},
 ): Promise<SyncWriteResult> {
-  if (inputs.length === 0) {
+  // user_presence is an ephemeral online indicator: it lives ONLY in the
+  // userPresence table (served to clients via chat/notes joins + /presence/me)
+  // and must NEVER enter the durable, encrypted, fanned-out ledger. Heartbeats
+  // otherwise dominate ledger churn and force every client to re-pull/re-decrypt
+  // constantly (prod CPU incident 2026-07-07). The table stays fresh via the
+  // presence routes and the applyPushBatch heartbeat, independently of this path.
+  const ledgerInputs = inputs.filter((i) => i.table !== SyncTableName.UserPresence);
+  if (ledgerInputs.length === 0) {
     return {
       dbApplied: 0,
       ledgerApplied: 0,
@@ -179,11 +186,11 @@ export async function writeSyncChanges(
   // Phase 2.4 PR 3.5: батч-резолв legacy warehouse_id text-кодов → uuid для
   // 3 sync-таблиц. Делается ДО валидации, чтобы payload, прошедший zod, уже
   // имел корректный warehouse_location_id FK.
-  await fillLegacyWarehouseLocationId(inputs);
+  await fillLegacyWarehouseLocationId(ledgerInputs);
 
   // ── Step 0: Validate and normalize ───────────────────────
   const grouped = new Map<SyncTableName, Record<string, unknown>[]>();
-  for (const input of inputs) {
+  for (const input of ledgerInputs) {
     if (!SyncTableRegistry.isSyncTable(input.table)) {
       throw new Error(`sync_invalid_table: ${String(input.table)}`);
     }

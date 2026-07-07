@@ -74,7 +74,7 @@ function chatReadPayload(row: {
   };
 }
 
-async function touchPresence(userId: string, actor?: { username?: string; role?: string }) {
+async function touchPresence(userId: string) {
   const ts = nowMs();
   await db
     .insert(userPresence)
@@ -97,26 +97,8 @@ async function touchPresence(userId: string, actor?: { username?: string; role?:
         syncStatus: 'synced',
       },
     });
-  await recordSyncChanges(
-    { id: userId, username: actor?.username ?? userId, role: actor?.role ?? 'user' },
-    [
-      {
-        tableName: SyncTableName.UserPresence,
-        rowId: userId,
-        op: 'upsert',
-        payload: {
-          id: userId,
-          user_id: userId,
-          last_activity_at: ts,
-          created_at: ts,
-          updated_at: ts,
-          deleted_at: null,
-          sync_status: 'synced',
-        },
-        ts,
-      },
-    ],
-  );
+  // Presence stays in the userPresence table only — never in the durable ledger.
+  // See routes/presence.ts and writeSyncChanges() (prod CPU incident 2026-07-07).
 }
 
 function requireAdminActor(req: AuthenticatedRequest, res: any): { ok: true; actor: AuthenticatedRequest['user'] } | { ok: false } {
@@ -257,7 +239,7 @@ chatRouter.get('/messages', requirePermission(PermissionCode.ChatUse), async (re
     }
 
     rows.reverse();
-    await touchPresence(me.id, { username: me.username, role: me.role });
+    await touchPresence(me.id);
 
     const messages = rows.map((r: any) => ({
       id: String(r.id),
@@ -310,7 +292,7 @@ chatRouter.get(
         .limit(parsed.data.limit);
 
       rows.reverse();
-      await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
+      await touchPresence(gate.actor.id);
 
       const messages = rows.map((r: any) => ({
         id: String(r.id),
@@ -394,7 +376,7 @@ chatRouter.post('/send', requirePermission(PermissionCode.ChatUse), async (req, 
         },
       ],
     );
-    await touchPresence(actor.id, { username: actor.username, role: actor.role });
+    await touchPresence(actor.id);
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -487,7 +469,7 @@ chatRouter.post('/send-link', requirePermission(PermissionCode.ChatUse), async (
         },
       ],
     );
-    await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
+    await touchPresence(gate.actor.id);
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -567,7 +549,7 @@ chatRouter.post('/send-file', requirePermission(PermissionCode.ChatUse), async (
         },
       ],
     );
-    await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
+    await touchPresence(gate.actor.id);
 
     return res.json({ ok: true, id });
   } catch (e) {
@@ -637,7 +619,7 @@ chatRouter.post('/mark-read', requirePermission(PermissionCode.ChatUse), async (
         })),
       );
     }
-    await touchPresence(gate.actor.id, { username: gate.actor.username, role: gate.actor.role });
+    await touchPresence(gate.actor.id);
 
     return res.json({ ok: true, marked: toInsert.length });
   } catch (e) {
@@ -692,7 +674,7 @@ chatRouter.get('/unread', requirePermission(PermissionCode.ChatUse), async (req,
       else byUser[senderUserId] = (byUser[senderUserId] ?? 0) + 1;
     }
     const total = global + Object.values(byUser).reduce((a, b) => a + b, 0);
-    await touchPresence(actor.id, { username: actor.username, role: actor.role });
+    await touchPresence(actor.id);
     return res.json({ ok: true, total, global, byUser });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
