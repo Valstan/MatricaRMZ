@@ -932,11 +932,12 @@ export function EngineDetailsPage(props: {
           <Input
             value={engineNumber}
             disabled={!props.canEditEngines}
-            // Fill the value column like the sibling fields (Марка/Контрагент) AND keep a
-            // 30-character floor so long numbers («2Ж11АТ1798…») are never clipped even
-            // when the grid cell is narrow. width:100% grows with the cell; minWidth:30ch
-            // is the readable floor (a bare `min-width` without width:100% collapsed the
-            // field to ~86px in earlier attempts, so we keep both).
+            // Fill the value column like the sibling fields (Марка/Контрагент). data-autogrow="off"
+            // opts this input OUT of the global auto-grow hook (useAutoGrowInputs), which otherwise
+            // shrinks every text input to its content width and collapses this field to ~86px,
+            // overriding the inline width:100%. With auto-grow off, width:100% (+ 30ch floor for
+            // long numbers like «2Ж11АТ1798…») makes it span the row like the fields below it.
+            data-autogrow="off"
             style={{ width: '100%', minWidth: '30ch' }}
             onChange={(e) => {
               setSessionChanged(true);

@@ -22,9 +22,9 @@ type CriticalEventItem = {
 };
 
 export function SettingsPage(props: {
-  uiPrefs: { theme: 'auto' | 'light' | 'dark'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
+  uiPrefs: { theme: 'auto' | 'light' | 'dark' | 'warm'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
   onUiPrefsChange: (prefs: {
-    theme: 'auto' | 'light' | 'dark';
+    theme: 'auto' | 'light' | 'dark' | 'warm';
     chatSide: 'left' | 'right';
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
@@ -44,7 +44,7 @@ export function SettingsPage(props: {
   const [telegramLogin, setTelegramLogin] = useState<string>('');
   const [maxLogin, setMaxLogin] = useState<string>('');
   const [messengerStatus, setMessengerStatus] = useState<string>('');
-  const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark'>(props.uiPrefs.theme);
+  const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark' | 'warm'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [enterAsTab, setEnterAsTab] = useState<boolean>(props.uiPrefs.enterAsTab === true);
   const [pwCurrent, setPwCurrent] = useState<string>('');
@@ -595,6 +595,9 @@ export function SettingsPage(props: {
               </Button>
               <Button variant={uiTheme === 'dark' ? 'primary' : 'ghost'} onClick={() => setUiTheme('dark')}>
                 Тёмная
+              </Button>
+              <Button variant={uiTheme === 'warm' ? 'primary' : 'ghost'} onClick={() => setUiTheme('warm')}>
+                Тёплая
               </Button>
             </div>
             <div style={{ color: 'var(--muted)' }}>Чат в интерфейсе</div>

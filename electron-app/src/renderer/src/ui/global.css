@@ -237,6 +237,103 @@ body {
   --role-user-text: #bbf7d0;
 }
 
+/* Тёплая «цеховая» тема: кремово-бежевый фон, тёплые янтарные акценты, крупнее шрифт,
+   жирнее рамки и выше контраст — комфортно в цеху и при ярком свете. Наследует light-раскладку,
+   переопределяет только палитру и часть размеров. `--ui-list-font-size` / `--ui-card-font-size`
+   НЕ трогаем: их задаёт инлайн-стилем эффект displayPrefs (инлайн > правило темы). */
+:root[data-theme='warm'] {
+  --ui-title-size: 20px;
+  --ui-section-size: 16px;
+  --ui-body-size: 14px;
+  --ui-muted-size: 13px;
+  --ui-table-size: 14px;
+  --ui-input-font-size: 14px;
+  --ui-input-height: 30px;
+
+  --app-bg-from: #efe1c6;
+  --app-bg-via: #faf1dd;
+  --app-bg-to: #f3e3c3;
+  --surface: #fffaf0;
+  --surface-2: #f6ead2;
+  --border: rgba(124, 74, 20, 0.34);
+  --border-strong: rgba(124, 74, 20, 0.52);
+  --text: #2a1c0a;
+  --muted: #5c4326;
+  --subtle: #856b48;
+  --danger: #b02a1e;
+  --success: #2f6d1f;
+  --warn: #b45309;
+
+  --input-bg: #fffdf6;
+  --input-bg-disabled: rgba(240, 228, 205, 0.8);
+  --input-border: rgba(124, 74, 20, 0.42);
+  --input-border-focus: #c2680f;
+  --input-shadow: inset 0 1px 2px rgba(90, 55, 15, 0.16);
+  --input-shadow-focus: inset 0 1px 2px rgba(90, 55, 15, 0.14), 0 0 0 2px rgba(194, 104, 15, 0.28);
+
+  --button-primary-bg: linear-gradient(135deg, #d97706 0%, #b45309 60%, #92400e 120%);
+  --button-primary-border: #7c2d12;
+  --button-primary-text: #fff7ed;
+  --button-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 1px 1px rgba(90, 55, 15, 0.24),
+    0 3px 7px rgba(90, 55, 15, 0.22);
+  --button-ghost-bg: #fffaf0;
+  --button-ghost-border: rgba(124, 74, 20, 0.42);
+  --button-ghost-text: #2a1c0a;
+  --button-ghost-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 1px rgba(90, 55, 15, 0.14),
+    0 2px 5px rgba(90, 55, 15, 0.12);
+
+  --list-row-bg: #fbf2df;
+  --list-row-bg-alt: #f4e7cd;
+  --list-row-bg-hover: #f0dcb4;
+  --list-row-border: rgba(124, 74, 20, 0.26);
+  --list-row-text: #2a1c0a;
+  --list-row-green-bg: #e8f3d8;
+  --list-row-green-alt: #dcebc5;
+  --list-row-green-hover: #cfe3b0;
+
+  --card-panel-bg: #fdf4e3;
+  --card-panel-border: rgba(180, 118, 40, 0.42);
+  --ui-section-card-alt-color: #e0b877;
+  --card-row-bg: #f8edd6;
+  --card-row-bg-hover: #f2e2bf;
+  --card-row-border: rgba(180, 118, 40, 0.36);
+  --card-row-drag-bg: rgba(217, 119, 6, 0.16);
+
+  --tone-success-bg: linear-gradient(135deg, #2f7d1f 0%, #43a047 110%);
+  --tone-success-border: #2f6d1f;
+  --tone-success-text: #ffffff;
+  --tone-info-bg: linear-gradient(135deg, #d97706 0%, #b45309 110%);
+  --tone-info-border: #92400e;
+  --tone-info-text: #fff7ed;
+  --tone-warn-bg: linear-gradient(135deg, #f59e0b 0%, #ea580c 110%);
+  --tone-warn-border: #c2410c;
+  --tone-warn-text: #2a1c0a;
+  --tone-danger-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 110%);
+  --tone-danger-border: #7f1d1d;
+  --tone-danger-text: #ffffff;
+  --tone-neutral-bg: linear-gradient(135deg, #ecdcc0 0%, #dcc59a 110%);
+  --tone-neutral-border: #b08a5a;
+  --tone-neutral-text: #2a1c0a;
+
+  --chat-mine-bg: #fdeccc;
+  --chat-mine-border: #e9c684;
+  --chat-other-bg: #fbf2df;
+  --chat-other-border: #ecd9b4;
+  --chat-menu-bg: #fffaf0;
+  --chat-menu-border: rgba(124, 74, 20, 0.3);
+  --chat-menu-shadow: 0 10px 28px rgba(90, 55, 15, 0.22);
+
+  --role-superadmin-bg: linear-gradient(135deg, #b08a5a 0%, #d8b98a 45%, #8a6a3e 100%);
+  --role-superadmin-border: #6f5330;
+  --role-superadmin-text: #fff7ed;
+  --role-admin-bg: #fffaf0;
+  --role-admin-border: #b45309;
+  --role-admin-text: #b45309;
+  --role-user-bg: #fffaf0;
+  --role-user-border: #2f7d1f;
+  --role-user-text: #2f6d1f;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--text);

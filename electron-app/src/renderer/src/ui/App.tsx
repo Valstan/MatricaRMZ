@@ -602,7 +602,7 @@ export function App() {
   const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
   const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
   const [uiPrefs, setUiPrefs] = useState<{
-    theme: 'auto' | 'light' | 'dark';
+    theme: 'auto' | 'light' | 'dark' | 'warm';
     chatSide: 'left' | 'right';
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
@@ -658,7 +658,7 @@ export function App() {
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark' | 'warm'>('dark');
   const [cardCloseModalOpen, setCardCloseModalOpen] = useState(false);
   const [cardCloseCountdown, setCardCloseCountdown] = useState(10);
   const [cardCloseStatus, setCardCloseStatus] = useState('');
@@ -1515,9 +1515,10 @@ export function App() {
 
   useEffect(() => {
     const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-    const pick = () => {
+    const pick = (): 'light' | 'dark' | 'warm' => {
       if (uiPrefs.theme === 'light') return 'light';
       if (uiPrefs.theme === 'dark') return 'dark';
+      if (uiPrefs.theme === 'warm') return 'warm';
       return mq?.matches ? 'dark' : 'light';
     };
     setResolvedTheme(pick());
@@ -2050,6 +2051,13 @@ export function App() {
     const userId = authStatus.user?.id;
     if (!userId) return;
     await window.matrica.settings.uiSet({ userId, chatSide: next }).catch(() => {});
+  }
+
+  // Тема — глобальная (SettingsKey.UiTheme в локальной sysDb), userId не нужен.
+  // Оптимистично обновляем стейт (тема применяется сразу через resolvedTheme-эффект), затем пишем.
+  async function persistTheme(next: 'auto' | 'light' | 'dark' | 'warm') {
+    setUiPrefs((prev) => ({ ...prev, theme: next }));
+    await window.matrica.settings.uiSet({ theme: next }).catch(() => {});
   }
 
   useEffect(() => {
@@ -3483,6 +3491,27 @@ export function App() {
         center={headerStatus}
         right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+          {/* Переключатель темы интерфейса — всегда виден в верхней панели (в т.ч. до входа).
+              Тема глобальная и применяется мгновенно; выбранная подсвечивается primary. */}
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} title="Тема интерфейса">
+            {([
+              { key: 'auto', icon: '🌗', label: 'Авто (по системе)' },
+              { key: 'light', icon: '☀️', label: 'Светлая' },
+              { key: 'dark', icon: '🌙', label: 'Тёмная' },
+              { key: 'warm', icon: '🔥', label: 'Тёплая (цеховая)' },
+            ] as const).map((o) => (
+              <Button
+                key={o.key}
+                size="sm"
+                variant={uiPrefs.theme === o.key ? 'primary' : 'ghost'}
+                title={`Тема: ${o.label}`}
+                aria-label={`Тема: ${o.label}`}
+                onClick={() => void persistTheme(o.key)}
+              >
+                {o.icon}
+              </Button>
+            ))}
+          </div>
           {authStatus.loggedIn && (
             <Button variant="ghost" onClick={() => setGlobalSearchOpen(true)} title="Глобальный поиск (Ctrl+K)">
               🔍 Поиск

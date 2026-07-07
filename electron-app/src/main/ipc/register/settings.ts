@@ -12,7 +12,7 @@ import { getSession } from '../../services/authService.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from '../../services/settingsStore.js';
 import { criticalEventDelete, criticalEventsClear, criticalEventsList } from '../../services/criticalEventsService.js';
 
-const THEMES = new Set(['auto', 'light', 'dark']);
+const THEMES = new Set(['auto', 'light', 'dark', 'warm']);
 const CHAT_SIDES = new Set(['left', 'right']);
 
 type TabsLayoutPrefs = {
