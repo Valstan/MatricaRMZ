@@ -3447,6 +3447,64 @@ export async function postWarehouseDocument(args: {
   }
 }
 
+/**
+ * Что сейчас числится «в сборке» по конкретному двигателю, по номенклатуре.
+ * Нетто = Σ(assembly_consumption_in) − Σ(assembly_return_out) в локации assembly_in_progress
+ * для этого engineId (считаем по знаку direction, не по типу — так устойчивее к новым типам).
+ * Питает диалог «Возврат из сборки»: кнопку «Заполнить из сборки» и мягкую проверку «не вернуть
+ * больше, чем списано». Возвращает только позиции с положительным остатком.
+ */
+export async function getEngineAssemblyInProgress(
+  engineId: string,
+): Promise<Result<{ rows: Array<{ nomenclatureId: string; name: string | null; code: string | null; qty: number }> }>> {
+  try {
+    if (!engineId) return { ok: false, error: 'engineId обязателен' };
+    const refs = await listWarehouseReferenceData();
+    const assemblyLocId = refs.warehouseCodeToLocationId.get(WAREHOUSE_LOCATION_ASSEMBLY_IN_PROGRESS);
+    if (!assemblyLocId) return { ok: true, rows: [] };
+    const rows = await db
+      .select()
+      .from(erpRegStockMovements)
+      .where(
+        and(
+          eq(erpRegStockMovements.engineId, engineId),
+          eq(erpRegStockMovements.warehouseLocationId, assemblyLocId),
+        ),
+      );
+    const netByNomenclature = new Map<string, number>();
+    for (const row of rows) {
+      const nomenclatureId = String(row.nomenclatureId ?? '');
+      if (!nomenclatureId) continue;
+      const qty = Number(row.qty ?? 0) || 0;
+      const signed = String(row.direction) === 'in' ? qty : -qty;
+      netByNomenclature.set(nomenclatureId, (netByNomenclature.get(nomenclatureId) ?? 0) + signed);
+    }
+    const positiveIds = Array.from(netByNomenclature.entries())
+      .filter(([, net]) => net > 0)
+      .map(([id]) => id);
+    if (positiveIds.length === 0) return { ok: true, rows: [] };
+    const nomenclatureRows = await db
+      .select()
+      .from(erpNomenclature)
+      .where(and(inArray(erpNomenclature.id, positiveIds as any), isNull(erpNomenclature.deletedAt)));
+    const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+    const result = positiveIds
+      .map((nomenclatureId) => {
+        const nomenclature = nomenclatureById.get(nomenclatureId);
+        return {
+          nomenclatureId,
+          name: (nomenclature?.name as string | null) ?? null,
+          code: (nomenclature?.code as string | null) ?? null,
+          qty: Math.trunc(netByNomenclature.get(nomenclatureId) ?? 0),
+        };
+      })
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'ru'));
+    return { ok: true, rows: result };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function listWarehouseMovements(args?: {
   nomenclatureId?: string;
   warehouseId?: string;

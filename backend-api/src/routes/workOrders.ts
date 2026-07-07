@@ -10,6 +10,7 @@ import {
   postAssemblyWorkOrder,
   saveAssemblyWorkOrderDraft,
 } from '../services/workOrderClosingService.js';
+import { getEngineAssemblyInProgress } from '../services/warehouseService.js';
 
 export const workOrdersRouter = Router();
 workOrdersRouter.use(requireAuth);
@@ -104,6 +105,7 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
   const bodySchema = z.object({
     engineId: z.string().uuid(),
     reason: z.string().nullable().optional(),
+    docDate: z.number().int().positive().optional(),
     lines: z
       .array(
         z.object({
@@ -121,6 +123,7 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
   const result = await postAssemblyReturn({
     engineId: parsed.data.engineId,
     ...(parsed.data.reason !== undefined ? { reason: parsed.data.reason } : {}),
+    ...(parsed.data.docDate !== undefined ? { docDate: parsed.data.docDate } : {}),
     lines: parsed.data.lines,
     actor: {
       id: String(user.id ?? ''),
@@ -131,3 +134,16 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
+
+// Что сейчас «в сборке» по двигателю (для диалога «Возврат из сборки»: prefill + проверка).
+workOrdersRouter.get(
+  '/assembly-in-progress/:engineId',
+  requirePermission(PermissionCode.WarehouseAssemblyReturn),
+  async (req, res) => {
+    const engineId = String(req.params.engineId || '').trim();
+    if (!engineId) return res.status(400).json({ ok: false, error: 'engineId обязателен' });
+    const result = await getEngineAssemblyInProgress(engineId);
+    if (!result.ok) return res.status(400).json(result);
+    return res.json(result);
+  },
+);

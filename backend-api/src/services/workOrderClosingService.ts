@@ -630,8 +630,15 @@ export async function postAssemblyReturn(args: {
   engineId: string;
   actor: Actor;
   reason?: string | null;
+  /**
+   * Операционная дата документа (учёт «задним числом»). По умолчанию — сейчас.
+   * ВАЖНО: влияет только на дату ДОКУМЕНТА, не на `performedAt` движений — те штампуются
+   * реальным временем проводки, т.к. участвуют в hash-chain складских движений (порядок по
+   * performedAt), и back-dating физического движения сломал бы цепочку целостности.
+   */
+  docDate?: number;
   lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
-}): Promise<Result<{ documentId: string; posted: boolean }>> {
+}): Promise<Result<{ documentId: string; posted: boolean; docNo: string; docDate: number }>> {
   try {
     if (!args.engineId) return { ok: false, error: 'engineId обязателен' };
     const lines = (args.lines ?? []).filter((line) => line.nomenclatureId && line.qty > 0);
@@ -643,6 +650,7 @@ export async function postAssemblyReturn(args: {
     }
 
     const ts = nowMs();
+    const docDate = args.docDate && Number.isFinite(args.docDate) && args.docDate > 0 ? Math.trunc(args.docDate) : ts;
     const docNo = `RET-${args.engineId.replaceAll('-', '').slice(0, 8)}-${ts.toString(36)}`;
     const headerPayload: Record<string, unknown> = {
       module: 'parts_movement_v1',
@@ -654,7 +662,7 @@ export async function postAssemblyReturn(args: {
       docType: 'assembly_return',
       status: 'draft',
       docNo,
-      docDate: ts,
+      docDate,
       payloadJson: JSON.stringify(headerPayload),
       lines: lines.map((line) => ({
         qty: Math.max(0, Math.trunc(line.qty)),
@@ -674,7 +682,7 @@ export async function postAssemblyReturn(args: {
     const posted = await postWarehouseDocument({ documentId, actor: args.actor });
     if (!posted.ok) return { ok: false, error: `Не удалось провести возврат: ${posted.error}` };
 
-    return { ok: true, documentId, posted: true };
+    return { ok: true, documentId, posted: true, docNo, docDate };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

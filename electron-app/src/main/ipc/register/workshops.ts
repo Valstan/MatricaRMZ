@@ -280,6 +280,7 @@ export function registerWorkshopsIpc(ctx: IpcContext) {
   ipcMain.handle('workOrders:assemblyReturn', async (_e, args: {
     engineId: string;
     reason?: string | null;
+    docDate?: number;
     lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
   }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
@@ -290,6 +291,18 @@ export function registerWorkshopsIpc(ctx: IpcContext) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(args),
     });
+    return toResult(r);
+  });
+
+  ipcMain.handle('workOrders:assemblyInProgress', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'warehouse.assembly_return');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(
+      ctx.sysDb,
+      ctx.mgr.getApiBaseUrl(),
+      `/work-orders/assembly-in-progress/${encodeURIComponent(String(engineId ?? ''))}`,
+      { method: 'GET' },
+    );
     return toResult(r);
   });
 }

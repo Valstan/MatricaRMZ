@@ -1227,8 +1227,19 @@ export type MatricaApi = {
     assemblyReturn: (args: {
       engineId: string;
       reason?: string | null;
+      /** Операционная дата документа (учёт «задним числом»); по умолчанию — сейчас. */
+      docDate?: number;
       lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
-    }) => Promise<{ ok: true; documentId: string; posted: boolean } | { ok: false; error: string }>;
+    }) => Promise<
+      { ok: true; documentId: string; posted: boolean; docNo?: string; docDate?: number } | { ok: false; error: string }
+    >;
+    /** Что сейчас «в сборке» по двигателю (для диалога возврата: prefill + проверка «не больше, чем списано»). */
+    assemblyInProgress: (
+      engineId: string,
+    ) => Promise<
+      | { ok: true; rows: Array<{ nomenclatureId: string; name: string | null; code: string | null; qty: number }> }
+      | { ok: false; error: string }
+    >;
     /** Ф5 (GAP-4 вход): черновик Repair-наряда из строк дефектовки «свой ремонт». */
     createRepairFromDefects: (args: {
       engineId: string;
