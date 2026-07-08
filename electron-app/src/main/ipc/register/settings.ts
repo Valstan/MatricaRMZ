@@ -1,10 +1,11 @@
 import { app, ipcMain, net } from 'electron';
-import type { UiControlSettings } from '@matricarmz/shared';
+import type { UiControlSettings, UiShellPrefs } from '@matricarmz/shared';
 import {
   CURRENT_RELEASE_WELCOME,
   DEFAULT_UI_CONTROL_SETTINGS,
   UI_DEFAULTS_VERSION,
   sanitizeUiControlSettings,
+  sanitizeUiShellPrefs,
 } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
@@ -53,6 +54,18 @@ function parseTabsLayout(raw: string | null): Record<string, TabsLayoutPrefs> {
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') return parsed as Record<string, TabsLayoutPrefs>;
+  } catch {
+    // ignore invalid data
+  }
+  return {};
+}
+
+/** V2-shell prefs blob: per-user map, same storage pattern as UiTabsLayout. */
+function parseShellPrefs(raw: string | null): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
   } catch {
     // ignore invalid data
   }
@@ -137,10 +150,14 @@ export function registerSettingsIpc(ctx: IpcContext) {
     const enterAsTab = await settingsGetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, false);
     const userId = String(args?.userId ?? '').trim();
     let tabsLayout: TabsLayoutPrefs | null = null;
+    let shellPrefs: UiShellPrefs | null = null;
     if (userId) {
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.UiTabsLayout);
       const data = parseTabsLayout(raw);
       tabsLayout = data[userId] ?? null;
+      const rawShell = await settingsGetString(ctx.sysDb, SettingsKey.UiShellPrefs);
+      const shellData = parseShellPrefs(rawShell);
+      shellPrefs = shellData[userId] != null ? sanitizeUiShellPrefs(shellData[userId]) : null;
     }
     return {
       ok: true,
@@ -148,12 +165,23 @@ export function registerSettingsIpc(ctx: IpcContext) {
       chatSide: CHAT_SIDES.has(chatSide) ? chatSide : 'right',
       enterAsTab,
       tabsLayout,
+      shellPrefs,
     };
   });
 
   ipcMain.handle(
     'ui:prefs:set',
-    async (_e, args: { theme?: string; chatSide?: string; enterAsTab?: boolean; userId?: string; tabsLayout?: TabsLayoutPrefs | null }) => {
+    async (
+      _e,
+      args: {
+        theme?: string;
+        chatSide?: string;
+        enterAsTab?: boolean;
+        userId?: string;
+        tabsLayout?: TabsLayoutPrefs | null;
+        shellPrefs?: UiShellPrefs | null;
+      },
+    ) => {
       const currentTheme = (await settingsGetString(ctx.sysDb, SettingsKey.UiTheme)) ?? 'auto';
       const currentChatSide = (await settingsGetString(ctx.sysDb, SettingsKey.UiChatSide)) ?? 'right';
       const currentEnterAsTab = await settingsGetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, false);
@@ -177,7 +205,16 @@ export function registerSettingsIpc(ctx: IpcContext) {
         await settingsSetString(ctx.sysDb, SettingsKey.UiTabsLayout, JSON.stringify(data));
       }
 
-      return { ok: true, theme: safeTheme, chatSide: safeChatSide, enterAsTab, tabsLayout: nextLayout };
+      let nextShellPrefs: UiShellPrefs | null = null;
+      if (userId && args.shellPrefs != null) {
+        nextShellPrefs = sanitizeUiShellPrefs(args.shellPrefs);
+        const rawShell = await settingsGetString(ctx.sysDb, SettingsKey.UiShellPrefs);
+        const shellData = parseShellPrefs(rawShell);
+        shellData[userId] = nextShellPrefs;
+        await settingsSetString(ctx.sysDb, SettingsKey.UiShellPrefs, JSON.stringify(shellData));
+      }
+
+      return { ok: true, theme: safeTheme, chatSide: safeChatSide, enterAsTab, tabsLayout: nextLayout, shellPrefs: nextShellPrefs };
     },
   );
 

@@ -1,0 +1,287 @@
+/* V2 shell («Трезубец»): 3-колоночный интерфейс. Все стили v2 живут здесь,
+   global.css не трогаем. Цвета — через существующие CSS-переменные темы. */
+
+.v2-shell {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.v2-panel-group {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.v2-resize-handle {
+  width: 6px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 120ms ease;
+  cursor: col-resize;
+}
+.v2-resize-handle:hover,
+.v2-resize-handle:active {
+  background: rgba(37, 99, 235, 0.45);
+}
+
+/* Внутренний контейнер Panel (className вешается на вложенный div). */
+.v2-panel-body {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.v2-panel-body > .v2-col {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.v2-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.v2-col-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.v2-col-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v2-col-tool {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+}
+.v2-col-tool:hover {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.v2-col-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.v2-workspace-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+}
+
+/* Свёрнутая колонка — вертикальная полоска. */
+.v2-strip {
+  flex: 0 0 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.v2-strip-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Панель кнопок (колонка 1). */
+.v2-button-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  gap: 2px;
+}
+
+.v2-button-panel-collapsed {
+  padding: 2px;
+  gap: 2px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.v2-button-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.v2-button-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 2px;
+}
+
+.v2-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  touch-action: none; /* dnd-kit PointerSensor */
+}
+.v2-menu-btn:hover {
+  background: rgba(148, 163, 184, 0.16);
+}
+.v2-menu-btn[data-active='1'] {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(37, 99, 235, 0.55);
+  font-weight: 700;
+}
+.v2-menu-btn[data-list-open='1']:not([data-active='1']) {
+  border-color: rgba(37, 99, 235, 0.35);
+}
+.v2-menu-btn[data-dragging='1'] {
+  opacity: 0.75;
+  background: rgba(37, 99, 235, 0.12);
+  z-index: 5;
+  position: relative;
+}
+
+.v2-menu-btn-icon {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.v2-menu-btn-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v2-menu-btn-pin {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.v2-menu-btn-compact {
+  justify-content: center;
+  padding: 6px 4px;
+}
+
+.v2-button-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.v2-footer-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-footer-btn:hover {
+  background: rgba(148, 163, 184, 0.16);
+}
+.v2-footer-btn[data-active='1'] {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(37, 99, 235, 0.55);
+}
+
+.v2-hidden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.v2-context-menu {
+  position: fixed;
+  z-index: 1600;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
+  min-width: 180px;
+}
+
+/* «Поверх колонок»: панель кнопок плавает слева над содержимым. */
+.v2-overlay-buttons {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  width: 230px;
+  display: flex;
+  padding: 2px 0;
+}
+.v2-overlay-buttons .v2-col {
+  flex: 1 1 auto;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.35);
+}
