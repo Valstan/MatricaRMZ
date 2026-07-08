@@ -363,8 +363,13 @@ async function loadEngineBrandDisplayNames(brandIds: string[]): Promise<Map<stri
  * отсортирован по priority/createdAt, поэтому «первый» детерминирован.
  */
 function collapsePositionsToDefaultOption<
-  T extends { positionKey?: string | null; isDefaultOption?: boolean },
->(lines: ReadonlyArray<T>, brandTitle: string, warnings: string[]): T[] {
+  T extends { positionKey?: string | null; isDefaultOption?: boolean; compId: string; partLabel: string },
+>(
+  lines: ReadonlyArray<T>,
+  brandTitle: string,
+  warnings: string[],
+  stockByNomenclatureId?: ReadonlyMap<string, number>,
+): T[] {
   const singletons: T[] = [];
   const groups = new Map<string, T[]>();
   for (const line of lines) {
@@ -377,6 +382,7 @@ function collapsePositionsToDefaultOption<
     arr.push(line);
     groups.set(key, arr);
   }
+  const stockOf = (id: string): number => Math.max(0, Math.floor(stockByNomenclatureId?.get(id) ?? 0));
   const chosen: T[] = [...singletons];
   for (const [key, group] of groups) {
     if (group.length === 1) {
@@ -384,14 +390,37 @@ function collapsePositionsToDefaultOption<
       continue;
     }
     const defaultOption = group.find((l) => l.isDefaultOption !== false);
-    if (defaultOption) {
-      chosen.push(defaultOption);
-    } else {
+    if (!defaultOption) {
       chosen.push(group[0]!);
       warnings.push(
         `BOM марки «${brandTitle}»: у позиции «${key}» не отмечен основной вариант — в прогноз взят первый.`,
       );
+      continue;
     }
+    // Фаза 3: если основного варианта нет на складе (сток=0), а у запасного есть — в прогноз
+    // подставляется запасной с наибольшим остатком (собираем из того, что реально есть).
+    // Основной со стоком (или отсутствие stock-мапы) → берётся основной, поведение как раньше.
+    if (stockByNomenclatureId && stockOf(defaultOption.compId) <= 0) {
+      let substitute: T | null = null;
+      let substituteStock = 0;
+      for (const opt of group) {
+        if (opt === defaultOption) continue;
+        const s = stockOf(opt.compId);
+        if (s > substituteStock) {
+          substituteStock = s;
+          substitute = opt;
+        }
+      }
+      if (substitute) {
+        chosen.push(substitute);
+        warnings.push(
+          `BOM марки «${brandTitle}»: позиция «${key}» — основной вариант «${defaultOption.partLabel}» ` +
+            `отсутствует на складе, в прогноз подставлен запасной «${substitute.partLabel}» (${substituteStock} шт.).`,
+        );
+        continue;
+      }
+    }
+    chosen.push(defaultOption);
   }
   return chosen;
 }
@@ -418,6 +447,8 @@ export function buildAssemblyForecastKits(input: {
     { id: string; code: string | null; name: string | null; deletedAt: number | null }
   >;
   brandLabels: ReadonlyMap<string, string>;
+  /** Фаза 3: текущий сток по номенклатуре — для подстановки запасного варианта позиции при отсутствии основного. Опц.: без него позиция коллапсирует к основному как раньше. */
+  stockByNomenclatureId?: ReadonlyMap<string, number>;
 }): { kits: AssemblyEngineBrandKit[]; warnings: string[] } {
   const warnings: string[] = [];
   if (input.headerRows.length === 0) return { kits: [], warnings };
@@ -546,7 +577,7 @@ export function buildAssemblyForecastKits(input: {
       // несколько взаимозаменяемых деталей, но собирают из ОДНОЙ — основной (isDefaultOption).
       // В прогноз попадает только основной вариант; иначе спрос множился бы по всем вариантам.
       // Легаси-строки (positionKey=null) — позиции-одиночки, берутся как есть → поведение не меняется.
-      const kitLines = collapsePositionsToDefaultOption(filtered, brandTitle, warnings);
+      const kitLines = collapsePositionsToDefaultOption(filtered, brandTitle, warnings, input.stockByNomenclatureId);
       const parts = kitLines.map((line) => ({
         partId: line.compId,
         nomenclatureId: line.compId,
@@ -569,6 +600,7 @@ export function buildAssemblyForecastKits(input: {
 /** Thin wrapper: DB queries → buildAssemblyForecastKits. */
 async function loadActiveDefaultBomKits(
   engineBrandFilter?: string[],
+  stockByNomenclatureId?: ReadonlyMap<string, number>,
 ): Promise<{ kits: AssemblyEngineBrandKit[]; warnings: string[] }> {
   // Edge case #7: активный default BOM вовсе без активной brand-link молча выпадает
   // из innerJoin ниже (backfill 0042+0047 гарантировал link, но диагностика нужна).
@@ -674,6 +706,7 @@ async function loadActiveDefaultBomKits(
     })),
     nomenclatureById,
     brandLabels,
+    ...(stockByNomenclatureId ? { stockByNomenclatureId } : {}),
   });
   return { kits: built.kits, warnings: [...linklessWarnings, ...built.warnings] };
 }
@@ -706,7 +739,15 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   });
   // Ф5 (GAP-5): открытые ремнаряды — будущий приход отремонтированных деталей.
   const repairIncoming = await loadOpenRepairIncomingLines({ ...(warehouseIds ? { warehouseIds } : {}) });
-  const { kits, warnings: kitWarnings } = await loadActiveDefaultBomKits(engineBrandIds);
+  // Фаза 3: сток нужен ДО сборки китов — при отсутствии основного варианта позиции на складе
+  // в прогноз подставляется запасной. (No-kits early-return ниже смещается на эти 3 запроса — приемлемо.)
+  const [stockResult, whLabels, repairFundStock] = await Promise.all([
+    loadNomenclatureStockMap(warehouseIds),
+    loadWarehouseIdToLabelMap(),
+    loadRepairFundStockMap(),
+  ]);
+  const stock = stockResult.map;
+  const { kits, warnings: kitWarnings } = await loadActiveDefaultBomKits(engineBrandIds, stock);
   if (kits.length === 0) {
     return {
       rows: [],
@@ -717,12 +758,6 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
       existingAssemblyOrdersByVariantKey: {} as Record<string, { operationId: string; workOrderNumber: number }>,
     };
   }
-  const [stockResult, whLabels, repairFundStock] = await Promise.all([
-    loadNomenclatureStockMap(warehouseIds),
-    loadWarehouseIdToLabelMap(),
-    loadRepairFundStockMap(),
-  ]);
-  const stock = stockResult.map;
   const stockDataNotes =
     stockResult.unknownLocationPositions > 0
       ? [

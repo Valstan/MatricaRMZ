@@ -350,3 +350,78 @@ describe('buildAssemblyForecastKits — коллапс позиции к осн�
     expect(result.warnings.some((w) => w.includes('не отмечен основной вариант'))).toBe(true);
   });
 });
+
+describe('buildAssemblyForecastKits — Фаза 3: подстановка запасного варианта при отсутствии основного', () => {
+  const positionLines = [
+    line({ bomId: 'bom-sub', componentNomenclatureId: 'piston-def', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', isDefaultOption: true }),
+    line({ bomId: 'bom-sub', componentNomenclatureId: 'piston-b', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', isDefaultOption: false }),
+    line({ bomId: 'bom-sub', componentNomenclatureId: 'piston-c', componentType: 'piston', qtyPerUnit: 6, positionKey: 'piston', isDefaultOption: false }),
+  ];
+  const positionNoms = asNomMap([
+    nom({ id: 'piston-def', name: 'Поршень основной' }),
+    nom({ id: 'piston-b', name: 'Поршень запасной Б' }),
+    nom({ id: 'piston-c', name: 'Поршень запасной В' }),
+  ]);
+
+  it('основной сток=0, запасные есть → в kit запасной с наибольшим остатком + warning', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-sub', engineBrandId: 'brand-a' })],
+      lineRows: positionLines,
+      nomenclatureById: positionNoms,
+      brandLabels,
+      stockByNomenclatureId: new Map([
+        ['piston-def', 0],
+        ['piston-b', 10],
+        ['piston-c', 3],
+      ]),
+    });
+    expect(result.kits).toHaveLength(1);
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['piston-b']);
+    const w = result.warnings.find((x) => x.includes('подставлен запасной'));
+    expect(w).toBeDefined();
+    expect(w).toContain('отсутствует на складе');
+    expect(w).toContain('10 шт.');
+  });
+
+  it('основной в стоке → берётся основной даже если у запасного больше (нет регресса)', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-sub', engineBrandId: 'brand-a' })],
+      lineRows: positionLines,
+      nomenclatureById: positionNoms,
+      brandLabels,
+      stockByNomenclatureId: new Map([
+        ['piston-def', 5],
+        ['piston-b', 100],
+      ]),
+    });
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['piston-def']);
+    expect(result.warnings.some((x) => x.includes('подставлен запасной'))).toBe(false);
+  });
+
+  it('основной сток=0 и все запасные=0 → остаётся основной, без warning подстановки (дефицит как раньше)', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-sub', engineBrandId: 'brand-a' })],
+      lineRows: positionLines,
+      nomenclatureById: positionNoms,
+      brandLabels,
+      stockByNomenclatureId: new Map([
+        ['piston-def', 0],
+        ['piston-b', 0],
+        ['piston-c', 0],
+      ]),
+    });
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['piston-def']);
+    expect(result.warnings.some((x) => x.includes('подставлен запасной'))).toBe(false);
+  });
+
+  it('без stock-мапы → коллапс к основному как раньше (поведение не меняется)', () => {
+    const result = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom-sub', engineBrandId: 'brand-a' })],
+      lineRows: positionLines,
+      nomenclatureById: positionNoms,
+      brandLabels,
+    });
+    expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['piston-def']);
+    expect(result.warnings.some((x) => x.includes('подставлен запасной'))).toBe(false);
+  });
+});
