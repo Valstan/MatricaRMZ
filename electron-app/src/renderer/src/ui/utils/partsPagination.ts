@@ -175,6 +175,51 @@ export async function upsertPartSpecBrandLink(args: {
   }
 }
 
+/**
+ * Батч: скопировать привязку детали (кол-во / № сборочной единицы / флаги актов) на несколько
+ * марок разом — за ОДНО чтение+запись спеки детали (а не N раз). Для «распространить набор деталей
+ * марки на все марки её группы». Флаги актов задаются ЯВНО (перезапись, не `?? prev`): распространение
+ * должно установить состояние источника, а не молча сохранить чужие флаги. Merge по engineBrandId —
+ * идемпотентно (повторный прогон не плодит дублей); чужие детали марок-целей не трогаются.
+ */
+export async function propagatePartSpecBrandLinkToBrands(args: {
+  partId: string;
+  targetBrandIds: string[];
+  assemblyUnitNumber: string;
+  quantity: number;
+  inCompletenessAct: boolean;
+  inDefectAct: boolean;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const r = await readPartSpec(String(args.partId));
+    if (!r.ok) return r;
+    const links = [...r.spec.brandLinks];
+    const assemblyUnitNumber = String(args.assemblyUnitNumber ?? '').trim();
+    const quantity = Math.max(0, Math.floor(Number(args.quantity) || 0));
+    for (const raw of args.targetBrandIds) {
+      const brandId = String(raw ?? '').trim();
+      if (!brandId) continue;
+      const idx = links.findIndex((l) => String(l.engineBrandId ?? '') === brandId);
+      const linkId = idx >= 0 ? String(links[idx]?.id || '') || crypto.randomUUID() : crypto.randomUUID();
+      const next: SpecBrandLink = {
+        id: linkId,
+        engineBrandId: brandId,
+        assemblyUnitNumber: assemblyUnitNumber || null,
+        quantity,
+        ...(args.inCompletenessAct ? { inCompletenessAct: true } : {}),
+        ...(args.inDefectAct ? { inDefectAct: true } : {}),
+      };
+      if (idx >= 0) links[idx] = next;
+      else links.push(next);
+    }
+    const w = await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
+    if (!w.ok) return w;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function deletePartSpecBrandLink(args: {
   partId: string;
   linkId: string;

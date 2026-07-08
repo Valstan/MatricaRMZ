@@ -20,8 +20,10 @@ import {
   invalidateListAllPartSpecsCache,
   listAllPartSpecs,
   listPartSpecBrandLinks,
+  propagatePartSpecBrandLinkToBrands,
   upsertPartSpecBrandLink,
 } from '../utils/partsPagination.js';
+import { parseIdArray } from '../utils/groupBrandIds.js';
 import { buildSearchOption, joinOptionSearch, mapPartRowsToSearchOptions, sortSearchOptions } from '../utils/selectOptions.js';
 import { printRowsPreview } from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
@@ -76,7 +78,75 @@ export function EngineBrandDetailsPage(props: {
   const [partsStatus, setPartsStatus] = useState<string>('');
   const [showAddPart, setShowAddPart] = useState(false);
   const [addPartId, setAddPartId] = useState<string | null>(null);
+  // «Распространить набор деталей марки на все марки её группы».
+  const [propagateOpen, setPropagateOpen] = useState(false);
+  const [propagateGroups, setPropagateGroups] = useState<Array<{ id: string; name: string; targetBrandIds: string[] }>>([]);
+  const [propagateSelId, setPropagateSelId] = useState<string | null>(null);
+  const [propagateBusy, setPropagateBusy] = useState(false);
+  const [propagateStatus, setPropagateStatus] = useState('');
   const dirtyRef = useRef(false);
+
+  async function openPropagateModal() {
+    setPropagateStatus('');
+    setPropagateGroups([]);
+    setPropagateSelId(null);
+    setPropagateOpen(true);
+    try {
+      const types = (await window.matrica.admin.entityTypes.list()) as Array<{ id: string; code: string }>;
+      const gt = types.find((t) => String(t.code) === 'engine_brand_group');
+      if (!gt?.id) return;
+      const list = (await window.matrica.admin.entities.listByEntityType(gt.id)) as Array<{ id: string; displayName?: string }>;
+      const out: Array<{ id: string; name: string; targetBrandIds: string[] }> = [];
+      for (const row of list) {
+        const det = await window.matrica.admin.entities.get(String(row.id), gt.id).catch(() => null);
+        const attrs = (det as { attributes?: Record<string, unknown> } | null)?.attributes ?? {};
+        const brandIds = parseIdArray(attrs.engine_brand_ids);
+        if (!brandIds.includes(props.brandId)) continue;
+        const targets = brandIds.filter((b) => b && b !== props.brandId);
+        if (targets.length === 0) continue;
+        const name = String(attrs.name ?? row.displayName ?? '').trim() || String(row.id);
+        out.push({ id: String(row.id), name, targetBrandIds: targets });
+      }
+      out.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+      setPropagateGroups(out);
+      setPropagateSelId(out.length === 1 ? out[0]!.id : null);
+    } catch (e) {
+      setPropagateStatus(`Ошибка загрузки групп: ${String(e)}`);
+    }
+  }
+
+  async function runPropagate() {
+    const group = propagateGroups.find((g) => g.id === propagateSelId);
+    if (!group) return;
+    const source = brandParts.filter((r) => r.id);
+    if (source.length === 0) {
+      setPropagateStatus('У марки нет деталей для распространения.');
+      return;
+    }
+    setPropagateBusy(true);
+    let done = 0;
+    let failed = 0;
+    for (const row of source) {
+      const r = await propagatePartSpecBrandLinkToBrands({
+        partId: row.id,
+        targetBrandIds: group.targetBrandIds,
+        assemblyUnitNumber: row.assemblyUnitNumber,
+        quantity: row.quantity,
+        inCompletenessAct: row.inCompletenessAct,
+        inDefectAct: row.inDefectAct,
+      });
+      if (r.ok) done += 1;
+      else failed += 1;
+      setPropagateStatus(`Копирование: ${done + failed}/${source.length}…`);
+    }
+    invalidateListAllPartSpecsCache();
+    setPropagateBusy(false);
+    setPropagateStatus(
+      failed > 0
+        ? `Готово с ошибками: ${done} деталей ок, ${failed} с ошибкой (× ${group.targetBrandIds.length} марок).`
+        : `Готово: ${done} деталей × ${group.targetBrandIds.length} марок «${group.name}».`,
+    );
+  }
   const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
   const summaryDeps = useMemo(
     () => ({
@@ -731,12 +801,57 @@ export function EngineBrandDetailsPage(props: {
         style={{ marginTop: 14, padding: 12 }}
         actions={
           props.canEdit && props.canViewParts && props.canEditParts ? (
-            <Button variant="ghost" onClick={() => setShowAddPart((v) => !v)}>
-              + Добавить деталь
-            </Button>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <Button variant="ghost" onClick={() => setShowAddPart((v) => !v)}>
+                + Добавить деталь
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void openPropagateModal()}
+                disabled={brandParts.length === 0}
+                title="Скопировать этот набор деталей (кол-во, № узла, галочки актов комплектности/дефектовки) на все марки выбранной группы"
+              >
+                Распространить на группу
+              </Button>
+            </div>
           ) : undefined
         }
       >
+        {propagateOpen ? (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 20 }}
+            onClick={() => { if (!propagateBusy) setPropagateOpen(false); }}
+          >
+            <div style={{ width: 'min(560px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>Распространить набор деталей на группу</div>
+              <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 13 }}>
+                {brandParts.length} видов деталей этой марки будут скопированы (кол-во, № узла, галочки актов) на все другие марки выбранной группы. Существующие привязки этих деталей на марках-целях перезаписываются; прочие детали марок-целей не трогаются.
+              </div>
+              {propagateGroups.length === 0 ? (
+                <div style={{ marginTop: 12, color: 'var(--subtle)' }}>
+                  {propagateStatus || 'Эта марка не входит ни в одну группу с другими марками. Добавьте марку в группу в разделе «Группы марок».'}
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {propagateGroups.map((g) => (
+                    <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: 'var(--surface-2, rgba(148,163,184,0.10))', cursor: 'pointer' }}>
+                      <input type="radio" name="propagate-group" checked={propagateSelId === g.id} onChange={() => setPropagateSelId(g.id)} disabled={propagateBusy} />
+                      <span style={{ flex: 1 }}>{g.name}</span>
+                      <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{g.targetBrandIds.length} марок-целей</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {propagateStatus && propagateGroups.length > 0 ? <div style={{ marginTop: 10, color: propagateStatus.startsWith('Ошибка') || propagateStatus.includes('ошиб') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>{propagateStatus}</div> : null}
+              <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <Button variant="ghost" onClick={() => setPropagateOpen(false)} disabled={propagateBusy}>Закрыть</Button>
+                <Button variant="ghost" tone="success" onClick={() => void runPropagate()} disabled={propagateBusy || !propagateSelId}>
+                  {propagateBusy ? 'Копирую…' : 'Скопировать'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div style={{ marginBottom: 10, color: 'var(--subtle)', fontSize: 13 }}>
             Видов деталей: {totalPartKinds}, всего штук: {totalPartsQty}
         </div>
