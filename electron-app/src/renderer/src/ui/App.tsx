@@ -1483,7 +1483,8 @@ export function App() {
         // ignore
       }
     };
-    const id = setInterval(() => void poll(), 30_000);
+    // Подхват делегированных прав (`/auth/me`): ≤60с достаточно, чаще — лишний прод-трафик × клиент.
+    const id = setInterval(() => void poll(), 60_000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -1567,7 +1568,9 @@ export function App() {
       }
     };
     void poll();
-    const id = setInterval(() => void poll(), 20_000);
+    // Собственный индикатор «в сети»: 60с достаточно, чаще — лишний прод-трафик
+    // (`/presence/me` × каждый клиент). См. инцидент CPU/presence (GOTCHAS M28).
+    const id = setInterval(() => void poll(), 60_000);
     return () => {
       alive = false;
       clearInterval(id);
