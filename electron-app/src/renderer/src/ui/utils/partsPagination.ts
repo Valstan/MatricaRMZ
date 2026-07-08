@@ -178,9 +178,17 @@ export async function upsertPartSpecBrandLink(args: {
 /**
  * Батч: скопировать привязку детали (кол-во / № сборочной единицы / флаги актов) на несколько
  * марок разом — за ОДНО чтение+запись спеки детали (а не N раз). Для «распространить набор деталей
- * марки на все марки её группы». Флаги актов задаются ЯВНО (перезапись, не `?? prev`): распространение
- * должно установить состояние источника, а не молча сохранить чужие флаги. Merge по engineBrandId —
- * идемпотентно (повторный прогон не плодит дублей); чужие детали марок-целей не трогаются.
+ * марки на все марки её группы». Merge по engineBrandId — идемпотентно (повторный прогон не плодит
+ * дублей); чужие детали марок-целей не трогаются.
+ *
+ * Режимы (`mergeMode`):
+ *  - `overwrite`   — привязка марки-цели устанавливается = источнику (кол-во/узел/флаги перезаписываются);
+ *                    добавляется, если её не было. (Прежнее поведение кнопки.)
+ *  - `add-missing` — существующая привязка марки-цели НЕ трогается; добавляется только недостающая.
+ *                    Для актов (`ensureActFlag`) у существующей привязки лишь ПРОСТАВЛЯЕТСЯ галочка акта
+ *                    (кол-во/узел/прочий флаг сохраняются) — это «отметить деталь в акте у всех марок».
+ *
+ * `ensureActFlag` (для scope «детали акта X»): гарантировать флаг акта у марки-цели даже в add-missing.
  */
 export async function propagatePartSpecBrandLinkToBrands(args: {
   partId: string;
@@ -189,6 +197,8 @@ export async function propagatePartSpecBrandLinkToBrands(args: {
   quantity: number;
   inCompletenessAct: boolean;
   inDefectAct: boolean;
+  mergeMode: 'overwrite' | 'add-missing';
+  ensureActFlag?: 'completeness' | 'defect';
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const r = await readPartSpec(String(args.partId));
@@ -196,10 +206,21 @@ export async function propagatePartSpecBrandLinkToBrands(args: {
     const links = [...r.spec.brandLinks];
     const assemblyUnitNumber = String(args.assemblyUnitNumber ?? '').trim();
     const quantity = Math.max(0, Math.floor(Number(args.quantity) || 0));
+    const actFlagKey = args.ensureActFlag === 'completeness' ? 'inCompletenessAct' : args.ensureActFlag === 'defect' ? 'inDefectAct' : null;
+    let changed = false;
     for (const raw of args.targetBrandIds) {
       const brandId = String(raw ?? '').trim();
       if (!brandId) continue;
       const idx = links.findIndex((l) => String(l.engineBrandId ?? '') === brandId);
+      if (idx >= 0 && args.mergeMode === 'add-missing') {
+        // Существующую привязку не перезаписываем; для акта лишь гарантируем галочку.
+        const cur = links[idx]!;
+        if (actFlagKey && !cur[actFlagKey]) {
+          links[idx] = { ...cur, [actFlagKey]: true };
+          changed = true;
+        }
+        continue;
+      }
       const linkId = idx >= 0 ? String(links[idx]?.id || '') || crypto.randomUUID() : crypto.randomUUID();
       const next: SpecBrandLink = {
         id: linkId,
@@ -211,10 +232,38 @@ export async function propagatePartSpecBrandLinkToBrands(args: {
       };
       if (idx >= 0) links[idx] = next;
       else links.push(next);
+      changed = true;
     }
+    if (!changed) return { ok: true };
     const w = await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
     if (!w.ok) return w;
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Снять привязки указанных марок с ОДНОЙ детали (для режима «Полное замещение»: список деталей
+ * марки-цели должен стать точно равным набору-источнику → у деталей вне набора привязки целей удаляются).
+ * Прочие привязки детали (к другим маркам) сохраняются. `removed` — сколько привязок снято (0 → запись
+ * не производилась).
+ */
+export async function removePartSpecBrandLinksForBrands(args: {
+  partId: string;
+  brandIds: string[];
+}): Promise<{ ok: true; removed: number } | { ok: false; error: string }> {
+  try {
+    const r = await readPartSpec(String(args.partId));
+    if (!r.ok) return r;
+    const targets = new Set(args.brandIds.map((b) => String(b ?? '').trim()).filter(Boolean));
+    const before = r.spec.brandLinks.length;
+    const links = r.spec.brandLinks.filter((l) => !targets.has(String(l.engineBrandId ?? '')));
+    const removed = before - links.length;
+    if (removed === 0) return { ok: true, removed: 0 };
+    const w = await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
+    if (!w.ok) return w;
+    return { ok: true, removed };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
