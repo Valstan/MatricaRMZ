@@ -93,6 +93,61 @@
   padding: 8px;
 }
 
+/* Вкладки открытых карточек (Фаза 3). */
+.v2-card-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.v2-card-tab {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  max-width: 220px;
+}
+.v2-card-tab[data-active='1'] {
+  background: rgba(37, 99, 235, 0.16);
+  border-color: rgba(37, 99, 235, 0.55);
+}
+
+.v2-card-tab-label {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 5px 4px 5px 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.v2-card-tab-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.v2-card-tab-close:hover {
+  background: rgba(148, 163, 184, 0.25);
+  color: var(--danger);
+}
+
 .v2-workspace-empty {
   height: 100%;
   display: flex;
