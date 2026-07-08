@@ -208,7 +208,9 @@ Phase 2.x (FK `warehouse_location_id`) ✅ на проде (v1.31.0). Остат
 
 **Сделано (2026-07-08, `perf/quieter-client-polling`):** два самых частых прод-полла в `App.tsx` замедлены без потери UX — `/presence/me` (собственный индикатор «в сети») 20с→60с и `/auth/me` (подхват делегированных прав) 30с→60с. Итог ~−3 req/мин на клиента. `access:sections:self` (30с) не трогали — он читает **локальную** синк-БД (`dataDb()`), в прод не ходит.
 
-**Остаётся (структурные идеи, по желанию):** (1) **пауза/замедление поллеров при скрытом окне** (`document.visibilityState !== 'visible'`) — сейчас все таймеры тикают в фоне; чистый выигрыш, но трогает много `useEffect` (риск stale-on-focus). (2) **Консолидация ad-hoc таймеров на единый pulse** (`liveDataService`, уже 15с) вместо ~8 независимых `setInterval` в `App.tsx`. (3) Авто-sync `/ledger/state/changes` и update-polling уже 5мин — трогать не нужно. Низкий приоритет.
+**Сделано (2026-07-08, `perf/poll-when-hidden`):** утилита `pollWhenVisible` (`ui/utils/`) — поллер спит при скрытом окне (`visibilityState==='hidden'`) + немедленный refresh при возврате фокуса. Переведены 4 прод-полла без фонового побочного эффекта: `auth.sync` (/auth/me), `server.health` (/health), `notes.burningCount`, contract-activity-alerts. Свёрнутый на ночь клиент по ним не шлёт запросов. **Сознательно НЕ переведены:** `chat.unreadCount` (играет звук нового сообщения даже у свёрнутого окна — нотификация) и `presence.me` (GET, но на сервере обновляет `userPresence` — heartbeat «я онлайн» для multi-user).
+
+**Остаётся (структурные идеи, по желанию):** (2) **Консолидация ad-hoc таймеров на единый pulse** (`liveDataService`, уже 15с) вместо ~8 независимых `setInterval` в `App.tsx`. (2b) Локальные IPC-поллы (`backups.status`, `update.status`, `sync.status`, `access:sections:self`) тоже можно паузить при скрытом окне — в прод не ходят, но будят main-процесс; тривиально через ту же `pollWhenVisible`. (3) Авто-sync `/ledger/state/changes` и update-polling уже 5мин — трогать не нужно. Низкий приоритет.
 
 ### Группы марок — группировка списка марок по секциям 🗓 since:2026-07-07
 

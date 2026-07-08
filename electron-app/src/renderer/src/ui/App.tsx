@@ -54,6 +54,7 @@ import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { loadContractActivityAlerts } from './utils/contractAlerts.js';
+import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 
 type RecentVisitEntry = {
@@ -1484,10 +1485,11 @@ export function App() {
       }
     };
     // Подхват делегированных прав (`/auth/me`): ≤60с достаточно, чаще — лишний прод-трафик × клиент.
-    const id = setInterval(() => void poll(), 60_000);
+    // Пауза при скрытом окне + refresh при возврате фокуса.
+    const stop = pollWhenVisible(() => void poll(), 60_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [authStatus.loggedIn]);
 
@@ -1767,10 +1769,10 @@ export function App() {
       }
     };
     void refresh();
-    const id = setInterval(() => void refresh(), 5 * 60_000);
+    const stop = pollWhenVisible(() => void refresh(), 5 * 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -1922,10 +1924,10 @@ export function App() {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 60_000);
+    const stop = pollWhenVisible(() => void tick(), 60_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [authStatus.loggedIn, viewMode]);
 
@@ -1947,10 +1949,10 @@ export function App() {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 60_000);
+    const stop = pollWhenVisible(() => void tick(), 60_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [authStatus.loggedIn, viewMode]);
 
