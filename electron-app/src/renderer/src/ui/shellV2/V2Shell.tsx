@@ -37,6 +37,10 @@ export function V2Shell(props: {
   focusedCardKey: string | null;
   onFocusCard: (card: { kind: TabId; entityId: string }) => void;
   onCloseCard: (card: { kind: TabId; entityId: string }) => void;
+  secondaryCard: { kind: TabId; entityId: string; title: string } | null;
+  renderSecondaryCard: () => React.ReactNode;
+  onSplitCard: (card: { kind: TabId; entityId: string; title: string }) => void;
+  onCloseSecondary: () => void;
 }) {
   const { prefs } = props;
   const saveTimer = useRef<number | null>(null);
@@ -159,6 +163,16 @@ export function V2Shell(props: {
         </div>
       );
     }
+    const secondary = props.secondaryCard;
+    const secondaryKey = secondary ? `${secondary.kind}:${secondary.entityId}` : null;
+    const primaryBody = workspaceTab ? (
+      props.renderTabContent(workspaceTab)
+    ) : (
+      <div className="v2-workspace-empty">
+        <div style={{ fontSize: 34 }}>🗂️</div>
+        <div>Выберите элемент из списка — карточка откроется здесь.</div>
+      </div>
+    );
     return (
       <div className="v2-col v2-col-workspace">
         {props.openCards.length > 0 && (
@@ -166,6 +180,7 @@ export function V2Shell(props: {
             {props.openCards.map((card) => {
               const key = `${card.kind}:${card.entityId}`;
               const active = key === props.focusedCardKey;
+              const isSecondary = key === secondaryKey;
               return (
                 <div key={key} className="v2-card-tab" data-active={active ? '1' : undefined} title={card.title}>
                   <button
@@ -175,6 +190,18 @@ export function V2Shell(props: {
                   >
                     {card.title}
                   </button>
+                  {/* ⑃ разделить: закрепить карточку во второй панели (только если это не текущая
+                      левая и не уже вторая панель). */}
+                  {!active && !isSecondary && (
+                    <button
+                      type="button"
+                      className="v2-card-tab-split"
+                      title="Открыть рядом (разделить)"
+                      onClick={() => props.onSplitCard(card)}
+                    >
+                      ⑃
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="v2-card-tab-close"
@@ -188,18 +215,35 @@ export function V2Shell(props: {
             })}
           </div>
         )}
-        <div className="v2-col-body">
-          <React.Suspense fallback={suspenseFallback()}>
-            {workspaceTab ? (
-              props.renderTabContent(workspaceTab)
-            ) : (
-              <div className="v2-workspace-empty">
-                <div style={{ fontSize: 34 }}>🗂️</div>
-                <div>Выберите элемент из списка — карточка откроется здесь.</div>
+        {secondary ? (
+          <Group orientation="horizontal" className="v2-split-group">
+            <Panel id="split-primary" className="v2-panel-body" minSize={200}>
+              <div className="v2-split-pane">
+                <div className="v2-col-body">
+                  <React.Suspense fallback={suspenseFallback()}>{primaryBody}</React.Suspense>
+                </div>
               </div>
-            )}
-          </React.Suspense>
-        </div>
+            </Panel>
+            <Separator className="v2-resize-handle" />
+            <Panel id="split-secondary" className="v2-panel-body" minSize={200}>
+              <div className="v2-split-pane v2-split-secondary">
+                <div className="v2-col-header">
+                  <span className="v2-col-title">▐ {secondary.title}</span>
+                  <button type="button" className="v2-col-tool" title="Закрыть вторую панель" onClick={props.onCloseSecondary}>
+                    ✕
+                  </button>
+                </div>
+                <div className="v2-col-body">
+                  <React.Suspense fallback={suspenseFallback()}>{props.renderSecondaryCard()}</React.Suspense>
+                </div>
+              </div>
+            </Panel>
+          </Group>
+        ) : (
+          <div className="v2-col-body">
+            <React.Suspense fallback={suspenseFallback()}>{primaryBody}</React.Suspense>
+          </div>
+        )}
       </div>
     );
   }

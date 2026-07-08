@@ -647,6 +647,14 @@ export function App() {
   // остальные — «закладки» для быстрого возврата). Дедуп по kind+entityId. Не используется в v1.
   const [v2OpenCards, setV2OpenCards] = useState<Array<{ kind: TabId; entityId: string; title: string }>>([]);
   const V2_MAX_OPEN_CARDS = 3;
+  // Split «2 рядом»: вторая карточка, смонтированная одновременно с primary (справа).
+  // Своё состояние загрузки двигателя (engine — единственная не-self-load карточка) и
+  // свой close-actions ref (backstop сохранения работает по обеим панелям).
+  const [v2SecondaryCard, setV2SecondaryCard] = useState<{ kind: TabId; entityId: string; title: string } | null>(null);
+  const [secondaryEngineDetails, setSecondaryEngineDetails] = useState<EngineDetails | null>(null);
+  const [secondaryEngineLoading, setSecondaryEngineLoading] = useState(false);
+  const [v2SecondaryEpoch, setV2SecondaryEpoch] = useState(0);
+  const secondaryCloseRef = useRef<CardCloseActions | null>(null);
   const [sectionMembership, setSectionMembership] = useState<Partial<Record<string, 'viewer' | 'editor'>> | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -698,6 +706,9 @@ export function App() {
   const cardCloseTargetTabRef = useRef<TabId | null>(null);
   const cardCloseFromAppRef = useRef(false);
   const cardCloseInProgressRef = useRef(false);
+  // Split: набор панелей, чьё сохранение решает текущая close-модалка ('primary'/'secondary').
+  const cardClosePanesRef = useRef<Array<'primary' | 'secondary'>>([]);
+  const [cardClosePaneCount, setCardClosePaneCount] = useState(1);
   const cardCloseTimerRef = useRef<number | null>(null);
   const navigateDeepLinkRef = useRef<(link: ChatDeepLinkPayload) => Promise<void>>(async () => {});
   // Phase 3b: recovery drafts surfaced once after login (null = not shown / dismissed).
@@ -745,49 +756,80 @@ export function App() {
     cardCloseActionsRef.current = actions;
   }, []);
 
+  const registerSecondaryCardCloseActions = useCallback((actions: CardCloseActions | null) => {
+    secondaryCloseRef.current = actions;
+  }, []);
+
+  const clearSecondaryPaneState = useCallback(() => {
+    secondaryCloseRef.current = null;
+    setV2SecondaryCard(null);
+    setSecondaryEngineDetails(null);
+    setSecondaryEngineLoading(false);
+  }, []);
+
+  const paneCloseActions = useCallback(
+    (pane: 'primary' | 'secondary') => (pane === 'primary' ? cardCloseActionsRef.current : secondaryCloseRef.current),
+    [],
+  );
+
   const closeCardSession = useCallback(
-    async (opts: { targetTab: TabId | null; appClose: boolean }) => {
+    async (opts: { targetTab: TabId | null; appClose: boolean; panes?: Array<'primary' | 'secondary'> }) => {
       if (cardCloseInProgressRef.current && opts.appClose) {
         return;
       }
 
       const targetTab = opts.targetTab;
       const fromApp = opts.appClose;
-      const actions = cardCloseActionsRef.current;
-      if (!actions) {
+      // Какие панели закрываем: явно заданные, иначе — обе при закрытии приложения
+      // (проверяем несохранённое в обеих), либо только primary при обычном переходе.
+      const panes: Array<'primary' | 'secondary'> =
+        opts.panes ??
+        (fromApp
+          ? (['primary', 'secondary'] as const).filter((p) => paneCloseActions(p) != null)
+          : ['primary']);
+
+      const paneDirty = (pane: 'primary' | 'secondary') => {
+        const a = paneCloseActions(pane);
+        if (!a) return false;
+        try {
+          return Boolean(a.isDirty());
+        } catch {
+          return true;
+        }
+      };
+      const dirtyPanes = panes.filter(paneDirty);
+
+      if (dirtyPanes.length === 0) {
+        for (const p of panes) {
+          const a = paneCloseActions(p);
+          if (a) a.closeWithoutSave();
+          if (p === 'secondary') clearSecondaryPaneState();
+        }
         if (fromApp) {
           window.matrica.app.respondToCloseRequest?.({ allowClose: true });
         } else {
-          if (targetTab) setTabState(targetTab);
+          const pendingOpen = pendingCardOpenRef.current;
+          if (pendingOpen) {
+            pendingCardOpenRef.current = null;
+            pendingOpen();
+          } else if (targetTab) {
+            setTabState(targetTab);
+          }
         }
         return;
       }
 
-      let dirty = false;
-      try {
-        dirty = Boolean(actions.isDirty());
-      } catch {
-        dirty = true;
-      }
-
-      if (!dirty) {
-        actions.closeWithoutSave();
-        if (fromApp) {
-          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
-        } else if (targetTab) {
-          setTabState(targetTab);
-        }
-        return;
-      }
-
-      const supportsDraft = Boolean(actions.keepDraft);
+      const first = dirtyPanes[0];
+      const supportsDraft = dirtyPanes.length === 1 && !!first && Boolean(paneCloseActions(first)?.keepDraft);
       cardCloseInProgressRef.current = true;
       cardCloseTargetTabRef.current = targetTab;
       cardCloseFromAppRef.current = fromApp;
+      cardClosePanesRef.current = dirtyPanes;
       clearCardCloseTimer();
       setCardCloseCountdown(10);
       setCardCloseStatus('');
       setCardCloseSupportsDraft(supportsDraft);
+      setCardClosePaneCount(dirtyPanes.length);
       setCardCloseModalOpen(true);
       // Автозавершение по таймеру — ТОЛЬКО для карточек с черновиком (безопасный дефолт = оставить
       // черновик: ничего не теряем и ничего молча не коммитим). Legacy-карточки без черновика
@@ -806,7 +848,7 @@ export function App() {
         }, 1000);
       }
     },
-    [setTabState],
+    [setTabState, paneCloseActions, clearSecondaryPaneState],
   );
 
   const finalizeCardClose = useCallback(
@@ -815,27 +857,34 @@ export function App() {
       setCardCloseModalOpen(false);
       cardCloseInProgressRef.current = false;
 
-      const actions = cardCloseActionsRef.current;
+      const panes = cardClosePanesRef.current;
+      cardClosePanesRef.current = [];
       const targetTab = cardCloseTargetTabRef.current;
       const fromApp = cardCloseFromAppRef.current;
       cardCloseTargetTabRef.current = null;
       cardCloseFromAppRef.current = false;
 
-      if (!actions) {
+      if (panes.length === 0) {
         if (fromApp) window.matrica.app.respondToCloseRequest?.({ allowClose: true });
         return;
       }
 
       try {
-        if (decision === 'save') {
-          await actions.saveAndClose();
-        } else if (decision === 'keepDraft') {
-          // Keep the unsaved snapshot as a recovery draft; fall back to commit only if
-          // the card has no draft support (so we never silently discard on this path).
-          if (actions.keepDraft) await actions.keepDraft();
-          else await actions.saveAndClose();
-        } else {
-          actions.closeWithoutSave();
+        // Решение применяется ко всем грязным панелям (при закрытии приложения их может быть две).
+        for (const p of panes) {
+          const actions = paneCloseActions(p);
+          if (!actions) continue;
+          if (decision === 'save') {
+            await actions.saveAndClose();
+          } else if (decision === 'keepDraft') {
+            // Keep the unsaved snapshot as a recovery draft; fall back to commit only if
+            // the card has no draft support (so we never silently discard on this path).
+            if (actions.keepDraft) await actions.keepDraft();
+            else await actions.saveAndClose();
+          } else {
+            actions.closeWithoutSave();
+          }
+          if (p === 'secondary') clearSecondaryPaneState();
         }
       } catch (e) {
         setCardCloseStatus(`Ошибка сохранения: ${String(e)}`);
@@ -872,7 +921,7 @@ export function App() {
         window.matrica.app.respondToCloseRequest?.({ allowClose: true });
       }
     },
-    [setTabState],
+    [setTabState, paneCloseActions, clearSecondaryPaneState],
   );
 
   const requestTabSwitch = useCallback(
@@ -1229,16 +1278,17 @@ export function App() {
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!isCardTab(tab)) return;
-      const actions = cardCloseActionsRef.current;
-      let dirty = false;
-      if (actions) {
+      // Split: карточка может быть в primary-табе И/ИЛИ в secondary-панели.
+      if (!isCardTab(tab) && !v2SecondaryCard) return;
+      const paneDirty = (a: CardCloseActions | null) => {
+        if (!a) return false;
         try {
-          dirty = Boolean(actions.isDirty());
+          return Boolean(a.isDirty());
         } catch {
-          dirty = true;
+          return true;
         }
-      }
+      };
+      const dirty = paneDirty(cardCloseActionsRef.current) || paneDirty(secondaryCloseRef.current);
       if (!dirty) {
         window.matrica.app?.respondToCloseRequest?.({ allowClose: true });
         return;
@@ -1253,7 +1303,7 @@ export function App() {
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [closeCardSession, isCardTab, tab]);
+  }, [closeCardSession, isCardTab, tab, v2SecondaryCard]);
 
   useEffect(() => {
     const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
@@ -1545,6 +1595,10 @@ export function App() {
     queuedHistoryReplayRef.current = null;
     setV2ActiveListTab(null);
     setV2OpenCards([]);
+    setV2SecondaryCard(null);
+    setSecondaryEngineDetails(null);
+    setSecondaryEngineLoading(false);
+    secondaryCloseRef.current = null;
     pendingCardOpenRef.current = null;
     setEmployeesRefreshKey((k) => k + 1);
     setAiChatOpen(true);
@@ -2093,6 +2147,14 @@ export function App() {
   }
 
   function switchShellVersion(version: UiShellVersion) {
+    // Split-панель осмысленна только в v2 — при уходе в v1 закрываем её (без dirty-guard:
+    // это осознанное переключение оболочки; primary-карточка остаётся под своим guard'ом).
+    if (version === 'v1' && v2SecondaryCard) {
+      secondaryCloseRef.current = null;
+      setV2SecondaryCard(null);
+      setSecondaryEngineDetails(null);
+      setSecondaryEngineLoading(false);
+    }
     const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
     void persistShellPrefs({ ...base, shellVersion: version });
   }
@@ -2506,6 +2568,14 @@ export function App() {
   }
 
   function focusV2Card(card: { kind: TabId; entityId: string }) {
+    // Не держать одну и ту же карточку и слева, и справа: если фокусируем ту, что сейчас
+    // в secondary, — закрываем правую панель (пользователь сам увёл её в primary).
+    if (v2SecondaryCard && v2SecondaryCard.kind === card.kind && v2SecondaryCard.entityId === card.entityId) {
+      secondaryCloseRef.current = null;
+      setV2SecondaryCard(null);
+      setSecondaryEngineDetails(null);
+      setSecondaryEngineLoading(false);
+    }
     reopenV2Card(card.kind, card.entityId);
   }
 
@@ -2542,6 +2612,36 @@ export function App() {
     }
     pendingCardOpenRef.current = doAfter;
     void closeCardSession({ targetTab: null, appClose: false });
+  }
+
+  // ── Split «2 рядом»: вторая (правая) панель ─────────────────────────────────────
+  async function loadSecondaryEngine(entityId: string) {
+    setSecondaryEngineDetails(null);
+    setSecondaryEngineLoading(true);
+    try {
+      const d = await window.matrica.engines.get(entityId);
+      setSecondaryEngineDetails(d);
+    } catch {
+      setSecondaryEngineDetails(null);
+    } finally {
+      setSecondaryEngineLoading(false);
+    }
+  }
+
+  // Закрепить карточку как вторую панель (справа). engine грузится отдельно (не self-load).
+  function openSecondaryCard(card: { kind: TabId; entityId: string; title: string }) {
+    setV2SecondaryEpoch((e) => e + 1);
+    setV2SecondaryCard(card);
+    if (card.kind === 'engine') void loadSecondaryEngine(card.entityId);
+    else {
+      setSecondaryEngineDetails(null);
+      setSecondaryEngineLoading(false);
+    }
+  }
+
+  // Закрыть вторую панель с dirty-guard (по своему secondaryCloseRef).
+  function closeSecondaryCard() {
+    void closeCardSession({ targetTab: null, appClose: false, panes: ['secondary'] });
   }
 
   // Учёт открытых карточек: при фокусе на карточке — upsert дескриптора (дедуп, кап 3).
@@ -3578,29 +3678,35 @@ export function App() {
         }}
       >
         <div style={{ width: 'min(560px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>Карточка закрывается</div>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>
+            {cardClosePaneCount > 1 ? `Закрываются ${cardClosePaneCount} карточки` : 'Карточка закрывается'}
+          </div>
           <div style={{ marginTop: 8, color: 'var(--muted)' }}>
-            {cardCloseSupportsDraft
-              ? 'В карточке есть несохранённые изменения. Сохранить их, отклонить или оставить черновик для восстановления позже?'
-              : 'Сохранить изменения в карточке?'}
+            {cardClosePaneCount > 1
+              ? 'В обеих панелях есть несохранённые изменения. Сохранить все или отклонить все?'
+              : cardCloseSupportsDraft
+                ? 'В карточке есть несохранённые изменения. Сохранить их, отклонить или оставить черновик для восстановления позже?'
+                : 'Сохранить изменения в карточке?'}
           </div>
           <div style={{ marginTop: 10, color: 'var(--muted)' }}>
-            {cardCloseSupportsDraft
-              ? `Если не выбрать действие, изменения останутся черновиком через ${cardCloseCountdown} сек.`
-              : 'Пока не выберете действие, изменения не сохраняются, карточка остаётся открытой.'}
+            {cardClosePaneCount > 1
+              ? 'Пока не выберете действие, изменения не сохраняются, карточки остаются открытыми.'
+              : cardCloseSupportsDraft
+                ? `Если не выбрать действие, изменения останутся черновиком через ${cardCloseCountdown} сек.`
+                : 'Пока не выберете действие, изменения не сохраняются, карточка остаётся открытой.'}
           </div>
           {cardCloseStatus ? <div style={{ marginTop: 8, color: 'var(--danger)' }}>{cardCloseStatus}</div> : null}
           <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <Button tone="danger" variant="ghost" onClick={() => void finalizeCardClose('discard')}>
-              Не сохранять
+              {cardClosePaneCount > 1 ? 'Не сохранять все' : 'Не сохранять'}
             </Button>
-            {cardCloseSupportsDraft ? (
+            {cardCloseSupportsDraft && cardClosePaneCount === 1 ? (
               <Button variant="ghost" onClick={() => void finalizeCardClose('keepDraft')}>
                 Оставить черновик
               </Button>
             ) : null}
             <Button variant="ghost" tone="success" onClick={() => void finalizeCardClose('save')}>
-              Сохранить
+              {cardClosePaneCount > 1 ? 'Сохранить все' : 'Сохранить'}
             </Button>
           </div>
         </div>
@@ -3809,6 +3915,113 @@ export function App() {
   // Card remount key: id + v2-эпоха (см. v2CardEpoch). В v1 эпоха константна —
   // поведение key={id} байт-в-байт.
   const cardKey = (id: string) => `${id}::${v2CardEpoch}`;
+
+  // ── Split: рендер второй (правой) панели по (kind, entityId) ────────────────────
+  // Параметризованный рендерер: те же detail-страницы, что и в primary, но по произвольному
+  // id и со своим close-ref (registerSecondaryCardCloseActions) и onClose=closeSecondaryCard.
+  // engine — единственная не-self-load карточка (нужен готовый объект secondaryEngineDetails).
+  function renderSecondaryCard(): React.ReactNode {
+    const card = v2SecondaryCard;
+    if (!card) return null;
+    const id = card.entityId;
+    const k = `${card.kind}:${id}:${v2SecondaryEpoch}`;
+    const reg = registerSecondaryCardCloseActions;
+    const close = closeSecondaryCard;
+    switch (card.kind) {
+      case 'engine':
+        if (secondaryEngineLoading || !secondaryEngineDetails) {
+          return <div style={{ padding: 16, color: 'var(--muted)' }}>{secondaryEngineLoading ? 'Загрузка карточки двигателя…' : 'Нет данных для отображения.'}</div>;
+        }
+        return (
+          <EngineDetailsPage
+            key={k}
+            engineId={id}
+            engine={secondaryEngineDetails}
+            onReload={() => loadSecondaryEngine(id)}
+            onEngineUpdated={async () => { await refreshEngines(); await loadSecondaryEngine(id); }}
+            canEditEngines={caps.canEditEngines}
+            canViewOperations={caps.canViewOperations}
+            canEditOperations={caps.canEditOperations}
+            canPrintEngineCard={caps.canPrintReports}
+            canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
+            canExportReports={caps.canExportReports}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            canConfirmEngineDisassemble={caps.canConfirmEngineDisassemble}
+            canAssemblyReturn={caps.canAssemblyReturn}
+            currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
+            registerCardCloseActions={reg}
+            requestClose={close}
+            onOpenEngine={(x: string) => void openEngine(x)}
+            onOpenEngineReclamation={(x: string) => void openEngine(x, { initialTab: 'reclamation' })}
+            initialTab="main"
+            onOpenEngineBrand={openEngineBrand}
+            onOpenCounterparty={openCounterparty}
+            onOpenContract={openContract}
+            onOpenSupplyRequest={openRequest}
+            canCreateSupplyRequest={caps.canCreateSupplyRequests && caps.canEditSupplyRequests}
+            canCreateWorkOrder={caps.canCreateWorkOrders}
+            onOpenWorkOrder={(x: string) => void openWorkOrder(x)}
+            onClose={close}
+          />
+        );
+      case 'engine_brand':
+        return (
+          <EngineBrandDetailsPage key={k} brandId={id} canEdit={caps.canEditMasterData} canViewParts={caps.canViewParts} canCreateParts={caps.canCreateParts} canEditParts={caps.canEditParts} canViewMasterData={caps.canViewMasterData} onOpenPart={openPart} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} />
+        );
+      case 'engine_brand_group':
+        return <EngineBrandGroupDetailsPage key={k} groupId={id} canEdit={caps.canEditMasterData} canViewMasterData={caps.canViewMasterData} onClose={close} />;
+      case 'request':
+        return (
+          <SupplyRequestDetailsPage key={k} id={id} canEdit={caps.canEditSupplyRequests} canSign={caps.canSignSupplyRequests} canApprove={caps.canApproveSupplyRequests} canAccept={caps.canAcceptSupplyRequests} canFulfill={caps.canFulfillSupplyRequests} canPrint={caps.canPrintSupplyRequests} canViewMasterData={caps.canViewMasterData} canEditMasterData={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} userPosition={currentUserProfile?.position ?? null} userRole={authStatus.user?.role ?? null} userDepartmentId={currentUserProfile?.sectionId ?? null} registerCardCloseActions={reg} requestClose={close} onOpenProduct={openProduct} onOpenService={openService} onOpenNomenclature={openNomenclature} onOpenPart={openPart} onClose={close} />
+        );
+      case 'work_order':
+        return (
+          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
+        );
+      case 'contract':
+        return (
+          <ContractDetailsPage key={k} contractId={id} canEdit={caps.canEditContracts} canEditMasterData={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenPart={openPart} onOpenEngineBrand={openEngineBrand} />
+        );
+      case 'counterparty':
+        return (
+          <CounterpartyDetailsPage key={k} counterpartyId={id} canEdit={caps.canEditContracts} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} />
+        );
+      case 'employee':
+        return (
+          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
+        );
+      case 'product':
+        return (
+          <SimpleMasterdataDetailsPage key={k} title="Карточка товара" entityId={id} ownerType="product" typeCode="product" canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenCustomer={openCounterparty} onClose={close} />
+        );
+      case 'service':
+        return (
+          <SimpleMasterdataDetailsPage key={k} title="Карточка услуги" entityId={id} ownerType="service" typeCode="service" canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenCustomer={openCounterparty} onClose={close} />
+        );
+      case 'nomenclature_item':
+        return (
+          <NomenclatureDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} onOpenCustomer={openCounterparty} onOpenContract={openContract} onOpenEngineBrand={openEngineBrand} onOpenByCode={openByCode} onClose={close} />
+        );
+      case 'tool':
+        return (
+          <ToolDetailsPage key={k} toolId={id} canEdit={caps.canEditMasterData} canCreateEmployees={caps.canManageEmployees} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenToolProperty={openToolProperty} onOpenEmployee={openEmployee} onBack={close} />
+        );
+      case 'tool_property':
+        return (
+          <ToolPropertyDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} registerCardCloseActions={reg} requestClose={close} onBack={close} />
+        );
+      case 'engine_assembly_bom_item':
+        return <EngineAssemblyBomDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} onClose={close} />;
+      case 'stock_document':
+        return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditOperations} canCreateParts={caps.canCreateParts} onClose={close} />;
+      case 'report_preset':
+        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
+      default:
+        return <div style={{ padding: 16, color: 'var(--muted)' }}>Этот вид карточки нельзя открыть во второй панели.</div>;
+    }
+  }
 
   // V2 shell reuses the same page chain: render the content of an arbitrary tab id.
   // v1 passes the single `tab`; v2 calls this separately for the lists column and the
@@ -4823,6 +5036,10 @@ export function App() {
               focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
               onFocusCard={focusV2Card}
               onCloseCard={closeV2Card}
+              secondaryCard={v2SecondaryCard}
+              renderSecondaryCard={renderSecondaryCard}
+              onSplitCard={openSecondaryCard}
+              onCloseSecondary={closeSecondaryCard}
             />
           ) : (
             <>
