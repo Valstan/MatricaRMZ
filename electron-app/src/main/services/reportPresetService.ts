@@ -39,8 +39,14 @@ import {
   deriveWorkOrderStatusCode,
   findWorkOrderSignatureSlots,
   WORK_ORDER_STATUS_LABELS,
+  WORK_ORDER_KIND_LABELS,
+  renderWorkOrdersReportHtml,
+  selectWorkOrdersReportColumns,
+  sortWorkOrdersReportRows,
   type WorkOrderSignatureEmployee,
   type WorkOrderStatusCode,
+  type WorkOrdersReportRow,
+  type WorkOrdersReportSortBy,
 } from '@matricarmz/shared';
 
 import {
@@ -1662,17 +1668,40 @@ async function buildWorkOrdersReport(
   const issuedEnd = asNumberOrNull(filters?.issuedEndMs);
   const dueStart = asNumberOrNull(filters?.dueStartMs);
   const dueEnd = asNumberOrNull(filters?.dueEndMs);
-  const statusCode = normalizeText(filters?.statusCode, 'all');
+  const completedStart = asNumberOrNull(filters?.completedStartMs);
+  const completedEnd = asNumberOrNull(filters?.completedEndMs);
+  const statusCodes = new Set(asArray(filters?.statusCodes));
+  const kinds = new Set(asArray(filters?.kinds));
   const responsibleFilter = asArray(filters?.responsibleIds);
   const brandFilter = asArray(filters?.brandIds);
-  const overdueOnly = filters?.overdueOnly === true;
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const numberQuery = normalizeText(filters?.numberQuery, '').trim();
+  const engineNumberQuery = normalizeText(filters?.engineNumberQuery, '').trim();
+  const workTypeQuery = normalizeText(filters?.workTypeQuery, '').trim();
+  const columnKeys = asArray(filters?.columns);
+  const sortBy = normalizeText(filters?.sortBy, 'orderDate') as WorkOrdersReportSortBy;
+  const sortDir = normalizeText(filters?.sortDir, 'desc') === 'asc' ? 'asc' : 'desc';
 
   const snapshot = await loadSnapshot(db);
   const employeeNames = new Map(buildOptions(snapshot, 'employee').map((o) => [o.value, o.label] as const));
   const brandNames = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const counterpartyNames = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const brandFilterNamesLc = new Set(
     brandFilter.map((id) => String(brandNames.get(id) ?? '').trim().toLowerCase()).filter(Boolean),
   );
+
+  // Контрагент наряда: двигатель строки → его контракт/заказчик → контрагент (кратк. имя, иначе полное).
+  const resolveCounterparty = (engineId: string): { id: string; label: string } => {
+    if (!engineId) return { id: '', label: '' };
+    const eAttrs = snapshot.attrsByEntity.get(engineId) ?? {};
+    let customerId = normalizeText(eAttrs.customer_id, '');
+    const contractId = normalizeText(eAttrs.contract_id, '');
+    if (!customerId && contractId) customerId = normalizeText(snapshot.attrsByEntity.get(contractId)?.customer_id, '');
+    if (!customerId) return { id: '', label: '' };
+    const cAttrs = snapshot.attrsByEntity.get(customerId) ?? {};
+    const label = normalizeText(cAttrs.short_name, '') || normalizeText(cAttrs.name, '') || relatedEntityLabel(snapshot, customerId);
+    return { id: customerId, label };
+  };
 
   const sourceOps = await db
     .select()
@@ -1680,7 +1709,7 @@ async function buildWorkOrdersReport(
     .where(and(isNull(operations.deletedAt), eq(operations.operationType, 'work_order')))
     .limit(120_000);
 
-  const rows: Array<Record<string, ReportCellValue>> = [];
+  const rows: WorkOrdersReportRow[] = [];
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
@@ -1697,22 +1726,36 @@ async function buildWorkOrdersReport(
     if (dueDate != null && dueEnd != null && dueDate > dueEnd) continue;
 
     const opStatus = String(op.status ?? 'open');
-    const completedDate =
+    const operatorCompleted =
       payload.completedDate != null && Number(payload.completedDate) > 0 ? Number(payload.completedDate) : null;
-    const completedAt = opStatus === 'closed' ? (completedDate ?? Number(op.updatedAt ?? 0)) : null;
-    const code: WorkOrderStatusCode = deriveWorkOrderStatusCode({ operationStatus: opStatus, dueDate, completedAt, completedDate, now });
-    if (statusCode !== 'all' && code !== statusCode) continue;
-    if (overdueOnly && code !== 'overdue') continue;
+    // Эффективная дата выполнения: оператор-заданная дата, иначе время закрытия (для закрытых).
+    const completedEffective = operatorCompleted ?? (opStatus === 'closed' ? Number(op.updatedAt ?? 0) || null : null);
+    if (completedEffective != null && completedStart != null && completedEffective < completedStart) continue;
+    if (completedEffective != null && completedEnd != null && completedEffective > completedEnd) continue;
+
+    const code: WorkOrderStatusCode = deriveWorkOrderStatusCode({
+      operationStatus: opStatus,
+      dueDate,
+      completedAt: opStatus === 'closed' ? completedEffective : null,
+      completedDate: operatorCompleted,
+      now,
+    });
+    if (statusCodes.size > 0 && !statusCodes.has(code)) continue;
+
+    const kind = String(payload.workOrderKind ?? 'regular');
+    if (kinds.size > 0 && !kinds.has(kind)) continue;
 
     let engineBrand = '';
     let engineBrandId = '';
     let engineNumber = '';
+    let engineId = '';
     let firstWorkType = '';
     const lines = Array.isArray(payload.freeWorks) ? payload.freeWorks : [];
     for (const l of lines) {
       if (!engineBrand) engineBrand = String(l?.engineBrandName ?? '').trim();
       if (!engineBrandId) engineBrandId = String(l?.engineBrandId ?? '').trim();
       if (!engineNumber) engineNumber = String(l?.engineNumber ?? '').trim();
+      if (!engineId) engineId = String(l?.engineId ?? '').trim();
       if (!firstWorkType) firstWorkType = String(l?.serviceName ?? '').trim();
     }
     if (brandFilter.length > 0) {
@@ -1720,39 +1763,151 @@ async function buildWorkOrdersReport(
       const matchName = engineBrand !== '' && brandFilterNamesLc.has(engineBrand.toLowerCase());
       if (!matchId && !matchName) continue;
     }
+    const { id: counterpartyId, label: counterparty } = resolveCounterparty(engineId);
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+    const workType = firstWorkType || resolveWorkOrderTargetLabel(payload) || '';
+    const workOrderNumber = toNumber(payload.workOrderNumber);
+
+    if (numberQuery && !String(workOrderNumber).toLowerCase().includes(numberQuery.toLowerCase())) continue;
+    if (engineNumberQuery && !engineNumber.toLowerCase().includes(engineNumberQuery.toLowerCase())) continue;
+    if (workTypeQuery && !workType.toLowerCase().includes(workTypeQuery.toLowerCase())) continue;
 
     const respSlots = findWorkOrderSignatureSlots(payload.signatureBlocks, 'issue');
     const responsibleId = respSlots.map((s) => String(s.employeeId ?? '').trim()).find(Boolean) ?? '';
     if (responsibleFilter.length > 0 && !responsibleFilter.includes(responsibleId)) continue;
     const responsible = responsibleId ? normalizeText(employeeNames.get(responsibleId), '') : '';
 
+    const crew = Array.isArray(payload.crew) ? payload.crew : [];
+    const performers = crew
+      .map((m: any) => String(m?.employeeName ?? '').trim() || normalizeText(employeeNames.get(String(m?.employeeId ?? '')), ''))
+      .filter(Boolean)
+      .join(', ');
+
     rows.push({
       orderDate,
-      workOrderNumber: toNumber(payload.workOrderNumber),
+      workOrderNumber,
+      kindLabel: WORK_ORDER_KIND_LABELS[kind as keyof typeof WORK_ORDER_KIND_LABELS] ?? kind,
+      statusCode: code,
+      statusLabel: WORK_ORDER_STATUS_LABELS[code],
+      startDate: payload.startDate != null && Number(payload.startDate) > 0 ? Number(payload.startDate) : null,
       dueDate: dueDate ?? null,
-      workType: firstWorkType || resolveWorkOrderTargetLabel(payload) || '',
+      completedDate: completedEffective ?? null,
+      workType,
       engineBrand,
       engineNumber,
-      completedAt: completedAt ?? null,
+      counterparty,
+      performers,
+      crewCount: crew.length,
       responsible,
-      statusLabel: WORK_ORDER_STATUS_LABELS[code],
       amountRub: Math.max(0, toNumber(payload.totalAmountRub)),
     });
   }
-  rows.sort((a, b) => toNumber(b.orderDate) - toNumber(a.orderDate));
+
+  const sorted = sortWorkOrdersReportRows(rows, sortBy, sortDir);
+  const columns = selectWorkOrdersReportColumns(columnKeys);
   const preset = getPreset('work_orders_report');
+  const chips = buildWorkOrdersReportChips({
+    issuedStart,
+    issuedEnd,
+    dueStart,
+    dueEnd,
+    completedStart,
+    completedEnd,
+    statusCodes,
+    kinds,
+    responsibleFilter,
+    brandFilter,
+    counterpartyFilter,
+    numberQuery,
+    engineNumberQuery,
+    workTypeQuery,
+    sortBy,
+    sortDir,
+    employeeNames,
+    brandNames,
+    counterpartyNames,
+    now,
+  });
+
   return {
     ok: true,
     presetId: 'work_orders_report',
     title: preset.title,
-    columns: preset.columns,
-    rows,
+    subtitle: chips.join(' | '),
+    columns,
+    rows: sorted,
     totals: {
-      orders: rows.length,
-      amountRub: rows.reduce((acc, row) => acc + toNumber(row.amountRub), 0),
+      orders: sorted.length,
+      amountRub: sorted.reduce((acc, row) => acc + toNumber(row.amountRub), 0),
     },
     generatedAt: Date.now(),
   };
+}
+
+/** Чипы-сводка активных фильтров/сортировки для подзаголовка печатной формы отчёта по нарядам. */
+function buildWorkOrdersReportChips(a: {
+  issuedStart: number | null;
+  issuedEnd: number | null;
+  dueStart: number | null;
+  dueEnd: number | null;
+  completedStart: number | null;
+  completedEnd: number | null;
+  statusCodes: Set<string>;
+  kinds: Set<string>;
+  responsibleFilter: string[];
+  brandFilter: string[];
+  counterpartyFilter: string[];
+  numberQuery: string;
+  engineNumberQuery: string;
+  workTypeQuery: string;
+  sortBy: string;
+  sortDir: 'asc' | 'desc';
+  employeeNames: Map<string, string>;
+  brandNames: Map<string, string>;
+  counterpartyNames: Map<string, string>;
+  now: number;
+}): string[] {
+  const chips: string[] = [];
+  const rangeChip = (label: string, s: number | null, e: number | null) => {
+    if (s == null && e == null) return;
+    if (s != null && e != null) chips.push(`${label}: ${formatMoscowDate(s)}–${formatMoscowDate(e)}`);
+    else if (s != null) chips.push(`${label}: от ${formatMoscowDate(s)}`);
+    else if (e != null) chips.push(`${label}: до ${formatMoscowDate(e)}`);
+  };
+  rangeChip('Выдан', a.issuedStart, a.issuedEnd);
+  rangeChip('Срок', a.dueStart, a.dueEnd);
+  rangeChip('Выполнен', a.completedStart, a.completedEnd);
+  const statusLabels = [...a.statusCodes].map((c) => WORK_ORDER_STATUS_LABELS[c as WorkOrderStatusCode] ?? c);
+  if (statusLabels.length) chips.push(`Статус: ${statusLabels.join(', ')}`);
+  const kindLabels = [...a.kinds].map((k) => WORK_ORDER_KIND_LABELS[k as keyof typeof WORK_ORDER_KIND_LABELS] ?? k);
+  if (kindLabels.length) chips.push(`Тип: ${kindLabels.join(', ')}`);
+  if (a.responsibleFilter.length) {
+    const names = a.responsibleFilter.map((id) => a.employeeNames.get(id) ?? '').filter(Boolean);
+    chips.push(`Ответственный: ${names.length ? names.join(', ') : `${a.responsibleFilter.length} выбрано`}`);
+  }
+  if (a.brandFilter.length) {
+    const names = a.brandFilter.map((id) => a.brandNames.get(id) ?? '').filter(Boolean);
+    chips.push(`Марки: ${names.length ? names.join(', ') : `${a.brandFilter.length} выбрано`}`);
+  }
+  if (a.counterpartyFilter.length) {
+    const names = a.counterpartyFilter.map((id) => a.counterpartyNames.get(id) ?? '').filter(Boolean);
+    chips.push(`Контрагент: ${names.length ? names.join(', ') : `${a.counterpartyFilter.length} выбрано`}`);
+  }
+  if (a.numberQuery) chips.push(`№ наряда: ${a.numberQuery}`);
+  if (a.engineNumberQuery) chips.push(`№ дв.: ${a.engineNumberQuery}`);
+  if (a.workTypeQuery) chips.push(`Виды работ: ${a.workTypeQuery}`);
+  const SORT_LABELS: Record<string, string> = {
+    orderDate: 'по дате выдачи',
+    status: 'по статусу',
+    workOrderNumber: 'по № наряда',
+    dueDate: 'по сроку',
+    completedDate: 'по дате выполнения',
+    engineBrand: 'по марке',
+    amountRub: 'по сумме',
+  };
+  chips.push(`Сортировка: ${SORT_LABELS[a.sortBy] ?? a.sortBy} ${a.sortDir === 'asc' ? '↑' : '↓'}`);
+  chips.push(`Сформировано: ${formatMoscowDate(a.now)}`);
+  return chips;
 }
 
 async function buildWorkOrderPayrollReport(
@@ -4557,6 +4712,22 @@ ${tableBlock}
 ${totalsHtml}
 ${footerNotesHtml}
 </body></html>`;
+  }
+  if (report.presetId === 'work_orders_report') {
+    const chips = (report.subtitle ?? '')
+      .split(' | ')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const totalsLine = report.totals
+      ? `Нарядов: ${Math.round(Number(report.totals.orders ?? 0))} · Сумма: ${formatRuMoney(Number(report.totals.amountRub ?? 0))}`
+      : undefined;
+    return renderWorkOrdersReportHtml({
+      title: report.title,
+      subtitleChips: chips,
+      columns: report.columns,
+      rows: report.rows,
+      ...(totalsLine ? { totalsLine } : {}),
+    });
   }
   const headers = report.columns.map((c) => `<th style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`).join('');
   const rows = report.rows
