@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
+import { groupBrandsIntoSections } from '../utils/brandGroupSections.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -35,6 +36,7 @@ export function EngineBrandsPage(props: {
   const twoCol = isMultiColumn && width >= 1400;
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [groupBySections, setGroupBySections] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!props.canViewMasterData) return;
@@ -162,6 +164,17 @@ export function EngineBrandsPage(props: {
     });
   }, [filtered, sortKey, sortDir, brandPartCounts]);
 
+  const brandSections = useMemo(
+    () =>
+      groupBrandsIntoSections(
+        sortedRows,
+        brandToGroups,
+        groupOptions.map((o) => ({ id: o.id, label: o.label })),
+        'Без группы',
+      ),
+    [sortedRows, brandToGroups, groupOptions],
+  );
+
   function onSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -272,6 +285,15 @@ export function EngineBrandsPage(props: {
             />
           </div>
         ) : null}
+        {groupOptions.length > 0 ? (
+          <Button
+            variant={groupBySections ? 'primary' : 'ghost'}
+            onClick={() => setGroupBySections((v) => !v)}
+            title="Сгруппировать список по группам марок (секции). Марка из нескольких групп появится в каждой своей секции."
+          >
+            Секции по группам
+          </Button>
+        ) : null}
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
@@ -280,7 +302,22 @@ export function EngineBrandsPage(props: {
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        {twoCol ? (
+        {groupBySections ? (
+          brandSections.length === 0 ? (
+            <div style={{ padding: 10, color: '#6b7280' }}>Нет марок двигателя в справочнике</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {brandSections.map((section) => (
+                <div key={section.groupId ?? '__no_group__'}>
+                  <div style={{ padding: '4px 2px', fontWeight: 600, color: 'var(--subtle)' }}>
+                    {section.label} · {section.brands.length}
+                  </div>
+                  {renderTable(section.brands)}
+                </div>
+              ))}
+            </div>
+          )
+        ) : twoCol ? (
           <TwoColumnList items={sortedRows} enabled renderColumn={(items) => renderTable(items)} />
         ) : (
           <VirtualTable
