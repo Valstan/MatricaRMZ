@@ -1,4 +1,5 @@
 import type { ReportCellValue, ReportFilterSpec, ReportPresetDefinition, ReportPresetFilters, ReportPresetPreviewResult } from '@matricarmz/shared';
+import { renderWorkOrdersReportInner } from '@matricarmz/shared';
 
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from './dateUtils.js';
 import type { PrintSection } from './printPreview.js';
@@ -395,6 +396,29 @@ export function renderReportTableHtml(report: PreviewOk) {
 export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection[] {
   if (report.presetId === 'work_order_payroll') {
     return [{ id: 'payroll-form', title: 'Печатная форма', html: renderWorkOrderPayrollFormInnerHtml(report) }];
+  }
+  if (report.presetId === 'work_orders_report') {
+    const chips = (report.subtitle ?? '')
+      .split(' | ')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const totalsLine = report.totals
+      ? `Нарядов: ${Math.round(Number(report.totals.orders ?? 0))} · Сумма: ${formatRuMoney(Number(report.totals.amountRub ?? 0))}`
+      : undefined;
+    return [
+      {
+        id: 'wo-report',
+        title: 'Отчёт по нарядам',
+        hideTitle: true,
+        html: renderWorkOrdersReportInner({
+          title: report.title,
+          subtitleChips: chips,
+          columns: report.columns,
+          rows: report.rows,
+          ...(totalsLine ? { totalsLine } : {}),
+        }),
+      },
+    ];
   }
   const sections: PrintSection[] = [
     { id: 'table', title: 'Данные отчета', html: renderReportTableHtml(report) },

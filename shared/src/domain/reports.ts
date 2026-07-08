@@ -1,4 +1,5 @@
 import type { WorkOrderSignatureDecryptions } from './workOrderSignatures.js';
+import { WORK_ORDERS_REPORT_COLUMNS, WORK_ORDERS_REPORT_COLUMN_OPTIONS } from './workOrdersReport.js';
 
 export type ReportPresetId =
   | 'parts_demand'
@@ -450,39 +451,67 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   },
   {
     id: 'work_orders_report',
-    title: 'Наряды: журнал и сроки',
-    description: 'Список нарядов с фильтрами по датам выдачи/срока, статусу и ответственному. Предпросмотр и печать.',
+    title: 'Отчёт по нарядам',
+    description: 'Журнал нарядов: фильтры по каждому полю, выбор колонок, сортировка (в т.ч. по статусу), красивая печать.',
     filters: [
       { type: 'date_range', key: 'issued', label: 'Дата выдачи', startKey: 'issuedStartMs', endKey: 'issuedEndMs', labelHint: 'Период по дате выдачи наряда' },
       { type: 'date_range', key: 'due', label: 'Срок исполнения', startKey: 'dueStartMs', endKey: 'dueEndMs', labelHint: 'Период по плановой дате исполнения' },
+      { type: 'date_range', key: 'completed', label: 'Дата выполнения', startKey: 'completedStartMs', endKey: 'completedEndMs', labelHint: 'Период по фактической дате выполнения' },
       {
-        type: 'select',
-        key: 'statusCode',
+        type: 'multi_select',
+        key: 'statusCodes',
         label: 'Статус',
         options: [
-          { value: 'all', label: 'Все' },
           { value: 'issued', label: 'Выдан' },
           { value: 'done', label: 'Выполнен' },
           { value: 'overdue', label: 'Просрочен' },
           { value: 'done_late', label: 'Выполнен с просрочкой' },
         ],
+        labelHint: 'Пусто — все статусы',
+      },
+      {
+        type: 'multi_select',
+        key: 'kinds',
+        label: 'Тип наряда',
+        options: [
+          { value: 'regular', label: 'Обычный' },
+          { value: 'repair', label: 'Ремонт' },
+          { value: 'assembly', label: 'Сборка' },
+          { value: 'manufacturing', label: 'Изготовление' },
+        ],
+        labelHint: 'Пусто — все типы',
       },
       { type: 'multi_select', key: 'responsibleIds', label: 'Ответственный', optionsSource: 'employees', labelHint: 'Первый подписант блока «Выдача наряда»' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
-      { type: 'checkbox', key: 'overdueOnly', label: 'Только просроченные', labelHint: 'Незакрытые наряды с прошедшим сроком' },
+      { type: 'text', key: 'numberQuery', label: '№ наряда', placeholder: 'напр. 1024', labelHint: 'Фильтр по номеру наряда (вхождение)' },
+      { type: 'text', key: 'engineNumberQuery', label: '№ двигателя', labelHint: 'Фильтр по номеру двигателя (вхождение)' },
+      { type: 'text', key: 'workTypeQuery', label: 'Виды работ', labelHint: 'Фильтр по названию работ (вхождение)' },
+      { type: 'multi_select', key: 'columns', label: 'Колонки отчёта', options: WORK_ORDERS_REPORT_COLUMN_OPTIONS, selectAllByDefault: true, labelHint: 'Какие колонки печатать. Пусто — все.' },
+      {
+        type: 'select',
+        key: 'sortBy',
+        label: 'Сортировка',
+        options: [
+          { value: 'orderDate', label: 'По дате выдачи' },
+          { value: 'status', label: 'По статусу' },
+          { value: 'workOrderNumber', label: 'По № наряда' },
+          { value: 'dueDate', label: 'По сроку' },
+          { value: 'completedDate', label: 'По дате выполнения' },
+          { value: 'engineBrand', label: 'По марке двигателя' },
+          { value: 'amountRub', label: 'По сумме' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'sortDir',
+        label: 'Порядок',
+        options: [
+          { value: 'desc', label: 'По убыванию' },
+          { value: 'asc', label: 'По возрастанию' },
+        ],
+      },
     ],
-    columns: [
-      { key: 'orderDate', label: 'Дата выдачи', kind: 'date' },
-      { key: 'workOrderNumber', label: '№ наряда' },
-      { key: 'dueDate', label: 'Срок', kind: 'date' },
-      { key: 'workType', label: 'Виды работ' },
-      { key: 'engineBrand', label: 'Марка дв.' },
-      { key: 'engineNumber', label: '№ дв.' },
-      { key: 'completedAt', label: 'Завершён', kind: 'date' },
-      { key: 'responsible', label: 'Ответственный' },
-      { key: 'statusLabel', label: 'Статус' },
-      { key: 'amountRub', label: 'Сумма (руб)', kind: 'number', align: 'right' },
-    ],
+    columns: WORK_ORDERS_REPORT_COLUMNS,
   },
   {
     id: 'work_order_payroll',
