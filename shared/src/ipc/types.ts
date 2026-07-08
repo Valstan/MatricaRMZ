@@ -1,4 +1,4 @@
-import type { GlobalSearchResponse } from '../domain/globalSearch.js';
+import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
 import type { WorkshopStatsResult } from '../domain/workshopStats.js';
 import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain/timesheet.js';
@@ -627,6 +627,10 @@ export type MatricaApi = {
   search: {
     global: (args: { q: string; limit?: number }) => Promise<GlobalSearchResponse>;
     cardContent: (args: { entityIds: string[]; q: string }) => Promise<{ ok: true; ids: string[] } | { ok: false; error: string }>;
+    // Двигатели по НАБИТОМУ на детали номеру («№ на детали», не сборочный) из списка деталей карточки.
+    enginesByStampedNumber: (args: { q: string; limit?: number }) => Promise<
+      { ok: true; hits: GlobalSearchHit[] } | { ok: false; error: string }
+    >;
   };
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => void;

@@ -81,6 +81,8 @@ export function GlobalSearchOverlay(props: {
   const [serverHits, setServerHits] = useState<GlobalSearchHit[]>([]);
   const [serverLoading, setServerLoading] = useState(false);
   const [deepIds, setDeepIds] = useState<Set<string>>(new Set());
+  // Двигатели, найденные по НАБИТОМУ на детали номеру (№ на детали) из списка деталей карточки.
+  const [stampHits, setStampHits] = useState<GlobalSearchHit[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -94,6 +96,7 @@ export function GlobalSearchOverlay(props: {
     setActiveIndex(0);
     setServerHits([]);
     setDeepIds(new Set());
+    setStampHits([]);
     const focus = window.setTimeout(() => inputRef.current?.focus(), 0);
     let cancelled = false;
     void (async () => {
@@ -171,6 +174,33 @@ export function GlobalSearchOverlay(props: {
       window.clearTimeout(timer);
     };
   }, [open, mode, query, l2Loaded]);
+
+  // Двигатели по «№ на детали» (stamped_number из operations.metaJson — не EAV, поэтому
+  // deep card-content его не видит; отдельный main-поиск по локальному SQLite).
+  useEffect(() => {
+    if (!open || mode === 'page') {
+      setStampHits([]);
+      return;
+    }
+    const q = query.trim();
+    if (q.length < SERVER_MIN_CHARS) {
+      setStampHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await window.matrica.search.enginesByStampedNumber({ q, limit: 12 });
+        if (!cancelled) setStampHits(res?.ok ? res.hits : []);
+      } catch {
+        if (!cancelled) setStampHits([]);
+      }
+    }, DEEP_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, mode, query]);
 
   const l2Prepared = useMemo(() => {
     const out: Partial<Record<GlobalSearchKind, PreparedRecordSearch<L2Row>>> = {};
@@ -256,6 +286,31 @@ export function GlobalSearchOverlay(props: {
     return filterPreparedRecords(uiPrepared, q).records.slice(0, PER_GROUP);
   }, [query, mode, uiPrepared]);
 
+  // Двигатели по «№ на детали»: dedup против уже показанных двигателей; метку берём из L2
+  // (актуальный номер двигателя), номер детали — как code справа.
+  const stampRows = useMemo<RowItem[]>(() => {
+    if (stampHits.length === 0) return [];
+    const already = new Set<string>([...hits, ...deepHits].map((h) => `${h.kind}|${h.id}`));
+    const engineById = new Map<string, L2Row>(
+      (l2Loaded.engine ?? []).map((r) => [String((r as L2Row).id ?? ''), r as L2Row]),
+    );
+    const out: RowItem[] = [];
+    for (const h of stampHits) {
+      if (already.has(`engine|${h.id}`)) continue;
+      const l2 = engineById.get(h.id);
+      const label = (l2 ? pickL2Label(l2) : '') || h.label || h.id;
+      out.push({
+        key: `stamp|${h.id}`,
+        label,
+        ...(h.code ? { code: h.code } : {}),
+        path: KIND_PATH.engine,
+        hit: { ...h, label },
+      });
+      if (out.length >= PER_GROUP * 2) break;
+    }
+    return out;
+  }, [stampHits, hits, deepHits, l2Loaded]);
+
   const groups = useMemo(() => {
     const ordered: Array<{ key: string; title: string; rows: RowItem[] }> = [];
 
@@ -299,6 +354,10 @@ export function GlobalSearchOverlay(props: {
       if (!used.has(kind) && arr.length) ordered.push({ key: kind, title: groupTitle(kind, scope), rows: toRows(arr) });
     }
 
+    if (stampRows.length) {
+      ordered.push({ key: '__stamp', title: 'Двигатели · по № на детали', rows: stampRows });
+    }
+
     if (deepHits.length) {
       ordered.push({
         key: '__deep',
@@ -313,7 +372,7 @@ export function GlobalSearchOverlay(props: {
       });
     }
     return ordered;
-  }, [uiRows, hits, deepHits, scope]);
+  }, [uiRows, hits, deepHits, stampRows, scope]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
 
