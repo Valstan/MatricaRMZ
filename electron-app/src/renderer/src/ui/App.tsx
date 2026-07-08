@@ -757,26 +757,31 @@ export function App() {
         return;
       }
 
+      const supportsDraft = Boolean(actions.keepDraft);
       cardCloseInProgressRef.current = true;
       cardCloseTargetTabRef.current = targetTab;
       cardCloseFromAppRef.current = fromApp;
       clearCardCloseTimer();
       setCardCloseCountdown(10);
       setCardCloseStatus('');
-      setCardCloseSupportsDraft(Boolean(actions.keepDraft));
+      setCardCloseSupportsDraft(supportsDraft);
       setCardCloseModalOpen(true);
-      cardCloseTimerRef.current = window.setInterval(() => {
-        setCardCloseCountdown((seconds) => {
-          if (seconds <= 1) {
-            clearCardCloseTimer();
-            // Data-safe default: draft-capable cards keep a recovery draft (never lose,
-            // never force-commit); legacy cards retain the prior force-save until 3d.
-            void finalizeCardClose(cardCloseActionsRef.current?.keepDraft ? 'keepDraft' : 'save');
-            return 0;
-          }
-          return seconds - 1;
-        });
-      }, 1000);
+      // Автозавершение по таймеру — ТОЛЬКО для карточек с черновиком (безопасный дефолт = оставить
+      // черновик: ничего не теряем и ничего молча не коммитим). Legacy-карточки без черновика
+      // (напр. карточка двигателя) НЕ дожимаем молча в save — оператор явно выбирает
+      // «Сохранить» / «Не сохранять»; иначе он не видит, где набедокурил, а изменения уже записаны.
+      if (supportsDraft) {
+        cardCloseTimerRef.current = window.setInterval(() => {
+          setCardCloseCountdown((seconds) => {
+            if (seconds <= 1) {
+              clearCardCloseTimer();
+              void finalizeCardClose('keepDraft');
+              return 0;
+            }
+            return seconds - 1;
+          });
+        }, 1000);
+      }
     },
     [setTabState],
   );
@@ -3287,7 +3292,7 @@ export function App() {
           <div style={{ marginTop: 10, color: 'var(--muted)' }}>
             {cardCloseSupportsDraft
               ? `Если не выбрать действие, изменения останутся черновиком через ${cardCloseCountdown} сек.`
-              : `Если не выбрать действие, изменения будут сохранены через ${cardCloseCountdown} сек.`}
+              : 'Пока не выберете действие, изменения не сохраняются, карточка остаётся открытой.'}
           </div>
           {cardCloseStatus ? <div style={{ marginTop: 8, color: 'var(--danger)' }}>{cardCloseStatus}</div> : null}
           <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
