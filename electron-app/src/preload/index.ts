@@ -24,6 +24,8 @@ const matricaApi = {
   search: {
     global: async (args: { q: string; limit?: number }) => ipcRenderer.invoke('search:global', args),
     cardContent: async (args: { entityIds: string[]; q: string }) => ipcRenderer.invoke('search:cardContent', args),
+    enginesByStampedNumber: async (args: { q: string; limit?: number }) =>
+      ipcRenderer.invoke('search:enginesByStampedNumber', args),
   },
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => ipcRenderer.send('activity:report', args),
