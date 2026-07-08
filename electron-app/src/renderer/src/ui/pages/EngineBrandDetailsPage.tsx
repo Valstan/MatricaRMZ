@@ -21,7 +21,9 @@ import {
   listAllPartSpecs,
   listPartSpecBrandLinks,
   propagatePartSpecBrandLinkToBrands,
+  removePartSpecBrandLinksForBrands,
   upsertPartSpecBrandLink,
+  type PartSpecRow,
 } from '../utils/partsPagination.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { buildSearchOption, joinOptionSearch, mapPartRowsToSearchOptions, sortSearchOptions } from '../utils/selectOptions.js';
@@ -31,6 +33,9 @@ import { matchesQueryInRecord } from '../utils/search.js';
 // Режимы отображения списка деталей марки (директива владельца 2026-07-05):
 // фильтр внутри раздутых карточек + срезы по актам + группировка по узлам + печать среза.
 type BrandPartsView = 'all' | 'completeness' | 'defect' | 'units';
+// Распространение набора деталей на группу марок: что распространять и как применить к целям.
+type PropagateScope = 'all' | 'completeness' | 'defect' | 'selected';
+type PropagateMerge = 'add-missing' | 'overwrite' | 'replace';
 const BRAND_PARTS_VIEWS: Array<{ id: BrandPartsView; label: string; title: string }> = [
   { id: 'all', label: 'Все', title: 'Все детали марки' },
   { id: 'completeness', label: 'Комплектовка', title: 'Только детали акта комплектности' },
@@ -84,12 +89,22 @@ export function EngineBrandDetailsPage(props: {
   const [propagateSelId, setPropagateSelId] = useState<string | null>(null);
   const [propagateBusy, setPropagateBusy] = useState(false);
   const [propagateStatus, setPropagateStatus] = useState('');
+  // Что распространять: весь список / детали акта комплектности / акта дефектовки / отмеченные детали.
+  const [propagateScope, setPropagateScope] = useState<PropagateScope>('all');
+  // Как применить к маркам-целям: add-missing (безоп. дефолт) / overwrite / replace (только для scope=all).
+  const [propagateMerge, setPropagateMerge] = useState<PropagateMerge>('add-missing');
+  const [propagateReplaceConfirm, setPropagateReplaceConfirm] = useState(false);
+  // Отмеченные детали (scope=selected) — множество id деталей марки.
+  const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
   const dirtyRef = useRef(false);
 
   async function openPropagateModal() {
     setPropagateStatus('');
     setPropagateGroups([]);
     setPropagateSelId(null);
+    setPropagateScope((prev) => (prev === 'selected' && selectedPartIds.size === 0 ? 'all' : prev));
+    setPropagateMerge('add-missing');
+    setPropagateReplaceConfirm(false);
     setPropagateOpen(true);
     try {
       const types = (await window.matrica.admin.entityTypes.list()) as Array<{ id: string; code: string }>;
@@ -115,14 +130,40 @@ export function EngineBrandDetailsPage(props: {
     }
   }
 
+  // Подмножество деталей марки по выбранному scope (all / акты / отмеченные).
+  function propagateSourceRows(scope: PropagateScope): BrandPartRow[] {
+    const rows = brandParts.filter((r) => r.id);
+    if (scope === 'completeness') return rows.filter((r) => r.inCompletenessAct);
+    if (scope === 'defect') return rows.filter((r) => r.inDefectAct);
+    if (scope === 'selected') return rows.filter((r) => selectedPartIds.has(r.id));
+    return rows;
+  }
+  // «replace» доступен только для scope=all; для актов/отмеченных схлопывается в overwrite.
+  const propagateMergeEffective: PropagateMerge =
+    propagateScope === 'all' ? propagateMerge : propagateMerge === 'replace' ? 'overwrite' : propagateMerge;
+  const propagateScopeCounts: Record<PropagateScope, number> = {
+    all: brandParts.filter((r) => r.id).length,
+    completeness: brandParts.filter((r) => r.id && r.inCompletenessAct).length,
+    defect: brandParts.filter((r) => r.id && r.inDefectAct).length,
+    selected: brandParts.filter((r) => r.id && selectedPartIds.has(r.id)).length,
+  };
+
   async function runPropagate() {
     const group = propagateGroups.find((g) => g.id === propagateSelId);
     if (!group) return;
-    const source = brandParts.filter((r) => r.id);
+    const source = propagateSourceRows(propagateScope);
     if (source.length === 0) {
-      setPropagateStatus('У марки нет деталей для распространения.');
+      setPropagateStatus('Нет деталей для распространения по выбранному условию.');
       return;
     }
+    const merge = propagateMergeEffective;
+    if (merge === 'replace' && !propagateReplaceConfirm) {
+      setPropagateStatus('Подтвердите полное замещение галочкой ниже.');
+      return;
+    }
+    const ensureActFlag = propagateScope === 'completeness' ? 'completeness' : propagateScope === 'defect' ? 'defect' : undefined;
+    const perPartMerge: 'overwrite' | 'add-missing' = merge === 'replace' ? 'overwrite' : merge;
+
     setPropagateBusy(true);
     let done = 0;
     let failed = 0;
@@ -134,18 +175,57 @@ export function EngineBrandDetailsPage(props: {
         quantity: row.quantity,
         inCompletenessAct: row.inCompletenessAct,
         inDefectAct: row.inDefectAct,
+        mergeMode: perPartMerge,
+        ...(ensureActFlag ? { ensureActFlag } : {}),
       });
       if (r.ok) done += 1;
       else failed += 1;
       setPropagateStatus(`Копирование: ${done + failed}/${source.length}…`);
     }
+
+    // Полное замещение: у деталей ВНЕ набора-источника снять привязки марок-целей,
+    // чтобы список деталей каждой цели стал ровно равен набору.
+    let removedParts = 0;
+    let removeFailed = 0;
+    if (merge === 'replace') {
+      const sourceIds = new Set(source.map((r) => r.id));
+      const all = await listAllPartSpecs({});
+      if (all.ok) {
+        const extras = (all.parts as PartSpecRow[]).filter(
+          (p) =>
+            !sourceIds.has(String(p.id)) &&
+            p.brandLinks.some((l) => group.targetBrandIds.includes(String(l.engineBrandId ?? '').trim())),
+        );
+        for (let i = 0; i < extras.length; i += 1) {
+          const rr = await removePartSpecBrandLinksForBrands({ partId: String(extras[i]!.id), brandIds: group.targetBrandIds });
+          if (rr.ok) {
+            if (rr.removed > 0) removedParts += 1;
+          } else removeFailed += 1;
+          setPropagateStatus(`Удаление лишних: ${i + 1}/${extras.length}…`);
+        }
+      } else {
+        removeFailed += 1;
+      }
+    }
+
     invalidateListAllPartSpecsCache();
     setPropagateBusy(false);
-    setPropagateStatus(
-      failed > 0
-        ? `Готово с ошибками: ${done} деталей ок, ${failed} с ошибкой (× ${group.targetBrandIds.length} марок).`
-        : `Готово: ${done} деталей × ${group.targetBrandIds.length} марок «${group.name}».`,
-    );
+    const marksLbl = `× ${group.targetBrandIds.length} марок «${group.name}»`;
+    const errTail = failed > 0 || removeFailed > 0 ? ` (ошибок: копирование ${failed}, удаление ${removeFailed})` : '';
+    const removedTail = merge === 'replace' ? `, удалено лишних у ${removedParts} деталей` : '';
+    setPropagateStatus(`Готово: ${done} деталей ${marksLbl}${removedTail}${errTail}.`);
+  }
+
+  function toggleSelectPart(id: string, on: boolean) {
+    setSelectedPartIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  function clearPartSelection() {
+    setSelectedPartIds(new Set());
   }
   const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
   const summaryDeps = useMemo(
@@ -567,6 +647,7 @@ export function EngineBrandDetailsPage(props: {
   }, [name, description, props.registerCardCloseActions]);
 
   const selectedParts = brandParts;
+  const canPropagate = props.canEdit && props.canViewParts && props.canEditParts;
   const headerTitle = name.trim() ? `Марка двигателя: ${name.trim()}` : 'Марка двигателя';
   const totalPartKinds = selectedParts.length;
   const totalPartsQty = selectedParts.reduce((acc, p) => acc + (Number.isFinite(Number(p.quantity)) ? Math.max(0, Math.floor(Number(p.quantity))) : 0), 0);
@@ -645,16 +726,29 @@ export function EngineBrandDetailsPage(props: {
         onClick={() => props.onOpenPart(p.id)}
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(160px, 1fr) minmax(120px, 220px) max-content max-content max-content max-content',
+          gridTemplateColumns: `${canPropagate ? 'max-content ' : ''}minmax(160px, 1fr) minmax(120px, 220px) max-content max-content max-content max-content`,
           alignItems: 'center',
           gap: 12,
           padding: '8px 10px',
           borderRadius: 0,
           border: '1px solid var(--border)',
-          background: 'var(--surface)',
+          background: selectedPartIds.has(p.id) ? 'rgba(37, 99, 235, 0.08)' : 'var(--surface)',
           cursor: props.canViewParts ? 'pointer' : 'default',
         }}
       >
+        {canPropagate ? (
+          <label
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            title="Отметить деталь для распространения на группу"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selectedPartIds.has(p.id)}
+              onChange={(e) => toggleSelectPart(p.id, e.target.checked)}
+            />
+          </label>
+        ) : null}
         <div style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.label}</div>
         <div
           title="Артикул"
@@ -822,32 +916,128 @@ export function EngineBrandDetailsPage(props: {
             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 20 }}
             onClick={() => { if (!propagateBusy) setPropagateOpen(false); }}
           >
-            <div style={{ width: 'min(560px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ width: 'min(600px, 95vw)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--surface)', borderRadius: 14, padding: 16 }} onClick={(e) => e.stopPropagation()}>
               <div style={{ fontWeight: 800, fontSize: 16 }}>Распространить набор деталей на группу</div>
-              <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 13 }}>
-                {brandParts.length} видов деталей этой марки будут скопированы (кол-во, № узла, галочки актов) на все другие марки выбранной группы. Существующие привязки этих деталей на марках-целях перезаписываются; прочие детали марок-целей не трогаются.
-              </div>
               {propagateGroups.length === 0 ? (
                 <div style={{ marginTop: 12, color: 'var(--subtle)' }}>
                   {propagateStatus || 'Эта марка не входит ни в одну группу с другими марками. Добавьте марку в группу в разделе «Группы марок».'}
                 </div>
               ) : (
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {propagateGroups.map((g) => (
-                    <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: 'var(--surface-2, rgba(148,163,184,0.10))', cursor: 'pointer' }}>
-                      <input type="radio" name="propagate-group" checked={propagateSelId === g.id} onChange={() => setPropagateSelId(g.id)} disabled={propagateBusy} />
-                      <span style={{ flex: 1 }}>{g.name}</span>
-                      <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{g.targetBrandIds.length} марок-целей</span>
+                <>
+                  {/* 1. Группа-цель */}
+                  <div style={{ marginTop: 12, fontWeight: 700, fontSize: 13 }}>Группа-цель</div>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {propagateGroups.map((g) => (
+                      <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: 'var(--surface-2, rgba(148,163,184,0.10))', cursor: 'pointer' }}>
+                        <input type="radio" name="propagate-group" checked={propagateSelId === g.id} onChange={() => setPropagateSelId(g.id)} disabled={propagateBusy} />
+                        <span style={{ flex: 1 }}>{g.name}</span>
+                        <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{g.targetBrandIds.length} марок-целей</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* 2. Что распространять */}
+                  <div style={{ marginTop: 14, fontWeight: 700, fontSize: 13 }}>Что распространять</div>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {([
+                      { id: 'all', label: 'Весь список деталей марки' },
+                      { id: 'completeness', label: 'Детали акта комплектности' },
+                      { id: 'defect', label: 'Детали акта дефектовки' },
+                      { id: 'selected', label: 'Отмеченные детали' },
+                    ] as Array<{ id: PropagateScope; label: string }>).map((s) => {
+                      const cnt = propagateScopeCounts[s.id];
+                      const disabled = propagateBusy || (s.id === 'selected' && cnt === 0);
+                      return (
+                        <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 8, background: 'var(--surface-2, rgba(148,163,184,0.10))', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1 }}>
+                          <input
+                            type="radio"
+                            name="propagate-scope"
+                            checked={propagateScope === s.id}
+                            disabled={disabled}
+                            onChange={() => {
+                              setPropagateScope(s.id);
+                              if (s.id !== 'all' && propagateMerge === 'replace') {
+                                setPropagateMerge('add-missing');
+                                setPropagateReplaceConfirm(false);
+                              }
+                            }}
+                          />
+                          <span style={{ flex: 1 }}>{s.label}</span>
+                          <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                            {s.id === 'selected' && cnt === 0 ? 'отметьте в списке' : `${cnt} шт.`}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {/* 3. Как применить */}
+                  <div style={{ marginTop: 14, fontWeight: 700, fontSize: 13 }}>Как применить к маркам-целям</div>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {([
+                      { id: 'add-missing', label: 'Только добавить недостающие', hint: 'существующие детали марок не менять; для актов — проставить галочку у уже имеющихся' },
+                      { id: 'overwrite', label: 'Обновить совпадающие и добавить недостающие', hint: 'кол-во/узел/галочки совпадающих = как здесь; прочие детали марок оставить' },
+                      { id: 'replace', label: 'Полное замещение', hint: 'список деталей каждой марки станет точно таким — лишние детали у марок будут удалены' },
+                    ] as Array<{ id: PropagateMerge; label: string; hint: string }>)
+                      .filter((m) => m.id !== 'replace' || propagateScope === 'all')
+                      .map((m) => {
+                        const danger = m.id === 'replace';
+                        return (
+                          <label key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', borderRadius: 8, background: danger ? 'rgba(220,38,38,0.08)' : 'var(--surface-2, rgba(148,163,184,0.10))', cursor: propagateBusy ? 'default' : 'pointer' }}>
+                            <input
+                              type="radio"
+                              name="propagate-merge"
+                              checked={propagateMerge === m.id}
+                              disabled={propagateBusy}
+                              style={{ marginTop: 3 }}
+                              onChange={() => {
+                                setPropagateMerge(m.id);
+                                if (m.id !== 'replace') setPropagateReplaceConfirm(false);
+                              }}
+                            />
+                            <span style={{ flex: 1 }}>
+                              <span style={{ fontWeight: 600, color: danger ? 'var(--danger)' : undefined }}>{danger ? '⚠️ ' : ''}{m.label}</span>
+                              <span style={{ display: 'block', color: 'var(--subtle)', fontSize: 12, marginTop: 2 }}>{m.hint}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+
+                  {propagateMergeEffective === 'replace' ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, color: 'var(--danger)', fontSize: 13, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={propagateReplaceConfirm} disabled={propagateBusy} onChange={(e) => setPropagateReplaceConfirm(e.target.checked)} />
+                      Понимаю: у {propagateSelId ? (propagateGroups.find((g) => g.id === propagateSelId)?.targetBrandIds.length ?? 0) : 0} марок будут удалены детали, которых нет в этом наборе.
                     </label>
-                  ))}
-                </div>
+                  ) : null}
+
+                  {/* Резюме */}
+                  <div style={{ marginTop: 12, color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.5 }}>
+                    {propagateScopeCounts[propagateScope]} деталей ({
+                      { all: 'весь список', completeness: 'акт комплектности', defect: 'акт дефектовки', selected: 'отмеченные' }[propagateScope]
+                    }) → {propagateSelId ? (propagateGroups.find((g) => g.id === propagateSelId)?.targetBrandIds.length ?? 0) : 0} марок группы.{' '}
+                    {propagateMergeEffective === 'add-missing'
+                      ? 'Существующие привязки марок не изменятся, добавятся только недостающие.'
+                      : propagateMergeEffective === 'overwrite'
+                        ? 'Совпадающие привязки перезапишутся, недостающие добавятся, прочие детали марок останутся.'
+                        : 'Список деталей марок станет точно равен набору; лишние детали у марок будут удалены.'}
+                  </div>
+
+                  {propagateStatus ? <div style={{ marginTop: 10, color: propagateStatus.includes('ошиб') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>{propagateStatus}</div> : null}
+                </>
               )}
-              {propagateStatus && propagateGroups.length > 0 ? <div style={{ marginTop: 10, color: propagateStatus.startsWith('Ошибка') || propagateStatus.includes('ошиб') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>{propagateStatus}</div> : null}
               <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <Button variant="ghost" onClick={() => setPropagateOpen(false)} disabled={propagateBusy}>Закрыть</Button>
-                <Button variant="ghost" tone="success" onClick={() => void runPropagate()} disabled={propagateBusy || !propagateSelId}>
-                  {propagateBusy ? 'Копирую…' : 'Скопировать'}
-                </Button>
+                {propagateGroups.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    tone="success"
+                    onClick={() => void runPropagate()}
+                    disabled={propagateBusy || !propagateSelId || propagateScopeCounts[propagateScope] === 0 || (propagateMergeEffective === 'replace' && !propagateReplaceConfirm)}
+                  >
+                    {propagateBusy ? 'Выполняю…' : 'Распространить'}
+                  </Button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -899,6 +1089,39 @@ export function EngineBrandDetailsPage(props: {
             <Button variant="ghost" title="Распечатать текущий срез списка" onClick={() => printVisibleParts()}>
               🖨 Печать
             </Button>
+            {canPropagate ? (
+              <>
+                <Button
+                  variant="ghost"
+                  title="Отметить/снять все показанные детали (для распространения на группу)"
+                  onClick={() => {
+                    setSelectedPartIds((prev) => {
+                      const next = new Set(prev);
+                      const allSelected = visibleParts.length > 0 && visibleParts.every((p) => next.has(p.id));
+                      for (const p of visibleParts) {
+                        if (allSelected) next.delete(p.id);
+                        else next.add(p.id);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  {visibleParts.length > 0 && visibleParts.every((p) => selectedPartIds.has(p.id)) ? 'Снять показанные' : 'Выбрать показанные'}
+                </Button>
+                {selectedPartIds.size > 0 ? (
+                  <span style={{ fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    выбрано: {selectedPartIds.size}
+                    <button
+                      type="button"
+                      onClick={() => clearPartSelection()}
+                      style={{ background: 'none', border: 'none', color: 'var(--link, #2563eb)', cursor: 'pointer', padding: 0, fontSize: 12 }}
+                    >
+                      снять
+                    </button>
+                  </span>
+                ) : null}
+              </>
+            ) : null}
           </div>
         )}
 
