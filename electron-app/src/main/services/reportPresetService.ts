@@ -1674,6 +1674,7 @@ async function buildWorkOrdersReport(
   const kinds = new Set(asArray(filters?.kinds));
   const responsibleFilter = asArray(filters?.responsibleIds);
   const brandFilter = asArray(filters?.brandIds);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
   const numberQuery = normalizeText(filters?.numberQuery, '').trim();
   const engineNumberQuery = normalizeText(filters?.engineNumberQuery, '').trim();
   const workTypeQuery = normalizeText(filters?.workTypeQuery, '').trim();
@@ -1684,9 +1685,23 @@ async function buildWorkOrdersReport(
   const snapshot = await loadSnapshot(db);
   const employeeNames = new Map(buildOptions(snapshot, 'employee').map((o) => [o.value, o.label] as const));
   const brandNames = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const counterpartyNames = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const brandFilterNamesLc = new Set(
     brandFilter.map((id) => String(brandNames.get(id) ?? '').trim().toLowerCase()).filter(Boolean),
   );
+
+  // Контрагент наряда: двигатель строки → его контракт/заказчик → контрагент (кратк. имя, иначе полное).
+  const resolveCounterparty = (engineId: string): { id: string; label: string } => {
+    if (!engineId) return { id: '', label: '' };
+    const eAttrs = snapshot.attrsByEntity.get(engineId) ?? {};
+    let customerId = normalizeText(eAttrs.customer_id, '');
+    const contractId = normalizeText(eAttrs.contract_id, '');
+    if (!customerId && contractId) customerId = normalizeText(snapshot.attrsByEntity.get(contractId)?.customer_id, '');
+    if (!customerId) return { id: '', label: '' };
+    const cAttrs = snapshot.attrsByEntity.get(customerId) ?? {};
+    const label = normalizeText(cAttrs.short_name, '') || normalizeText(cAttrs.name, '') || relatedEntityLabel(snapshot, customerId);
+    return { id: customerId, label };
+  };
 
   const sourceOps = await db
     .select()
@@ -1733,12 +1748,14 @@ async function buildWorkOrdersReport(
     let engineBrand = '';
     let engineBrandId = '';
     let engineNumber = '';
+    let engineId = '';
     let firstWorkType = '';
     const lines = Array.isArray(payload.freeWorks) ? payload.freeWorks : [];
     for (const l of lines) {
       if (!engineBrand) engineBrand = String(l?.engineBrandName ?? '').trim();
       if (!engineBrandId) engineBrandId = String(l?.engineBrandId ?? '').trim();
       if (!engineNumber) engineNumber = String(l?.engineNumber ?? '').trim();
+      if (!engineId) engineId = String(l?.engineId ?? '').trim();
       if (!firstWorkType) firstWorkType = String(l?.serviceName ?? '').trim();
     }
     if (brandFilter.length > 0) {
@@ -1746,6 +1763,8 @@ async function buildWorkOrdersReport(
       const matchName = engineBrand !== '' && brandFilterNamesLc.has(engineBrand.toLowerCase());
       if (!matchId && !matchName) continue;
     }
+    const { id: counterpartyId, label: counterparty } = resolveCounterparty(engineId);
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
     const workType = firstWorkType || resolveWorkOrderTargetLabel(payload) || '';
     const workOrderNumber = toNumber(payload.workOrderNumber);
 
@@ -1776,6 +1795,7 @@ async function buildWorkOrdersReport(
       workType,
       engineBrand,
       engineNumber,
+      counterparty,
       performers,
       crewCount: crew.length,
       responsible,
@@ -1797,6 +1817,7 @@ async function buildWorkOrdersReport(
     kinds,
     responsibleFilter,
     brandFilter,
+    counterpartyFilter,
     numberQuery,
     engineNumberQuery,
     workTypeQuery,
@@ -1804,6 +1825,7 @@ async function buildWorkOrdersReport(
     sortDir,
     employeeNames,
     brandNames,
+    counterpartyNames,
     now,
   });
 
@@ -1834,6 +1856,7 @@ function buildWorkOrdersReportChips(a: {
   kinds: Set<string>;
   responsibleFilter: string[];
   brandFilter: string[];
+  counterpartyFilter: string[];
   numberQuery: string;
   engineNumberQuery: string;
   workTypeQuery: string;
@@ -1841,6 +1864,7 @@ function buildWorkOrdersReportChips(a: {
   sortDir: 'asc' | 'desc';
   employeeNames: Map<string, string>;
   brandNames: Map<string, string>;
+  counterpartyNames: Map<string, string>;
   now: number;
 }): string[] {
   const chips: string[] = [];
@@ -1864,6 +1888,10 @@ function buildWorkOrdersReportChips(a: {
   if (a.brandFilter.length) {
     const names = a.brandFilter.map((id) => a.brandNames.get(id) ?? '').filter(Boolean);
     chips.push(`Марки: ${names.length ? names.join(', ') : `${a.brandFilter.length} выбрано`}`);
+  }
+  if (a.counterpartyFilter.length) {
+    const names = a.counterpartyFilter.map((id) => a.counterpartyNames.get(id) ?? '').filter(Boolean);
+    chips.push(`Контрагент: ${names.length ? names.join(', ') : `${a.counterpartyFilter.length} выбрано`}`);
   }
   if (a.numberQuery) chips.push(`№ наряда: ${a.numberQuery}`);
   if (a.engineNumberQuery) chips.push(`№ дв.: ${a.engineNumberQuery}`);

@@ -483,6 +483,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
       { type: 'multi_select', key: 'responsibleIds', label: 'Ответственный', optionsSource: 'employees', labelHint: 'Первый подписант блока «Выдача наряда»' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагент', optionsSource: 'counterparties', labelHint: 'Заказчик из контракта двигателя наряда' },
       { type: 'text', key: 'numberQuery', label: '№ наряда', placeholder: 'напр. 1024', labelHint: 'Фильтр по номеру наряда (вхождение)' },
       { type: 'text', key: 'engineNumberQuery', label: '№ двигателя', labelHint: 'Фильтр по номеру двигателя (вхождение)' },
       { type: 'text', key: 'workTypeQuery', label: 'Виды работ', labelHint: 'Фильтр по названию работ (вхождение)' },
