@@ -370,6 +370,7 @@ export async function listWorkOrders(
         linkedDocumentId: string | null;
         dueDate: number | null;
         completedAt: number | null;
+        completedDate: number | null;
         engineBrand: string;
         engineNumber: string;
         acceptedByEmployeeId: string | null;
@@ -413,6 +414,7 @@ export async function listWorkOrders(
       linkedDocumentId: string | null;
       dueDate: number | null;
       completedAt: number | null;
+      completedDate: number | null;
       engineBrand: string;
       engineNumber: string;
       acceptedByEmployeeId: string | null;
@@ -473,6 +475,9 @@ export async function listWorkOrders(
             ? Number(payload.completedDate)
             : Number(row.updatedAt)
           : null,
+        // Оператор-заданная дата выполнения — surface для ВСЕХ нарядов (в т.ч. открытых): по ней
+        // статус деривится как «выполнен», иначе открытый наряд с датой в срок красился overdue.
+        completedDate: payload.completedDate != null && Number(payload.completedDate) > 0 ? Number(payload.completedDate) : null,
         engineBrand: engineInfo.engineBrand,
         engineNumber: engineInfo.engineNumber,
         acceptedByEmployeeId: getWorkOrderAcceptedByEmployeeId(payload),

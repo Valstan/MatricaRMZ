@@ -50,6 +50,7 @@ type Row = {
   linkedDocumentId: string | null;
   dueDate: number | null;
   completedAt: number | null;
+  completedDate: number | null;
   engineBrand: string;
   engineNumber: string;
   acceptedByEmployeeId: string | null;
@@ -69,6 +70,7 @@ function rowStatusCode(row: Row, now: number): WorkOrderStatusCode {
     operationStatus: row.status,
     dueDate: row.dueDate,
     completedAt: row.completedAt,
+    completedDate: row.completedDate,
     now,
   });
 }
