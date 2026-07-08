@@ -398,4 +398,32 @@ describe('deriveWorkOrderStatusCode', () => {
   it('closed after the due day → done_late', () => {
     expect(deriveWorkOrderStatusCode({ operationStatus: 'closed', dueDate: due, completedAt: due + DAY, now: due + 10 * DAY })).toBe('done_late');
   });
+
+  // Оператор проставил фактическую дату выполнения на НЕзакрытом наряде — она приоритетна над
+  // «просрочкой по сроку» (регресс: розовым красило даже с датой выполнения в срок).
+  it('open, completedDate in time (past due day) → done, not overdue', () => {
+    expect(
+      deriveWorkOrderStatusCode({ operationStatus: 'open', dueDate: due, completedDate: due, now: due + 10 * DAY }),
+    ).toBe('done');
+  });
+  it('open, completedDate after the due day → done_late, not overdue', () => {
+    expect(
+      deriveWorkOrderStatusCode({ operationStatus: 'open', dueDate: due, completedDate: due + DAY, now: due + 10 * DAY }),
+    ).toBe('done_late');
+  });
+  it('open, no completedDate, due day passed → overdue (unchanged)', () => {
+    expect(deriveWorkOrderStatusCode({ operationStatus: 'open', dueDate: due, now: due + DAY })).toBe('overdue');
+  });
+  it('closed completedDate overrides close time for done_late', () => {
+    // операция закрыта поздно (completedAt late), но оператор указал дату выполнения в срок → done
+    expect(
+      deriveWorkOrderStatusCode({
+        operationStatus: 'closed',
+        dueDate: due,
+        completedAt: due + 5 * DAY,
+        completedDate: due,
+        now: due + 10 * DAY,
+      }),
+    ).toBe('done');
+  });
 });

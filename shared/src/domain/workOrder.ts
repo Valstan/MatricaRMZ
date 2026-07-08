@@ -471,10 +471,10 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
 /**
  * Вычисляемый статус наряда для списка/карточки (presentation, D2 «вычисляемые»):
  * не хранится, выводится из статуса операции + плановой/фактической дат.
- * - issued      — выдан (операция открыта), срок ещё не вышел → жёлтый;
- * - done        — выполнен (операция закрыта) в срок → зелёный;
- * - overdue     — не закрыт, плановая дата исполнения прошла → красный;
- * - done_late   — закрыт, но позже плановой даты → зелёный фон + красная дата.
+ * - issued      — выдан (операция открыта, дата выполнения не проставлена), срок ещё не вышел → жёлтый;
+ * - done        — выполнен (операция закрыта ИЛИ проставлена дата выполнения) в срок → зелёный;
+ * - overdue     — не выполнен (не закрыт и без даты выполнения), плановая дата прошла → красный;
+ * - done_late   — выполнен (закрыт или с датой выполнения), но позже плановой даты → зелёный фон + красная дата.
  */
 export type WorkOrderStatusCode = 'issued' | 'done' | 'overdue' | 'done_late';
 
@@ -496,16 +496,26 @@ export function deriveWorkOrderStatusCode(args: {
   operationStatus: string;
   /** Плановая дата исполнения (ms) или пусто. */
   dueDate?: number | null;
-  /** Факт. дата закрытия (ms) — для закрытых нарядов (время закрытия операции). */
+  /** Факт. дата закрытия (ms) — время закрытия операции (для закрытых нарядов). */
   completedAt?: number | null;
+  /**
+   * Оператор-заданная фактическая дата выполнения работ (ms) или пусто. Если задана — наряд
+   * считается выполненным независимо от того, закрыта ли операция: оператор явно указал, что
+   * работы сделаны. Без неё незакрытый наряд с прошедшим сроком → overdue (розовый).
+   */
+  completedDate?: number | null;
   /** Текущее время (ms). */
   now: number;
 }): WorkOrderStatusCode {
   const due = args.dueDate && args.dueDate > 0 ? args.dueDate : null;
   const dueExpiry = due !== null ? due + WORK_ORDER_DAY_MS : null;
-  if (args.operationStatus === 'closed') {
-    const closedAt = args.completedAt && args.completedAt > 0 ? args.completedAt : null;
-    if (dueExpiry !== null && closedAt !== null && closedAt >= dueExpiry) return 'done_late';
+  const operatorCompleted = args.completedDate && args.completedDate > 0 ? args.completedDate : null;
+  const closedAt = args.completedAt && args.completedAt > 0 ? args.completedAt : null;
+  // Наряд «выполнен», если операция закрыта ИЛИ оператор проставил фактическую дату выполнения.
+  if (args.operationStatus === 'closed' || operatorCompleted !== null) {
+    // Эффективная дата выполнения: оператор-заданная дата приоритетна, иначе время закрытия.
+    const completion = operatorCompleted ?? closedAt;
+    if (dueExpiry !== null && completion !== null && completion >= dueExpiry) return 'done_late';
     return 'done';
   }
   if (dueExpiry !== null && args.now >= dueExpiry) return 'overdue';

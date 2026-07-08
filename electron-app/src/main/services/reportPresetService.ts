@@ -1700,7 +1700,7 @@ async function buildWorkOrdersReport(
     const completedDate =
       payload.completedDate != null && Number(payload.completedDate) > 0 ? Number(payload.completedDate) : null;
     const completedAt = opStatus === 'closed' ? (completedDate ?? Number(op.updatedAt ?? 0)) : null;
-    const code: WorkOrderStatusCode = deriveWorkOrderStatusCode({ operationStatus: opStatus, dueDate, completedAt, now });
+    const code: WorkOrderStatusCode = deriveWorkOrderStatusCode({ operationStatus: opStatus, dueDate, completedAt, completedDate, now });
     if (statusCode !== 'all' && code !== statusCode) continue;
     if (overdueOnly && code !== 'overdue') continue;
 
