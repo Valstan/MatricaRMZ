@@ -3,6 +3,7 @@ import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from 
 import type { WorkshopStatsResult } from '../domain/workshopStats.js';
 import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain/timesheet.js';
 import type { UserUiProfile } from '../domain/userUiProfile.js';
+import type { UiShellPrefs } from '../domain/uiShellV2.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -661,6 +662,7 @@ export type MatricaApi = {
             collapsedGroups?: string[];
             activeGroup?: string | null;
           } | null;
+          shellPrefs?: UiShellPrefs | null;
         }
       | { ok: false; error: string }
     >;
@@ -678,6 +680,7 @@ export type MatricaApi = {
         collapsedGroups?: string[];
         activeGroup?: string | null;
       } | null;
+      shellPrefs?: UiShellPrefs | null;
     }) => Promise<
       | {
           ok: true;
@@ -693,6 +696,7 @@ export type MatricaApi = {
             collapsedGroups?: string[];
             activeGroup?: string | null;
           } | null;
+          shellPrefs?: UiShellPrefs | null;
         }
       | { ok: false; error: string }
     >;

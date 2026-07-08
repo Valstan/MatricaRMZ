@@ -11,6 +11,9 @@ import type {
   AiAgentEvent,
   UiControlSettings,
   UiDisplayPrefs,
+  UiShellPrefs,
+  UiShellVersion,
+  V2Prefs,
   ReleaseWelcomeContent,
   ReportPresetId,
   WorkOrderPayload,
@@ -19,6 +22,8 @@ import type {
 import {
   ACCESS_SECTION_CATALOG,
   DEFAULT_UI_CONTROL_SETTINGS,
+  DEFAULT_UI_SHELL_PREFS,
+  sanitizeUiShellPrefs,
   DEFAULT_UI_DISPLAY_PREFS,
   DEFAULT_UI_PRESET_ID,
   sanitizeUiControlSettings,
@@ -56,6 +61,8 @@ import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './ut
 import { loadContractActivityAlerts } from './utils/contractAlerts.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
+import { V2Shell } from './shellV2/V2Shell.js';
+import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -626,6 +633,16 @@ export function App() {
   useAdaptiveListTables();
   const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
+  // V2 shell («Трезубец»): per-user выбор оболочки + личные настройки 3-колоночного макета.
+  const [shellPrefs, setShellPrefs] = useState<UiShellPrefs | null>(null);
+  // V2: какой список открыт во 2-й колонке (null — колонка скрыта). В v1 не используется.
+  const [v2ActiveListTab, setV2ActiveListTab] = useState<TabId | null>(null);
+  // V2: отложенное открытие карточки после dirty-диалога (замена карточки того же вида).
+  const pendingCardOpenRef = useRef<(() => void) | null>(null);
+  // V2: replace той же сущности после discard не меняет selectedXId → key совпадает и
+  // карточка не ремоунтится (остаётся грязный DOM). Эпоха подмешивается в key карточек
+  // и бампается при dirty-замене; в v1 не меняется никогда.
+  const [v2CardEpoch, setV2CardEpoch] = useState(0);
   const [sectionMembership, setSectionMembership] = useState<Partial<Record<string, 'viewer' | 'editor'>> | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -686,6 +703,8 @@ export function App() {
   const recoveryCheckedUserRef = useRef('');
 
   const isCardTab = useCallback((nextTab: TabId) => CARD_DETAIL_TABS.includes(nextTab), []);
+
+  const isV2 = authStatus.loggedIn && shellPrefs?.shellVersion === 'v2';
 
   function clearCardCloseTimer() {
     if (cardCloseTimerRef.current == null) return;
@@ -817,7 +836,20 @@ export function App() {
       } catch (e) {
         setCardCloseStatus(`Ошибка сохранения: ${String(e)}`);
         cardCloseInProgressRef.current = false;
+        pendingCardOpenRef.current = null;
         clearQueuedHistoryReplay(true);
+        return;
+      }
+
+      // V2: карточка закрыта ради открытия другой (замена того же вида) — выполняем
+      // отложенное открытие вместо переключения таба.
+      const pendingOpen = pendingCardOpenRef.current;
+      if (pendingOpen) {
+        pendingCardOpenRef.current = null;
+        pendingOpen();
+        if (fromApp) {
+          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        }
         return;
       }
 
@@ -852,8 +884,53 @@ export function App() {
   );
 
   const setTab = useCallback((nextTab: TabId) => {
+    // V2: кнопка-список раскрывает колонку списков, не трогая рабочую область
+    // (открытую карточку/страницу). Обычный переход — только когда фокус уже на списке.
+    if (isV2 && V2_LIST_TABS.has(nextTab) && nextTab !== tab && !V2_LIST_TABS.has(tab)) {
+      setV2ActiveListTab(nextTab);
+      return;
+    }
     requestTabSwitch(nextTab);
-  }, [requestTabSwitch]);
+  }, [requestTabSwitch, isV2, tab]);
+
+  // V2: список виден рядом с открытой карточкой, поэтому клик по другой строке того же
+  // списка меняет selectedXId БЕЗ смены таба — requestTabSwitch не сработает, и key-ремоунт
+  // молча потерял бы несохранённые правки. Гейтим замену карточки тем же dirty-диалогом;
+  // отложенное открытие выполняет finalizeCardClose.
+  const v2OpenCardGuarded = useCallback(
+    (kind: TabId, run: () => void) => {
+      if (!isV2 || tab !== kind) {
+        run();
+        return;
+      }
+      const actions = cardCloseActionsRef.current;
+      let dirty = false;
+      if (actions) {
+        try {
+          dirty = Boolean(actions.isDirty());
+        } catch {
+          dirty = true;
+        }
+      }
+      if (!dirty) {
+        run();
+        return;
+      }
+      pendingCardOpenRef.current = () => {
+        setV2CardEpoch((e) => e + 1);
+        run();
+      };
+      void closeCardSession({ targetTab: null, appClose: false });
+    },
+    [isV2, tab, closeCardSession],
+  );
+
+  // V2: фокус на списке — синхронизируем колонку списков (в т.ч. возврат из карточки
+  // на родительский список и первый вход в v2 на списочном табе).
+  useEffect(() => {
+    if (!isV2) return;
+    if (V2_LIST_TABS.has(tab)) setV2ActiveListTab(tab);
+  }, [isV2, tab]);
 
   const requestCardClose = useCallback(() => {
     const parentTab = CARD_PARENT_TAB[tab];
@@ -1178,6 +1255,8 @@ export function App() {
     const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
     if (!userId) {
       setTabsLayout(null);
+      setShellPrefs(null);
+      setV2ActiveListTab(null);
       setPinnedShortcuts([]);
       shortcutsMutationEpochRef.current = 0;
       return;
@@ -1188,7 +1267,10 @@ export function App() {
       .uiGet({ userId })
       .then((r: any) => {
         if (!alive) return;
-        if (r?.ok) setTabsLayout((r.tabsLayout as TabsLayoutPrefs | null) ?? null);
+        if (r?.ok) {
+          setTabsLayout((r.tabsLayout as TabsLayoutPrefs | null) ?? null);
+          setShellPrefs(r.shellPrefs != null ? sanitizeUiShellPrefs(r.shellPrefs) : null);
+        }
       })
       .catch(() => {});
     void window.matrica.shortcuts
@@ -1457,6 +1539,8 @@ export function App() {
     lastRecordedVisitSigRef.current = '';
     isApplyingHistoryRef.current = false;
     queuedHistoryReplayRef.current = null;
+    setV2ActiveListTab(null);
+    pendingCardOpenRef.current = null;
     setEmployeesRefreshKey((k) => k + 1);
     setAiChatOpen(true);
   }
@@ -1996,6 +2080,39 @@ export function App() {
     await window.matrica.settings.uiSet({ userId, tabsLayout: next }).catch(() => {});
   }
 
+  async function persistShellPrefs(next: UiShellPrefs) {
+    setShellPrefs(next);
+    const userId = authStatus.user?.id;
+    if (!userId) return;
+    await window.matrica.settings.uiSet({ userId, shellPrefs: next }).catch(() => {});
+  }
+
+  function switchShellVersion(version: UiShellVersion) {
+    const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
+    void persistShellPrefs({ ...base, shellVersion: version });
+  }
+
+  function updateV2Prefs(nextV2: V2Prefs) {
+    const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
+    void persistShellPrefs({ ...base, v2: nextV2 });
+  }
+
+  // Общий обработчик кнопок меню (v1 Tabs и v2 ButtonPanel): auth-гейт, спец-ярлык
+  // «Прогноз сборки» (открывает пресет отчёта), проверка видимости.
+  function handleMenuTab(t: MenuTabId) {
+    const isUserTab = t === userTab;
+    if (!authStatus.loggedIn && t !== 'auth') {
+      setTab('auth');
+      return;
+    }
+    if (!visibleTabs.includes(t) && !isUserTab) return;
+    if (t === 'assembly_forecast') {
+      openReportPreset('assembly_forecast_7d');
+      return;
+    }
+    setTab(t);
+  }
+
   async function addPinnedShortcut(shortcutId: string) {
     const userId = authStatus.user?.id;
     const id = String(shortcutId ?? '').trim();
@@ -2119,6 +2236,12 @@ export function App() {
   }
 
   async function openEngine(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' }) {
+    v2OpenCardGuarded('engine', () => {
+      void openEngineNow(id, opts);
+    });
+  }
+
+  async function openEngineNow(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' }) {
     setEngineInitialTab(opts?.initialTab ?? 'main');
     // Смена двигателя: сбросить details ДО переключения, иначе карточка нового id
     // монтируется (key-ремоунт) с чужими stale-атрибутами и «снимок создания»
@@ -2141,30 +2264,40 @@ export function App() {
   }
 
   async function openRequest(id: string, opts?: { initialPayload?: SupplyRequestPayload }) {
-    setNewRequestSeed(opts?.initialPayload ? { id, payload: opts.initialPayload } : null);
-    setSelectedRequestId(id);
-    setTab('request');
+    v2OpenCardGuarded('request', () => {
+      setNewRequestSeed(opts?.initialPayload ? { id, payload: opts.initialPayload } : null);
+      setSelectedRequestId(id);
+      setTab('request');
+    });
   }
 
   async function openWorkOrder(id: string, opts?: { initialPayload?: WorkOrderPayload }) {
-    setNewWorkOrderSeed(opts?.initialPayload ? { id, payload: opts.initialPayload } : null);
-    setSelectedWorkOrderId(id);
-    setTab('work_order');
+    v2OpenCardGuarded('work_order', () => {
+      setNewWorkOrderSeed(opts?.initialPayload ? { id, payload: opts.initialPayload } : null);
+      setSelectedWorkOrderId(id);
+      setTab('work_order');
+    });
   }
 
   async function openEngineBrand(id: string) {
-    setSelectedEngineBrandId(id);
-    setTab('engine_brand');
+    v2OpenCardGuarded('engine_brand', () => {
+      setSelectedEngineBrandId(id);
+      setTab('engine_brand');
+    });
   }
 
   async function openEngineBrandGroup(id: string) {
-    setSelectedEngineBrandGroupId(id);
-    setTab('engine_brand_group');
+    v2OpenCardGuarded('engine_brand_group', () => {
+      setSelectedEngineBrandGroupId(id);
+      setTab('engine_brand_group');
+    });
   }
 
   async function openContract(id: string) {
-    setSelectedContractId(id);
-    setTab('contract');
+    v2OpenCardGuarded('contract', () => {
+      setSelectedContractId(id);
+      setTab('contract');
+    });
   }
 
   // Stage E.2: parts are edited in the nomenclature card now (directory_parts.id ==
@@ -2175,51 +2308,69 @@ export function App() {
   }
 
   async function openTool(id: string) {
-    setSelectedToolId(id);
-    setTab('tool');
+    v2OpenCardGuarded('tool', () => {
+      setSelectedToolId(id);
+      setTab('tool');
+    });
   }
 
   async function openToolProperty(id: string) {
-    setSelectedToolPropertyId(id);
-    setTab('tool_property');
+    v2OpenCardGuarded('tool_property', () => {
+      setSelectedToolPropertyId(id);
+      setTab('tool_property');
+    });
   }
 
   async function openEmployee(id: string) {
-    setSelectedEmployeeId(id);
-    setTab('employee');
+    v2OpenCardGuarded('employee', () => {
+      setSelectedEmployeeId(id);
+      setTab('employee');
+    });
   }
 
   async function openProduct(id: string) {
-    setSelectedProductId(id);
-    setTab('product');
+    v2OpenCardGuarded('product', () => {
+      setSelectedProductId(id);
+      setTab('product');
+    });
   }
 
   async function openService(id: string, opts?: { from?: TabId }) {
-    setSelectedServiceId(id);
-    setServiceOriginTab(opts?.from ?? null);
-    setTab('service');
+    v2OpenCardGuarded('service', () => {
+      setSelectedServiceId(id);
+      setServiceOriginTab(opts?.from ?? null);
+      setTab('service');
+    });
   }
 
   async function openNomenclature(id: string, opts?: { from?: TabId }) {
-    setSelectedNomenclatureId(id);
-    setNomenclatureOriginTab(opts?.from ?? null);
-    setTab('nomenclature_item');
+    v2OpenCardGuarded('nomenclature_item', () => {
+      setSelectedNomenclatureId(id);
+      setNomenclatureOriginTab(opts?.from ?? null);
+      setTab('nomenclature_item');
+    });
   }
 
   async function openEngineAssemblyBom(id: string) {
-    setSelectedEngineAssemblyBomId(id);
-    setTab('engine_assembly_bom_item');
+    v2OpenCardGuarded('engine_assembly_bom_item', () => {
+      setSelectedEngineAssemblyBomId(id);
+      setTab('engine_assembly_bom_item');
+    });
   }
 
   async function openStockDocument(id: string, parentTab: StockDocumentParentTab = 'stock_documents') {
-    setStockDocumentParentTab(parentTab);
-    setSelectedStockDocumentId(id);
-    setTab('stock_document');
+    v2OpenCardGuarded('stock_document', () => {
+      setStockDocumentParentTab(parentTab);
+      setSelectedStockDocumentId(id);
+      setTab('stock_document');
+    });
   }
 
   async function openCounterparty(id: string) {
-    setSelectedCounterpartyId(id);
-    setTab('counterparty');
+    v2OpenCardGuarded('counterparty', () => {
+      setSelectedCounterpartyId(id);
+      setTab('counterparty');
+    });
   }
 
   // Phase 3b: after login, surface any unsaved recovery drafts (crash / forced close /
@@ -2269,8 +2420,10 @@ export function App() {
   }
 
   function openReportPreset(presetId: ReportPresetId) {
-    setSelectedReportPresetId(presetId);
-    setTab('report_preset');
+    v2OpenCardGuarded('report_preset', () => {
+      setSelectedReportPresetId(presetId);
+      setTab('report_preset');
+    });
   }
 
   const openByCode = {
@@ -3511,6 +3664,730 @@ export function App() {
     [quickStartScores],
   );
 
+  // Card remount key: id + v2-эпоха (см. v2CardEpoch). В v1 эпоха константна —
+  // поведение key={id} байт-в-байт.
+  const cardKey = (id: string) => `${id}::${v2CardEpoch}`;
+
+  // V2 shell reuses the same page chain: render the content of an arbitrary tab id.
+  // v1 passes the single `tab`; v2 calls this separately for the lists column and the
+  // workspace column. Body = the original {tab === 'x' && ...} chain with tab -> t.
+  const renderTabContent = (t: TabId): React.ReactNode => (
+    <>
+
+        {t === 'history' && authStatus.loggedIn && (
+          <HistoryPage
+            meUserId={authStatus.user?.id ?? ''}
+            recentVisits={recentVisits}
+            quickStartRatings={quickStartRatings}
+            pinnedShortcuts={pinnedShortcuts}
+            onRemoveShortcut={removePinnedShortcut}
+            onNavigate={(link: ChatDeepLinkPayload) => {
+              void navigateDeepLink(link);
+            }}
+            onOpenNotes={(noteId?: string | null) => openNoteFromHistory(noteId)}
+            onOpenChat={() => openChatFromHistory()}
+          />
+        )}
+
+        {t === 'engines' && (
+          <EnginesPage
+            engines={engines}
+            onRefresh={refreshEngines}
+            onOpen={openEngine}
+            onCreate={async () => {
+              try {
+                const r = await window.matrica.engines.create();
+                await refreshEngines();
+                await openEngine(r.id);
+              } catch (e) {
+                const message = String(e ?? '');
+                setPostLoginSyncMsg(`Ошибка создания двигателя: ${message}`);
+                setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+              }
+            }}
+            canCreate={caps.canEditEngines}
+          />
+        )}
+
+        {t === 'engine_brands' && (
+          <EngineBrandsPage
+            onOpen={openEngineBrand}
+            canCreate={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {t === 'engine_brand_groups' && (
+          <EngineBrandGroupsPage
+            onOpen={openEngineBrandGroup}
+            canCreate={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {t === 'engine_brand_group' && selectedEngineBrandGroupId && (
+          <EngineBrandGroupDetailsPage
+            key={cardKey(selectedEngineBrandGroupId)}
+            groupId={selectedEngineBrandGroupId}
+            canEdit={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+            onClose={() => {
+              setSelectedEngineBrandGroupId(null);
+              setTabState('engine_brand_groups');
+            }}
+          />
+        )}
+
+        {t === 'workshops' && (
+          <MasterdataWorkshopsPage
+            canManage={caps.canManageWorkshops}
+            canEditRepairTemplates={caps.canEditWorkshopRepairTemplates}
+          />
+        )}
+
+        {t === 'warehouses_admin' && (
+          <WarehouseLocationsAdminPage
+            canManage={caps.canManageWarehouseLocations}
+            onOpenWorkshops={() => setTab('workshops')}
+          />
+        )}
+
+        {t === 'warehouse_locations' && (
+          <WarehouseLocationsPage
+            onOpenReport={(presetId: string) =>
+              setTab(presetId === 'part_movement_journal' ? 'reports' : t)
+            }
+          />
+        )}
+
+        {t === 'contracts' && (
+          <ContractsPage
+            onOpen={openContract}
+            canCreate={caps.canEditContracts}
+            canDelete={caps.canEditContracts}
+          />
+        )}
+
+        {t === 'counterparties' && (
+          <CounterpartiesPage
+            onOpen={openCounterparty}
+            canCreate={caps.canEditContracts}
+            canDelete={caps.canEditContracts}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {t === 'requests' && (
+          <SupplyRequestsPage
+            onOpen={openRequest}
+            canCreate={caps.canCreateSupplyRequests}
+          />
+        )}
+
+        {t === 'work_orders' && (
+          <WorkOrdersPage
+            onOpen={openWorkOrder}
+            canCreate={caps.canCreateWorkOrders}
+            canDelete={caps.canEditWorkOrders}
+            onOpenReport={() => openReportPreset('work_orders_report')}
+          />
+        )}
+
+        {t === 'work_order_templates' && (
+          <WorkOrderTemplatesPage canEdit={caps.canEditWorkOrderTemplates} />
+        )}
+
+        {t === 'services' && (
+          <ServicesPage
+            onOpen={(id: string) => openService(id, { from: 'services' })}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+            canViewMasterData={caps.canViewMasterData}
+          />
+        )}
+
+        {t === 'services_by_brand' && (
+          <ServicesByBrandPage
+            canEdit={caps.canEditMasterData}
+            canView={caps.canViewMasterData}
+            onOpenService={(id: string) => openService(id, { from: 'services_by_brand' })}
+          />
+        )}
+
+        {t === 'engine' && selectedEngineId && engineDetails && (
+          <EngineDetailsPage
+            key={cardKey(selectedEngineId)}
+            engineId={selectedEngineId}
+            engine={engineDetails}
+            onReload={reloadEngine}
+            onEngineUpdated={async () => {
+              await refreshEngines();
+              await reloadEngine();
+            }}
+            canEditEngines={caps.canEditEngines}
+            canViewOperations={caps.canViewOperations}
+            canEditOperations={caps.canEditOperations}
+            canPrintEngineCard={caps.canPrintReports}
+            canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
+            canExportReports={caps.canExportReports}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            canConfirmEngineDisassemble={caps.canConfirmEngineDisassemble}
+            canAssemblyReturn={caps.canAssemblyReturn}
+            currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenEngine={(id: string) => void openEngine(id)}
+            onOpenEngineReclamation={(id: string) => void openEngine(id, { initialTab: 'reclamation' })}
+            initialTab={engineInitialTab}
+            onOpenEngineBrand={openEngineBrand}
+            onOpenCounterparty={openCounterparty}
+            onOpenContract={openContract}
+            onOpenSupplyRequest={openRequest}
+            canCreateSupplyRequest={caps.canCreateSupplyRequests && caps.canEditSupplyRequests}
+            canCreateWorkOrder={caps.canCreateWorkOrders}
+            onOpenWorkOrder={(id: string) => void openWorkOrder(id)}
+            onClose={() => {
+              setSelectedEngineId(null);
+              setEngineDetails(null);
+              setTabState('engines');
+              void refreshEngines();
+            }}
+          />
+      )}
+
+        {t === 'engine_brand' && selectedEngineBrandId && (
+          <EngineBrandDetailsPage
+            key={cardKey(selectedEngineBrandId)}
+            brandId={selectedEngineBrandId}
+            canEdit={caps.canEditMasterData}
+            canViewParts={caps.canViewParts}
+            canCreateParts={caps.canCreateParts}
+            canEditParts={caps.canEditParts}
+            canViewMasterData={caps.canViewMasterData}
+            onOpenPart={openPart}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onClose={() => {
+              setSelectedEngineBrandId(null);
+              setTabState('engine_brands');
+            }}
+          />
+        )}
+        {t === 'engine' && selectedEngineId && !engineDetails && (
+          <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Карточка двигателя</div>
+            <div style={{ color: '#6b7280', marginBottom: 12 }}>
+              {engineLoading ? 'Загрузка...' : engineOpenError || 'Нет данных для отображения.'}
+            </div>
+            <Button onClick={() => setTab('engines')}>Вернуться к списку</Button>
+          </div>
+        )}
+
+        {t === 'request' && selectedRequestId && (
+          <SupplyRequestDetailsPage
+            key={cardKey(selectedRequestId)}
+            id={selectedRequestId}
+            {...(newRequestSeed && newRequestSeed.id === selectedRequestId ? { initialPayload: newRequestSeed.payload } : {})}
+            canEdit={caps.canEditSupplyRequests}
+            canSign={caps.canSignSupplyRequests}
+            canApprove={caps.canApproveSupplyRequests}
+            canAccept={caps.canAcceptSupplyRequests}
+            canFulfill={caps.canFulfillSupplyRequests}
+            canPrint={caps.canPrintSupplyRequests}
+            canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            userPosition={currentUserProfile?.position ?? null}
+            userRole={authStatus.user?.role ?? null}
+            userDepartmentId={currentUserProfile?.sectionId ?? null}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenProduct={openProduct}
+            onOpenService={openService}
+            onOpenNomenclature={openNomenclature}
+            onOpenPart={openPart}
+            onClose={() => {
+              setSelectedRequestId(null);
+              setTabState('requests');
+            }}
+          />
+        )}
+
+        {t === 'work_order' && selectedWorkOrderId && (
+          <WorkOrderDetailsPage
+            key={cardKey(selectedWorkOrderId)}
+            id={selectedWorkOrderId}
+            {...(newWorkOrderSeed && newWorkOrderSeed.id === selectedWorkOrderId ? { initialPayload: newWorkOrderSeed.payload } : {})}
+            canEdit={caps.canEditWorkOrders}
+            canEditMasterData={caps.canEditMasterData}
+            canCreateParts={caps.canCreateParts}
+            canCreateEmployees={caps.canManageEmployees}
+            canCloseWorkOrders={caps.canCloseWorkOrders}
+            canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates}
+            canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenPart={openPart}
+            onOpenService={openService}
+            onOpenEmployee={openEmployee}
+            onClose={() => {
+              setSelectedWorkOrderId(null);
+              setTabState('work_orders');
+            }}
+          />
+        )}
+
+        {t === 'parts' && (
+          <PartsPage
+            onOpen={openPart}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
+            canCreate={caps.canCreateParts}
+            canDelete={caps.canDeleteParts}
+          />
+        )}
+
+        {t === 'tools' && (
+          <ToolsPage
+            onOpen={openNomenclature}
+            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
+            onOpenProperties={() => setTab('tool_properties')}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+          />
+        )}
+
+        {t === 'tool_accounting' && (
+          <SupplyToolMovementsPage
+            canEdit={caps.canEditMasterData || caps.canFulfillSupplyRequests}
+            canViewMasterData={caps.canViewMasterData}
+            onOpenNomenclature={openNomenclature}
+            onOpenEmployee={(id: string) => void openEmployee(id)}
+            canCreateEmployees={caps.canManageEmployees}
+          />
+        )}
+
+        {t === 'tool_properties' && (
+          <ToolPropertiesPage
+            onOpen={openToolProperty}
+            canCreate={caps.canEditMasterData}
+            canDelete={caps.canEditMasterData}
+          />
+        )}
+
+        {t === 'employees' && (
+          <EmployeesPage
+            onOpen={(id: string) => openEmployee(id)}
+            canCreate={caps.canManageEmployees}
+            canDelete={caps.canManageEmployees}
+            refreshKey={employeesRefreshKey}
+          />
+        )}
+
+        {t === 'timesheets' && (
+          <TimesheetsPage
+            canEdit={caps.canEditTimesheets}
+            onOpen={(id: string) => {
+              setSelectedTimesheetId(id);
+              setTab('timesheet');
+            }}
+          />
+        )}
+
+        {t === 'timesheet' && selectedTimesheetId && (
+          <TimesheetGridPage
+            key={selectedTimesheetId}
+            timesheetId={selectedTimesheetId}
+            canEdit={caps.canEditTimesheets}
+            onBack={() => {
+              setSelectedTimesheetId(null);
+              setTab('timesheets');
+            }}
+          />
+        )}
+
+        {t === 'nomenclature' && (
+          <NomenclaturePage
+            onOpen={openNomenclature}
+            canEdit={caps.canEditMasterData}
+          />
+        )}
+
+        {t === 'parts_dedupe' && (
+          <PartsDedupePage canEdit={caps.canEditMasterData} />
+        )}
+
+        {t === 'empty_cards' && (
+          <EmptyCardsCleanupPage canEdit={caps.canEditMasterData} />
+        )}
+
+        {t === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={openRequest} />}
+
+        {t === 'engine_assembly_bom' && (
+          <EngineAssemblyBomPage
+            canEdit={caps.canEditMasterData}
+            onOpen={openEngineAssemblyBom}
+          />
+        )}
+
+        {(t === 'stock_receipts' || t === 'stock_issues' || t === 'stock_transfers' || t === 'stock_documents') && (
+          <StockDocumentsPage
+            defaultDocType={
+              t === 'stock_receipts'
+                ? 'stock_receipt'
+                : t === 'stock_issues'
+                  ? 'stock_issue'
+                  : t === 'stock_transfers'
+                    ? 'stock_transfer'
+                    : undefined
+            }
+            canEdit={caps.canEditOperations}
+            onOpen={(id: string) =>
+              void openStockDocument(
+                id,
+                t === 'stock_receipts' || t === 'stock_issues' || t === 'stock_transfers' ? t : 'stock_documents',
+              )
+            }
+          />
+        )}
+
+        {t === 'stock_balances' && (
+          <StockBalancesPage
+            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_documents')}
+            onOpenNomenclature={openNomenclature}
+            onOpenSupplyRequest={openRequest}
+            canCreateSupplyRequest={caps.canCreateSupplyRequests && caps.canEditSupplyRequests}
+          />
+        )}
+
+        {t === 'stock_inventory' && (
+          <StockInventoryPage
+            canEdit={caps.canEditOperations}
+            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_inventory')}
+          />
+        )}
+
+        {t === 'repair_fund_audit' && (
+          <RepairFundAuditPage
+            canEdit={caps.canEditOperations}
+            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_documents')}
+          />
+        )}
+
+        {t === 'warehouse_analytics' && <WarehouseAnalyticsPage />}
+
+        {t === 'workshop_stats' && <WorkshopStatsPage />}
+
+        {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
+
+        {t === 'tool' && selectedToolId && (
+          <ToolDetailsPage
+            key={cardKey(selectedToolId)}
+            toolId={selectedToolId}
+            canEdit={caps.canEditMasterData}
+            canCreateEmployees={caps.canManageEmployees}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenToolProperty={openToolProperty}
+            onOpenEmployee={openEmployee}
+            onBack={() => {
+              setSelectedToolId(null);
+              setTabState('tools');
+            }}
+          />
+        )}
+
+        {t === 'tool_property' && selectedToolPropertyId && (
+          <ToolPropertyDetailsPage
+            key={cardKey(selectedToolPropertyId)}
+            id={selectedToolPropertyId}
+            canEdit={caps.canEditMasterData}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onBack={() => {
+              setSelectedToolPropertyId(null);
+              setTabState('tool_properties');
+            }}
+          />
+        )}
+
+        {t === 'contract' && selectedContractId && (
+          <ContractDetailsPage
+            key={cardKey(selectedContractId)}
+            contractId={selectedContractId}
+            canEdit={caps.canEditContracts}
+            canEditMasterData={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onClose={() => {
+              setSelectedContractId(null);
+              setTabState('contracts');
+            }}
+            onOpenCounterparty={openCounterparty}
+            onOpenEngine={openEngine}
+            onOpenPart={openPart}
+            onOpenEngineBrand={openEngineBrand}
+          />
+        )}
+
+        {t === 'counterparty' && selectedCounterpartyId && (
+          <CounterpartyDetailsPage
+            key={cardKey(selectedCounterpartyId)}
+            counterpartyId={selectedCounterpartyId}
+            canEdit={caps.canEditContracts}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onClose={() => {
+              setSelectedCounterpartyId(null);
+              setTabState('counterparties');
+            }}
+          />
+        )}
+
+        {t === 'employee' && selectedEmployeeId && (
+          <EmployeeDetailsPage
+            key={cardKey(selectedEmployeeId)}
+            employeeId={selectedEmployeeId}
+            canEdit={caps.canManageEmployees}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            canManageUsers={caps.canManageUsers}
+            onAccessChanged={triggerEmployeesRefresh}
+            me={authStatus.user}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenEmployee={openEmployee}
+            onOpenCounterparty={openCounterparty}
+            onOpenContract={openContract}
+            onOpenByCode={openByCode}
+            onClose={() => {
+              setSelectedEmployeeId(null);
+              setTabState('employees');
+            }}
+          />
+        )}
+
+        {t === 'product' && selectedProductId && (
+          <SimpleMasterdataDetailsPage
+            key={cardKey(selectedProductId)}
+            title="Карточка товара"
+            entityId={selectedProductId}
+            ownerType="product"
+            typeCode="product"
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenCustomer={openCounterparty}
+            onClose={() => {
+              setSelectedProductId(null);
+              setTabState('nomenclature');
+            }}
+          />
+        )}
+
+        {t === 'service' && selectedServiceId && (
+          <SimpleMasterdataDetailsPage
+            key={cardKey(selectedServiceId)}
+            title="Карточка услуги"
+            entityId={selectedServiceId}
+            ownerType="service"
+            typeCode="service"
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            registerCardCloseActions={registerCardCloseActions}
+            requestClose={requestCardClose}
+            onOpenCustomer={openCounterparty}
+            onClose={() => {
+              const back = serviceOriginTab ?? 'nomenclature';
+              setSelectedServiceId(null);
+    setServiceOriginTab(null);
+              setServiceOriginTab(null);
+              setTabState(back);
+            }}
+          />
+        )}
+
+        {t === 'nomenclature_item' && selectedNomenclatureId && (
+          <NomenclatureDetailsPage
+            key={cardKey(selectedNomenclatureId)}
+            id={selectedNomenclatureId}
+            canEdit={caps.canEditMasterData}
+            canViewFiles={caps.canViewFiles}
+            canUploadFiles={caps.canUploadFiles}
+            onOpenCustomer={openCounterparty}
+            onOpenContract={openContract}
+            onOpenEngineBrand={openEngineBrand}
+            onOpenByCode={openByCode}
+            onClose={() => {
+              const back = nomenclatureOriginTab ?? 'nomenclature';
+              setSelectedNomenclatureId(null);
+              setNomenclatureOriginTab(null);
+              setTabState(back);
+            }}
+          />
+        )}
+
+        {t === 'engine_assembly_bom_item' && selectedEngineAssemblyBomId && (
+          <EngineAssemblyBomDetailsPage
+            key={cardKey(selectedEngineAssemblyBomId)}
+            id={selectedEngineAssemblyBomId}
+            canEdit={caps.canEditMasterData}
+            onClose={() => {
+              setSelectedEngineAssemblyBomId(null);
+              setTabState('engine_assembly_bom');
+            }}
+          />
+        )}
+
+        {t === 'stock_document' && selectedStockDocumentId && (
+          <StockDocumentDetailsPage
+            key={cardKey(selectedStockDocumentId)}
+            id={selectedStockDocumentId}
+            canEdit={caps.canEditOperations}
+            canCreateParts={caps.canCreateParts}
+            onClose={() => {
+              setSelectedStockDocumentId(null);
+              setTabState(stockDocumentParentTab);
+            }}
+          />
+        )}
+
+        {t === 'changes' && authStatus.loggedIn && authStatus.user && (
+          <ChangesPage
+            me={authStatus.user}
+            canDecideAsAdmin={['admin', 'superadmin'].includes(String(authStatus.user.role ?? '').toLowerCase())}
+          />
+        )}
+
+        {t === 'notes' && (
+          <NotesPage
+            meUserId={authStatus.user?.id ?? ''}
+            canEdit={authStatus.loggedIn && !viewMode}
+            initialNoteId={historyInitialNoteId}
+            onNavigate={(link: ChatDeepLinkPayload) => {
+              void navigateDeepLink(link);
+            }}
+            onSendToChat={sendNoteToChat}
+            onBurningCountChange={(count: number) => setNotesAlertCount(count)}
+          />
+        )}
+
+        {t === 'settings' && (
+          <SettingsPage
+            uiPrefs={uiPrefs}
+            onUiPrefsChange={setUiPrefs}
+            onLogout={() => {
+              void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
+              setTab('auth');
+            }}
+          />
+        )}
+
+        {t === 'reports' && (
+          <ReportsCatalogPage
+            userId={authStatus.user?.id ?? ''}
+            onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
+            pinnedShortcuts={pinnedShortcuts}
+            onAddShortcut={addPinnedShortcut}
+            onRemoveShortcut={removePinnedShortcut}
+          />
+        )}
+        {t === 'report_preset' && selectedReportPresetId && (
+          <ReportPresetPage
+            presetId={selectedReportPresetId}
+            canExport={caps.canExportReports}
+            userId={authStatus.user?.id ?? ''}
+            onBack={() => setTab('reports')}
+            onOpenWorkOrder={openWorkOrder}
+            onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
+          />
+        )}
+
+        {t === 'masterdata' && (
+          <MasterdataPage
+            canViewMasterData={caps.canViewMasterData}
+            canEditMasterData={caps.canEditMasterData}
+            userRole={userRole}
+          />
+        )}
+
+        {t === 'audit' && String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' && <SuperadminAuditPage />}
+
+        {t === 'admin' && <div style={{ color: 'var(--muted)' }}>Раздел перемещён в карточку сотрудника.</div>}
+
+        {t === 'auth' && (
+          <AuthPage
+            onChanged={(s: AuthStatus) => {
+              setAuthStatus(s);
+              if (s.loggedIn) setTab('history');
+            }}
+          />
+        )}
+
+
+        {t === 'engine' && (!selectedEngineId || !engineDetails) && (
+          <div style={{ color: 'var(--muted)' }}>Выберите двигатель из списка.</div>
+      )}
+
+        {t === 'contract' && !selectedContractId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите контракт из списка.</div>
+        )}
+
+        {t === 'counterparty' && !selectedCounterpartyId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите контрагента из списка.</div>
+        )}
+
+        {t === 'request' && !selectedRequestId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите заявку из списка.</div>
+        )}
+
+        {t === 'work_order' && !selectedWorkOrderId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите наряд из списка.</div>
+        )}
+
+        {t === 'employee' && !selectedEmployeeId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите сотрудника из списка.</div>
+        )}
+
+        {t === 'product' && !selectedProductId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите товар из списка.</div>
+        )}
+
+        {t === 'service' && !selectedServiceId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите услугу из списка.</div>
+        )}
+
+        {t === 'nomenclature_item' && !selectedNomenclatureId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите номенклатуру из списка.</div>
+        )}
+
+        {t === 'engine_assembly_bom_item' && !selectedEngineAssemblyBomId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите BOM-спецификацию из списка.</div>
+        )}
+
+        {t === 'stock_document' && !selectedStockDocumentId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите складской документ из списка.</div>
+        )}
+        {t === 'report_preset' && !selectedReportPresetId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите шаблон отчёта из каталога.</div>
+        )}
+    </>
+  );
+
   return (
     <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
       <Page
@@ -3702,6 +4579,11 @@ export function App() {
             onClose={() => setAccountMenuPos(null)}
             items={[
               { id: 'settings', label: '⚙️ Настройки', onClick: () => setTab('settings') },
+              {
+                id: 'shell',
+                label: isV2 ? '🧪 Старый интерфейс' : '🧪 Новый интерфейс (бета)',
+                onClick: () => switchShellVersion(isV2 ? 'v1' : 'v2'),
+              },
               { id: 'switch', label: '👥 Смена аккаунта', onClick: () => setAccountSwitchOpen(true) },
               {
                 id: 'logout',
@@ -3783,24 +4665,25 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
+          {isV2 ? (
+            <V2Shell
+              prefs={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2}
+              onPrefsChange={updateV2Prefs}
+              availableTabs={sectionGatedTabs}
+              menuLabels={menuLabels}
+              tab={tab}
+              activeListTab={v2ActiveListTab}
+              onMenuTab={handleMenuTab}
+              onCloseListColumn={() => setV2ActiveListTab(null)}
+              renderTabContent={renderTabContent}
+              onSwitchToV1={() => switchShellVersion('v1')}
+            />
+          ) : (
+            <>
           <div style={{ flex: '0 0 auto' }}>
             <Tabs
               tab={tab}
-              onTab={(t) => {
-                const isUserTab = t === userTab;
-                if (!authStatus.loggedIn && t !== 'auth') {
-                  setTab('auth');
-                  return;
-                }
-                if (!visibleTabs.includes(t) && !isUserTab) return;
-                // «Прогноз сборки» — ярлык в меню Производство: открывает пресет отчёта,
-                // а не отдельную страницу.
-                if (t === 'assembly_forecast') {
-                  openReportPreset('assembly_forecast_7d');
-                  return;
-                }
-                setTab(t);
-              }}
+              onTab={handleMenuTab}
               availableTabs={sectionGatedTabs}
               layout={tabsLayout}
               onLayoutChange={persistTabsLayout}
@@ -3832,725 +4715,11 @@ export function App() {
                 </div>
               }
             >
-        {tab === 'history' && authStatus.loggedIn && (
-          <HistoryPage
-            meUserId={authStatus.user?.id ?? ''}
-            recentVisits={recentVisits}
-            quickStartRatings={quickStartRatings}
-            pinnedShortcuts={pinnedShortcuts}
-            onRemoveShortcut={removePinnedShortcut}
-            onNavigate={(link: ChatDeepLinkPayload) => {
-              void navigateDeepLink(link);
-            }}
-            onOpenNotes={(noteId?: string | null) => openNoteFromHistory(noteId)}
-            onOpenChat={() => openChatFromHistory()}
-          />
-        )}
-
-        {tab === 'engines' && (
-          <EnginesPage
-            engines={engines}
-            onRefresh={refreshEngines}
-            onOpen={openEngine}
-            onCreate={async () => {
-              try {
-                const r = await window.matrica.engines.create();
-                await refreshEngines();
-                await openEngine(r.id);
-              } catch (e) {
-                const message = String(e ?? '');
-                setPostLoginSyncMsg(`Ошибка создания двигателя: ${message}`);
-                setTimeout(() => setPostLoginSyncMsg(''), 12_000);
-              }
-            }}
-            canCreate={caps.canEditEngines}
-          />
-        )}
-
-        {tab === 'engine_brands' && (
-          <EngineBrandsPage
-            onOpen={openEngineBrand}
-            canCreate={caps.canEditMasterData}
-            canViewMasterData={caps.canViewMasterData}
-          />
-        )}
-
-        {tab === 'engine_brand_groups' && (
-          <EngineBrandGroupsPage
-            onOpen={openEngineBrandGroup}
-            canCreate={caps.canEditMasterData}
-            canViewMasterData={caps.canViewMasterData}
-          />
-        )}
-
-        {tab === 'engine_brand_group' && selectedEngineBrandGroupId && (
-          <EngineBrandGroupDetailsPage
-            key={selectedEngineBrandGroupId}
-            groupId={selectedEngineBrandGroupId}
-            canEdit={caps.canEditMasterData}
-            canViewMasterData={caps.canViewMasterData}
-            onClose={() => {
-              setSelectedEngineBrandGroupId(null);
-              setTabState('engine_brand_groups');
-            }}
-          />
-        )}
-
-        {tab === 'workshops' && (
-          <MasterdataWorkshopsPage
-            canManage={caps.canManageWorkshops}
-            canEditRepairTemplates={caps.canEditWorkshopRepairTemplates}
-          />
-        )}
-
-        {tab === 'warehouses_admin' && (
-          <WarehouseLocationsAdminPage
-            canManage={caps.canManageWarehouseLocations}
-            onOpenWorkshops={() => setTab('workshops')}
-          />
-        )}
-
-        {tab === 'warehouse_locations' && (
-          <WarehouseLocationsPage
-            onOpenReport={(presetId: string) =>
-              setTab(presetId === 'part_movement_journal' ? 'reports' : tab)
-            }
-          />
-        )}
-
-        {tab === 'contracts' && (
-          <ContractsPage
-            onOpen={openContract}
-            canCreate={caps.canEditContracts}
-            canDelete={caps.canEditContracts}
-          />
-        )}
-
-        {tab === 'counterparties' && (
-          <CounterpartiesPage
-            onOpen={openCounterparty}
-            canCreate={caps.canEditContracts}
-            canDelete={caps.canEditContracts}
-            canViewMasterData={caps.canViewMasterData}
-          />
-        )}
-
-        {tab === 'requests' && (
-          <SupplyRequestsPage
-            onOpen={openRequest}
-            canCreate={caps.canCreateSupplyRequests}
-          />
-        )}
-
-        {tab === 'work_orders' && (
-          <WorkOrdersPage
-            onOpen={openWorkOrder}
-            canCreate={caps.canCreateWorkOrders}
-            canDelete={caps.canEditWorkOrders}
-            onOpenReport={() => openReportPreset('work_orders_report')}
-          />
-        )}
-
-        {tab === 'work_order_templates' && (
-          <WorkOrderTemplatesPage canEdit={caps.canEditWorkOrderTemplates} />
-        )}
-
-        {tab === 'services' && (
-          <ServicesPage
-            onOpen={(id: string) => openService(id, { from: 'services' })}
-            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
-            canCreate={caps.canEditMasterData}
-            canDelete={caps.canEditMasterData}
-            canViewMasterData={caps.canViewMasterData}
-          />
-        )}
-
-        {tab === 'services_by_brand' && (
-          <ServicesByBrandPage
-            canEdit={caps.canEditMasterData}
-            canView={caps.canViewMasterData}
-            onOpenService={(id: string) => openService(id, { from: 'services_by_brand' })}
-          />
-        )}
-
-        {tab === 'engine' && selectedEngineId && engineDetails && (
-          <EngineDetailsPage
-            key={selectedEngineId}
-            engineId={selectedEngineId}
-            engine={engineDetails}
-            onReload={reloadEngine}
-            onEngineUpdated={async () => {
-              await refreshEngines();
-              await reloadEngine();
-            }}
-            canEditEngines={caps.canEditEngines}
-            canViewOperations={caps.canViewOperations}
-            canEditOperations={caps.canEditOperations}
-            canPrintEngineCard={caps.canPrintReports}
-            canViewMasterData={caps.canViewMasterData}
-            canEditMasterData={caps.canEditMasterData}
-            canExportReports={caps.canExportReports}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            canConfirmEngineDisassemble={caps.canConfirmEngineDisassemble}
-            canAssemblyReturn={caps.canAssemblyReturn}
-            currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenEngine={(id: string) => void openEngine(id)}
-            onOpenEngineReclamation={(id: string) => void openEngine(id, { initialTab: 'reclamation' })}
-            initialTab={engineInitialTab}
-            onOpenEngineBrand={openEngineBrand}
-            onOpenCounterparty={openCounterparty}
-            onOpenContract={openContract}
-            onOpenSupplyRequest={openRequest}
-            canCreateSupplyRequest={caps.canCreateSupplyRequests && caps.canEditSupplyRequests}
-            canCreateWorkOrder={caps.canCreateWorkOrders}
-            onOpenWorkOrder={(id: string) => void openWorkOrder(id)}
-            onClose={() => {
-              setSelectedEngineId(null);
-              setEngineDetails(null);
-              setTabState('engines');
-              void refreshEngines();
-            }}
-          />
-      )}
-
-        {tab === 'engine_brand' && selectedEngineBrandId && (
-          <EngineBrandDetailsPage
-            key={selectedEngineBrandId}
-            brandId={selectedEngineBrandId}
-            canEdit={caps.canEditMasterData}
-            canViewParts={caps.canViewParts}
-            canCreateParts={caps.canCreateParts}
-            canEditParts={caps.canEditParts}
-            canViewMasterData={caps.canViewMasterData}
-            onOpenPart={openPart}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onClose={() => {
-              setSelectedEngineBrandId(null);
-              setTabState('engine_brands');
-            }}
-          />
-        )}
-        {tab === 'engine' && selectedEngineId && !engineDetails && (
-          <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Карточка двигателя</div>
-            <div style={{ color: '#6b7280', marginBottom: 12 }}>
-              {engineLoading ? 'Загрузка...' : engineOpenError || 'Нет данных для отображения.'}
-            </div>
-            <Button onClick={() => setTab('engines')}>Вернуться к списку</Button>
-          </div>
-        )}
-
-        {tab === 'request' && selectedRequestId && (
-          <SupplyRequestDetailsPage
-            key={selectedRequestId}
-            id={selectedRequestId}
-            {...(newRequestSeed && newRequestSeed.id === selectedRequestId ? { initialPayload: newRequestSeed.payload } : {})}
-            canEdit={caps.canEditSupplyRequests}
-            canSign={caps.canSignSupplyRequests}
-            canApprove={caps.canApproveSupplyRequests}
-            canAccept={caps.canAcceptSupplyRequests}
-            canFulfill={caps.canFulfillSupplyRequests}
-            canPrint={caps.canPrintSupplyRequests}
-            canViewMasterData={caps.canViewMasterData}
-            canEditMasterData={caps.canEditMasterData}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            userPosition={currentUserProfile?.position ?? null}
-            userRole={authStatus.user?.role ?? null}
-            userDepartmentId={currentUserProfile?.sectionId ?? null}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenProduct={openProduct}
-            onOpenService={openService}
-            onOpenNomenclature={openNomenclature}
-            onOpenPart={openPart}
-            onClose={() => {
-              setSelectedRequestId(null);
-              setTabState('requests');
-            }}
-          />
-        )}
-
-        {tab === 'work_order' && selectedWorkOrderId && (
-          <WorkOrderDetailsPage
-            key={selectedWorkOrderId}
-            id={selectedWorkOrderId}
-            {...(newWorkOrderSeed && newWorkOrderSeed.id === selectedWorkOrderId ? { initialPayload: newWorkOrderSeed.payload } : {})}
-            canEdit={caps.canEditWorkOrders}
-            canEditMasterData={caps.canEditMasterData}
-            canCreateParts={caps.canCreateParts}
-            canCreateEmployees={caps.canManageEmployees}
-            canCloseWorkOrders={caps.canCloseWorkOrders}
-            canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates}
-            canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenPart={openPart}
-            onOpenService={openService}
-            onOpenEmployee={openEmployee}
-            onClose={() => {
-              setSelectedWorkOrderId(null);
-              setTabState('work_orders');
-            }}
-          />
-        )}
-
-        {tab === 'parts' && (
-          <PartsPage
-            onOpen={openPart}
-            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
-            canCreate={caps.canCreateParts}
-            canDelete={caps.canDeleteParts}
-          />
-        )}
-
-        {tab === 'tools' && (
-          <ToolsPage
-            onOpen={openNomenclature}
-            onOpenNomenclatureCatalog={() => setTab('nomenclature')}
-            onOpenProperties={() => setTab('tool_properties')}
-            canCreate={caps.canEditMasterData}
-            canDelete={caps.canEditMasterData}
-          />
-        )}
-
-        {tab === 'tool_accounting' && (
-          <SupplyToolMovementsPage
-            canEdit={caps.canEditMasterData || caps.canFulfillSupplyRequests}
-            canViewMasterData={caps.canViewMasterData}
-            onOpenNomenclature={openNomenclature}
-            onOpenEmployee={(id: string) => {
-              setSelectedEmployeeId(id);
-              setTab('employee');
-            }}
-            canCreateEmployees={caps.canManageEmployees}
-          />
-        )}
-
-        {tab === 'tool_properties' && (
-          <ToolPropertiesPage
-            onOpen={openToolProperty}
-            canCreate={caps.canEditMasterData}
-            canDelete={caps.canEditMasterData}
-          />
-        )}
-
-        {tab === 'employees' && (
-          <EmployeesPage
-            onOpen={async (id: string) => {
-              setSelectedEmployeeId(id);
-              setTab('employee');
-            }}
-            canCreate={caps.canManageEmployees}
-            canDelete={caps.canManageEmployees}
-            refreshKey={employeesRefreshKey}
-          />
-        )}
-
-        {tab === 'timesheets' && (
-          <TimesheetsPage
-            canEdit={caps.canEditTimesheets}
-            onOpen={(id: string) => {
-              setSelectedTimesheetId(id);
-              setTab('timesheet');
-            }}
-          />
-        )}
-
-        {tab === 'timesheet' && selectedTimesheetId && (
-          <TimesheetGridPage
-            key={selectedTimesheetId}
-            timesheetId={selectedTimesheetId}
-            canEdit={caps.canEditTimesheets}
-            onBack={() => {
-              setSelectedTimesheetId(null);
-              setTab('timesheets');
-            }}
-          />
-        )}
-
-        {tab === 'nomenclature' && (
-          <NomenclaturePage
-            onOpen={openNomenclature}
-            canEdit={caps.canEditMasterData}
-          />
-        )}
-
-        {tab === 'parts_dedupe' && (
-          <PartsDedupePage canEdit={caps.canEditMasterData} />
-        )}
-
-        {tab === 'empty_cards' && (
-          <EmptyCardsCleanupPage canEdit={caps.canEditMasterData} />
-        )}
-
-        {tab === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={openRequest} />}
-
-        {tab === 'engine_assembly_bom' && (
-          <EngineAssemblyBomPage
-            canEdit={caps.canEditMasterData}
-            onOpen={openEngineAssemblyBom}
-          />
-        )}
-
-        {(tab === 'stock_receipts' || tab === 'stock_issues' || tab === 'stock_transfers' || tab === 'stock_documents') && (
-          <StockDocumentsPage
-            defaultDocType={
-              tab === 'stock_receipts'
-                ? 'stock_receipt'
-                : tab === 'stock_issues'
-                  ? 'stock_issue'
-                  : tab === 'stock_transfers'
-                    ? 'stock_transfer'
-                    : undefined
-            }
-            canEdit={caps.canEditOperations}
-            onOpen={(id: string) =>
-              void openStockDocument(
-                id,
-                tab === 'stock_receipts' || tab === 'stock_issues' || tab === 'stock_transfers' ? tab : 'stock_documents',
-              )
-            }
-          />
-        )}
-
-        {tab === 'stock_balances' && (
-          <StockBalancesPage
-            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_documents')}
-            onOpenNomenclature={openNomenclature}
-            onOpenSupplyRequest={openRequest}
-            canCreateSupplyRequest={caps.canCreateSupplyRequests && caps.canEditSupplyRequests}
-          />
-        )}
-
-        {tab === 'stock_inventory' && (
-          <StockInventoryPage
-            canEdit={caps.canEditOperations}
-            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_inventory')}
-          />
-        )}
-
-        {tab === 'repair_fund_audit' && (
-          <RepairFundAuditPage
-            canEdit={caps.canEditOperations}
-            onOpenDocument={(id: string) => void openStockDocument(id, 'stock_documents')}
-          />
-        )}
-
-        {tab === 'warehouse_analytics' && <WarehouseAnalyticsPage />}
-
-        {tab === 'workshop_stats' && <WorkshopStatsPage />}
-
-        {tab === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
-
-        {tab === 'tool' && selectedToolId && (
-          <ToolDetailsPage
-            key={selectedToolId}
-            toolId={selectedToolId}
-            canEdit={caps.canEditMasterData}
-            canCreateEmployees={caps.canManageEmployees}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenToolProperty={openToolProperty}
-            onOpenEmployee={openEmployee}
-            onBack={() => {
-              setSelectedToolId(null);
-              setTabState('tools');
-            }}
-          />
-        )}
-
-        {tab === 'tool_property' && selectedToolPropertyId && (
-          <ToolPropertyDetailsPage
-            key={selectedToolPropertyId}
-            id={selectedToolPropertyId}
-            canEdit={caps.canEditMasterData}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onBack={() => {
-              setSelectedToolPropertyId(null);
-              setTabState('tool_properties');
-            }}
-          />
-        )}
-
-        {tab === 'contract' && selectedContractId && (
-          <ContractDetailsPage
-            key={selectedContractId}
-            contractId={selectedContractId}
-            canEdit={caps.canEditContracts}
-            canEditMasterData={caps.canEditMasterData}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onClose={() => {
-              setSelectedContractId(null);
-              setTabState('contracts');
-            }}
-            onOpenCounterparty={openCounterparty}
-            onOpenEngine={openEngine}
-            onOpenPart={openPart}
-            onOpenEngineBrand={openEngineBrand}
-          />
-        )}
-
-        {tab === 'counterparty' && selectedCounterpartyId && (
-          <CounterpartyDetailsPage
-            key={selectedCounterpartyId}
-            counterpartyId={selectedCounterpartyId}
-            canEdit={caps.canEditContracts}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onClose={() => {
-              setSelectedCounterpartyId(null);
-              setTabState('counterparties');
-            }}
-          />
-        )}
-
-        {tab === 'employee' && selectedEmployeeId && (
-          <EmployeeDetailsPage
-            key={selectedEmployeeId}
-            employeeId={selectedEmployeeId}
-            canEdit={caps.canManageEmployees}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            canManageUsers={caps.canManageUsers}
-            onAccessChanged={triggerEmployeesRefresh}
-            me={authStatus.user}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenEmployee={openEmployee}
-            onOpenCounterparty={openCounterparty}
-            onOpenContract={openContract}
-            onOpenByCode={openByCode}
-            onClose={() => {
-              setSelectedEmployeeId(null);
-              setTabState('employees');
-            }}
-          />
-        )}
-
-        {tab === 'product' && selectedProductId && (
-          <SimpleMasterdataDetailsPage
-            key={selectedProductId}
-            title="Карточка товара"
-            entityId={selectedProductId}
-            ownerType="product"
-            typeCode="product"
-            canEdit={caps.canEditMasterData}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenCustomer={openCounterparty}
-            onClose={() => {
-              setSelectedProductId(null);
-              setTabState('nomenclature');
-            }}
-          />
-        )}
-
-        {tab === 'service' && selectedServiceId && (
-          <SimpleMasterdataDetailsPage
-            key={selectedServiceId}
-            title="Карточка услуги"
-            entityId={selectedServiceId}
-            ownerType="service"
-            typeCode="service"
-            canEdit={caps.canEditMasterData}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            registerCardCloseActions={registerCardCloseActions}
-            requestClose={requestCardClose}
-            onOpenCustomer={openCounterparty}
-            onClose={() => {
-              const back = serviceOriginTab ?? 'nomenclature';
-              setSelectedServiceId(null);
-    setServiceOriginTab(null);
-              setServiceOriginTab(null);
-              setTabState(back);
-            }}
-          />
-        )}
-
-        {tab === 'nomenclature_item' && selectedNomenclatureId && (
-          <NomenclatureDetailsPage
-            key={selectedNomenclatureId}
-            id={selectedNomenclatureId}
-            canEdit={caps.canEditMasterData}
-            canViewFiles={caps.canViewFiles}
-            canUploadFiles={caps.canUploadFiles}
-            onOpenCustomer={openCounterparty}
-            onOpenContract={openContract}
-            onOpenEngineBrand={openEngineBrand}
-            onOpenByCode={openByCode}
-            onClose={() => {
-              const back = nomenclatureOriginTab ?? 'nomenclature';
-              setSelectedNomenclatureId(null);
-              setNomenclatureOriginTab(null);
-              setTabState(back);
-            }}
-          />
-        )}
-
-        {tab === 'engine_assembly_bom_item' && selectedEngineAssemblyBomId && (
-          <EngineAssemblyBomDetailsPage
-            key={selectedEngineAssemblyBomId}
-            id={selectedEngineAssemblyBomId}
-            canEdit={caps.canEditMasterData}
-            onClose={() => {
-              setSelectedEngineAssemblyBomId(null);
-              setTabState('engine_assembly_bom');
-            }}
-          />
-        )}
-
-        {tab === 'stock_document' && selectedStockDocumentId && (
-          <StockDocumentDetailsPage
-            key={selectedStockDocumentId}
-            id={selectedStockDocumentId}
-            canEdit={caps.canEditOperations}
-            canCreateParts={caps.canCreateParts}
-            onClose={() => {
-              setSelectedStockDocumentId(null);
-              setTabState(stockDocumentParentTab);
-            }}
-          />
-        )}
-
-        {tab === 'changes' && authStatus.loggedIn && authStatus.user && (
-          <ChangesPage
-            me={authStatus.user}
-            canDecideAsAdmin={['admin', 'superadmin'].includes(String(authStatus.user.role ?? '').toLowerCase())}
-          />
-        )}
-
-        {tab === 'notes' && (
-          <NotesPage
-            meUserId={authStatus.user?.id ?? ''}
-            canEdit={authStatus.loggedIn && !viewMode}
-            initialNoteId={historyInitialNoteId}
-            onNavigate={(link: ChatDeepLinkPayload) => {
-              void navigateDeepLink(link);
-            }}
-            onSendToChat={sendNoteToChat}
-            onBurningCountChange={(count: number) => setNotesAlertCount(count)}
-          />
-        )}
-
-        {tab === 'settings' && (
-          <SettingsPage
-            uiPrefs={uiPrefs}
-            onUiPrefsChange={setUiPrefs}
-            onLogout={() => {
-              void window.matrica.auth.status().then(setAuthStatus).catch(() => {});
-              setTab('auth');
-            }}
-          />
-        )}
-
-        {tab === 'reports' && (
-          <ReportsCatalogPage
-            userId={authStatus.user?.id ?? ''}
-            onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
-            pinnedShortcuts={pinnedShortcuts}
-            onAddShortcut={addPinnedShortcut}
-            onRemoveShortcut={removePinnedShortcut}
-          />
-        )}
-        {tab === 'report_preset' && selectedReportPresetId && (
-          <ReportPresetPage
-            presetId={selectedReportPresetId}
-            canExport={caps.canExportReports}
-            userId={authStatus.user?.id ?? ''}
-            onBack={() => setTab('reports')}
-            onOpenWorkOrder={openWorkOrder}
-            onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
-          />
-        )}
-
-        {tab === 'masterdata' && (
-          <MasterdataPage
-            canViewMasterData={caps.canViewMasterData}
-            canEditMasterData={caps.canEditMasterData}
-            userRole={userRole}
-          />
-        )}
-
-        {tab === 'audit' && String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' && <SuperadminAuditPage />}
-
-        {tab === 'admin' && <div style={{ color: 'var(--muted)' }}>Раздел перемещён в карточку сотрудника.</div>}
-
-        {tab === 'auth' && (
-          <AuthPage
-            onChanged={(s: AuthStatus) => {
-              setAuthStatus(s);
-              if (s.loggedIn) setTab('history');
-            }}
-          />
-        )}
-
-
-        {tab === 'engine' && (!selectedEngineId || !engineDetails) && (
-          <div style={{ color: 'var(--muted)' }}>Выберите двигатель из списка.</div>
-      )}
-
-        {tab === 'contract' && !selectedContractId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите контракт из списка.</div>
-        )}
-
-        {tab === 'counterparty' && !selectedCounterpartyId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите контрагента из списка.</div>
-        )}
-
-        {tab === 'request' && !selectedRequestId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите заявку из списка.</div>
-        )}
-
-        {tab === 'work_order' && !selectedWorkOrderId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите наряд из списка.</div>
-        )}
-
-        {tab === 'employee' && !selectedEmployeeId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите сотрудника из списка.</div>
-        )}
-
-        {tab === 'product' && !selectedProductId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите товар из списка.</div>
-        )}
-
-        {tab === 'service' && !selectedServiceId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите услугу из списка.</div>
-        )}
-
-        {tab === 'nomenclature_item' && !selectedNomenclatureId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите номенклатуру из списка.</div>
-        )}
-
-        {tab === 'engine_assembly_bom_item' && !selectedEngineAssemblyBomId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите BOM-спецификацию из списка.</div>
-        )}
-
-        {tab === 'stock_document' && !selectedStockDocumentId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите складской документ из списка.</div>
-        )}
-        {tab === 'report_preset' && !selectedReportPresetId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите шаблон отчёта из каталога.</div>
-        )}
+              {renderTabContent(tab)}
             </React.Suspense>
           </div>
+            </>
+          )}
         </div>
 
         {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide !== 'left' && (

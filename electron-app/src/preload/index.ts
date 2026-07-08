@@ -746,6 +746,7 @@ const matricaApi = {
         collapsedGroups?: string[];
         activeGroup?: string | null;
       } | null;
+      shellPrefs?: unknown;
     }) =>
       ipcRenderer.invoke('ui:prefs:set', args),
     uiControlGet: async () => ipcRenderer.invoke('ui:control:get'),

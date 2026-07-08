@@ -38,6 +38,7 @@ export * from './domain/warehouseLocations.js';
 export * from './domain/workshopRepairTemplate.js';
 export * from './domain/workOrderTemplate.js';
 export * from './domain/uiControl.js';
+export * from './domain/uiShellV2.js';
 export * from './domain/userUiProfile.js';
 export * from './domain/reports.js';
 export * from './domain/assemblyForecast.js';

@@ -171,7 +171,7 @@ const menuTabSet = new Set<MenuTabId>([
   'warehouse_locations',
 ]);
 
-function resolveMenuTab(tab: string): MenuTabId | null {
+export function resolveMenuTab(tab: string): MenuTabId | null {
   const parent = PARENT_TAB[tab];
   if (parent) return parent;
   return menuTabSet.has(tab as MenuTabId) ? (tab as MenuTabId) : null;
@@ -199,8 +199,8 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
   control: 'Контроль и аналитика',
 };
 
-const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
-const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
+export const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
+export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history'],
   production: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'tool_accounting'],
@@ -250,7 +250,7 @@ const GROUP_VISUALS: Record<MenuGroupId, GroupVisualMeta> = {
 };
 
 type TabVisualMeta = { icon: string; subtitle: string; gradient: string };
-const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
+export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   history: { icon: '🎯', subtitle: '', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   engines: { icon: '⚙️', subtitle: 'Список и карточки двигателей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   assembly_forecast: { icon: '🔮', subtitle: 'Прогноз сборки двигателей', gradient: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)' },
@@ -364,7 +364,7 @@ function isGroupId(value: string): value is MenuGroupId {
   return DEFAULT_GROUP_ORDER.includes(value as MenuGroupId);
 }
 
-function groupForTab(tab: MenuTabId): MenuGroupId {
+export function groupForTab(tab: MenuTabId): MenuGroupId {
   for (const groupId of DEFAULT_GROUP_ORDER) {
     if (DEFAULT_GROUP_TABS[groupId].includes(tab)) return groupId;
   }
