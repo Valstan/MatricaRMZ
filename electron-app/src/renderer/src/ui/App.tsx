@@ -4772,6 +4772,19 @@ export function App() {
               </Button>
             ))}
           </div>
+          {/* Переключатель нового/старого интерфейса — всегда на виду в шапке (после входа),
+              в обоих оболочках. Дефолт — старый (v1); можно вернуться в один клик. */}
+          {authStatus.loggedIn && (
+            <Button
+              size="sm"
+              variant={isV2 ? 'primary' : 'ghost'}
+              onClick={() => switchShellVersion(isV2 ? 'v1' : 'v2')}
+              title={isV2 ? 'Вернуться к старому интерфейсу' : 'Попробовать новый интерфейс (бета)'}
+              aria-label={isV2 ? 'Старый интерфейс' : 'Новый интерфейс'}
+            >
+              {isV2 ? '↩️ Старый интерфейс' : '🧪 Новый интерфейс'}
+            </Button>
+          )}
           {authStatus.loggedIn && (
             <Button variant="ghost" onClick={() => setGlobalSearchOpen(true)} title="Глобальный поиск (Ctrl+K)">
               🔍 Поиск
