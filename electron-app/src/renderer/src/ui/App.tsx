@@ -643,6 +643,10 @@ export function App() {
   // карточка не ремоунтится (остаётся грязный DOM). Эпоха подмешивается в key карточек
   // и бампается при dirty-замене; в v1 не меняется никогда.
   const [v2CardEpoch, setV2CardEpoch] = useState(0);
+  // Фаза 3: вкладки открытых карточек в рабочей области (до 3, single-mount — активна одна,
+  // остальные — «закладки» для быстрого возврата). Дедуп по kind+entityId. Не используется в v1.
+  const [v2OpenCards, setV2OpenCards] = useState<Array<{ kind: TabId; entityId: string; title: string }>>([]);
+  const V2_MAX_OPEN_CARDS = 3;
   const [sectionMembership, setSectionMembership] = useState<Partial<Record<string, 'viewer' | 'editor'>> | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -1540,6 +1544,7 @@ export function App() {
     isApplyingHistoryRef.current = false;
     queuedHistoryReplayRef.current = null;
     setV2ActiveListTab(null);
+    setV2OpenCards([]);
     pendingCardOpenRef.current = null;
     setEmployeesRefreshKey((k) => k + 1);
     setAiChatOpen(true);
@@ -2441,6 +2446,143 @@ export function App() {
     employee: openEmployee,
     tool_property: openToolProperty,
   };
+
+  // ── Фаза 3: вкладки открытых карточек (v2) ──────────────────────────────────────
+  // Текущая карточка в фокусе = (tab, соответствующий selectedXId).
+  function v2CurrentCardIdentity(): { kind: TabId; entityId: string } | null {
+    if (!isCardTab(tab)) return null;
+    const idByTab: Partial<Record<TabId, string | null>> = {
+      engine: selectedEngineId,
+      engine_brand: selectedEngineBrandId,
+      engine_brand_group: selectedEngineBrandGroupId,
+      request: selectedRequestId,
+      work_order: selectedWorkOrderId,
+      tool: selectedToolId,
+      tool_property: selectedToolPropertyId,
+      employee: selectedEmployeeId,
+      contract: selectedContractId,
+      counterparty: selectedCounterpartyId,
+      product: selectedProductId,
+      service: selectedServiceId,
+      nomenclature_item: selectedNomenclatureId,
+      engine_assembly_bom_item: selectedEngineAssemblyBomId,
+      stock_document: selectedStockDocumentId,
+      report_preset: selectedReportPresetId,
+    };
+    const id = idByTab[tab];
+    return id ? { kind: tab, entityId: String(id) } : null;
+  }
+
+  function v2CardTitle(kind: TabId, entityId: string): string {
+    if (kind === 'engine') {
+      const e = engines.find((x) => x.id === entityId);
+      const num = e?.engineNumber?.trim();
+      if (num) return `⚙️ ${num}`;
+    }
+    return `${appTabTitle(kind)} · ${entityId.slice(0, 6)}`;
+  }
+
+  // Переоткрыть карточку по дескриптору (переиспользует open*-хелперы, включая dirty-guard).
+  function reopenV2Card(kind: TabId, entityId: string) {
+    switch (kind) {
+      case 'engine': return void openEngine(entityId);
+      case 'engine_brand': return void openEngineBrand(entityId);
+      case 'engine_brand_group': return void openEngineBrandGroup(entityId);
+      case 'request': return void openRequest(entityId);
+      case 'work_order': return void openWorkOrder(entityId);
+      case 'tool': return void openTool(entityId);
+      case 'tool_property': return void openToolProperty(entityId);
+      case 'employee': return void openEmployee(entityId);
+      case 'contract': return void openContract(entityId);
+      case 'counterparty': return void openCounterparty(entityId);
+      case 'product': return void openProduct(entityId);
+      case 'service': return void openService(entityId);
+      case 'nomenclature_item': return void openNomenclature(entityId);
+      case 'engine_assembly_bom_item': return void openEngineAssemblyBom(entityId);
+      case 'stock_document': return void openStockDocument(entityId);
+      case 'report_preset': return void openReportPreset(entityId as ReportPresetId);
+      default: return;
+    }
+  }
+
+  function focusV2Card(card: { kind: TabId; entityId: string }) {
+    reopenV2Card(card.kind, card.entityId);
+  }
+
+  // Закрыть вкладку карточки. Фокусную закрываем через dirty-guard; фоновую (single-mount:
+  // не смонтирована, значит без несохранённого) — просто убираем из списка.
+  function closeV2Card(card: { kind: TabId; entityId: string }) {
+    const nextCards = v2OpenCards.filter((c) => !(c.kind === card.kind && c.entityId === card.entityId));
+    const idn = v2CurrentCardIdentity();
+    const isFocused = !!idn && idn.kind === card.kind && idn.entityId === card.entityId;
+    if (!isFocused) {
+      setV2OpenCards(nextCards);
+      return;
+    }
+    const nextFocus = nextCards[nextCards.length - 1] ?? null;
+    const doAfter = () => {
+      setV2CardEpoch((e) => e + 1);
+      setV2OpenCards(nextCards);
+      if (nextFocus) reopenV2Card(nextFocus.kind, nextFocus.entityId);
+      else setTabState(CARD_PARENT_TAB[card.kind] ?? 'history');
+    };
+    const actions = cardCloseActionsRef.current;
+    let dirty = false;
+    if (actions) {
+      try {
+        dirty = Boolean(actions.isDirty());
+      } catch {
+        dirty = true;
+      }
+    }
+    if (!dirty) {
+      if (actions) actions.closeWithoutSave();
+      doAfter();
+      return;
+    }
+    pendingCardOpenRef.current = doAfter;
+    void closeCardSession({ targetTab: null, appClose: false });
+  }
+
+  // Учёт открытых карточек: при фокусе на карточке — upsert дескриптора (дедуп, кап 3).
+  useEffect(() => {
+    if (!isV2) return;
+    const idn = v2CurrentCardIdentity();
+    if (!idn) return;
+    const title = v2CardTitle(idn.kind, idn.entityId);
+    setV2OpenCards((prev) => {
+      const i = prev.findIndex((c) => c.kind === idn.kind && c.entityId === idn.entityId);
+      if (i >= 0) {
+        if (prev[i]?.title === title) return prev;
+        const next = [...prev];
+        next[i] = { kind: idn.kind, entityId: idn.entityId, title };
+        return next;
+      }
+      const next = [...prev, { kind: idn.kind, entityId: idn.entityId, title }];
+      while (next.length > V2_MAX_OPEN_CARDS) next.shift();
+      return next;
+    });
+  }, [
+    isV2,
+    tab,
+    selectedEngineId,
+    selectedEngineBrandId,
+    selectedEngineBrandGroupId,
+    selectedRequestId,
+    selectedWorkOrderId,
+    selectedToolId,
+    selectedToolPropertyId,
+    selectedEmployeeId,
+    selectedContractId,
+    selectedCounterpartyId,
+    selectedProductId,
+    selectedServiceId,
+    selectedNomenclatureId,
+    selectedEngineAssemblyBomId,
+    selectedStockDocumentId,
+    selectedReportPresetId,
+    engines,
+  ]);
 
   function openNoteFromHistory(noteId?: string | null) {
     setHistoryInitialNoteId(noteId ? String(noteId) : null);
@@ -4677,6 +4819,10 @@ export function App() {
               onCloseListColumn={() => setV2ActiveListTab(null)}
               renderTabContent={renderTabContent}
               onSwitchToV1={() => switchShellVersion('v1')}
+              openCards={v2OpenCards}
+              focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
+              onFocusCard={focusV2Card}
+              onCloseCard={closeV2Card}
             />
           ) : (
             <>

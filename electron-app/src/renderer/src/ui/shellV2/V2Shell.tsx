@@ -33,6 +33,10 @@ export function V2Shell(props: {
   onCloseListColumn: () => void;
   renderTabContent: (t: TabId) => React.ReactNode;
   onSwitchToV1: () => void;
+  openCards: Array<{ kind: TabId; entityId: string; title: string }>;
+  focusedCardKey: string | null;
+  onFocusCard: (card: { kind: TabId; entityId: string }) => void;
+  onCloseCard: (card: { kind: TabId; entityId: string }) => void;
 }) {
   const { prefs } = props;
   const saveTimer = useRef<number | null>(null);
@@ -157,6 +161,33 @@ export function V2Shell(props: {
     }
     return (
       <div className="v2-col v2-col-workspace">
+        {props.openCards.length > 0 && (
+          <div className="v2-card-tabs" role="tablist">
+            {props.openCards.map((card) => {
+              const key = `${card.kind}:${card.entityId}`;
+              const active = key === props.focusedCardKey;
+              return (
+                <div key={key} className="v2-card-tab" data-active={active ? '1' : undefined} title={card.title}>
+                  <button
+                    type="button"
+                    className="v2-card-tab-label"
+                    onClick={() => { if (!active) props.onFocusCard(card); }}
+                  >
+                    {card.title}
+                  </button>
+                  <button
+                    type="button"
+                    className="v2-card-tab-close"
+                    title="Закрыть карточку"
+                    onClick={() => props.onCloseCard(card)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="v2-col-body">
           <React.Suspense fallback={suspenseFallback()}>
             {workspaceTab ? (
