@@ -2,6 +2,7 @@ import type { EngineInventoryRow, RepairChecklistAnswers, ReplenishmentBranch, R
 import {
   computeCustomerClaim,
   computeInventoryShortage,
+  ENGINE_RECEIPT_CONDITION_FIELDS,
   repairFundInstanceClassificationLabel,
   repairFundInstanceStatusLabel,
   selectRequirementInstances,
@@ -107,6 +108,16 @@ function renderActIdentity(opts: {
   return `<div class="act-id">Акт ${escapeHtml(opts.actKind)} № <span class="num">${num}${ver}</span><span class="sep">·</span>от ${date}${cex}</div>`;
 }
 
+// «Состояние при поступлении» на акте комплектности (Incoming Inspection): упаковка/пломбы/
+// повреждения/следы вскрытия + особые отметки. В пустом бланке — прочерк-линии под запись от руки.
+function renderReceiptCondition(answers: RepairChecklistAnswers, blank: boolean): string {
+  const rows = ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
+    const val = blank ? '' : getText(answers, f.id).trim();
+    return `<div class="hdr-row"><span class="hdr-label">${escapeHtml(f.label)}:</span> <span class="rc-line">${escapeHtml(val)}</span></div>`;
+  }).join('');
+  return `<div class="meta rc-block"><div class="rc-title">Состояние при поступлении</div>${rows}</div>`;
+}
+
 // Запасные пустые строки в конец «пустого бланка» — под дозапись деталей от руки.
 function spareRows(colCount: number, n: number): string {
   const cells = Array.from({ length: colCount }, () => '<td>&nbsp;</td>').join('');
@@ -133,6 +144,9 @@ const COMMON_STYLES = `
   .doc-table tr.spare td { height: 16px; }
   .muted { color: #6b7280; }
   .note { font-size: 11px; color: #334155; margin-top: 3px; font-style: italic; }
+  .rc-block { border: 1px solid #111827; padding: 4px 8px; margin: 6px 0; }
+  .rc-title { font-weight: 700; margin-bottom: 2px; }
+  .rc-line { display: inline-block; border-bottom: 1px solid #94a3b8; min-width: 260px; vertical-align: bottom; }
   .sigs { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; row-gap: 10px; }
   .sig { font-size: 12.5px; }
   .sig-label { font-weight: 700; margin-bottom: 2px; }
@@ -268,6 +282,7 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
     <h1>${escapeHtml(title)}</h1>
     ${identity}
     <div class="meta">${header}</div>
+    ${renderReceiptCondition(ctx.answers, blank)}
     <table class="doc-table">${tableHead}${tableBody}</table>
     ${signatures}
     <div class="footer">Сформировано ${escapeHtml(formatMoscowDateTime(Date.now()))}</div>

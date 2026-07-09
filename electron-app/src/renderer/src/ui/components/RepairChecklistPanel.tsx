@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineActType, EngineActVersionRecord, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, computeCustomerClaim, computeInventoryShortage, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, normalizeEngineInventoryRows, partRepairStatusLabel, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import { buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, computeCustomerClaim, computeInventoryShortage, ENGINE_INVENTORY_STAGE, ENGINE_RECEIPT_CONDITION_FIELDS, engineInventoryRowSignature, findEmployeeByPositionGroups, normalizeEngineInventoryRows, partRepairStatusLabel, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -1874,6 +1874,41 @@ export function RepairChecklistPanel(props: {
             );
           })()
         : null}
+      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' ? (
+        <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Состояние при поступлении:</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 8, alignItems: 'center' }}>
+            {ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
+              const a: any = (answers as any)[f.id];
+              const val = a?.kind === 'text' ? String(a.value ?? '') : '';
+              const placeholder =
+                f.id === 'receipt_packaging'
+                  ? 'целая / повреждена (описать)'
+                  : f.id === 'receipt_seals'
+                    ? 'есть / нет'
+                    : f.id === 'receipt_notes'
+                      ? 'особые отметки при приёмке'
+                      : 'отсутствуют / имеются (описать)';
+              return (
+                <React.Fragment key={f.id}>
+                  <div style={{ color: '#334155', fontSize: 13 }}>{f.label}</div>
+                  <Input
+                    value={val}
+                    disabled={!props.canEdit}
+                    placeholder={placeholder}
+                    onChange={(e) => {
+                      if (!props.canEdit) return;
+                      const next = { ...answers, [f.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
+                      setAnswers(next);
+                    }}
+                    onBlur={() => void save(answers)}
+                  />
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {!collapsed && activeTemplate ? (
         <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>
           {activeTemplate.items.map((it) => {
