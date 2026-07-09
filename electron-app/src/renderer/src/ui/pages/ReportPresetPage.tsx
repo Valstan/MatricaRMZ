@@ -20,6 +20,7 @@ import { openPrintPreview } from '../utils/printPreview.js';
 import {
   binaryDownloadBase64,
   buildDefaultFilters,
+  omitDisabledFilterKeys,
   buildReportPrintPreviewSections,
   csvDownload,
   endOfDayMs,
@@ -103,6 +104,9 @@ export function ReportPresetPage(props: {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
   const [optionSets, setOptionSets] = useState<Partial<Record<ReportOptionSource, ReportFilterOption[]>>>({});
   const [filtersByPreset, setFiltersByPreset] = useState<Partial<Record<ReportPresetId, ReportPresetFilters>>>({});
+  // Ф4: отключённые фильтры (кнопка «выкл» у фильтра) — по пресету, набор filter.key.
+  // Отключённый фильтр не участвует в отборе (его ключи вырезаются из payload).
+  const [disabledFiltersByPreset, setDisabledFiltersByPreset] = useState<Partial<Record<ReportPresetId, string[]>>>({});
   const [filterSearchByPreset, setFilterSearchByPreset] = useState<Partial<Record<ReportPresetId, Record<string, string>>>>({});
   const [preview, setPreview] = useState<PreviewOk | null>(null);
   // filtersKey, под который был сформирован последний preview. Используется для
@@ -127,8 +131,30 @@ export function ReportPresetPage(props: {
     return filterSearchByPreset[activePreset.id] ?? {};
   }, [activePreset, filterSearchByPreset]);
 
+  const activeDisabled = useMemo(
+    () => (activePreset ? disabledFiltersByPreset[activePreset.id] ?? [] : []),
+    [activePreset, disabledFiltersByPreset],
+  );
+  // Payload для backend: без ключей отключённых фильтров (Ф4). UI-инпуты по-прежнему
+  // биндятся к activeFilters (значения сохраняются), в отбор идёт requestFilters.
+  const requestFilters = useMemo(
+    () => (activePreset ? omitDisabledFilterKeys(activePreset, activeFilters, activeDisabled) : activeFilters),
+    [activePreset, activeFilters, activeDisabled],
+  );
+
   const activePresetId = activePreset?.id;
-  const filtersKey = JSON.stringify(activeFilters);
+  // filtersKey строится по requestFilters → переключение «выкл/вкл» фильтра
+  // перезапускает auto-build и меняет индикатор «фильтры изменились».
+  const filtersKey = JSON.stringify(requestFilters);
+
+  function toggleFilterDisabled(filter: ReportFilterSpec) {
+    if (!activePreset) return;
+    setDisabledFiltersByPreset((prev) => {
+      const cur = prev[activePreset.id] ?? [];
+      const next = cur.includes(filter.key) ? cur.filter((k) => k !== filter.key) : [...cur, filter.key];
+      return { ...prev, [activePreset.id]: next };
+    });
+  }
 
   function patchFilter(key: string, value: unknown) {
     if (!activePreset) return;
@@ -263,7 +289,7 @@ export function ReportPresetPage(props: {
     try {
       const result = await window.matrica.reports.presetPreview({
         presetId: activePreset.id,
-        filters: activeFilters,
+        filters: requestFilters,
       });
       if (!result?.ok) {
         setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
@@ -349,7 +375,7 @@ export function ReportPresetPage(props: {
     try {
       const result = await window.matrica.reports.presetPrint({
         presetId: activePreset.id,
-        filters: activeFilters,
+        filters: requestFilters,
       });
       if (!result?.ok) {
         setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
@@ -370,7 +396,7 @@ export function ReportPresetPage(props: {
     try {
       const result = await window.matrica.reports.presetPdf({
         presetId: activePreset.id,
-        filters: activeFilters,
+        filters: requestFilters,
       });
       if (!result?.ok) {
         setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
@@ -392,7 +418,7 @@ export function ReportPresetPage(props: {
     try {
       const result = await window.matrica.reports.presetCsv({
         presetId: activePreset.id,
-        filters: activeFilters,
+        filters: requestFilters,
       });
       if (!result?.ok) {
         setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
@@ -414,7 +440,7 @@ export function ReportPresetPage(props: {
     try {
       const result = await window.matrica.reports.preset1cXml({
         presetId: activePreset.id,
-        filters: activeFilters,
+        filters: requestFilters,
       });
       if (!result?.ok) {
         setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
@@ -789,54 +815,71 @@ export function ReportPresetPage(props: {
     );
   }
 
+  // Ф4: шапка каждого фильтра — «выкл/вкл» (не участвует в отборе) + ✕ (сброс к умолчанию).
+  function filterHeaderControls(filter: ReportFilterSpec, off: boolean) {
+    return (
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); toggleFilterDisabled(filter); }}
+          title={off ? 'Включить фильтр — снова участвует в отборе данных' : 'Отключить фильтр — не участвует в отборе данных'}
+          style={{ ...filterResetBtnStyle, ...(off ? { color: 'var(--text)', borderColor: 'var(--warning, #b45309)', fontWeight: 700 } : {}) }}
+        >
+          {off ? 'вкл' : 'выкл'}
+        </button>
+        <button type="button" onClick={(e) => { e.preventDefault(); resetFilter(filter); }} title="Сбросить к значению по умолчанию" style={filterResetBtnStyle}>✕</button>
+      </div>
+    );
+  }
+
   function renderFilterControl(filter: ReportFilterSpec) {
+    const off = activeDisabled.includes(filter.key);
+    const bodyStyle: React.CSSProperties = off ? { opacity: 0.4, pointerEvents: 'none' } : {};
+    const labelSuffix = off ? ' (откл.)' : '';
     if (filter.type === 'date_range') {
       return (
         <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700 }}>{filter.label}</span>
-            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+            <span style={{ fontWeight: 700 }}>{filter.label}{labelSuffix}</span>
+            {filterHeaderControls(filter, off)}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            <Input
-              type="date"
-              value={toInputDate(activeFilters[filter.startKey])}
-              onChange={(e) => patchFilter(filter.startKey, fromInputDate(e.target.value, 'start'))}
-            />
-            <Input
-              type="date"
-              value={toInputDate(activeFilters[filter.endKey])}
-              onChange={(e) => patchFilter(filter.endKey, fromInputDate(e.target.value, 'end'))}
-            />
-          </div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {DATE_PERIOD_PRESETS.map((p) => (
-              <button key={p.title} type="button" title={p.title} onClick={() => applyDatePreset(filter, p)} style={periodBtnStyle}>
-                {p.label}
-              </button>
-            ))}
+          <div style={bodyStyle}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <Input
+                type="date"
+                value={toInputDate(activeFilters[filter.startKey])}
+                onChange={(e) => patchFilter(filter.startKey, fromInputDate(e.target.value, 'start'))}
+              />
+              <Input
+                type="date"
+                value={toInputDate(activeFilters[filter.endKey])}
+                onChange={(e) => patchFilter(filter.endKey, fromInputDate(e.target.value, 'end'))}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+              {DATE_PERIOD_PRESETS.map((p) => (
+                <button key={p.title} type="button" title={p.title} onClick={() => applyDatePreset(filter, p)} style={periodBtnStyle}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       );
     }
     if (filter.type === 'checkbox') {
       return (
-        <label key={filter.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
-          <input
-            type="checkbox"
-            checked={Boolean(activeFilters[filter.key])}
-            onChange={(e) => patchFilter(filter.key, e.target.checked)}
-          />
-          <span>{filter.label}</span>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); resetFilter(filter); }}
-            title="Сбросить фильтр"
-            style={filterResetBtnStyle}
-          >
-            ✕
-          </button>
-        </label>
+        <div key={filter.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...bodyStyle }}>
+            <input
+              type="checkbox"
+              checked={Boolean(activeFilters[filter.key])}
+              onChange={(e) => patchFilter(filter.key, e.target.checked)}
+            />
+            <span>{filter.label}{labelSuffix}</span>
+          </label>
+          {filterHeaderControls(filter, off)}
+        </div>
       );
     }
     if (filter.type === 'number') {
@@ -846,18 +889,20 @@ export function ReportPresetPage(props: {
       return (
         <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700 }}>{filter.label}</span>
-            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+            <span style={{ fontWeight: 700 }}>{filter.label}{labelSuffix}</span>
+            {filterHeaderControls(filter, off)}
           </div>
-          <Input
-            type="number"
-            min={filter.min}
-            max={filter.max}
-            step={filter.step ?? 1}
-            value={String(safe)}
-            onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
-            disabled={busy}
-          />
+          <div style={bodyStyle}>
+            <Input
+              type="number"
+              min={filter.min}
+              max={filter.max}
+              step={filter.step ?? 1}
+              value={String(safe)}
+              onChange={(e) => patchFilter(filter.key, Number(e.target.value))}
+              disabled={busy}
+            />
+          </div>
         </div>
       );
     }
@@ -866,16 +911,18 @@ export function ReportPresetPage(props: {
       return (
         <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700 }}>{filter.label}</span>
-            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+            <span style={{ fontWeight: 700 }}>{filter.label}{labelSuffix}</span>
+            {filterHeaderControls(filter, off)}
           </div>
-          <Input
-            type="text"
-            value={textVal}
-            placeholder={filter.placeholder}
-            onChange={(e) => patchFilter(filter.key, e.target.value)}
-            disabled={busy}
-          />
+          <div style={bodyStyle}>
+            <Input
+              type="text"
+              value={textVal}
+              placeholder={filter.placeholder}
+              onChange={(e) => patchFilter(filter.key, e.target.value)}
+              disabled={busy}
+            />
+          </div>
         </div>
       );
     }
@@ -891,20 +938,22 @@ export function ReportPresetPage(props: {
       return (
         <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700 }}>{filter.label}</span>
-            <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+            <span style={{ fontWeight: 700 }}>{filter.label}{labelSuffix}</span>
+            {filterHeaderControls(filter, off)}
           </div>
-          <SearchSelect
-            value={value || null}
-            options={options}
-            placeholder="Начните вводить для поиска"
-            disabled={busy}
-            showAllWhenEmpty
-            emptyQueryLimit={100}
-            query={activeFilterSearch[filter.key] ?? ''}
-            onQueryChange={(next) => patchFilterSearch(filter.key, next)}
-            onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
-          />
+          <div style={bodyStyle}>
+            <SearchSelect
+              value={value || null}
+              options={options}
+              placeholder="Начните вводить для поиска"
+              disabled={busy}
+              showAllWhenEmpty
+              emptyQueryLimit={100}
+              query={activeFilterSearch[filter.key] ?? ''}
+              onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+              onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
+            />
+          </div>
         </div>
       );
     }
@@ -914,32 +963,34 @@ export function ReportPresetPage(props: {
     return (
       <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontWeight: 700 }}>{filter.label}</span>
-          <button type="button" onClick={() => resetFilter(filter)} title="Сбросить фильтр" style={filterResetBtnStyle}>✕</button>
+          <span style={{ fontWeight: 700 }}>{filter.label}{labelSuffix}</span>
+          {filterHeaderControls(filter, off)}
         </div>
-        <MultiSearchSelect
-          values={selected}
-          options={options.map((option) => ({
-            id: option.value,
-            label: option.label,
-            ...(option.hintText ? { hintText: option.hintText } : {}),
-            ...(option.searchText ? { searchText: option.searchText } : {}),
-          }))}
-          placeholder="Начните вводить или вставьте текст"
-          disabled={busy}
-          query={activeFilterSearch[filter.key] ?? ''}
-          onQueryChange={(next) => patchFilterSearch(filter.key, next)}
-          onChange={(next) => patchFilter(filter.key, next)}
-        />
-        {selectedLabels.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {selectedLabels.map((o) => (
-              <span key={o.value} style={selectedTagStyle} title={o.label}>
-                {o.label}
-              </span>
-            ))}
-          </div>
-        )}
+        <div style={bodyStyle}>
+          <MultiSearchSelect
+            values={selected}
+            options={options.map((option) => ({
+              id: option.value,
+              label: option.label,
+              ...(option.hintText ? { hintText: option.hintText } : {}),
+              ...(option.searchText ? { searchText: option.searchText } : {}),
+            }))}
+            placeholder="Начните вводить или вставьте текст"
+            disabled={busy}
+            query={activeFilterSearch[filter.key] ?? ''}
+            onQueryChange={(next) => patchFilterSearch(filter.key, next)}
+            onChange={(next) => patchFilter(filter.key, next)}
+          />
+          {selectedLabels.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+              {selectedLabels.map((o) => (
+                <span key={o.value} style={selectedTagStyle} title={o.label}>
+                  {o.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
