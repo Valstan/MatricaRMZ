@@ -12,6 +12,7 @@ import type {
   UiControlSettings,
   UiDisplayPrefs,
   UiShellPrefs,
+  V2Session,
   UiShellVersion,
   V2Prefs,
   ReleaseWelcomeContent,
@@ -2686,6 +2687,75 @@ export function App() {
     selectedReportPresetId,
     engines,
   ]);
+
+  // ── Фаза 4: session-restore открытых карточек между запусками ──────────────────
+  // Персист сессии рабочей области (вкладки/фокус/split) в shellPrefs.v2.session.
+  // Дебаунс 800мс; сигнатура защищает от echo-записи только что восстановленного.
+  const v2SessionSigRef = useRef('');
+  useEffect(() => {
+    if (!isV2 || !shellPrefs) return;
+    const idn = v2CurrentCardIdentity();
+    const session: V2Session = {
+      openCards: v2OpenCards.map((c) => ({ kind: String(c.kind), entityId: c.entityId, title: c.title })),
+      focusedKey: idn ? `${idn.kind}:${idn.entityId}` : null,
+      secondary: v2SecondaryCard
+        ? { kind: String(v2SecondaryCard.kind), entityId: v2SecondaryCard.entityId, title: v2SecondaryCard.title }
+        : null,
+    };
+    const sig = JSON.stringify(session);
+    if (sig === v2SessionSigRef.current) return;
+    const t = window.setTimeout(() => {
+      v2SessionSigRef.current = sig;
+      const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
+      void persistShellPrefs({ ...base, v2: { ...base.v2, session } });
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [
+    isV2,
+    shellPrefs,
+    v2OpenCards,
+    v2SecondaryCard,
+    tab,
+    selectedEngineId,
+    selectedEngineBrandId,
+    selectedEngineBrandGroupId,
+    selectedRequestId,
+    selectedWorkOrderId,
+    selectedToolId,
+    selectedToolPropertyId,
+    selectedEmployeeId,
+    selectedContractId,
+    selectedCounterpartyId,
+    selectedProductId,
+    selectedServiceId,
+    selectedNomenclatureId,
+    selectedEngineAssemblyBomId,
+    selectedStockDocumentId,
+    selectedReportPresetId,
+  ]);
+
+  // Восстановление сессии: один раз на пользователя после загрузки prefs в v2.
+  // Битые/удалённые сущности не страшны: карточка откроется своим error/empty-состоянием.
+  const v2SessionRestoredRef = useRef('');
+  useEffect(() => {
+    if (!isV2 || !shellPrefs) return;
+    const userId = String(authStatus.user?.id ?? '').trim();
+    if (!userId || v2SessionRestoredRef.current === userId) return;
+    v2SessionRestoredRef.current = userId;
+    const session = shellPrefs.v2.session;
+    const cards = session.openCards
+      .filter((c) => isCardTab(c.kind as TabId))
+      .map((c) => ({ kind: c.kind as TabId, entityId: c.entityId, title: c.title }));
+    if (cards.length === 0) return;
+    v2SessionSigRef.current = JSON.stringify(session);
+    setV2OpenCards(cards);
+    const focused = cards.find((c) => `${c.kind}:${c.entityId}` === session.focusedKey) ?? cards[cards.length - 1];
+    if (focused) reopenV2Card(focused.kind, focused.entityId);
+    const sec = session.secondary && isCardTab(session.secondary.kind as TabId) ? session.secondary : null;
+    if (sec && !(focused && sec.kind === focused.kind && sec.entityId === focused.entityId)) {
+      openSecondaryCard({ kind: sec.kind as TabId, entityId: sec.entityId, title: sec.title });
+    }
+  }, [isV2, shellPrefs, authStatus.user?.id]);
 
   function openNoteFromHistory(noteId?: string | null) {
     setHistoryInitialNoteId(noteId ? String(noteId) : null);

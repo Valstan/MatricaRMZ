@@ -364,3 +364,15 @@
   flex: 1 1 auto;
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.35);
 }
+
+/* Drag-перестановка колонок: заголовок — хэндл, целевая колонка подсвечивает сторону вставки. */
+.v2-col-title[draggable='true'] {
+  cursor: grab;
+  user-select: none;
+}
+.v2-col[data-drop='before'] {
+  box-shadow: inset 4px 0 0 var(--accent, #3b82f6);
+}
+.v2-col[data-drop='after'] {
+  box-shadow: inset -4px 0 0 var(--accent, #3b82f6);
+}

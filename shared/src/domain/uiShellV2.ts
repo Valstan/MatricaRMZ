@@ -20,6 +20,21 @@ export type V2ButtonLayout = {
   hidden: string[];
 };
 
+/** Open-card descriptor persisted for session restore (kind is a renderer TabId, opaque here). */
+export type V2SessionCard = {
+  kind: string;
+  entityId: string;
+  title: string;
+};
+
+/** Workspace session: open card tabs + focus + split, restored on next app start. */
+export type V2Session = {
+  openCards: V2SessionCard[];
+  /** `${kind}:${entityId}` of the focused card, if any. */
+  focusedKey: string | null;
+  secondary: V2SessionCard | null;
+};
+
 export type V2Prefs = {
   columnOrder: V2ColumnId[];
   columns: Record<V2ColumnId, V2ColumnState>;
@@ -27,6 +42,7 @@ export type V2Prefs = {
   /** Overlay mode: the button panel floats over the other columns inside the app window. */
   buttonPanelPinned: boolean;
   workspaceMode: 'single' | 'tabs' | 'split2';
+  session: V2Session;
 };
 
 export type UiShellPrefs = {
@@ -46,7 +62,10 @@ export const DEFAULT_V2_PREFS: V2Prefs = {
   buttonLayout: { order: [], pinned: [], hidden: [] },
   buttonPanelPinned: false,
   workspaceMode: 'single',
+  session: { openCards: [], focusedKey: null, secondary: null },
 };
+
+export const V2_SESSION_MAX_CARDS = 3;
 
 export const DEFAULT_UI_SHELL_PREFS: UiShellPrefs = {
   shellVersion: 'v1',
@@ -70,6 +89,26 @@ function sanitizeColumnState(value: unknown, fallback: V2ColumnState): V2ColumnS
     sizePct: Number.isFinite(sizePct) ? Math.min(90, Math.max(2, sizePct)) : fallback.sizePct,
     collapsed: raw.collapsed === true,
   };
+}
+
+function sanitizeSessionCard(value: unknown): V2SessionCard | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Partial<V2SessionCard>;
+  const kind = String(raw.kind ?? '').trim();
+  const entityId = String(raw.entityId ?? '').trim();
+  if (!kind || !entityId) return null;
+  return { kind, entityId, title: String(raw.title ?? '').trim() };
+}
+
+function sanitizeSession(value: unknown): V2Session {
+  if (!value || typeof value !== 'object') return { openCards: [], focusedKey: null, secondary: null };
+  const raw = value as Partial<V2Session>;
+  const openCards = (Array.isArray(raw.openCards) ? raw.openCards : [])
+    .map(sanitizeSessionCard)
+    .filter((c): c is V2SessionCard => c !== null)
+    .slice(0, V2_SESSION_MAX_CARDS);
+  const focusedKey = typeof raw.focusedKey === 'string' && raw.focusedKey.trim() ? raw.focusedKey.trim() : null;
+  return { openCards, focusedKey, secondary: sanitizeSessionCard(raw.secondary) };
 }
 
 export function sanitizeV2Prefs(value: unknown): V2Prefs {
@@ -96,6 +135,7 @@ export function sanitizeV2Prefs(value: unknown): V2Prefs {
     },
     buttonPanelPinned: raw.buttonPanelPinned === true,
     workspaceMode,
+    session: sanitizeSession(raw.session),
   };
 }
 
