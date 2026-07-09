@@ -8,6 +8,7 @@ import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { theme } from '../theme.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
+import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 
 function dot(color: string) {
   return (
@@ -144,15 +145,18 @@ export function ChatPanel(props: {
   }
 
   // When chat is open: more frequent sync & refresh for responsiveness.
+  // Пауза при скрытом окне: фоновый синк идёт в main-процессе своим темпом, а звук
+  // новых сообщений — App-уровневый полл (не здесь), так что скрытая панель не нужна.
   useEffect(() => {
     if (props.viewMode) return;
-    const id = setInterval(() => {
+    const stop = pollWhenVisible(() => {
       void window.matrica.sync.run().catch(() => {});
     }, 60_000);
-    return () => clearInterval(id);
+    return () => stop();
   }, [props.viewMode]);
 
-  // Poll users/unread/messages.
+  // Poll users/unread/messages. Пауза при скрытом окне — заодно скрытый чат не
+  // помечает входящие прочитанными, пока оператор реально не смотрит на окно.
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -162,10 +166,10 @@ export function ChatPanel(props: {
       await refreshMessages();
     };
     void tick();
-    const id = setInterval(() => void tick(), 30_000);
+    const stop = pollWhenVisible(() => void tick(), 30_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId]);
 

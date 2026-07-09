@@ -4,6 +4,7 @@ import type { AuthStatus } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 
 type LoginSuggestion = { login: string; fullName: string };
 type MruEntry = { login: string; fullName?: string; lastAt: number };
@@ -179,8 +180,10 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
         passwordRef.current?.focus();
       }
     })();
-    const id = setInterval(() => void probeServer(), 30_000);
-    return () => clearInterval(id);
+    // Индикатор доступности сервера — визуальный; свёрнутый на логин-экране клиент
+    // не должен дёргать /health всю ночь.
+    const stop = pollWhenVisible(() => void probeServer(), 30_000);
+    return () => stop();
   }, []);
 
   useEffect(() => {
