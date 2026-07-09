@@ -150,6 +150,9 @@ function defaultEngineInventoryTemplate(): RepairChecklistTemplate {
       { id: 'commission_workshop_master', label: 'Комиссия: мастер цеха', kind: 'signature' },
       { id: 'commission_otk_head', label: 'Комиссия: начальник ОТК', kind: 'signature' },
       { id: 'acceptance_signed_by', label: 'Приёмку провёл (ФИО, должность, подпись)', kind: 'signature' },
+      // Опциональная подпись представителя заказчика на акте комплектности (решение владельца
+      // 2026-07-09): иногда приёмка идёт с представителем; обычно строка остаётся пустой.
+      { id: 'customer_representative', label: 'Представитель заказчика (ФИО, должность, подпись)', kind: 'signature' },
       { id: 'defect_signed_by', label: 'Дефектовку провёл (ФИО, должность, подпись)', kind: 'signature' },
       { id: 'approved_by', label: 'Утверждаю: директор по качеству', kind: 'signature' },
     ],
