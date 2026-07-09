@@ -619,13 +619,21 @@ export function RepairChecklistPanel(props: {
     openEngineInventoryPrintWindow(buildEngineRequirementHtml({ ...v.header, instances: v.instances, printedAt: v.printedAt }));
   }
 
-  function actHtml(actType: EngineActType, rows: EngineInventoryRow[], ans: RepairChecklistAnswers) {
+  function actHtml(
+    actType: EngineActType,
+    rows: EngineInventoryRow[],
+    ans: RepairChecklistAnswers,
+    opts?: { blank?: boolean; version?: number },
+  ) {
     const ctx = {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
       contractNumber: String(props.contractNumber ?? ''),
       rows,
       answers: ans,
+      ...(props.workshopName ? { workshopName: props.workshopName } : {}),
+      ...(opts?.version ? { actVersion: opts.version } : {}),
+      ...(opts?.blank ? { blank: true } : {}),
     };
     if (actType === 'claim') return buildInventoryClaimHtml(ctx);
     return actType === 'completeness' ? buildInventoryActHtml(ctx) : buildInventoryDefectHtml(ctx);
@@ -634,6 +642,7 @@ export function RepairChecklistPanel(props: {
   // Печать акта: сначала фиксируем версию (печать = новая версия, дедуп идентичных), затем печатаем.
   async function printAct(actType: EngineActType) {
     const rows = extractInventoryRowsForPrint(answers, actType);
+    let version: number | undefined;
     if (props.canEdit) {
       const snap = await window.matrica.checklists.engineActSnapshot({
         engineId: props.engineId,
@@ -647,14 +656,24 @@ export function RepairChecklistPanel(props: {
         answers,
         selectedCount: selectedInventoryCount,
       });
-      if (snap.ok) void loadActVersions();
+      if (snap.ok) {
+        version = snap.version;
+        void loadActVersions();
+      }
     }
-    openEngineInventoryPrintWindow(actHtml(actType, rows, answers));
+    openEngineInventoryPrintWindow(actHtml(actType, rows, answers, version ? { version } : undefined));
+  }
+
+  // Пустой бланк для заполнения комиссией на месте: значения-клетки пустые + запасные строки.
+  // Версию НЕ создаёт (это не готовый документ, а форма для ручного заполнения).
+  function printBlankAct(actType: EngineActType) {
+    const rows = extractInventoryRowsForPrint(answers, actType);
+    openEngineInventoryPrintWindow(actHtml(actType, rows, answers, { blank: true }));
   }
 
   // Повторная печать исторической версии — рендерим её замороженный снимок (rows+answers).
   function printActVersion(v: EngineActVersionRecord) {
-    openEngineInventoryPrintWindow(actHtml(v.actType, v.rows, v.answers));
+    openEngineInventoryPrintWindow(actHtml(v.actType, v.rows, v.answers, { version: v.version }));
   }
   const attachmentsTitle = isInventoryStage
     ? 'Вложения к списку деталей двигателя'
@@ -1558,8 +1577,22 @@ export function RepairChecklistPanel(props: {
             <Button variant="ghost" onClick={() => void printAct('completeness')}>
               Печать акта комплектности
             </Button>
+            <Button
+              variant="ghost"
+              title="Пустой бланк акта комплектности с перечнем деталей — для заполнения комиссией на месте от руки"
+              onClick={() => printBlankAct('completeness')}
+            >
+              Бланк комплектности
+            </Button>
             <Button variant="ghost" onClick={() => void printAct('defect')}>
               Печать акта дефектовки
+            </Button>
+            <Button
+              variant="ghost"
+              title="Пустой бланк акта дефектовки с перечнем деталей — для заполнения на месте от руки"
+              onClick={() => printBlankAct('defect')}
+            >
+              Бланк дефектовки
             </Button>
             <Button
               variant="ghost"

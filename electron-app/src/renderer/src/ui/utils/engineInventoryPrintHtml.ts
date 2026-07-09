@@ -15,7 +15,16 @@ export type EngineInventoryPrintContext = {
   contractNumber: string;
   rows: EngineInventoryRow[];
   answers: RepairChecklistAnswers;
+  /** Цех двигателя — печатается в шапке акта («Цех: …»). */
+  workshopName?: string;
+  /** Версия акта (номер акта = № двигателя + версия): «Акт … № <engineNumber> (в. N)». */
+  actVersion?: number;
+  /** Пустой бланк для заполнения комиссией на месте: значения-клетки пустые + запасные строки. */
+  blank?: boolean;
 };
+
+/** Сколько запасных пустых строк добавлять в конец таблицы «пустого бланка» под дозапись от руки. */
+const BLANK_SPARE_ROWS = 6;
 
 function escapeHtml(s: unknown): string {
   return String(s ?? '')
@@ -77,27 +86,60 @@ function renderSignature(
 </div>`;
 }
 
+// Компактная печать (запрос владельца): крупнее шрифт таблицы, минимальные отступы строк/полей,
+// один отступ страницы (только @page, без двойного .doc padding) — больше строк на лист.
+// Видная строка-идентификатор акта: «Акт <вид> № <№двигателя> (в. N) · от <дата> · Цех: …».
+// Номер акта = номер двигателя + версия (решение владельца) — прямая связь с двигателем.
+function renderActIdentity(opts: {
+  actKind: string;
+  engineNumber: string;
+  version?: number;
+  date: number | null;
+  workshopName?: string;
+}): string {
+  const num = escapeHtml(opts.engineNumber.trim() || '—');
+  const ver = opts.version && opts.version > 0 ? ` (в. ${opts.version})` : '';
+  const date = opts.date ? escapeHtml(formatMoscowDate(opts.date)) : DATE_FILL_IN;
+  const cex =
+    opts.workshopName && opts.workshopName.trim()
+      ? `<span class="sep">·</span>Цех: ${escapeHtml(opts.workshopName.trim())}`
+      : '';
+  return `<div class="act-id">Акт ${escapeHtml(opts.actKind)} № <span class="num">${num}${ver}</span><span class="sep">·</span>от ${date}${cex}</div>`;
+}
+
+// Запасные пустые строки в конец «пустого бланка» — под дозапись деталей от руки.
+function spareRows(colCount: number, n: number): string {
+  const cells = Array.from({ length: colCount }, () => '<td>&nbsp;</td>').join('');
+  return Array.from({ length: n }, () => `<tr class="spare">${cells}</tr>`).join('');
+}
+
 const COMMON_STYLES = `
-  @page { size: A4; margin: 12mm; }
-  body { font-family: "Times New Roman", "Liberation Serif", serif; margin: 0; color: #0b1220; }
-  h1 { margin: 0 0 6px 0; font-size: 18px; text-transform: uppercase; letter-spacing: 0.2px; text-align: center; }
-  .doc { padding: 12mm; }
-  .meta { color: #111827; margin-bottom: 12px; font-size: 12px; line-height: 1.45; }
-  .hdr-row { margin-bottom: 4px; }
+  @page { size: A4; margin: 10mm; }
+  body { font-family: "Times New Roman", "Liberation Serif", serif; margin: 0; color: #0b1220; font-size: 13px; line-height: 1.22; }
+  h1 { margin: 0 0 2px 0; font-size: 17px; text-transform: uppercase; letter-spacing: 0.2px; text-align: center; }
+  .doc { padding: 0; }
+  .act-id { text-align: center; font-size: 14px; font-weight: 700; margin: 0 0 6px 0; padding: 3px 0; border-top: 2px solid #111827; border-bottom: 2px solid #111827; }
+  .act-id .num { font-size: 16px; }
+  .act-id .sep { font-weight: 400; color: #334155; margin: 0 6px; }
+  .meta { color: #111827; margin-bottom: 6px; font-size: 12.5px; line-height: 1.2; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; row-gap: 0; }
+  .hdr-row { margin-bottom: 1px; }
   .hdr-label { font-weight: 700; }
-  .doc-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  .doc-table th, .doc-table td { border: 1px solid #111827; padding: 6px 8px; font-size: 12px; vertical-align: top; }
-  .doc-table th { background: #f3f4f6; font-weight: 700; text-align: center; }
+  .doc-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .doc-table th, .doc-table td { border: 1px solid #111827; padding: 1px 5px; font-size: 13px; vertical-align: top; }
+  .doc-table th { background: #f3f4f6; font-weight: 700; text-align: center; font-size: 12px; line-height: 1.1; }
   .doc-table td.num { text-align: right; }
   .doc-table td.ctr { text-align: center; }
+  .doc-table tr.spare td { height: 16px; }
   .muted { color: #6b7280; }
-  .sigs { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-  .sig { font-size: 12px; }
-  .sig-label { font-weight: 700; margin-bottom: 4px; }
-  .sig-row { margin-bottom: 3px; }
+  .note { font-size: 11px; color: #334155; margin-top: 3px; font-style: italic; }
+  .sigs { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; row-gap: 10px; }
+  .sig { font-size: 12.5px; }
+  .sig-label { font-weight: 700; margin-bottom: 2px; }
+  .sig-row { margin-bottom: 2px; }
   .sig-key { color: #334155; }
-  .sig-line { display: inline-block; border-bottom: 1px solid #111827; min-width: 200px; height: 14px; vertical-align: bottom; padding: 0 4px; }
-  .footer { margin-top: 16px; color: #6b7280; font-size: 10px; text-align: right; }
+  .sig-line { display: inline-block; border-bottom: 1px solid #111827; min-width: 180px; height: 13px; vertical-align: bottom; padding: 0 4px; }
+  .footer { margin-top: 10px; color: #6b7280; font-size: 10px; text-align: right; }
   @media print { .no-print { display: none; } }
 `;
 
@@ -149,33 +191,40 @@ function branchLabel(branch: ReplenishmentBranch | null): string {
 }
 
 export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string {
-  const title = 'Акт комплектности двигателя';
+  const blank = ctx.blank === true;
+  const title = blank ? 'Акт комплектности двигателя (бланк)' : 'Акт комплектности двигателя';
   const arrivalDate = getDate(ctx.answers, 'arrival_date');
   const inspectionDate = getDate(ctx.answers, 'completeness_inspection_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
   const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
 
-  // Т6: комиссия из трёх — ФИО и в шапке («Комиссия в составе…»), и в подписях.
   const commission = [
-    { role: 'начальник цеха', sig: getSignature(ctx.answers, 'commission_workshop_head'), label: 'Начальник цеха' },
-    { role: 'мастер цеха', sig: getSignature(ctx.answers, 'commission_workshop_master'), label: 'Мастер цеха' },
-    { role: 'начальник ОТК', sig: getSignature(ctx.answers, 'commission_otk_head'), label: 'Начальник ОТК' },
+    { sig: getSignature(ctx.answers, 'commission_workshop_head'), label: 'Комиссия: начальник цеха' },
+    { sig: getSignature(ctx.answers, 'commission_workshop_master'), label: 'Комиссия: мастер цеха' },
+    { sig: getSignature(ctx.answers, 'commission_otk_head'), label: 'Комиссия: начальник ОТК' },
   ];
-  const fioOrBlank = (fio: string) => (fio.trim() ? escapeHtml(fio.trim()) : '________________');
-  const commissionText = `Комиссия в составе: ${commission
-    .map((m) => `${m.role} ${fioOrBlank(m.sig.fio)}`)
-    .join(', ')} произвели проверку комплектности внешним осмотром двигателя ${escapeHtml(brand)} ${escapeHtml(number)}`;
+  const acceptance = getSignature(ctx.answers, 'acceptance_signed_by');
+  const customerRep = getSignature(ctx.answers, 'customer_representative');
+  const approved = getSignature(ctx.answers, 'approved_by');
 
-  // Договор — необязательное поле (контракта может ещё не быть): строка печатается только при наличии.
+  const identity = renderActIdentity({
+    actKind: 'комплектности',
+    engineNumber: number,
+    ...(ctx.actVersion ? { version: ctx.actVersion } : {}),
+    date: arrivalDate,
+    ...(ctx.workshopName ? { workshopName: ctx.workshopName } : {}),
+  });
+
   const header = `
-    ${contractNumber ? renderHeaderRow('Номер договора', contractNumber) : ''}
-    <div class="hdr-row" style="margin-top:6px">${commissionText}</div>
-    ${renderHeaderRow('Дата приёмки', dateOrFillIn(arrivalDate))}
-  `;
+    <div class="meta-grid">
+      ${renderHeaderRow('Марка двигателя', brand || '—')}
+      ${renderHeaderRow('№ двигателя', number || '—')}
+      ${renderHeaderRow('Договор / заказчик', contractNumber || '')}
+      ${renderHeaderRow('Дата приёмки', dateOrFillIn(arrivalDate))}
+    </div>`;
 
-  // Решение владельца (2026-06-12): «№ сборочной единицы» = артикул; «№ на детали» = набитый
-  // номер; колонки «№ детали по чертежу» нет — это и есть № сборочной единицы.
+  // Решение владельца (2026-06-12): «№ сборочной единицы» = артикул; «№ на детали» = набитый номер.
   const tableHead = `
     <thead>
       <tr>
@@ -188,30 +237,36 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
       </tr>
     </thead>`;
 
-  const tableBody = ctx.rows.length === 0
-    ? `<tbody><tr><td colspan="6" class="muted ctr">Нет данных</td></tr></tbody>`
-    : `<tbody>${ctx.rows
-        .map(
-          (r) => `<tr>
+  const dataRows = ctx.rows
+    .map(
+      (r) => `<tr>
             <td>${escapeHtml(r.part_name)}</td>
             <td>${escapeHtml(r.assembly_unit_number)}</td>
-            <td>${escapeHtml(String(r.stamped_number ?? ''))}</td>
+            <td>${blank ? '' : escapeHtml(String(r.stamped_number ?? ''))}</td>
             <td class="num">${escapeHtml(r.quantity)}</td>
-            <td class="ctr">${escapeHtml(boolOrBlank(r.present))}</td>
-            <td class="num">${escapeHtml(r.present ? String(r.actual_qty) : qtyOrBlank(r.actual_qty))}</td>
+            <td class="ctr">${blank ? '' : escapeHtml(boolOrBlank(r.present))}</td>
+            <td class="num">${blank ? '' : escapeHtml(r.present ? String(r.actual_qty) : qtyOrBlank(r.actual_qty))}</td>
           </tr>`,
-        )
-        .join('')}</tbody>`;
+    )
+    .join('');
+  const tableBody =
+    ctx.rows.length === 0 && !blank
+      ? `<tbody><tr><td colspan="6" class="muted ctr">Нет данных</td></tr></tbody>`
+      : `<tbody>${dataRows}${blank ? spareRows(6, BLANK_SPARE_ROWS) : ''}</tbody>`;
 
   const signatures = `
     <div class="sigs">
+      ${renderSignature('Приёмку провёл', acceptance)}
       ${commission.map((m) => renderSignature(m.label, m.sig)).join('')}
-      ${renderSignature('Утверждаю: директор по качеству', getSignature(ctx.answers, 'approved_by'))}
+      ${renderSignature('Представитель заказчика', customerRep)}
+      ${renderSignature('Утверждаю: директор по качеству', approved)}
     </div>
-    <div class="meta" style="margin-top:14px">${renderHeaderRow('Дата осмотра', dateOrFillIn(inspectionDate))}</div>`;
+    <div class="meta" style="margin-top:8px">${renderHeaderRow('Дата осмотра', dateOrFillIn(inspectionDate))}</div>
+    <div class="note">Комплектность указана по факту поступления. Окончательная комплектность определяется после разборки и дефектовки.</div>`;
 
   const bodyHtml = `
     <h1>${escapeHtml(title)}</h1>
+    ${identity}
     <div class="meta">${header}</div>
     <table class="doc-table">${tableHead}${tableBody}</table>
     ${signatures}
@@ -222,23 +277,37 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
 }
 
 export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): string {
-  const title = 'Акт дефектовки двигателя';
+  const blank = ctx.blank === true;
+  const title = blank ? 'Акт дефектовки двигателя (бланк)' : 'Акт дефектовки двигателя';
   const startDate = getDate(ctx.answers, 'defect_start_date');
   const endDate = getDate(ctx.answers, 'defect_end_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
-  const dismantledNames = getEmployees(ctx.answers, 'defect_dismantled_by')
-    .map((e) => e.fio)
-    .filter(Boolean)
-    .join('; ');
+  const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
+  const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
+  const dismantledNames = blank
+    ? ''
+    : getEmployees(ctx.answers, 'defect_dismantled_by')
+        .map((e) => e.fio)
+        .filter(Boolean)
+        .join('; ');
+
+  const identity = renderActIdentity({
+    actKind: 'дефектовки',
+    engineNumber: number,
+    ...(ctx.actVersion ? { version: ctx.actVersion } : {}),
+    date: startDate,
+    ...(ctx.workshopName ? { workshopName: ctx.workshopName } : {}),
+  });
 
   const header = `
-    ${contractNumber ? renderHeaderRow('Номер договора', contractNumber) : ''}
-    ${renderHeaderRow('Марка двигателя', ctx.engineBrand || getText(ctx.answers, 'engine_brand'))}
-    ${renderHeaderRow('№ двигателя', ctx.engineNumber || getText(ctx.answers, 'engine_number'))}
-    ${renderHeaderRow('Разборку двигателя произвёл', dismantledNames || '____________________')}
-    ${renderHeaderRow('Дата начала дефектовки', dateOrFillIn(startDate))}
-    ${renderHeaderRow('Дата окончания дефектовки', dateOrFillIn(endDate))}
-  `;
+    <div class="meta-grid">
+      ${renderHeaderRow('Марка двигателя', brand || '—')}
+      ${renderHeaderRow('№ двигателя', number || '—')}
+      ${renderHeaderRow('Договор / заказчик', contractNumber || '')}
+      ${renderHeaderRow('Разборку двигателя произвёл', dismantledNames || '____________________')}
+      ${renderHeaderRow('Дата начала дефектовки', dateOrFillIn(startDate))}
+      ${renderHeaderRow('Дата окончания дефектовки', dateOrFillIn(endDate))}
+    </div>`;
 
   // Решение владельца (2026-06-12): колонки те же, что в акте комплектности —
   // «№ сборочной единицы» (артикул) + «№ на детали» (набитый), без «№ детали по чертежу».
@@ -256,31 +325,35 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
       </tr>
     </thead>`;
 
-  const tableBody = ctx.rows.length === 0
-    ? `<tbody><tr><td colspan="8" class="muted ctr">Нет данных</td></tr></tbody>`
-    : `<tbody>${ctx.rows
-        .map(
-          (r) => `<tr>
+  const dataRows = ctx.rows
+    .map(
+      (r) => `<tr>
             <td>${escapeHtml(r.part_name)}</td>
             <td>${escapeHtml(r.assembly_unit_number)}</td>
-            <td>${escapeHtml(String(r.stamped_number ?? ''))}</td>
+            <td>${blank ? '' : escapeHtml(String(r.stamped_number ?? ''))}</td>
             <td class="num">${escapeHtml(r.quantity)}</td>
-            <td class="num">${escapeHtml(qtyOrBlank(r.repairable_qty))}</td>
-            <td class="num">${escapeHtml(qtyOrBlank(r.scrap_qty))}</td>
-            <td class="num">${escapeHtml(qtyOrBlank(r.replace_qty))}</td>
-            <td class="ctr">${escapeHtml(r.scrap_qty + r.replace_qty > 0 ? branchLabel(r.replenishment_branch) : '')}</td>
+            <td class="num">${blank ? '' : escapeHtml(qtyOrBlank(r.repairable_qty))}</td>
+            <td class="num">${blank ? '' : escapeHtml(qtyOrBlank(r.scrap_qty))}</td>
+            <td class="num">${blank ? '' : escapeHtml(qtyOrBlank(r.replace_qty))}</td>
+            <td class="ctr">${blank ? '' : escapeHtml(r.scrap_qty + r.replace_qty > 0 ? branchLabel(r.replenishment_branch) : '')}</td>
           </tr>`,
-        )
-        .join('')}</tbody>`;
+    )
+    .join('');
+  const tableBody =
+    ctx.rows.length === 0 && !blank
+      ? `<tbody><tr><td colspan="8" class="muted ctr">Нет данных</td></tr></tbody>`
+      : `<tbody>${dataRows}${blank ? spareRows(8, BLANK_SPARE_ROWS) : ''}</tbody>`;
 
   const signatures = `
     <div class="sigs">
       ${renderSignature('Дефектовку провёл', getSignature(ctx.answers, 'defect_signed_by'))}
       ${renderSignature('Утверждаю: директор по качеству', getSignature(ctx.answers, 'approved_by'))}
-    </div>`;
+    </div>
+    <div class="note">Годно / ремонтопригодно — оставляем; утиль — в лом; заменить новой — заказать. Восполнение: за чей счёт закрывается позиция.</div>`;
 
   const bodyHtml = `
     <h1>${escapeHtml(title)}</h1>
+    ${identity}
     <div class="meta">${header}</div>
     <table class="doc-table">${tableHead}${tableBody}</table>
     ${signatures}
