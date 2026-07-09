@@ -1,6 +1,6 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator, type Layout } from 'react-resizable-panels';
-import type { V2ColumnId, V2Prefs } from '@matricarmz/shared';
+import { V2_COLUMN_IDS, type V2ColumnId, type V2Prefs } from '@matricarmz/shared';
 
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { ButtonPanel } from './ButtonPanel.js';
@@ -44,8 +44,15 @@ export function V2Shell(props: {
 }) {
   const { prefs } = props;
   const saveTimer = useRef<number | null>(null);
+  // Всегда-свежие props (не «props + pending»): отложенный flush раскладки мержит свои
+  // размеры ПОВЕРХ последних prefs, а не перезаписывает целиком — параллельные записи
+  // других полей (например session из App) не теряются.
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  const pendingSizesRef = useRef<Partial<Record<V2ColumnId, number>> | null>(null);
+  // Drag-перестановка колонок за заголовки.
+  const [dragCol, setDragCol] = useState<V2ColumnId | null>(null);
+  const [dropHint, setDropHint] = useState<{ target: V2ColumnId; side: 'before' | 'after' } | null>(null);
 
   const buttons = useMemo(
     () => buildV2Buttons(props.availableTabs, props.menuLabels, prefs.buttonLayout),
@@ -67,33 +74,104 @@ export function V2Shell(props: {
   });
   const groupKey = columnsInGroup.join('|');
 
-  function scheduleSave(next: V2Prefs) {
-    prefsRef.current = next;
+  function scheduleSizesSave(sizes: Partial<Record<V2ColumnId, number>>) {
+    pendingSizesRef.current = { ...(pendingSizesRef.current ?? {}), ...sizes };
     if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       saveTimer.current = null;
-      props.onPrefsChange(prefsRef.current);
+      const pending = pendingSizesRef.current;
+      pendingSizesRef.current = null;
+      if (!pending) return;
+      const base = prefsRef.current;
+      const columns = { ...base.columns };
+      for (const id of V2_COLUMN_IDS) {
+        const sizePct = pending[id];
+        if (typeof sizePct === 'number' && Number.isFinite(sizePct)) {
+          columns[id] = { ...columns[id], sizePct };
+        }
+      }
+      props.onPrefsChange({ ...base, columns });
     }, 400);
   }
 
   // Layout карты react-resizable-panels v4: { panelId: flexGrow } — пропорции колонок.
   // groupKey меняется при смене набора видимых колонок; Group ремоунтится по key,
-  // поэтому пересчитывать layout на каждый чих prefs не нужно.
+  // поэтому пересчитывать layout на каждый чих prefs не нужно. Pending-размеры
+  // (несохранённый drag) накладываются поверх, чтобы ремоунт их не откатывал.
   const defaultLayout: Layout = useMemo(
-    () => Object.fromEntries(prefsRef.current.columnOrder.filter((id) => columnsInGroup.includes(id)).map((id) => [id, prefsRef.current.columns[id].sizePct])),
+    () =>
+      Object.fromEntries(
+        prefsRef.current.columnOrder
+          .filter((id) => columnsInGroup.includes(id))
+          .map((id) => [id, pendingSizesRef.current?.[id] ?? prefsRef.current.columns[id].sizePct]),
+      ),
     [groupKey],
   );
 
   function onLayoutChanged(layout: Layout, meta: { isUserInteraction: boolean }) {
     if (!meta.isUserInteraction) return;
-    const next: V2Prefs = { ...prefsRef.current, columns: { ...prefsRef.current.columns } };
+    const sizes: Partial<Record<V2ColumnId, number>> = {};
     for (const id of columnsInGroup) {
       const size = layout[id];
-      if (typeof size === 'number' && Number.isFinite(size)) {
-        next.columns[id] = { ...next.columns[id], sizePct: size };
-      }
+      if (typeof size === 'number' && Number.isFinite(size)) sizes[id] = size;
     }
-    scheduleSave(next);
+    scheduleSizesSave(sizes);
+  }
+
+  // ── Перестановка колонок drag'ом заголовка ──────────────────────────────────────
+  function dropSideFor(e: React.DragEvent): 'before' | 'after' {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+  }
+
+  function colDragStart(id: V2ColumnId) {
+    return (e: React.DragEvent) => {
+      e.dataTransfer.setData('text/v2-column', id);
+      e.dataTransfer.effectAllowed = 'move';
+      setDragCol(id);
+    };
+  }
+
+  function colDragOver(target: V2ColumnId) {
+    return (e: React.DragEvent) => {
+      if (!dragCol || dragCol === target) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const side = dropSideFor(e);
+      setDropHint((prev) => (prev && prev.target === target && prev.side === side ? prev : { target, side }));
+    };
+  }
+
+  function colDrop(target: V2ColumnId) {
+    return (e: React.DragEvent) => {
+      e.preventDefault();
+      const dragged = (e.dataTransfer.getData('text/v2-column') || dragCol || '') as V2ColumnId | '';
+      const side = dropSideFor(e);
+      setDragCol(null);
+      setDropHint(null);
+      if (!dragged || dragged === target) return;
+      const order = prefs.columnOrder.filter((x) => x !== dragged);
+      const at = order.indexOf(target);
+      if (at < 0) return;
+      order.splice(side === 'before' ? at : at + 1, 0, dragged);
+      props.onPrefsChange({ ...prefs, columnOrder: order });
+    };
+  }
+
+  function colDragEnd() {
+    setDragCol(null);
+    setDropHint(null);
+  }
+
+  /** Заголовок-хэндл: перетаскивается сам заголовок колонки (кнопки в нём — нет). */
+  function dragHandleProps(id: V2ColumnId) {
+    return {
+      draggable: true,
+      title: 'Перетащите, чтобы переставить колонку',
+      onDragStart: colDragStart(id),
+      onDragEnd: colDragEnd,
+      style: { cursor: 'grab' } as React.CSSProperties,
+    };
   }
 
   function setCollapsed(id: V2ColumnId, collapsed: boolean) {
@@ -130,11 +208,16 @@ export function V2Shell(props: {
   );
 
   function renderColumnBody(id: V2ColumnId) {
+    const dropProps = {
+      onDragOver: colDragOver(id),
+      onDrop: colDrop(id),
+      ...(dropHint?.target === id ? { 'data-drop': dropHint.side } : {}),
+    };
     if (id === 'buttons') {
       return (
-        <div className="v2-col v2-col-buttons">
+        <div className="v2-col v2-col-buttons" {...dropProps}>
           <div className="v2-col-header">
-            <span className="v2-col-title">Меню</span>
+            <span className="v2-col-title" {...dragHandleProps('buttons')}>Меню</span>
             <button type="button" className="v2-col-tool" title="Свернуть панель" onClick={() => setCollapsed('buttons', true)}>
               ⇤
             </button>
@@ -145,9 +228,9 @@ export function V2Shell(props: {
     }
     if (id === 'lists') {
       return (
-        <div className="v2-col v2-col-lists">
+        <div className="v2-col v2-col-lists" {...dropProps}>
           <div className="v2-col-header">
-            <span className="v2-col-title">
+            <span className="v2-col-title" {...dragHandleProps('lists')}>
               {listTab ? `📋 ${props.menuLabels[listTab as MenuTabId] ?? listTab}` : 'Список'}
             </span>
             <button type="button" className="v2-col-tool" title="Свернуть колонку" onClick={() => setCollapsed('lists', true)}>
@@ -174,7 +257,7 @@ export function V2Shell(props: {
       </div>
     );
     return (
-      <div className="v2-col v2-col-workspace">
+      <div className="v2-col v2-col-workspace" {...dropProps}>
         {props.openCards.length > 0 && (
           <div className="v2-card-tabs" role="tablist">
             {props.openCards.map((card) => {
