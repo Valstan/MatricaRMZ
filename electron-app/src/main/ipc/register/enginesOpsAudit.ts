@@ -8,7 +8,9 @@ import {
   createEngine,
   getEngineDetails,
   setEngineAttribute,
+  advanceEngineStatusForWorkOrder,
   findEngineDuplicateCandidates,
+  type AssemblyEngineStatusTarget,
 } from '../../services/engineService.js';
 import { engineDedupeAnalyze, engineDedupeMerge } from '../../services/erpService.js';
 import { listOperations, addOperation } from '../../services/operationService.js';
@@ -56,6 +58,22 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
     await requirePermOrThrow(ctx, 'engines.edit');
     return setEngineAttribute(ctx.dataDb(), engineId, code, value, await ctx.currentActor());
   });
+  // Ф2: авто-переход статуса двигателя из сборочного наряда («Выдать в работу» → «Начат
+  // ремонт»; дата выполнения → «Отремонтирован»). Guard «только вперёд» — внутри сервиса.
+  ipcMain.handle(
+    'engine:advanceStatus',
+    async (_e, args: { engineId: string; target: AssemblyEngineStatusTarget; dateMs: number }) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      await requirePermOrThrow(ctx, 'engines.edit');
+      return advanceEngineStatusForWorkOrder(
+        ctx.dataDb(),
+        String(args?.engineId ?? ''),
+        args?.target,
+        Number(args?.dateMs),
+        await ctx.currentActor(),
+      );
+    },
+  );
   ipcMain.handle('engine:delete', async (_e, engineId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'engines.edit');

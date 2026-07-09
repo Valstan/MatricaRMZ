@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { parseContractSections, buildContractSectionOptions, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { parseContractSections, buildContractSectionOptions, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -601,17 +601,9 @@ export function EngineDetailsPage(props: {
   /** Взаимоисключение флагов статусов: «Начат ремонт» ↔ остальные; дата начала ремонта при снятии через другой статус не трогаем. */
   function applyStatusCheckboxChange(code: StatusCode, next: boolean) {
     setSessionChanged(true);
-    setStatusFlags((prev) => {
-      const updated: Partial<Record<StatusCode, boolean>> = { ...prev, [code]: next };
-      if (code === REPAIR_STARTED_CODE && next) {
-        for (const c of STATUS_CODES) {
-          if (c !== REPAIR_STARTED_CODE) updated[c] = false;
-        }
-      } else if (code !== REPAIR_STARTED_CODE && next) {
-        updated[REPAIR_STARTED_CODE] = false;
-      }
-      return updated;
-    });
+    // Взаимоисключение флагов — общий `applyStatusFlagChange` (тот же, что у авто-перехода
+    // из наряда сборки), чтобы ручной и авто-путь не разъезжались.
+    setStatusFlags((prev) => applyStatusFlagChange(prev, code, next));
     setStatusDates((prev) => {
       if (code === REPAIR_STARTED_CODE && next) {
         return { ...prev, [REPAIR_STARTED_CODE]: prev[REPAIR_STARTED_CODE] ?? Date.now() };

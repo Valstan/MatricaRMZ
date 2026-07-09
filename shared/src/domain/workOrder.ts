@@ -317,6 +317,14 @@ export type WorkOrderPayload = {
    */
   assemblyVariantGroup?: string | null;
   /**
+   * Собираемый двигатель Assembly-наряда, заданный один раз в шапке наряда (а не в
+   * каждой строке работ). Единый источник: при выборе двигателя в шапке его id/номер/марка
+   * проставляются во все строки `freeWorks`, а новые строки его наследуют. На чтение
+   * (совместимость со старыми нарядами без поля) резолвится через `resolveAssemblyEngineId`
+   * с fallback на `primaryAssemblyEngineId`. `null`/отсутствует — двигатель не выбран.
+   */
+  assemblyEngineId?: string | null;
+  /**
    * Stage 4 нитки assembly-work-order-from-forecast: stable identifier варианта сборки
    * из отчёта «Прогноз сборки двигателей» (формула `buildAssemblyForecastVariantKey`).
    * Заполняется при создании Assembly-наряда из прогноза. Backend forecast подтягивает
@@ -411,11 +419,11 @@ function isWorkOrderKind(value: unknown): value is WorkOrderKind {
  * Принимает payload любой версии (v1/v2/v3) и возвращает нормализованные v3-поля.
  * Не модифицирует исходный объект; ничего не теряет — старые поля сохраняются.
  */
-export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'repairIssued' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
+export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
   if (!raw || typeof raw !== 'object') return {};
   const rec = raw as Record<string, unknown>;
 
-  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'repairIssued' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
+  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
 
   const workshopId = typeof rec.workshopId === 'string' ? rec.workshopId.trim() : '';
   if (workshopId) result.workshopId = workshopId;
@@ -444,6 +452,13 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
   } else if (typeof rec.assemblyVariantGroup === 'string') {
     const trimmed = rec.assemblyVariantGroup.trim();
     if (trimmed) result.assemblyVariantGroup = trimmed;
+  }
+
+  if (rec.assemblyEngineId === null) {
+    result.assemblyEngineId = null;
+  } else if (typeof rec.assemblyEngineId === 'string') {
+    const trimmed = rec.assemblyEngineId.trim();
+    if (trimmed) result.assemblyEngineId = trimmed;
   }
 
   if (rec.repairIssued === true) result.repairIssued = true;
@@ -621,6 +636,17 @@ export function primaryAssemblyEngineId(payload: WorkOrderPayload): string | nul
     }
   }
   return null;
+}
+
+/**
+ * Двигатель Assembly-наряда для шапки: явное header-поле `assemblyEngineId`, с fallback
+ * на первый двигатель среди строк (`primaryAssemblyEngineId`) — чтобы старые наряды,
+ * сохранённые до появления header-поля, показывали двигатель в шапке.
+ */
+export function resolveAssemblyEngineId(payload: WorkOrderPayload): string | null {
+  const explicit = String(payload.assemblyEngineId ?? '').trim();
+  if (explicit) return explicit;
+  return primaryAssemblyEngineId(payload);
 }
 
 /* -------------------------------------------------------------------------- *

@@ -767,6 +767,11 @@ export type MatricaApi = {
     create: () => Promise<{ id: string }>;
     get: (id: string) => Promise<EngineDetails>;
     setAttr: (engineId: string, code: string, value: unknown) => Promise<void>;
+    advanceStatus: (args: {
+      engineId: string;
+      target: 'status_repair_started' | 'status_repaired';
+      dateMs: number;
+    }) => Promise<{ applied: boolean; reason?: string }>;
     findDuplicateCandidates: (args: { engineNumber: string; excludeEngineId?: string }) => Promise<EngineDuplicateMatches>;
   };
   operations: {

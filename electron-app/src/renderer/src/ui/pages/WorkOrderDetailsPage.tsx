@@ -18,6 +18,7 @@ import {
   workOrderSignatureBlockAliases,
   isWorkOrderTemplateKind,
   normalizeWorkOrderLine,
+  resolveAssemblyEngineId,
   type NomenclatureItemType,
   type WorkOrderPayload,
   type WorkOrderPrintSettings,
@@ -1023,6 +1024,21 @@ export function WorkOrderDetailsPage(props: {
     const next = recalcLocally({ ...payload, repairIssued: nextIssued });
     setPayload(next);
     await flushSave(next);
+    // Ф2: выдача СБОРОЧНОГО наряда в работу → двигателю статус «Начат ремонт» (только вперёд;
+    // отзыв статус не откатывает). Статус двигателя — побочный эффект, не роняет сохранение наряда.
+    if (nextIssued && next.workOrderKind === WorkOrderKind.Assembly) {
+      const engineId = resolveAssemblyEngineId(next);
+      if (engineId) {
+        try {
+          await window.matrica.engines.advanceStatus({ engineId, target: 'status_repair_started', dateMs: Date.now() });
+        } catch (e) {
+          setStatus(`Наряд выдан, но статус двигателя не обновился: ${String(e)}`);
+          return;
+        }
+      }
+      setStatus('Наряд выдан в работу — двигателю проставлен статус «Начат ремонт»');
+      return;
+    }
     setStatus(nextIssued ? 'Наряд выдан в работу — детали учтены в прогнозе сборки' : 'Наряд отозван из работы');
   }
 
@@ -1357,9 +1373,12 @@ export function WorkOrderDetailsPage(props: {
 
   function addFreeWorkLine() {
     if (!payload) return;
+    // Assembly: новая строка наследует двигатель из шапки (единый двигатель наряда).
+    const headerEngineId = payload.workOrderKind === WorkOrderKind.Assembly ? resolveAssemblyEngineId(payload) : null;
+    const headerEngine = headerEngineId ? engines.find((e) => e.id === headerEngineId) ?? null : null;
     patch({
       ...payload,
-      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: null, engineNumber: '', engineBrandId: null, engineBrandName: '', partId: null, partName: '' }],
+      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: headerEngineId, engineNumber: headerEngine?.engineNumber || '', engineBrandId: headerEngine?.engineBrandId ?? null, engineBrandName: headerEngine?.engineBrandName ?? '', partId: null, partName: '' }],
     });
   }
 
@@ -2132,6 +2151,43 @@ export function WorkOrderDetailsPage(props: {
             ))}
           </select>
         </div>
+        {payload.workOrderKind === WorkOrderKind.Assembly ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Двигатель</span>
+            <div style={{ minWidth: 220 }}>
+              <SearchSelect
+                value={resolveAssemblyEngineId(payload)}
+                options={engineOptions}
+                disabled={!canEditNow}
+                placeholder="Выберите двигатель сборки"
+                onChange={(next) => {
+                  // Единый двигатель сборочного наряда: выбор в шапке проставляется во все строки
+                  // (freeWorks + legacy workGroups), новые строки его наследуют (addFreeWorkLine).
+                  const eng = next ? engines.find((e) => e.id === next) : null;
+                  const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
+                    ...line,
+                    engineId: next || null,
+                    engineNumber: eng?.engineNumber || '',
+                    engineBrandId: eng?.engineBrandId ?? line.engineBrandId ?? null,
+                    engineBrandName: eng?.engineBrandName ?? line.engineBrandName ?? '',
+                  });
+                  const nextPayload: WorkOrderPayload = {
+                    ...payload,
+                    assemblyEngineId: next || null,
+                    freeWorks: payload.freeWorks.map(stamp),
+                  };
+                  if (Array.isArray(payload.workGroups) && payload.workGroups.length > 0) {
+                    nextPayload.workGroups = payload.workGroups.map((g) => ({
+                      ...g,
+                      lines: Array.isArray(g.lines) ? g.lines.map(stamp) : g.lines,
+                    }));
+                  }
+                  patch(nextPayload);
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
         {payload.workOrderKind === WorkOrderKind.WorkshopTemplate ? (
           <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
             Ремонт по шаблону цеха (legacy)
@@ -2263,6 +2319,16 @@ export function WorkOrderDetailsPage(props: {
                 if (ms) next.completedDate = ms;
                 else delete next.completedDate;
                 patch(next);
+                // Ф2: дата выполнения сборочного наряда → двигателю статус «Отремонтирован»
+                // (только вперёд; очистка даты статус не откатывает). Побочный эффект, best-effort.
+                if (ms && next.workOrderKind === WorkOrderKind.Assembly) {
+                  const engineId = resolveAssemblyEngineId(next);
+                  if (engineId) {
+                    void window.matrica.engines
+                      .advanceStatus({ engineId, target: 'status_repaired', dateMs: ms })
+                      .catch((err) => setStatus(`Дата выполнения сохранена, но статус двигателя не обновился: ${String(err)}`));
+                  }
+                }
               }}
               style={{ width: 150 }}
             />
@@ -2544,21 +2610,29 @@ export function WorkOrderDetailsPage(props: {
       {/* Тело карточки — прокручивается под закреплённой шапкой */}
       <div style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}>
         <EntityCardShell title="" layout="stack">
-      {payload.workOrderKind === WorkOrderKind.Repair && !isClosed ? (
+      {(payload.workOrderKind === WorkOrderKind.Repair || payload.workOrderKind === WorkOrderKind.Assembly) && !isClosed ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: payload.repairIssued ? 'var(--success)' : 'var(--muted)' }}>
-            {payload.repairIssued
-              ? '🟢 Выдан в работу — отремонтированные детали учитываются в прогнозе сборки как приход'
-              : '⚪ Не выдан в работу — детали НЕ учитываются прогнозом сборки, пока наряд не выдан'}
+            {payload.workOrderKind === WorkOrderKind.Assembly
+              ? payload.repairIssued
+                ? '🟢 Выдан в работу — двигателю проставлен статус «Начат ремонт»'
+                : '⚪ Не выдан в работу — при выдаче двигателю проставится статус «Начат ремонт»'
+              : payload.repairIssued
+                ? '🟢 Выдан в работу — отремонтированные детали учитываются в прогнозе сборки как приход'
+                : '⚪ Не выдан в работу — детали НЕ учитываются прогнозом сборки, пока наряд не выдан'}
           </span>
           {canEditNow ? (
             <Button
               variant={payload.repairIssued ? 'ghost' : 'primary'}
               size="sm"
               title={
-                payload.repairIssued
-                  ? 'Отозвать наряд: детали перестанут учитываться прогнозом сборки как будущий приход'
-                  : 'Выдать наряд в работу: отремонтированные детали попадут в прогноз сборки как приход (день +1)'
+                payload.workOrderKind === WorkOrderKind.Assembly
+                  ? payload.repairIssued
+                    ? 'Отозвать наряд из работы. Статус двигателя при этом НЕ откатывается.'
+                    : 'Выдать наряд в работу: двигателю сборки проставится статус «Начат ремонт».'
+                  : payload.repairIssued
+                    ? 'Отозвать наряд: детали перестанут учитываться прогнозом сборки как будущий приход'
+                    : 'Выдать наряд в работу: отремонтированные детали попадут в прогноз сборки как приход (день +1)'
               }
               onClick={() => void toggleRepairIssued()}
             >
@@ -2567,9 +2641,9 @@ export function WorkOrderDetailsPage(props: {
           ) : null}
         </div>
       ) : null}
-      {!isClosed && payload.workOrderKind === WorkOrderKind.Assembly && !payload.freeWorks.some((line) => line.engineId) ? (
+      {!isClosed && payload.workOrderKind === WorkOrderKind.Assembly && !resolveAssemblyEngineId(payload) ? (
         <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>
-          ⚠ Сборочный наряд: укажите двигатель сборки хотя бы в одной строке работ — иначе не получится провести документ assembly_consumption.
+          ⚠ Сборочный наряд: выберите двигатель сборки в шапке наряда (поле «Двигатель») — иначе не получится провести документ assembly_consumption.
         </div>
       ) : null}
       {status && !status.startsWith('Сохранено') ? (
@@ -2643,8 +2717,8 @@ export function WorkOrderDetailsPage(props: {
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
-              {!appliedHiddenFields.has('engineNumber') ? <col style={{ width: '130px' }} /> : null}
-              {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) ? (
+              {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? <col style={{ width: '130px' }} /> : null}
+              {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                 <col style={{ width: '140px' }} />
               ) : null}
               {!appliedHiddenFields.has('serviceName') ? <col /> : null}
@@ -2660,8 +2734,8 @@ export function WorkOrderDetailsPage(props: {
             </colgroup>
             <thead>
               <tr>
-                {!appliedHiddenFields.has('engineNumber') ? <th style={{ textAlign: 'left' }} data-col-kind="name">№ двигателя</th> : null}
-                {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) ? (
+                {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? <th style={{ textAlign: 'left' }} data-col-kind="name">№ двигателя</th> : null}
+                {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                   <th style={{ textAlign: 'left' }} data-col-kind="name">Марка двигателя</th>
                 ) : null}
                 {!appliedHiddenFields.has('serviceName') ? <th style={{ textAlign: 'left' }} data-col-kind="name">Вид работ</th> : null}
@@ -2716,7 +2790,7 @@ export function WorkOrderDetailsPage(props: {
                   : engineOptions;
                 return (
                 <tr key={`free-work-line-${idx}`}>
-                  {!appliedHiddenFields.has('engineNumber') ? (
+                  {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
                       <SearchSelect
                         value={line.engineId || null}
@@ -2743,7 +2817,7 @@ export function WorkOrderDetailsPage(props: {
                       />
                     </td>
                   ) : null}
-                  {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) ? (
+                  {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
                       <Input
                         value={engineInfo?.engineBrandName || line.engineBrandName || ''}
