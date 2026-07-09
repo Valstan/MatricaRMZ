@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EngineActApprover, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { APPROVER_GRIF_KEY, buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import type { EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -395,6 +395,9 @@ export function RepairChecklistPanel(props: {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [payload, setPayload] = useState<RepairChecklistPayload | null>(null);
   const [answers, setAnswers] = useState<RepairChecklistAnswers>({});
+  const [actTemplates, setActTemplates] = useState<EngineActTemplateSummary[]>([]);
+  const [selectedActTemplateId, setSelectedActTemplateId] = useState<string>('');
+  const [savingTemplateName, setSavingTemplateName] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<boolean>(props.defaultCollapsed === true);
   const [loadVersion, setLoadVersion] = useState(0);
   const brandRowsSyncKeyRef = useRef<string>('');
@@ -983,6 +986,45 @@ export function RepairChecklistPanel(props: {
         ? 'Комиссия заполнена по цеху двигателя.'
         : `Комиссия заполнена частично — не найдены: ${missing.join(', ')}. Проверьте, что для цеха «${props.workshopName ?? ''}» заведены сотрудники с нужными должностями.`,
     );
+  }
+
+  // Шаблоны актов по марке двигателя (PR4): список для текущей марки.
+  async function loadActTemplates() {
+    const brandId = String(props.engineBrandId || '').trim();
+    if (!brandId) { setActTemplates([]); return; }
+    const r = await window.matrica.engineActTemplates.list({ engineBrandId: brandId });
+    if (r.ok) setActTemplates(r.templates);
+  }
+
+  useEffect(() => {
+    if (props.stage !== ENGINE_INVENTORY_STAGE) return;
+    void loadActTemplates();
+  }, [props.stage, props.engineBrandId]);
+
+  async function applyActTemplate(id: string) {
+    if (!props.canEdit || !id) return;
+    const r = await window.matrica.engineActTemplates.get(id);
+    if (!r.ok) { setStatus(`Ошибка применения шаблона: ${r.error}`); return; }
+    const next = applyEngineActTemplate(answers, r.template.payload);
+    setAnswers(next);
+    void save(next);
+    setStatus(`Шаблон «${r.template.name}» применён (комиссия, гриф, состояние).`);
+  }
+
+  async function saveAsActTemplate(name: string) {
+    const brandId = String(props.engineBrandId || '').trim();
+    const trimmed = name.trim();
+    if (!brandId) { setStatus('Нельзя сохранить шаблон: у двигателя не задана марка.'); return; }
+    if (!trimmed) return;
+    const payload = buildEngineActTemplatePayloadFromAnswers(answers);
+    const existing = actTemplates.find((t) => t.name.trim().toLowerCase() === trimmed.toLowerCase());
+    const r = existing
+      ? await window.matrica.engineActTemplates.update({ id: existing.id, payload })
+      : await window.matrica.engineActTemplates.create({ engineBrandId: brandId, name: trimmed, payload });
+    if (!r.ok) { setStatus(`Ошибка сохранения шаблона: ${r.error}`); return; }
+    setSavingTemplateName(null);
+    await loadActTemplates();
+    setStatus(existing ? `Шаблон «${trimmed}» обновлён.` : `Шаблон «${trimmed}» сохранён для марки.`);
   }
 
   useEffect(() => {
@@ -1884,6 +1926,61 @@ export function RepairChecklistPanel(props: {
           })}
         </div>
       ) : null}
+      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' && props.engineBrandId
+        ? (() => {
+            const ghostBtn: React.CSSProperties = {
+              padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(15, 23, 42, 0.25)',
+              background: 'var(--input-bg)', color: 'var(--text)', cursor: 'pointer', fontSize: 12,
+            };
+            return (
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px dashed rgba(37,99,235,0.4)', borderRadius: 10, background: 'var(--input-bg)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>Шаблон акта марки:</div>
+                  <select
+                    value={selectedActTemplateId}
+                    onChange={(e) => setSelectedActTemplateId(e.target.value)}
+                    style={{ minWidth: 180, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: 13 }}
+                  >
+                    <option value="">{actTemplates.length ? '— выберите шаблон —' : '— нет шаблонов для марки —'}</option>
+                    {actTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                  {props.canEdit ? (
+                    <button
+                      type="button"
+                      disabled={!selectedActTemplateId}
+                      onClick={() => void applyActTemplate(selectedActTemplateId)}
+                      style={{ ...ghostBtn, opacity: selectedActTemplateId ? 1 : 0.5 }}
+                      title="Заполнить комиссию, гриф и пункты «Состояние при поступлении» из выбранного шаблона марки. Строки деталей не затрагиваются."
+                    >
+                      Применить
+                    </button>
+                  ) : null}
+                  {props.canEdit && savingTemplateName === null ? (
+                    <button type="button" onClick={() => setSavingTemplateName('')} style={ghostBtn}>
+                      Сохранить как шаблон марки
+                    </button>
+                  ) : null}
+                </div>
+                {props.canEdit && savingTemplateName !== null ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                    <Input
+                      value={savingTemplateName}
+                      placeholder="Название шаблона (напр. «Стандарт»)"
+                      onChange={(e) => setSavingTemplateName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void saveAsActTemplate(savingTemplateName); }}
+                    />
+                    <button type="button" disabled={!savingTemplateName.trim()} onClick={() => void saveAsActTemplate(savingTemplateName)} style={{ ...ghostBtn, opacity: savingTemplateName.trim() ? 1 : 0.5 }}>
+                      Сохранить
+                    </button>
+                    <button type="button" onClick={() => setSavingTemplateName(null)} style={ghostBtn}>Отмена</button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()
+        : null}
       {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness'
         ? (() => {
             const members = readCommissionMembers(answers);

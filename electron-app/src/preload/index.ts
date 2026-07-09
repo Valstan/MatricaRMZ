@@ -371,6 +371,15 @@ const matricaApi = {
     }) => ipcRenderer.invoke('workOrderTemplates:update', args),
     delete: async (id: string) => ipcRenderer.invoke('workOrderTemplates:delete', id),
   },
+  engineActTemplates: {
+    list: async (args?: { engineBrandId?: string }) => ipcRenderer.invoke('engineActTemplates:list', args),
+    get: async (id: string) => ipcRenderer.invoke('engineActTemplates:get', id),
+    create: async (args: { engineBrandId: string; name: string; payload?: Record<string, unknown> }) =>
+      ipcRenderer.invoke('engineActTemplates:create', args),
+    update: async (args: { id: string; name?: string; payload?: Record<string, unknown> }) =>
+      ipcRenderer.invoke('engineActTemplates:update', args),
+    delete: async (id: string) => ipcRenderer.invoke('engineActTemplates:delete', id),
+  },
   signatureCaptions: {
     list: async () => ipcRenderer.invoke('signatureCaptions:list'),
     add: async (args: { text: string }) => ipcRenderer.invoke('signatureCaptions:add', args),

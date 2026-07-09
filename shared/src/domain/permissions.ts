@@ -42,6 +42,7 @@ export const PermissionCode = {
   WorkshopsManage: 'workshops.manage',
   WorkshopRepairTemplatesEdit: 'workshop_repair_templates.edit',
   WorkOrderTemplatesEdit: 'work_order_templates.edit',
+  EngineActTemplatesEdit: 'engine_act_templates.edit',
   WarehouseLocationsView: 'warehouse_locations.view',
   WarehouseLocationsManage: 'warehouse_locations.manage',
 
@@ -204,6 +205,13 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     group: 'Справочники',
     titleRu: 'Редактирование шаблонов нарядов',
     descriptionRu: 'Создание/изменение/удаление универсальных шаблонов нарядов (предзаполнение полей и строк, скрытие неактуальных полей). Чтение шаблонов доступно всем с правом «Создание нарядов».',
+    adminOnly: true,
+  },
+  {
+    code: PermissionCode.EngineActTemplatesEdit,
+    group: 'Справочники',
+    titleRu: 'Редактирование шаблонов актов по маркам',
+    descriptionRu: 'Создание/изменение/удаление шаблонов актов комплектности/дефектовки по марке двигателя (состав комиссии, гриф «Утверждаю», пункты «Состояние при поступлении»). Применение шаблона доступно всем с правом «Просмотр операций».',
     adminOnly: true,
   },
 

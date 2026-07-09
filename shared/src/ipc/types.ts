@@ -564,6 +564,11 @@ import type {
   WorkOrderTemplateLine,
   WorkOrderTemplateSummary,
 } from '../domain/workOrderTemplate.js';
+import type {
+  EngineActTemplateDto,
+  EngineActTemplatePayload,
+  EngineActTemplateSummary,
+} from '../domain/engineActTemplate.js';
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
@@ -1298,6 +1303,29 @@ export type MatricaApi = {
       lines?: WorkOrderTemplateLine[];
     }) => Promise<
       | { ok: true; template: WorkOrderTemplateDto }
+      | { ok: false; error: string }
+    >;
+    delete: (id: string) => Promise<
+      | { ok: true; deleted: true }
+      | { ok: false; error: string }
+    >;
+  };
+
+  engineActTemplates: {
+    list: (args?: { engineBrandId?: string }) => Promise<
+      | { ok: true; templates: EngineActTemplateSummary[] }
+      | { ok: false; error: string }
+    >;
+    get: (id: string) => Promise<
+      | { ok: true; template: EngineActTemplateDto }
+      | { ok: false; error: string }
+    >;
+    create: (args: { engineBrandId: string; name: string; payload?: EngineActTemplatePayload }) => Promise<
+      | { ok: true; template: EngineActTemplateDto }
+      | { ok: false; error: string }
+    >;
+    update: (args: { id: string; name?: string; payload?: EngineActTemplatePayload }) => Promise<
+      | { ok: true; template: EngineActTemplateDto }
       | { ok: false; error: string }
     >;
     delete: (id: string) => Promise<
