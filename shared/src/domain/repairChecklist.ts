@@ -65,6 +65,20 @@ export type RepairChecklistPayload = {
 export const ENGINE_INVENTORY_STAGE = 'engine_inventory' as const;
 
 /**
+ * «Состояние при поступлении» — блок приёмки (акт комплектности): фиксируем состояние
+ * присланного изделия на момент передачи (упаковка/пломбы/повреждения/следы вскрытия +
+ * особые отметки). Мировая практика Incoming Inspection. Хранится как `text`-ответы в
+ * `answers[id]`. Единый список — источник и для редактора карточки, и для печати акта.
+ */
+export const ENGINE_RECEIPT_CONDITION_FIELDS = [
+  { id: 'receipt_packaging', label: 'Упаковка / тара' },
+  { id: 'receipt_seals', label: 'Пломбы' },
+  { id: 'receipt_ext_damage', label: 'Внешние повреждения' },
+  { id: 'receipt_opening_traces', label: 'Следы вскрытия / ремонта' },
+  { id: 'receipt_notes', label: 'Особые отметки' },
+] as const;
+
+/**
  * Ф3: ветка восполнения детали — как восполнить недостающую/негодную позицию.
  *  - customer: восполняет заказчик (закрытие в «есть» по приходу от заказчика);
  *  - repair:  свой ремонт (закрытие по готовности из ремфонда);
