@@ -4,36 +4,38 @@
 >
 > Если работы в потоке нет — `Status: IDLE` и пустые секции. Команда `/start` это увидит и не будет ничего навязывать.
 
-**Status:** IDLE (релиз **v2026.709.1248** выпущен и раскатан на прод; активной нитки нет)
+**Status:** IDLE (релиз **v2026.709.1629** выпущен и раскатан на прод; активной нитки нет)
 **Updated:** 2026-07-09 (Claude Opus 4.8, машина `PC40`)
-**Branch:** `main` (= origin/main). Дерево чистое, stash пуст, открытых PR нет, локальная только `main`.
-**Last released version:** **v2026.709.1248 на проде** — `/health` = 2026.709.1248, `/updates/status.latest` = 2026.709.1248 (infoHash есть, `lastError: null`), фид `/updates/latest` (yml) 200, `.exe`+`.blockmap` 200 (delta ок), оба сервиса active. Миграций не было, lockfile не менялся.
+**Branch:** `main` (= origin/main, `d18c36aa`). Дерево чистое, stash пуст, открытых PR нет, локальная только `main`.
+**Last released version:** **v2026.709.1629 на проде** — `/health` = 2026.709.1629, `/updates/status.latest` = 2026.709.1629 (infoHash есть, `lastError: null`), blockmap 200 (delta ок), оба сервиса active. Ship-миграция **0074** применена на проде (`db:migrate`), lockfile не менялся (install пропущен).
 
 ## Текущая нитка
 
-_n/a_ — сессия 2026-07-09 отгрузила релиз **v2026.709.1248** (7 PR #133–139):
-- **#133** — наряд на сборку: двигатель выбирается один раз в шапке (проставляется во все строки) + авто-статус двигателя «Начат ремонт» при «Выдать в работу» и «Отремонтирован» при дате выполнения (только вперёд).
-- **#134** — отчёт по двигателям: фильтры по датам начала/окончания ремонта; у **каждого** фильтра во всех отчётах кнопки «сброс» и «выкл».
-- **#135–138** — акты комплектности/дефектовки: компактная печать с видными заголовками/номерами (№ двигателя + версия)/цехом + пустой бланк; разделение на под-вкладки; блок «Состояние при поступлении»; кнопка «Заполнить комиссию по цеху».
+_n/a_ — сессия 2026-07-09 отгрузила фичу **«редактируемые акты»** релизом **v2026.709.1629** (4 PR #141–144):
+- **#141** — резиновые поля ФИО/должность + `OverflowTooltipInput` (полупрозрачная плашка полного текста при переполнении).
+- **#142** — динамическая «Комиссия в составе» (`kind:'commission'`, add/remove, редакт. должность+роль; «Заполнить по цеху» переписана на список).
+- **#143** — редактируемое «Состояние при поступлении» (`kind:'condition_list'`) + гриф «Утверждаю» (`kind:'approver'`, пресеты = SSOT наряда + акт-дефолт `quality`) в правом верхнем углу обоих актов; нижняя подпись `approved_by` убрана.
+- **#144** — шаблоны актов по маркам: таблица `engine_act_templates` (миграция 0074), сервис/REST/IPC зеркалят `workOrderTemplates`; `applyEngineActTemplate` + UI-бар «Шаблон акта марки».
 
-Печать верифицирована pure-билдерами, UI — CDP (verifier-electron) до мержа. Прод: health/updates-status зелёные.
+Ключевое: ленивая детерминированная миграция `migrateEngineInventoryAnswers` (стабильные derived-id → воспроизводимая снапшот-подпись; праймит `lastSavedAnswersRef` → без авто-сейва на загрузке) + ридеры печати с **legacy-fallback** (старые снапшоты печатаются как прежде).
 
 ## Следующий шаг
 
-**Активной нитки нет — ждём спот-чек владельца на живых клиентах** после автообновления до v2026.709.1248, затем при желании — из бэклога ([`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md)). Открытые опциональные кандидаты (сверено с PENDING, не отгружено):
-- 🟢 **Фаза 3b прогноза** (после обкатки инкр.1): «основного мало, но не 0» + пулинг позиции + адаптив — крупная переделка симуляции. План [`plans/engine-spec-forecast-phase3.md`](plans/engine-spec-forecast-phase3.md).
-- 🟢 **Ещё тише клиент↔сервер (остаток):** консолидация ad-hoc таймеров на единый pulse + пауза локальных IPC-поллов через `pollWhenVisible`.
-- 🟢 **Фотофиксация в акте приёмки** (мировая практика Incoming Inspection): фото серийника/повреждений к акту комплектности. Есть вкладка «Фото и документы» — можно связать снимки с блоком «Состояние при поступлении».
-- 🟢 **Паритет `web-admin`-копии `RepairChecklistPanel`** с десктопной (под-вкладки/печать актов делались только в electron-app).
+**Активной нитки нет — ждём спот-чек владельца на живых клиентах** после автообновления до v2026.709.1629, затем при желании — из бэклога ([`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md)). Спот-чек: комиссия (add/remove/должности), состояние (add/remove/rename), гриф (пресеты), резиновые поля+подсказка, шаблон марки (сохранить→применить). Открытые опциональные кандидаты (сверено с PENDING, не отгружено):
+- 🟢 **Паритет web-admin для редактируемых актов** (PENDING) — редакторы комиссии/состояния/грифа и шаблоны сделаны только в electron-app; web-admin-панель игнорит новые `kind` безопасно, но не редактирует. Печати актов там нет вовсе.
+- 🟢 **Фотофиксация в акте приёмки** (Incoming Inspection): фото серийника/повреждений к блоку «Состояние при поступлении» (есть вкладка «Фото и документы»).
+- 🟢 **Фаза 3b прогноза** — план [`plans/engine-spec-forecast-phase3.md`](plans/engine-spec-forecast-phase3.md).
 - 🔴 **Решение владельца:** forward-proxy VPS для AI (Anthropic режет РФ-IP) — PENDING §Блокер.
 
 ## Контекст
 
-- Прод: **v2026.709.1248**, оба сервиса active. Деплой сессии: `git pull` (3305e208) → build серверных пакетов (миграций/install нет) → 3 артефакта в `/opt/matricarmz/updates/` (качал локально + scp; blockmap отдельным `gh release download`) → `release:ledger-publish` → рестарт. **Обратимо** (редеплой прежнего).
-- Ключевые файлы релиза: [`RepairChecklistPanel.tsx`](../electron-app/src/renderer/src/ui/components/RepairChecklistPanel.tsx) (под-вкладки, блок «Состояние при поступлении», кнопка комиссии), [`engineInventoryPrintHtml.ts`](../electron-app/src/renderer/src/ui/utils/engineInventoryPrintHtml.ts) (печать актов: заголовки/номера/цех/компакт/бланк), [`checklistService.ts`](../electron-app/src/main/services/checklistService.ts) (слот `customer_representative`), [`repairChecklist.ts`](../shared/src/domain/repairChecklist.ts) (`ENGINE_RECEIPT_CONDITION_FIELDS`), [`WorkOrderDetailsPage.tsx`](../electron-app/src/renderer/src/ui/pages/WorkOrderDetailsPage.tsx) + [`workOrder.ts`](../shared/src/domain/workOrder.ts) (`assemblyEngineId`/`resolveAssemblyEngineId`), [`engineService.ts`](../electron-app/src/main/services/engineService.ts) (`advanceEngineStatusForWorkOrder`), [`contract.ts`](../shared/src/domain/contract.ts) (`applyStatusFlagChange`), [`reports.ts`](../shared/src/domain/reports.ts) + [`reportPresetService.ts`](../electron-app/src/main/services/reportPresetService.ts) (репейр-фильтры), [`ReportPresetPage.tsx`](../electron-app/src/renderer/src/ui/pages/ReportPresetPage.tsx) + [`reportUtils.ts`](../electron-app/src/renderer/src/ui/utils/reportUtils.ts) (сброс/выкл фильтров).
+- План (завершён): [`plans/_archive/editable-engine-acts.md`](plans/_archive/editable-engine-acts.md). Done-строка — [`COMPLETED.md`](COMPLETED.md) §Акты. Эффект — [`zavod/PROGRAM_EFFECTS.md`](zavod/PROGRAM_EFFECTS.md).
+- Коммиты: `57c32c95`(#141) · `3d0027fa`(#142) · `0c0f762f`(#143) · `d8854d58`(#144) · `d18c36aa` release(#145).
+- Прод: **v2026.709.1629**, оба сервиса active. Деплой сессии: `git pull` → build серверных → `db:migrate` (0074) → 3 артефакта в updates (качал локально + scp; blockmap отдельным `gh release download`) → `release:ledger-publish` → рестарт → health/updates-status/blockmap зелёные. **Обратимо** (редеплой прежнего).
+- Ключевые файлы: [`repairChecklist.ts`](../shared/src/domain/repairChecklist.ts) (варианты `commission`/`condition_list`/`approver` + `migrateEngineInventoryAnswers` + ридеры с fallback), [`engineActTemplate.ts`](../shared/src/domain/engineActTemplate.ts) (шаблоны + `applyEngineActTemplate`), [`RepairChecklistPanel.tsx`](../electron-app/src/renderer/src/ui/components/RepairChecklistPanel.tsx) (редакторы + бар шаблонов), [`OverflowTooltipInput.tsx`](../electron-app/src/renderer/src/ui/components/OverflowTooltipInput.tsx), [`engineInventoryPrintHtml.ts`](../electron-app/src/renderer/src/ui/utils/engineInventoryPrintHtml.ts) (гриф/комиссия/состояние с fallback), backend `engineActTemplateService.ts`/`routes/engineActTemplates.ts` + миграция `drizzle/0074_engine_act_templates.sql`.
 - Открытых PR: нет. Локальных веток с un-pushed коммитами: нет.
-- Верификация: драйверы в `.verifier-electron/` (gitignored) — `cdp-acts-tabs.mjs`, `cdp-assembly-*.mjs`, `cdp-reports*.mjs`; pure-проверка печати `scratchpad/check-print.mjs`.
-- to-brain: писем в этой сессии не добавлял (находки по фильтру не переносимы — прод-специфика).
+- Верификация: CDP-драйвер редакторов — `.verifier-electron/cdp-acts-editable.mjs` (gitignored, PASS); pure-проверки — `scratchpad/pr2/3/4-check.mjs` + `print-entry.ts` (esbuild-бандл, 16/16).
+- to-brain: писем не добавлял — ключевая находка (verify-by-sample чистой render-функции вместо дорогого live-drive) уже отправлена письмом `2026-07-08-verify-by-rendered-sample-pure-fn.md`; esbuild-приём (бандл renderer-логики для Node, когда tsx нет) — лишь тактическая деталь того же, отдельное письмо было бы дублем.
 
 ## Открытые вопросы для пользователя
 
@@ -41,8 +43,9 @@ _n/a_ — сессия 2026-07-09 отгрузила релиз **v2026.709.1248
 
 ## Не забыть (low-priority)
 
-1. **Спот-чек владельцем на живом клиенте** (после автообновления до v2026.709.1248): (а) акты — под-вкладки комплектность/дефектовка, печать заполненного + «Бланк комплектности/дефектовки», блок «Состояние при поступлении», кнопка «Заполнить комиссию по цеху»; (б) наряд на сборку — двигатель в шапке + авто-статусы «Начат ремонт»/«Отремонтирован»; (в) отчёты — «сброс»/«выкл» у фильтров.
-2. Ledger release-token — следующая ротация до ~2026-08-04 (PENDING ⏳); первый релиз после ~2026-08-01 упрётся, минтить новым.
-3. Ротация SSH-ключей прода — до 2026-08-21 (PROJECT_STATE).
-4. AV-ложнопозитивы watchdog'а — поглядывать в «Критические события».
-5. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз по ремонту пуст (операционный, передать мастерам).
+1. **Спот-чек владельцем на живом клиенте** (после автообновления до v2026.709.1629) — см. «Следующий шаг».
+2. **UI-бар шаблонов PR4 не гонялся живым CDP** (требует рестарта backend+Electron): роут + миграция 0074 проверены (dev+прод), логика apply — 15/15, но save→apply кликами по UI на живом клиенте не драйвил. Проверить при спот-чеке.
+3. Ledger release-token — следующая ротация до ~2026-08-04 (PENDING ⏳); первый релиз после ~2026-08-01 упрётся, минтить новым.
+4. Ротация SSH-ключей прода — до 2026-08-21 (PROJECT_STATE).
+5. AV-ложнопозитивы watchdog'а — поглядывать в «Критические события».
+6. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз по ремонту пуст (операционный, передать мастерам).
