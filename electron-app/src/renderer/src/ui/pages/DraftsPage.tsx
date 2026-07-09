@@ -20,6 +20,8 @@ type DraftRow = {
 const CARD_TYPE_LABELS: Record<string, string> = {
   work_order: 'Наряд',
   supply_request: 'Заявка в снабжение',
+  product: 'Товар',
+  service: 'Услуга',
 };
 
 function cardTypeLabel(cardType: string): string {
@@ -38,6 +40,8 @@ function formatDateTime(ms: number): string {
 export function DraftsPage(props: {
   onOpenWorkOrder: (id: string) => void | Promise<void>;
   onOpenSupplyRequest: (id: string) => void | Promise<void>;
+  onOpenProduct: (id: string) => void | Promise<void>;
+  onOpenService: (id: string) => void | Promise<void>;
 }) {
   const { confirm } = useConfirm();
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
@@ -70,6 +74,8 @@ export function DraftsPage(props: {
     (d: DraftRow) => {
       if (d.cardType === 'work_order') void props.onOpenWorkOrder(d.cardId);
       else if (d.cardType === 'supply_request') void props.onOpenSupplyRequest(d.cardId);
+      else if (d.cardType === 'product') void props.onOpenProduct(d.cardId);
+      else if (d.cardType === 'service') void props.onOpenService(d.cardId);
     },
     [props],
   );
@@ -141,7 +147,7 @@ export function DraftsPage(props: {
                     variant="ghost"
                     tone="success"
                     onClick={() => openDraft(d)}
-                    disabled={d.cardType !== 'work_order' && d.cardType !== 'supply_request'}
+                    disabled={!(d.cardType in CARD_TYPE_LABELS)}
                   >
                     Открыть
                   </Button>
