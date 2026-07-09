@@ -967,6 +967,24 @@ export const workOrderTemplates = pgTable(
   }),
 );
 
+// Именованные шаблоны актов по марке двигателя (editable-engine-acts PR4).
+// payload — JSON «шапки» акта (комиссия / гриф / пункты состояния), text как в work_order_templates.
+export const engineActTemplates = pgTable(
+  'engine_act_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    engineBrandId: text('engine_brand_id').notNull(),
+    name: text('name').notNull(),
+    payloadJson: text('payload').notNull().default('{}'),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by'),
+  },
+  (t) => ({
+    brandIdx: index('engine_act_templates_brand_idx').on(t.engineBrandId),
+    brandNameUq: uniqueIndex('engine_act_templates_brand_name_uq').on(t.engineBrandId, t.name),
+  }),
+);
+
 // ── Табель учёта рабочего времени (форма Т-13) ───────────────────────────────
 // Серверный API-модуль (без client-SQLite sync). См. docs/plans/timesheet-t13.md.
 

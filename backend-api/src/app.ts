@@ -37,6 +37,7 @@ import { warehouseRouter } from './routes/warehouse.js';
 import { warehouseLocationsRouter } from './routes/warehouseLocations.js';
 import { workOrdersRouter } from './routes/workOrders.js';
 import { workOrderTemplatesRouter } from './routes/workOrderTemplates.js';
+import { engineActTemplatesRouter } from './routes/engineActTemplates.js';
 import { workOrderSignatureCaptionsRouter } from './routes/workOrderSignatureCaptions.js';
 import { workshopsRouter } from './routes/workshops.js';
 import { timesheetsRouter } from './routes/timesheets.js';
@@ -168,6 +169,7 @@ export function createApp() {
   app.use('/search', requireAuth, searchRouter);
   app.use('/work-orders', workOrdersRouter);
   app.use('/work-order-templates', workOrderTemplatesRouter);
+  app.use('/engine-act-templates', engineActTemplatesRouter);
   app.use('/work-order-signature-captions', workOrderSignatureCaptionsRouter);
   app.use('/workshops', workshopsRouter);
   app.use('/timesheets', timesheetsRouter);
