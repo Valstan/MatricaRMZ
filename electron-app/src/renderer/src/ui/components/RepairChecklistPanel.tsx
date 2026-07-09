@@ -290,6 +290,19 @@ function emptyAnswersForTemplate(t: RepairChecklistTemplate): RepairChecklistAns
   return ans;
 }
 
+// Разделение под-вкладок: какие элементы шаблона (даты/подписи) относятся к какому акту.
+// Элементы не из этих множеств (напр. `approved_by`, таблица, ссылочные поля) видны в обоих.
+const COMPLETENESS_ONLY_ITEM_IDS = new Set([
+  'arrival_date',
+  'completeness_inspection_date',
+  'acceptance_signed_by',
+  'commission_workshop_head',
+  'commission_workshop_master',
+  'commission_otk_head',
+  'customer_representative',
+]);
+const DEFECT_ONLY_ITEM_IDS = new Set(['defect_start_date', 'defect_end_date', 'defect_signed_by']);
+
 export function RepairChecklistPanel(props: {
   engineId: string;
   stage: string;
@@ -458,6 +471,10 @@ export function RepairChecklistPanel(props: {
     claim: [],
   });
   const [actVersionsOpen, setActVersionsOpen] = useState(false);
+  // Разделение единого списка на под-вкладки: «Акт комплектности» / «Акт дефектовки»
+  // (решение владельца 2026-07-09). Данные общие (одно сохранение), меняется набор
+  // колонок таблицы, показанных подписей/дат и кнопок печати.
+  const [actView, setActView] = useState<'completeness' | 'defect'>('completeness');
   async function loadActVersions() {
     if (!isInventoryStage || !props.engineId) return;
     const [c, d, p] = await Promise.all([
@@ -1574,34 +1591,41 @@ export function RepairChecklistPanel(props: {
         )}
         {props.canPrint && isInventoryStage && (
           <>
-            <Button variant="ghost" onClick={() => void printAct('completeness')}>
-              Печать акта комплектности
-            </Button>
-            <Button
-              variant="ghost"
-              title="Пустой бланк акта комплектности с перечнем деталей — для заполнения комиссией на месте от руки"
-              onClick={() => printBlankAct('completeness')}
-            >
-              Бланк комплектности
-            </Button>
-            <Button variant="ghost" onClick={() => void printAct('defect')}>
-              Печать акта дефектовки
-            </Button>
-            <Button
-              variant="ghost"
-              title="Пустой бланк акта дефектовки с перечнем деталей — для заполнения на месте от руки"
-              onClick={() => printBlankAct('defect')}
-            >
-              Бланк дефектовки
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={(customerClaim?.total ?? 0) === 0 && (inventoryShortage?.total ?? 0) === 0}
-              title="Дефектные детали на ветке «заказчик» + недостача комплектности"
-              onClick={() => void printAct('claim')}
-            >
-              {`Печать претензии${customerClaim && customerClaim.total > 0 ? ` (${customerClaim.total})` : ''}`}
-            </Button>
+            {actView === 'completeness' ? (
+              <>
+                <Button variant="ghost" onClick={() => void printAct('completeness')}>
+                  Печать акта комплектности
+                </Button>
+                <Button
+                  variant="ghost"
+                  title="Пустой бланк акта комплектности с перечнем деталей — для заполнения комиссией на месте от руки"
+                  onClick={() => printBlankAct('completeness')}
+                >
+                  Бланк комплектности
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" onClick={() => void printAct('defect')}>
+                  Печать акта дефектовки
+                </Button>
+                <Button
+                  variant="ghost"
+                  title="Пустой бланк акта дефектовки с перечнем деталей — для заполнения на месте от руки"
+                  onClick={() => printBlankAct('defect')}
+                >
+                  Бланк дефектовки
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={(customerClaim?.total ?? 0) === 0 && (inventoryShortage?.total ?? 0) === 0}
+                  title="Дефектные детали на ветке «заказчик» + недостача комплектности"
+                  onClick={() => void printAct('claim')}
+                >
+                  {`Печать претензии${customerClaim && customerClaim.total > 0 ? ` (${customerClaim.total})` : ''}`}
+                </Button>
+              </>
+            )}
             {selectedInventoryCount > 0 && (
               <span style={{ color: '#2563eb', fontSize: 12, alignSelf: 'center' }}>
                 в печать: {selectedInventoryCount}
@@ -1749,7 +1773,39 @@ export function RepairChecklistPanel(props: {
       {!collapsed && !activeTemplate ? (
         <div style={{ marginTop: 10, color: '#64748b' }}>Нет доступных шаблонов.</div>
       ) : null}
-      {!collapsed && activeTemplate && isInventoryStage
+      {!collapsed && activeTemplate && isInventoryStage ? (
+        <div style={{ marginTop: 12, display: 'flex', gap: 6, borderBottom: '2px solid var(--border)' }}>
+          {(
+            [
+              { key: 'completeness', label: 'Акт комплектности' },
+              { key: 'defect', label: 'Акт дефектовки' },
+            ] as const
+          ).map((t) => {
+            const active = actView === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setActView(t.key)}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 14,
+                  fontWeight: active ? 700 : 500,
+                  border: 'none',
+                  borderBottom: active ? '3px solid #2563eb' : '3px solid transparent',
+                  background: 'transparent',
+                  color: active ? 'var(--text)' : '#64748b',
+                  cursor: 'pointer',
+                  marginBottom: -2,
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {!collapsed && activeTemplate && isInventoryStage && actView === 'defect'
         ? (() => {
             const current: { employeeId: string; fio: string; position: string }[] =
               (answers as any).defect_dismantled_by?.kind === 'employees'
@@ -1821,6 +1877,11 @@ export function RepairChecklistPanel(props: {
       {!collapsed && activeTemplate ? (
         <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>
           {activeTemplate.items.map((it) => {
+            // Под-вкладки: скрываем даты/подписи чужого акта (данные не теряются — просто не показаны).
+            if (isInventoryStage) {
+              if (actView === 'completeness' && DEFECT_ONLY_ITEM_IDS.has(it.id)) return null;
+              if (actView === 'defect' && COMPLETENESS_ONLY_ITEM_IDS.has(it.id)) return null;
+            }
             const a: any = (answers as any)[it.id];
             const isDefectResultsTable = props.stage === 'defect' && it.kind === 'table' && it.id === 'defect_items';
             const isCompletenessGroupsTable = props.stage === 'completeness' && it.kind === 'table' && it.id === 'completeness_items';
@@ -1979,20 +2040,28 @@ export function RepairChecklistPanel(props: {
                                 { id: 'actual_qty', label: 'Фактическое количество', kind: 'number' as const },
                               ]
                             : isInventoryStage && it.id === 'engine_inventory_items'
-                              ? [
-                                  { id: 'part_name', label: 'Наименование' },
-                                  { id: 'assembly_unit_number', label: '№ сборочной единицы' },
-                                  { id: 'stamped_number', label: '№ на детали' },
-                                  { id: 'quantity', label: 'План', kind: 'number' as const },
-                                  { id: 'present', label: 'На месте', kind: 'boolean' as const },
-                                  { id: 'actual_qty', label: 'Принято', kind: 'number' as const },
-                                  { id: 'repairable_qty', label: 'Ремонт', kind: 'number' as const },
-                                  { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
-                                  { id: 'replace_qty', label: 'Заменить', kind: 'number' as const },
-                                  { id: 'in_completeness_act', label: 'В акт комплектности' },
-                                  { id: 'in_defect_act', label: 'В акт дефектовки' },
-                                  { id: 'replenishment_branch', label: 'Восполнение' },
-                                ]
+                              ? actView === 'completeness'
+                                ? [
+                                    { id: 'part_name', label: 'Наименование' },
+                                    { id: 'assembly_unit_number', label: '№ сборочной единицы' },
+                                    { id: 'stamped_number', label: '№ на детали' },
+                                    { id: 'quantity', label: 'План', kind: 'number' as const },
+                                    { id: 'present', label: 'На месте', kind: 'boolean' as const },
+                                    { id: 'actual_qty', label: 'Принято', kind: 'number' as const },
+                                    { id: 'in_completeness_act', label: 'В акте' },
+                                  ]
+                                : [
+                                    { id: 'part_name', label: 'Наименование' },
+                                    { id: 'assembly_unit_number', label: '№ сборочной единицы' },
+                                    { id: 'stamped_number', label: '№ на детали' },
+                                    { id: 'quantity', label: 'План', kind: 'number' as const },
+                                    { id: 'present', label: 'На месте', kind: 'boolean' as const },
+                                    { id: 'repairable_qty', label: 'Ремонт', kind: 'number' as const },
+                                    { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
+                                    { id: 'replace_qty', label: 'Заменить', kind: 'number' as const },
+                                    { id: 'in_defect_act', label: 'В акте' },
+                                    { id: 'replenishment_branch', label: 'Восполнение' },
+                                  ]
                               : (it.columns ?? [])
                       }
                       rows={a?.kind === 'table' ? (a.rows ?? []) : []}
