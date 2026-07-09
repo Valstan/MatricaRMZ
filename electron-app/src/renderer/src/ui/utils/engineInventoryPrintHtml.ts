@@ -2,10 +2,12 @@ import type { EngineInventoryRow, RepairChecklistAnswers, ReplenishmentBranch, R
 import {
   computeCustomerClaim,
   computeInventoryShortage,
-  ENGINE_RECEIPT_CONDITION_FIELDS,
+  readApproverGrif,
   readCommissionMembers,
+  readConditionItems,
   repairFundInstanceClassificationLabel,
   repairFundInstanceStatusLabel,
+  resolveEngineActApprover,
   selectRequirementInstances,
 } from '@matricarmz/shared';
 
@@ -112,11 +114,22 @@ function renderActIdentity(opts: {
 // «Состояние при поступлении» на акте комплектности (Incoming Inspection): упаковка/пломбы/
 // повреждения/следы вскрытия + особые отметки. В пустом бланке — прочерк-линии под запись от руки.
 function renderReceiptCondition(answers: RepairChecklistAnswers, blank: boolean): string {
-  const rows = ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
-    const val = blank ? '' : getText(answers, f.id).trim();
-    return `<div class="hdr-row"><span class="hdr-label">${escapeHtml(f.label)}:</span> <span class="rc-line">${escapeHtml(val)}</span></div>`;
-  }).join('');
+  const rows = readConditionItems(answers)
+    .map((it) => {
+      const val = blank ? '' : it.value.trim();
+      return `<div class="hdr-row"><span class="hdr-label">${escapeHtml(it.label)}:</span> <span class="rc-line">${escapeHtml(val)}</span></div>`;
+    })
+    .join('');
   return `<div class="meta rc-block"><div class="rc-title">Состояние при поступлении</div>${rows}</div>`;
+}
+
+// Гриф «Утверждаю» — правый верхний угол акта (ГОСТ Р 7.0.97), как у наряда. В бланке печатается
+// резолвленный пресет (должность/ФИО идентифицируют утверждающего), место подписи — прочерк.
+function renderApproverGrif(answers: RepairChecklistAnswers): string {
+  const { position, name } = resolveEngineActApprover(readApproverGrif(answers));
+  return `<div class="grif"><div class="grif-title">Утверждаю</div><div>${escapeHtml(position)}</div><div class="grif-sign"><span class="grif-line"></span>&nbsp;${escapeHtml(
+    name,
+  )}</div></div>`;
 }
 
 // Запасные пустые строки в конец «пустого бланка» — под дозапись деталей от руки.
@@ -155,6 +168,10 @@ const COMMON_STYLES = `
   .sig-key { color: #334155; }
   .sig-line { display: inline-block; border-bottom: 1px solid #111827; min-width: 180px; height: 13px; vertical-align: bottom; padding: 0 4px; }
   .footer { margin-top: 10px; color: #6b7280; font-size: 10px; text-align: right; }
+  .grif { text-align: right; font-size: 12.5px; line-height: 1.4; margin-bottom: 4px; }
+  .grif-title { font-weight: 700; }
+  .grif-sign { margin-top: 12px; }
+  .grif-line { display: inline-block; width: 150px; border-bottom: 1px solid #0f172a; vertical-align: bottom; }
   @media print { .no-print { display: none; } }
 `;
 
@@ -228,7 +245,6 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
   }
   const acceptance = getSignature(ctx.answers, 'acceptance_signed_by');
   const customerRep = getSignature(ctx.answers, 'customer_representative');
-  const approved = getSignature(ctx.answers, 'approved_by');
 
   const identity = renderActIdentity({
     actKind: 'комплектности',
@@ -281,12 +297,12 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
       ${renderSignature('Приёмку провёл', acceptance)}
       ${commission.map((m) => renderSignature(m.label, m.sig)).join('')}
       ${renderSignature('Представитель заказчика', customerRep)}
-      ${renderSignature('Утверждаю: директор по качеству', approved)}
     </div>
     <div class="meta" style="margin-top:8px">${renderHeaderRow('Дата осмотра', dateOrFillIn(inspectionDate))}</div>
     <div class="note">Комплектность указана по факту поступления. Окончательная комплектность определяется после разборки и дефектовки.</div>`;
 
   const bodyHtml = `
+    ${renderApproverGrif(ctx.answers)}
     <h1>${escapeHtml(title)}</h1>
     ${identity}
     <div class="meta">${header}</div>
@@ -370,11 +386,11 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
   const signatures = `
     <div class="sigs">
       ${renderSignature('Дефектовку провёл', getSignature(ctx.answers, 'defect_signed_by'))}
-      ${renderSignature('Утверждаю: директор по качеству', getSignature(ctx.answers, 'approved_by'))}
     </div>
     <div class="note">Годно / ремонтопригодно — оставляем; утиль — в лом; заменить новой — заказать. Восполнение: за чей счёт закрывается позиция.</div>`;
 
   const bodyHtml = `
+    ${renderApproverGrif(ctx.answers)}
     <h1>${escapeHtml(title)}</h1>
     ${identity}
     <div class="meta">${header}</div>
@@ -466,10 +482,10 @@ export function buildInventoryClaimHtml(ctx: EngineInventoryPrintContext): strin
   const signatures = `
     <div class="sigs">
       ${renderSignature('Претензию составил', getSignature(ctx.answers, 'claim_signed_by'))}
-      ${renderSignature('Утверждаю: директор по качеству', getSignature(ctx.answers, 'approved_by'))}
     </div>`;
 
   const bodyHtml = `
+    ${renderApproverGrif(ctx.answers)}
     <h1>${escapeHtml(title)}</h1>
     <div class="meta">${header}</div>
     <div class="meta" style="margin-top:12px"><strong>1. Дефектные детали, восполнение — за заказчиком</strong></div>
