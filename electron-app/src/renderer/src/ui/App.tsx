@@ -671,8 +671,8 @@ export function App() {
         if (!cancelled) setSectionMembership(null);
       });
     // Периодический рефетч: правка membership действующего пользователя (в т.ч. под тем же
-    // логином) подхватывается без релогина в пределах ~30с.
-    const timer = setInterval(() => {
+    // логином) подхватывается без релогина в пределах ~30с. Пауза при скрытом окне.
+    const stop = pollWhenVisible(() => {
       void window.matrica.access
         .sectionsSelf()
         .then((m) => {
@@ -682,7 +682,7 @@ export function App() {
     }, 30_000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
     };
   }, [authStatus.loggedIn, authStatus.user?.username]);
   const [pinnedShortcuts, setPinnedShortcuts] = useState<string[]>([]);
@@ -1506,10 +1506,11 @@ export function App() {
       }
     };
     void poll();
-    const id = setInterval(() => void poll(), 15_000);
+    // Локальный IPC (не прод), но скрытому окну индикатор режима бэкапа не нужен — пауза.
+    const stop = pollWhenVisible(() => void poll(), 15_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -1546,10 +1547,11 @@ export function App() {
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), 30_000);
+    // Статус апдейтера — визуальный бейдж; скрытому окну не нужен — пауза.
+    const stop = pollWhenVisible(() => void tick(), 30_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -2278,10 +2280,11 @@ export function App() {
       }
     };
     void poll();
-    const id = setInterval(() => void poll(), 30_000);
+    // Индикатор синка — визуальный; сам синк идёт в main-процессе и от этого полла не зависит.
+    const stop = pollWhenVisible(() => void poll(), 30_000);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
