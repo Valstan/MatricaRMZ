@@ -1,5 +1,7 @@
-// V2 UI shell («Трезубец»): per-user prefs for the alternative 3-column layout.
+// V2 UI shell («Резиновый»): per-user prefs for the 3-column layout.
 // Persisted client-side (sysDb KV, keyed by userId) via ui:prefs:get/set.
+// v2 is the default since 2026-07; an explicit operator choice of 'v1' is
+// remembered and survives updates (sanitize treats only literal 'v1' as v1).
 
 export type UiShellVersion = 'v1' | 'v2';
 
@@ -68,7 +70,7 @@ export const DEFAULT_V2_PREFS: V2Prefs = {
 export const V2_SESSION_MAX_CARDS = 3;
 
 export const DEFAULT_UI_SHELL_PREFS: UiShellPrefs = {
-  shellVersion: 'v1',
+  shellVersion: 'v2',
   v2: DEFAULT_V2_PREFS,
 };
 
@@ -143,7 +145,7 @@ export function sanitizeUiShellPrefs(value: unknown): UiShellPrefs {
   if (!value || typeof value !== 'object') return structuredClone(DEFAULT_UI_SHELL_PREFS);
   const raw = value as Partial<UiShellPrefs>;
   return {
-    shellVersion: raw.shellVersion === 'v2' ? 'v2' : 'v1',
+    shellVersion: raw.shellVersion === 'v1' ? 'v1' : 'v2',
     v2: sanitizeV2Prefs(raw.v2),
   };
 }
