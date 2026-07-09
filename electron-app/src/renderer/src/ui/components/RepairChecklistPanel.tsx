@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EngineActType, EngineActVersionRecord, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, computeCustomerClaim, computeInventoryShortage, ENGINE_INVENTORY_STAGE, ENGINE_RECEIPT_CONDITION_FIELDS, engineInventoryRowSignature, findEmployeeByPositionGroups, normalizeEngineInventoryRows, partRepairStatusLabel, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import type { EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistCommissionMember, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
+import { buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_INVENTORY_STAGE, ENGINE_RECEIPT_CONDITION_FIELDS, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readCommissionMembers, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -303,6 +303,44 @@ const COMPLETENESS_ONLY_ITEM_IDS = new Set([
   'customer_representative',
 ]);
 const DEFECT_ONLY_ITEM_IDS = new Set(['defect_start_date', 'defect_end_date', 'defect_signed_by']);
+
+// Легаси фикс-слоты комиссии больше не показываются в generic-цикле — их заменяет
+// динамический редактор «Комиссия в составе» (данные хранятся в commission_members).
+const HIDDEN_GENERIC_ITEM_IDS = new Set(['commission_workshop_head', 'commission_workshop_master', 'commission_otk_head']);
+
+const COMMISSION_ROLE_CAPTIONS: Record<EngineCommissionRole, string> = {
+  workshop_head: 'Начальник цеха',
+  workshop_master: 'Мастер цеха',
+  otk_head: 'Начальник ОТК',
+};
+
+/**
+ * Применяет авто-подстановку по цеху к списку членов комиссии. Обновляет члена с совпадающей
+ * стандартной ролью; `onlyEmpty` — трогает только пустые (авто-эффект), иначе перетирает и
+ * до-создаёт удалённые стандартные роли (кнопка «Заполнить по цеху»).
+ */
+function applyCommissionPicks(
+  members: ReadonlyArray<RepairChecklistCommissionMember>,
+  picks: ReadonlyArray<{ role: EngineCommissionRole; fio: string; position: string }>,
+  opts: { onlyEmpty: boolean },
+): { members: RepairChecklistCommissionMember[]; changed: boolean } {
+  const out: RepairChecklistCommissionMember[] = members.map((m) => ({ ...m }));
+  let changed = false;
+  for (const p of picks) {
+    if (!p.fio) continue;
+    const idx = out.findIndex((m) => m.role === p.role);
+    if (idx >= 0) {
+      const m = out[idx]!;
+      if (opts.onlyEmpty && (m.fio.trim() || m.position.trim())) continue;
+      out[idx] = { ...m, fio: p.fio, position: p.position };
+      changed = true;
+    } else if (!opts.onlyEmpty) {
+      out.push({ id: `cm_${p.role}`, role: p.role, caption: COMMISSION_ROLE_CAPTIONS[p.role], fio: p.fio, position: p.position, signedAt: null });
+      changed = true;
+    }
+  }
+  return { members: out, changed };
+}
 
 export function RepairChecklistPanel(props: {
   engineId: string;
@@ -748,6 +786,11 @@ export function RepairChecklistPanel(props: {
     } else if (t) {
       nextAnswers = emptyAnswersForTemplate(t);
     }
+    // Ленивая миграция единого списка к редактируемым структурам (комиссия и т.д.). Аддитивна,
+    // детерминирована; праймим lastSavedAnswersRef мигрированным снапшотом → авто-сейва на загрузке нет.
+    if (props.stage === ENGINE_INVENTORY_STAGE) {
+      nextAnswers = migrateEngineInventoryAnswers(nextAnswers).answers;
+    }
     setAnswers(nextAnswers);
     lastSavedAnswersRef.current = safeJsonStringify({ templateId: preferred, answers: nextAnswers });
     brandRowsSyncKeyRef.current = '';
@@ -864,15 +907,14 @@ export function RepairChecklistPanel(props: {
     if (props.canEdit) void save(next);
   }, [activeTemplate?.id, answers, props.canEdit, props.currentUserProfile?.fullName, props.currentUserProfile?.position]);
 
-  // Хвост Т6: автоподстановка комиссии акта комплектности по цеху двигателя.
-  // Нач. цеха / мастер ищутся среди работников подразделения, чьё имя совпадает с цехом
-  // двигателя (department-сущности и directory_workshops — разные справочники, связь по имени);
-  // нач. ОТК — по всей базе. Заполняются только пустые поля — ручной выбор не перетирается.
+  // Хвост Т6: автоподстановка комиссии акта комплектности по цеху двигателя (динамический список).
+  // Нач. цеха / мастер ищутся среди работников подразделения, чьё имя совпадает с цехом двигателя
+  // (department-сущности и directory_workshops — разные справочники, связь по имени); нач. ОТК —
+  // по всей базе. Трогает только пустые стандартные роли — ручной выбор/добавленные не перетирает.
   useEffect(() => {
     if (!activeTemplate || !props.canEdit) return;
     if (employeeRows.length === 0) return;
-    const commissionIds = ['commission_workshop_head', 'commission_workshop_master', 'commission_otk_head'];
-    if (!activeTemplate.items.some((it) => commissionIds.includes(it.id))) return;
+    if (props.stage !== ENGINE_INVENTORY_STAGE) return;
     const normalizeName = (v: unknown) =>
       String(v ?? '')
         .trim()
@@ -883,33 +925,26 @@ export function RepairChecklistPanel(props: {
     const ws = normalizeName(props.workshopName);
     // Строгое равенство имён: подстрочный матч ловит «Цех №1» в «Цех №12».
     const inWorkshop = ws ? employeeRows.filter((r) => normalizeName(r.departmentName) === ws) : [];
-    const picks: Array<[string, ReturnType<typeof findEmployeeByPositionGroups>]> = [
-      ['commission_workshop_head', findEmployeeByPositionGroups(inWorkshop, [['начальник'], ['цех']])],
-      ['commission_workshop_master', findEmployeeByPositionGroups(inWorkshop, [['мастер']])],
-      ['commission_otk_head', findEmployeeByPositionGroups(employeeRows, [['начальник'], ['отк']])],
+    const found: Array<{ role: EngineCommissionRole; emp: ReturnType<typeof findEmployeeByPositionGroups> }> = [
+      { role: 'workshop_head', emp: findEmployeeByPositionGroups(inWorkshop, [['начальник'], ['цех']]) },
+      { role: 'workshop_master', emp: findEmployeeByPositionGroups(inWorkshop, [['мастер']]) },
+      { role: 'otk_head', emp: findEmployeeByPositionGroups(employeeRows, [['начальник'], ['отк']]) },
     ];
-    const next = { ...answers } as RepairChecklistAnswers;
-    let changed = false;
-    for (const [id, emp] of picks) {
-      if (!emp) continue;
-      const current = (answers as any)[id];
-      const currentFio = current?.kind === 'signature' ? String(current.fio ?? '').trim() : '';
-      const currentPosition = current?.kind === 'signature' ? String(current.position ?? '').trim() : '';
-      if (currentFio || currentPosition) continue;
-      const fio = String(emp.displayName ?? emp.fullName ?? '').trim();
-      if (!fio) continue;
-      const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
-      (next as any)[id] = { kind: 'signature', fio, position: String(emp.position ?? ''), signedAt };
-      changed = true;
-    }
-    if (!changed) return;
+    const picks = found.map((p) => ({
+      role: p.role,
+      fio: p.emp ? String(p.emp.displayName ?? p.emp.fullName ?? '').trim() : '',
+      position: p.emp ? String(p.emp.position ?? '') : '',
+    }));
+    const res = applyCommissionPicks(readCommissionMembers(answers), picks, { onlyEmpty: true });
+    if (!res.changed) return;
+    const next = { ...answers, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members: res.members } } as RepairChecklistAnswers;
     setAnswers(next);
     void save(next);
-  }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.workshopName]);
+  }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.stage, props.workshopName]);
 
   // Кнопка «Заполнить комиссию по цеху» (под-вкладка комплектности): принудительно ставит
-  // комиссию (нач. цеха/мастер — из цеха двигателя, нач. ОТК — по всей базе), перетирая текущие
-  // ФИО. Автоподстановка выше трогает только пустые поля — кнопка обновляет всё по требованию.
+  // стандартные роли комиссии (нач. цеха/мастер — из цеха двигателя, нач. ОТК — по всей базе),
+  // перетирая текущие ФИО и до-создавая удалённые роли. Добавленных вручную членов не трогает.
   function fillCommissionByWorkshop() {
     if (!activeTemplate || !props.canEdit || employeeRows.length === 0) return;
     const normalizeName = (v: unknown) =>
@@ -921,26 +956,20 @@ export function RepairChecklistPanel(props: {
         .replace(/\s+/g, ' ');
     const ws = normalizeName(props.workshopName);
     const inWorkshop = ws ? employeeRows.filter((r) => normalizeName(r.departmentName) === ws) : [];
-    const picks: Array<[string, string, ReturnType<typeof findEmployeeByPositionGroups>]> = [
-      ['commission_workshop_head', 'начальник цеха', findEmployeeByPositionGroups(inWorkshop, [['начальник'], ['цех']])],
-      ['commission_workshop_master', 'мастер', findEmployeeByPositionGroups(inWorkshop, [['мастер']])],
-      ['commission_otk_head', 'начальник ОТК', findEmployeeByPositionGroups(employeeRows, [['начальник'], ['отк']])],
+    const rolePicks: Array<{ role: EngineCommissionRole; roleLabel: string; emp: ReturnType<typeof findEmployeeByPositionGroups> }> = [
+      { role: 'workshop_head', roleLabel: 'начальник цеха', emp: findEmployeeByPositionGroups(inWorkshop, [['начальник'], ['цех']]) },
+      { role: 'workshop_master', roleLabel: 'мастер', emp: findEmployeeByPositionGroups(inWorkshop, [['мастер']]) },
+      { role: 'otk_head', roleLabel: 'начальник ОТК', emp: findEmployeeByPositionGroups(employeeRows, [['начальник'], ['отк']]) },
     ];
-    const next = { ...answers } as RepairChecklistAnswers;
-    let changed = false;
     const missing: string[] = [];
-    for (const [id, roleLabel, emp] of picks) {
-      const fio = emp ? String(emp.displayName ?? emp.fullName ?? '').trim() : '';
-      if (!fio) {
-        missing.push(roleLabel);
-        continue;
-      }
-      const current = (answers as any)[id];
-      const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
-      (next as any)[id] = { kind: 'signature', fio, position: String(emp?.position ?? ''), signedAt };
-      changed = true;
-    }
-    if (changed) {
+    const picks = rolePicks.map((p) => {
+      const fio = p.emp ? String(p.emp.displayName ?? p.emp.fullName ?? '').trim() : '';
+      if (!fio) missing.push(p.roleLabel);
+      return { role: p.role, fio, position: p.emp ? String(p.emp.position ?? '') : '' };
+    });
+    const res = applyCommissionPicks(readCommissionMembers(answers), picks, { onlyEmpty: false });
+    if (res.changed) {
+      const next = { ...answers, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members: res.members } } as RepairChecklistAnswers;
       setAnswers(next);
       void save(next);
     }
@@ -1850,17 +1879,103 @@ export function RepairChecklistPanel(props: {
           })}
         </div>
       ) : null}
-      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' && props.canEdit ? (
-        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Button
-            variant="ghost"
-            title="Автоподстановка комиссии акта комплектности по цеху двигателя: начальник цеха и мастер — из цеха двигателя, начальник ОТК — по базе. Перетирает текущие ФИО."
-            onClick={fillCommissionByWorkshop}
-          >
-            Заполнить комиссию по цеху
-          </Button>
-        </div>
-      ) : null}
+      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness'
+        ? (() => {
+            const members = readCommissionMembers(answers);
+            const commit = (nextMembers: RepairChecklistCommissionMember[]) => {
+              const nextAnswers = { ...answers, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members: nextMembers } } as RepairChecklistAnswers;
+              setAnswers(nextAnswers);
+              void save(nextAnswers);
+            };
+            const updateAt = (idx: number, patch: Partial<RepairChecklistCommissionMember>) =>
+              commit(members.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
+            const ghostBtn: React.CSSProperties = {
+              padding: '4px 10px',
+              borderRadius: 8,
+              border: '1px solid rgba(15, 23, 42, 0.25)',
+              background: 'var(--input-bg)',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontSize: 12,
+            };
+            return (
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>Комиссия в составе:</div>
+                  {props.canEdit ? (
+                    <Button
+                      variant="ghost"
+                      title="Автоподстановка стандартных ролей комиссии по цеху двигателя: начальник цеха и мастер — из цеха двигателя, начальник ОТК — по базе. Перетирает их ФИО; добавленных вручную не трогает."
+                      onClick={fillCommissionByWorkshop}
+                    >
+                      Заполнить комиссию по цеху
+                    </Button>
+                  ) : null}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {members.map((m, idx) => {
+                    const fioValue = m.fio;
+                    const inList = fioValue ? employeeOptions.some((o) => o.label === fioValue || o.id === m.employeeId) : false;
+                    const extra = fioValue && !inList ? [{ id: m.employeeId || fioValue, label: fioValue, position: m.position || null }] : [];
+                    const options = [...employeeOptions, ...extra];
+                    const valueId = m.employeeId || (fioValue || null);
+                    return (
+                      <div key={m.id || idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 190px) minmax(0, 1.1fr) minmax(0, 1.3fr) 150px auto', gap: 8, alignItems: 'center' }}>
+                        <Input
+                          value={m.caption ?? ''}
+                          disabled={!props.canEdit}
+                          placeholder="Роль (напр. Начальник цеха)"
+                          onChange={(e) => props.canEdit && updateAt(idx, { caption: e.target.value })}
+                          onBlur={() => void save(answers)}
+                        />
+                        <SearchSelect
+                          value={valueId}
+                          options={options}
+                          disabled={!props.canEdit}
+                          placeholder="ФИО"
+                          onChange={(next) => {
+                            if (!props.canEdit) return;
+                            const chosen = options.find((o) => o.id === next) ?? null;
+                            updateAt(idx, { employeeId: next ?? '', fio: chosen?.label ?? '', position: chosen?.position ?? m.position });
+                          }}
+                        />
+                        <OverflowTooltipInput
+                          value={m.position}
+                          disabled={!props.canEdit}
+                          placeholder="Должность"
+                          onChange={(e) => props.canEdit && updateAt(idx, { position: e.target.value })}
+                          onBlur={() => void save(answers)}
+                        />
+                        <Input
+                          type="date"
+                          value={m.signedAt ? toInputDate(m.signedAt) : ''}
+                          disabled={!props.canEdit}
+                          onChange={(e) => props.canEdit && updateAt(idx, { signedAt: fromInputDate(e.target.value) })}
+                        />
+                        {props.canEdit ? (
+                          <button type="button" onClick={() => commit(members.filter((_, i) => i !== idx))} style={ghostBtn}>
+                            Удалить
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {props.canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => commit([...members, { id: crypto.randomUUID(), fio: '', position: '', signedAt: null, caption: '' }])}
+                    style={{ ...ghostBtn, marginTop: members.length ? 8 : 0 }}
+                  >
+                    + Добавить члена комиссии
+                  </button>
+                ) : null}
+              </div>
+            );
+          })()
+        : null}
       {!collapsed && activeTemplate && isInventoryStage && actView === 'defect'
         ? (() => {
             const current: { employeeId: string; fio: string; position: string }[] =
@@ -1970,6 +2085,8 @@ export function RepairChecklistPanel(props: {
           {activeTemplate.items.map((it) => {
             // Под-вкладки: скрываем даты/подписи чужого акта (данные не теряются — просто не показаны).
             if (isInventoryStage) {
+              // Легаси-слоты комиссии заменены динамическим редактором «Комиссия в составе» выше.
+              if (HIDDEN_GENERIC_ITEM_IDS.has(it.id)) return null;
               if (actView === 'completeness' && DEFECT_ONLY_ITEM_IDS.has(it.id)) return null;
               if (actView === 'defect' && COMPLETENESS_ONLY_ITEM_IDS.has(it.id)) return null;
             }
