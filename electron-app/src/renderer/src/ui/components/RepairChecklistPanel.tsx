@@ -6,6 +6,7 @@ import { buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory,
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
+import { OverflowTooltipInput } from './OverflowTooltipInput.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -1932,7 +1933,7 @@ export function RepairChecklistPanel(props: {
       {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' ? (
         <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Состояние при поступлении:</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 260px) 1fr', gap: 8, alignItems: 'center' }}>
             {ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
               const a: any = (answers as any)[f.id];
               const val = a?.kind === 'text' ? String(a.value ?? '') : '';
@@ -1947,7 +1948,7 @@ export function RepairChecklistPanel(props: {
               return (
                 <React.Fragment key={f.id}>
                   <div style={{ color: '#334155', fontSize: 13 }}>{f.label}</div>
-                  <Input
+                  <OverflowTooltipInput
                     value={val}
                     disabled={!props.canEdit}
                     placeholder={placeholder}
@@ -1985,7 +1986,7 @@ export function RepairChecklistPanel(props: {
                 </div>
                 <div style={isWideTableRow ? { gridColumn: '1 / -1' } : undefined}>
                   {it.kind === 'text' && (
-                    <Input
+                    <OverflowTooltipInput
                       value={a?.kind === 'text' ? a.value : ''}
                       disabled={!props.canEdit || isLockedField}
                       onChange={(e) => {
@@ -2029,7 +2030,7 @@ export function RepairChecklistPanel(props: {
                   )}
 
                   {it.kind === 'signature' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 160px', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.4fr) 150px', gap: 8 }}>
                       {(() => {
                         const fioValue = a?.kind === 'signature' ? String(a.fio ?? '') : '';
                         const inList = fioValue ? employeeOptions.some((opt) => opt.label === fioValue || opt.id === fioValue) : false;
@@ -2061,10 +2062,20 @@ export function RepairChecklistPanel(props: {
                       />
                         );
                       })()}
-                      <Input
+                      <OverflowTooltipInput
                         value={a?.kind === 'signature' ? String(a.position ?? '') : ''}
-                        disabled
+                        disabled={!props.canEdit}
                         placeholder="Должность"
+                        onChange={(e) => {
+                          if (!props.canEdit) return;
+                          const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
+                          const next = {
+                            ...answers,
+                            [it.id]: { kind: 'signature', fio: prev.fio, position: e.target.value, signedAt: prev.signedAt },
+                          } as RepairChecklistAnswers;
+                          setAnswers(next);
+                        }}
+                        onBlur={() => void save(answers)}
                       />
                       <Input
                         type="date"
