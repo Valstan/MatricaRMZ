@@ -121,6 +121,45 @@ export function computeObjectProgress(flags: Partial<Record<StatusCode, boolean>
   return max;
 }
 
+/**
+ * Взаимоисключение флагов статусов двигателя — единый источник истины для ручного
+ * тумблера в карточке (`applyStatusCheckboxChange`) и авто-перехода из наряда сборки.
+ * «Начат ремонт» (`status_repair_started`) исключает все остальные; установка любого
+ * другого статуса гасит только «Начат ремонт» (остальные могут сосуществовать —
+ * напр. «Отремонтирован» + «Отправлен заказчику»). Снятие флага прочие не трогает.
+ * Чистая функция: возвращает новую карту флагов, вход не мутирует.
+ */
+export function applyStatusFlagChange(
+  flags: Partial<Record<StatusCode, boolean>>,
+  code: StatusCode,
+  next: boolean,
+): Partial<Record<StatusCode, boolean>> {
+  const updated: Partial<Record<StatusCode, boolean>> = { ...flags, [code]: next };
+  if (code === 'status_repair_started' && next) {
+    for (const c of STATUS_CODES) {
+      if (c !== 'status_repair_started') updated[c] = false;
+    }
+  } else if (code !== 'status_repair_started' && next) {
+    updated.status_repair_started = false;
+  }
+  return updated;
+}
+
+/**
+ * Ранг статуса по «продвинутости» жизненного цикла двигателя — для guard'а «только
+ * вперёд» авто-перехода из наряда сборки (не откатывать более поздний статус назад).
+ * `status_rejected` — боковая ветка (брак), в линейный ранг не входит (0).
+ */
+export const STATUS_ADVANCE_RANK: Record<StatusCode, number> = {
+  status_rejected: 0,
+  status_rework_sent: 1,
+  status_storage_received: 1,
+  status_repair_started: 2,
+  status_repaired: 3,
+  status_customer_sent: 4,
+  status_customer_accepted: 5,
+};
+
 export type ProgressLinkedItem = {
   contractId?: string | null;
   statusFlags?: Partial<Record<StatusCode, boolean>> | null;

@@ -66,6 +66,8 @@ const matricaApi = {
     get: async (id: string) => ipcRenderer.invoke('engine:get', id),
     setAttr: async (engineId: string, code: string, value: unknown) =>
       ipcRenderer.invoke('engine:setAttr', engineId, code, value),
+    advanceStatus: async (args: { engineId: string; target: 'status_repair_started' | 'status_repaired'; dateMs: number }) =>
+      ipcRenderer.invoke('engine:advanceStatus', args),
     delete: async (engineId: string) => ipcRenderer.invoke('engine:delete', engineId),
     findDuplicateCandidates: async (args: { engineNumber: string; excludeEngineId?: string }) =>
       ipcRenderer.invoke('engine:findDuplicateCandidates', args),

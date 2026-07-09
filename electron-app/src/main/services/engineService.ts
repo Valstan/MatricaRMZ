@@ -6,6 +6,7 @@ import {
   ENGINE_INVENTORY_STAGE,
   EntityTypeCode,
   STATUS_CODES,
+  applyStatusFlagChange,
   normalizeLookupCompact,
   parseContractSections,
   searchLookupOptionsTiered,
@@ -691,6 +692,49 @@ export async function setEngineAttribute(
   await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, engineId));
   // IMPORTANT: do NOT write audit_log on each attribute change.
   // EngineDetailsPage saves many fields; high-level audit is recorded when the user finishes editing.
+}
+
+export type AssemblyEngineStatusTarget = 'status_repair_started' | 'status_repaired';
+
+/**
+ * Ф2: авто-переход статуса двигателя из сборочного наряда. «Только вперёд» —
+ * `status_repair_started` не ставится, если двигатель уже отремонтирован/отгружен/принят
+ * заказчиком (не откатываем более поздний статус назад). Взаимоисключение флагов —
+ * через общий `applyStatusFlagChange` (тот же, что у ручного тумблера карточки).
+ * Пишет только изменившиеся флаги + дату целевого статуса. Идемпотентно.
+ */
+export async function advanceEngineStatusForWorkOrder(
+  db: BetterSQLite3Database,
+  engineId: string,
+  target: AssemblyEngineStatusTarget,
+  dateMs: number,
+  actor?: string,
+): Promise<{ applied: boolean; reason?: string }> {
+  const id = String(engineId ?? '').trim();
+  if (!id) return { applied: false, reason: 'no-engine' };
+
+  const details = await getEngineDetails(db, id);
+  const attrs = details.attributes ?? {};
+  const current: Partial<Record<StatusCode, boolean>> = {};
+  for (const code of STATUS_CODES) current[code] = attrs[code] === true;
+
+  if (target === 'status_repair_started') {
+    if (current.status_repaired || current.status_customer_sent || current.status_customer_accepted) {
+      return { applied: false, reason: 'already-advanced' };
+    }
+    if (current.status_repair_started) return { applied: false, reason: 'already-set' };
+  }
+
+  const nextFlags = applyStatusFlagChange(current, target, true);
+  for (const code of STATUS_CODES) {
+    if ((current[code] ?? false) !== (nextFlags[code] ?? false)) {
+      await setEngineAttribute(db, id, code, nextFlags[code] === true, actor);
+    }
+  }
+  const validDate = Number.isFinite(dateMs) && dateMs > 0 ? dateMs : nowMs();
+  await setEngineAttribute(db, id, statusDateCode(target), validDate, actor);
+
+  return { applied: true };
 }
 
 function safeJsonParse(s: string): unknown {
