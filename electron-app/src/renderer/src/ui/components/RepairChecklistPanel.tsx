@@ -906,6 +906,50 @@ export function RepairChecklistPanel(props: {
     void save(next);
   }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.workshopName]);
 
+  // Кнопка «Заполнить комиссию по цеху» (под-вкладка комплектности): принудительно ставит
+  // комиссию (нач. цеха/мастер — из цеха двигателя, нач. ОТК — по всей базе), перетирая текущие
+  // ФИО. Автоподстановка выше трогает только пустые поля — кнопка обновляет всё по требованию.
+  function fillCommissionByWorkshop() {
+    if (!activeTemplate || !props.canEdit || employeeRows.length === 0) return;
+    const normalizeName = (v: unknown) =>
+      String(v ?? '')
+        .trim()
+        .toLowerCase()
+        .replaceAll('ё', 'е')
+        .replaceAll('№', '')
+        .replace(/\s+/g, ' ');
+    const ws = normalizeName(props.workshopName);
+    const inWorkshop = ws ? employeeRows.filter((r) => normalizeName(r.departmentName) === ws) : [];
+    const picks: Array<[string, string, ReturnType<typeof findEmployeeByPositionGroups>]> = [
+      ['commission_workshop_head', 'начальник цеха', findEmployeeByPositionGroups(inWorkshop, [['начальник'], ['цех']])],
+      ['commission_workshop_master', 'мастер', findEmployeeByPositionGroups(inWorkshop, [['мастер']])],
+      ['commission_otk_head', 'начальник ОТК', findEmployeeByPositionGroups(employeeRows, [['начальник'], ['отк']])],
+    ];
+    const next = { ...answers } as RepairChecklistAnswers;
+    let changed = false;
+    const missing: string[] = [];
+    for (const [id, roleLabel, emp] of picks) {
+      const fio = emp ? String(emp.displayName ?? emp.fullName ?? '').trim() : '';
+      if (!fio) {
+        missing.push(roleLabel);
+        continue;
+      }
+      const current = (answers as any)[id];
+      const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
+      (next as any)[id] = { kind: 'signature', fio, position: String(emp?.position ?? ''), signedAt };
+      changed = true;
+    }
+    if (changed) {
+      setAnswers(next);
+      void save(next);
+    }
+    setStatus(
+      missing.length === 0
+        ? 'Комиссия заполнена по цеху двигателя.'
+        : `Комиссия заполнена частично — не найдены: ${missing.join(', ')}. Проверьте, что для цеха «${props.workshopName ?? ''}» заведены сотрудники с нужными должностями.`,
+    );
+  }
+
   useEffect(() => {
     if (props.stage !== 'defect') return;
     let alive = true;
@@ -1803,6 +1847,17 @@ export function RepairChecklistPanel(props: {
               </button>
             );
           })}
+        </div>
+      ) : null}
+      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' && props.canEdit ? (
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button
+            variant="ghost"
+            title="Автоподстановка комиссии акта комплектности по цеху двигателя: начальник цеха и мастер — из цеха двигателя, начальник ОТК — по базе. Перетирает текущие ФИО."
+            onClick={fillCommissionByWorkshop}
+          >
+            Заполнить комиссию по цеху
+          </Button>
         </div>
       ) : null}
       {!collapsed && activeTemplate && isInventoryStage && actView === 'defect'
