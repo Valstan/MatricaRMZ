@@ -7,6 +7,7 @@ import { loadContractActivityAlerts } from '../utils/contractAlerts.js';
 
 import { theme } from '../theme.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
+import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -197,10 +198,11 @@ export function HistoryPage(props: {
       }
     };
     void load();
-    const id = window.setInterval(() => void load(), 20_000);
+    // Плитки «последние заметки/сообщения» — визуальные; свёрнутое окно не опрашиваем.
+    const stop = pollWhenVisible(() => void load(), 20_000);
     return () => {
       alive = false;
-      window.clearInterval(id);
+      stop();
     };
   }, [props.meUserId]);
 
@@ -235,10 +237,10 @@ export function HistoryPage(props: {
       }
     };
     void load();
-    const id = window.setInterval(() => void load(), 60_000);
+    const stop = pollWhenVisible(() => void load(), 60_000);
     return () => {
       alive = false;
-      window.clearInterval(id);
+      stop();
     };
   }, []);
 

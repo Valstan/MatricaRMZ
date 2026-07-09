@@ -10,7 +10,9 @@ import { subscribeLiveDataPulse } from '../services/liveDataService.js';
 // вместо таймера на каждый полл); intervalMs — троттлинг поверх pulse, поэтому фактический
 // период кратен 15с (30_000 → каждый 2-й pulse, 60_000 → каждый 4-й).
 export function pollWhenVisible(fn: () => void, intervalMs: number): () => void {
-  let lastRunAt = 0;
+  // Все сайты вызова делают немедленный первичный опрос сами — первый pulse-тик
+  // ждёт полный intervalMs (как ждал бы setInterval), без стадного прогона на t=15с.
+  let lastRunAt = Date.now();
   return subscribeLiveDataPulse((pulse) => {
     if (pulse.reason === 'sync_done') return;
     if (document.visibilityState === 'hidden') return;
