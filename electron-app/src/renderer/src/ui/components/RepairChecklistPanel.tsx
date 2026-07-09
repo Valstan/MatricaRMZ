@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistCommissionMember, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_INVENTORY_STAGE, ENGINE_RECEIPT_CONDITION_FIELDS, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readCommissionMembers, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import type { EngineActApprover, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -304,9 +304,14 @@ const COMPLETENESS_ONLY_ITEM_IDS = new Set([
 ]);
 const DEFECT_ONLY_ITEM_IDS = new Set(['defect_start_date', 'defect_end_date', 'defect_signed_by']);
 
-// Легаси фикс-слоты комиссии больше не показываются в generic-цикле — их заменяет
-// динамический редактор «Комиссия в составе» (данные хранятся в commission_members).
-const HIDDEN_GENERIC_ITEM_IDS = new Set(['commission_workshop_head', 'commission_workshop_master', 'commission_otk_head']);
+// Легаси фикс-слоты, заменённые bespoke-редакторами: комиссия → «Комиссия в составе»
+// (commission_members), утверждающий → гриф «Утверждаю» (approver_grif).
+const HIDDEN_GENERIC_ITEM_IDS = new Set([
+  'commission_workshop_head',
+  'commission_workshop_master',
+  'commission_otk_head',
+  'approved_by',
+]);
 
 const COMMISSION_ROLE_CAPTIONS: Record<EngineCommissionRole, string> = {
   workshop_head: 'Начальник цеха',
@@ -2045,41 +2050,152 @@ export function RepairChecklistPanel(props: {
             );
           })()
         : null}
-      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' ? (
-        <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
-          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Состояние при поступлении:</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 260px) 1fr', gap: 8, alignItems: 'center' }}>
-            {ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
-              const a: any = (answers as any)[f.id];
-              const val = a?.kind === 'text' ? String(a.value ?? '') : '';
-              const placeholder =
-                f.id === 'receipt_packaging'
-                  ? 'целая / повреждена (описать)'
-                  : f.id === 'receipt_seals'
-                    ? 'есть / нет'
-                    : f.id === 'receipt_notes'
-                      ? 'особые отметки при приёмке'
-                      : 'отсутствуют / имеются (описать)';
-              return (
-                <React.Fragment key={f.id}>
-                  <div style={{ color: '#334155', fontSize: 13 }}>{f.label}</div>
+      {!collapsed && activeTemplate && isInventoryStage
+        ? (() => {
+            // Гриф «Утверждаю» — общий для обоих актов (approver_grif). Пресет + override (своя
+            // должность / выбранный сотрудник) поверх него. Печатается в правом верхнем углу.
+            const grif = readApproverGrif(answers);
+            const writeGrif = (g: RepairChecklistApproverGrif) => {
+              const next = { ...answers, [APPROVER_GRIF_KEY]: { kind: 'approver', grif: g } } as RepairChecklistAnswers;
+              setAnswers(next);
+              void save(next);
+            };
+            const activeKey: EngineActApprover = grif.preset ?? ENGINE_ACT_APPROVER_DEFAULT;
+            const preset = ENGINE_ACT_APPROVERS[activeKey] ?? ENGINE_ACT_APPROVERS[ENGINE_ACT_APPROVER_DEFAULT];
+            const resolved = resolveEngineActApprover(grif);
+            const overridden = Boolean((grif.positionOverride ?? '').trim() || (grif.nameOverride ?? '').trim() || grif.employeeId);
+            const approverKeys: EngineActApprover[] = ['quality', 'director', 'technical'];
+            const empValue = grif.employeeId && employeeOptions.some((o) => o.id === grif.employeeId) ? grif.employeeId : null;
+            return (
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Утверждаю (гриф):</div>
+                <div style={{ display: 'flex', border: '1px solid var(--input-border)', borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
+                  {approverKeys.map((key, i) => {
+                    const active = activeKey === key;
+                    const v = ENGINE_ACT_APPROVERS[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        disabled={!props.canEdit}
+                        onClick={() => props.canEdit && writeGrif({ preset: key })}
+                        title={`${v.position}${v.name ? ` — ${v.name}` : ''}`}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: '7px 6px',
+                          border: 'none',
+                          borderLeft: i === 0 ? 'none' : '1px solid var(--input-border)',
+                          background: active ? 'var(--button-primary-bg, #2563eb)' : 'var(--input-bg)',
+                          color: active ? 'var(--button-primary-text, #fff)' : 'var(--text)',
+                          cursor: props.canEdit ? 'pointer' : 'default',
+                          fontSize: 12,
+                          fontWeight: active ? 700 : 400,
+                        }}
+                      >
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
                   <OverflowTooltipInput
-                    value={val}
+                    value={grif.positionOverride ?? ''}
                     disabled={!props.canEdit}
-                    placeholder={placeholder}
-                    onChange={(e) => {
-                      if (!props.canEdit) return;
-                      const next = { ...answers, [f.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
-                      setAnswers(next);
-                    }}
+                    placeholder={`Должность (по умолч.: ${preset.position})`}
+                    onChange={(e) => props.canEdit && writeGrif({ ...grif, positionOverride: e.target.value })}
                     onBlur={() => void save(answers)}
                   />
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+                  <SearchSelect
+                    value={empValue}
+                    options={employeeOptions}
+                    disabled={!props.canEdit}
+                    placeholder={`Сотрудник для ФИО (по умолч.: ${preset.name || '—'})`}
+                    onChange={(id) => {
+                      if (!props.canEdit) return;
+                      const chosen = employeeOptions.find((o) => o.id === id) ?? null;
+                      writeGrif({ ...grif, employeeId: id ?? '', nameOverride: chosen?.label ?? '' });
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#475569', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>Печатается: <b>{resolved.position}</b>{resolved.name ? ` — ${resolved.name}` : ''}</span>
+                  {props.canEdit && overridden ? (
+                    <button
+                      type="button"
+                      onClick={() => writeGrif({ preset: activeKey })}
+                      style={{ fontSize: 11, color: 'var(--subtle, #64748b)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      ↺ Вернуть к пресету «{preset.label}»
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })()
+        : null}
+      {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness'
+        ? (() => {
+            const items = readConditionItems(answers);
+            const commitItems = (nextItems: RepairChecklistConditionItem[]) => {
+              const next = { ...answers, [RECEIPT_CONDITION_LIST_KEY]: { kind: 'condition_list', items: nextItems } } as RepairChecklistAnswers;
+              setAnswers(next);
+              void save(next);
+            };
+            const updateAt = (idx: number, patch: Partial<RepairChecklistConditionItem>) =>
+              commitItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+            const ghostBtn: React.CSSProperties = {
+              padding: '4px 10px',
+              borderRadius: 8,
+              border: '1px solid rgba(15, 23, 42, 0.25)',
+              background: 'var(--input-bg)',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontSize: 12,
+            };
+            return (
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Состояние при поступлении:</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {items.map((it, idx) => (
+                    <div key={it.id || idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 260px) 1fr auto', gap: 8, alignItems: 'center' }}>
+                      <Input
+                        value={it.label}
+                        disabled={!props.canEdit}
+                        placeholder="Пункт (напр. Пломбы)"
+                        onChange={(e) => props.canEdit && updateAt(idx, { label: e.target.value })}
+                        onBlur={() => void save(answers)}
+                      />
+                      <OverflowTooltipInput
+                        value={it.value}
+                        disabled={!props.canEdit}
+                        placeholder="есть / нет / описать"
+                        onChange={(e) => props.canEdit && updateAt(idx, { value: e.target.value })}
+                        onBlur={() => void save(answers)}
+                      />
+                      {props.canEdit ? (
+                        <button type="button" onClick={() => commitItems(items.filter((_, i) => i !== idx))} style={ghostBtn}>
+                          Удалить
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {props.canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => commitItems([...items, { id: crypto.randomUUID(), label: '', value: '' }])}
+                    style={{ ...ghostBtn, marginTop: items.length ? 8 : 0 }}
+                  >
+                    + Добавить пункт
+                  </button>
+                ) : null}
+              </div>
+            );
+          })()
+        : null}
       {!collapsed && activeTemplate ? (
         <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>
           {activeTemplate.items.map((it) => {

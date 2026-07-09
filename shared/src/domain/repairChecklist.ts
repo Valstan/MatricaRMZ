@@ -42,6 +42,23 @@ export type RepairChecklistCommissionMember = {
   employeeId?: string;
 };
 
+/** Один редактируемый пункт блока «Состояние при поступлении» (label редактируется/добавляется/удаляется). */
+export type RepairChecklistConditionItem = { id: string; label: string; value: string };
+
+/** Пресет утверждающего для грифа «Утверждаю» акта (переиспользует SSOT наряда + «по качеству»). */
+export type EngineActApprover = 'quality' | 'director' | 'technical';
+
+/**
+ * Редактируемый гриф «Утверждаю» акта: пресет + операторские override (своя должность / ФИО /
+ * выбранный сотрудник) поверх него. Единый источник для печати. Все поля опциональны.
+ */
+export type RepairChecklistApproverGrif = {
+  preset?: EngineActApprover;
+  positionOverride?: string;
+  nameOverride?: string;
+  employeeId?: string;
+};
+
 export type RepairChecklistAnswers = Record<
   string,
   | { kind: 'text'; value: string }
@@ -51,11 +68,14 @@ export type RepairChecklistAnswers = Record<
   | { kind: 'signature'; fio: string; position: string; signedAt: number | null }
   | { kind: 'employees'; employees: RepairChecklistEmployeeRef[] }
   | { kind: 'commission'; members: RepairChecklistCommissionMember[] }
+  | { kind: 'condition_list'; items: RepairChecklistConditionItem[] }
+  | { kind: 'approver'; grif: RepairChecklistApproverGrif }
 >;
 
 import type { FileRef } from './fileStorage.js';
 import type { SupplyRequestItem } from './supplyRequest.js';
 import type { RepairFundInstanceClassification } from './repairFundInstance.js';
+import { WORK_ORDER_APPROVERS } from './workOrder.js';
 
 // То, что кладём в operations.metaJson
 export type RepairChecklistPayload = {
@@ -152,11 +172,70 @@ export function readCommissionMembers(answers: RepairChecklistAnswers): RepairCh
   });
 }
 
+/** Ключ ответа с редактируемым списком пунктов «Состояние при поступлении». */
+export const RECEIPT_CONDITION_LIST_KEY = 'receipt_condition_list';
+
+/** Ключ ответа с редактируемым грифом «Утверждаю». */
+export const APPROVER_GRIF_KEY = 'approver_grif';
+
+/**
+ * Пресеты утверждающего для грифа акта. Директор/технический — SSOT наряда (WORK_ORDER_APPROVERS),
+ * «по качеству» — акт-специфичный дефолт (как печаталось раньше «Утверждаю: директор по качеству»).
+ */
+export const ENGINE_ACT_APPROVERS: Record<EngineActApprover, { label: string; position: string; name: string }> = {
+  quality: { label: 'Директор по качеству', position: 'Директор по качеству', name: '' },
+  director: WORK_ORDER_APPROVERS.director,
+  technical: WORK_ORDER_APPROVERS.technical,
+};
+export const ENGINE_ACT_APPROVER_DEFAULT: EngineActApprover = 'quality';
+
+/** Действующие должность и ФИО грифа: override оператора поверх пресета. SSOT печати/редактора. */
+export function resolveEngineActApprover(
+  grif: RepairChecklistApproverGrif | null | undefined,
+): { position: string; name: string } {
+  const key = grif?.preset ?? ENGINE_ACT_APPROVER_DEFAULT;
+  const preset = ENGINE_ACT_APPROVERS[key] ?? ENGINE_ACT_APPROVERS[ENGINE_ACT_APPROVER_DEFAULT];
+  const position = String(grif?.positionOverride ?? '').trim() || preset.position;
+  const name = String(grif?.nameOverride ?? '').trim() || preset.name;
+  return { position, name };
+}
+
+/** Пункты «Состояние при поступлении» с fallback на 5 фикс-полей + их legacy text-значения. */
+export function readConditionItems(answers: RepairChecklistAnswers): RepairChecklistConditionItem[] {
+  const a = (answers as Record<string, unknown>)[RECEIPT_CONDITION_LIST_KEY] as
+    | { kind?: string; items?: unknown }
+    | undefined;
+  if (a && a.kind === 'condition_list' && Array.isArray(a.items)) {
+    return a.items.map((it) => {
+      const raw = it as Record<string, unknown>;
+      return { id: String(raw.id ?? ''), label: String(raw.label ?? ''), value: String(raw.value ?? '') };
+    });
+  }
+  return ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
+    const t = (answers as Record<string, unknown>)[f.id] as { kind?: string; value?: unknown } | undefined;
+    return { id: f.id, label: f.label, value: t && t.kind === 'text' ? String(t.value ?? '') : '' };
+  });
+}
+
+/** Гриф «Утверждаю» с fallback на легаси approved_by signature (position/fio → override). */
+export function readApproverGrif(answers: RepairChecklistAnswers): RepairChecklistApproverGrif {
+  const a = (answers as Record<string, unknown>)[APPROVER_GRIF_KEY] as
+    | { kind?: string; grif?: RepairChecklistApproverGrif }
+    | undefined;
+  if (a && a.kind === 'approver' && a.grif && typeof a.grif === 'object') return a.grif;
+  const sig = readSignatureAnswer(answers, 'approved_by');
+  return {
+    ...(sig.position.trim() ? { positionOverride: sig.position } : {}),
+    ...(sig.fio.trim() ? { nameOverride: sig.fio } : {}),
+  };
+}
+
 /**
  * Ленивая, детерминированная, идемпотентная миграция answers единого списка деталей
  * (engine_inventory) к новым редактируемым структурам. Аддитивна — легаси-ключи НЕ удаляет.
  * Стабильные derived-id (не uuid) → снапшот-подпись воспроизводима, версий не плодит.
- * Пока покрывает комиссию (3 фикс-слота → commission_members); condition/approver — в следующих PR.
+ * Покрывает: комиссию (3 фикс-слота → commission_members), «состояние при поступлении»
+ * (5 фикс-полей → receipt_condition_list) и гриф (approved_by → approver_grif).
  * Возвращает { answers, changed }; changed=true если что-то досеяно.
  */
 export function migrateEngineInventoryAnswers(
@@ -174,6 +253,31 @@ export function migrateEngineInventoryAnswers(
       return { id: s.id, fio: sig.fio, position: sig.position, signedAt: sig.signedAt, caption: s.caption, role: s.role };
     });
     next = { ...next, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members } };
+    changed = true;
+  }
+
+  const existingCondition = (answers as Record<string, unknown>)[RECEIPT_CONDITION_LIST_KEY] as
+    | { kind?: string }
+    | undefined;
+  if (!existingCondition || existingCondition.kind !== 'condition_list') {
+    const items: RepairChecklistConditionItem[] = ENGINE_RECEIPT_CONDITION_FIELDS.map((f) => {
+      const t = (answers as Record<string, unknown>)[f.id] as { kind?: string; value?: unknown } | undefined;
+      return { id: f.id, label: f.label, value: t && t.kind === 'text' ? String(t.value ?? '') : '' };
+    });
+    next = { ...next, [RECEIPT_CONDITION_LIST_KEY]: { kind: 'condition_list', items } };
+    changed = true;
+  }
+
+  const existingApprover = (answers as Record<string, unknown>)[APPROVER_GRIF_KEY] as
+    | { kind?: string }
+    | undefined;
+  if (!existingApprover || existingApprover.kind !== 'approver') {
+    const sig = readSignatureAnswer(answers, 'approved_by');
+    const grif: RepairChecklistApproverGrif = {
+      ...(sig.position.trim() ? { positionOverride: sig.position } : {}),
+      ...(sig.fio.trim() ? { nameOverride: sig.fio } : {}),
+    };
+    next = { ...next, [APPROVER_GRIF_KEY]: { kind: 'approver', grif } };
     changed = true;
   }
 
