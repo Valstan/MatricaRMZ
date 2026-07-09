@@ -634,7 +634,7 @@ export function App() {
   useAdaptiveListTables();
   const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
-  // V2 shell («Трезубец»): per-user выбор оболочки + личные настройки 3-колоночного макета.
+  // V2 shell («Резиновый»): per-user выбор оболочки + личные настройки 3-колоночного макета.
   const [shellPrefs, setShellPrefs] = useState<UiShellPrefs | null>(null);
   // V2: какой список открыт во 2-й колонке (null — колонка скрыта). В v1 не используется.
   const [v2ActiveListTab, setV2ActiveListTab] = useState<TabId | null>(null);
@@ -1324,7 +1324,9 @@ export function App() {
         if (!alive) return;
         if (r?.ok) {
           setTabsLayout((r.tabsLayout as TabsLayoutPrefs | null) ?? null);
-          setShellPrefs(r.shellPrefs != null ? sanitizeUiShellPrefs(r.shellPrefs) : null);
+          // Нет сохранённой записи → дефолт («Резиновый», v2). Явный выбор оператора
+          // (в т.ч. возврат на старый) хранится в записи и переживает обновления.
+          setShellPrefs(sanitizeUiShellPrefs(r.shellPrefs ?? null));
         }
       })
       .catch(() => {});
@@ -4850,17 +4852,18 @@ export function App() {
               </Button>
             ))}
           </div>
-          {/* Переключатель нового/старого интерфейса — всегда на виду в шапке (после входа),
-              в обоих оболочках. Дефолт — старый (v1); можно вернуться в один клик. */}
+          {/* Переключатель интерфейсов — всегда на виду в шапке (после входа), в обеих
+              оболочках. Дефолт — «Резиновый» (v2); возврат на старый в один клик,
+              выбор запоминается per-user и переживает обновления. */}
           {authStatus.loggedIn && (
             <Button
               size="sm"
               variant={isV2 ? 'primary' : 'ghost'}
               onClick={() => switchShellVersion(isV2 ? 'v1' : 'v2')}
-              title={isV2 ? 'Вернуться к старому интерфейсу' : 'Попробовать новый интерфейс (бета)'}
-              aria-label={isV2 ? 'Старый интерфейс' : 'Новый интерфейс'}
+              title={isV2 ? 'Вернуться к старому интерфейсу' : 'Включить интерфейс «Резиновый»'}
+              aria-label={isV2 ? 'Старый интерфейс' : 'Интерфейс «Резиновый»'}
             >
-              {isV2 ? '↩️ Старый интерфейс' : '🧪 Новый интерфейс'}
+              {isV2 ? '↩️ Старый интерфейс' : '🧩 Интерфейс «Резиновый»'}
             </Button>
           )}
           {authStatus.loggedIn && (
@@ -5027,7 +5030,7 @@ export function App() {
               { id: 'settings', label: '⚙️ Настройки', onClick: () => setTab('settings') },
               {
                 id: 'shell',
-                label: isV2 ? '🧪 Старый интерфейс' : '🧪 Новый интерфейс (бета)',
+                label: isV2 ? '🧩 Старый интерфейс' : '🧩 Интерфейс «Резиновый»',
                 onClick: () => switchShellVersion(isV2 ? 'v1' : 'v2'),
               },
               { id: 'switch', label: '👥 Смена аккаунта', onClick: () => setAccountSwitchOpen(true) },
