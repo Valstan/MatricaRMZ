@@ -2476,7 +2476,12 @@ export function App() {
     setRecoveryDrafts(null);
     if (d.cardType === 'work_order') void openWorkOrder(d.cardId);
     else if (d.cardType === 'supply_request') void openRequest(d.cardId);
+    else if (d.cardType === 'product') openProduct(d.cardId);
+    else if (d.cardType === 'service') openService(d.cardId);
   }
+
+  /** Типы карточек, чьи details-страницы умеют открываться из черновика (3d). */
+  const DRAFT_OPENABLE_CARD_TYPES = ['work_order', 'supply_request', 'product', 'service'];
 
   async function discardDraft(d: { id: string }) {
     try {
@@ -3825,7 +3830,7 @@ export function App() {
                   variant="ghost"
                   tone="success"
                   onClick={() => restoreDraft(d)}
-                  disabled={d.cardType !== 'work_order' && d.cardType !== 'supply_request'}
+                  disabled={!DRAFT_OPENABLE_CARD_TYPES.includes(d.cardType)}
                 >
                   Восстановить
                 </Button>
@@ -4454,7 +4459,7 @@ export function App() {
           <EmptyCardsCleanupPage canEdit={caps.canEditMasterData} />
         )}
 
-        {t === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={openRequest} />}
+        {t === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={openRequest} onOpenProduct={openProduct} onOpenService={openService} />}
 
         {t === 'engine_assembly_bom' && (
           <EngineAssemblyBomPage

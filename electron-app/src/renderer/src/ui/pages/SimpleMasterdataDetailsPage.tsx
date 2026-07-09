@@ -59,6 +59,76 @@ export function SimpleMasterdataDetailsPage(props: {
   const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
   const uploadFlow = useFileUploadFlow();
   const dirtyRef = useRef(false);
+  // Phase 3d: recovery-draft движок пилота (наряды/заявки) для EAV-редактора товаров/услуг.
+  // Снимок = локальные несохранённые поля (файлы/фото пишутся сразу и в черновик не входят).
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+  const draftCardType = props.typeCode === 'product' || props.typeCode === 'service' ? props.typeCode : null;
+
+  type MasterdataDraftSnapshot = {
+    name: string;
+    description: string;
+    shop: string;
+    article: string;
+    unit: string;
+    price: string;
+    engineBrandIds: string[];
+  };
+
+  function currentDraftSnapshot(): MasterdataDraftSnapshot {
+    return { name, description, shop, article, unit, price, engineBrandIds };
+  }
+
+  function buildDraftTitle(s: MasterdataDraftSnapshot): string {
+    const label = props.typeCode === 'service' ? 'Услуга' : 'Товар';
+    return `${label} «${s.name.trim() || 'без названия'}»`;
+  }
+
+  async function saveDraftNow(s: MasterdataDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEdit || !draftCardType) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: draftCardType,
+        cardId: props.entityId,
+        kind,
+        title: buildDraftTitle(s),
+        payloadJson: JSON.stringify(s),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    if (!draftCardType) return;
+    try {
+      await window.matrica.drafts.clear({ cardType: draftCardType, cardId: props.entityId });
+    } catch {
+      // best-effort
+    }
+  }
+
+  function cancelPendingDraftSave() {
+    if (draftTimerRef.current != null) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function applyDraftSnapshot(s: Partial<MasterdataDraftSnapshot>) {
+    setName(String(s.name ?? ''));
+    setDescription(String(s.description ?? ''));
+    setShop(String(s.shop ?? ''));
+    setArticle(String(s.article ?? ''));
+    setUnit(String(s.unit ?? ''));
+    setPrice(String(s.price ?? ''));
+    if (props.typeCode === 'service') {
+      setEngineBrandIds(Array.isArray(s.engineBrandIds) ? s.engineBrandIds.map(String) : []);
+    }
+  }
 
   // Duplicate detection state
   const [dupCandidates, setDupCandidates] = useState<DuplicateCandidate[]>([]);
@@ -85,6 +155,20 @@ export function SimpleMasterdataDetailsPage(props: {
         setEngineBrandIds(parseIdArray(attrs.engine_brand_ids));
       }
       dirtyRef.current = false;
+      // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
+      // Один раз на маунт карточки (draftRestoredRef) — явный «Сброс» перезагружает committed.
+      if (props.canEdit && draftCardType && !draftRestoredRef.current) {
+        try {
+          const d = await window.matrica.drafts.get({ cardType: draftCardType, cardId: props.entityId });
+          if (d.ok && d.draft?.payloadJson) {
+            applyDraftSnapshot(JSON.parse(d.draft.payloadJson) as Partial<MasterdataDraftSnapshot>);
+            dirtyRef.current = true;
+            draftRestoredRef.current = true;
+          }
+        } catch {
+          // битый/отсутствующий черновик → остаёмся на committed-копии
+        }
+      }
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -458,6 +542,10 @@ export function SimpleMasterdataDetailsPage(props: {
       setStatus(`Частично сохранено. Ошибки (${errors.length}): ${errors[0]}`);
       throw new Error(errors.join('; '));
     }
+    // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
+    // чтобы он не переписал черновик после очистки.
+    cancelPendingDraftSave();
+    await clearDraft();
   }
 
   async function saveAllAndClose() {
@@ -485,6 +573,22 @@ export function SimpleMasterdataDetailsPage(props: {
     void load();
   }, [props.entityId]);
 
+  // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
+  // Снимок уезжает в card_drafts — крах / принудительное закрытие / «оставить черновик»
+  // оставляют несохранённое восстановимым при следующем старте.
+  useEffect(() => {
+    if (!props.canEdit || !draftCardType || !dirtyRef.current) return;
+    const snapshot = currentDraftSnapshot();
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [name, description, shop, article, unit, price, engineBrandIds, props.canEdit]);
+
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
     props.registerCardCloseActions({
@@ -497,6 +601,12 @@ export function SimpleMasterdataDetailsPage(props: {
         dirtyRef.current = false;
       },
       closeWithoutSave: () => {
+        dirtyRef.current = false;
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        cancelPendingDraftSave();
+        if (props.canEdit && draftCardType) await saveDraftNow(currentDraftSnapshot());
         dirtyRef.current = false;
       },
       copyToNew: async () => {
@@ -936,6 +1046,24 @@ export function SimpleMasterdataDetailsPage(props: {
           onSave={() => {
             void saveAll().catch(() => undefined);
           }}
+          onSaveAsDraft={
+            draftCardType
+              ? () => {
+                  void (async () => {
+                    // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                    // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                    cancelPendingDraftSave();
+                    const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                    if (!ok) {
+                      setStatus('Ошибка: не удалось сохранить черновик');
+                      return;
+                    }
+                    dirtyRef.current = false;
+                    props.onClose();
+                  })();
+                }
+              : undefined
+          }
           onCopyToNew={() => {
             void (async () => {
               if (!entityTypeId) return;
