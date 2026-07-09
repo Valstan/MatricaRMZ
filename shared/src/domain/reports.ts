@@ -704,6 +704,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     filters: [
       { type: 'date_range', key: 'period', label: 'Период (дата создания)', startKey: 'startMs', endKey: 'endMs' },
       { type: 'date_range', key: 'arrivalPeriod', label: 'Дата прихода', startKey: 'arrivalStartMs', endKey: 'arrivalEndMs' },
+      { type: 'date_range', key: 'repairStartPeriod', label: 'Начало ремонта', startKey: 'repairStartStartMs', endKey: 'repairStartEndMs' },
+      { type: 'date_range', key: 'repairEndPeriod', label: 'Окончание ремонта', startKey: 'repairEndStartMs', endKey: 'repairEndEndMs' },
       { type: 'date_range', key: 'shippingPeriod', label: 'Дата отгрузки', startKey: 'shippingStartMs', endKey: 'shippingEndMs' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
@@ -734,6 +736,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
       { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
+      { key: 'repairStartedDate', label: 'Начало ремонта', kind: 'date' },
+      { key: 'repairedDate', label: 'Окончание ремонта', kind: 'date' },
       { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
       { key: 'isScrap', label: 'Утиль' },
     ],

@@ -380,16 +380,24 @@ function hasText(value: unknown): boolean {
   return normalizeText(value, '') !== '';
 }
 
+// Верхняя граница «нет ограничения» (фильтр периода отключён кнопкой «отключить»,
+// Ф4): startMs/endMs не приходят → верх не режется. Раньше endMs по умолчанию был
+// `now`, что для отключённого фильтра оставляло кламп «до сейчас». MAX проходит
+// сравнения (`x > endMs` → false) и SQL `lte(col, endMs)` (всегда истина).
+const UNBOUNDED_END_MS = Number.MAX_SAFE_INTEGER;
+
 function readPeriod(filters: ReportPresetFilters | undefined): { startMs?: number; endMs: number } {
-  const now = Date.now();
   const endRaw = asNumberOrNull(filters?.endMs);
   const startRaw = asNumberOrNull(filters?.startMs);
-  const endMs = endRaw && endRaw > 0 ? endRaw : now;
+  const endMs = endRaw && endRaw > 0 ? endRaw : UNBOUNDED_END_MS;
   const startMs = startRaw && startRaw > 0 ? startRaw : undefined;
   return { ...(startMs !== undefined ? { startMs } : {}), endMs };
 }
 
 function msToDate(ms: number | null | undefined): string {
+  // Сентинел «без ограничения» (Ф4) и любые значения вне диапазона Date → «—»,
+  // чтобы подзаголовок отчёта не показывал мусорную дату далёкого будущего.
+  if (ms == null || ms >= 8.64e15) return '—';
   return formatMoscowDate(ms);
 }
 
@@ -2761,6 +2769,10 @@ async function buildEnginesListReport(
   const period = readPeriod(filters);
   const arrivalStart = asNumberOrNull(filters?.arrivalStartMs);
   const arrivalEnd = asNumberOrNull(filters?.arrivalEndMs);
+  const repairStartStart = asNumberOrNull(filters?.repairStartStartMs);
+  const repairStartEnd = asNumberOrNull(filters?.repairStartEndMs);
+  const repairEndStart = asNumberOrNull(filters?.repairEndStartMs);
+  const repairEndEnd = asNumberOrNull(filters?.repairEndEndMs);
   const shippingStart = asNumberOrNull(filters?.shippingStartMs);
   const shippingEnd = asNumberOrNull(filters?.shippingEndMs);
   const brandFilter = asArray(filters?.brandIds);
@@ -2786,6 +2798,8 @@ async function buildEnginesListReport(
 
     const createdAtRaw = toNumber(attrs.created_at);
     const arrivalDateRaw = toNumber(attrs.arrival_date);
+    const repairStartedRaw = toNumber(attrs.status_repair_started_date);
+    const repairedRaw = toNumber(attrs.status_repaired_date);
     const { shippingDate, onSite } = resolveEngineShippingState(attrs);
     const isScrap = attrs.is_scrap === true || attrs.is_scrap === 'true' || attrs.is_scrap === 1;
     const brandId = normalizeText(attrs.engine_brand_id, '');
@@ -2797,6 +2811,12 @@ async function buildEnginesListReport(
 
     if (arrivalStart != null && (arrivalDateRaw <= 0 || arrivalDateRaw < arrivalStart)) continue;
     if (arrivalEnd != null && (arrivalDateRaw <= 0 || arrivalDateRaw > arrivalEnd)) continue;
+
+    if (repairStartStart != null && (repairStartedRaw <= 0 || repairStartedRaw < repairStartStart)) continue;
+    if (repairStartEnd != null && (repairStartedRaw <= 0 || repairStartedRaw > repairStartEnd)) continue;
+
+    if (repairEndStart != null && (repairedRaw <= 0 || repairedRaw < repairEndStart)) continue;
+    if (repairEndEnd != null && (repairedRaw <= 0 || repairedRaw > repairEndEnd)) continue;
 
     if (shippingStart != null && (shippingDate == null || shippingDate < shippingStart)) continue;
     if (shippingEnd != null && (shippingDate == null || shippingDate > shippingEnd)) continue;
@@ -2819,6 +2839,8 @@ async function buildEnginesListReport(
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       arrivalDate: arrivalDateRaw > 0 ? arrivalDateRaw : null,
+      repairStartedDate: repairStartedRaw > 0 ? repairStartedRaw : null,
+      repairedDate: repairedRaw > 0 ? repairedRaw : null,
       shippingDate,
       isScrap: isScrap ? 'Да' : 'Нет',
     });

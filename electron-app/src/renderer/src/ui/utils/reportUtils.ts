@@ -207,6 +207,36 @@ export function buildDefaultFilters(preset: ReportPresetDefinition): ReportPrese
   return out;
 }
 
+/**
+ * Ф4: убирает из payload отчёта ключи «отключённых» фильтров (кнопка «выкл» у фильтра),
+ * чтобы они не участвовали в отборе. Для `date_range` вырезаются оба ключа границ
+ * (`startKey`/`endKey`), для остальных — `key`. Билдеры трактуют отсутствующее значение
+ * как «нет фильтра» (asArray→[], normalizeText→'all', asNumberOrNull→null, readPeriod→без границ).
+ */
+export function omitDisabledFilterKeys(
+  preset: ReportPresetDefinition,
+  filters: ReportPresetFilters,
+  disabledKeys: string[],
+): ReportPresetFilters {
+  if (!disabledKeys.length) return filters;
+  const disabled = new Set(disabledKeys);
+  const drop = new Set<string>();
+  for (const filter of preset.filters) {
+    if (!disabled.has(filter.key)) continue;
+    if (filter.type === 'date_range') {
+      drop.add(filter.startKey);
+      drop.add(filter.endKey);
+    } else {
+      drop.add(filter.key);
+    }
+  }
+  const out: ReportPresetFilters = {};
+  for (const [k, v] of Object.entries(filters)) {
+    if (!drop.has(k)) out[k] = v;
+  }
+  return out;
+}
+
 function reportTotalLabel(key: string): string {
   return REPORT_TOTAL_LABELS[key] ?? key;
 }

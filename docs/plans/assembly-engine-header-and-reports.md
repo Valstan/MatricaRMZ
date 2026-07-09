@@ -15,7 +15,7 @@
 - `WorkOrderDetailsPage.tsx`: кнопка «Выдать в работу» обобщена на Assembly → `status_repair_started`; onChange даты выполнения → `status_repaired`. «Отозвать»/очистка даты статус НЕ откатывают.
 - `EngineDetailsPage.tsx`: `applyStatusCheckboxChange` переведён на общий `applyStatusFlagChange`.
 
-## PR2 — отчёты (фичи 3+4) — TODO
+## PR2 — отчёты (фичи 3+4) — ✅ реализовано
 
 **Фича 3 — обогатить `engines_list`** (`shared/src/domain/reports.ts` + `reportPresetService.ts:buildEnginesListReport`): добавить `date_range` «начало ремонта» (`status_repair_started_date`) и «окончание ремонта» (`status_repaired_date`) + колонки. Диапазоны создание/приход/отгрузка уже есть.
 
