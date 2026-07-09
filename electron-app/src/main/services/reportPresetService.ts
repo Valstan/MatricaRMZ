@@ -4054,6 +4054,23 @@ async function buildAssemblyForecast7dReport(
       const warnings = Array.isArray(body.warnings)
         ? body.warnings.map((w) => sanitizeAssemblyForecastOperatorText(String(w))).filter(Boolean)
         : [];
+      // Открытые Assembly-наряды из ПРЕЖНИХ прогнозов: variantKey содержит относительный
+      // dayOffset, поэтому на следующий день ключ уже не матчит строки текущего прогноза —
+      // кнопка «Создать наряд» для того же реального дефицита не блокируется. Показываем
+      // номера таких нарядов, чтобы оператор проверил их перед выпиской новых (дубль-риск).
+      {
+        const matchedKeys = new Set(rows.map((r) => String(r._assemblyVariantKey ?? '')).filter(Boolean));
+        const staleOrders = Object.entries(existingAssemblyOrdersByVariantKey)
+          .filter(([key]) => !matchedKeys.has(key))
+          .map(([, v]) => Number(v?.workOrderNumber ?? 0))
+          .filter((n) => n > 0)
+          .sort((a, b) => a - b);
+        if (staleOrders.length > 0) {
+          warnings.push(
+            `Открытые наряды на сборку из прежних прогнозов: ${staleOrders.map((n) => `№${n}`).join(', ')} — проверьте их перед созданием новых нарядов (текущий прогноз эти варианты уже не блокирует).`,
+          );
+        }
+      }
       const horizonMissingByBrand = Array.isArray(body.horizonMissingByBrand)
         ? body.horizonMissingByBrand
             .map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>) : {}))
