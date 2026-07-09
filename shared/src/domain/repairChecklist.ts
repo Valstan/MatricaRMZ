@@ -23,6 +23,25 @@ export type RepairChecklistTableRow = Record<string, string | boolean | number>;
 /** Один сотрудник в списке (напр. «Разборку двигателя произвёл» в акте дефектовки). */
 export type RepairChecklistEmployeeRef = { employeeId: string; fio: string; position: string };
 
+/** Стандартная (авто-заполняемая по цеху) роль члена комиссии акта комплектности. */
+export type EngineCommissionRole = 'workshop_head' | 'workshop_master' | 'otk_head';
+
+/**
+ * Один член комиссии акта комплектности (динамический список — заменяет 3 фикс-слота).
+ * `caption` — редактируемая подпись роли (печатается как метка подписи). `role` задан только
+ * у стандартных сеяных членов (якорь для «Заполнить комиссию по цеху»); у добавленных вручную —
+ * отсутствует. `employeeId` — если выбран из справочника.
+ */
+export type RepairChecklistCommissionMember = {
+  id: string;
+  fio: string;
+  position: string;
+  signedAt: number | null;
+  caption?: string;
+  role?: EngineCommissionRole;
+  employeeId?: string;
+};
+
 export type RepairChecklistAnswers = Record<
   string,
   | { kind: 'text'; value: string }
@@ -31,6 +50,7 @@ export type RepairChecklistAnswers = Record<
   | { kind: 'table'; rows: RepairChecklistTableRow[] }
   | { kind: 'signature'; fio: string; position: string; signedAt: number | null }
   | { kind: 'employees'; employees: RepairChecklistEmployeeRef[] }
+  | { kind: 'commission'; members: RepairChecklistCommissionMember[] }
 >;
 
 import type { FileRef } from './fileStorage.js';
@@ -77,6 +97,88 @@ export const ENGINE_RECEIPT_CONDITION_FIELDS = [
   { id: 'receipt_opening_traces', label: 'Следы вскрытия / ремонта' },
   { id: 'receipt_notes', label: 'Особые отметки' },
 ] as const;
+
+/** Ключ ответа с динамическим списком членов комиссии акта комплектности. */
+export const COMMISSION_MEMBERS_KEY = 'commission_members';
+
+/** Легаси 3 фикс-слота комиссии → сеяные члены динамического списка. Порядок значим (печать/UI). */
+const COMMISSION_SEED: ReadonlyArray<{ id: string; role: EngineCommissionRole; caption: string; legacyId: string }> = [
+  { id: 'cm_workshop_head', role: 'workshop_head', caption: 'Начальник цеха', legacyId: 'commission_workshop_head' },
+  { id: 'cm_workshop_master', role: 'workshop_master', caption: 'Мастер цеха', legacyId: 'commission_workshop_master' },
+  { id: 'cm_otk_head', role: 'otk_head', caption: 'Начальник ОТК', legacyId: 'commission_otk_head' },
+];
+
+function readSignatureAnswer(
+  answers: RepairChecklistAnswers,
+  id: string,
+): { fio: string; position: string; signedAt: number | null } {
+  const a = (answers as Record<string, unknown>)[id] as
+    | { kind?: string; fio?: unknown; position?: unknown; signedAt?: unknown }
+    | undefined;
+  if (!a || a.kind !== 'signature') return { fio: '', position: '', signedAt: null };
+  return {
+    fio: String(a.fio ?? ''),
+    position: String(a.position ?? ''),
+    signedAt: Number.isFinite(a.signedAt) ? Number(a.signedAt) : null,
+  };
+}
+
+/**
+ * Члены комиссии акта комплектности с fallback на легаси 3 фикс-слота — единый источник
+ * для печати и (через миграцию) для редактора. Не мутирует answers.
+ */
+export function readCommissionMembers(answers: RepairChecklistAnswers): RepairChecklistCommissionMember[] {
+  const a = (answers as Record<string, unknown>)[COMMISSION_MEMBERS_KEY] as
+    | { kind?: string; members?: unknown }
+    | undefined;
+  if (a && a.kind === 'commission' && Array.isArray(a.members)) {
+    return a.members.map((m) => {
+      const raw = m as Record<string, unknown>;
+      return {
+        id: String(raw.id ?? ''),
+        fio: String(raw.fio ?? ''),
+        position: String(raw.position ?? ''),
+        signedAt: Number.isFinite(raw.signedAt) ? Number(raw.signedAt) : null,
+        ...(raw.caption != null ? { caption: String(raw.caption) } : {}),
+        ...(raw.role != null ? { role: raw.role as EngineCommissionRole } : {}),
+        ...(raw.employeeId != null ? { employeeId: String(raw.employeeId) } : {}),
+      };
+    });
+  }
+  // Легаси-fallback: старые снапшоты/двигатели без commission_members.
+  return COMMISSION_SEED.map((s) => {
+    const sig = readSignatureAnswer(answers, s.legacyId);
+    return { id: s.id, fio: sig.fio, position: sig.position, signedAt: sig.signedAt, caption: s.caption, role: s.role };
+  });
+}
+
+/**
+ * Ленивая, детерминированная, идемпотентная миграция answers единого списка деталей
+ * (engine_inventory) к новым редактируемым структурам. Аддитивна — легаси-ключи НЕ удаляет.
+ * Стабильные derived-id (не uuid) → снапшот-подпись воспроизводима, версий не плодит.
+ * Пока покрывает комиссию (3 фикс-слота → commission_members); condition/approver — в следующих PR.
+ * Возвращает { answers, changed }; changed=true если что-то досеяно.
+ */
+export function migrateEngineInventoryAnswers(
+  answers: RepairChecklistAnswers,
+): { answers: RepairChecklistAnswers; changed: boolean } {
+  let changed = false;
+  let next = answers;
+
+  const existingCommission = (answers as Record<string, unknown>)[COMMISSION_MEMBERS_KEY] as
+    | { kind?: string }
+    | undefined;
+  if (!existingCommission || existingCommission.kind !== 'commission') {
+    const members: RepairChecklistCommissionMember[] = COMMISSION_SEED.map((s) => {
+      const sig = readSignatureAnswer(answers, s.legacyId);
+      return { id: s.id, fio: sig.fio, position: sig.position, signedAt: sig.signedAt, caption: s.caption, role: s.role };
+    });
+    next = { ...next, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members } };
+    changed = true;
+  }
+
+  return { answers: next, changed };
+}
 
 /**
  * Ф3: ветка восполнения детали — как восполнить недостающую/негодную позицию.

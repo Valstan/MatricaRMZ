@@ -3,6 +3,7 @@ import {
   computeCustomerClaim,
   computeInventoryShortage,
   ENGINE_RECEIPT_CONDITION_FIELDS,
+  readCommissionMembers,
   repairFundInstanceClassificationLabel,
   repairFundInstanceStatusLabel,
   selectRequirementInstances,
@@ -213,11 +214,18 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
   const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
 
-  const commission = [
-    { sig: getSignature(ctx.answers, 'commission_workshop_head'), label: 'Комиссия: начальник цеха' },
-    { sig: getSignature(ctx.answers, 'commission_workshop_master'), label: 'Комиссия: мастер цеха' },
-    { sig: getSignature(ctx.answers, 'commission_otk_head'), label: 'Комиссия: начальник ОТК' },
-  ];
+  // Комиссия — динамический список (readCommissionMembers: commission_members с fallback на 3 легаси-слота).
+  const commission = readCommissionMembers(ctx.answers).map((m) => ({
+    label: m.caption && m.caption.trim() ? `Комиссия — ${m.caption.trim()}` : 'Член комиссии',
+    sig: { fio: blank ? '' : m.fio, position: blank ? '' : m.position, signedAt: blank ? null : m.signedAt },
+  }));
+  if (blank) {
+    // Пара пустых слотов под дозапись комиссии от руки в пустом бланке.
+    commission.push(
+      { label: 'Член комиссии', sig: { fio: '', position: '', signedAt: null } },
+      { label: 'Член комиссии', sig: { fio: '', position: '', signedAt: null } },
+    );
+  }
   const acceptance = getSignature(ctx.answers, 'acceptance_signed_by');
   const customerRep = getSignature(ctx.answers, 'customer_representative');
   const approved = getSignature(ctx.answers, 'approved_by');
