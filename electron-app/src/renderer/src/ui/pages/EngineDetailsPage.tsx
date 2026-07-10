@@ -452,6 +452,107 @@ export function EngineDetailsPage(props: {
     setMainDirty(v);
   };
   const [activeTab, setActiveTab] = useState<EngineCardTab>(props.initialTab ?? 'main');
+  // Phase 3d: recovery-draft движок пилота. Снимок = локальные несохранённые поля карточки
+  // (батч saveAllAndClose); файлы/операции/детали пишутся сразу — не в черновике.
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+  const DRAFT_CARD_TYPE = 'engine';
+
+  type EngineDraftSnapshot = {
+    engineNumber: string;
+    engineBrand: string;
+    engineBrandId: string;
+    arrivalDate: string;
+    customerId: string;
+    contractId: string;
+    contractSectionNumber: string;
+    workshopId: string;
+    statusFlags: Partial<Record<StatusCode, boolean>>;
+    statusDates: Partial<Record<StatusCode, number | null>>;
+    reclFlag: boolean;
+    reclAcceptedDate: string;
+    reclCustomerReason: string;
+    reclVerdict: string;
+    reclVerdictDate: string;
+    reclRepairStatus: string;
+    reclShippedDate: string;
+    reclComment: string;
+    repeatArrivalFlag: boolean;
+    numberCollisionFlag: boolean;
+    previousArrivalId: string;
+  };
+
+  function currentDraftSnapshot(): EngineDraftSnapshot {
+    return {
+      engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId,
+      contractSectionNumber, workshopId, statusFlags, statusDates,
+      reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate,
+      reclRepairStatus, reclShippedDate, reclComment,
+      repeatArrivalFlag, numberCollisionFlag, previousArrivalId,
+    };
+  }
+
+  function buildDraftTitle(s: EngineDraftSnapshot): string {
+    return `Двигатель «${s.engineNumber.trim() || 'без номера'}»`;
+  }
+
+  async function saveDraftNow(s: EngineDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEditEngines) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: DRAFT_CARD_TYPE,
+        cardId: props.engineId,
+        kind,
+        title: buildDraftTitle(s),
+        payloadJson: JSON.stringify(s),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    try {
+      await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.engineId });
+    } catch {
+      // best-effort
+    }
+  }
+
+  function cancelPendingDraftSave() {
+    if (draftTimerRef.current != null) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function applyDraftSnapshot(s: Partial<EngineDraftSnapshot>) {
+    setEngineNumber(String(s.engineNumber ?? ''));
+    setEngineBrand(String(s.engineBrand ?? ''));
+    setEngineBrandId(String(s.engineBrandId ?? ''));
+    setArrivalDate(String(s.arrivalDate ?? ''));
+    setCustomerId(String(s.customerId ?? ''));
+    setContractId(String(s.contractId ?? ''));
+    setContractSectionNumber(String(s.contractSectionNumber ?? ''));
+    setWorkshopId(String(s.workshopId ?? ''));
+    if (s.statusFlags && typeof s.statusFlags === 'object') setStatusFlags(s.statusFlags);
+    if (s.statusDates && typeof s.statusDates === 'object') setStatusDates(s.statusDates);
+    setReclFlag(Boolean(s.reclFlag));
+    setReclAcceptedDate(String(s.reclAcceptedDate ?? ''));
+    setReclCustomerReason(String(s.reclCustomerReason ?? ''));
+    setReclVerdict(String(s.reclVerdict ?? ''));
+    setReclVerdictDate(String(s.reclVerdictDate ?? ''));
+    setReclRepairStatus(String(s.reclRepairStatus ?? ''));
+    setReclShippedDate(String(s.reclShippedDate ?? ''));
+    setReclComment(String(s.reclComment ?? ''));
+    setRepeatArrivalFlag(Boolean(s.repeatArrivalFlag));
+    setNumberCollisionFlag(Boolean(s.numberCollisionFlag));
+    setPreviousArrivalId(String(s.previousArrivalId ?? ''));
+  }
+
   const initialSnapshot = useRef<{
     engineNumber: string;
     engineBrand: string;
@@ -487,6 +588,9 @@ export function EngineDetailsPage(props: {
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
+    // Phase 3d: восстановленный черновик не перетираем фоновым reload/sync — иначе
+    // снимок теряется, а автосейв перештамповал бы его committed-значениями.
+    if (draftRestoredRef.current && sessionHadChanges.current) return;
     setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
     setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
     setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
@@ -517,7 +621,37 @@ export function EngineDetailsPage(props: {
       newEngineFlagId.current = props.engineId;
       setIsNewEngine(!String(attrs.engine_number ?? '').trim());
     }
+    // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
+    // Один раз на маунт (draftRestoredRef) — «Сброс» перезагружает committed.
+    if (props.canEditEngines && !draftRestoredRef.current) {
+      void (async () => {
+        try {
+          const d = await window.matrica.drafts.get({ cardType: DRAFT_CARD_TYPE, cardId: props.engineId });
+          if (d.ok && d.draft?.payloadJson) {
+            applyDraftSnapshot(JSON.parse(d.draft.payloadJson) as Partial<EngineDraftSnapshot>);
+            setSessionChanged(true);
+            draftRestoredRef.current = true;
+          }
+        } catch {
+          // битый/отсутствующий черновик → остаёмся на committed-копии
+        }
+      })();
+    }
   }, [props.engineId, props.engine.updatedAt]);
+
+  // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
+  useEffect(() => {
+    if (!props.canEditEngines || !sessionHadChanges.current) return;
+    const snapshot = currentDraftSnapshot();
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.canEditEngines]);
 
   useEffect(() => {
     if (!engineBrandId || engineBrand) return;
@@ -707,6 +841,10 @@ export function EngineDetailsPage(props: {
           throw e;
         }
       }
+      // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
+      // чтобы он не переписал черновик после очистки.
+      cancelPendingDraftSave();
+      await clearDraft();
     }
     setSessionChanged(false);
   }
@@ -778,6 +916,12 @@ export function EngineDetailsPage(props: {
         setSessionChanged(false);
       },
       closeWithoutSave: () => {
+        setSessionChanged(false);
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        cancelPendingDraftSave();
+        if (props.canEditEngines) await saveDraftNow(currentDraftSnapshot());
         setSessionChanged(false);
       },
       copyToNew: async () => {
@@ -1311,6 +1455,20 @@ export function EngineDetailsPage(props: {
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAsDraft={() => {
+            void (async () => {
+              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+              // автосейв, чтобы он не перештамповал kind обратно в recovery.
+              cancelPendingDraftSave();
+              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+              if (!ok) {
+                setSaveStatus('Ошибка: не удалось сохранить черновик');
+                return;
+              }
+              setSessionChanged(false);
+              props.onClose();
+            })();
+          }}
           onReset={() => {
             void props.onReload().then(() => {
               setSessionChanged(false);
