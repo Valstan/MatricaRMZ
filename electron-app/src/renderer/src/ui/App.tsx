@@ -62,6 +62,7 @@ import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './ut
 import { loadContractActivityAlerts } from './utils/contractAlerts.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
+import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { V2Shell } from './shellV2/V2Shell.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
 
@@ -4241,6 +4242,7 @@ export function App() {
           <ServicesPage
             onOpen={(id: string) => openService(id, { from: 'services' })}
             onOpenNomenclatureCatalog={() => setTab('nomenclature')}
+            onCreateDeferred={() => void openService(crypto.randomUUID(), { from: 'services' })}
             canCreate={caps.canEditMasterData}
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
@@ -4637,6 +4639,7 @@ export function App() {
             entityId={selectedProductId}
             ownerType="product"
             typeCode="product"
+            nomenclaturePreset={{ directoryKind: PRODUCTS_PRESET.directoryKind, createConfig: PRODUCTS_PRESET.createConfig }}
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
@@ -4657,6 +4660,7 @@ export function App() {
             entityId={selectedServiceId}
             ownerType="service"
             typeCode="service"
+            nomenclaturePreset={{ directoryKind: SERVICES_PRESET.directoryKind, createConfig: SERVICES_PRESET.createConfig }}
             canEdit={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}

@@ -18,6 +18,8 @@ import type { DuplicateCandidate, FileRef } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
+import { createNomenclatureRowForSource } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import type { NomenclatureCreateConfig } from './nomenclatureDirectoryPresets.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
 
@@ -33,6 +35,13 @@ export function SimpleMasterdataDetailsPage(props: {
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
+  /**
+   * Deferred-create (номенклатурный путь): пресет для дотяжки номенклатурной строки на
+   * первом сохранении. Задан для товаров/услуг — «Сохранить» новой карточки материализует
+   * EAV-сущность И создаёт позицию номенклатуры (directoryRefId=entityId), как это делала
+   * кнопка каталога. Без пресета поведение прежнее (чистый EAV-редактор).
+   */
+  nomenclaturePreset?: { directoryKind: string; createConfig: NomenclatureCreateConfig };
 }) {
   const [status, setStatus] = useState<string>('');
   const [name, setName] = useState<string>('');
@@ -59,6 +68,32 @@ export function SimpleMasterdataDetailsPage(props: {
   const [engineBrandOptions, setEngineBrandOptions] = useState<SearchSelectOption[]>([]);
   const uploadFlow = useFileUploadFlow();
   const dirtyRef = useRef(false);
+  // Deferred-create: карточка может быть открыта по id НОМЕНКЛАТУРЫ (клик в списке
+  // услуг/товаров) — реальный id EAV-сущности резолвится в load() (directoryRefId строки;
+  // легаси-строка без source и несохранённая новая — сам props.entityId, материализуется
+  // первым сохранением через fallbackTypeId).
+  const resolvedEntityIdRef = useRef<string>(props.entityId);
+  const entityTypeIdRef = useRef<string>('');
+
+  async function resolveTypeIdOnce(): Promise<string> {
+    if (entityTypeIdRef.current) return entityTypeIdRef.current;
+    if (!props.typeCode) return '';
+    try {
+      const types = await window.matrica.admin.entityTypes.list();
+      const type = (types as any[]).find((t) => String(t.code) === String(props.typeCode)) ?? null;
+      const id = type?.id ? String(type.id) : '';
+      if (id) entityTypeIdRef.current = id;
+      return id;
+    } catch {
+      return '';
+    }
+  }
+
+  /** setAttr по резолвленной сущности; fallbackTypeId материализует строку на первой записи. */
+  async function setOwnAttr(code: string, value: unknown) {
+    const typeId = await resolveTypeIdOnce();
+    return window.matrica.admin.entities.setAttr(resolvedEntityIdRef.current, code, value, typeId || undefined);
+  }
   // Phase 3d: recovery-draft движок пилота (наряды/заявки) для EAV-редактора товаров/услуг.
   // Снимок = локальные несохранённые поля (файлы/фото пишутся сразу и в черновик не входят).
   const draftTimerRef = useRef<number | null>(null);
@@ -139,7 +174,40 @@ export function SimpleMasterdataDetailsPage(props: {
   async function load() {
     try {
       setStatus('Загрузка…');
-      const details = await window.matrica.admin.entities.get(props.entityId);
+      const typeId = await resolveTypeIdOnce();
+      let resolved = props.entityId;
+      let details: { attributes?: Record<string, unknown> } | null = null;
+      try {
+        details = await window.matrica.admin.entities.get(props.entityId);
+      } catch {
+        details = null;
+      }
+      if (!details) {
+        // Сущности с этим id нет: карточка открыта по id номенклатуры (список услуг/товаров)
+        // или это несохранённая новая. directoryRefId строки → реальный id сущности;
+        // легаси-строка без source / новая карточка → пустая форма, материализация на save.
+        const nom = await window.matrica.warehouse
+          .nomenclatureList({ id: props.entityId, limit: 1 })
+          .catch(() => null);
+        const nomRow = nom && nom.ok ? ((nom.rows ?? [])[0] as { directoryRefId?: string | null } | undefined) ?? null : null;
+        const ref = String(nomRow?.directoryRefId ?? '').trim();
+        if (ref) {
+          resolved = ref;
+          try {
+            details = await window.matrica.admin.entities.get(ref, typeId || undefined);
+          } catch {
+            details = null;
+          }
+        }
+        if (!details && typeId) {
+          details = await window.matrica.admin.entities.get(resolved, typeId).catch(() => null);
+        }
+        if (!details) {
+          setStatus('Ошибка: Сущность не найдена');
+          return;
+        }
+      }
+      resolvedEntityIdRef.current = resolved;
       const attrs = details?.attributes ?? {};
       setName(String(attrs.name ?? ''));
       setDescription(String(attrs.description ?? ''));
@@ -317,7 +385,7 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
-      const r = await window.matrica.admin.entities.setAttr(props.entityId, 'name', name.trim());
+      const r = await setOwnAttr('name', name.trim());
       if (!r?.ok) {
         throw new Error(r?.error ?? 'save failed');
       }
@@ -333,7 +401,7 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
-      const r = await window.matrica.admin.entities.setAttr(props.entityId, 'description', description.trim() || null);
+      const r = await setOwnAttr('description', description.trim() || null);
       if (!r?.ok) {
         throw new Error(r?.error ?? 'save failed');
       }
@@ -348,7 +416,7 @@ export function SimpleMasterdataDetailsPage(props: {
   async function saveFiles(code: 'attachments' | 'photos', value: unknown, setter: (v: unknown) => void) {
     if (!props.canEdit) return { ok: false as const, error: 'no permission' };
     try {
-      const r = await window.matrica.admin.entities.setAttr(props.entityId, code, value);
+      const r = await setOwnAttr(code, value);
       if (!r?.ok) return { ok: false as const, error: r?.error ?? 'save failed' };
       setter(value);
       return { ok: true as const };
@@ -361,7 +429,7 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
-      const r = await window.matrica.admin.entities.setAttr(props.entityId, code, value);
+      const r = await setOwnAttr(code, value);
       if (!r?.ok) {
         throw new Error(r?.error ?? 'save failed');
       }
@@ -392,7 +460,7 @@ export function SimpleMasterdataDetailsPage(props: {
       const candidates = await window.matrica.admin.entities.findDuplicates({
         entityTypeId,
         query: dupQuery,
-        excludeEntityId: props.entityId,
+        excludeEntityId: resolvedEntityIdRef.current,
       });
       setDupCandidates(candidates);
     } catch {
@@ -443,7 +511,7 @@ export function SimpleMasterdataDetailsPage(props: {
       const candidates = await window.matrica.admin.entities.findDuplicates({
         entityTypeId,
         query: dupQuery,
-        excludeEntityId: props.entityId,
+        excludeEntityId: resolvedEntityIdRef.current,
       });
       if (candidates.length > 0) {
         setDupCandidates(candidates);
@@ -477,7 +545,7 @@ export function SimpleMasterdataDetailsPage(props: {
         const p = normalizeNumberValue(price);
         if (p != null) await window.matrica.admin.entities.setAttr(candidateId, 'price', p);
         // Delete the new (empty or partially filled) entity
-        await window.matrica.admin.entities.softDelete(props.entityId);
+        await window.matrica.admin.entities.softDelete(resolvedEntityIdRef.current);
         setStatus('Объединено');
         setTimeout(() => setStatus(''), 1200);
         dirtyRef.current = false;
@@ -537,6 +605,12 @@ export function SimpleMasterdataDetailsPage(props: {
     if (props.typeCode === 'service') {
       await trySave(() => saveField('engine_brand_ids', engineBrandIds.length > 0 ? engineBrandIds : null));
     }
+    // Deferred-create (номенклатурный путь): первый save дотягивает весь пресет —
+    // если для карточки ещё нет позиции номенклатуры, создаём её (directoryRefId=entityId),
+    // чтобы товар/услуга появились в номенклатурном списке, как раньше делала кнопка каталога.
+    if (props.nomenclaturePreset && errors.length === 0) {
+      await trySave(() => ensureNomenclatureRow());
+    }
     dirtyRef.current = false;
     if (errors.length > 0) {
       setStatus(`Частично сохранено. Ошибки (${errors.length}): ${errors[0]}`);
@@ -548,6 +622,41 @@ export function SimpleMasterdataDetailsPage(props: {
     await clearDraft();
   }
 
+  /**
+   * Гарантирует номенклатурную строку для карточки: ищет по id карточки (легаси: id строки =
+   * id сущности) и по directoryRefId (deferred-create: строка ссылается на сущность);
+   * не нашлась — создаёт по пресету. Идемпотентно, зовётся из каждого saveAll.
+   */
+  async function ensureNomenclatureRow() {
+    const preset = props.nomenclaturePreset;
+    if (!preset) return;
+    const byOpenId = await window.matrica.warehouse
+      .nomenclatureList({ id: props.entityId, limit: 1 })
+      .catch(() => null);
+    if (byOpenId && byOpenId.ok && (byOpenId.rows ?? []).length > 0) return;
+    const byRef = await window.matrica.warehouse
+      .nomenclatureList({ directoryKind: preset.directoryKind, directoryRefId: resolvedEntityIdRef.current, limit: 1 })
+      .catch(() => null);
+    if (byRef && byRef.ok && (byRef.rows ?? []).length > 0) return;
+    let lastError = '';
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const created = await createNomenclatureRowForSource({
+        directoryKind: preset.directoryKind,
+        createConfig: preset.createConfig,
+        displayName: name.trim(),
+        sourceId: resolvedEntityIdRef.current,
+      });
+      if (created.ok) return;
+      lastError = created.error;
+      // Сущность материализована локально, но upsert серверный — до прихода sync-push
+      // сервер отвечает «источник не найден». Толкаем sync и ретраим.
+      if (!/не найден или удал/i.test(lastError)) break;
+      await window.matrica.sync.run().catch(() => null);
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    throw new Error(`Позиция номенклатуры не создана: ${lastError}`);
+  }
+
   async function saveAllAndClose() {
     await checkDuplicatesBeforeSave('saveAndClose');
   }
@@ -556,7 +665,7 @@ export function SimpleMasterdataDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Удаление…');
-      const r = await window.matrica.admin.entities.softDelete(props.entityId);
+      const r = await window.matrica.admin.entities.softDelete(resolvedEntityIdRef.current);
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
         return;
@@ -702,7 +811,7 @@ export function SimpleMasterdataDetailsPage(props: {
                   const r = await window.matrica.files.upload({
                     path: task.path,
                     fileName: task.fileName,
-                    scope: { ownerType, ownerId: props.entityId, category: 'photos' },
+                    scope: { ownerType, ownerId: resolvedEntityIdRef.current, category: 'photos' },
                   });
                   return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
                 },
@@ -857,7 +966,7 @@ export function SimpleMasterdataDetailsPage(props: {
       value={attachments}
       canView={props.canViewFiles}
       canUpload={props.canUploadFiles && props.canEdit}
-      scope={{ ownerType, ownerId: props.entityId, category: 'attachments' }}
+      scope={{ ownerType, ownerId: resolvedEntityIdRef.current, category: 'attachments' }}
       onChange={(next) => saveFiles('attachments', next, setAttachments)}
     />
   );
