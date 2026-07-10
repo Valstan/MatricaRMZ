@@ -369,7 +369,14 @@ function collapsePositionsToDefaultOption<
   brandTitle: string,
   warnings: string[],
   stockByNomenclatureId?: ReadonlyMap<string, number>,
-): T[] {
+): {
+  chosen: T[];
+  /**
+   * Фаза 3b: позиции с ≥2 вариантами в порядке предпочтения симуляции — основной первым,
+   * затем запасные по убыванию текущего остатка. Симуляция пулит их по мере расхода стока.
+   */
+  positionGroups: Array<{ key: string; ordered: T[] }>;
+} {
   const singletons: T[] = [];
   const groups = new Map<string, T[]>();
   for (const line of lines) {
@@ -384,45 +391,39 @@ function collapsePositionsToDefaultOption<
   }
   const stockOf = (id: string): number => Math.max(0, Math.floor(stockByNomenclatureId?.get(id) ?? 0));
   const chosen: T[] = [...singletons];
+  const positionGroups: Array<{ key: string; ordered: T[] }> = [];
   for (const [key, group] of groups) {
     if (group.length === 1) {
       chosen.push(group[0]!);
       continue;
     }
-    const defaultOption = group.find((l) => l.isDefaultOption !== false);
-    if (!defaultOption) {
-      chosen.push(group[0]!);
+    const defaultOption = group.find((l) => l.isDefaultOption !== false) ?? group[0]!;
+    if (!group.some((l) => l.isDefaultOption !== false)) {
       warnings.push(
         `BOM марки «${brandTitle}»: у позиции «${key}» не отмечен основной вариант — в прогноз взят первый.`,
       );
-      continue;
     }
-    // Фаза 3: если основного варианта нет на складе (сток=0), а у запасного есть — в прогноз
-    // подставляется запасной с наибольшим остатком (собираем из того, что реально есть).
-    // Основной со стоком (или отсутствие stock-мапы) → берётся основной, поведение как раньше.
+    const backups = group
+      .filter((l) => l !== defaultOption)
+      .sort((a, b) => stockOf(b.compId) - stockOf(a.compId));
+    positionGroups.push({ key, ordered: [defaultOption, ...backups] });
+    // Плоский вид кита (`parts`) для легаси-потребителей (дефицит-рекомендации, shortage-тексты):
+    // Фаза 3 — если основного нет на складе (сток=0), а у запасного есть, показываем запасной
+    // с наибольшим остатком + операторская нота. Основной со стоком (или без stock-мапы) — основной.
     if (stockByNomenclatureId && stockOf(defaultOption.compId) <= 0) {
-      let substitute: T | null = null;
-      let substituteStock = 0;
-      for (const opt of group) {
-        if (opt === defaultOption) continue;
-        const s = stockOf(opt.compId);
-        if (s > substituteStock) {
-          substituteStock = s;
-          substitute = opt;
-        }
-      }
+      const substitute = backups.find((opt) => stockOf(opt.compId) > 0) ?? null;
       if (substitute) {
         chosen.push(substitute);
         warnings.push(
           `BOM марки «${brandTitle}»: позиция «${key}» — основной вариант «${defaultOption.partLabel}» ` +
-            `отсутствует на складе, в прогноз подставлен запасной «${substitute.partLabel}» (${substituteStock} шт.).`,
+            `отсутствует на складе, в прогноз подставлен запасной «${substitute.partLabel}» (${stockOf(substitute.compId)} шт.).`,
         );
         continue;
       }
     }
     chosen.push(defaultOption);
   }
-  return chosen;
+  return { chosen, positionGroups };
 }
 
 export function buildAssemblyForecastKits(input: {
@@ -577,7 +578,12 @@ export function buildAssemblyForecastKits(input: {
       // несколько взаимозаменяемых деталей, но собирают из ОДНОЙ — основной (isDefaultOption).
       // В прогноз попадает только основной вариант; иначе спрос множился бы по всем вариантам.
       // Легаси-строки (positionKey=null) — позиции-одиночки, берутся как есть → поведение не меняется.
-      const kitLines = collapsePositionsToDefaultOption(filtered, brandTitle, warnings, input.stockByNomenclatureId);
+      const { chosen: kitLines, positionGroups } = collapsePositionsToDefaultOption(
+        filtered,
+        brandTitle,
+        warnings,
+        input.stockByNomenclatureId,
+      );
       const parts = kitLines.map((line) => ({
         partId: line.compId,
         nomenclatureId: line.compId,
@@ -586,11 +592,24 @@ export function buildAssemblyForecastKits(input: {
         partLabel: line.partLabel,
       }));
       if (parts.length === 0) continue;
+      // Фаза 3b: позиции с вариантами едут в кит целиком — симуляция пулит варианты
+      // (основной, пока хватает, затем запасные) и адаптивно меняет их внутри горизонта.
+      const positions = positionGroups.map((g) => ({
+        positionKey: g.key,
+        role: g.ordered[0]!.role,
+        options: g.ordered.map((line) => ({
+          partId: line.compId,
+          nomenclatureId: line.compId,
+          qtyPerEngine: line.qtyPerEngine,
+          partLabel: line.partLabel,
+        })),
+      }));
       const displayBrandLabel = assemblyForecastBrandLabelForVariant(brandTitle, groupKey, technicalGroupKeys);
       kits.push({
         brandId: groupKey ? `${engineBrandId}::${groupKey}` : engineBrandId,
         brandLabel: displayBrandLabel,
         parts,
+        ...(positions.length > 0 ? { positions } : {}),
       });
     }
   }

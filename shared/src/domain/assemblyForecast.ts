@@ -14,10 +14,38 @@ export type AssemblyKitPartReq = {
   partLabel: string;
 };
 
+/** Фаза 3b: один взаимозаменяемый вариант позиции BOM. */
+export type AssemblyKitPositionOption = {
+  partId: string;
+  nomenclatureId: string;
+  qtyPerEngine: number;
+  partLabel: string;
+};
+
+/**
+ * Фаза 3b: позиция BOM с ≥2 взаимозаменяемыми вариантами. Симуляция вправе на каждый
+ * двигатель выбирать вариант по остатку (основной первым, затем запасные) — это даёт
+ * пулинг («часть двигателей из основного, часть из запасного») и адаптивную смену
+ * варианта по мере расхода стока внутри горизонта.
+ */
+export type AssemblyKitPosition = {
+  positionKey: string;
+  role: AssemblyComponentRole;
+  /** Порядок предпочтения: основной вариант первым, затем запасные (по убыванию остатка на старте отчёта). */
+  options: AssemblyKitPositionOption[];
+};
+
 export type AssemblyEngineBrandKit = {
   brandId: string;
   brandLabel: string;
   parts: AssemblyKitPartReq[];
+  /**
+   * Фаза 3b: позиции с вариантами. `parts` остаётся плоским видом (один выбранный вариант
+   * на позицию) для легаси-потребителей: сводки дефицита, shortage-тексты, номинальные
+   * потребности горизонта. Симуляция при наличии `positions` потребляет позиции пулингом;
+   * без поля поведение прежнее (по `parts`).
+   */
+  positions?: AssemblyKitPosition[];
 };
 
 export type AssemblyForecastIncomingLine = {
@@ -253,13 +281,6 @@ function applyIncomingToWarehouseBins(
   }
 }
 
-function getAvailableAt(state: MutableWarehouseState, nomenclatureId: string, warehouseId: string): number {
-  const rows = state.get(nomenclatureId);
-  if (!rows) return 0;
-  const row = rows.find((r) => r.warehouseId === warehouseId);
-  return row ? Math.max(0, Math.floor(row.qty)) : 0;
-}
-
 function takeFromWarehouse(state: MutableWarehouseState, nomenclatureId: string, warehouseId: string, take: number) {
   if (take <= 0) return;
   const rows = state.get(nomenclatureId);
@@ -269,82 +290,19 @@ function takeFromWarehouse(state: MutableWarehouseState, nomenclatureId: string,
   row.qty = Math.max(0, Math.floor(row.qty) - take);
 }
 
-function collectWarehouseIdsForNomenclatures(state: MutableWarehouseState, nomenclatureIds: string[]): string[] {
-  const ids = new Set<string>();
-  for (const nid of nomenclatureIds) {
-    for (const r of state.get(nid) ?? []) {
-      if (r.qty > 0) ids.add(r.warehouseId);
-    }
-  }
-  return Array.from(ids);
-}
-
-function warehouseSortKey(state: MutableWarehouseState, warehouseId: string, sampleNomenclatureIds: string[]): string {
-  for (const nid of sampleNomenclatureIds) {
-    const rows = state.get(nid) ?? [];
-    const row = rows.find((r) => r.warehouseId === warehouseId);
-    if (row) return row.warehouseLabel;
-  }
-  return warehouseId;
-}
-
 function isPlannedWarehouseId(id: string): boolean {
   return id === PLANNED_INCOMING_WAREHOUSE_ID;
 }
 
 /**
- * Списание по складам: сначала один склад на весь комплект, если возможно; иначе — по позициям, физические склады раньше «плана прихода».
+ * Фаза 3b: зеркалит в warehouse-bins фактическое списание по номенклатуре (тоталы из
+ * пулинг-`consumeKit`): физические склады раньше «плана прихода», внутри — от большего остатка.
  */
-function allocateKitConsumptionFromBins(
-  state: MutableWarehouseState,
-  kit: AssemblyEngineBrandKit,
-  engines: number,
-): Map<string, Map<string, number>> | null {
-  if (engines <= 0) return null;
-  const needs = kit.parts
-    .filter((p) => p.qtyPerEngine > 0)
-    .map((p) => ({
-      nomenclatureId: p.nomenclatureId,
-      partLabel: p.partLabel,
-      role: p.role,
-      need: engines * Math.max(0, Math.floor(p.qtyPerEngine)),
-    }))
-    .filter((x) => x.need > 0);
-  if (needs.length === 0) return null;
-
-  const sampleIds = needs.map((n) => n.nomenclatureId);
-  const candidateWh = collectWarehouseIdsForNomenclatures(state, sampleIds);
-  const sortedWh = [...candidateWh].sort((a, b) =>
-    warehouseSortKey(state, a, sampleIds).localeCompare(warehouseSortKey(state, b, sampleIds), 'ru'),
-  );
-
-  for (const wid of sortedWh) {
-    let ok = true;
-    for (const n of needs) {
-      if (getAvailableAt(state, n.nomenclatureId, wid) < n.need) {
-        ok = false;
-        break;
-      }
-    }
-    if (!ok) continue;
-    const out = new Map<string, Map<string, number>>();
-    for (const n of needs) {
-      const rows = state.get(n.nomenclatureId) ?? [];
-      const row = rows.find((r) => r.warehouseId === wid);
-      const label = row?.warehouseLabel ?? 'Склад';
-      takeFromWarehouse(state, n.nomenclatureId, wid, n.need);
-      const m = out.get(n.nomenclatureId) ?? new Map<string, number>();
-      m.set(label, n.need);
-      out.set(n.nomenclatureId, m);
-    }
-    return out;
-  }
-
-  const out = new Map<string, Map<string, number>>();
-  const orderedNeeds = [...needs].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
-  for (const n of orderedNeeds) {
-    let left = n.need;
-    const rows = [...(state.get(n.nomenclatureId) ?? [])].filter((r) => r.qty > 0);
+function takeFromBinsByTotals(state: MutableWarehouseState, totals: ReadonlyMap<string, number>) {
+  for (const [nomenclatureId, qty] of totals) {
+    let left = Math.max(0, Math.floor(qty));
+    if (left <= 0) continue;
+    const rows = [...(state.get(nomenclatureId) ?? [])].filter((r) => r.qty > 0);
     rows.sort((a, b) => {
       const pa = isPlannedWarehouseId(a.warehouseId) ? 1 : 0;
       const pb = isPlannedWarehouseId(b.warehouseId) ? 1 : 0;
@@ -357,14 +315,10 @@ function allocateKitConsumptionFromBins(
       const avail = Math.max(0, Math.floor(row.qty));
       if (avail <= 0) continue;
       const t = Math.min(left, avail);
-      takeFromWarehouse(state, n.nomenclatureId, row.warehouseId, t);
-      const m = out.get(n.nomenclatureId) ?? new Map<string, number>();
-      m.set(row.warehouseLabel, (m.get(row.warehouseLabel) ?? 0) + t);
-      out.set(n.nomenclatureId, m);
+      takeFromWarehouse(state, nomenclatureId, row.warehouseId, t);
       left -= t;
     }
   }
-  return out;
 }
 
 function applyIncomingForDay(stock: Map<string, number>, dayOffset: number, lines: AssemblyForecastIncomingLine[]) {
@@ -378,27 +332,102 @@ function applyIncomingForDay(stock: Map<string, number>, dayOffset: number, line
   }
 }
 
+/**
+ * Фаза 3b: единица потребления кита. Позиция-одиночка = один вариант; позиция с
+ * взаимозаменяемыми вариантами = несколько option'ов в порядке предпочтения.
+ * Инвариант: options не пуст; options[0] — представитель для легаси-меток/номинала.
+ */
+type KitConsumptionUnit = {
+  role: AssemblyComponentRole;
+  options: AssemblyKitPositionOption[];
+  /** true — позиция с ≥2 вариантами (для операторских помет «запасной вариант»). */
+  pooled: boolean;
+};
+
+/**
+ * Раскладывает кит на единицы потребления. Без `positions` — по одной единице на part
+ * (легаси-поведение). С `positions` — части, чей partId входит в варианты какой-либо
+ * позиции, замещаются позицией целиком (один юнит на позицию, без двойного счёта).
+ */
+function unitizeKit(kit: AssemblyEngineBrandKit): KitConsumptionUnit[] {
+  const positions = (kit.positions ?? []).filter((pos) => pos.options.length > 0);
+  const partToUnit = (p: AssemblyKitPartReq): KitConsumptionUnit => ({
+    role: p.role,
+    pooled: false,
+    options: [{ partId: p.partId, nomenclatureId: p.nomenclatureId, qtyPerEngine: p.qtyPerEngine, partLabel: p.partLabel }],
+  });
+  if (positions.length === 0) return kit.parts.map(partToUnit);
+  const optionPartIds = new Set<string>();
+  for (const pos of positions) for (const o of pos.options) optionPartIds.add(o.partId);
+  const units: KitConsumptionUnit[] = kit.parts.filter((p) => !optionPartIds.has(p.partId)).map(partToUnit);
+  for (const pos of positions) {
+    units.push({ role: pos.role, pooled: pos.options.length > 1, options: pos.options });
+  }
+  return units;
+}
+
+/** Сколько двигателей закрывает единица потребления пулингом по всем вариантам. */
+function unitCapacity(stock: Map<string, number>, unit: KitConsumptionUnit): number {
+  let cap = 0;
+  let hasPositiveQty = false;
+  for (const o of unit.options) {
+    const q = Math.max(0, Math.floor(o.qtyPerEngine));
+    if (q <= 0) continue;
+    hasPositiveQty = true;
+    const have = Math.max(0, Math.floor(stock.get(o.nomenclatureId) ?? 0));
+    cap += Math.floor(have / q);
+  }
+  return hasPositiveQty ? cap : Number.POSITIVE_INFINITY;
+}
+
 function maxEnginesForKit(stock: Map<string, number>, kit: AssemblyEngineBrandKit): number {
   let max = Number.POSITIVE_INFINITY;
-  for (const p of kit.parts) {
-    const q = Math.max(0, Math.floor(p.qtyPerEngine));
-    if (q <= 0) continue;
-    const have = stock.get(p.nomenclatureId) ?? 0;
-    max = Math.min(max, Math.floor(have / q));
+  for (const unit of unitizeKit(kit)) {
+    max = Math.min(max, unitCapacity(stock, unit));
   }
   if (!Number.isFinite(max) || max < 0) return 0;
   return max;
 }
 
-function consumeKit(stock: Map<string, number>, kit: AssemblyEngineBrandKit, engines: number) {
-  if (engines <= 0) return;
-  for (const p of kit.parts) {
-    const q = Math.max(0, Math.floor(p.qtyPerEngine));
-    if (q <= 0) continue;
-    const id = p.nomenclatureId;
-    const prev = stock.get(id) ?? 0;
-    stock.set(id, Math.max(0, prev - engines * q));
+/**
+ * Списание комплекта на `engines` двигателей с пулингом вариантов позиции: сначала
+ * основной вариант (пока хватает), затем запасные в порядке предпочтения. Недобор
+ * (стока не хватило по всем вариантам) номинально списывается с основного (кламп 0) —
+ * как раньше для плоского кита. Возвращает фактическое списание по номенклатуре,
+ * чтобы вызывающий мог зеркалить его в warehouse-bins.
+ */
+function consumeKit(stock: Map<string, number>, kit: AssemblyEngineBrandKit, engines: number): Map<string, number> {
+  const consumedByNomenclature = new Map<string, number>();
+  if (engines <= 0) return consumedByNomenclature;
+  for (const unit of unitizeKit(kit)) {
+    let left = engines;
+    for (const o of unit.options) {
+      if (left <= 0) break;
+      const q = Math.max(0, Math.floor(o.qtyPerEngine));
+      if (q <= 0) continue;
+      const have = Math.max(0, Math.floor(stock.get(o.nomenclatureId) ?? 0));
+      const buildable = Math.min(left, Math.floor(have / q));
+      if (buildable <= 0) continue;
+      const take = buildable * q;
+      stock.set(o.nomenclatureId, have - take);
+      consumedByNomenclature.set(o.nomenclatureId, (consumedByNomenclature.get(o.nomenclatureId) ?? 0) + take);
+      left -= buildable;
+    }
+    if (left > 0) {
+      const def = unit.options[0]!;
+      const q = Math.max(0, Math.floor(def.qtyPerEngine));
+      if (q > 0) {
+        const need = left * q;
+        const prev = Math.max(0, Math.floor(stock.get(def.nomenclatureId) ?? 0));
+        const take = Math.min(prev, need);
+        stock.set(def.nomenclatureId, prev - take);
+        if (take > 0) {
+          consumedByNomenclature.set(def.nomenclatureId, (consumedByNomenclature.get(def.nomenclatureId) ?? 0) + take);
+        }
+      }
+    }
   }
+  return consumedByNomenclature;
 }
 
 function summarizeKit(kit: AssemblyEngineBrandKit, engines: number): string {
@@ -425,25 +454,46 @@ function consumeOneEngineAndFormatSummary(
   stock: Map<string, number>,
   warehouseBins: MutableWarehouseState | null,
   kit: AssemblyEngineBrandKit,
-): { summary: string; takesByPartId: Map<string, PartWarehouseTake[]> } {
+): {
+  summary: string;
+  takesByPartId: Map<string, PartWarehouseTake[]>;
+  /** Фаза 3b: фактически выбранные варианты позиций этого двигателя (для requiredParts/variantKey). */
+  consumedParts: Array<{ partId: string; qty: number; partLabel: string }>;
+} {
   const lines: string[] = [];
   const takesByPartId = new Map<string, PartWarehouseTake[]>();
-  const parts = [...kit.parts]
-    .filter((p) => p.qtyPerEngine > 0)
+  const consumedParts: Array<{ partId: string; qty: number; partLabel: string }> = [];
+  const units = unitizeKit(kit)
+    .filter((u) => u.options.some((o) => o.qtyPerEngine > 0))
     .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
 
-  for (const p of parts) {
-    const need = Math.max(0, Math.floor(p.qtyPerEngine));
+  for (const unit of units) {
+    // Выбор варианта на ЭТОТ двигатель: первый по порядку предпочтения (основной, затем
+    // запасные), чей остаток закрывает qtyPerEngine. Никто не закрывает → основной
+    // (списание в минус с клампом 0 — легаси-семантика недобора).
+    const options = unit.options.filter((o) => o.qtyPerEngine > 0);
+    const chosen =
+      options.find((o) => {
+        const q = Math.max(0, Math.floor(o.qtyPerEngine));
+        const have = Math.max(0, Math.floor(stock.get(o.nomenclatureId) ?? 0));
+        return q > 0 && have >= q;
+      }) ?? options[0];
+    if (!chosen) continue;
+    const need = Math.max(0, Math.floor(chosen.qtyPerEngine));
     if (need <= 0) continue;
-    const displayPart = shortPartLabel(p.partLabel);
-    const beforeTotal = Math.max(0, Math.floor(stock.get(p.nomenclatureId) ?? 0));
+    const isBackupPick = unit.pooled && chosen !== options[0];
+    const displayPart = isBackupPick
+      ? `${shortPartLabel(chosen.partLabel)} — запасной вариант (вместо «${shortPartLabel(options[0]!.partLabel)}»)`
+      : shortPartLabel(chosen.partLabel);
+    const beforeTotal = Math.max(0, Math.floor(stock.get(chosen.nomenclatureId) ?? 0));
     const afterTotal = Math.max(0, beforeTotal - need);
-    stock.set(p.nomenclatureId, afterTotal);
+    stock.set(chosen.nomenclatureId, afterTotal);
+    consumedParts.push({ partId: chosen.partId, qty: need, partLabel: chosen.partLabel });
 
     const takes: PartWarehouseTake[] = [];
     if (warehouseBins) {
       let left = need;
-      const rows = [...(warehouseBins.get(p.nomenclatureId) ?? [])].filter((r) => r.qty > 0);
+      const rows = [...(warehouseBins.get(chosen.nomenclatureId) ?? [])].filter((r) => r.qty > 0);
       rows.sort((a, b) => {
         const pa = isPlannedWarehouseId(a.warehouseId) ? 1 : 0;
         const pb = isPlannedWarehouseId(b.warehouseId) ? 1 : 0;
@@ -457,12 +507,12 @@ function consumeOneEngineAndFormatSummary(
         if (avail <= 0) continue;
         const t = Math.min(left, avail);
         takes.push({ warehouseId: row.warehouseId, warehouseLabel: row.warehouseLabel, takeQty: t, beforeQty: avail });
-        takeFromWarehouse(warehouseBins, p.nomenclatureId, row.warehouseId, t);
+        takeFromWarehouse(warehouseBins, chosen.nomenclatureId, row.warehouseId, t);
         left -= t;
       }
     }
 
-    if (takes.length > 0) takesByPartId.set(p.partId, takes);
+    if (takes.length > 0) takesByPartId.set(chosen.partId, takes);
 
     const allocText =
       takes.length === 0
@@ -474,7 +524,7 @@ function consumeOneEngineAndFormatSummary(
     lines.push(`${displayPart}: ${allocText}`);
   }
 
-  return { summary: lines.join('\n'), takesByPartId };
+  return { summary: lines.join('\n'), takesByPartId, consumedParts };
 }
 
 /**
@@ -620,9 +670,9 @@ function applyVirtualUnmetDayConsumption(
       const m = maxEnginesForKit(stock, kit);
       if (m <= 0) break;
       const run = Math.min(left, m);
-      consumeKit(stock, kit, run);
+      const consumedTotals = consumeKit(stock, kit, run);
       if (warehouseBins) {
-        allocateKitConsumptionFromBins(warehouseBins, kit, run);
+        takeFromBinsByTotals(warehouseBins, consumedTotals);
       }
       left -= run;
     }
@@ -879,16 +929,18 @@ export function computeAssemblyForecast(input: AssemblyForecastComputeInput): As
         }
         const run = Math.max(1, Math.min(remaining, sameBrandBatchSize, maxForCurrent, Math.floor(brandLeft)));
         for (let i = 0; i < run; i++) {
-          const { summary: requiredSummary, takesByPartId } = consumeOneEngineAndFormatSummary(stock, warehouseBins, kit);
+          const { summary: requiredSummary, takesByPartId, consumedParts } = consumeOneEngineAndFormatSummary(stock, warehouseBins, kit);
           // Stage 4: variantKey строится на агрегированном списке (partId/qty) — он стабилен
           // и не зависит от того, как детали реально распределились по складам.
+          // Фаза 3b: список — из ФАКТИЧЕСКИ выбранных вариантов позиций этого двигателя
+          // (пулинг может подставить запасной), чтобы наряд из прогноза нёс реальные детали.
           // Phase 2.4 PR 1 followup: requiredParts для UI/наряда — split по складам из takes,
           // чтобы при создании наряда сборки каждая строка несла свой `sourceWarehouseId`.
-          const aggregatedRequiredParts: AssemblyForecastRequiredPart[] = kit.parts
-            .filter((p) => p.qtyPerEngine > 0)
+          const aggregatedRequiredParts: AssemblyForecastRequiredPart[] = consumedParts
+            .filter((p) => p.qty > 0)
             .map((p) => ({
               partId: p.partId,
-              qty: Math.max(0, Math.floor(p.qtyPerEngine)),
+              qty: Math.max(0, Math.floor(p.qty)),
               partLabel: p.partLabel,
             }));
           const counterKey = `${day}:${kit.brandId}`;

@@ -599,4 +599,178 @@ describe('assemblyForecast', () => {
     expect(d?.coverableByRepairFund).toBe(3);
     expect(d?.toPurchase).toBe(0);
   });
+
+  // Фаза 3b: пулинг взаимозаменяемых вариантов позиции в симуляции.
+  describe('Фаза 3b: пулинг вариантов позиции', () => {
+    /** Кит: позиция «Картер» с основным dflt и запасным bkp + одиночка common. */
+    function pooledKit() {
+      return {
+        brandId: 'b1',
+        brandLabel: 'B1',
+        parts: [
+          { partId: 'dflt', nomenclatureId: 'dflt', qtyPerEngine: 1, role: 'jacket' as const, partLabel: 'Картер основной' },
+          { partId: 'common', nomenclatureId: 'common', qtyPerEngine: 1, role: 'sleeve' as const, partLabel: 'Гильза' },
+        ],
+        positions: [
+          {
+            positionKey: 'pos-karter',
+            role: 'jacket' as const,
+            options: [
+              { partId: 'dflt', nomenclatureId: 'dflt', qtyPerEngine: 1, partLabel: 'Картер основной' },
+              { partId: 'bkp', nomenclatureId: 'bkp', qtyPerEngine: 1, partLabel: 'Картер запасной' },
+            ],
+          },
+        ],
+      };
+    }
+
+    it('«основного мало, но не 0»: день закрывается пулингом основной+запасной', () => {
+      const res = computeAssemblyForecast({
+        horizonDays: 1,
+        targetEnginesPerDay: 5,
+        warehouseId: null,
+        kits: [pooledKit()],
+        stockByNomenclatureId: new Map([
+          ['dflt', 1],
+          ['bkp', 9],
+          ['common', 10],
+        ]),
+        incomingLines: [],
+      });
+      const okRows = res.rows.filter((r) => r.status === 'ok');
+      expect(okRows).toHaveLength(5);
+      // Первый двигатель — из основного, остальные — из запасного.
+      const usedDefault = okRows.filter((r) => r.requiredParts?.some((p) => p.partId === 'dflt'));
+      const usedBackup = okRows.filter((r) => r.requiredParts?.some((p) => p.partId === 'bkp'));
+      expect(usedDefault).toHaveLength(1);
+      expect(usedBackup).toHaveLength(4);
+      // Операторская помета о запасном варианте в расшифровке.
+      expect(usedBackup[0]?.requiredComponentsSummary).toContain('запасной вариант');
+      expect(usedBackup[0]?.requiredComponentsSummary).toContain('Картер основной');
+      // variantKey несёт фактическую деталь → ключи основного и запасного различаются.
+      expect(usedDefault[0]?.variantKey).toContain('dflt:1');
+      expect(usedBackup[0]?.variantKey).toContain('bkp:1');
+    });
+
+    it('адаптивная смена варианта по мере расхода стока в горизонте', () => {
+      const res = computeAssemblyForecast({
+        horizonDays: 4,
+        targetEnginesPerDay: 1,
+        warehouseId: null,
+        kits: [pooledKit()],
+        stockByNomenclatureId: new Map([
+          ['dflt', 2],
+          ['bkp', 2],
+          ['common', 10],
+        ]),
+        incomingLines: [],
+      });
+      const okRows = res.rows.filter((r) => r.status === 'ok');
+      expect(okRows).toHaveLength(4);
+      const partByDay = okRows.map((r) => r.requiredParts?.find((p) => p.partId === 'dflt' || p.partId === 'bkp')?.partId);
+      expect(partByDay).toEqual(['dflt', 'dflt', 'bkp', 'bkp']);
+    });
+
+    it('оба варианта пусты → недобор дня (позиция ограничивает как раньше)', () => {
+      const res = computeAssemblyForecast({
+        horizonDays: 1,
+        targetEnginesPerDay: 3,
+        warehouseId: null,
+        kits: [pooledKit()],
+        stockByNomenclatureId: new Map([
+          ['dflt', 1],
+          ['bkp', 1],
+          ['common', 10],
+        ]),
+        incomingLines: [],
+      });
+      const okRows = res.rows.filter((r) => r.status === 'ok');
+      expect(okRows).toHaveLength(2);
+      expect(res.rows.some((r) => r.status === 'shortage')).toBe(true);
+    });
+
+    it('разные qtyPerEngine вариантов: ёмкость позиции пулится по-вариантно', () => {
+      // Основной: 2 шт/двиг, сток 3 → 1 двигатель; запасной: 1 шт/двиг, сток 2 → 2 двигателя. Итого 3.
+      const kit = {
+        brandId: 'b1',
+        brandLabel: 'B1',
+        parts: [{ partId: 'dflt', nomenclatureId: 'dflt', qtyPerEngine: 2, role: 'jacket' as const, partLabel: 'Основной' }],
+        positions: [
+          {
+            positionKey: 'pos',
+            role: 'jacket' as const,
+            options: [
+              { partId: 'dflt', nomenclatureId: 'dflt', qtyPerEngine: 2, partLabel: 'Основной' },
+              { partId: 'bkp', nomenclatureId: 'bkp', qtyPerEngine: 1, partLabel: 'Запасной' },
+            ],
+          },
+        ],
+      };
+      const res = computeAssemblyForecast({
+        horizonDays: 1,
+        targetEnginesPerDay: 10,
+        warehouseId: null,
+        kits: [kit],
+        stockByNomenclatureId: new Map([
+          ['dflt', 3],
+          ['bkp', 2],
+        ]),
+        incomingLines: [],
+      });
+      const okRows = res.rows.filter((r) => r.status === 'ok');
+      expect(okRows).toHaveLength(3);
+      const qtyTaken = okRows.map((r) => r.requiredParts?.map((p) => `${p.partId}:${p.qty}`).join(','));
+      expect(qtyTaken).toEqual(['dflt:2', 'bkp:1', 'bkp:1']);
+    });
+
+    it('кит без positions ведёт себя как раньше (легаси, без пулинга)', () => {
+      const kit = {
+        brandId: 'b1',
+        brandLabel: 'B1',
+        parts: [
+          { partId: 'dflt', nomenclatureId: 'dflt', qtyPerEngine: 1, role: 'jacket' as const, partLabel: 'Основной' },
+        ],
+      };
+      const res = computeAssemblyForecast({
+        horizonDays: 1,
+        targetEnginesPerDay: 5,
+        warehouseId: null,
+        kits: [kit],
+        stockByNomenclatureId: new Map([
+          ['dflt', 1],
+          ['bkp', 9],
+        ]),
+        incomingLines: [],
+      });
+      const okRows = res.rows.filter((r) => r.status === 'ok');
+      expect(okRows).toHaveLength(1);
+      expect(res.rows.some((r) => r.status === 'shortage')).toBe(true);
+    });
+
+    it('warehouseStockBins: списание запасного идёт из его склада, подпись в расшифровке', () => {
+      const res = computeAssemblyForecast({
+        horizonDays: 1,
+        targetEnginesPerDay: 2,
+        warehouseId: null,
+        kits: [pooledKit()],
+        stockByNomenclatureId: new Map([
+          ['dflt', 1],
+          ['bkp', 5],
+          ['common', 10],
+        ]),
+        warehouseStockBins: new Map([
+          ['dflt', [{ warehouseId: 'w1', warehouseLabel: 'Склад А', qty: 1 }]],
+          ['bkp', [{ warehouseId: 'w2', warehouseLabel: 'Склад Б', qty: 5 }]],
+          ['common', [{ warehouseId: 'w1', warehouseLabel: 'Склад А', qty: 10 }]],
+        ]),
+        incomingLines: [],
+      });
+      const okRows = res.rows.filter((r) => r.status === 'ok');
+      expect(okRows).toHaveLength(2);
+      const backupRow = okRows.find((r) => r.requiredParts?.some((p) => p.partId === 'bkp'));
+      expect(backupRow?.requiredComponentsSummary).toContain('Склад Б');
+      const backupPart = backupRow?.requiredParts?.find((p) => p.partId === 'bkp');
+      expect(backupPart?.sourceWarehouseId).toBe('w2');
+    });
+  });
 });
