@@ -68,7 +68,8 @@ export const L2_SOURCES: L2Source[] = [
   { kind: 'tool', load: () => safeList(() => api().tools.list()), getCode: pickCode },
   { kind: 'tool_property', load: () => safeList(() => api().tools.properties.list()), getCode: pickCode },
   { kind: 'engine_brand', load: () => loadDirectory('engine_brand'), getCode: pickCode },
-  { kind: 'counterparty', load: () => loadDirectory('counterparty'), getCode: pickCode },
+  // Entity type code is 'customer' (see CounterpartiesPage) — 'counterparty' is only the UI kind.
+  { kind: 'counterparty', load: () => loadDirectory('customer'), getCode: pickCode },
   { kind: 'contract', load: () => loadDirectory('contract'), getCode: pickCode },
   { kind: 'service', load: () => loadDirectory('service'), getCode: pickCode },
   { kind: 'product', load: () => loadDirectory('product'), getCode: pickCode },

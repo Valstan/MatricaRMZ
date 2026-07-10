@@ -97,6 +97,59 @@ export function EngineBrandDetailsPage(props: {
   // Отмеченные детали (scope=selected) — множество id деталей марки.
   const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
   const dirtyRef = useRef(false);
+  // Phase 3d: recovery-draft движок пилота. Снимок = только локальные несохранённые поля
+  // (name/description); файлы и связи деталей сохраняются сразу — в черновик не входят.
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+  const DRAFT_CARD_TYPE = 'engine_brand';
+
+  type BrandDraftSnapshot = { name: string; description: string };
+
+  function currentDraftSnapshot(): BrandDraftSnapshot {
+    return { name, description };
+  }
+
+  function buildDraftTitle(s: BrandDraftSnapshot): string {
+    return `Марка двигателя «${s.name.trim() || 'без названия'}»`;
+  }
+
+  async function saveDraftNow(s: BrandDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEdit) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: DRAFT_CARD_TYPE,
+        cardId: props.brandId,
+        kind,
+        title: buildDraftTitle(s),
+        payloadJson: JSON.stringify(s),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    try {
+      await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.brandId });
+    } catch {
+      // best-effort
+    }
+  }
+
+  function cancelPendingDraftSave() {
+    if (draftTimerRef.current != null) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function applyDraftSnapshot(s: Partial<BrandDraftSnapshot>) {
+    setName(String(s.name ?? ''));
+    setDescription(String(s.description ?? ''));
+  }
 
   async function openPropagateModal() {
     setPropagateStatus('');
@@ -268,6 +321,20 @@ export function EngineBrandDetailsPage(props: {
       setAttachments(attrs.attachments ?? []);
       setStatus('');
       dirtyRef.current = false;
+      // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
+      // Один раз на маунт карточки (draftRestoredRef) — явный «Сброс» перезагружает committed.
+      if (props.canEdit && !draftRestoredRef.current) {
+        try {
+          const d = await window.matrica.drafts.get({ cardType: DRAFT_CARD_TYPE, cardId: props.brandId });
+          if (d.ok && d.draft?.payloadJson) {
+            applyDraftSnapshot(JSON.parse(d.draft.payloadJson) as Partial<BrandDraftSnapshot>);
+            dirtyRef.current = true;
+            draftRestoredRef.current = true;
+          }
+        } catch {
+          // битый/отсутствующий черновик → остаёмся на committed-копии
+        }
+      }
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -379,6 +446,10 @@ export function EngineBrandDetailsPage(props: {
     if (!props.canEdit) return;
     await saveName();
     await saveDescription();
+    // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
+    // чтобы он не переписал черновик после очистки.
+    cancelPendingDraftSave();
+    await clearDraft();
     dirtyRef.current = false;
   }
 
@@ -618,6 +689,20 @@ export function EngineBrandDetailsPage(props: {
     { enabled: props.canViewMasterData, intervalMs: 20000 },
   );
 
+  // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
+  useEffect(() => {
+    if (!props.canEdit || !dirtyRef.current) return;
+    const snapshot = currentDraftSnapshot();
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [name, description, props.canEdit]);
+
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
     props.registerCardCloseActions({
@@ -630,6 +715,12 @@ export function EngineBrandDetailsPage(props: {
         dirtyRef.current = false;
       },
       closeWithoutSave: () => {
+        dirtyRef.current = false;
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        cancelPendingDraftSave();
+        if (props.canEdit) await saveDraftNow(currentDraftSnapshot());
         dirtyRef.current = false;
       },
       copyToNew: async () => {
@@ -845,6 +936,20 @@ export function EngineBrandDetailsPage(props: {
           }}
           onSave={() => { void saveAllAndClose(); }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAsDraft={() => {
+            void (async () => {
+              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+              // автосейв, чтобы он не перештамповал kind обратно в recovery.
+              cancelPendingDraftSave();
+              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+              if (!ok) {
+                setStatus('Ошибка: не удалось сохранить черновик');
+                return;
+              }
+              dirtyRef.current = false;
+              props.onClose();
+            })();
+          }}
           onReset={() => {
             void loadBrand().then(() => {
               dirtyRef.current = false;

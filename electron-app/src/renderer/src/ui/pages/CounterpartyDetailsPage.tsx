@@ -41,6 +41,74 @@ export function CounterpartyDetailsPage(props: {
   const [email, setEmail] = useState<string>('');
   const [attachments, setAttachments] = useState<unknown>([]);
   const dirtyRef = useRef(false);
+  // Phase 3d: recovery-draft движок пилота (наряды/заявки/товары). Снимок = локальные
+  // несохранённые поля (файлы вложений грузятся сразу — в черновик едет только их JSON-список).
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+  const DRAFT_CARD_TYPE = 'counterparty';
+
+  type CounterpartyDraftSnapshot = {
+    name: string;
+    shortName: string;
+    inn: string;
+    kpp: string;
+    address: string;
+    phone: string;
+    email: string;
+    attachments: unknown;
+  };
+
+  function currentDraftSnapshot(): CounterpartyDraftSnapshot {
+    return { name, shortName, inn, kpp, address, phone, email, attachments };
+  }
+
+  function buildDraftTitle(s: CounterpartyDraftSnapshot): string {
+    return `Контрагент «${s.name.trim() || 'без названия'}»`;
+  }
+
+  async function saveDraftNow(s: CounterpartyDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEdit) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: DRAFT_CARD_TYPE,
+        cardId: props.counterpartyId,
+        kind,
+        title: buildDraftTitle(s),
+        payloadJson: JSON.stringify(s),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    try {
+      await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.counterpartyId });
+    } catch {
+      // best-effort
+    }
+  }
+
+  function cancelPendingDraftSave() {
+    if (draftTimerRef.current != null) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function applyDraftSnapshot(s: Partial<CounterpartyDraftSnapshot>) {
+    setName(String(s.name ?? ''));
+    setShortName(String(s.shortName ?? ''));
+    setInn(String(s.inn ?? ''));
+    setKpp(String(s.kpp ?? ''));
+    setAddress(String(s.address ?? ''));
+    setPhone(String(s.phone ?? ''));
+    setEmail(String(s.email ?? ''));
+    setAttachments(Array.isArray(s.attachments) ? s.attachments : []);
+  }
 
   async function load() {
     try {
@@ -109,7 +177,39 @@ export function CounterpartyDetailsPage(props: {
     setEmail(String(attrs.email ?? ''));
     setAttachments(attrs.attachments ?? []);
     dirtyRef.current = false;
+    // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
+    // Один раз на маунт карточки (draftRestoredRef) — явный «Сброс» перезагружает committed.
+    // Восстановление здесь, а не в load(): именно этот эффект заполняет поля из entity и
+    // иначе перетёр бы применённый снимок.
+    if (props.canEdit && !draftRestoredRef.current) {
+      void (async () => {
+        try {
+          const d = await window.matrica.drafts.get({ cardType: DRAFT_CARD_TYPE, cardId: props.counterpartyId });
+          if (d.ok && d.draft?.payloadJson) {
+            applyDraftSnapshot(JSON.parse(d.draft.payloadJson) as Partial<CounterpartyDraftSnapshot>);
+            dirtyRef.current = true;
+            draftRestoredRef.current = true;
+          }
+        } catch {
+          // битый/отсутствующий черновик → остаёмся на committed-копии
+        }
+      })();
+    }
   }, [entity?.id, entity?.updatedAt]);
+
+  // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
+  useEffect(() => {
+    if (!props.canEdit || !dirtyRef.current) return;
+    const snapshot = currentDraftSnapshot();
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [name, shortName, inn, kpp, address, phone, email, attachments, props.canEdit]);
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -123,6 +223,12 @@ export function CounterpartyDetailsPage(props: {
         dirtyRef.current = false;
       },
       closeWithoutSave: () => {
+        dirtyRef.current = false;
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        cancelPendingDraftSave();
+        if (props.canEdit) await saveDraftNow(currentDraftSnapshot());
         dirtyRef.current = false;
       },
       copyToNew: async () => {
@@ -140,7 +246,9 @@ export function CounterpartyDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [name, shortName, inn, kpp, address, phone, email, typeId, props.registerCardCloseActions]);
+    // attachments в deps: keepDraft/saveAndClose снимают снимок из замыкания — без него
+    // зарегистрированные actions видели бы устаревший список вложений.
+  }, [name, shortName, inn, kpp, address, phone, email, attachments, typeId, props.registerCardCloseActions]);
 
   async function saveAttr(code: string, value: unknown) {
     if (!props.canEdit) return;
@@ -170,6 +278,10 @@ export function CounterpartyDetailsPage(props: {
       await saveAttr('phone', phone.trim() || null);
       await saveAttr('email', email.trim() || null);
       await saveAttr('attachments', attachments);
+      // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
+      // чтобы он не переписал черновик после очистки.
+      cancelPendingDraftSave();
+      await clearDraft();
     }
     dirtyRef.current = false;
   }
@@ -312,6 +424,20 @@ export function CounterpartyDetailsPage(props: {
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAsDraft={() => {
+            void (async () => {
+              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+              // автосейв, чтобы он не перештамповал kind обратно в recovery.
+              cancelPendingDraftSave();
+              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+              if (!ok) {
+                setStatus('Ошибка: не удалось сохранить черновик');
+                return;
+              }
+              dirtyRef.current = false;
+              props.onClose();
+            })();
+          }}
           onReset={() => {
             void load().then(() => {
               dirtyRef.current = false;
