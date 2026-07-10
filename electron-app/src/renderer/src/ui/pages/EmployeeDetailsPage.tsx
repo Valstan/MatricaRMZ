@@ -270,6 +270,93 @@ export function EmployeeDetailsPage(props: {
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
 
   const dirtyRef = useRef(false);
+  // Phase 3d: recovery-draft движок пилота. Снимок = локальные несохранённые поля карточки
+  // (батч saveAllAndClose, включая кастомные атрибуты); аккаунт/доступ пишутся сразу.
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+  const DRAFT_CARD_TYPE = 'employee';
+
+  type EmployeeDraftSnapshot = {
+    lastName: string;
+    firstName: string;
+    middleName: string;
+    position: string;
+    departmentId: string | null;
+    workshopId: string | null;
+    attachments: unknown;
+    personnelNumber: string;
+    birthDate: string;
+    employmentStatus: string;
+    hireDate: string;
+    terminationDate: string;
+    transfers: Array<{ id: string; kind: string; date: number | null; value: string }>;
+    customDraftValues: Record<string, unknown>;
+  };
+
+  function currentDraftSnapshot(): EmployeeDraftSnapshot {
+    return {
+      lastName, firstName, middleName, position, departmentId, workshopId, attachments,
+      personnelNumber, birthDate, employmentStatus, hireDate, terminationDate, transfers,
+      customDraftValues,
+    };
+  }
+
+  function buildDraftTitle(s: EmployeeDraftSnapshot): string {
+    const fio = [s.lastName, s.firstName, s.middleName].map((x) => x.trim()).filter(Boolean).join(' ');
+    return `Сотрудник «${fio || 'без имени'}»`;
+  }
+
+  async function saveDraftNow(s: EmployeeDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEdit) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: DRAFT_CARD_TYPE,
+        cardId: props.employeeId,
+        kind,
+        title: buildDraftTitle(s),
+        payloadJson: JSON.stringify(s),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    try {
+      await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.employeeId });
+    } catch {
+      // best-effort
+    }
+  }
+
+  function cancelPendingDraftSave() {
+    if (draftTimerRef.current != null) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function applyDraftSnapshot(s: Partial<EmployeeDraftSnapshot>) {
+    setLastName(String(s.lastName ?? ''));
+    setFirstName(String(s.firstName ?? ''));
+    setMiddleName(String(s.middleName ?? ''));
+    setPosition(String(s.position ?? ''));
+    setDepartmentId(typeof s.departmentId === 'string' && s.departmentId.trim() ? s.departmentId : null);
+    setWorkshopId(typeof s.workshopId === 'string' && s.workshopId.trim() ? s.workshopId : null);
+    setAttachments(Array.isArray(s.attachments) ? s.attachments : []);
+    setPersonnelNumber(String(s.personnelNumber ?? ''));
+    setBirthDate(String(s.birthDate ?? ''));
+    setEmploymentStatus(String(s.employmentStatus ?? 'working'));
+    setHireDate(String(s.hireDate ?? ''));
+    setTerminationDate(String(s.terminationDate ?? ''));
+    setTransfers(Array.isArray(s.transfers) ? s.transfers : []);
+    if (s.customDraftValues && typeof s.customDraftValues === 'object') {
+      setCustomDraftValues(s.customDraftValues as Record<string, unknown>);
+    }
+  }
 
   const [departments, setDepartments] = useState<Option[]>([]);
   const [positionOptions, setPositionOptions] = useState<Option[]>([]);
@@ -570,6 +657,10 @@ export function EmployeeDetailsPage(props: {
         setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
         if (r.ok) props.onAccessChanged?.();
       }
+      // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
+      // чтобы он не переписал черновик после очистки.
+      cancelPendingDraftSave();
+      await clearDraft();
     }
     dirtyRef.current = false;
   }
@@ -995,6 +1086,9 @@ export function EmployeeDetailsPage(props: {
 
   useEffect(() => {
     if (!employee) return;
+    // Phase 3d: восстановленный черновик не перетираем повторным сидом (эффект перезапускается
+    // при догрузке customDefs и фоновом reload) — иначе снимок теряется.
+    if (draftRestoredRef.current && dirtyRef.current) return;
     const attrs = employee.attributes ?? {};
     const vLast = attrs.last_name;
     const vFirst = attrs.first_name;
@@ -1031,7 +1125,37 @@ export function EmployeeDetailsPage(props: {
     setCustomDraftValues(draft);
     const hasAnyData = Boolean(vLast || vFirst || vMiddle || vPos || vPersonnel);
     dirtyRef.current = !hasAnyData;
+    // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
+    // Один раз на маунт (draftRestoredRef) — «Сброс» перезагружает committed.
+    if (props.canEdit && !draftRestoredRef.current) {
+      void (async () => {
+        try {
+          const d = await window.matrica.drafts.get({ cardType: DRAFT_CARD_TYPE, cardId: props.employeeId });
+          if (d.ok && d.draft?.payloadJson) {
+            applyDraftSnapshot(JSON.parse(d.draft.payloadJson) as Partial<EmployeeDraftSnapshot>);
+            dirtyRef.current = true;
+            draftRestoredRef.current = true;
+          }
+        } catch {
+          // битый/отсутствующий черновик → остаёмся на committed-копии
+        }
+      })();
+    }
   }, [employee?.id, employee?.attributes, customDefs]);
+
+  // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
+  useEffect(() => {
+    if (!props.canEdit || !dirtyRef.current) return;
+    const snapshot = currentDraftSnapshot();
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [lastName, firstName, middleName, position, departmentId, workshopId, attachments, personnelNumber, birthDate, employmentStatus, hireDate, terminationDate, transfers, customDraftValues, props.canEdit]);
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -1046,6 +1170,12 @@ export function EmployeeDetailsPage(props: {
         dirtyRef.current = false;
       },
       closeWithoutSave: () => {
+        dirtyRef.current = false;
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        cancelPendingDraftSave();
+        if (props.canEdit) await saveDraftNow(currentDraftSnapshot());
         dirtyRef.current = false;
       },
       copyToNew: async () => {
@@ -1066,7 +1196,9 @@ export function EmployeeDetailsPage(props: {
     return () => {
       props.registerCardCloseActions?.(null);
     };
-  }, [lastName, firstName, middleName, position, personnelNumber, departmentId, workshopId, props.registerCardCloseActions, customDefs, customDraftValues]);
+    // Даты/статус/переводы/вложения в deps: keepDraft/saveAndClose снимают снимок из
+    // замыкания — без них зарегистрированные actions видели бы устаревшие значения.
+  }, [lastName, firstName, middleName, position, personnelNumber, departmentId, workshopId, attachments, birthDate, employmentStatus, hireDate, terminationDate, transfers, props.registerCardCloseActions, customDefs, customDraftValues]);
 
   const computedFullName = buildFullName(lastName, firstName, middleName);
   const departmentOptions = departments;
@@ -1389,6 +1521,24 @@ export function EmployeeDetailsPage(props: {
           onSaveAndClose={
             props.canEdit
               ? () => void saveAllAndClose().then(() => props.onClose())
+              : undefined
+          }
+          onSaveAsDraft={
+            props.canEdit
+              ? () => {
+                  void (async () => {
+                    // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                    // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                    cancelPendingDraftSave();
+                    const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                    if (!ok) {
+                      setStatus('Ошибка: не удалось сохранить черновик');
+                      return;
+                    }
+                    dirtyRef.current = false;
+                    props.onClose();
+                  })();
+                }
               : undefined
           }
           onReset={
