@@ -2482,10 +2482,11 @@ export function App() {
     else if (d.cardType === 'service') openService(d.cardId);
     else if (d.cardType === 'counterparty') void openCounterparty(d.cardId);
     else if (d.cardType === 'engine_brand') void openEngineBrand(d.cardId);
+    else if (d.cardType === 'contract') void openContract(d.cardId);
   }
 
   /** Типы карточек, чьи details-страницы умеют открываться из черновика (3d). */
-  const DRAFT_OPENABLE_CARD_TYPES = ['work_order', 'supply_request', 'product', 'service', 'counterparty', 'engine_brand'];
+  const DRAFT_OPENABLE_CARD_TYPES = ['work_order', 'supply_request', 'product', 'service', 'counterparty', 'engine_brand', 'contract'];
 
   async function discardDraft(d: { id: string }) {
     try {
@@ -4471,6 +4472,7 @@ export function App() {
             onOpenService={openService}
             onOpenCounterparty={openCounterparty}
             onOpenEngineBrand={openEngineBrand}
+            onOpenContract={openContract}
           />
         )}
 

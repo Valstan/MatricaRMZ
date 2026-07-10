@@ -872,6 +872,67 @@ export function ContractDetailsPage(props: {
   const [partsExecutionStatus, setPartsExecutionStatus] = useState('');
   const dirtyRef = useRef(false);
   const skipNextEngineAttachIdRef = useRef('');
+  // Phase 3d: recovery-draft движок пилота. Снимок = локальный несохранённый стейт редактора
+  // (sections/executionParts/accountingForm); привязки двигателей и файлы пишутся сразу.
+  const draftTimerRef = useRef<number | null>(null);
+  const draftRestoredRef = useRef(false);
+  const DRAFT_CARD_TYPE = 'contract';
+
+  type ContractDraftSnapshot = {
+    sections: ContractSections | null;
+    executionParts: ContractExecutionPartRow[];
+    accountingForm: ContractAccountingForm;
+  };
+
+  function currentDraftSnapshot(): ContractDraftSnapshot {
+    return { sections, executionParts, accountingForm };
+  }
+
+  function buildDraftTitle(s: ContractDraftSnapshot): string {
+    const number = String(s.sections?.primary.number ?? '').trim();
+    return `Контракт «${number || 'без номера'}»`;
+  }
+
+  async function saveDraftNow(s: ContractDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
+    if (!props.canEdit) return false;
+    try {
+      const r = await window.matrica.drafts.save({
+        cardType: DRAFT_CARD_TYPE,
+        cardId: props.contractId,
+        kind,
+        title: buildDraftTitle(s),
+        payloadJson: JSON.stringify(s),
+        baseUpdatedAt: null,
+      });
+      return Boolean(r?.ok);
+    } catch {
+      // autosave is best-effort — a write failure must never block editing
+      return false;
+    }
+  }
+
+  async function clearDraft() {
+    try {
+      await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.contractId });
+    } catch {
+      // best-effort
+    }
+  }
+
+  function cancelPendingDraftSave() {
+    if (draftTimerRef.current != null) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function applyDraftSnapshot(s: Partial<ContractDraftSnapshot>) {
+    if (s.sections && typeof s.sections === 'object') setSections(s.sections as ContractSections);
+    if (Array.isArray(s.executionParts)) setExecutionParts(s.executionParts as ContractExecutionPartRow[]);
+    if (s.accountingForm && typeof s.accountingForm === 'object') {
+      setAccountingForm({ ...EMPTY_ACCOUNTING_FORM, ...(s.accountingForm as ContractAccountingForm) });
+    }
+  }
 
   const contractTypeId = useMemo(() => entityTypes.find((t) => String(t.code) === 'contract')?.id ?? '', [entityTypes]);
   // Deferred-create: pass the contract type as fallbackTypeId so the first write to a
@@ -1020,7 +1081,39 @@ export function ContractDetailsPage(props: {
       return;
     }
     setAccountingForm(buildAccountingForm(contract.attributes ?? {}));
+    // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
+    // Один раз на маунт (draftRestoredRef) — «Сброс» перезагружает committed. Восстановление
+    // именно здесь: этот эффект — последний, кто заполняет стейт из contract, и иначе
+    // перетёр бы применённый снимок.
+    if (props.canEdit && !draftRestoredRef.current) {
+      void (async () => {
+        try {
+          const d = await window.matrica.drafts.get({ cardType: DRAFT_CARD_TYPE, cardId: props.contractId });
+          if (d.ok && d.draft?.payloadJson) {
+            applyDraftSnapshot(JSON.parse(d.draft.payloadJson) as Partial<ContractDraftSnapshot>);
+            dirtyRef.current = true;
+            draftRestoredRef.current = true;
+          }
+        } catch {
+          // битый/отсутствующий черновик → остаёмся на committed-копии
+        }
+      })();
+    }
   }, [contract?.id, contract?.updatedAt]);
+
+  // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
+  useEffect(() => {
+    if (!props.canEdit || !dirtyRef.current) return;
+    const snapshot = currentDraftSnapshot();
+    const timer = window.setTimeout(() => {
+      void saveDraftNow(snapshot);
+    }, 1500);
+    draftTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (draftTimerRef.current === timer) draftTimerRef.current = null;
+    };
+  }, [sections, executionParts, accountingForm, props.canEdit]);
 
   useLiveDataRefresh(
     async () => {
@@ -1045,6 +1138,12 @@ export function ContractDetailsPage(props: {
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
+        void clearDraft();
+      },
+      keepDraft: async () => {
+        cancelPendingDraftSave();
+        if (props.canEdit) await saveDraftNow(currentDraftSnapshot());
+        dirtyRef.current = false;
       },
       copyToNew: async () => {
         const contractTypeId = entityTypes.find((t) => t.code === 'contract')?.id;
@@ -1057,7 +1156,9 @@ export function ContractDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [sections, executionParts, entityTypes, props.registerCardCloseActions]);
+    // accountingForm в deps: keepDraft/saveAndClose читают его из замыкания — без него
+    // зарегистрированные actions видели бы устаревшие реквизиты ГОЗ.
+  }, [sections, executionParts, accountingForm, entityTypes, props.registerCardCloseActions]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
     if (!props.canEditMasterData) return null;
@@ -1238,6 +1339,10 @@ export function ContractDetailsPage(props: {
     if (props.canEdit) {
       if (sections) await saveSections();
       await saveAccountingFields({ silent: true, reload: false });
+      // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
+      // чтобы он не переписал черновик после очистки.
+      cancelPendingDraftSave();
+      await clearDraft();
     }
     dirtyRef.current = false;
   }
@@ -1432,6 +1537,20 @@ export function ContractDetailsPage(props: {
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
           onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAsDraft={() => {
+            void (async () => {
+              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+              // автосейв, чтобы он не перештамповал kind обратно в recovery.
+              cancelPendingDraftSave();
+              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+              if (!ok) {
+                setStatus('Ошибка: не удалось сохранить черновик');
+                return;
+              }
+              dirtyRef.current = false;
+              props.onClose();
+            })();
+          }}
           onReset={() => {
             void (async () => {
               await loadContract();
