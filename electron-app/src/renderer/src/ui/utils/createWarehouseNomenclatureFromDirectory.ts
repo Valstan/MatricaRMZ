@@ -121,6 +121,80 @@ export function pickWarehouseNomenclatureGroupId(
 }
 
 /**
+ * Deferred-create товаров/услуг: создание номенклатурной строки по пресету для УЖЕ
+ * существующей source-сущности (группа/единица/шаблон резолвятся как в каталоге).
+ * Вызывается из карточки на первом сохранении — «первый save дотягивает весь пресет».
+ */
+export async function createNomenclatureRowForSource(args: {
+  directoryKind: string;
+  createConfig: NomenclatureCreateConfig;
+  displayName: string;
+  sourceId: string | null;
+}): Promise<{ ok: true; nomenclatureId: string } | { ok: false; error: string }> {
+  const directoryKind = String(args.directoryKind ?? '').trim().toLowerCase();
+  const displayName = String(args.displayName ?? '').trim();
+  const createConfig = args.createConfig;
+  const nameForRow = displayName || createConfig.name;
+
+  const lookups = await window.matrica.warehouse.lookupsGet();
+  if (!lookups?.ok) {
+    return { ok: false, error: String(lookups?.error ?? 'не удалось загрузить справочники склада') };
+  }
+  const groups = lookups.lookups?.nomenclatureGroups as WarehouseLookupOption[] | undefined;
+  const groupId =
+    pickWarehouseNomenclatureGroupId(groups, directoryKind) ?? String(groups?.[0]?.id ?? '').trim();
+  const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
+  if (!groupId || !unitId) {
+    return { ok: false, error: 'Не найдены группа номенклатуры или единица измерения по умолчанию (Склад → Номенклатура).' };
+  }
+
+  const templatesRes = await window.matrica.warehouse.nomenclatureTemplatesList();
+  if (!templatesRes?.ok) {
+    return { ok: false, error: String(templatesRes?.error ?? 'не удалось загрузить шаблоны номенклатуры') };
+  }
+  const templates = (templatesRes.rows ?? []).map((row) => ({
+    id: String((row as { id?: string }).id ?? ''),
+    code: String((row as { code?: string }).code ?? '').trim().toLowerCase(),
+    itemTypeCode: String((row as { itemTypeCode?: string }).itemTypeCode ?? '').trim().toLowerCase(),
+    directoryKind: String((row as { directoryKind?: string }).directoryKind ?? '').trim().toLowerCase(),
+  }));
+  const itemTypeCode = String(createConfig.itemType ?? '').trim().toLowerCase() as NomenclatureItemType;
+  const defaultCode = `default_${directoryKind}`;
+  const bestTemplate =
+    templates.find((t) => t.id && t.code === defaultCode) ??
+    templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && t.directoryKind === directoryKind) ??
+    templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && !t.directoryKind) ??
+    templates.find((t) => t.id && !t.itemTypeCode && (t.directoryKind === directoryKind || !t.directoryKind)) ??
+    null;
+  if (!bestTemplate?.id) {
+    return {
+      ok: false,
+      error: `Не найден шаблон номенклатуры для типа «${itemTypeCode}» и источника «${directoryKind}». Настройте шаблон в «Склад → Номенклатура».`,
+    };
+  }
+
+  const created = await window.matrica.warehouse.nomenclatureUpsert({
+    code: buildNomenclatureCode(createConfig.codePrefix),
+    name: nameForRow,
+    itemType: createConfig.itemType,
+    category: createConfig.category,
+    directoryKind: String(args.directoryKind ?? '').trim(),
+    directoryRefId: args.sourceId,
+    groupId,
+    unitId,
+    specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
+    isActive: true,
+  });
+  if (!created?.ok) {
+    return { ok: false, error: String(created.error ?? 'не удалось создать позицию номенклатуры') };
+  }
+  if (!created.id) {
+    return { ok: false, error: 'Не удалось создать позицию номенклатуры' };
+  }
+  return { ok: true, nomenclatureId: String(created.id) };
+}
+
+/**
  * Создание позиции как в каталоге номенклатуры: деталь через warehouse.nomenclatureDirectoryPartCreate, остальное — источник + warehouse.nomenclatureUpsert.
  */
 export async function createNomenclatureLineFromPreset(args: {
@@ -184,60 +258,10 @@ export async function createNomenclatureLineFromPreset(args: {
   // else (assembly/engine/component/material/consumable) — sourceId остаётся null,
   // позиция номенклатуры создаётся без directoryRefId.
 
-  const lookups = await window.matrica.warehouse.lookupsGet();
-  if (!lookups?.ok) {
-    return { ok: false, error: String(lookups?.error ?? 'не удалось загрузить справочники склада') };
-  }
-  const groups = lookups.lookups?.nomenclatureGroups as WarehouseLookupOption[] | undefined;
-  const groupId =
-    pickWarehouseNomenclatureGroupId(groups, directoryKind) ?? String(groups?.[0]?.id ?? '').trim();
-  const unitId = String(lookups.lookups?.units?.[0]?.id ?? '').trim();
-  if (!groupId || !unitId) {
-    return { ok: false, error: 'Не найдены группа номенклатуры или единица измерения по умолчанию (Склад → Номенклатура).' };
-  }
-
-  const templatesRes = await window.matrica.warehouse.nomenclatureTemplatesList();
-  if (!templatesRes?.ok) {
-    return { ok: false, error: String(templatesRes?.error ?? 'не удалось загрузить шаблоны номенклатуры') };
-  }
-  const templates = (templatesRes.rows ?? []).map((row) => ({
-    id: String((row as { id?: string }).id ?? ''),
-    code: String((row as { code?: string }).code ?? '').trim().toLowerCase(),
-    itemTypeCode: String((row as { itemTypeCode?: string }).itemTypeCode ?? '').trim().toLowerCase(),
-    directoryKind: String((row as { directoryKind?: string }).directoryKind ?? '').trim().toLowerCase(),
-  }));
-  const itemTypeCode = String(createConfig.itemType ?? '').trim().toLowerCase() as NomenclatureItemType;
-  const defaultCode = `default_${directoryKind}`;
-  const bestTemplate =
-    templates.find((t) => t.id && t.code === defaultCode) ??
-    templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && t.directoryKind === directoryKind) ??
-    templates.find((t) => t.id && t.itemTypeCode === itemTypeCode && !t.directoryKind) ??
-    templates.find((t) => t.id && !t.itemTypeCode && (t.directoryKind === directoryKind || !t.directoryKind)) ??
-    null;
-  if (!bestTemplate?.id) {
-    return {
-      ok: false,
-      error: `Не найден шаблон номенклатуры для типа «${itemTypeCode}» и источника «${directoryKind}». Настройте шаблон в «Склад → Номенклатура».`,
-    };
-  }
-
-  const created = await window.matrica.warehouse.nomenclatureUpsert({
-    code: buildNomenclatureCode(createConfig.codePrefix),
-    name: nameForRow,
-    itemType: createConfig.itemType,
-    category: createConfig.category,
-    directoryKind: String(args.directoryKind ?? '').trim(),
-    directoryRefId: sourceId,
-    groupId,
-    unitId,
-    specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
-    isActive: true,
+  return createNomenclatureRowForSource({
+    directoryKind: args.directoryKind,
+    createConfig,
+    displayName: nameForRow,
+    sourceId,
   });
-  if (!created?.ok) {
-    return { ok: false, error: String(created.error ?? 'не удалось создать позицию номенклатуры') };
-  }
-  if (!created.id) {
-    return { ok: false, error: 'Не удалось создать позицию номенклатуры' };
-  }
-  return { ok: true, nomenclatureId: String(created.id) };
 }

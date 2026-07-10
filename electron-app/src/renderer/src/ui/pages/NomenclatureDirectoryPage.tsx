@@ -35,6 +35,12 @@ export function NomenclatureDirectoryPage(props: {
   createButtonText: string;
   createConfig: CreateConfig;
   secondaryAction?: React.ReactNode;
+  /**
+   * Deferred-create (товары/услуги): кнопка создания НЕ пишет в базу, а открывает пустую
+   * карточку с клиентским UUID — сущность и номенклатурная строка материализуются первым
+   * «Сохранить» в карточке. Без пропа — легаси-путь (немедленное создание по пресету).
+   */
+  onCreateDeferred?: () => void;
 }) {
   const [rows, setRows] = useState<WarehouseNomenclatureListItem[]>([]);
   const [servicePrices, setServicePrices] = useState<Record<string, number | null>>({});
@@ -550,7 +556,9 @@ export function NomenclatureDirectoryPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        {props.canCreate ? (
+        {props.canCreate && props.onCreateDeferred ? (
+          <Button onClick={() => props.onCreateDeferred?.()}>{props.createButtonText}</Button>
+        ) : props.canCreate ? (
           <Button
             onClick={async () => {
               const r = await createNomenclatureLineFromPreset({
