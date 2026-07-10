@@ -2480,10 +2480,12 @@ export function App() {
     else if (d.cardType === 'supply_request') void openRequest(d.cardId);
     else if (d.cardType === 'product') openProduct(d.cardId);
     else if (d.cardType === 'service') openService(d.cardId);
+    else if (d.cardType === 'counterparty') void openCounterparty(d.cardId);
+    else if (d.cardType === 'engine_brand') void openEngineBrand(d.cardId);
   }
 
   /** Типы карточек, чьи details-страницы умеют открываться из черновика (3d). */
-  const DRAFT_OPENABLE_CARD_TYPES = ['work_order', 'supply_request', 'product', 'service'];
+  const DRAFT_OPENABLE_CARD_TYPES = ['work_order', 'supply_request', 'product', 'service', 'counterparty', 'engine_brand'];
 
   async function discardDraft(d: { id: string }) {
     try {
@@ -4461,7 +4463,16 @@ export function App() {
           <EmptyCardsCleanupPage canEdit={caps.canEditMasterData} />
         )}
 
-        {t === 'drafts' && <DraftsPage onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={openRequest} onOpenProduct={openProduct} onOpenService={openService} />}
+        {t === 'drafts' && (
+          <DraftsPage
+            onOpenWorkOrder={openWorkOrder}
+            onOpenSupplyRequest={openRequest}
+            onOpenProduct={openProduct}
+            onOpenService={openService}
+            onOpenCounterparty={openCounterparty}
+            onOpenEngineBrand={openEngineBrand}
+          />
+        )}
 
         {t === 'engine_assembly_bom' && (
           <EngineAssemblyBomPage

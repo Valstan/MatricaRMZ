@@ -22,6 +22,8 @@ const CARD_TYPE_LABELS: Record<string, string> = {
   supply_request: 'Заявка в снабжение',
   product: 'Товар',
   service: 'Услуга',
+  counterparty: 'Контрагент',
+  engine_brand: 'Марка двигателя',
 };
 
 function cardTypeLabel(cardType: string): string {
@@ -42,6 +44,8 @@ export function DraftsPage(props: {
   onOpenSupplyRequest: (id: string) => void | Promise<void>;
   onOpenProduct: (id: string) => void | Promise<void>;
   onOpenService: (id: string) => void | Promise<void>;
+  onOpenCounterparty: (id: string) => void | Promise<void>;
+  onOpenEngineBrand: (id: string) => void | Promise<void>;
 }) {
   const { confirm } = useConfirm();
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
@@ -76,6 +80,8 @@ export function DraftsPage(props: {
       else if (d.cardType === 'supply_request') void props.onOpenSupplyRequest(d.cardId);
       else if (d.cardType === 'product') void props.onOpenProduct(d.cardId);
       else if (d.cardType === 'service') void props.onOpenService(d.cardId);
+      else if (d.cardType === 'counterparty') void props.onOpenCounterparty(d.cardId);
+      else if (d.cardType === 'engine_brand') void props.onOpenEngineBrand(d.cardId);
     },
     [props],
   );
