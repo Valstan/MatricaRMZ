@@ -4,48 +4,48 @@
 >
 > Если работы в потоке нет — `Status: IDLE` и пустые секции. Команда `/start` это увидит и не будет ничего навязывать.
 
-**Status:** IDLE (релиз **v2026.709.1629** выпущен и раскатан на прод; активной нитки нет)
-**Updated:** 2026-07-09 (Claude Opus 4.8, машина `PC40`)
-**Branch:** `main` (= origin/main, `d18c36aa`). Дерево чистое, stash пуст, открытых PR нет, локальная только `main`.
-**Last released version:** **v2026.709.1629 на проде** — `/health` = 2026.709.1629, `/updates/status.latest` = 2026.709.1629 (infoHash есть, `lastError: null`), blockmap 200 (delta ок), оба сервиса active. Ship-миграция **0074** применена на проде (`db:migrate`), lockfile не менялся (install пропущен).
+**Status:** IDLE (релиз **v2026.710.244** выпущен и раскатан на прод; активной нитки нет)
+**Updated:** 2026-07-10 (Claude Fable 5, машина `rmz4val`)
+**Branch:** `main` (= origin/main). Дерево чистое, stash пуст, открытых PR нет, локальная только `main`.
+**Last released version:** **v2026.710.244 на проде** — `/health` = 2026.710.244, `/updates/status.latest` = 2026.710.244 (`lastError: null`, infoHash заполнен с первого рестарта), blockmap 200, оба сервиса active. Миграций не было; lockfile не менялся (install на проде пропущен).
 
 ## Текущая нитка
 
-_n/a_ — сессия 2026-07-09 отгрузила фичу **«редактируемые акты»** релизом **v2026.709.1629** (4 PR #141–144):
-- **#141** — резиновые поля ФИО/должность + `OverflowTooltipInput` (полупрозрачная плашка полного текста при переполнении).
-- **#142** — динамическая «Комиссия в составе» (`kind:'commission'`, add/remove, редакт. должность+роль; «Заполнить по цеху» переписана на список).
-- **#143** — редактируемое «Состояние при поступлении» (`kind:'condition_list'`) + гриф «Утверждаю» (`kind:'approver'`, пресеты = SSOT наряда + акт-дефолт `quality`) в правом верхнем углу обоих актов; нижняя подпись `approved_by` убрана.
-- **#144** — шаблоны актов по маркам: таблица `engine_act_templates` (миграция 0074), сервис/REST/IPC зеркалят `workOrderTemplates`; `applyEngineActTemplate` + UI-бар «Шаблон акта марки».
-
-Ключевое: ленивая детерминированная миграция `migrateEngineInventoryAnswers` (стабильные derived-id → воспроизводимая снапшот-подпись; праймит `lastSavedAnswersRef` → без авто-сейва на загрузке) + ридеры печати с **legacy-fallback** (старые снапшоты печатаются как прежде).
+_n/a_ — сессия 2026-07-09/10 «отработка хвостов» закрыла 6 хвостов и выпустила релиз:
+- **#147** — тише клиент↔сервер, остаток целиком: pulse-консолидация (`pollWhenVisible` на общем 15с-pulse) + visibility-гейт всех визуальных поллов (App/Auth/Chat/History).
+- **#148** — план конструктора UI ([`plans/ui-builder-modules.md`](plans/ui-builder-modules.md)) + вердикт brain'у (пилот уровня 1 без нейронки — отдельной ниткой).
+- **#149** — V2 Фаза 4: drag-перестановка колонок + session-restore карточек (вкладки/фокус/сплит переживают перезапуск).
+- **#150** — прогноз: нота «Открытые наряды на сборку из прежних прогнозов» (dayOffset-хвост, защита от дублей).
+- **#151** — черновики Phase 3d для товаров/услуг (`SimpleMasterdataDetailsPage`, EAV-редактор).
+- Сверка печати наряда (хвост 1722) — закрыта живой CDP-сверкой, патч не нужен.
+- **#153 + релиз v2026.710.244**: «Трезубец» → **«Резиновый»** (слово убрано из названий полностью); **v2 — интерфейс по умолчанию у всех клиентов**; явный возврат на старый запоминается per-user (sanitize читает как v1 только литеральный сохранённый `'v1'`) и переживает обновления.
 
 ## Следующий шаг
 
-**Активной нитки нет — ждём спот-чек владельца на живых клиентах** после автообновления до v2026.709.1629, затем при желании — из бэклога ([`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md)). Спот-чек: комиссия (add/remove/должности), состояние (add/remove/rename), гриф (пресеты), резиновые поля+подсказка, шаблон марки (сохранить→применить). Открытые опциональные кандидаты (сверено с PENDING, не отгружено):
-- 🟢 **Паритет web-admin для редактируемых актов** (PENDING) — редакторы комиссии/состояния/грифа и шаблоны сделаны только в electron-app; web-admin-панель игнорит новые `kind` безопасно, но не редактирует. Печати актов там нет вовсе.
-- 🟢 **Фотофиксация в акте приёмки** (Incoming Inspection): фото серийника/повреждений к блоку «Состояние при поступлении» (есть вкладка «Фото и документы»).
-- 🟢 **Фаза 3b прогноза** — план [`plans/engine-spec-forecast-phase3.md`](plans/engine-spec-forecast-phase3.md).
+**Активной нитки нет.** Первоочередное — **обкатка дефолта «Резиновый»** (см. «Не забыть» §1). Дальше — по желанию из бэклога ([`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md)), сверено — не отгружено:
+- 🟢 **Пилот конструктора UI** — план готов ([`plans/ui-builder-modules.md`](plans/ui-builder-modules.md)); перед стартом ответить на 3 вопроса плана §Открытые вопросы (кто автор экранов / первый кейс / per-user vs общезаводские).
+- 🟡 **Черновики 3d — остаток:** контрагенты/договоры/марки/двигатели/сотрудники — паттерн отработан (наряды→заявки→товары/услуги), портируется по странице за заход.
+- 🟢 **Фаза 3b прогноза** (после обкатки инкр.1) — план [`plans/engine-spec-forecast-phase3.md`](plans/engine-spec-forecast-phase3.md).
+- 🟡 **Товары/услуги deferred-create** (номенклатурный путь) + 🟢 backfill легаси `variantGroup`.
 - 🔴 **Решение владельца:** forward-proxy VPS для AI (Anthropic режет РФ-IP) — PENDING §Блокер.
 
 ## Контекст
 
-- План (завершён): [`plans/_archive/editable-engine-acts.md`](plans/_archive/editable-engine-acts.md). Done-строка — [`COMPLETED.md`](COMPLETED.md) §Акты. Эффект — [`zavod/PROGRAM_EFFECTS.md`](zavod/PROGRAM_EFFECTS.md).
-- Коммиты: `57c32c95`(#141) · `3d0027fa`(#142) · `0c0f762f`(#143) · `d8854d58`(#144) · `d18c36aa` release(#145).
-- Прод: **v2026.709.1629**, оба сервиса active. Деплой сессии: `git pull` → build серверных → `db:migrate` (0074) → 3 артефакта в updates (качал локально + scp; blockmap отдельным `gh release download`) → `release:ledger-publish` → рестарт → health/updates-status/blockmap зелёные. **Обратимо** (редеплой прежнего).
-- Ключевые файлы: [`repairChecklist.ts`](../shared/src/domain/repairChecklist.ts) (варианты `commission`/`condition_list`/`approver` + `migrateEngineInventoryAnswers` + ридеры с fallback), [`engineActTemplate.ts`](../shared/src/domain/engineActTemplate.ts) (шаблоны + `applyEngineActTemplate`), [`RepairChecklistPanel.tsx`](../electron-app/src/renderer/src/ui/components/RepairChecklistPanel.tsx) (редакторы + бар шаблонов), [`OverflowTooltipInput.tsx`](../electron-app/src/renderer/src/ui/components/OverflowTooltipInput.tsx), [`engineInventoryPrintHtml.ts`](../electron-app/src/renderer/src/ui/utils/engineInventoryPrintHtml.ts) (гриф/комиссия/состояние с fallback), backend `engineActTemplateService.ts`/`routes/engineActTemplates.ts` + миграция `drizzle/0074_engine_act_templates.sql`.
+- Прод: **v2026.710.244**, оба сервиса active. Деплой: `git pull` (a66415fa) → build серверных пакетов → артефакты **локальный download + scp** (`gh release download` на VPS падал TLS-таймаутами к GitHub CDN — класс граблей M29; sha256 сверен до и после) → `release:ledger-publish 2026.710.244` → рестарт ×1 (status сразу корректен). Миграций нет. Обратимо (редеплой прежнего).
+- Ключевое в релизе: [`uiShellV2.ts`](../shared/src/domain/uiShellV2.ts) (DEFAULT v2; sanitize «только литеральный 'v1' = v1» + 6 юнитов), `App.tsx` (отсутствующая запись prefs → санитизированный дефолт; лейблы «🧩 Интерфейс «Резиновый»» / «↩️ Старый интерфейс»), welcome-запись 2026.710.244 с эпиграфом.
+- Верификация сессии: драйверы в `.verifier-electron/` (gitignored) — `_smoke-rubber-default.mjs` 9/9, `_smoke-quiet-pulse.mjs` 8/8, `_smoke-v2-phase4.mjs`+`4b` 13/13+7/7, `_smoke-masterdata-drafts.mjs` 12/12, `_probe-print-onesheet.mjs` 8/8. Грабли стенда задокументированы в [`machines/rmz4val.md`](machines/rmz4val.md) §CDP (Page.reload валит electron; окно hidden — форсить visibility-override; HMR и lazy-чанки; карточки услуг открывать глобальным поиском).
+- to-brain: `2026-07-09-ui-builder-verdict-plan-then-pilot.md` (вердикт мета-идеи) + `2026-07-10-interval-census-verify-technique.md` (verify-паттерн «перепись таймеров», MAY/low).
 - Открытых PR: нет. Локальных веток с un-pushed коммитами: нет.
-- Верификация: CDP-драйвер редакторов — `.verifier-electron/cdp-acts-editable.mjs` (gitignored, PASS); pure-проверки — `scratchpad/pr2/3/4-check.mjs` + `print-entry.ts` (esbuild-бандл, 16/16).
-- to-brain: писем не добавлял — ключевая находка (verify-by-sample чистой render-функции вместо дорогого live-drive) уже отправлена письмом `2026-07-08-verify-by-rendered-sample-pure-fn.md`; esbuild-приём (бандл renderer-логики для Node, когда tsx нет) — лишь тактическая деталь того же, отдельное письмо было бы дублем.
 
 ## Открытые вопросы для пользователя
 
-- Нет.
+- Перед пилотом конструктора UI: (1) кто автор экранов — только владелец/админ или любой оператор? (2) какой первый реальный кейс собрать? (3) спеки per-user или общезаводские с правами? (план §Открытые вопросы)
 
 ## Не забыть (low-priority)
 
-1. **Спот-чек владельцем на живом клиенте** (после автообновления до v2026.709.1629) — см. «Следующий шаг».
-2. **UI-бар шаблонов PR4 не гонялся живым CDP** (требует рестарта backend+Electron): роут + миграция 0074 проверены (dev+прод), логика apply — 15/15, но save→apply кликами по UI на живом клиенте не драйвил. Проверить при спот-чеке.
-3. Ledger release-token — следующая ротация до ~2026-08-04 (PENDING ⏳); первый релиз после ~2026-08-01 упрётся, минтить новым.
+1. **Обкатка дефолта «Резиновый»** — после автообновления до v2026.710.244 все операторы откроются в новом интерфейсе; первые дни собирать фидбэк/жалобы. Возврат — «↩️ Старый интерфейс» в шапке (выбор запоминается навсегда). Живой UI гонялся CDP — базово ок.
+2. **AV-ложнопозитивы watchdog'а** — поглядывать в «Критические события» (принятый риск unsigned-бинаря).
+3. Ledger release-token — ротация до ~2026-08-04 (PENDING ⏳); первый релиз после ~2026-08-01 упрётся, минтить новым.
 4. Ротация SSH-ключей прода — до 2026-08-21 (PROJECT_STATE).
-5. AV-ложнопозитивы watchdog'а — поглядывать в «Критические события».
-6. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз по ремонту пуст (операционный, передать мастерам).
+5. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз по ремонту пуст (операционный, передать мастерам).
+6. deadcode-прогон (месячная дельта) — ~2026-08-04.
