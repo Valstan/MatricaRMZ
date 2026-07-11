@@ -333,6 +333,9 @@ export function WorkOrderDetailsPage(props: {
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
   const [assemblyFillBusy, setAssemblyFillBusy] = useState(false);
+  // Тема D+E: авто-подстановка спецификации при открытии наряда, созданного из ПКМ списка
+  // двигателей (сид несёт assemblyEngineId, но onChange не срабатывает) — один раз на маунт.
+  const assemblyAutoFillTriedRef = useRef(false);
   // Phase 4b: карта id номенклатуры → взаимозаменяемые варианты его позиции спецификации.
   // Каждый вариант позиции ссылается на общий список, поэтому смена варианта на строке
   // (partId меняется на id другого варианта) сохраняет переключатель. Только позиции с ≥2 вариантами.
@@ -477,6 +480,30 @@ export function WorkOrderDetailsPage(props: {
     }
     return null;
   }, [payload]);
+
+  // Марка из двигателя ШАПКИ (payload.assemblyEngineId) — fallback, когда строк ещё нет
+  // (тема E: снимает граблю «кнопка “Заполнить из спецификации” задизейблена у пустого наряда»).
+  const headerAssemblyEngineBrandId = useMemo(() => {
+    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return null;
+    const engineId = resolveAssemblyEngineId(payload);
+    if (!engineId) return null;
+    return String(engines.find((e) => e.id === engineId)?.engineBrandId ?? '').trim() || null;
+  }, [payload, engines]);
+
+  // Тема D+E: наряд открыт из ПКМ списка двигателей (сид: kind=Assembly + assemblyEngineId,
+  // строк ещё нет) → один раз автоподставить BOM-спецификацию марки, пока карточка чистая.
+  useEffect(() => {
+    if (assemblyAutoFillTriedRef.current || assemblyFillBusy) return;
+    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
+    if (payload.forecastVariantKey) return; // наряд из прогноза уже со строками
+    if (payload.freeWorks.some((l) => String(l.partId ?? '').trim())) return; // строки уже есть
+    const brandId = headerAssemblyEngineBrandId;
+    if (!brandId) return; // марка ещё не резолвилась (engines/engineBrandId не готовы)
+    assemblyAutoFillTriedRef.current = true;
+    const engineId = resolveAssemblyEngineId(payload);
+    const brandName = engineId ? engines.find((e) => e.id === engineId)?.engineBrandName ?? '' : '';
+    void fillAssemblyFromBrandSpecFor(payload, brandId, brandName, { confirmReplace: false, silent: true });
+  }, [payload, headerAssemblyEngineBrandId, assemblyFillBusy, engines]);
 
   useEffect(() => {
     if (!primaryAssemblyEngineBrandId) {
@@ -1149,29 +1176,51 @@ export function WorkOrderDetailsPage(props: {
    */
   async function fillAssemblyFromBrandSpec(): Promise<void> {
     if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
-    const brandId = primaryAssemblyEngineBrandId;
+    // Марка — из строк наряда (если оператор уже добавил), иначе из двигателя шапки
+    // (тема E: у пустого наряда строк ещё нет, но двигатель в шапке уже выбран).
+    const brandId = primaryAssemblyEngineBrandId ?? headerAssemblyEngineBrandId;
     if (!brandId) {
-      setStatus('Укажите марку двигателя в строке наряда, чтобы заполнить детали из спецификации.');
+      setStatus('Укажите двигатель или марку в наряде, чтобы заполнить детали из спецификации.');
       return;
     }
+    const brandName =
+      payload.freeWorks.find((l) => String(l.engineBrandId ?? '').trim() === brandId)?.engineBrandName ??
+      (() => {
+        const headerEngineId = resolveAssemblyEngineId(payload);
+        return headerEngineId ? engines.find((e) => e.id === headerEngineId)?.engineBrandName ?? '' : '';
+      })();
+    await fillAssemblyFromBrandSpecFor(payload, brandId, brandName, { confirmReplace: true });
+  }
+
+  /**
+   * Тема E: заполнение строк наряда из BOM-спецификации марки для явных brandId/basePayload
+   * (а не из state-derived, который после patch() в том же тике ещё старый). Из кнопки —
+   * с confirm при наличии строк; из авто-подстановки при выборе двигателя — молча, только
+   * когда строк с деталями нет.
+   */
+  async function fillAssemblyFromBrandSpecFor(
+    basePayload: WorkOrderPayload,
+    brandId: string,
+    brandName: string,
+    opts: { confirmReplace: boolean; silent?: boolean },
+  ): Promise<void> {
     if (assemblyFillBusy) return;
     setAssemblyFillBusy(true);
     try {
-      const brandName = payload.freeWorks.find((l) => String(l.engineBrandId ?? '').trim() === brandId)?.engineBrandName ?? '';
       const listRes = await window.matrica.warehouse.assemblyBomList({ engineBrandId: brandId, status: 'active' });
       if (!listRes?.ok) {
-        setStatus(`Не удалось загрузить спецификации марки: ${listRes?.error ?? 'unknown'}`);
+        if (!opts.silent) setStatus(`Не удалось загрузить спецификации марки: ${listRes?.error ?? 'unknown'}`);
         return;
       }
       const list = (listRes.rows ?? []) as Array<Record<string, unknown>>;
       const primary = list.find((row) => Boolean(row.isDefault)) ?? list[0];
       if (!primary) {
-        setStatus('У марки нет активной спецификации BOM.');
+        if (!opts.silent) setStatus('У марки нет активной спецификации BOM.');
         return;
       }
       const detailsRes = await window.matrica.warehouse.assemblyBomGet(String(primary.id));
       if (!detailsRes?.ok) {
-        setStatus(`Не удалось загрузить спецификацию: ${(detailsRes as { error?: string })?.error ?? 'unknown'}`);
+        if (!opts.silent) setStatus(`Не удалось загрузить спецификацию: ${(detailsRes as { error?: string })?.error ?? 'unknown'}`);
         return;
       }
       type BomLineLite = {
@@ -1204,10 +1253,13 @@ export function WorkOrderDetailsPage(props: {
         }
       }
       if (chosen.length === 0) {
-        setStatus('В спецификации марки нет строк с деталями.');
+        if (!opts.silent) setStatus('В спецификации марки нет строк с деталями.');
         return;
       }
-      if (payload.freeWorks.some((l) => String(l.partId ?? '').trim())) {
+      const hasPartLines = basePayload.freeWorks.some((l) => String(l.partId ?? '').trim());
+      // Авто-подстановка (тема E) не трогает уже заполненный наряд — только пустой.
+      if (hasPartLines && opts.silent) return;
+      if (hasPartLines && opts.confirmReplace) {
         const ok = await confirm({
           title: 'Заполнить из спецификации?',
           detail: `Строки наряда будут заменены деталями спецификации марки (${chosen.length}). Продолжить?`,
@@ -1219,7 +1271,7 @@ export function WorkOrderDetailsPage(props: {
       }
       // Штамп двигателя шапки в строки: без engineId normalizeWorkOrderLine стрипает
       // марку при первом же recalc/save — номер/марка пропадали из списка и печати (B1).
-      const headerEngineId = resolveAssemblyEngineId(payload);
+      const headerEngineId = resolveAssemblyEngineId(basePayload);
       const headerEngine = headerEngineId ? engines.find((e) => e.id === headerEngineId) ?? null : null;
       const newLines: WorkOrderWorkLine[] = chosen.map((line, idx) => {
         const wl: WorkOrderWorkLine = {
@@ -1242,7 +1294,7 @@ export function WorkOrderDetailsPage(props: {
         return wl;
       });
       // Склад-источник строк — склад цеха наряда (как при применении шаблона).
-      const workshopId = String(payload.workshopId ?? '').trim();
+      const workshopId = String(basePayload.workshopId ?? '').trim();
       if (workshopId) {
         const workshop = workshops.find((w) => w.id === workshopId);
         const location = warehouseLocations.find(
@@ -1252,7 +1304,7 @@ export function WorkOrderDetailsPage(props: {
         );
         if (location) for (const line of newLines) line.sourceWarehouseId = location.id;
       }
-      patch({ ...payload, freeWorks: newLines });
+      patch({ ...basePayload, freeWorks: newLines });
       setStatus(`Заполнено из спецификации марки${brandName ? ` «${brandName}»` : ''}: ${newLines.length} деталей (основной вариант каждой позиции). Проверьте количества и склад-источник.`);
     } finally {
       setAssemblyFillBusy(false);
@@ -2201,6 +2253,17 @@ export function WorkOrderDetailsPage(props: {
                     }));
                   }
                   patch(nextPayload);
+                  // Тема E: при выборе двигателя и отсутствии строк с деталями — молча
+                  // подставить BOM-спецификацию марки (не пришедший из прогноза наряд).
+                  // Передаём nextPayload явно: state после patch() в этом тике ещё старый.
+                  const brandId = eng?.engineBrandId ? String(eng.engineBrandId).trim() : '';
+                  const alreadyFilled = nextPayload.freeWorks.some((l) => String(l.partId ?? '').trim());
+                  if (brandId && !alreadyFilled && !nextPayload.forecastVariantKey) {
+                    void fillAssemblyFromBrandSpecFor(nextPayload, brandId, eng?.engineBrandName ?? '', {
+                      confirmReplace: false,
+                      silent: true,
+                    });
+                  }
                 }}
               />
             </div>
@@ -2275,7 +2338,7 @@ export function WorkOrderDetailsPage(props: {
         {payload.workOrderKind === WorkOrderKind.Assembly ? (
           <Button
             variant="ghost"
-            disabled={!canEditNow || assemblyFillBusy || !primaryAssemblyEngineBrandId}
+            disabled={!canEditNow || assemblyFillBusy || !(primaryAssemblyEngineBrandId ?? headerAssemblyEngineBrandId)}
             title={
               !primaryAssemblyEngineBrandId
                 ? 'Добавьте строку и укажите марку двигателя — тогда можно заполнить детали из спецификации марки.'
