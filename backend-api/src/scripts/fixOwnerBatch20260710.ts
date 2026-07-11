@@ -183,12 +183,15 @@ async function main() {
   // --- 4. Наряды №63–81 valstan → fatyhova (performed_by + row_owners + sync) ---
   {
     const fatyhovaId = await findEmployeeByLogin(employeeTypeId, loginDef, REATTR_TO);
+    // performed_by IN (from, to): повторный прогон дочищает sync-прокачку строк, у которых
+    // performed_by уже переатрибутирован, но upsert скипнулся конфликтом (прогон 2026-07-11
+    // шёл без last_server_seq → filterStale скипал строки с известным seq).
     const ops = await pool.query(
       `select id::text, engine_entity_id::text, operation_type, status, note, performed_at, performed_by,
-              meta_json, created_at, updated_at, deleted_at
+              meta_json, created_at, updated_at, deleted_at, last_server_seq
          from operations
-        where operation_type='work_order' and performed_by=$1 and deleted_at is null`,
-      [REATTR_FROM],
+        where operation_type='work_order' and performed_by = any($1) and deleted_at is null`,
+      [[REATTR_FROM, REATTR_TO]],
     );
     const targets: Array<{ row: Record<string, unknown>; num: number }> = [];
     for (const row of ops.rows as Array<Record<string, unknown>>) {
@@ -232,6 +235,9 @@ async function main() {
                 created_at: Number(row.created_at),
                 updated_at: ts,
                 deleted_at: null,
+                // Текущий seq строки — иначе filterStaleBySeqOrUpdatedAt скипает upsert
+                // как «seq-less над строкой с известным seq» и правка не едет клиентам.
+                ...(row.last_server_seq == null ? {} : { last_server_seq: Number(row.last_server_seq) }),
               },
               ts,
             },
