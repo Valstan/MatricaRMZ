@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { EmployeeListItem, SectionAccessLevel, SectionMembership } from '@matricarmz/shared';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, parseSectionMembership, serializeSectionMembership } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, parseSectionMembership, serializeSectionMembership } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 
 type Row = {
   id: string;
@@ -20,6 +21,7 @@ type Row = {
  * зеркально (источник один). Энфорс меню — по membership (Ф1), сервер — Ф2/Ф3.
  */
 export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => void }) {
+  const { confirm } = useConfirm();
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,6 +58,19 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
   const byLogin = useMemo(() => new Map(rows.map((r) => [r.login, r])), [rows]);
 
   async function setLevel(row: Row, sectionId: string, level: SectionAccessLevel | null) {
+    // Разделы с нестандартной семантикой уровней (напр. «Наряды закрытые»: editor =
+    // ограниченный владелец, видит ТОЛЬКО свои) — явное подтверждение до записи
+    // (инцидент fatyhova 2026-07-10: editor выдан как «расширение доступа»).
+    const hint = level ? accessSectionMeta(sectionId)?.levelHintsRu?.[level] : undefined;
+    if (hint && hint.includes('⚠️')) {
+      const ok = await confirm({
+        title: `Выдать «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}» (${level === 'editor' ? 'редактор' : 'наблюдатель'}) — ${row.login}?`,
+        detail: hint,
+        confirmLabel: 'Выдать',
+        confirmTone: 'warn',
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       const membership: SectionMembership = { ...row.membership };
@@ -189,6 +204,12 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
                   <div style={{ fontWeight: 600 }}>{section.titleRu}</div>
                   {section.restrictedAssign ? (
                     <div style={{ color: 'var(--muted)', fontSize: 12 }}>ограниченный раздел</div>
+                  ) : null}
+                  {section.levelHintsRu ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 4, maxWidth: 240 }}>
+                      <div>👁 {section.levelHintsRu.viewer}</div>
+                      <div style={{ marginTop: 2 }}>✏️ {section.levelHintsRu.editor}</div>
+                    </div>
                   ) : null}
                 </td>
                 {cell(section.id, 'viewer')}
