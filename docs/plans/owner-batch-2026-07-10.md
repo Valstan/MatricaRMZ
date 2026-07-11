@@ -107,8 +107,8 @@
 | D | ПКМ «Наряд на сборку» в списке двигателей | M | ✅ (контекст-меню + deferred-create с assemblyEngineId) |
 | E | Автоподстановка BOM при выборе двигателя | S | ✅ (onChange + авто-fill при открытии из ПКМ; снята грабля disabled-кнопки) |
 | F | Вложения: быстрый фикс defs + унификация | S+M | ✅ (марки: ensureAttributeDefs description/attachments + одна панель «Вложения», merge legacy) |
-| G1 | Массовые галочки актов | S | ⬜ |
-| G2 | Act-scoped replace в «Распространить» | M | ⬜ |
+| G1 | Массовые галочки актов | S | ✅ (тристейт-кнопки «Все показанные» ✔/✖ Компл./Деф. по visibleParts) |
+| G2 | Act-scoped replace в «Распространить» | M | ✅ (clearPartSpecBrandLinkActFlagForBrands + replace для акт-scope) |
 | H | Подсказки зависимостей разделов | M | ⬜ |
 
 ## Открытые вопросы владельцу

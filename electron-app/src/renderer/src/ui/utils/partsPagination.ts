@@ -26,6 +26,9 @@ export type PartSpecRow = {
     assemblyUnitNumber: string | null;
     quantity: number;
     sourceGroupId?: string;
+    // Т4: галочки актов приходят в runtime-объекте привязки; нужны для act-scoped replace (G2).
+    inCompletenessAct?: boolean;
+    inDefectAct?: boolean;
   }>;
 };
 
@@ -264,6 +267,39 @@ export async function removePartSpecBrandLinksForBrands(args: {
     const w = await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
     if (!w.ok) return w;
     return { ok: true, removed };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * G2 (act-scoped replace): СНЯТЬ галочку одного акта у привязок указанных марок к ОДНОЙ детали,
+ * НЕ удаляя привязку и не трогая кол-во/узел/вторую галочку. Для режима «перепривязать акт
+ * целиком»: у деталей вне набора-источника снимается лишь галочка нужного акта, лишние детали
+ * не удаляются из марки. `cleared` — сколько привязок реально изменено (0 → запись не делалась).
+ */
+export async function clearPartSpecBrandLinkActFlagForBrands(args: {
+  partId: string;
+  brandIds: string[];
+  actFlag: 'completeness' | 'defect';
+}): Promise<{ ok: true; cleared: number } | { ok: false; error: string }> {
+  try {
+    const r = await readPartSpec(String(args.partId));
+    if (!r.ok) return r;
+    const targets = new Set(args.brandIds.map((b) => String(b ?? '').trim()).filter(Boolean));
+    const flagKey = args.actFlag === 'completeness' ? 'inCompletenessAct' : 'inDefectAct';
+    let cleared = 0;
+    const links = r.spec.brandLinks.map((l) => {
+      if (!targets.has(String(l.engineBrandId ?? ''))) return l;
+      if (!(l as Record<string, unknown>)[flagKey]) return l;
+      const { [flagKey]: _drop, ...rest } = l as Record<string, unknown>;
+      cleared += 1;
+      return rest as typeof l;
+    });
+    if (cleared === 0) return { ok: true, cleared: 0 };
+    const w = await writePartSpec(String(args.partId), { ...r.spec, brandLinks: links });
+    if (!w.ok) return w;
+    return { ok: true, cleared };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
