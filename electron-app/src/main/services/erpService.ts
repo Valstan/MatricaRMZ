@@ -92,6 +92,14 @@ type OfflineReadMeta = {
   lastSyncedAt: number | null;
 };
 
+// Тема C (owner-батч 2026-07-10): интерактивные чтения. Дефолт транспорта (30-60с × 3
+// ретрая, abort считается transient) на медленной/дырявой заводской сети держал карточку
+// номенклатуры пустой 30-60+ секунд. Чтения С локальным фоллбеком — одна короткая попытка
+// (фоллбек в локальную SQLite мгновенный, данные синкаются фоном, meta.dataSource виден);
+// чтения БЕЗ фоллбека — короче дефолта, но с одним ретраем.
+const INTERACTIVE_READ_HTTP_OPTS = { timeoutMs: 7_000, attempts: 1 } as const;
+const INTERACTIVE_NO_FALLBACK_HTTP_OPTS = { timeoutMs: 10_000, attempts: 2 } as const;
+
 async function buildOfflineReadMeta(db: BetterSQLite3Database, dataSource: 'remote' | 'local'): Promise<OfflineReadMeta> {
   const lastSyncedAt = await settingsGetNumber(db, SettingsKey.LastAppliedAt, 0);
   return {
@@ -635,7 +643,7 @@ export async function warehouseNomenclatureList(
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/nomenclature${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 60_000 });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_READ_HTTP_OPTS);
     if (!r.ok) {
       const local = await localWarehouseNomenclatureList(db, args);
       return { ...local, warning: formatHttpError(r, path) } as const;
@@ -699,17 +707,32 @@ export async function warehouseNomenclatureGroupCounts(
   }
 }
 
+// Лукапы склада запрашиваются на КАЖДЫЙ маунт карточек (useWarehouseReferenceData без
+// кэша) — TTL-кэш в main снимает повторные раунд-трипы; при недоступном сервере
+// отдаётся последний удачный ответ (лучше устаревших групп, чем пустых селектов).
+let warehouseLookupsCache: { at: number; value: { ok: true; lookups: Record<string, unknown> } } | null = null;
+const WAREHOUSE_LOOKUPS_CACHE_TTL_MS = 60_000;
+
 export async function warehouseLookupsGet(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
 ) {
   const path = '/warehouse/lookups';
+  if (warehouseLookupsCache && Date.now() - warehouseLookupsCache.at < WAREHOUSE_LOOKUPS_CACHE_TTL_MS) {
+    return warehouseLookupsCache.value;
+  }
   try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
+    if (!r.ok) {
+      if (warehouseLookupsCache) return warehouseLookupsCache.value;
+      return { ok: false as const, error: formatHttpError(r, path) };
+    }
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return r.json as { ok: true; lookups: Record<string, unknown> };
+    const value = r.json as { ok: true; lookups: Record<string, unknown> };
+    warehouseLookupsCache = { at: Date.now(), value };
+    return value;
   } catch (e) {
+    if (warehouseLookupsCache) return warehouseLookupsCache.value;
     return { ok: false as const, error: String(e) };
   }
 }
@@ -717,7 +740,7 @@ export async function warehouseLookupsGet(
 export async function warehouseNomenclatureItemTypesList(db: BetterSQLite3Database, apiBaseUrl: string) {
   const path = '/warehouse/nomenclature/item-types';
   try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
   } catch (e) {
@@ -751,7 +774,7 @@ export async function warehouseNomenclatureItemTypeDelete(db: BetterSQLite3Datab
 export async function warehouseNomenclaturePropertiesList(db: BetterSQLite3Database, apiBaseUrl: string) {
   const path = '/warehouse/nomenclature/properties';
   try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
   } catch (e) {
@@ -785,7 +808,7 @@ export async function warehouseNomenclaturePropertyDelete(db: BetterSQLite3Datab
 export async function warehouseNomenclatureTemplatesList(db: BetterSQLite3Database, apiBaseUrl: string) {
   const path = '/warehouse/nomenclature/templates';
   try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: string };
   } catch (e) {
@@ -882,7 +905,7 @@ export async function warehouseNomenclaturePartSpecGet(
 ) {
   const path = `/warehouse/nomenclature/${encodeURIComponent(nomenclatureId)}/part-spec`;
   try {
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
     return r.json as {
@@ -1125,7 +1148,7 @@ export async function warehouseEngineInstancesList(
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/engine-instances${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
     return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
@@ -1198,7 +1221,14 @@ export async function warehouseStockList(
   args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
 ) {
   try {
-    await drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {});
+    // Дрейн offline-команд перед чтением остаётся (сервер должен увидеть команды до
+    // ответа), но с бюджетом: при недоступном сервере полный дрейн (до 15 POST × ретраи)
+    // блокировал чтение остатков на минуты. По исчерпании бюджета дрейн продолжается в
+    // фоне, а чтение уходит своим путём (remote с коротким таймаутом → локальный фоллбек).
+    await Promise.race([
+      drainWarehouseCommandOutboxOnce(db, apiBaseUrl).catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 3_000)),
+    ]);
     const qp = new URLSearchParams();
     if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
     if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
@@ -1207,7 +1237,7 @@ export async function warehouseStockList(
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/stock${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_READ_HTTP_OPTS);
     if (!r.ok) {
       const local = await localWarehouseStockList(db, args);
       return { ...local, warning: formatHttpError(r, path) } as const;
@@ -1746,7 +1776,7 @@ export async function warehouseMovementsList(
     if (args?.toDate !== undefined) qp.set('toDate', String(Math.trunc(args.toDate)));
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     const path = `/warehouse/movements${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_READ_HTTP_OPTS);
     if (!r.ok) {
       const local = await localWarehouseMovementsList(db, args);
       return { ...local, warning: formatHttpError(r, path) } as const;

@@ -150,13 +150,15 @@ export function NomenclatureDetailsPage(props: {
   const load = useCallback(async () => {
     try {
       setStatus('Загрузка...');
-      const [list, stock, movementRes, instancesRes, specRes] = await Promise.all([
-        window.matrica.warehouse.nomenclatureList({ id: props.id }),
-        window.matrica.warehouse.stockList({ nomenclatureId: props.id }),
-        window.matrica.warehouse.movementsList({ nomenclatureId: props.id, limit: 20 }),
-        window.matrica.warehouse.engineInstancesList({ nomenclatureId: props.id, limit: 100, offset: 0 }),
-        window.matrica.warehouse.nomenclaturePartSpecGet({ nomenclatureId: props.id }),
-      ]);
+      // Тема C: шапка карточки рисуется СРАЗУ из nomenclatureList (локальный фоллбек
+      // мгновенный) — остальные секции (остатки/движения/экземпляры/спека) стартуют
+      // параллельно и заполняются по мере прихода. Раньше единый Promise.all держал
+      // ВСЮ карточку пустой до самого медленного вызова (30-60+с на плохой сети).
+      const stockP = window.matrica.warehouse.stockList({ nomenclatureId: props.id });
+      const movementsP = window.matrica.warehouse.movementsList({ nomenclatureId: props.id, limit: 20 });
+      const instancesP = window.matrica.warehouse.engineInstancesList({ nomenclatureId: props.id, limit: 100, offset: 0 });
+      const specP = window.matrica.warehouse.nomenclaturePartSpecGet({ nomenclatureId: props.id });
+      const list = await window.matrica.warehouse.nomenclatureList({ id: props.id });
       if (!list?.ok) {
         setStatus(`Ошибка: ${String(list?.error ?? 'unknown')}`);
         return;
@@ -199,24 +201,32 @@ export function NomenclatureDetailsPage(props: {
         setTemplateId(null);
         setPropertyValues({});
       }
-      setPartMetadata(specRes?.ok ? specRes.metadata ?? null : null);
-      if (specRes?.ok && specRes.spec) {
-        setPartSpec(specRes.spec);
-        setSpecDimensions(specRes.spec.dimensions ?? []);
-        setSpecBrandLinks(specRes.spec.brandLinks ?? []);
-      } else {
-        setPartSpec(null);
-        setSpecDimensions([]);
-        setSpecBrandLinks([]);
-      }
-      if (stock?.ok) {
-        setBalances(stock.rows ?? []);
-      } else {
-        setBalances([]);
-      }
-      setMovements(movementRes?.ok ? movementRes.rows ?? [] : []);
-      setInstances(instancesRes?.ok ? ((instancesRes.rows ?? []) as EngineInstanceListItem[]) : []);
+      // Шапка заполнена — статус чистим, не дожидаясь секций.
       setStatus('');
+      // Секции — по мере прихода, отказ одной не роняет остальные.
+      void specP
+        .then((specRes) => {
+          setPartMetadata(specRes?.ok ? specRes.metadata ?? null : null);
+          if (specRes?.ok && specRes.spec) {
+            setPartSpec(specRes.spec);
+            setSpecDimensions(specRes.spec.dimensions ?? []);
+            setSpecBrandLinks(specRes.spec.brandLinks ?? []);
+          } else {
+            setPartSpec(null);
+            setSpecDimensions([]);
+            setSpecBrandLinks([]);
+          }
+        })
+        .catch(() => {
+          setPartSpec(null);
+          setSpecDimensions([]);
+          setSpecBrandLinks([]);
+        });
+      void stockP.then((stock) => setBalances(stock?.ok ? stock.rows ?? [] : [])).catch(() => setBalances([]));
+      void movementsP.then((movementRes) => setMovements(movementRes?.ok ? movementRes.rows ?? [] : [])).catch(() => setMovements([]));
+      void instancesP
+        .then((instancesRes) => setInstances(instancesRes?.ok ? ((instancesRes.rows ?? []) as EngineInstanceListItem[]) : []))
+        .catch(() => setInstances([]));
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
