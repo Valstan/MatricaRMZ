@@ -57,9 +57,11 @@ export function EngineBrandsPage(props: {
         searchText?: string;
       }>;
       setRows(
+        // Пустое/недоехавшее синком имя → человеческая пометка, НЕ голый UUID: оператор
+        // читал id как «серверный код» (инцидент В-84, 2026-07-10).
         list.map((r) => ({
           id: String(r.id),
-          name: String(r.displayName ?? '').trim() || String(r.id),
+          name: String(r.displayName ?? '').trim() || `(имя не заполнено · ${String(r.id).slice(0, 8)})`,
         })),
       );
       setStatus('');
