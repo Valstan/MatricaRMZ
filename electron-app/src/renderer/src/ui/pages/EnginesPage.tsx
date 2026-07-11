@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { classifyEngineContractBinding, findArchivedArrivalIds } from '@matricarmz/shared';
 import type { EngineListItem } from '@matricarmz/shared';
@@ -16,6 +16,9 @@ import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
+import { useListSelection } from '../hooks/useListSelection.js';
+import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
+import { resolveMenuRows } from '../utils/listContextActions.js';
 
 
 type EngineRow = EngineListItem & {
@@ -287,6 +290,8 @@ export function EnginesPage(props: {
   onOpen: (id: string) => Promise<void>;
   onCreate: () => Promise<void>;
   canCreate: boolean;
+  /** ПКМ → «Наряд на сборку» (тема D): открыть новый сборочный наряд для этого двигателя. */
+  onCreateAssemblyOrder?: (engine: EngineListItem) => void;
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
@@ -376,6 +381,22 @@ export function EnginesPage(props: {
   }, [filtered, sortDir, sortKey, query]);
 
   const displayRows = sorted;
+
+  // ПКМ-меню строки: пункт «Наряд на сборку» (тема D) для одиночной строки. Печать/копия/
+  // удаление двигателей из списка не поддержаны — меню целевое, без общего набора.
+  const selection = useListSelection(displayRows.map((e) => String(e.id)));
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
+  const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, engineById) : []), [menu, engineById]);
+  const menuItems = useMemo<ListContextMenuItem[]>(() => {
+    if (!menu || menu.bulk || menuRows.length !== 1) return [];
+    const engine = menuRows[0]!;
+    const items: ListContextMenuItem[] = [];
+    if (props.onCreateAssemblyOrder) {
+      items.push({ id: 'assembly-order', label: '🛠️ Наряд на сборку', onClick: () => props.onCreateAssemblyOrder?.(engine) });
+    }
+    return items;
+  }, [menu, menuRows, props]);
 
   type EngineColumn = ColumnDescriptor & {
     sortable: boolean;
@@ -514,6 +535,13 @@ export function EnginesPage(props: {
   function engineRowProps(e: EngineListItem): VirtualTableRowProps {
     return {
       onClick: () => openEngine(e.id),
+      onContextMenu: props.onCreateAssemblyOrder
+        ? (event) => {
+            const result = selection.onRowContextMenu(event, String(e.id));
+            if (!result.openMenu) return;
+            setMenu({ x: event.clientX, y: event.clientY, targetIds: result.targetIds, bulk: result.bulk });
+          }
+        : undefined,
       style: { cursor: 'pointer', ...(e.isScrap ? { background: 'rgba(239, 68, 68, 0.18)' } : {}) },
     };
   }
@@ -643,6 +671,10 @@ export function EnginesPage(props: {
           />
         )}
       </div>
+
+      {menu && menuItems.length > 0 ? (
+        <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      ) : null}
 
       {dedupeOpen && (
         <EngineDedupeModal

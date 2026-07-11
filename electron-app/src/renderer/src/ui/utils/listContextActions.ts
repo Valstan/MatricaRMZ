@@ -88,6 +88,11 @@ export function buildListContextMenuItems<T>(args: {
   onCopy: (rows: T[]) => void | Promise<void>;
   onDelete: (ids: string[]) => void | Promise<void>;
   onClearSelection: () => void;
+  /**
+   * Доп. пункты для ОДИНОЧНОЙ строки (не bulk) — прикладной контекст конкретной страницы
+   * (напр. «Наряд на сборку» из списка двигателей). Добавляются перед «Удалить».
+   */
+  extraSingleItems?: (row: T) => ListContextMenuActionItem[];
 }): ListContextMenuActionItem[] {
   if (!args.rows.length) return [];
   if (args.bulk) {
@@ -110,6 +115,7 @@ export function buildListContextMenuItems<T>(args: {
     { id: 'select-row', label: 'Выделить', onClick: () => args.onSelect(args.getId(row)) },
     { id: 'print-row', label: 'Распечатать', onClick: () => args.onPrint([row]) },
     { id: 'copy-row', label: 'Скопировать', onClick: () => void args.onCopy([row]) },
+    ...(args.extraSingleItems?.(row) ?? []),
     {
       id: 'delete-row',
       label: 'Удалить',

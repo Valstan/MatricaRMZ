@@ -22,6 +22,7 @@ import type {
 } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
+  WorkOrderKind,
   DEFAULT_UI_CONTROL_SETTINGS,
   DEFAULT_UI_SHELL_PREFS,
   sanitizeUiShellPrefs,
@@ -4147,6 +4148,30 @@ export function App() {
               }
             }}
             canCreate={caps.canEditEngines}
+            {...(caps.canCreateWorkOrders
+              ? {
+                  onCreateAssemblyOrder: (engine: EngineListItem) => {
+                    // Тема D: deferred-create сборочного наряда для двигателя из ПКМ-меню
+                    // (backend не трогаем — строка/номер материализуются на первом сохранении).
+                    void (async () => {
+                      try {
+                        const r = await window.matrica.workOrders.create();
+                        if (!r.ok) {
+                          setPostLoginSyncMsg(`Ошибка создания наряда: ${r.error}`);
+                          setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+                          return;
+                        }
+                        await openWorkOrder(r.id, {
+                          initialPayload: { ...r.payload, workOrderKind: WorkOrderKind.Assembly, assemblyEngineId: engine.id },
+                        });
+                      } catch (e) {
+                        setPostLoginSyncMsg(`Ошибка создания наряда: ${String(e ?? '')}`);
+                        setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+                      }
+                    })();
+                  },
+                }
+              : {})}
           />
         )}
 
