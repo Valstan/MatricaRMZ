@@ -6,6 +6,7 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
@@ -74,9 +75,11 @@ export function EngineBrandDetailsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [drawings, setDrawings] = useState<unknown>([]);
-  const [techDocs, setTechDocs] = useState<unknown>([]);
+  // Тема F (owner-батч 2026-07-10): одно «Вложения» вместо Чертежи/Документы/Вложения.
+  // Старые attrs drawings/tech_docs читаются и сливаются в общий список (дедуп по FileRef.id);
+  // первое изменение пересохраняет merged в `attachments` и зануляет legacy-attrs.
   const [attachments, setAttachments] = useState<unknown>([]);
+  const [hasLegacyFileAttrs, setHasLegacyFileAttrs] = useState(false);
   const [brandTypeId, setBrandTypeId] = useState<string>('');
   const [partsOptions, setPartsOptions] = useState<PartOption[]>([]);
   const [brandParts, setBrandParts] = useState<BrandPartRow[]>([]);
@@ -312,13 +315,39 @@ export function EngineBrandDetailsPage(props: {
         fallbackTypeId = String((types as any[]).find((t) => String(t.code) === 'engine_brand')?.id ?? '');
         if (fallbackTypeId) setBrandTypeId(fallbackTypeId);
       }
+      // Тема F: на свежих установках у engine_brand не засеяны defs `description`/`attachments`
+      // (seed давал только name/category_id/attachments; description и вовсе нигде) → setAttr
+      // отвечал «Неизвестный атрибут», а файл при этом уже залит и оставался сиротой. Гарантируем
+      // defs один раз, если у типа их ещё нет (idempotent — существующие не трогаются).
+      if (props.canEdit && fallbackTypeId) {
+        try {
+          const existing = (await window.matrica.admin.attributeDefs.listByEntityType(fallbackTypeId)) as AttributeDefRow[];
+          await ensureAttributeDefs(fallbackTypeId, [
+            { code: 'description', name: 'Описание', dataType: 'text', sortOrder: 20 },
+            { code: 'attachments', name: 'Вложения', dataType: 'json', sortOrder: 9990 },
+          ], existing);
+        } catch {
+          // best-effort — сохранение всё равно попытается, ошибку покажет пользователю
+        }
+      }
       const details = await window.matrica.admin.entities.get(props.brandId, fallbackTypeId || undefined);
       const attrs = details?.attributes ?? {};
       setName(String(attrs.name ?? ''));
       setDescription(String(attrs.description ?? ''));
-      setDrawings(attrs.drawings ?? []);
-      setTechDocs(attrs.tech_docs ?? []);
-      setAttachments(attrs.attachments ?? []);
+      // Слить три legacy-раздела в один список, дедуп по id (один файл мог быть в двух).
+      const toArr = (v: unknown): Array<Record<string, unknown>> => (Array.isArray(v) ? (v as Array<Record<string, unknown>>) : []);
+      const legacyDrawings = toArr(attrs.drawings);
+      const legacyTechDocs = toArr(attrs.tech_docs);
+      const merged: Array<Record<string, unknown>> = [];
+      const seen = new Set<string>();
+      for (const f of [...toArr(attrs.attachments), ...legacyDrawings, ...legacyTechDocs]) {
+        const id = String(f?.id ?? '');
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(f);
+      }
+      setAttachments(merged);
+      setHasLegacyFileAttrs(legacyDrawings.length > 0 || legacyTechDocs.length > 0);
       setStatus('');
       dirtyRef.current = false;
       // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
@@ -483,12 +512,20 @@ export function EngineBrandDetailsPage(props: {
     }
   }
 
-  async function saveFiles(code: 'drawings' | 'tech_docs' | 'attachments', value: unknown, setter: (v: unknown) => void) {
+  // Единое «Вложения»: пишем в `attachments`; при первом изменении зануляем legacy-attrs
+  // drawings/tech_docs (их содержимое уже слито в `attachments` при загрузке).
+  async function saveAttachments(value: unknown) {
     if (!props.canEdit) return { ok: false as const, error: 'no permission' };
     try {
-      const r = await window.matrica.admin.entities.setAttr(props.brandId, code, value, brandTypeId || undefined);
+      const r = await window.matrica.admin.entities.setAttr(props.brandId, 'attachments', value, brandTypeId || undefined);
       if (!r?.ok) return { ok: false as const, error: r?.error ?? 'save failed' };
-      setter(value);
+      setAttachments(value);
+      if (hasLegacyFileAttrs) {
+        // best-effort зачистка legacy-разделов (их файлы уже в общем списке).
+        await window.matrica.admin.entities.setAttr(props.brandId, 'drawings', [], brandTypeId || undefined).catch(() => null);
+        await window.matrica.admin.entities.setAttr(props.brandId, 'tech_docs', [], brandTypeId || undefined).catch(() => null);
+        setHasLegacyFileAttrs(false);
+      }
       return { ok: true as const };
     } catch (e) {
       return { ok: false as const, error: String(e) };
@@ -1287,28 +1324,12 @@ export function EngineBrandDetailsPage(props: {
       </SectionCard>
 
       <AttachmentsPanel
-        title="Чертежи"
-        value={drawings}
-        canView={props.canViewFiles}
-        canUpload={props.canUploadFiles && props.canEdit}
-        scope={{ ownerType: 'engine_brand', ownerId: props.brandId, category: 'drawings' }}
-        onChange={(next) => saveFiles('drawings', next, setDrawings)}
-      />
-      <AttachmentsPanel
-        title="Документы"
-        value={techDocs}
-        canView={props.canViewFiles}
-        canUpload={props.canUploadFiles && props.canEdit}
-        scope={{ ownerType: 'engine_brand', ownerId: props.brandId, category: 'tech_docs' }}
-        onChange={(next) => saveFiles('tech_docs', next, setTechDocs)}
-      />
-      <AttachmentsPanel
-        title="Вложения (прочее)"
+        title="Вложения"
         value={attachments}
         canView={props.canViewFiles}
         canUpload={props.canUploadFiles && props.canEdit}
         scope={{ ownerType: 'engine_brand', ownerId: props.brandId, category: 'attachments' }}
-        onChange={(next) => saveFiles('attachments', next, setAttachments)}
+        onChange={(next) => saveAttachments(next)}
       />
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
