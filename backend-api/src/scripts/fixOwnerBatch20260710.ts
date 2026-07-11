@@ -129,16 +129,17 @@ async function main() {
     const empId = await findEmployeeByLogin(employeeTypeId, loginDef, 'fatyhova');
     const raw = await currentMembershipJson(sectionDef, empId);
     const membership = parseMembershipValue(raw);
-    if (membership.restricted_work_orders) {
-      const next = { ...membership };
-      delete (next as Record<string, unknown>).restricted_work_orders;
-      log(`1. fatyhova (${empId}): remove restricted_work_orders → ${serializeSectionMembership(next)}`);
-      if (APPLY) {
-        const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next), { allowSyncConflicts: true });
-        if (!res.ok) throw new Error(`fatyhova setAttr failed: ${res.error}`);
-      }
-    } else {
-      log('1. fatyhova: restricted_work_orders отсутствует — пропуск');
+    // «Уже стоит» НЕ пропускаем: прогоны 2026-07-11 без MATRICA_LEDGER_DIR подписали
+    // изменения в паразитный ledger (низкие seq) — клиенты их не получили. Повторный
+    // setAttr тем же значением идемпотентен и репропагирует строку со свежим seq.
+    const next = { ...membership };
+    delete (next as Record<string, unknown>).restricted_work_orders;
+    log(
+      `1. fatyhova (${empId}): ${membership.restricted_work_orders ? 'remove restricted_work_orders' : 'уже без restricted_work_orders — репропагация'} → ${serializeSectionMembership(next)}`,
+    );
+    if (APPLY) {
+      const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next), { allowSyncConflicts: true });
+      if (!res.ok) throw new Error(`fatyhova setAttr failed: ${res.error}`);
     }
   }
 
@@ -147,15 +148,13 @@ async function main() {
     const empId = await findEmployeeByLogin(employeeTypeId, loginDef, 'radik');
     const raw = await currentMembershipJson(sectionDef, empId);
     const membership = parseMembershipValue(raw);
-    if (membership.supply === 'editor') {
-      log('2. radik: supply=editor уже стоит — пропуск');
-    } else {
-      const next = { ...membership, supply: 'editor' as const };
-      log(`2. radik (${empId}): ${raw ?? '(нет атрибута)'} → ${serializeSectionMembership(next)}`);
-      if (APPLY) {
-        const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next), { allowSyncConflicts: true });
-        if (!res.ok) throw new Error(`radik setAttr failed: ${res.error}`);
-      }
+    const next = { ...membership, supply: 'editor' as const };
+    log(
+      `2. radik (${empId}): ${membership.supply === 'editor' ? 'supply=editor уже стоит — репропагация' : `${raw ?? '(нет атрибута)'} → ${serializeSectionMembership(next)}`}`,
+    );
+    if (APPLY) {
+      const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next), { allowSyncConflicts: true });
+      if (!res.ok) throw new Error(`radik setAttr failed: ${res.error}`);
     }
   }
 
