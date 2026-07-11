@@ -17,6 +17,7 @@ import {
   type EngineBrandSummarySyncState,
 } from '../utils/engineBrandSummary.js';
 import {
+  clearPartSpecBrandLinkActFlagForBrands,
   deletePartSpecBrandLink,
   invalidateListAllPartSpecsCache,
   listAllPartSpecs,
@@ -194,9 +195,15 @@ export function EngineBrandDetailsPage(props: {
     if (scope === 'selected') return rows.filter((r) => selectedPartIds.has(r.id));
     return rows;
   }
-  // «replace» доступен только для scope=all; для актов/отмеченных схлопывается в overwrite.
+  // «replace» доступен для scope=all (удаляет лишние ДЕТАЛИ) и для scope=акта (G2: снимает
+  // галочку акта у лишних деталей, не удаляя привязки). Для scope=selected — схлопывается в overwrite.
+  const isActScope = propagateScope === 'completeness' || propagateScope === 'defect';
   const propagateMergeEffective: PropagateMerge =
-    propagateScope === 'all' ? propagateMerge : propagateMerge === 'replace' ? 'overwrite' : propagateMerge;
+    propagateScope === 'all' || isActScope
+      ? propagateMerge
+      : propagateMerge === 'replace'
+        ? 'overwrite'
+        : propagateMerge;
   const propagateScopeCounts: Record<PropagateScope, number> = {
     all: brandParts.filter((r) => r.id).length,
     completeness: brandParts.filter((r) => r.id && r.inCompletenessAct).length,
@@ -239,25 +246,36 @@ export function EngineBrandDetailsPage(props: {
       setPropagateStatus(`Копирование: ${done + failed}/${source.length}…`);
     }
 
-    // Полное замещение: у деталей ВНЕ набора-источника снять привязки марок-целей,
-    // чтобы список деталей каждой цели стал ровно равен набору.
+    // Полное замещение. scope=all — у деталей ВНЕ набора снять привязки марок-целей (список
+    // деталей цели = набор). scope=акта (G2) — у деталей вне набора снять ГАЛОЧКУ этого акта
+    // (набор акта у цели = набор; привязки/детали не трогаются). scope=selected replace не
+    // достигает (схлопнут в overwrite).
     let removedParts = 0;
     let removeFailed = 0;
     if (merge === 'replace') {
       const sourceIds = new Set(source.map((r) => r.id));
+      const actFlag: 'completeness' | 'defect' | null =
+        propagateScope === 'completeness' ? 'completeness' : propagateScope === 'defect' ? 'defect' : null;
+      const flagKey = actFlag === 'completeness' ? 'inCompletenessAct' : 'inDefectAct';
       const all = await listAllPartSpecs({});
       if (all.ok) {
-        const extras = (all.parts as PartSpecRow[]).filter(
-          (p) =>
-            !sourceIds.has(String(p.id)) &&
-            p.brandLinks.some((l) => group.targetBrandIds.includes(String(l.engineBrandId ?? '').trim())),
-        );
+        const extras = (all.parts as PartSpecRow[]).filter((p) => {
+          if (sourceIds.has(String(p.id))) return false;
+          return p.brandLinks.some((l) => {
+            if (!group.targetBrandIds.includes(String(l.engineBrandId ?? '').trim())) return false;
+            // Для акт-scope в extras берём только детали, у которых этот акт РЕАЛЬНО стоит.
+            return actFlag ? Boolean((l as Record<string, unknown>)[flagKey]) : true;
+          });
+        });
         for (let i = 0; i < extras.length; i += 1) {
-          const rr = await removePartSpecBrandLinksForBrands({ partId: String(extras[i]!.id), brandIds: group.targetBrandIds });
+          const rr = actFlag
+            ? await clearPartSpecBrandLinkActFlagForBrands({ partId: String(extras[i]!.id), brandIds: group.targetBrandIds, actFlag })
+            : await removePartSpecBrandLinksForBrands({ partId: String(extras[i]!.id), brandIds: group.targetBrandIds });
           if (rr.ok) {
-            if (rr.removed > 0) removedParts += 1;
+            const touched = 'removed' in rr ? rr.removed : rr.cleared;
+            if (touched > 0) removedParts += 1;
           } else removeFailed += 1;
-          setPropagateStatus(`Удаление лишних: ${i + 1}/${extras.length}…`);
+          setPropagateStatus(`${actFlag ? 'Снятие галочки акта' : 'Удаление лишних'}: ${i + 1}/${extras.length}…`);
         }
       } else {
         removeFailed += 1;
@@ -267,8 +285,13 @@ export function EngineBrandDetailsPage(props: {
     invalidateListAllPartSpecsCache();
     setPropagateBusy(false);
     const marksLbl = `× ${group.targetBrandIds.length} марок «${group.name}»`;
-    const errTail = failed > 0 || removeFailed > 0 ? ` (ошибок: копирование ${failed}, удаление ${removeFailed})` : '';
-    const removedTail = merge === 'replace' ? `, удалено лишних у ${removedParts} деталей` : '';
+    const errTail = failed > 0 || removeFailed > 0 ? ` (ошибок: копирование ${failed}, зачистка ${removeFailed})` : '';
+    const removedTail =
+      merge === 'replace'
+        ? isActScope
+          ? `, снята галочка акта у ${removedParts} лишних деталей`
+          : `, удалено лишних у ${removedParts} деталей`
+        : '';
     setPropagateStatus(`Готово: ${done} деталей ${marksLbl}${removedTail}${errTail}.`);
   }
 
@@ -571,6 +594,41 @@ export function EngineBrandDetailsPage(props: {
       ...(row.linkId ? { linkId: row.linkId } : {}),
     });
     setPartsStatus(r.ok ? '' : `Ошибка: ${String(r.error ?? 'unknown')}`);
+  }
+
+  // G1 (owner-батч 2026-07-10): массовая простановка/снятие галочки акта у ВСЕХ показанных
+  // деталей (текущий срез visibleParts — уважает фильтр/вид). Цикл upsert по деталям с
+  // прогрессом и блокировкой повторного клика; useLiveDataRefresh на время правки не мешает
+  // (dirtyRef не нужен — правка идёт по одной, но оптимистичный state обновляем сразу).
+  const [bulkActBusy, setBulkActBusy] = useState(false);
+  async function bulkSetActFlag(flag: 'inCompletenessAct' | 'inDefectAct', value: boolean) {
+    if (!props.canEdit || !props.canEditParts || bulkActBusy) return;
+    const targets = visibleParts.filter((p) => p.id && p[flag] !== value);
+    if (targets.length === 0) return;
+    setBulkActBusy(true);
+    // Оптимистично проставить флаг во всех показанных строках.
+    setBrandParts((prev) => prev.map((x) => (targets.some((t) => t.id === x.id) ? { ...x, [flag]: value } : x)));
+    let done = 0;
+    let failed = 0;
+    for (const p of targets) {
+      const r = await upsertBrandPartLink({
+        partId: p.id,
+        assemblyUnitNumber: p.assemblyUnitNumber === 'не задано' ? '' : p.assemblyUnitNumber,
+        quantity: p.quantity,
+        inCompletenessAct: flag === 'inCompletenessAct' ? value : p.inCompletenessAct,
+        inDefectAct: flag === 'inDefectAct' ? value : p.inDefectAct,
+        ...(p.linkId ? { linkId: p.linkId } : {}),
+      });
+      if (r.ok) done += 1;
+      else failed += 1;
+      setPartsStatus(`Проставляю галочки акта: ${done + failed}/${targets.length}…`);
+    }
+    setBulkActBusy(false);
+    const actLabel = flag === 'inCompletenessAct' ? 'комплектности' : 'дефектовки';
+    setPartsStatus(
+      `Акт ${actLabel}: ${value ? 'проставлено' : 'снято'} у ${done} деталей${failed > 0 ? ` (ошибок: ${failed})` : ''}.`,
+    );
+    setTimeout(() => setPartsStatus(''), 2500);
   }
 
   async function updateBrandPartRow(partId: string, row: BrandPartRow) {
@@ -1111,7 +1169,8 @@ export function EngineBrandDetailsPage(props: {
                             disabled={disabled}
                             onChange={() => {
                               setPropagateScope(s.id);
-                              if (s.id !== 'all' && propagateMerge === 'replace') {
+                              // replace допустим для all и актов; уходим на selected с replace — сброс.
+                              if (s.id === 'selected' && propagateMerge === 'replace') {
                                 setPropagateMerge('add-missing');
                                 setPropagateReplaceConfirm(false);
                               }
@@ -1132,9 +1191,16 @@ export function EngineBrandDetailsPage(props: {
                     {([
                       { id: 'add-missing', label: 'Только добавить недостающие', hint: 'существующие детали марок не менять; для актов — проставить галочку у уже имеющихся' },
                       { id: 'overwrite', label: 'Обновить совпадающие и добавить недостающие', hint: 'кол-во/узел/галочки совпадающих = как здесь; прочие детали марок оставить' },
-                      { id: 'replace', label: 'Полное замещение', hint: 'список деталей каждой марки станет точно таким — лишние детали у марок будут удалены' },
+                      {
+                        id: 'replace',
+                        // G2: для акт-scope replace НЕ удаляет детали, а снимает галочку акта у лишних.
+                        label: isActScope ? 'Перепривязать акт целиком' : 'Полное замещение',
+                        hint: isActScope
+                          ? `набор акта у каждой марки станет точно таким — у прочих деталей галочка «${propagateScope === 'completeness' ? 'Акт компл.' : 'Акт деф.'}» будет СНЯТА (привязки и второй акт сохранятся)`
+                          : 'список деталей каждой марки станет точно таким — лишние детали у марок будут удалены',
+                      },
                     ] as Array<{ id: PropagateMerge; label: string; hint: string }>)
-                      .filter((m) => m.id !== 'replace' || propagateScope === 'all')
+                      .filter((m) => m.id !== 'replace' || propagateScope === 'all' || isActScope)
                       .map((m) => {
                         const danger = m.id === 'replace';
                         return (
@@ -1162,7 +1228,9 @@ export function EngineBrandDetailsPage(props: {
                   {propagateMergeEffective === 'replace' ? (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, color: 'var(--danger)', fontSize: 13, cursor: 'pointer' }}>
                       <input type="checkbox" checked={propagateReplaceConfirm} disabled={propagateBusy} onChange={(e) => setPropagateReplaceConfirm(e.target.checked)} />
-                      Понимаю: у {propagateSelId ? (propagateGroups.find((g) => g.id === propagateSelId)?.targetBrandIds.length ?? 0) : 0} марок будут удалены детали, которых нет в этом наборе.
+                      {isActScope
+                        ? `Понимаю: у ${propagateSelId ? (propagateGroups.find((g) => g.id === propagateSelId)?.targetBrandIds.length ?? 0) : 0} марок галочка «${propagateScope === 'completeness' ? 'Акт компл.' : 'Акт деф.'}» будет снята у деталей вне этого набора (привязки сохранятся).`
+                        : `Понимаю: у ${propagateSelId ? (propagateGroups.find((g) => g.id === propagateSelId)?.targetBrandIds.length ?? 0) : 0} марок будут удалены детали, которых нет в этом наборе.`}
                     </label>
                   ) : null}
 
@@ -1175,7 +1243,9 @@ export function EngineBrandDetailsPage(props: {
                       ? 'Существующие привязки марок не изменятся, добавятся только недостающие.'
                       : propagateMergeEffective === 'overwrite'
                         ? 'Совпадающие привязки перезапишутся, недостающие добавятся, прочие детали марок останутся.'
-                        : 'Список деталей марок станет точно равен набору; лишние детали у марок будут удалены.'}
+                        : isActScope
+                          ? `Набор акта у марок станет точно равен этому; у прочих деталей галочка акта будет снята (детали НЕ удаляются).`
+                          : 'Список деталей марок станет точно равен набору; лишние детали у марок будут удалены.'}
                   </div>
 
                   {propagateStatus ? <div style={{ marginTop: 10, color: propagateStatus.includes('ошиб') ? 'var(--danger)' : 'var(--subtle)', fontSize: 13 }}>{propagateStatus}</div> : null}
@@ -1244,6 +1314,43 @@ export function EngineBrandDetailsPage(props: {
             <Button variant="ghost" title="Распечатать текущий срез списка" onClick={() => printVisibleParts()}>
               🖨 Печать
             </Button>
+            {props.canEdit && props.canEditParts ? (
+              <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>Все показанные:</span>
+                <Button
+                  variant="ghost"
+                  disabled={bulkActBusy || visibleParts.length === 0}
+                  title="Проставить «Акт компл.» всем показанным деталям"
+                  onClick={() => void bulkSetActFlag('inCompletenessAct', true)}
+                >
+                  ✔ Компл.
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={bulkActBusy || visibleParts.length === 0}
+                  title="Снять «Акт компл.» со всех показанных деталей"
+                  onClick={() => void bulkSetActFlag('inCompletenessAct', false)}
+                >
+                  ✖ Компл.
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={bulkActBusy || visibleParts.length === 0}
+                  title="Проставить «Акт деф.» всем показанным деталям"
+                  onClick={() => void bulkSetActFlag('inDefectAct', true)}
+                >
+                  ✔ Деф.
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={bulkActBusy || visibleParts.length === 0}
+                  title="Снять «Акт деф.» со всех показанных деталей"
+                  onClick={() => void bulkSetActFlag('inDefectAct', false)}
+                >
+                  ✖ Деф.
+                </Button>
+              </span>
+            ) : null}
             {canPropagate ? (
               <>
                 <Button
