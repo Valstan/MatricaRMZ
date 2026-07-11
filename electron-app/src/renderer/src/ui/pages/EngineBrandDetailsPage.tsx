@@ -420,6 +420,13 @@ export function EngineBrandDetailsPage(props: {
 
   async function saveName() {
     if (!props.canEdit) return;
+    // Имя марки — ключевой идентификатор (наряды, BOM, прогноз). Пустая запись поверх
+    // существующего имени превращает марку в UUID во всех списках (инцидент В-84,
+    // 2026-07-10: имя перезаписано "" — вероятно, force-save шаренного черновика).
+    if (!name.trim()) {
+      setStatus('Ошибка: имя марки не может быть пустым — переименуйте или закройте без сохранения');
+      return;
+    }
     try {
       setStatus('Сохранение…');
       await window.matrica.admin.entities.setAttr(props.brandId, 'name', name.trim(), brandTypeId || undefined);
@@ -444,6 +451,12 @@ export function EngineBrandDetailsPage(props: {
 
   async function saveAllAndClose() {
     if (!props.canEdit) return;
+    // Стоп ДО любых записей: иначе успешный saveDescription перетёр бы сообщение об ошибке
+    // имени статусом «Сохранено», а оператор решил бы, что всё сохранилось.
+    if (!name.trim()) {
+      setStatus('Ошибка: имя марки не может быть пустым — переименуйте или закройте без сохранения');
+      return;
+    }
     await saveName();
     await saveDescription();
     // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,

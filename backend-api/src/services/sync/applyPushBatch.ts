@@ -995,15 +995,35 @@ export async function applyPushBatch(
       }
 
       const allowed: typeof rows = [];
+      let pairLwwConflicts = 0;
       for (const r of rows) {
         const key = `${String(r.entity_id)}:${String(r.attribute_def_id)}`;
         const pairExisting = existingByPair.get(key);
         const resolvedId = pairExisting?.id ? String(pairExisting.id) : String(r.id);
         if (resolvedId !== String(r.id)) {
+          // LWW-guard (A3, 2026-07-10): строка клиента маппится на ЧУЖУЮ существующую пару
+          // (entity_id, attribute_def_id) — id-стейл-фильтр выше её не видел, и до этого
+          // onConflictDoUpdate по паре перезаписывал значение БЕЗ сравнения времени: отставший
+          // клиент со старой pending-очередью тихо затирал более свежую правку. Пропускаем
+          // только записи не старше текущей.
+          const curUpdated = Number(pairExisting?.updatedAt ?? 0);
+          if (Number.isFinite(curUpdated) && curUpdated > 0 && Number(r.updated_at ?? 0) < curUpdated) {
+            pairLwwConflicts += 1;
+            continue;
+          }
           allowed.push({ ...r, id: resolvedId });
         } else {
           allowed.push(r);
         }
+      }
+      if (pairLwwConflicts > 0) {
+        addSkipMetric('conflict', SyncTableName.AttributeValues, pairLwwConflicts, 'pair_lww');
+        logSkip('sync stale pair rows skipped (LWW guard)', {
+          table: SyncTableName.AttributeValues,
+          conflicts: pairLwwConflicts,
+          client_id: req.client_id,
+          user: actor.username,
+        });
       }
       // Avoid duplicate conflict-target keys in one INSERT ... ON CONFLICT statement.
       // Keep the newest row for each (entity_id, attribute_def_id) pair.

@@ -9,6 +9,8 @@
 // shares the SAME uuid as the directory_parts row, so every consumer (stock
 // registers, BOM lines, document lines, acts' __part_id meta) references one id —
 // repointing loser→survivor is a single-id sweep.
+import { randomUUID } from 'node:crypto';
+
 import { LedgerTableName } from '@matricarmz/ledger';
 import {
   SyncTableName,
@@ -772,6 +774,45 @@ export async function mergeDirectoryParts(args: {
     if (allLedgerPayloads.length > 0) signAndAppendDetailed(allLedgerPayloads);
     if (allOpSyncChanges.length > 0) {
       await recordSyncChanges(args.actor, allOpSyncChanges, { allowSyncConflicts: true });
+    }
+
+    // Merge — операторское «удаление» деталей, но до 2026-07-10 в audit_log он не писался:
+    // «пропавший картер» (слит на экране дублей) было не отследить. Пишем через единый
+    // sync-путь (как engine_status_change в adminMasterdataService), чтобы запись доехала
+    // клиентам и была видна в журнале.
+    try {
+      const auditTs = nowMs();
+      const auditId = randomUUID();
+      await recordSyncChanges(
+        { id: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'admin' },
+        [
+          {
+            tableName: SyncTableName.AuditLog,
+            rowId: auditId,
+            op: 'upsert',
+            payload: {
+              id: auditId,
+              actor: args.actor.username,
+              action: 'directory_parts.merge',
+              entity_id: survivorId,
+              table_name: 'directory_parts',
+              payload_json: JSON.stringify({
+                survivorId,
+                survivorName: String(survivor.name ?? ''),
+                merged: mergedIds.map((id) => ({ id, name: String(byId.get(id)?.name ?? '') })),
+              }),
+              created_at: auditTs,
+              updated_at: auditTs,
+              deleted_at: null,
+              sync_status: 'synced',
+            },
+            ts: auditTs,
+          },
+        ],
+        { allowSyncConflicts: true },
+      );
+    } catch (auditErr) {
+      logWarn('directory parts merge audit failed', { error: String(auditErr) });
     }
 
     return { ok: true, report };

@@ -4,7 +4,7 @@ import { SyncTableName, type SyncPushRequest } from '@matricarmz/shared';
 
 import { applyPushBatch } from '../services/sync/applyPushBatch.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
-import { chatMessages, entities, entityTypes } from '../database/schema.js';
+import { attributeDefs, attributeValues, chatMessages, entities, entityTypes } from '../database/schema.js';
 import { makeInsertChain, makeTxSelectFromTableMap } from './utils/dbMockHelpers.js';
 
 const selectQueue: any[] = [];
@@ -367,5 +367,61 @@ describe('sync privacy and errors', () => {
     }
     const result = await applyPushBatch(req, { id: 'u1', username: 'user', role: 'user' });
     expect(result.applied).toBeGreaterThan(0);
+  });
+
+  // LWW-guard пары (A3, 2026-07-10): строка клиента с ДРУГИМ id маппится на существующую
+  // пару (entity_id, attribute_def_id) — id-стейл-фильтр её не видит, и раньше
+  // onConflictDoUpdate по паре затирал более свежее значение без сравнения времени.
+  it.each([
+    {
+      name: 'skips remapped pair row older than existing',
+      incomingUpdatedAt: 1000,
+      expectApplied: 0,
+    },
+    {
+      name: 'accepts remapped pair row newer than existing',
+      incomingUpdatedAt: 3000,
+      expectApplied: 1,
+    },
+  ])('applyPushBatch pair LWW-guard: $name', async ({ incomingUpdatedAt, expectApplied }) => {
+    const ENT = '22222222-2222-2222-2222-222222222222';
+    const DEF = '33333333-3333-3333-3333-333333333333';
+    txRowsByTable.set(attributeDefs, [{ id: DEF }]);
+    txRowsByTable.set(entities, [{ id: ENT }]);
+    txRowsByTable.set(attributeValues, [
+      {
+        id: '44444444-4444-4444-4444-444444444444',
+        entityId: ENT,
+        attributeDefId: DEF,
+        valueJson: '"В-84"',
+        updatedAt: 2000,
+        deletedAt: null,
+        lastServerSeq: 5,
+      },
+    ]);
+
+    const req: SyncPushRequest = {
+      client_id: 'c1',
+      upserts: [
+        {
+          table: SyncTableName.AttributeValues,
+          rows: [
+            {
+              id: '55555555-5555-5555-5555-555555555555',
+              entity_id: ENT,
+              attribute_def_id: DEF,
+              value_json: '""',
+              created_at: 1,
+              updated_at: incomingUpdatedAt,
+              deleted_at: null,
+              sync_status: 'pending',
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await applyPushBatch(req, { id: 'u1', username: 'user', role: 'user' });
+    expect(result.applied).toBe(expectApplied);
   });
 });

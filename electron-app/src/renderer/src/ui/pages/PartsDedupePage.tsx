@@ -138,9 +138,21 @@ export function PartsDedupePage(props: { canEdit: boolean }) {
         .filter((p) => mergedIds.includes(p.id))
         .map((p) => `«${p.name}»${p.code ? ` (арт. ${p.code})` : ''}`)
         .join(', ');
+      // Общий артикул у РАЗНЫХ названий — санкционированная модель (напр. «Картер верхний»
+      // и «Картер нижний» с одним артикулом 3301-15-30): такое слияние «удаляет» одну из
+      // реально разных деталей (инцидент 2026-06-19). Предупреждаем отдельно.
+      const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+      const differentNames = survivor
+        ? g.parts.filter((p) => mergedIds.includes(p.id) && norm(p.name) !== norm(survivor.name))
+        : [];
+      const differentNamesWarning =
+        differentNames.length > 0
+          ? `\n\n⚠️ НАЗВАНИЯ РАЗЛИЧАЮТСЯ: ${differentNames.map((p) => `«${p.name}»`).join(', ')} ≠ «${survivor?.name ?? ''}». ` +
+            'Один артикул у разных названий может означать РАЗНЫЕ детали (например, картер верхний и нижний) — тогда сливать нельзя, надо исправить артикул у одной из них.'
+          : '';
       const ok = await confirm({
         title: 'Объединить детали?',
-        detail: `${names} будут слиты в «${survivor?.name ?? ''}»${survivor?.code ? ` (арт. ${survivor.code})` : ''}. Все остатки, движения, спецификации и строки актов перевесятся на главную деталь; поглощаемые будут помечены удалёнными. Действие необратимо.`,
+        detail: `${names} будут слиты в «${survivor?.name ?? ''}»${survivor?.code ? ` (арт. ${survivor.code})` : ''}. Все остатки, движения, спецификации и строки актов перевесятся на главную деталь; поглощаемые будут помечены удалёнными. Действие необратимо.${differentNamesWarning}`,
         confirmLabel: 'Объединить',
       });
       if (!ok) return;

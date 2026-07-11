@@ -335,10 +335,15 @@ describe('mergeDirectoryParts happy path', () => {
     expect(balanceUpdate!.set.qty).toBe(7);
     expect(state.deleteCalls.some((c) => c.table === erpRegStockBalance)).toBe(true);
 
-    // operations meta rewritten through the sync path
-    expect(state.syncCalls).toHaveLength(1);
-    expect(String(state.syncCalls[0].payload.meta_json)).toContain(S);
-    expect(String(state.syncCalls[0].payload.meta_json)).not.toContain(L);
+    // operations meta rewritten through the sync path + audit-запись merge (A2 2026-07-10)
+    const opSync = state.syncCalls.filter((c) => c.tableName !== 'audit_log');
+    expect(opSync).toHaveLength(1);
+    expect(String(opSync[0].payload.meta_json)).toContain(S);
+    expect(String(opSync[0].payload.meta_json)).not.toContain(L);
+    const auditSync = state.syncCalls.filter((c) => c.tableName === 'audit_log');
+    expect(auditSync).toHaveLength(1);
+    expect(String(auditSync[0].payload.action)).toBe('directory_parts.merge');
+    expect(String(auditSync[0].payload.payload_json)).toContain(L);
 
     // ledger emits cover balance delete+upsert, movement, bom line, loser nomenclature delete
     const tables = state.ledgerCalls.map((p) => `${p.type}:${p.table}`);
