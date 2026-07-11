@@ -178,8 +178,9 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
     JSON.stringify({ linkTargetTypeCode: EntityTypeCode.Category }),
   );
 
-  // EngineBrand (марки двигателя) — минимум: имя + вложения.
+  // EngineBrand (марки двигателя) — имя + описание + единые вложения (тема F).
   await ensureAttrDef(engineBrandTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(engineBrandTypeId, 'description', 'Описание', AttributeDataType.Text, 20);
   await ensureAttrDef(
     engineBrandTypeId,
     'category_id',
