@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { EmployeeListItem, SectionAccessLevel, SectionMembership } from '@matricarmz/shared';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, parseSectionMembership, serializeSectionMembership } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, missingSectionDependencies, parseSectionMembership, serializeSectionMembership } from '@matricarmz/shared';
+import type { AccessSection } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -71,11 +72,35 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
       });
       if (!ok) return;
     }
+    const membership: SectionMembership = { ...row.membership };
+    if (level) (membership as Record<string, SectionAccessLevel>)[sectionId] = level;
+    else delete (membership as Record<string, SectionAccessLevel>)[sectionId];
+
+    // Тема H: при ВЫДАЧЕ раздела подсказать недостающие связанные разделы (напр. Производство
+    // без Договоров → в карточке двигателя не ищется контракт). Решение за оператором.
+    if (level) {
+      const missing = missingSectionDependencies(membership, sectionId as AccessSection);
+      if (missing.length > 0) {
+        const list = missing
+          .map((d) => `• «${accessSectionMeta(d.section)?.titleRu ?? d.section}» (${d.level === 'editor' ? 'редактор' : 'наблюдатель'}) — ${d.reasonRu}`)
+          .join('\n');
+        const add = await confirm({
+          title: `Добавить связанные доступы для ${row.login}?`,
+          detail:
+            `Для полноценной работы с разделом «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}» обычно нужны ещё:\n\n${list}\n\n` +
+            'Добавить их сейчас? (Если этому пользователю такие данные заполнять не нужно — можно отказаться.)',
+          confirmLabel: 'Добавить связанные',
+          cancelLabel: 'Только этот раздел',
+          confirmTone: 'info',
+        });
+        if (add) {
+          for (const d of missing) (membership as Record<string, SectionAccessLevel>)[d.section] = d.level;
+        }
+      }
+    }
+
     setSaving(true);
     try {
-      const membership: SectionMembership = { ...row.membership };
-      if (level) (membership as Record<string, SectionAccessLevel>)[sectionId] = level;
-      else delete (membership as Record<string, SectionAccessLevel>)[sectionId];
       const res = await window.matrica.employees.setAttr(row.id, SECTION_ACCESS_ATTR, serializeSectionMembership(membership));
       if (res && (res as { ok?: boolean }).ok === false) {
         setStatus(`Не сохранилось (${row.login}): ${(res as { error?: string }).error ?? 'ошибка'}`);

@@ -982,9 +982,16 @@ export function EngineDetailsPage(props: {
     async function load(code: string, key: string) {
       const tid = typeIdByCodeMap.get(code);
       if (!tid) return;
-      const rows = await window.matrica.admin.entities.listByEntityType(tid);
-      const opts = mapEntityRowsToSearchOptions(rows);
-      setLinkLists((p) => ({ ...p, [key]: opts }));
+      // Per-вызов catch (тема H): section-гейт отказывает в чужом разделе (contract → раздел
+      // «Договоры») исключением; без catch reject ронял весь Promise.all и пустел даже цех.
+      // Теперь недоступный справочник просто остаётся пустым, остальные грузятся.
+      try {
+        const rows = await window.matrica.admin.entities.listByEntityType(tid);
+        const opts = mapEntityRowsToSearchOptions(rows);
+        setLinkLists((p) => ({ ...p, [key]: opts }));
+      } catch {
+        /* нет доступа к разделу этого справочника — поле останется пустым */
+      }
     }
     // Параллельно — иначе customer/contract ждут engine_brand и в поле секунду мигает UUID.
     await Promise.all([

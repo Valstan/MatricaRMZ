@@ -109,7 +109,7 @@
 | F | Вложения: быстрый фикс defs + унификация | S+M | ✅ (марки: ensureAttributeDefs description/attachments + одна панель «Вложения», merge legacy) |
 | G1 | Массовые галочки актов | S | ✅ (тристейт-кнопки «Все показанные» ✔/✖ Компл./Деф. по visibleParts) |
 | G2 | Act-scoped replace в «Распространить» | M | ✅ (clearPartSpecBrandLinkActFlagForBrands + replace для акт-scope) |
-| H | Подсказки зависимостей разделов | M | ⬜ |
+| H | Подсказки зависимостей разделов | M | ✅ (SECTION_DEPENDENCIES + confirm в обеих точках membership; per-call catch в loadLinkLists двигателя) |
 
 ## Открытые вопросы владельцу
 

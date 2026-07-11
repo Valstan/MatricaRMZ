@@ -13,7 +13,8 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, missingSectionDependencies, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import type { AccessSection, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -2130,12 +2131,35 @@ function SectionAccessMirror(props: {
       });
       if (!ok) return;
     }
+    const next: Record<string, 'viewer' | 'editor'> = { ...props.membership } as Record<string, 'viewer' | 'editor'>;
+    if (level) next[sectionId] = level;
+    else delete next[sectionId];
+
+    // Тема H: при выдаче раздела подсказать недостающие связанные (зеркально AccessSectionsPage).
+    if (level) {
+      const missing = missingSectionDependencies(next as SectionMembership, sectionId as AccessSection);
+      if (missing.length > 0) {
+        const listRu = missing
+          .map((d) => `• «${accessSectionMeta(d.section)?.titleRu ?? d.section}» (${d.level === 'editor' ? 'редактор' : 'наблюдатель'}) — ${d.reasonRu}`)
+          .join('\n');
+        const add = await confirm({
+          title: 'Добавить связанные доступы?',
+          detail:
+            `Для полноценной работы с разделом «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}» обычно нужны ещё:\n\n${listRu}\n\n` +
+            'Добавить их сейчас? (Если такие данные заполнять не нужно — можно отказаться.)',
+          confirmLabel: 'Добавить связанные',
+          cancelLabel: 'Только этот раздел',
+          confirmTone: 'info',
+        });
+        if (add) {
+          for (const d of missing) next[d.section] = d.level;
+        }
+      }
+    }
+
     setSaving(true);
     setError('');
     try {
-      const next: Record<string, 'viewer' | 'editor'> = { ...props.membership } as Record<string, 'viewer' | 'editor'>;
-      if (level) next[sectionId] = level;
-      else delete next[sectionId];
       const r = await window.matrica.employees.setAttr(props.employeeId, SECTION_ACCESS_ATTR, serializeSectionMembership(next));
       if (r && (r as { ok?: boolean }).ok === false) {
         setError((r as { error?: string }).error ?? 'ошибка сохранения');

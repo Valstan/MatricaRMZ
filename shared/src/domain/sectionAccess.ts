@@ -131,6 +131,49 @@ export function accessSectionMeta(id: string): AccessSectionMeta | null {
 }
 
 /**
+ * Тема H (owner-батч 2026-07-10): статическая карта «раздел X требует ещё раздел Y для
+ * полноценной работы». Источник — фактические сквозные lookup'ы, гейтящиеся по entity-типу
+ * чужого раздела (sectionGate ENTITY_TYPE_SECTION / PREFIX_RULES): карточка двигателя тянет
+ * контракты (production→contracts), наряды — двигатели (work_orders→production), карточка
+ * договора — двигатели/марки (contracts→production), заявка — номенклатуру (supply→warehouse).
+ * Уровня `viewer` достаточно (гейт чтения требует только viewer). Подсказка предлагается при
+ * ВЫДАЧЕ раздела; решение за оператором (можно отказаться — данные, требующие Y, он не заполнит).
+ *
+ * ⚠️ Держать в синхроне с sectionGate.ts (ENTITY_TYPE_SECTION / PREFIX_RULES): при изменении
+ * гейтящихся lookup'ов обновлять эту карту.
+ */
+export type SectionDependency = { section: AccessSection; level: SectionAccessLevel; reasonRu: string };
+
+export const SECTION_DEPENDENCIES: Readonly<Partial<Record<AccessSection, ReadonlyArray<SectionDependency>>>> = {
+  [AccessSection.Production]: [
+    { section: AccessSection.Contracts, level: 'viewer', reasonRu: 'в карточке двигателя поле «Контракт» ищет договоры' },
+  ],
+  [AccessSection.WorkOrders]: [
+    { section: AccessSection.Production, level: 'viewer', reasonRu: 'в наряде выбирается двигатель из справочника' },
+  ],
+  [AccessSection.Contracts]: [
+    { section: AccessSection.Production, level: 'viewer', reasonRu: 'в карточке договора видны двигатели и марки' },
+  ],
+  [AccessSection.Supply]: [
+    { section: AccessSection.Warehouse, level: 'viewer', reasonRu: 'в заявке подбирается номенклатура склада' },
+  ],
+};
+
+/**
+ * Недостающие зависимости для раздела, которому ВЫДАЮТ доступ: элементы SECTION_DEPENDENCIES[sectionId],
+ * которых ещё нет в membership (viewer покрывается и editor'ом). Пусто → подсказывать нечего.
+ */
+export function missingSectionDependencies(membership: SectionMembership, sectionId: AccessSection): SectionDependency[] {
+  const deps = SECTION_DEPENDENCIES[sectionId];
+  if (!deps || deps.length === 0) return [];
+  return deps.filter((dep) => {
+    const current = membership[dep.section];
+    // Любой уровень (viewer/editor) удовлетворяет требование viewer.
+    return !current;
+  });
+}
+
+/**
  * Tolerant parse of the `section_access` attribute value: object, JSON string,
  * or DOUBLE-encoded JSON string (setEntityAttribute JSON.stringify's the already
  * serialized membership — prod backfill 2026-07-03 stores it that way).

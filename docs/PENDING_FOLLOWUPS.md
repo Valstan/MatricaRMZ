@@ -51,18 +51,19 @@ _(Реакция на утечку ПДн по 152-ФЗ — закрыто 2026-
 
 ---
 
-## 🎙️ Owner backlog — батч 2026-07-10 (диктофон, 11 заданий → 8 тем) 🗓 since:2026-07-10
+## 🎙️ Owner backlog — батч 2026-07-10 (диктофон, 11 заданий → 8 тем) — ✅ ВСЕ ТЕМЫ ЗАКРЫТЫ 🗓 since:2026-07-10
 
-План с разведкой кода (7 скаутов, все точки врезки с file:line): [`plans/owner-batch-2026-07-10.md`](plans/owner-batch-2026-07-10.md). Порядок: **A → B → C → D/E → F → G → H**.
+План с разведкой кода (7 скаутов, все точки врезки с file:line): [`plans/owner-batch-2026-07-10.md`](plans/owner-batch-2026-07-10.md). **Все 8 тем A→H отгружены в `main`** (PR #161–#173, ждут релиза). Ниже — что сделано:
 
-- 🔴 **A. Integrity: роли/атрибуция/синк** — «расширил роль → нарядов меньше» (editor раздела «Наряды закрытые» = confined «видит только свои» + первый membership глобально выключает легаси-политику ramzia/glavbux); пропавший картер (упавшее зеркало erp_nomenclature об unique-код при общем артикуле / merge на экране дублей); В-84 «переименовалась» (кандидаты: UUID-fallback при sync-gap, **LWW без updated_at в applyPushBatch — системная дыра EAV-синка**, шаренные черновики одного логина на 3 машинах); суперадмин на компах операторов (атрибуция врёт, гейты выключены). Сначала прод-диагностика, потом фиксы.
-- **B. Регрессии списка нарядов**: номер/марка двигателя пропали из списка+печати (reader'ы не читают `assemblyEngineId` после #133; `normalizeWorkOrderLine` стрижёт марку у строк без engineId); «Завершён» — прочерки (`completedAt ?? completedDate`); поиск по № двигателя + сортировка по статусу.
-- **C. Тормоза карточки номенклатуры** (30-60+с): remote-first с таймаутами 30-60с × 3 ретрая + синхронный outbox-дрейн в read-path; лечение — local-first (зеркала уже синкаются), разбить Promise.all, срезать интерактивные таймауты, кэш lookups.
-- **D. ПКМ «Наряд на сборку» в списке двигателей** (deferred-create + initialPayload c assemblyEngineId; extraItems в buildListContextMenuItems).
-- **E. Автоподстановка BOM-спецификации марки при выборе двигателя в наряде сборки** (onChange хедера; заодно снять граблю задизейбленной кнопки у пустого наряда).
-- **F. Вложения — ✅ марки (2026-07-10):** карточка марки гарантирует defs `description`/`attachments` (ensureAttributeDefs при загрузке — чинит «Неизвестный атрибут» + сироту-файл), три раздела Чертежи/Документы/Вложения слиты в одну панель «Вложения» (merge legacy с дедупом по id, запись в attachments + зануление старых attrs при первом изменении). **Хвост (опц.):** унификация вложений детали (`PartDetailsPage` — drawings/techDocs в metadataJson, read-compat), если понадобится.
-- **G. Марка: массовые галочки актов** (тристейт в тулбаре по visibleParts) + **act-scoped replace** в «Распространить на группу» (новый примитив clearPartSpecBrandLinkActFlagForBrands — снять галочку акта, не удаляя привязку).
-- **H. Подсказки зависимостей разделов** (SECTION_DEPENDENCIES в sectionAccess.ts + confirm в двух точках записи membership; карта: production→contracts, work_orders→production, contracts→production, supply→warehouse).
+- ✅ **A. Integrity** (#161 роли/критсобытие/LWW-guard/дедуп-аудит; #162 sync-фиксы; #163–#167 прод-данные скриптом `fix:owner-batch-20260710`): пустой membership = unseeded (симметрия с сервером); подписи+confirm уровней «Наряды закрытые» (editor=confined); критсобытие мульти-логина; **LWW-guard по updated_at в applyPushBatch** (системная дыра EAV-синка); запрет пустого имени марки + человеческий fallback; аудит merge дедупа + предупреждение о разных именах. Данные: fatyhova/radik membership, «Картер верхний»/шаблон «Сборка 400», переатрибуция №63–81. Попутно **GOTCHAS M30** (прод-скрипт без боевого env → паразитный ledger).
+- ✅ **B. Регрессии списка нарядов** (#168): номер/марка резолвятся из `assemblyEngineId`; «Завершён» = `completedAt ?? completedDate`; поиск по № двигателя + сортировка по статусу.
+- ✅ **C. Тормоза карточки номенклатуры** (#170): короткие интерактивные таймауты, бюджет outbox-дрейна, TTL-кэш lookups, шапка вне Promise.all.
+- ✅ **D+E. Наряд сборки из ПКМ двигателей + автошаблон** (#171): контекст-меню + deferred-create с assemblyEngineId; авто-fill BOM марки при открытии/выборе; снята грабля disabled-кнопки.
+- ✅ **F. Вложения марки** (#172): ensureAttributeDefs description/attachments (чинит «Неизвестный атрибут» + сироту-файл) + одна панель «Вложения» (merge legacy, дедуп по id). **Хвост (опц.):** унификация вложений детали (`PartDetailsPage` — drawings/techDocs в metadataJson), если понадобится.
+- ✅ **G. Марка** (#173): тристейт-кнопки массовой простановки актов по visibleParts + act-scoped replace в «Распространить» (примитив `clearPartSpecBrandLinkActFlagForBrands`).
+- ✅ **H. Подсказки зависимостей разделов**: `SECTION_DEPENDENCIES` в sectionAccess.ts + confirm в двух точках записи membership; per-call catch в loadLinkLists двигателя. Карта: production→contracts, work_orders→production, contracts→production, supply→warehouse.
+
+**⚠️ Не забыть:** предупредить владельца — как раскатается релиз, **прекратить логиниться суперадмином на компах операторов** (роли починены — практика больше не нужна; она врёт атрибуцию и шарит черновики).
 
 ---
 
