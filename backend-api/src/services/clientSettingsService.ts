@@ -9,6 +9,7 @@ import {
 
 import { db, pool } from '../database/db.js';
 import { clientSettings, statisticsActiveTime } from '../database/schema.js';
+import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { logWarn } from '../utils/logger.js';
 
 export type ClientSettingsRow = typeof clientSettings.$inferSelect;
@@ -168,6 +169,45 @@ export async function touchClientSettings(
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));
+  if (args.username) await warnOnMultiMachineLogin(clientId, String(args.username), ts);
+}
+
+/**
+ * Один логин, активный на нескольких машинах одновременно, ломает атрибуцию
+ * (performed_by/row_owners пишутся логином сессии), выключает разделные гейты при
+ * superadmin и шарит per-user черновики между машинами (инцидент 2026-07-10: valstan
+ * на PC34/PC40/PC41 → «самопроизвольные» правки). Поднимаем warn-критсобытие; dedup
+ * по составу машин, чтобы каждый heartbeat не плодил повторы.
+ */
+const MULTI_LOGIN_ACTIVE_WINDOW_MS = 10 * 60 * 1000;
+
+async function warnOnMultiMachineLogin(clientId: string, username: string, ts: number): Promise<void> {
+  try {
+    const login = username.trim().toLowerCase();
+    if (!login) return;
+    const rows = await db
+      .select({ clientId: clientSettings.clientId, lastHostname: clientSettings.lastHostname, lastSeenAt: clientSettings.lastSeenAt })
+      .from(clientSettings)
+      .where(sql`lower(${clientSettings.lastUsername}) = ${login} AND ${clientSettings.lastSeenAt} > ${ts - MULTI_LOGIN_ACTIVE_WINDOW_MS}`);
+    if (rows.length < 2) return;
+    const machines = rows
+      .map((r) => String(r.lastHostname ?? '').trim() || String(r.clientId).slice(0, 8))
+      .sort((a, b) => a.localeCompare(b, 'ru'));
+    ingestServerCriticalEvent({
+      eventCode: 'auth.multi_machine_login',
+      title: `Логин «${login}» активен на ${rows.length} машинах`,
+      humanMessage:
+        `Пользователь «${login}» одновременно работает на машинах: ${machines.join(', ')}. ` +
+        'Наряды и правки с этих машин записываются на этот логин (атрибуция искажается), ' +
+        'а черновики карточек становятся общими. Каждому оператору — свой логин.',
+      category: 'auth',
+      severity: 'warn',
+      clientId,
+      dedupMessage: `auth.multi_machine_login:${login}:${machines.join(',')}`,
+    });
+  } catch {
+    // heartbeat никогда не должен падать из-за диагностики
+  }
 }
 
 // «Активное» время: клиент шлёт кумулятив за свой локальный день (activeMs) на heartbeat'е.

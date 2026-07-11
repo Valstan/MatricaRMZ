@@ -13,7 +13,7 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -2113,10 +2113,23 @@ function SectionAccessMirror(props: {
   canEdit: boolean;
   onSaved: () => void;
 }) {
+  const { confirm } = useConfirm();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   async function setLevel(sectionId: string, level: '' | 'viewer' | 'editor') {
+    // Нестандартная семантика уровней («Наряды закрытые»: editor = ограниченный владелец,
+    // видит ТОЛЬКО свои) — подтверждение до записи, зеркально AccessSectionsPage.
+    const hint = level ? accessSectionMeta(sectionId)?.levelHintsRu?.[level] : undefined;
+    if (hint && hint.includes('⚠️')) {
+      const ok = await confirm({
+        title: `Выдать «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}» (${level === 'editor' ? 'редактор' : 'наблюдатель'})?`,
+        detail: hint,
+        confirmLabel: 'Выдать',
+        confirmTone: 'warn',
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -2146,7 +2159,11 @@ function SectionAccessMirror(props: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 6 }}>
         {ACCESS_SECTION_CATALOG.map((section) => (
-          <label key={section.id} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+          <label
+            key={section.id}
+            title={section.levelHintsRu ? `наблюдатель: ${section.levelHintsRu.viewer}\nредактор: ${section.levelHintsRu.editor}` : undefined}
+            style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}
+          >
             <select
               value={props.membership[section.id] ?? ''}
               disabled={!props.canEdit || saving}

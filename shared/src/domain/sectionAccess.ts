@@ -41,6 +41,13 @@ export type AccessSectionMeta = {
   menuTabs: readonly string[];
   /** Only the owner (superadmin) may add people to this section. */
   restrictedAssign?: boolean;
+  /**
+   * Подписи уровней для разделов с НЕСТАНДАРТНОЙ семантикой (инцидент fatyhova 2026-07-10:
+   * владелец «расширял доступ», выдав editor «Нарядов закрытых», а editor там означает
+   * «ограниченный владелец — видит ТОЛЬКО свои наряды»). Рендерятся в обоих редакторах
+   * доступов; для обычных разделов не задаются (действует общая легенда наблюдатель/редактор).
+   */
+  levelHintsRu?: { viewer: string; editor: string };
 };
 
 export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
@@ -59,6 +66,11 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     titleRu: 'Наряды закрытые (Рамзии)',
     menuTabs: [], // подмножество work_orders по owner-логину, не отдельный таб
     restrictedAssign: true,
+    levelHintsRu: {
+      viewer: 'читает закрытые наряды всех ограниченных владельцев (напр., бухгалтерия)',
+      editor:
+        '⚠️ ограниченный ВЛАДЕЛЕЦ: его наряды скрыты от остальных, и сам он видит ТОЛЬКО свои наряды — это НЕ «больше доступа»',
+    },
   },
   {
     id: AccessSection.Supply,
