@@ -33,7 +33,7 @@ import {
 import { pool } from '../database/db.js';
 import { setEntityAttribute } from '../services/adminMasterdataService.js';
 import { updateWorkOrderTemplate } from '../services/workOrderTemplateService.js';
-import { recordSyncChanges } from '../services/sync/syncChangeService.js';
+import { writeSyncChanges } from '../services/sync/syncWriteService.js';
 
 const APPLY = process.argv.includes('--apply');
 const actorArg = process.argv.find((a) => a.startsWith('--actor='));
@@ -205,10 +205,15 @@ async function main() {
       if (num >= REATTR_NUMBERS_FROM && num <= REATTR_NUMBERS_TO) targets.push({ row, num });
     }
     targets.sort((a, b) => a.num - b.num);
-    log(`4. нарядов ${REATTR_FROM}→${REATTR_TO} (№${REATTR_NUMBERS_FROM}–${REATTR_NUMBERS_TO}): ${targets.length} шт: ${targets.map((t) => `№${t.num}`).join(', ')}`);
+    log(
+      `4. нарядов ${REATTR_FROM}→${REATTR_TO} (№${REATTR_NUMBERS_FROM}–${REATTR_NUMBERS_TO}): ${targets.length} шт: ${targets
+        .map((t) => `№${t.num}[${String(t.row.status)}${String(t.row.performed_by) === REATTR_TO ? ';уже' : ''}]`)
+        .join(', ')}`,
+    );
     if (APPLY && targets.length > 0) {
       const ts = Date.now();
-      for (const { row } of targets) {
+      let ok = 0;
+      for (const { row, num } of targets) {
         const id = String(row.id);
         await pool.query('update operations set performed_by=$1, updated_at=$2 where id=$3', [REATTR_TO, ts, id]);
         await pool.query(
@@ -216,14 +221,14 @@ async function main() {
           [fatyhovaId, REATTR_TO, SyncTableName.Operations, id],
         );
         // Прокачка клиентам: полный row-payload через штатный sync-путь (bump seq).
-        await recordSyncChanges(
-          actor,
+        // writeSyncChanges сам штампует свежий last_server_seq (ledger append) — свой не шлём.
+        const res = await writeSyncChanges(
           [
             {
-              tableName: SyncTableName.Operations,
-              rowId: id,
-              op: 'upsert',
-              payload: {
+              type: 'upsert',
+              table: SyncTableName.Operations,
+              row_id: id,
+              row: {
                 id,
                 engine_entity_id: String(row.engine_entity_id),
                 operation_type: String(row.operation_type),
@@ -235,17 +240,19 @@ async function main() {
                 created_at: Number(row.created_at),
                 updated_at: ts,
                 deleted_at: null,
-                // Текущий seq строки — иначе filterStaleBySeqOrUpdatedAt скипает upsert
-                // как «seq-less над строкой с известным seq» и правка не едет клиентам.
-                ...(row.last_server_seq == null ? {} : { last_server_seq: Number(row.last_server_seq) }),
               },
-              ts,
             },
           ],
+          { id: actor.id, username: actor.username, role: actor.role },
           { allowSyncConflicts: true },
         );
+        if (res.skipped.length > 0) {
+          log(`   ✗ №${num} (${id}): skipped ${JSON.stringify(res.skipped)}`);
+        } else {
+          ok += 1;
+        }
       }
-      log(`4. применено: ${targets.length} нарядов переатрибутировано`);
+      log(`4. применено: ${ok}/${targets.length} нарядов прокачано синком`);
     }
   }
 
