@@ -134,7 +134,7 @@ async function main() {
       delete (next as Record<string, unknown>).restricted_work_orders;
       log(`1. fatyhova (${empId}): remove restricted_work_orders → ${serializeSectionMembership(next)}`);
       if (APPLY) {
-        const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next));
+        const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next), { allowSyncConflicts: true });
         if (!res.ok) throw new Error(`fatyhova setAttr failed: ${res.error}`);
       }
     } else {
@@ -153,7 +153,7 @@ async function main() {
       const next = { ...membership, supply: 'editor' as const };
       log(`2. radik (${empId}): ${raw ?? '(нет атрибута)'} → ${serializeSectionMembership(next)}`);
       if (APPLY) {
-        const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next));
+        const res = await setEntityAttribute(actor, empId, SECTION_ACCESS_ATTR, serializeSectionMembership(next), { allowSyncConflicts: true });
         if (!res.ok) throw new Error(`radik setAttr failed: ${res.error}`);
       }
     }
