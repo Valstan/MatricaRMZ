@@ -1217,6 +1217,10 @@ export function WorkOrderDetailsPage(props: {
         });
         if (!ok) return;
       }
+      // Штамп двигателя шапки в строки: без engineId normalizeWorkOrderLine стрипает
+      // марку при первом же recalc/save — номер/марка пропадали из списка и печати (B1).
+      const headerEngineId = resolveAssemblyEngineId(payload);
+      const headerEngine = headerEngineId ? engines.find((e) => e.id === headerEngineId) ?? null : null;
       const newLines: WorkOrderWorkLine[] = chosen.map((line, idx) => {
         const wl: WorkOrderWorkLine = {
           lineNo: idx + 1,
@@ -1229,6 +1233,7 @@ export function WorkOrderDetailsPage(props: {
           engineBrandId: brandId,
           engineBrandName: brandName,
           partId: String(line.componentNomenclatureId),
+          ...(headerEngine ? { engineId: headerEngine.id, engineNumber: String(headerEngine.engineNumber ?? '') } : {}),
         };
         const nm = String(line.componentNomenclatureName ?? '').trim();
         if (nm) wl.partName = nm;
@@ -1441,8 +1446,21 @@ export function WorkOrderDetailsPage(props: {
     const isAssembly = current.workOrderKind === WorkOrderKind.Assembly;
     const distinctTrimmed = (vals: Array<string | null | undefined>) =>
       Array.from(new Set(vals.map((v) => String(v ?? '').trim()).filter(Boolean)));
-    const headerEngineBrand = distinctTrimmed(current.freeWorks.map((l) => l.engineBrandName)).join(', ') || '—';
-    const headerEngineNumber = distinctTrimmed(current.freeWorks.map((l) => l.engineNumber)).join(', ') || '—';
+    // Фоллбек на двигатель шапки (payload.assemblyEngineId): построчные штампы могли быть
+    // стрижены normalizeWorkOrderLine (строки «Заполнить из спецификации»/прогноза без
+    // engineId) — номер/марка пропадали из печатной формы (регрессия после #133).
+    const headerEngineFromPayload = (() => {
+      const engineId = resolveAssemblyEngineId(current);
+      return engineId ? engines.find((e) => e.id === engineId) ?? null : null;
+    })();
+    const headerEngineBrand =
+      distinctTrimmed(current.freeWorks.map((l) => l.engineBrandName)).join(', ') ||
+      String(headerEngineFromPayload?.engineBrandName ?? '').trim() ||
+      '—';
+    const headerEngineNumber =
+      distinctTrimmed(current.freeWorks.map((l) => l.engineNumber)).join(', ') ||
+      String(headerEngineFromPayload?.engineNumber ?? '').trim() ||
+      '—';
     const headerWorkTypes = distinctTrimmed(current.freeWorks.map((l) => l.serviceName));
     const headerWorkType = headerWorkTypes.length === 1 ? headerWorkTypes[0]! : 'Сборка двигателя';
 

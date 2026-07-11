@@ -10,10 +10,12 @@ import {
   normalizeWorkOrderLine,
   normalizeWorkOrderPayloadV3Fields,
   primaryAssemblyEngineId,
+  resolveAssemblyEngineId,
   type WorkOrderPayload,
 } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
 import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
+import { listEngines } from './engineService.js';
 
 import { auditLog, operations } from '../database/schema.js';
 
@@ -395,6 +397,14 @@ export async function listWorkOrders(
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const month = args?.month ? String(args.month).trim() : '';
     const viewer = args?.viewer;
+    // Сборочный наряд после #133 несёт двигатель в шапке (payload.assemblyEngineId), а
+    // построчные штампы могут быть стрижены normalizeWorkOrderLine — резолвим номер/марку
+    // по карте двигателей. Карта грузится ОДИН раз на вызов и только если в выборке
+    // вообще есть сборочные наряды (без N+1 на 5000 строк).
+    const mayNeedEngineMap = rows.some((r) => String(r.metaJson ?? '').includes('"workOrderKind":"assembly"'));
+    const engineById = mayNeedEngineMap
+      ? new Map((await listEngines(db).catch(() => [])).map((e) => [String(e.id), e]))
+      : null;
     // Configurable restricted-orders lists (Ф3); undefined → shared legacy hardcode.
     const restrictedPolicy = viewer
       ? ((await getRestrictedWorkOrderPolicyLocal(db).catch(() => null)) ?? undefined)
@@ -441,16 +451,28 @@ export async function listWorkOrders(
       const workType = getWorkOrderPrimaryWorkType(payload);
       const performerSurnames = getCrewSurnames(payload);
       const engineInfo = getWorkOrderEngineInfo(payload);
+      if ((!engineInfo.engineBrand || !engineInfo.engineNumber) && engineById) {
+        const engineId = resolveAssemblyEngineId(payload);
+        const engine = engineId ? engineById.get(engineId) : undefined;
+        if (engine) {
+          if (!engineInfo.engineBrand) engineInfo.engineBrand = String(engine.engineBrand ?? '').trim();
+          if (!engineInfo.engineNumber) engineInfo.engineNumber = String(engine.engineNumber ?? '').trim();
+        }
+      }
       const isClosedRow = String(row.status ?? 'open') === 'closed';
       const mKey = monthKeyFromMs(Number(payload.orderDate ?? row.createdAt));
       if (month && mKey !== month) continue;
       if (qNorm) {
+        // Номер/марка двигателя явно в haystack: у сборочных нарядов они резолвятся из
+        // шапки и в JSON payload'а могут отсутствовать (иначе поиск по № двигателя слеп).
         const hay = normalizeSearch(
           [
             payload.workOrderNumber,
             workType,
             performerSurnames,
             partName,
+            engineInfo.engineNumber,
+            engineInfo.engineBrand,
             row.note ?? '',
             JSON.stringify(payload),
           ].join(' '),

@@ -84,7 +84,10 @@ function StatusBadge({ code }: { code: WorkOrderStatusCode }) {
   );
 }
 
-type SortKey = 'number' | 'date' | 'start' | 'due' | 'completed' | 'part' | 'brand' | 'engineNo' | 'crew' | 'performers' | 'total' | 'updatedAt';
+type SortKey = 'number' | 'date' | 'start' | 'due' | 'completed' | 'part' | 'brand' | 'engineNo' | 'crew' | 'performers' | 'total' | 'status' | 'updatedAt';
+
+/** Ранг статуса для сортировки: просрочен → выдан → выполнен с опозданием → выполнен. */
+const STATUS_SORT_RANK: Record<string, number> = { overdue: 0, issued: 1, done_late: 2, done: 3 };
 
 function rub(v: number) {
   return `${Math.round((Number(v) || 0) * 100) / 100} ₽`;
@@ -194,7 +197,10 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       if (key === 'date') return Number(row.orderDate ?? 0);
       if (key === 'start') return Number(row.startDate ?? 0);
       if (key === 'due') return Number(row.dueDate ?? 0);
-      if (key === 'completed') return Number(row.completedAt ?? 0);
+      // «Завершён»: closed-дата, для незакрытых — операторская «Дата выполнения»
+      // (та же пара, что рендерит колонку; иначе выполненные наряды сыпались в конец).
+      if (key === 'completed') return Number(row.completedAt ?? row.completedDate ?? 0);
+      if (key === 'status') return STATUS_SORT_RANK[rowStatusCode(row, Date.now())] ?? 9;
       if (key === 'part') return String(row.workType ?? '').toLowerCase();
       if (key === 'brand') return String(row.engineBrand ?? '').toLowerCase();
       if (key === 'engineNo') return String(row.engineNumber ?? '').toLowerCase();
@@ -224,7 +230,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       { title: 'Виды работ', value: (row: Row) => row.workType || '-' },
       { title: 'Марка дв.', value: (row: Row) => row.engineBrand || '-' },
       { title: '№ дв.', value: (row: Row) => row.engineNumber || '-' },
-      { title: 'Завершён', value: (row: Row) => (row.completedAt ? formatMoscowDate(row.completedAt) : '-') },
+      { title: 'Завершён', value: (row: Row) => ((row.completedAt ?? row.completedDate) ? formatMoscowDate(Number(row.completedAt ?? row.completedDate)) : '-') },
       { title: 'Исполнители', value: (row: Row) => acceptedOrCrew(row) || '-' },
       { title: 'Статус', value: (row: Row) => WORK_ORDER_STATUS_LABELS[rowStatusCode(row, Date.now())] },
       { title: 'Итог', value: (row: Row) => rub(row.totalAmountRub) },
@@ -317,9 +323,12 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         sortKey: 'completed',
         kind: 'date',
         render: (row) => {
-          if (!row.completedAt) return '-';
+          // closed-дата, для незакрытых — «Дата выполнения» карточки (по ней статус уже
+          // деривится «выполнен» — колонка была прочерком при живом бейдже статуса).
+          const completed = row.completedAt ?? row.completedDate;
+          if (!completed) return '-';
           const late = rowStatusCode(row, Date.now()) === 'done_late';
-          return <span style={late ? { color: '#b91c1c', fontWeight: 600 } : undefined}>{formatMoscowDate(row.completedAt)}</span>;
+          return <span style={late ? { color: '#b91c1c', fontWeight: 600 } : undefined}>{formatMoscowDate(Number(completed))}</span>;
         },
       },
       { id: 'crew', label: 'Бригада', sortKey: 'crew', kind: 'num', render: (row) => row.crewCount },
@@ -333,7 +342,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         render: (row) => acceptedOrCrew(row) || '-',
       },
       { id: 'total', label: 'Итог', sortKey: 'total', kind: 'num', render: (row) => rub(row.totalAmountRub) },
-      { id: 'status', label: 'Статус', width: 150, render: (row) => <StatusBadge code={rowStatusCode(row, Date.now())} /> },
+      { id: 'status', label: 'Статус', sortKey: 'status', width: 150, render: (row) => <StatusBadge code={rowStatusCode(row, Date.now())} /> },
     ],
     [acceptedOrCrew],
   );
