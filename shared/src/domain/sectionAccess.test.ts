@@ -5,6 +5,7 @@ import {
   AccessSection,
   canEditSection,
   canViewSection,
+  missingSectionDependencies,
   parseSectionMembership,
   sectionForLedgerWrite,
   sectionLevelFor,
@@ -130,5 +131,33 @@ describe('parseSectionMembership double-encoding', () => {
     const inner = JSON.stringify({ production: 'viewer', supply: 'editor' });
     expect(parseSectionMembership(JSON.stringify(inner))).toEqual({ production: 'viewer', supply: 'editor' });
     expect(parseSectionMembership(inner)).toEqual({ production: 'viewer', supply: 'editor' });
+  });
+});
+
+describe('missingSectionDependencies (theme H)', () => {
+  it('production without contracts → suggests contracts(viewer)', () => {
+    const missing = missingSectionDependencies({ production: 'editor' }, AccessSection.Production);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]?.section).toBe(AccessSection.Contracts);
+    expect(missing[0]?.level).toBe('viewer');
+  });
+
+  it('production WITH contracts (any level) → no suggestion', () => {
+    expect(missingSectionDependencies({ production: 'editor', contracts: 'viewer' }, AccessSection.Production)).toEqual([]);
+    expect(missingSectionDependencies({ production: 'editor', contracts: 'editor' }, AccessSection.Production)).toEqual([]);
+  });
+
+  it('work_orders without production → suggests production(viewer)', () => {
+    const missing = missingSectionDependencies({ work_orders: 'editor' }, AccessSection.WorkOrders);
+    expect(missing.map((d) => d.section)).toEqual([AccessSection.Production]);
+  });
+
+  it('supply without warehouse → suggests warehouse(viewer)', () => {
+    const missing = missingSectionDependencies({ supply: 'editor' }, AccessSection.Supply);
+    expect(missing.map((d) => d.section)).toEqual([AccessSection.Warehouse]);
+  });
+
+  it('section without deps (people) → empty', () => {
+    expect(missingSectionDependencies({ people: 'editor' }, AccessSection.People)).toEqual([]);
   });
 });
