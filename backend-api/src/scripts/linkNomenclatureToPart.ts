@@ -2,11 +2,9 @@ import 'dotenv/config';
 
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
-
 import { db, pool } from '../database/db.js';
 import { directoryParts, erpNomenclature } from '../database/schema.js';
-import { recordSyncChanges } from '../services/sync/syncChangeService.js';
+import { upsertWarehouseNomenclature } from '../services/warehouseService.js';
 
 // Deep-dedup Ф2 helper: link an EXISTING erp_nomenclature row to a
 // directory_parts row as its mirror (directory_kind='part' + directory_ref_id),
@@ -15,9 +13,11 @@ import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 // live legacy nomenclature row (e.g. «Гильза» 303-07-22), so the right move is
 // to adopt that row, keeping its movement history.
 //
-// erp_nomenclature IS synced → the write goes through recordSyncChanges
-// (ledger → index → PG, bumps last_server_seq) so clients pull it; a plain SQL
-// UPDATE would stay invisible to incremental pull.
+// Write goes through upsertWarehouseNomenclature — the canonical nomenclature
+// write path (direct PG upsert + signAndAppendDetailed to the ledger clients
+// pull from). NOT recordSyncChanges: applyPushBatch has no ERP-table branches,
+// so that path signs the ledger but silently never lands in PG (learned live
+// on the first «Гильза» apply attempt, 2026-07-12).
 //
 // Usage:
 //   pnpm -F @matricarmz/backend-api warehouse:link-nomenclature-to-part -- --nomenclature <id> --part <id> [--take-name] [--apply]
@@ -46,7 +46,7 @@ async function main() {
         '  --nomenclature <id>  Existing live erp_nomenclature row to adopt as the mirror.',
         '  --part <id>          Live directory_parts row it should mirror.',
         '  --take-name          Also copy the part name onto the nomenclature row.',
-        '  --apply              Write (through recordSyncChanges). Default is dry-run.',
+        '  --apply              Write (canonical upsertWarehouseNomenclature path). Default is dry-run.',
       ].join('\n'),
     );
     await pool.end();
@@ -105,18 +105,46 @@ async function main() {
       return;
     }
 
-    const ts = Date.now();
-    const dto = SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, nom as unknown as Record<string, unknown>);
-    dto.directory_kind = 'part';
-    dto.directory_ref_id = partId;
-    if (takeName) dto.name = String(part.name);
-    dto.updated_at = ts;
-    const actor = { id: 'system', username: 'link-nomenclature-to-part', role: 'system' as const };
-    await recordSyncChanges(actor, [
-      { tableName: SyncTableName.ErpNomenclature, rowId: nomenclatureId, op: 'upsert', payload: dto },
-    ]);
+    // Full-row upsert: pass every current value so the normalized SET does not
+    // blank fields the link does not touch.
+    const res = await upsertWarehouseNomenclature({
+      id: nomenclatureId,
+      code: String(nom.code ?? ''),
+      sku: nom.sku ?? null,
+      name: takeName ? String(part.name) : String(nom.name),
+      itemType: String(nom.itemType ?? 'product'),
+      category: nom.category ?? null,
+      directoryKind: 'part',
+      directoryRefId: partId,
+      groupId: nom.groupId == null ? null : String(nom.groupId),
+      unitId: nom.unitId == null ? null : String(nom.unitId),
+      barcode: nom.barcode ?? null,
+      minStock: nom.minStock == null ? null : Number(nom.minStock),
+      maxStock: nom.maxStock == null ? null : Number(nom.maxStock),
+      defaultBrandId: nom.defaultBrandId == null ? null : String(nom.defaultBrandId),
+      isSerialTracked: Boolean(nom.isSerialTracked),
+      defaultWarehouseId: nom.defaultWarehouseId == null ? null : String(nom.defaultWarehouseId),
+      specJson: nom.specJson ?? null,
+      componentTypeId: nom.componentTypeId == null ? null : String(nom.componentTypeId),
+      isActive: Boolean(nom.isActive),
+    });
+    if (!res.ok) {
+      console.error(`link failed: ${res.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    const check = await db
+      .select({ kind: erpNomenclature.directoryKind, ref: erpNomenclature.directoryRefId })
+      .from(erpNomenclature)
+      .where(eq(erpNomenclature.id, nomenclatureId))
+      .limit(1);
+    if (String(check[0]?.kind ?? '') !== 'part' || String(check[0]?.ref ?? '') !== partId) {
+      console.error('link verify failed: PG row does not show the expected directory link');
+      process.exitCode = 1;
+      return;
+    }
     console.log('');
-    console.log('Linked (written through recordSyncChanges — clients will pull it).');
+    console.log('Linked and verified in PG (ledger signed — clients will pull it).');
   } finally {
     await pool.end();
   }
