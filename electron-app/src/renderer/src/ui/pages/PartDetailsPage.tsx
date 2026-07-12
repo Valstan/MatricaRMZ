@@ -86,9 +86,19 @@ function buildSyntheticPartAttributes(meta: PartMetadata): Attribute[] {
   if (meta.contractId != null) out.push(synAttr('contract_id', 'link', meta.contractId));
   if (meta.assemblyUnitNumber != null) out.push(synAttr('assembly_unit_number', 'text', meta.assemblyUnitNumber));
   if (meta.engineNodeId != null) out.push(synAttr('engine_node_id', 'link', meta.engineNodeId));
-  out.push(synAttr('drawings', 'json', meta.drawings ?? null));
-  out.push(synAttr('tech_docs', 'json', meta.techDocs ?? null));
-  out.push(synAttr('attachments', 'json', meta.attachments ?? null));
+  // Theme F (как у марки, #172): три legacy-раздела файлов сливаются в одно «Вложения»
+  // (дедуп по FileRef.id — один файл мог лежать в двух); слоты drawings/tech_docs больше
+  // не выставляются, buildMetadataFromState их не переносит → первый unified-save
+  // пересохраняет блоб с merged-списком в attachments (файлы сохранены).
+  const mergedFiles: FileRef[] = [];
+  const seenFileIds = new Set<string>();
+  for (const f of [...(meta.attachments ?? []), ...(meta.drawings ?? []), ...(meta.techDocs ?? [])]) {
+    const id = String((f as { id?: unknown })?.id ?? '');
+    if (!id || seenFileIds.has(id)) continue;
+    seenFileIds.add(id);
+    mergedFiles.push(f);
+  }
+  out.push(synAttr('attachments', 'json', mergedFiles.length ? mergedFiles : null));
   for (const c of STATUS_CODES) {
     if (meta.statusFlags?.[c]) out.push(synAttr(c, 'boolean', true));
     const d = meta.statusDates?.[c];
@@ -639,8 +649,7 @@ export function PartDetailsPage(props: {
       if (d != null) dates[c] = d;
     }
     const attrVal = (code: string) => part?.attributes.find((a) => a.code === code)?.value;
-    const drawings = asFileRefArray(attrVal('drawings'));
-    const techDocs = asFileRefArray(attrVal('tech_docs'));
+    // Theme F: drawings/techDocs слиты в attachments при гидрации — блоб их больше не несёт.
     const attachments = asFileRefArray(attrVal('attachments'));
     return {
       // carry-through (card does not edit these)
@@ -654,8 +663,6 @@ export function PartDetailsPage(props: {
       ...(supplierId ? { supplierId } : {}),
       ...(legacySupplier ? { supplierLegacy: legacySupplier } : {}),
       ...(purchaseMs != null ? { purchaseDate: purchaseMs } : {}),
-      ...(drawings ? { drawings } : {}),
-      ...(techDocs ? { techDocs } : {}),
       ...(attachments ? { attachments } : {}),
       ...(Object.keys(flags).length ? { statusFlags: flags } : {}),
       ...(Object.keys(dates).length ? { statusDates: dates } : {}),
@@ -1119,24 +1126,10 @@ export function PartDetailsPage(props: {
         {/* Attachments */}
         <div style={{ gridColumn: '1 / -1' }}>
           <SectionCard title="Файлы и вложения" collapsible defaultCollapsed style={{ borderRadius: 0, padding: 16 }}>
+          {/* Theme F (как у марки, #172): одно «Вложения» вместо Чертежи/Технология/прочее —
+              legacy-разделы слиты при гидрации, запись всегда в attachments. */}
           <AttachmentsPanel
-            title="Чертежи"
-            value={attrByCode.get('drawings')?.value}
-            canView={props.canViewFiles}
-            canUpload={props.canUploadFiles && props.canEdit}
-            scope={{ ownerType: 'part', ownerId: part.id, category: 'drawings' }}
-            onChange={(next) => saveAttribute('drawings', next)}
-          />
-          <AttachmentsPanel
-            title="Технология"
-            value={attrByCode.get('tech_docs')?.value}
-            canView={props.canViewFiles}
-            canUpload={props.canUploadFiles && props.canEdit}
-            scope={{ ownerType: 'part', ownerId: part.id, category: 'tech_docs' }}
-            onChange={(next) => saveAttribute('tech_docs', next)}
-          />
-          <AttachmentsPanel
-            title="Вложения (прочее)"
+            title="Вложения"
             value={attrByCode.get('attachments')?.value}
             canView={props.canViewFiles}
             canUpload={props.canUploadFiles && props.canEdit}
