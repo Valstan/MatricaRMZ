@@ -24,6 +24,7 @@
     "access:backfill-sections:apply": "tsx src/scripts/backfillSectionAccess.ts --apply",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
     "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
+    "security:role-report": "tsx src/scripts/roleReport.ts",
     "masterdata:seed-nomenclature-groups": "tsx src/scripts/seedNomenclatureGroups.ts",
     "masterdata:migrate-directories-to-nomenclature": "tsx src/scripts/migrateDirectoriesToNomenclature.ts",
     "masterdata:migrate-directories-to-nomenclature:dry-run": "tsx src/scripts/migrateDirectoriesToNomenclature.ts --dry-run",
