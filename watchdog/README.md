@@ -10,9 +10,11 @@ See the full design and rationale in
 
 ## Why an external process
 
-The NSIS one-click installer wipes `%LOCALAPPDATA%\Programs\MatricaRMZ` before
-reinstalling. If it dies between the wipe and the reinstall, the app and the
-in-app updater vanish. Recovery must run **outside** the app — this binary.
+The NSIS one-click installer replaces the install dir
+(`%LOCALAPPDATA%\Programs\@matricarmzelectron-app` — electron-builder derives it
+from the sanitized package.json `name`, not productName) on every update. If it
+dies between the wipe and the reinstall, the app and the in-app updater vanish.
+Recovery must run **outside** the app — this binary.
 
 ## On-disk contract (no shared code with the app)
 
