@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import {
   WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART,
@@ -838,6 +838,9 @@ async function ensurePartNomenclatureMirror(
 export async function backfillMissingPartNomenclature(
   opts: { apply?: boolean } = {},
 ): Promise<{ orphans: Array<{ id: string; name: string; code: string | null }>; created: string[]; failed: Array<{ id: string; error: string }> }> {
+  // A part counts as mirrored via EITHER convention: id-identity (the default
+  // ensurePartNomenclatureMirror shape) OR the directory_ref bridge (G1 — e.g. an
+  // adopted legacy nomenclature row linked by warehouse:link-nomenclature-to-part).
   const orphanRows = await db
     .select({
       id: directoryParts.id,
@@ -845,7 +848,13 @@ export async function backfillMissingPartNomenclature(
       code: directoryParts.code,
     })
     .from(directoryParts)
-    .leftJoin(erpNomenclature, and(eq(erpNomenclature.id, directoryParts.id), isNull(erpNomenclature.deletedAt)))
+    .leftJoin(
+      erpNomenclature,
+      and(
+        or(eq(erpNomenclature.id, directoryParts.id), eq(erpNomenclature.directoryRefId, directoryParts.id)),
+        isNull(erpNomenclature.deletedAt),
+      ),
+    )
     .where(and(isNull(directoryParts.deletedAt), isNull(erpNomenclature.id)));
 
   const orphans = orphanRows.map((row) => ({
