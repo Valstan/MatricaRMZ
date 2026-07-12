@@ -47,6 +47,7 @@
     "warehouse:audit-parts-mirror": "tsx src/scripts/auditPartsMirror.ts",
     "warehouse:fix-parts-mirror": "tsx src/scripts/fixPartsMirror.ts",
     "warehouse:backfill-orphan-part-nomenclature": "tsx src/scripts/backfillOrphanPartNomenclature.ts",
+    "warehouse:link-nomenclature-to-part": "tsx src/scripts/linkNomenclatureToPart.ts",
     "warehouse:migrate-component-type": "tsx src/scripts/migrateComponentTypeFromSpecJson.ts",
     "warehouse:backfill-locations": "tsx src/scripts/backfillWarehouseLocations.ts",
     "warehouse:backfill-locations:dry-run": "tsx src/scripts/backfillWarehouseLocations.ts --dry-run",
