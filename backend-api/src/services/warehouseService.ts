@@ -812,8 +812,11 @@ async function ensurePartNomenclatureMirror(
   const detailsGroupId = groupId !== undefined ? groupId : await ensurePartNomenclatureGroup();
   const id = part.id;
   const name = String(part.name ?? '').trim() || `Деталь ${id.slice(0, 8)}`;
+  // Deep-dedup Ф1 (owner decision 2026-07-12): no synthetic DET- fallback — a part
+  // without a real article gets an EMPTY code (honest «артикула нет», operator can
+  // fill it in later). The code uniques on both stores are partial (exclude '').
   const article = part.code ? String(part.code).trim() : '';
-  const code = article || `DET-${id.slice(0, 8).toUpperCase()}`;
+  const code = article;
   const specJson = JSON.stringify({
     source: WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART,
     partId: id,
@@ -1732,6 +1735,17 @@ export async function deleteWarehouseNomenclature(args: {
     await db.update(erpNomenclature).set({ isActive: false, deletedAt: ts, updatedAt: ts }).where(eq(erpNomenclature.id, args.id));
     const saved = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, args.id)).limit(1);
     const row = saved[0];
+    // Deep-dedup Ф1 (owner decision 2026-07-12): deleting the карточка retires the paired
+    // деталь too (symmetric soft-delete). Before this, the directory_parts row kept living
+    // invisibly — the nomenclature list/search no longer showed it, while re-creating a part
+    // with the same name failed with «duplicate part exists» (ghost trap, reproduced live).
+    // directory_parts is server-only (live-HTTP, not synced) → plain UPDATE, no ledger.
+    if (row && String(row.directoryKind ?? '') === 'part') {
+      await db
+        .update(directoryParts)
+        .set({ deletedAt: ts, updatedAt: ts })
+        .where(and(eq(directoryParts.id, args.id), isNull(directoryParts.deletedAt)));
+    }
     if (row) {
       signAndAppendDetailed([
         {

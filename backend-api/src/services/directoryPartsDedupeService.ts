@@ -482,7 +482,9 @@ export async function mergeDirectoryParts(args: {
 
         const survivorNomRow = {
           id: survivorId,
-          code: survivorCode ?? `DET-${survivorId.slice(0, 8).toUpperCase()}`,
+          // Deep-dedup Ф1: no synthetic DET- fallback — empty code when the survivor
+          // has no real article (partial code uniques exclude '').
+          code: survivorCode ?? '',
           sku: null,
           name: String(survivor.name ?? '').trim() || `Деталь ${survivorId.slice(0, 8)}`,
           itemType: donorNom.itemType ?? 'product',

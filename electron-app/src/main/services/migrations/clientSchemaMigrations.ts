@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 10;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 11;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -425,6 +425,25 @@ const MIGRATIONS: Migration[] = [
         DROP INDEX IF EXISTS erp_engine_assembly_bom_active_default_brand_uq;
         DROP INDEX IF EXISTS erp_engine_assembly_bom_brand_idx;
         CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx ON erp_engine_assembly_bom(status);
+      `);
+    },
+  },
+  {
+    from: 10,
+    to: 11,
+    name: 'erp_nomenclature code unique becomes partial (exclude empty + deleted)',
+    up: async (_db, sqlite) => {
+      // Deep-dedup Ф1 (зеркалит клиентскую drizzle-миграцию 0016 для живых клиентов):
+      // (1) детали без реального артикула синкаются с ПУСТЫМ кодом вместо синтетики
+      //     DET- — живых строк с '' много, коллидировать они не должны;
+      // (2) исключение soft-deleted обезвреживает мину merge-пары (survivor +
+      //     удалённый loser делят код) — серверный индекс стал partial в 0066,
+      //     клиентский оставался глобальным.
+      sqlite.exec(`
+        DROP INDEX IF EXISTS erp_nomenclature_code_uq;
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_nomenclature_code_uq
+          ON erp_nomenclature(code)
+          WHERE code <> '' AND deleted_at IS NULL;
       `);
     },
   },

@@ -462,7 +462,10 @@ export const erpNomenclature = sqliteTable(
     deletedAt: integer('deleted_at'),
   },
   (t) => ({
-    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code),
+    // Partial (deep-dedup Ф1, client migration 0016 / step 10→11): excludes '' (parts
+    // without a real article sync with an empty code) and soft-deleted rows (merge
+    // leaves survivor + deleted loser sharing a code — server went partial in 0066).
+    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code).where(sql`${t.code} <> '' AND ${t.deletedAt} IS NULL`),
     skuUq: uniqueIndex('erp_nomenclature_sku_uq').on(t.sku),
     itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
     categoryIdx: index('erp_nomenclature_category_idx').on(t.category),
