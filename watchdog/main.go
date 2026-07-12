@@ -1,7 +1,7 @@
 // MatricaRMZ watchdog — a tiny external recovery agent for the Electron client.
 //
-// Why it exists: the NSIS one-click installer wipes `%LOCALAPPDATA%\Programs\
-// MatricaRMZ` before reinstalling. If the installer dies between the wipe and
+// Why it exists: the NSIS one-click installer replaces the install dir
+// (`%LOCALAPPDATA%\Programs\@matricarmzelectron-app`). If it dies between the wipe and
 // the reinstall, the app and its shortcuts vanish and the in-app updater (which
 // lives inside the now-missing app) cannot help. This binary runs OUTSIDE the
 // app — launched by a Windows Scheduled Task (at logon + every ~15 min) — does
