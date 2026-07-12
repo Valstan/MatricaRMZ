@@ -39,6 +39,8 @@
 | M27 | `nginx -s reload` применил конфиг (`nginx -t` ok), но изменённый `listen`-адрес не перевесился — старый сокет 0.0.0.0 остался | nginx / прод |
 | M28 | Оба backend-процесса ~50% CPU, клиенты зависают/релогинятся, клиенты повторяют один `since` в `/ledger/state/changes` | sync / ledger / presence-амплификация |
 | M29 | `gh release download` оборвался по таймауту → `.exe` **недокачан**, но лежит как «скачанный» (без ошибки); задеплоишь — updater отвергает по sha512 | релиз / prod-deploy / integrity |
+| M30 | Прод-скрипт с записью в sync: `sync conflict rows skipped`, клиенты изменений не видят, в `ledger_tx_index` аномально низкие `server_seq` — env не просорсен, ledger паразитный | sync / ledger / prod-скрипты |
+| M31 | Серверная запись ERP-таблицы через `recordSyncChanges`: ledger подписан, ошибок нет — а PG-строка не изменилась (в `applyPushBatch` нет ERP-веток) | sync / ERP / prod-скрипты |
 
 ---
 
@@ -209,3 +211,9 @@
 - **Корень:** боевой `MATRICA_LEDGER_DIR=/home/valstan/matricarmz-ledger` задан только в `/etc/matricarmz/matricarmz.env` (systemd `EnvironmentFile`), а `dotenv/config` скрипта грузит лишь `backend-api/.env`, где переменной нет → `resolveLedgerDir()` падает в дефолт (`backend-api/ledger` — древний брошенный каталог с lastSeq≈49k) → seq аллоцируются из его счётчика → `filterStaleBySeqOrUpdatedAt` видит `incomingSeq < currentSeq` и скипает PG-апдейт, а проекция в `ledger_tx_index` пишет мусор с низкими seq (клиентские курсоры давно дальше — строки невидимы).
 - **Диагностика:** `select min(server_seq), max(server_seq) from ledger_tx_index where created_at > <время прогона>` — низкий min = паразитный ledger. Инцидент 2026-07-11 (`fix:owner-batch-20260710`, 3 прогона).
 - **Лечение:** прод-прогоны backend-скриптов запускать **с сорсом боевого env**: `set -a; . /etc/matricarmz/matricarmz.env; set +a; corepack pnpm -F @matricarmz/backend-api <script>`. После инцидента: удалить мусорные низко-seq строки из `ledger_tx_index` (точечно по `created_at` прогона + `server_seq < живого диапазона`) и перегнать скрипт с правильным env (идемпотентные шаги должны уметь **репропагацию** при уже-корректных значениях). `db:migrate` этой граблей не страдает (не пишет ledger), но env всё равно сорсить.
+
+## M31 — `recordSyncChanges` для ERP-таблиц молча НЕ пишет в PG (ledger подписан, строка не изменилась)
+- **Симптом:** серверный скрипт пишет `erp_nomenclature` (или другую ERP-таблицу) через `recordSyncChanges`/`writeSyncChanges`, ошибок нет, ledger подписан, `ledger_tx_index` заполнен — а PG-строка **не изменилась**; скрипт рапортует успех.
+- **Корень:** `writeSyncChanges` применяет PG через `applyPushBatch`, а у того ветки только для EAV/операций/чата/заметок — **ERP-таблиц там нет**, их строки тихо игнорируются (applied=0, даже в skipped не попадают). ERP-таблицы клиенты пушат другим путём; канонический серверный write — доменные функции (`upsertWarehouseNomenclature` и т.п.: прямой PG-upsert + `signAndAppendDetailed`).
+- **Диагностика:** после «успешного» прогона перечитать строку из PG (`directory_kind`/`updated_at`) — не верить молчанию. Инцидент 2026-07-12 (первый apply `warehouse:link-nomenclature-to-part` по «Гильзе»).
+- **Лечение:** для серверных правок ERP-таблиц звать канонический доменный upsert, не `recordSyncChanges`; в скриптах после apply — обязательный re-read PG с assert (паттерн `linkNomenclatureToPart.ts`). Ср. M30 (та же семья «сигнал успеха ≠ содержимое»; при непросорсенном env ledger вдобавок паразитный).
