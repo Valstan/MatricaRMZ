@@ -4,47 +4,47 @@
 >
 > Если работы в потоке нет — `Status: IDLE` и пустые секции. Команда `/start` это увидит и не будет ничего навязывать.
 
-**Status:** IDLE (релиз **v2026.712.1818** выпущен и раскатан на прод; активной нитки нет)
-**Updated:** 2026-07-12 (Claude Opus 4.8, машина `rmz4val`)
-**Branch:** `main` (= origin/main, `a7383398`). Дерево чистое, stash пуст, открытых PR нет, локальная только `main`.
-**Last released version:** **v2026.712.1818 на проде** (сверено 2026-07-12): `/health` = 2026.712.1818, `/updates/status.latest` = 2026.712.1818 (`lastError: null`, infoHash заполнен, blockmap 200), оба сервиса `active`. Миграция **0075** применена (индекс `erp_nomenclature_code_uq` → partial `code <> ''`).
+**Status:** ACTIVE (нитка Ф2 де-дупа ждёт раската клиентов — apply отложен решением владельца 2026-07-12)
+**Updated:** 2026-07-12 (Claude Fable 5, машина `rmz4val`)
+**Branch:** `main` (= origin/main, `e859610e`). Дерево чистое, stash пуст, открытых PR нет, локальная только `main`.
+**Last released version:** **v2026.712.1818 на проде** (новый релиз в этой сессии НЕ выпускался — все изменения серверные скрипты/тесты/доки, на прод доехали `git pull`).
 
 ## Текущая нитка
 
-_n/a_ — активной нитки нет. Сессия 2026-07-12 закрыла большой блок:
-- **Хвосты/сверка (PR #176/#177/#180/#182):** закрыт doc-хвост owner-батча A→H, **PENDING переписан в «только открытое»** (снят устаревший backlog — 3d/товары-услуги/Фаза 3b числились открытыми, будучи отгруженными), разведка H7 + план де-дупа записаны.
-- **Вложения детали (#179):** одна панель «Вложения» вместо трёх (порт паттерна марки #172), CDP 13/13.
-- **Watchdog install-dir (#178):** корень найден (dir от `name`, не `productName`), мёртвые ссылки починены; вопрос про `CleanupMatricaFiles` — владельцу (PENDING §Watchdog).
-- **Де-дуп Ф1 (#181) + Ф2 шаг 2:** стоп-кран `DET-`кодов (пустой код), partial unique на сервере/клиенте, симметричное удаление пары; на проде `reconcile-code-name --apply` (13 имён). backend 385/385, CDP 7/7.
-- **Релиз v2026.712.1818** выпущен и раскатан (тег, installer, миграция 0075, ledger-publish, рестарт ×2 — второй вылечил `stale_manifest`).
+**Ф2 де-дупа, финальный шаг `blank-synthetic-codes`** — заблокирован гейтом раската. Сессия 2026-07-12 (вечер) закрыла 3 нитки бэклога (#185–#190):
+- **H7 шаг (а)** ✅ — `security:role-report`; прод: живых legacy-`user` всего **4** (novosel, radik, kostroma, zamkomdir), неизвестных ролей 0.
+- **Integration-тест Workshop-наряда** ✅ — #186, 8 кейсов, сьют 400/400.
+- **Backfill 3 сирот** ✅ на проде — 2 созданы, «Гильза» усыновлена (`warehouse:link-nomenclature-to-part`, #187–#189); сирот 0. Пойманы грабли **M31** (recordSyncChanges для ERP = PG-no-op) и повтор **M30** (unsourced env → паразитный ledger; вычищено, переподписано).
 
 ## Следующий шаг
 
-**Активной нитки нет.** Главный кандидат-продолжение — **завершить Ф2 де-дупа**, но он ⏳ **ждёт раската клиентов** на v2026.712.1818:
-1. Когда `lastVersion` у всех клиентов ≥ 2026.712.1818 (web-admin → клиенты) — прогнать на проде (бэкап pg_dump + подтверждение владельца): `corepack pnpm -F @matricarmz/backend-api warehouse:blank-synthetic-codes` (dry) → `:apply` — **123 DET- + 22 NM-** кода → пусто, retire 2 духов. **⚠️ НЕ раньше раската** (старый клиент с глобальным unique уронит pull второй `''`-строкой). Env сорсить по GOTCHAS M30.
-2. Не зависит от раската: `warehouse:backfill-orphan-part-nomenclature --apply` — 3 детали без зеркала вернуть в номенклатуру.
-   Детали и статус фаз — [`plans/parts-nomenclature-deep-dedup-2026-07.md`](plans/parts-nomenclature-deep-dedup-2026-07.md) §Ф2, зеркало в [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md) §Техдолг.
-
-Иначе — из бэклога ([`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md)): 🔴 forward-proxy для AI · 🟢 пилот конструктора UI (ждёт 3 ответа владельца) · 🟢 4 фичи-идеи · 🟡 H7 (count-отчёт → миграция ролей → флип дефолта, разведка в PENDING §Security).
+**Проверить раскат и прогнать blank-synthetic-codes** (владелец дал добро «делать как только раскатано», 2026-07-12):
+1. Гейт: `ssh matricarmz` → `sudo -u postgres psql matricarmz -c "select coalesce(nullif(last_version,''),'(нет)') as v, count(*) from client_settings where last_seen_at > (extract(epoch from now()-interval '7 days')*1000) group by 1 order by 1 desc;"` — все недавние клиенты должны быть **≥ 2026.712.1818** (на 2026-07-12 вечером — 0 таких, завод на выходных; ожидание — пн-вт 14-15 июля).
+2. Бэкап: `pg_dump "$DATABASE_URL" -t erp_nomenclature -t directory_parts -f ~/backup-blank-synthetic-$(date +%Y%m%d).sql`.
+3. **⚠️ M30 — env обязателен:** `cd MatricaRMZ && set -a; . /etc/matricarmz/matricarmz.env; set +a; corepack pnpm -F @matricarmz/backend-api warehouse:blank-synthetic-codes` (dry) → `:apply` (123 DET- + 22 NM- → пусто, retire 2 духов). Подтверждение владельца на apply — в тот же ход (уже принципиально дано, но прод-мутация — переспросить коротко).
+4. Верификация: M31-паттерн — перечитать PG; сирот/синтетики 0; спот-чек клиента после sync.
 
 ## Контекст
 
-- Прод: **v2026.712.1818**, оба сервиса active. Деплой: git pull → build серверных пакетов → **db:migrate 0075** → артефакты локальный download + scp (sha256 сверены) → ledger-publish → рестарт ×2. Обратимо (редеплой прежнего; миграция 0075 — refinement индекса, данные целы).
-- Прод-мутации данных 2026-07-12 (бэкапы рядом): `reconcile-code-name --apply` (13 имён, `~/backup-reconcile-code-name-20260712.sql`). Ф1-код на проде через релиз.
-- Открытых PR: нет. Локальных веток с un-pushed коммитами: нет.
+- План: [`plans/parts-nomenclature-deep-dedup-2026-07.md`](plans/parts-nomenclature-deep-dedup-2026-07.md) §Ф2 (это последний шаг), зеркало в [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md) §Техдолг.
+- Коммиты сессии: #185 (H7 report) · #186 (integration-тест) · #187/#188/#189 (link-скрипт: создан → канонический upsert → метрика ref-bridge) · #190 (доки: PENDING/COMPLETED/GOTCHAS M31).
+- Прод: v2026.712.1818, оба сервиса active; прод-мутации 2026-07-12 (бэкап `~/backup-orphan-backfill-20260712.sql`): 2 зеркала созданы, «Гильза» dc2554af усыновлена (kind=part, ref=fa096ecf, имя «Гильза стальная»), 2 паразитные строки `ledger_tx_index` удалены, 3 строки переподписаны под боевым env.
+- Открытых PR: нет. Un-pushed веток: нет.
+- Побочный хвост: на проде снова существует паразитный каталог `~/MatricaRMZ/backend-api/ledger` (пересоздан unsourced-прогонами; см. M30) — можно удалить при случае (не срочно, вреда при сорсинге env нет).
 
 ## Открытые вопросы для пользователя
 
-- **Ф2 де-дуп:** после раската клиентов дать добро на `blank-synthetic-codes --apply` (145 синтет-кодов → пусто) — прод-мутация, подтверждение в тот же ход.
-- **Watchdog `CleanupMatricaFiles`:** оставить no-op или перенацелить на реальную install-папку (мягче vs чистый slate при сорванном апдейте)? Пока no-op.
-- **H7:** давать ли ход миграции legacy-`user` → явные роли (сначала count-отчёт — сколько таких живых).
+- **H7 шаг (б):** кому какие роли — 4 живых legacy-`user`: novosel (Новоселов С.Н.), radik, kostroma (Костюнин Р.А.), zamkomdir (Щербик В.Л.). После пересадки — флип (в) fail-closed (1 строка).
+- **UI-конструктор** — 3 вопроса из [`plans/ui-builder-modules.md`](plans/ui-builder-modules.md) §Открытые вопросы (владелец: «в следующей сессии»).
+- **AI/VPS** — отложено владельцем на неопределённый срок (2026-07-12); PENDING 🔴 остаётся как есть, не поднимать.
+- **Watchdog `CleanupMatricaFiles`** — no-op или перенацелить (PENDING §Watchdog, висит).
 
 ## Не забыть (low-priority)
 
-1. **Ф2 де-дуп gate** — не гнать `blank-synthetic-codes:apply`, пока не все клиенты на 2026.712.1818 (иначе pull-краш на старом клиенте).
-2. `docs/plans/owner-batch-2026-06-19.md` — заархивировать (5/6 отгружено, F-хвост в PENDING §Техдолг).
-3. **AV-ложнопозитивы watchdog'а** — поглядывать в «Критические события».
-4. Ledger release-token — ротация до ~2026-08-04 (первый релиз после ~2026-08-01 упрётся).
+1. **Ф2 гейт** — не гнать apply, пока не все недавние клиенты ≥ 2026.712.1818; env сорсить (M30); после apply — M31-верификация PG.
+2. `docs/plans/owner-batch-2026-06-19.md` — заархивировать (5/6 отгружено).
+3. AV-ложнопозитивы watchdog'а — поглядывать в «Критические события».
+4. Ledger release-token — ротация до ~2026-08-04.
 5. Ротация SSH-ключей прода — до 2026-08-21.
-6. Мастера жмут «Выдать в работу» на ремнарядах (прогноз по ремонту иначе пуст).
+6. Мастера жмут «Выдать в работу» на ремнарядах.
 7. deadcode-прогон (месячная дельта) — ~2026-08-04.
