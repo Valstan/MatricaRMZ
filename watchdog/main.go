@@ -78,7 +78,10 @@ type clientSettingsResp struct {
 }
 
 const (
-	standardInstallExe = `Programs\MatricaRMZ\MatricaRMZ.exe` // under %LOCALAPPDATA%
+	// electron-builder one-click per-user NSIS derives the install dir from the
+	// sanitized package.json `name` (@matricarmz/electron-app -> @matricarmzelectron-app),
+	// NOT productName. Verified against a live install (docs/machines/rmz4val.md).
+	standardInstallExe = `Programs\@matricarmzelectron-app\MatricaRMZ.exe` // under %LOCALAPPDATA%
 	httpTimeout        = 30 * time.Second
 	downloadTimeout    = 5 * time.Minute
 )

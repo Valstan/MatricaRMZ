@@ -74,7 +74,11 @@ killDoneUninstall:
 !macroend
 
 !macro CleanupMatricaFiles
-  ; Installation folders (local and possible historical machine-wide installs).
+  ; Historical/mistaken install folders only. NOTE: the REAL per-user install dir is
+  ; "$LOCALAPPDATA\Programs\@matricarmzelectron-app" (electron-builder derives it from
+  ; the sanitized package.json `name`, not productName) — it is intentionally NOT wiped
+  ; here: electron-builder's own one-click installer manages replacing it. The paths
+  ; below never exist on current installs; kept as best-effort cleanup of legacy layouts.
   RMDir /r "$LOCALAPPDATA\Programs\MatricaRMZ"
   RMDir /r "$PROGRAMFILES\MatricaRMZ"
   RMDir /r "$PROGRAMFILES64\MatricaRMZ"
@@ -99,11 +103,12 @@ killDoneUninstall:
 
 ; --- Watchdog (external recovery agent) ------------------------------------
 ; The watchdog is a tiny external Go binary launched by a per-user Scheduled
-; Task. It must live OUTSIDE the install dir — CleanupMatricaFiles wipes
-; "$LOCALAPPDATA\Programs\MatricaRMZ" on every update, and the watchdog's whole
-; purpose is to recover when that wipe is left half-done. "$APPDATA\MatricaRMZ"
-; is the app's userData dir (already holds the watchdog handshake + log) and is
-; never wiped, so the exe lives there too, next to the handshake it reads.
+; Task. It must live OUTSIDE the install dir ("$LOCALAPPDATA\Programs\
+; @matricarmzelectron-app") — the one-click installer replaces that dir on every
+; update, and the watchdog's whole purpose is to recover when that replacement
+; is left half-done. "$APPDATA\MatricaRMZ" is the app's userData dir (already
+; holds the watchdog handshake + log) and is never wiped, so the exe lives
+; there too, next to the handshake it reads.
 !macro InstallWatchdog
   CreateDirectory "$APPDATA\MatricaRMZ"
   ; Refresh the bundled binary on every install/update (best-effort — a CopyFiles
