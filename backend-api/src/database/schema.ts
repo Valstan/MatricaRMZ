@@ -1184,7 +1184,9 @@ export const erpNomenclature = pgTable(
     // pre-merge code) makes a full replayLedgerToDb / cold-rebuild collide on this
     // index. Matches the convention of the other code/identity uniques in this file
     // (directory_workshops_code_uq, warehouse_locations_code_uq, users_username_uq…).
-    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code).where(sql`${t.deletedAt} is null`),
+    // Also excludes '' (deep-dedup Ф1, migration 0075): parts without a real article
+    // carry an empty code instead of a synthetic DET- placeholder — alive rows share ''.
+    codeUq: uniqueIndex('erp_nomenclature_code_uq').on(t.code).where(sql`${t.deletedAt} is null and ${t.code} <> ''`),
     skuUq: uniqueIndex('erp_nomenclature_sku_uq').on(t.sku).where(sql`${t.sku} is not null`),
     itemTypeIdx: index('erp_nomenclature_item_type_idx').on(t.itemType),
     categoryIdx: index('erp_nomenclature_category_idx').on(t.category),
