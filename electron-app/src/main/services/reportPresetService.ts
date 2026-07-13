@@ -45,6 +45,7 @@ import {
   renderWorkOrdersReportHtml,
   selectWorkOrdersReportColumns,
   sortWorkOrdersReportRows,
+  workOrderWithdrawnAt,
   type WorkOrderSignatureEmployee,
   type WorkOrderStatusCode,
   type WorkOrdersReportRow,
@@ -1748,6 +1749,7 @@ async function buildWorkOrdersReport(
       dueDate,
       completedAt: opStatus === 'closed' ? completedEffective : null,
       completedDate: operatorCompleted,
+      withdrawnAt: workOrderWithdrawnAt(payload),
       now,
     });
     if (statusCodes.size > 0 && !statusCodes.has(code)) continue;

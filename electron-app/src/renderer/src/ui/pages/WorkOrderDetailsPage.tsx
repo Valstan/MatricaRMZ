@@ -10,7 +10,12 @@ import {
   WORK_ORDER_SIGNATURE_CAPTION_SUGGESTIONS,
   WORK_ORDER_STATUS_LABELS,
   WorkOrderKind,
+  applyWorkOrderIssue,
+  applyWorkOrderWithdrawal,
   deriveWorkOrderStatusCode,
+  ENGINE_INVENTORY_STAGE,
+  listScrapPartNames,
+  workOrderWithdrawnAt,
   formatEmployeeInitialsSurname,
   getWorkOrderSignatureBlocks,
   resolveWorkOrderApprover,
@@ -346,6 +351,10 @@ export function WorkOrderDetailsPage(props: {
     Array<{ id: string; type: 'system' | 'workshop' | 'regular'; code: string; name: string; workshopId: string | null; isActive: boolean }>
   >([]);
   const [closing, setClosing] = useState(false);
+  // Связка «утиль ⇄ наряд на сборку»: утильные детали дефектовки двигателя блокируют выдачу.
+  const [scrapParts, setScrapParts] = useState<string[]>([]);
+  const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState('');
   const [closedLocally, setClosedLocally] = useState(false);
   /** Текущий статус операции из локальной SQLite (после refresh). 'closed' блокирует редактирование. */
   const [operationStatus, setOperationStatus] = useState<string>('open');
@@ -1040,20 +1049,52 @@ export function WorkOrderDetailsPage(props: {
     setPayload(normalized);
   }
 
+  // Связка «утиль ⇄ наряд на сборку»: у Assembly-наряда читаем дефектовку двигателя;
+  // утильные строки (scrap_qty>0) блокируют кнопку «Выдать в работу».
+  const assemblyEngineIdForScrap =
+    payload && payload.workOrderKind === WorkOrderKind.Assembly ? resolveAssemblyEngineId(payload) : null;
+  useEffect(() => {
+    if (!assemblyEngineIdForScrap) {
+      setScrapParts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await window.matrica.checklists.engineGet({ engineId: assemblyEngineIdForScrap, stage: ENGINE_INVENTORY_STAGE });
+        if (!cancelled) setScrapParts(r?.ok && r.payload ? listScrapPartNames(r.payload) : []);
+      } catch {
+        if (!cancelled) setScrapParts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [assemblyEngineIdForScrap]);
+
+  async function currentActorLogin(): Promise<string> {
+    try {
+      const st = await window.matrica.auth.status();
+      const u = (st as { user?: { username?: string } | null })?.user;
+      return u?.username?.trim() || 'local';
+    } catch {
+      return 'local';
+    }
+  }
+
   /**
-   * Ремонтный наряд «выдан в работу» ⇄ «отозван». Только выданные ремнаряды учитываются
-   * прогнозом сборки как будущий приход отремонтированных деталей (нитка «выдан в работу»).
-   * Сохраняется сразу (флаг `repairIssued` едет в metaJson → backend-прогноз читает его).
+   * Наряд «выдан в работу» ⇄ «отозван». Только выданные ремнаряды учитываются прогнозом
+   * сборки как будущий приход (нитка «выдан в работу»). Сохраняется сразу (metaJson).
+   * Выдача очищает `withdrawn*`; отзыв — через `withdrawFromWork` с обязательной причиной.
    */
-  async function toggleRepairIssued() {
+  async function issueToWork() {
     if (!payload || !canEditNow) return;
-    const nextIssued = !payload.repairIssued;
-    const next = recalcLocally({ ...payload, repairIssued: nextIssued });
+    const next = recalcLocally(applyWorkOrderIssue(payload, { at: Date.now(), by: await currentActorLogin() }));
     setPayload(next);
     await flushSave(next);
     // Ф2: выдача СБОРОЧНОГО наряда в работу → двигателю статус «Начат ремонт» (только вперёд;
     // отзыв статус не откатывает). Статус двигателя — побочный эффект, не роняет сохранение наряда.
-    if (nextIssued && next.workOrderKind === WorkOrderKind.Assembly) {
+    if (next.workOrderKind === WorkOrderKind.Assembly) {
       const engineId = resolveAssemblyEngineId(next);
       if (engineId) {
         try {
@@ -1066,7 +1107,17 @@ export function WorkOrderDetailsPage(props: {
       setStatus('Наряд выдан в работу — двигателю проставлен статус «Начат ремонт»');
       return;
     }
-    setStatus(nextIssued ? 'Наряд выдан в работу — детали учтены в прогнозе сборки' : 'Наряд отозван из работы');
+    setStatus('Наряд выдан в работу — детали учтены в прогнозе сборки');
+  }
+
+  async function withdrawFromWork(reason: string) {
+    if (!payload || !canEditNow) return;
+    const next = recalcLocally(
+      applyWorkOrderWithdrawal(payload, { at: Date.now(), by: await currentActorLogin(), reason }),
+    );
+    setPayload(next);
+    await flushSave(next);
+    setStatus('Наряд отозван из работы');
   }
 
   /** Maps WorkOrderTemplateLine → WorkOrderWorkLine. nomenclatureId/serviceId are
@@ -2150,6 +2201,7 @@ export function WorkOrderDetailsPage(props: {
             operationStatus: isClosed ? 'closed' : operationStatus,
             dueDate: payload.dueDate ?? null,
             completedAt: isClosed ? (payload.completedDate ?? operationUpdatedAt) : null,
+            withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),
             now: Date.now(),
           });
           const palette: Record<string, { bg: string; fg: string }> = {
@@ -2157,6 +2209,7 @@ export function WorkOrderDetailsPage(props: {
             done: { bg: '#dcfce7', fg: '#166534' },
             overdue: { bg: '#fee2e2', fg: '#b91c1c' },
             done_late: { bg: '#dcfce7', fg: '#b91c1c' },
+            withdrawn: { bg: '#e5e7eb', fg: '#374151' },
           };
           const p = palette[code] ?? palette.issued!;
           return (
@@ -2706,20 +2759,46 @@ export function WorkOrderDetailsPage(props: {
             <Button
               variant={payload.repairIssued ? 'ghost' : 'primary'}
               size="sm"
+              disabled={!payload.repairIssued && scrapParts.length > 0}
               title={
-                payload.workOrderKind === WorkOrderKind.Assembly
-                  ? payload.repairIssued
-                    ? 'Отозвать наряд из работы. Статус двигателя при этом НЕ откатывается.'
-                    : 'Выдать наряд в работу: двигателю сборки проставится статус «Начат ремонт».'
-                  : payload.repairIssued
-                    ? 'Отозвать наряд: детали перестанут учитываться прогнозом сборки как будущий приход'
-                    : 'Выдать наряд в работу: отремонтированные детали попадут в прогноз сборки как приход (день +1)'
+                !payload.repairIssued && scrapParts.length > 0
+                  ? `Выдача заблокирована: утильные детали в дефектовке двигателя — ${scrapParts.join(', ')}`
+                  : payload.workOrderKind === WorkOrderKind.Assembly
+                    ? payload.repairIssued
+                      ? 'Отозвать наряд из работы (с указанием причины). Статус двигателя при этом НЕ откатывается.'
+                      : 'Выдать наряд в работу: двигателю сборки проставится статус «Начат ремонт».'
+                    : payload.repairIssued
+                      ? 'Отозвать наряд: детали перестанут учитываться прогнозом сборки как будущий приход'
+                      : 'Выдать наряд в работу: отремонтированные детали попадут в прогноз сборки как приход (день +1)'
               }
-              onClick={() => void toggleRepairIssued()}
+              onClick={() => {
+                if (payload.repairIssued) {
+                  setWithdrawReason('');
+                  setWithdrawDialogOpen(true);
+                } else {
+                  void issueToWork();
+                }
+              }}
             >
               {payload.repairIssued ? 'Отозвать из работы' : 'Выдать в работу'}
             </Button>
           ) : null}
+        </div>
+      ) : null}
+      {(payload.workOrderKind === WorkOrderKind.Repair || payload.workOrderKind === WorkOrderKind.Assembly) &&
+      !isClosed &&
+      !payload.repairIssued &&
+      scrapParts.length > 0 ? (
+        <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>
+          ⛔ Выдача в работу заблокирована: утильные детали в дефектовке двигателя — {scrapParts.join(', ')}. Кнопка
+          станет доступна, когда утиль будет снят (деталь заменена/восстановлена).
+        </div>
+      ) : null}
+      {!isClosed && workOrderWithdrawnAt(payload as unknown as Record<string, unknown>) ? (
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+          ⏸ Отозван {formatMoscowDate(payload.withdrawnAt!)}
+          {payload.withdrawnReason ? `: ${payload.withdrawnReason}` : ''}
+          {payload.withdrawnAuto ? ' (автоматически по дефектовке)' : ''}
         </div>
       ) : null}
       {!isClosed && payload.workOrderKind === WorkOrderKind.Assembly && !resolveAssemblyEngineId(payload) ? (
@@ -3217,6 +3296,69 @@ export function WorkOrderDetailsPage(props: {
         onPrint={(settings) => printWorkOrderCard(payload, settings)}
         onClose={() => setPrintDialogOpen(false)}
       />
+    ) : null}
+    {withdrawDialogOpen && payload ? (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}
+        onClick={() => setWithdrawDialogOpen(false)}
+      >
+        <div
+          style={{
+            background: 'var(--surface, #fff)',
+            borderRadius: 8,
+            padding: 16,
+            width: 'min(92vw, 480px)',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.25)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Отозвать наряд из работы</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+            Укажите причину отзыва — она сохранится в наряде и будет видна в карточке (например: «картер утильный,
+            ждём замену»).
+          </div>
+          <textarea
+            autoFocus
+            value={withdrawReason}
+            onChange={(e) => setWithdrawReason(e.target.value)}
+            rows={3}
+            placeholder="Причина отзыва…"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: 8,
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              resize: 'vertical',
+              marginBottom: 12,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" size="sm" onClick={() => setWithdrawDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!withdrawReason.trim()}
+              onClick={() => {
+                setWithdrawDialogOpen(false);
+                void withdrawFromWork(withdrawReason.trim());
+              }}
+            >
+              Отозвать из работы
+            </Button>
+          </div>
+        </div>
+      </div>
     ) : null}
     </div>
   );

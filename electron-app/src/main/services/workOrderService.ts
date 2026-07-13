@@ -11,6 +11,7 @@ import {
   normalizeWorkOrderPayloadV3Fields,
   primaryAssemblyEngineId,
   resolveAssemblyEngineId,
+  workOrderWithdrawnAt,
   type WorkOrderPayload,
 } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
@@ -377,6 +378,7 @@ export async function listWorkOrders(
         engineNumber: string;
         acceptedByEmployeeId: string | null;
         workOrderKind: string;
+        withdrawnAt: number | null;
       }>;
     }
   | { ok: false; error: string }
@@ -429,6 +431,7 @@ export async function listWorkOrders(
       engineNumber: string;
       acceptedByEmployeeId: string | null;
       workOrderKind: string;
+      withdrawnAt: number | null;
     }> = [];
 
     for (const row of rows) {
@@ -504,6 +507,7 @@ export async function listWorkOrders(
         engineNumber: engineInfo.engineNumber,
         acceptedByEmployeeId: getWorkOrderAcceptedByEmployeeId(payload),
         workOrderKind: String(payload.workOrderKind ?? WorkOrderKind.Regular),
+        withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),
       });
     }
 

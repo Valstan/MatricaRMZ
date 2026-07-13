@@ -466,6 +466,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
           { value: 'done', label: 'Выполнен' },
           { value: 'overdue', label: 'Просрочен' },
           { value: 'done_late', label: 'Выполнен с просрочкой' },
+          { value: 'withdrawn', label: 'Отозван' },
         ],
         labelHint: 'Пусто — все статусы',
       },

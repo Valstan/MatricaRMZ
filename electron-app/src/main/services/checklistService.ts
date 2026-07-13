@@ -4,9 +4,15 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
   actOperationType,
+  applyWorkOrderWithdrawal,
+  buildAutoWithdrawReason,
   computeInventoryShortage,
   engineActSnapshotSignature,
   ENGINE_INVENTORY_STAGE,
+  listScrapPartNames,
+  resolveAssemblyEngineId,
+  WorkOrderKind,
+  type WorkOrderPayload,
   type EngineActSnapshotPayload,
   type EngineActType,
   type EngineActVersionRecord,
@@ -237,6 +243,41 @@ export async function getRepairChecklistForEngine(
   }
 }
 
+/**
+ * Связка «утиль ⇄ наряд на сборку»: после сохранения дефектовки с утильными строками
+ * автоматически отзывает из работы выданные Assembly-наряды этого двигателя
+ * (repairIssued → withdrawn с авто-причиной). Идемпотентен: не-выданные наряды пропускает.
+ * Ошибка хука не роняет сохранение чеклиста (best-effort, backend-хук продублирует).
+ */
+async function autoWithdrawIssuedAssemblyWorkOrders(
+  db: BetterSQLite3Database,
+  args: { engineId: string; checklistPayload: RepairChecklistPayload; actor: string },
+): Promise<void> {
+  const scrapParts = listScrapPartNames(args.checklistPayload);
+  if (scrapParts.length === 0) return;
+  // Без фильтра по engine_entity_id: у старых Assembly-нарядов колонка может быть пустой,
+  // двигатель резолвится из payload (resolveAssemblyEngineId) ниже.
+  const rows = await db
+    .select({ id: operations.id, status: operations.status, metaJson: operations.metaJson })
+    .from(operations)
+    .where(and(eq(operations.operationType, 'work_order'), isNull(operations.deletedAt)));
+  const ts = nowMs();
+  const reason = buildAutoWithdrawReason(scrapParts);
+  for (const r of rows) {
+    if (String(r.status) === 'closed') continue;
+    const parsed = safeJsonParse(String(r.metaJson ?? '')) as WorkOrderPayload | null;
+    if (!parsed || typeof parsed !== 'object' || parsed.kind !== 'work_order') continue;
+    if (parsed.workOrderKind !== WorkOrderKind.Assembly) continue;
+    if (parsed.repairIssued !== true) continue;
+    if (resolveAssemblyEngineId(parsed) !== args.engineId) continue;
+    const next = applyWorkOrderWithdrawal(parsed, { at: ts, by: args.actor, reason, auto: true });
+    await db
+      .update(operations)
+      .set({ metaJson: JSON.stringify(next), updatedAt: ts, syncStatus: 'pending' })
+      .where(and(eq(operations.id, r.id), isNull(operations.deletedAt)));
+  }
+}
+
 export async function saveRepairChecklistForEngine(
   db: BetterSQLite3Database,
   args: { engineId: string; stage: string; operationId?: string | null; payload: RepairChecklistPayload; actor: string },
@@ -251,6 +292,13 @@ export async function saveRepairChecklistForEngine(
         .update(operations)
         .set({ metaJson, updatedAt: ts, syncStatus: 'pending' })
         .where(and(eq(operations.id, opId), isNull(operations.deletedAt)));
+      if (args.stage === ENGINE_INVENTORY_STAGE) {
+        try {
+          await autoWithdrawIssuedAssemblyWorkOrders(db, { engineId: args.engineId, checklistPayload: args.payload, actor: args.actor });
+        } catch {
+          // best-effort: backend-хук продублирует после sync
+        }
+      }
       return { ok: true as const, operationId: opId };
     }
 
@@ -277,6 +325,13 @@ export async function saveRepairChecklistForEngine(
       deletedAt: null,
       syncStatus: 'pending',
     });
+    if (args.stage === ENGINE_INVENTORY_STAGE) {
+      try {
+        await autoWithdrawIssuedAssemblyWorkOrders(db, { engineId: args.engineId, checklistPayload: args.payload, actor: args.actor });
+      } catch {
+        // best-effort: backend-хук продублирует после sync
+      }
+    }
     return { ok: true as const, operationId: newId };
   } catch (e) {
     return { ok: false as const, error: String(e) };

@@ -528,6 +528,43 @@ export function rowHasDefect(row: Pick<EngineInventoryRow, 'scrap_qty' | 'replac
  * «заказчик»/«свой ремонт» уводит строку из требования закупки. В закупку идут только единицы
  * «заменить новой» (утиль закупкой не восполняется — для него ветка значит заказчик/свой ремонт).
  */
+/**
+ * Утильные детали двигателя из payload листа дефектовки (stage `engine_inventory`,
+ * `answers.engine_inventory_items.rows`): имена строк с scrap_qty > 0 (dedup, порядок строк).
+ * Пустой список = утиля нет. Используется связкой «утиль ⇄ наряд на сборку»:
+ * авто-отзыв выданного Assembly-наряда и блокировка кнопки «Выдать в работу».
+ */
+export function listScrapPartNames(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const answers = (payload as Record<string, unknown>).answers;
+  if (!answers || typeof answers !== 'object') return [];
+  const table = (answers as Record<string, unknown>).engine_inventory_items;
+  if (!table || typeof table !== 'object') return [];
+  const rows = (table as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) return [];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rows) {
+    if (!raw || typeof raw !== 'object') continue;
+    const { row } = normalizeEngineInventoryRow(raw as Record<string, unknown>);
+    if (row.scrap_qty <= 0) continue;
+    const name = row.part_name.trim() || row.part_number.trim() || 'Деталь без названия';
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+/** Авто-причина отзыва наряда по утилю в дефектовке. */
+export function buildAutoWithdrawReason(partNames: ReadonlyArray<string>): string {
+  const list = partNames.filter((n) => n.trim()).join(', ');
+  return list
+    ? (partNames.length > 1 ? `Детали признаны утильными: ${list}` : `Деталь признана утильной: ${list}`)
+    : 'Утильная деталь в дефектовке двигателя';
+}
+
 export function rowGoesToPurchase(
   row: Pick<EngineInventoryRow, 'replace_qty' | 'replenishment_branch'>,
 ): boolean {
