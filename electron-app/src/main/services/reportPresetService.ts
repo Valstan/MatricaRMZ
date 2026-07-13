@@ -41,6 +41,7 @@ import {
   WORK_ORDER_STATUS_LABELS,
   WORK_ORDER_KIND_LABELS,
   collectWorkOrderWorkLines,
+  computeWorkOrdersStatusSummary,
   resolveAssemblyEngineId,
   renderWorkOrdersReportHtml,
   selectWorkOrdersReportColumns,
@@ -1692,6 +1693,7 @@ async function buildWorkOrdersReport(
   const columnKeys = asArray(filters?.columns);
   const sortBy = normalizeText(filters?.sortBy, 'orderDate') as WorkOrdersReportSortBy;
   const sortDir = normalizeText(filters?.sortDir, 'desc') === 'asc' ? 'asc' : 'desc';
+  const summaryByBrand = filters?.summaryByBrand === true;
 
   const snapshot = await loadSnapshot(db);
   const employeeNames = new Map(buildOptions(snapshot, 'employee').map((o) => [o.value, o.label] as const));
@@ -1788,6 +1790,9 @@ async function buildWorkOrdersReport(
     }
     const { id: counterpartyId, label: counterparty } = resolveCounterparty(engineId);
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+    // «Отгружен»: дата отправки двигателя заказчику + флаги для сводки подвала.
+    const engineAttrsForShipping = engineId ? (snapshot.attrsByEntity.get(engineId) ?? {}) : {};
+    const shippingState = resolveEngineShippingState(engineAttrsForShipping as Record<string, unknown>);
     const workType = firstWorkType || resolveWorkOrderTargetLabel(payload) || '';
     const workOrderNumber = toNumber(payload.workOrderNumber);
 
@@ -1823,6 +1828,9 @@ async function buildWorkOrdersReport(
       crewCount: crew.length,
       responsible,
       amountRub: Math.max(0, toNumber(payload.totalAmountRub)),
+      shippedDate: shippingState.shippingDate ?? null,
+      customerSent: shippingState.customerSent,
+      customerAccepted: shippingState.customerAccepted,
     });
   }
 
@@ -1863,6 +1871,7 @@ async function buildWorkOrdersReport(
       orders: sorted.length,
       amountRub: sorted.reduce((acc, row) => acc + toNumber(row.amountRub), 0),
     },
+    workOrdersStatusSummary: computeWorkOrdersStatusSummary(sorted, { byBrand: summaryByBrand }),
     generatedAt: Date.now(),
   };
 }
@@ -4781,6 +4790,7 @@ ${footerNotesHtml}
       columns: report.columns,
       rows: report.rows,
       ...(totalsLine ? { totalsLine } : {}),
+      ...(report.workOrdersStatusSummary ? { statusSummary: report.workOrdersStatusSummary } : {}),
     });
   }
   const headers = report.columns.map((c) => `<th style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`).join('');

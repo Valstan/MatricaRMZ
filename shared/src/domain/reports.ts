@@ -155,6 +155,8 @@ export type ReportPresetPreviewResult =
       rows: ReportRow[];
       totals?: ReportTotals;
       totalsByGroup?: Array<{ group: string; totals: ReportTotals }>;
+      /** Отчёт «Наряды»: сводка по статусам для подвала (+опциональная разбивка по маркам). */
+      workOrdersStatusSummary?: import('./workOrdersReport.js').WorkOrdersStatusSummary;
       /** Доп. блоки текста под таблицей (подсказки, пояснения к фильтрам). */
       footerNotes?: string[];
       /**
@@ -499,9 +501,16 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
           { value: 'workOrderNumber', label: 'По № наряда' },
           { value: 'dueDate', label: 'По сроку' },
           { value: 'completedDate', label: 'По дате выполнения' },
+          { value: 'shippedDate', label: 'По дате отгрузки' },
           { value: 'engineBrand', label: 'По марке двигателя' },
           { value: 'amountRub', label: 'По сумме' },
         ],
+      },
+      {
+        type: 'checkbox',
+        key: 'summaryByBrand',
+        label: 'Сводка по маркам двигателей',
+        labelHint: 'Разбить итоговую сводку статусов по маркам двигателей',
       },
       {
         type: 'select',

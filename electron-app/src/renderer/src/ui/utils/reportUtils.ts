@@ -446,6 +446,7 @@ export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection
           columns: report.columns,
           rows: report.rows,
           ...(totalsLine ? { totalsLine } : {}),
+          ...(report.workOrdersStatusSummary ? { statusSummary: report.workOrdersStatusSummary } : {}),
         }),
       },
     ];

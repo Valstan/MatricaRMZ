@@ -11,7 +11,9 @@ function isTruthyFlag(value: unknown): boolean {
   return value === true || value === 'true' || value === 1;
 }
 
-export function resolveEngineShippingState(attrs: Record<string, unknown>): { shippingDate: number | null; onSite: boolean } {
+export function resolveEngineShippingState(
+  attrs: Record<string, unknown>,
+): { shippingDate: number | null; onSite: boolean; customerSent: boolean; customerAccepted: boolean } {
   const explicitShippingDate = asNumberOrNull(attrs.shipping_date);
   const customerSentDate = asNumberOrNull(attrs.status_customer_sent_date);
   const customerAcceptedDate = asNumberOrNull(attrs.status_customer_accepted_date);
@@ -23,6 +25,6 @@ export function resolveEngineShippingState(attrs: Record<string, unknown>): { sh
   // правки карточки (тот же dual-source-баг, что в listEngines — 2Ж03АТ0479).
   const shippingDate = customerSentDate ?? customerAcceptedDate ?? explicitShippingDate;
   const leftFactory = shippingDate != null || customerSent || customerAccepted;
-  return { shippingDate, onSite: !leftFactory };
+  return { shippingDate, onSite: !leftFactory, customerSent, customerAccepted };
 }
 

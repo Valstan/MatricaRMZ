@@ -17,6 +17,7 @@ export const WORK_ORDERS_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'startDate', label: 'Начало работ', kind: 'date' },
   { key: 'dueDate', label: 'Срок', kind: 'date' },
   { key: 'completedDate', label: 'Дата выполнения', kind: 'date' },
+  { key: 'shippedDate', label: 'Отгружен', kind: 'date' },
   { key: 'workType', label: 'Виды работ' },
   { key: 'engineBrand', label: 'Марка дв.' },
   { key: 'engineNumber', label: '№ дв.' },
@@ -43,6 +44,7 @@ export type WorkOrdersReportSortBy =
   | 'workOrderNumber'
   | 'dueDate'
   | 'completedDate'
+  | 'shippedDate'
   | 'engineBrand'
   | 'amountRub';
 
@@ -75,6 +77,8 @@ export function sortWorkOrdersReportRows(
         return asNum(a.dueDate) - asNum(b.dueDate);
       case 'completedDate':
         return asNum(a.completedDate) - asNum(b.completedDate);
+      case 'shippedDate':
+        return asNum(a.shippedDate) - asNum(b.shippedDate);
       case 'engineBrand':
         return asStr(a.engineBrand).localeCompare(asStr(b.engineBrand), 'ru');
       case 'amountRub':
@@ -92,6 +96,87 @@ export function sortWorkOrdersReportRows(
     if (byDate !== 0) return byDate;
     return asNum(a.workOrderNumber) - asNum(b.workOrderNumber);
   });
+}
+
+// ── Сводка по статусам (подвал отчёта) ─────────────────────────────────────
+
+/** Счётчики нарядов для подвала отчёта. shipped/accepted — по статусу ДВИГАТЕЛЯ наряда. */
+export type WorkOrdersStatusCounts = {
+  /** Всего выписано (строк в отчёте). */
+  total: number;
+  done: number;
+  doneLate: number;
+  overdue: number;
+  withdrawn: number;
+  /** Двигатель отправлен заказчику. */
+  shipped: number;
+  /** Двигатель принят заказчиком. */
+  accepted: number;
+};
+
+export type WorkOrdersStatusSummary = {
+  counts: WorkOrdersStatusCounts;
+  /** Опциональная разбивка по маркам двигателей (фильтр summaryByBrand). Порядок — по алфавиту. */
+  byBrand?: Array<{ brand: string; counts: WorkOrdersStatusCounts }>;
+};
+
+function emptyStatusCounts(): WorkOrdersStatusCounts {
+  return { total: 0, done: 0, doneLate: 0, overdue: 0, withdrawn: 0, shipped: 0, accepted: 0 };
+}
+
+function accumulateStatusCounts(acc: WorkOrdersStatusCounts, row: WorkOrdersReportRow): void {
+  acc.total += 1;
+  const code = String(row.statusCode ?? '');
+  if (code === 'done') acc.done += 1;
+  else if (code === 'done_late') acc.doneLate += 1;
+  else if (code === 'overdue') acc.overdue += 1;
+  else if (code === 'withdrawn') acc.withdrawn += 1;
+  if (row.customerSent === true) acc.shipped += 1;
+  if (row.customerAccepted === true) acc.accepted += 1;
+}
+
+/**
+ * Сводка по строкам отчёта «Наряды» — считается ОДИН раз в main-процессе,
+ * все рендеры (on-screen / предпросмотр / печать) переиспользуют результат.
+ * Опирается на служебные поля строки: statusCode, customerSent, customerAccepted, engineBrand.
+ */
+export function computeWorkOrdersStatusSummary(
+  rows: ReadonlyArray<WorkOrdersReportRow>,
+  opts: { byBrand?: boolean } = {},
+): WorkOrdersStatusSummary {
+  const counts = emptyStatusCounts();
+  const brandMap = new Map<string, WorkOrdersStatusCounts>();
+  for (const row of rows) {
+    accumulateStatusCounts(counts, row);
+    if (opts.byBrand) {
+      const brand = String(row.engineBrand ?? '').trim() || '(марка не указана)';
+      let acc = brandMap.get(brand);
+      if (!acc) {
+        acc = emptyStatusCounts();
+        brandMap.set(brand, acc);
+      }
+      accumulateStatusCounts(acc, row);
+    }
+  }
+  const byBrand = opts.byBrand
+    ? [...brandMap.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru')).map(([brand, c]) => ({ brand, counts: c }))
+    : undefined;
+  return { counts, ...(byBrand ? { byBrand } : {}) };
+}
+
+export const WORK_ORDERS_STATUS_COUNT_LABELS: ReadonlyArray<{ key: keyof WorkOrdersStatusCounts; label: string }> = [
+  { key: 'total', label: 'Выписано' },
+  { key: 'done', label: 'Выполнено' },
+  { key: 'doneLate', label: 'Выполнено с просрочкой' },
+  { key: 'overdue', label: 'Просрочено' },
+  { key: 'withdrawn', label: 'Отозвано' },
+  { key: 'shipped', label: 'Отгружено заказчику' },
+  { key: 'accepted', label: 'Принято заказчиком' },
+];
+
+/** Одна строка сводки для текстовых мест (on-screen totals, подпись). */
+export function formatWorkOrdersStatusCountsLine(counts: WorkOrdersStatusCounts): string {
+  return WORK_ORDERS_STATUS_COUNT_LABELS.map(({ key, label }) => `${label}: ${counts[key]}`).join(' · ');
 }
 
 // ── HTML-рендер ─────────────────────────────────────────────────────────────
@@ -157,7 +242,24 @@ export type WorkOrdersReportRenderArgs = {
   columns: ReadonlyArray<ReportColumn>;
   rows: ReadonlyArray<WorkOrdersReportRow>;
   totalsLine?: string;
+  /** Сводка по статусам для подвала (+опциональная разбивка по маркам). */
+  statusSummary?: WorkOrdersStatusSummary;
 };
+
+function renderStatusSummaryHtml(summary: WorkOrdersStatusSummary): string {
+  const countsLine = `<div class="totals">${esc(formatWorkOrdersStatusCountsLine(summary.counts))}</div>`;
+  if (!summary.byBrand || summary.byBrand.length === 0) return countsLine;
+  const head = WORK_ORDERS_STATUS_COUNT_LABELS.map((c) => `<th>${esc(c.label)}</th>`).join('');
+  const body = summary.byBrand
+    .map(
+      (b) =>
+        `<tr><td>${esc(b.brand)}</td>${WORK_ORDERS_STATUS_COUNT_LABELS.map((c) => `<td style="text-align:right">${b.counts[c.key]}</td>`).join('')}</tr>`,
+    )
+    .join('');
+  return `${countsLine}
+<div style="margin-top:8px;font-weight:700;font-size:13px">Сводка по маркам двигателей</div>
+<table style="margin-top:4px"><thead><tr><th>Марка</th>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
 
 /** Внутренний фрагмент (со своим <style>) — для окна предпросмотра, где секции вставляются в общий документ. */
 export function renderWorkOrdersReportInner(args: WorkOrdersReportRenderArgs): string {
@@ -187,12 +289,14 @@ export function renderWorkOrdersReportInner(args: WorkOrdersReportRenderArgs): s
         .join('')
     : `<tr><td colspan="${Math.max(1, columns.length)}" class="empty">Нет нарядов по заданным фильтрам</td></tr>`;
   const totalsHtml = args.totalsLine ? `<div class="totals">${esc(args.totalsLine)}</div>` : '';
+  const summaryHtml = args.statusSummary ? renderStatusSummaryHtml(args.statusSummary) : '';
   return `<style>${WORK_ORDERS_REPORT_CSS}</style>
 <div id="wo-report-root">
 <h1>${esc(args.title)}</h1>
 ${chipsHtml}
 <table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
 ${totalsHtml}
+${summaryHtml}
 </div>`;
 }
 
