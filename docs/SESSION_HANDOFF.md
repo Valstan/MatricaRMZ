@@ -4,47 +4,52 @@
 >
 > Если работы в потоке нет — `Status: IDLE` и пустые секции. Команда `/start` это увидит и не будет ничего навязывать.
 
-**Status:** ACTIVE (нитка Ф2 де-дупа ждёт раската клиентов — apply отложен решением владельца 2026-07-12, гейт всё ещё не пройден)
+**Status:** ACTIVE (нитка Ф2 де-дупа ждёт раската клиентов — apply отложен, гейт стал ещё длиннее после выхода v2026.713.1447)
 **Updated:** 2026-07-13 (Claude Opus 4.8, машина `PC40`)
 **Branch:** `main` (= origin/main). Дерево чистое, stash пуст, локальная только `main`, открытых PR нет.
-**Last released version:** **v2026.713.1017 на проде** — деплой этой сессии, верифицирован: `/health` = 2026.713.1017, `/updates/status.latest` = 2026.713.1017 (`infoHash` есть, `lastError:null`), blockmap 200, оба сервиса active. Миграций в релизе не было.
+**Last released version:** **v2026.713.1447 на проде** — деплой этой сессии, верифицирован: `/health` = 2026.713.1447, `/updates/status.latest` = 2026.713.1447 (`infoHash` есть, `lastError:null`), blockmap 200, оба сервиса active. Миграций в релизе не было.
 
 ## Текущая нитка
 
-**Ф2 де-дупа, финальный шаг `blank-synthetic-codes`** — по-прежнему заблокирован гейтом раската. За эту сессию нитка НЕ двигалась (гейт не пройден). Сессия 2026-07-13 занималась двумя точечными фиксами по замечаниям владельца (оба отгружены, см. ниже).
+Три фичи этой сессии **полностью отгружены** в релизе v2026.713.1447 (см. ниже) — в потоке из них ничего не осталось. Единственная переходящая нитка — **Ф2 де-дупа, финальный шаг `blank-synthetic-codes`**, по-прежнему заблокированный гейтом раската клиентов. За эту сессию Ф2 НЕ двигалась.
 
 ## Следующий шаг
 
-**Проверить раскат и прогнать blank-synthetic-codes** (владелец дал добро «делать как только раскатано», 2026-07-12). ⚠️ Гейт стал **длиннее** после выхода v2026.713.1017: на 2026-07-13 из недавних клиентов на ≥712.1818 было всего 4, остальные — хвост до 2026.626; теперь актуальная версия 713 → ждать, пока завод обновится (ожидание — рабочие дни).
-1. Гейт: `ssh matricarmz` → `sudo -u postgres psql matricarmz -A -F'|' -c "select coalesce(nullif(last_version,''),'(empty)') as v, count(*) from client_settings where last_seen_at > (extract(epoch from now()-interval '7 days')*1000) group by 1 order by 1 desc;"` — все недавние клиенты должны быть **≥ 2026.712.1818** (в идеале уже 713).
-2. Бэкап: `pg_dump "$DATABASE_URL" -t erp_nomenclature -t directory_parts -f ~/backup-blank-synthetic-$(date +%Y%m%d).sql`.
-3. **⚠️ M30 — env обязателен:** `cd MatricaRMZ && set -a; . /etc/matricarmz/matricarmz.env; set +a; corepack pnpm -F @matricarmz/backend-api warehouse:blank-synthetic-codes` (dry) → `:apply` (123 DET- + 22 NM- → пусто, retire 2 духов). Прод-мутация — переспросить коротко в тот же ход.
-4. Верификация: M31-паттерн — перечитать PG; сирот/синтетики 0; спот-чек клиента после sync.
+Три равнозначных кандидата (выбор владельца в начале сессии):
+
+1. **Ф2 гейт → `blank-synthetic-codes`** (владелец дал добро «делать как только раскатано», 2026-07-12). ⚠️ Гейт стал **ещё длиннее**: только что вышел v2026.713.1447 → на 2026-07-13 недавних клиентов на ≥712.1818 было мало, теперь актуальна 713.1447 → ждать, пока завод обновится (рабочие дни).
+   - Гейт: `ssh matricarmz` → `sudo -u postgres psql matricarmz -A -F'|' -c "select coalesce(nullif(last_version,''),'(empty)') as v, count(*) from client_settings where last_seen_at > (extract(epoch from now()-interval '7 days')*1000) group by 1 order by 1 desc;"` — все недавние клиенты **≥ 2026.712.1818**.
+   - Бэкап: `pg_dump "$DATABASE_URL" -t erp_nomenclature -t directory_parts -f ~/backup-blank-synthetic-$(date +%Y%m%d).sql`.
+   - **⚠️ M30 — env обязателен:** `cd MatricaRMZ && set -a; . /etc/matricarmz/matricarmz.env; set +a; corepack pnpm -F @matricarmz/backend-api warehouse:blank-synthetic-codes` (dry) → `:apply` (123 DET- + 22 NM- → пусто, retire 2 духов). Прод-мутация — переспросить в тот же ход. Верификация M31.
+   - Детали: [`plans/parts-nomenclature-deep-dedup-2026-07.md`](plans/parts-nomenclature-deep-dedup-2026-07.md) §Ф2, зеркало в [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md) §Техдолг.
+2. **Открытые вопросы владельцу** (ниже) — H7 пересадка ролей / UI-конструктор 3 вопроса / watchdog CleanupMatricaFiles.
+3. **Бэклог** — 4 фичи-идеи (паспорт ремонта / дефект+фото→BOM / калькулятор себестоимости / QR) или пилот UI-конструктора; каждая с разведки+плана.
 
 ## Контекст
 
-- План Ф2: [`plans/parts-nomenclature-deep-dedup-2026-07.md`](plans/parts-nomenclature-deep-dedup-2026-07.md) §Ф2 (последний шаг), зеркало в [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md) §Техдолг.
-- **Отгружено в этой сессии (2026-07-13):**
-  1. **Фикс видимости нарядов** (прод-данные, без релиза): у `valstan` был ошибочный `restricted_work_orders: editor` → ~270 его нарядов скрыты от Фатыховой и всех операторов. Снят. Разлёт клиентам через sync (`ledger_tx_index` seq 816053). COMPLETED §RBAC.
-  2. **Отчёт «Наряды»: № двигателя + заказчик** — PR [#192](https://github.com/Valstan/MatricaRMZ/pull/192), релиз **v2026.713.1017** (раскатан на прод). Хвост #168: отчёт читал только построчные штампы, теперь резолвит двигатель из шапки как список/печать. COMPLETED §Наряды, эффект — [`zavod/PROGRAM_EFFECTS.md`](zavod/PROGRAM_EFFECTS.md).
-- Прод: v2026.713.1017, оба сервиса active. Деплой (обратим): build серверных → 3 артефакта в updates (качал локально + scp; blockmap отдельным `gh release download`) → `ledger-publish` → **2 рестарта** (первый поймал транзиентный `stale_manifest` — крупный installer, torrent-манифест дописался на 26с позже старта; см. GOTCHAS **M20** доп-окно 2026-07-13) → health/updates-status/blockmap зелёные.
-- Открытых PR: нет. Un-pushed веток: нет.
-- Побочный хвост (с 2026-07-12): на проде существует паразитный каталог `~/MatricaRMZ/backend-api/ledger` (пересоздан unsourced-прогонами, M30) — можно удалить при случае (не срочно).
+- **Отгружено в этой сессии (2026-07-13), всё в релизе v2026.713.1447 на проде:**
+  1. **Связка «утиль ⇄ наряд на сборку» + статус «Отозван»** — PR [#195](https://github.com/Valstan/MatricaRMZ/pull/195). Утиль в дефектовке авто-отзывает выданный Assembly-наряд, блокирует выдачу, отзыв с причиной, новый статус «Отозван» (был «Просрочен»). COMPLETED §Наряды.
+  2. **Отчёт «Наряды»: колонка «Отгружен» + сводка статусов + формирование по кнопке** — PR [#196](https://github.com/Valstan/MatricaRMZ/pull/196). +опц. разбивка по маркам; все отчёты теперь строятся по кнопке «Сформировать отчёт». COMPLETED §Наряды.
+  3. **Явное сохранение: карточка марки + админ-справочники** — PR [#197](https://github.com/Valstan/MatricaRMZ/pull/197). Конец «тихому» autosave: список деталей марки и поля админки пишутся в БД только по «Сохранить». COMPLETED §UI.
+  - Эффекты для производства — [`zavod/PROGRAM_EFFECTS.md`](zavod/PROGRAM_EFFECTS.md) (3 записи).
+- **Релиз v2026.713.1447** (PR [#198](https://github.com/Valstan/MatricaRMZ/pull/198)): code-only, миграций нет, lockfile не менялся → на проде `pnpm install` пропущен (M16), собраны серверные пакеты; 3 артефакта скачаны локально + scp (обход prod-TLS, M18 — blockmap отдельным вызовом); ledger-publish до рестарта (env sourced, M30); 1 рестарт, все проверки зелёные с первого раза.
+- Прод: v2026.713.1447, оба сервиса active. HEAD прода = `35d3fc23`.
+- Открытых PR: нет. Un-pushed веток: нет. Stash пуст.
+- Побочный хвост (с 2026-07-12): паразитный каталог `~/MatricaRMZ/backend-api/ledger` на проде — можно удалить при случае (не срочно).
 
 ## Открытые вопросы для пользователя
 
 - **H7 шаг (б):** кому какие роли — 4 живых legacy-`user`: novosel (Новоселов С.Н.), radik, kostroma (Костюнин Р.А.), zamkomdir (Щербик В.Л.). После пересадки — флип (в) fail-closed (1 строка). PENDING §Security.
-- **UI-конструктор** — 3 вопроса из [`plans/ui-builder-modules.md`](plans/ui-builder-modules.md) §Открытые вопросы (владелец: «в следующей сессии»).
-- **AI/VPS** — отложено владельцем на неопределённый срок (2026-07-12); PENDING 🔴 остаётся как есть, не поднимать.
-- **Watchdog `CleanupMatricaFiles`** — no-op или перенацелить (PENDING §Watchdog, висит).
+- **UI-конструктор** — 3 вопроса из [`plans/ui-builder-modules.md`](plans/ui-builder-modules.md) §Открытые вопросы.
+- **AI/VPS** — отложено владельцем на неопределённый срок (2026-07-12); PENDING 🔴 остаётся, не поднимать.
+- **Watchdog `CleanupMatricaFiles`** — no-op или перенацелить (PENDING §Watchdog).
 
 ## Не забыть (low-priority)
 
 1. **Ф2 гейт** — не гнать apply, пока не все недавние клиенты ≥ 2026.712.1818; env сорсить (M30); после apply — M31-верификация PG.
-2. `docs/plans/owner-batch-2026-06-19.md` — заархивировать (5/6 отгружено).
-3. AV-ложнопозитивы watchdog'а — поглядывать в «Критические события».
-4. Ledger release-token — ротация до ~2026-08-04.
-5. Ротация SSH-ключей прода — до 2026-08-21.
-6. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз по ремонту пуст.
-7. deadcode-прогон (месячная дельта) — ~2026-08-04.
-8. Старый `MatricaRMZ-Setup-2026.712.1818.exe` в `/opt/matricarmz/updates/` — подхватит еженедельный таймер чистки, вмешательства не требует.
+2. AV-ложнопозитивы watchdog'а — поглядывать в «Критические события».
+3. Ledger release-token — ротация до ~2026-08-04 (первый релиз после ~2026-08-01 упадёт 401, лечение — PENDING ⏳).
+4. Ротация SSH-ключей прода — до 2026-08-21.
+5. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз по ремонту пуст.
+6. deadcode-прогон (месячная дельта) — ~2026-08-04.
+7. Паразитный `~/MatricaRMZ/backend-api/ledger` на проде — удалить при случае.
