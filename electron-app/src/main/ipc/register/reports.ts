@@ -64,6 +64,39 @@ function sanitizePresetIds(ids: unknown): string[] {
   return out;
 }
 
+const FILTER_TEMPLATES_LIMIT = 20;
+
+type ReportFilterTemplate = {
+  id: string;
+  name: string;
+  createdAt: number;
+  filters: Record<string, unknown>;
+  disabled: string[];
+};
+
+// Blob-структура: { [userScope]: { [presetId]: ReportFilterTemplate[] } }
+function sanitizeFilterTemplates(entries: unknown): ReportFilterTemplate[] {
+  if (!Array.isArray(entries)) return [];
+  const out: ReportFilterTemplate[] = [];
+  for (const row of entries) {
+    const id = String((row as any)?.id ?? '').trim();
+    const name = String((row as any)?.name ?? '').trim();
+    if (!id || !name) continue;
+    const createdAtRaw = Number((row as any)?.createdAt ?? 0);
+    const filters = (row as any)?.filters;
+    const disabledRaw = (row as any)?.disabled;
+    out.push({
+      id,
+      name,
+      createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? Math.floor(createdAtRaw) : 0,
+      filters: filters && typeof filters === 'object' && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {},
+      disabled: Array.isArray(disabledRaw) ? disabledRaw.map((v: unknown) => String(v ?? '').trim()).filter(Boolean) : [],
+    });
+    if (out.length >= FILTER_TEMPLATES_LIMIT) break;
+  }
+  return out;
+}
+
 function sanitizeHistoryEntries(entries: unknown): ReportHistoryEntry[] {
   if (!Array.isArray(entries)) return [];
   const out: ReportHistoryEntry[] = [];
@@ -151,6 +184,68 @@ export function registerReportsIpc(ctx: IpcContext) {
     await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetFavorites, JSON.stringify(byScope));
     return { ok: true as const, ids };
   });
+
+  ipcMain.handle('reports:filterTemplatesList', async (_e, args?: { userId?: string; presetId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const presetId = String(args?.presetId ?? '').trim();
+    if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
+    const byScope = parseByScope<Record<string, unknown>>(raw);
+    return { ok: true as const, templates: sanitizeFilterTemplates(byScope[scope]?.[presetId]) };
+  });
+
+  ipcMain.handle(
+    'reports:filterTemplateSave',
+    async (
+      _e,
+      args?: {
+        userId?: string;
+        presetId?: string;
+        template?: { id?: string; name?: string; filters?: Record<string, unknown>; disabled?: string[] };
+      },
+    ) => {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      const presetId = String(args?.presetId ?? '').trim();
+      if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+      const name = String(args?.template?.name ?? '').trim();
+      if (!name) return { ok: false as const, error: 'Пустое имя шаблона' };
+      const scope = resolveUserScope(args?.userId);
+      const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
+      const byScope = parseByScope<Record<string, unknown>>(raw);
+      const current = sanitizeFilterTemplates(byScope[scope]?.[presetId]);
+      const id = String(args?.template?.id ?? '').trim() || `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const entry = sanitizeFilterTemplates([
+        { id, name, createdAt: Date.now(), filters: args?.template?.filters ?? {}, disabled: args?.template?.disabled ?? [] },
+      ])[0];
+      if (!entry) return { ok: false as const, error: 'Некорректный шаблон' };
+      // Замена по id или по имени (пересохранение под тем же именем перезаписывает шаблон).
+      const next = [entry, ...current.filter((t) => t.id !== entry.id && t.name !== entry.name)].slice(0, FILTER_TEMPLATES_LIMIT);
+      byScope[scope] = { ...(byScope[scope] ?? {}), [presetId]: next };
+      await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates, JSON.stringify(byScope));
+      return { ok: true as const, templates: next };
+    },
+  );
+
+  ipcMain.handle(
+    'reports:filterTemplateDelete',
+    async (_e, args?: { userId?: string; presetId?: string; templateId?: string }) => {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      const presetId = String(args?.presetId ?? '').trim();
+      if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+      const templateId = String(args?.templateId ?? '').trim();
+      const scope = resolveUserScope(args?.userId);
+      const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
+      const byScope = parseByScope<Record<string, unknown>>(raw);
+      const next = sanitizeFilterTemplates(byScope[scope]?.[presetId]).filter((t) => t.id !== templateId);
+      byScope[scope] = { ...(byScope[scope] ?? {}), [presetId]: next };
+      await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates, JSON.stringify(byScope));
+      return { ok: true as const, templates: next };
+    },
+  );
 
   ipcMain.handle('reports:historyList', async (_e, args?: { userId?: string; limit?: number }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');

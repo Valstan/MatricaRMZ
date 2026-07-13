@@ -579,7 +579,11 @@ import type {
   ReportPreset1cXmlResult,
   ReportPresetCsvResult,
   ReportPresetFavoritesResult,
+  ReportPresetFilterTemplateSaveResult,
+  ReportPresetFilterTemplatesListResult,
+  ReportPresetFilters,
   ReportPresetHistoryAddResult,
+  ReportPresetId,
   ReportPresetHistoryEntry,
   ReportPresetHistoryListResult,
   ReportPresetListResult,
@@ -821,6 +825,17 @@ export type MatricaApi = {
     favoritesSet: (args: { userId?: string; ids: string[] }) => Promise<ReportPresetFavoritesResult>;
     historyList: (args?: { userId?: string; limit?: number }) => Promise<ReportPresetHistoryListResult>;
     historyAdd: (args: { userId?: string; entry: ReportPresetHistoryEntry }) => Promise<ReportPresetHistoryAddResult>;
+    filterTemplatesList: (args: { userId?: string; presetId: ReportPresetId }) => Promise<ReportPresetFilterTemplatesListResult>;
+    filterTemplateSave: (args: {
+      userId?: string;
+      presetId: ReportPresetId;
+      template: { id?: string; name: string; filters: ReportPresetFilters; disabled: string[] };
+    }) => Promise<ReportPresetFilterTemplateSaveResult>;
+    filterTemplateDelete: (args: {
+      userId?: string;
+      presetId: ReportPresetId;
+      templateId: string;
+    }) => Promise<ReportPresetFilterTemplateSaveResult>;
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
     periodStagesCsv: (args: { startMs?: number; endMs: number }) => Promise<{ ok: true; csv: string } | { ok: false; error: string }>;
     // CSV: “стадии по группам” (заказчик/контракт/наряд) по link-атрибуту двигателя.

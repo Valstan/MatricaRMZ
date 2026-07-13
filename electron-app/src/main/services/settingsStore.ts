@@ -45,6 +45,7 @@ export const SettingsKey = {
   UiPinnedShortcuts: 'ui.pinnedShortcuts',
   ReportPresetFavorites: 'reports.presetFavorites',
   ReportPresetHistory: 'reports.presetHistory',
+  ReportPresetFilterTemplates: 'reports.presetFilterTemplates',
   UiDefaultsVersionApplied: 'ui.defaultsVersionApplied',
   ReleaseWelcomeSeenVersion: 'ui.releaseWelcomeSeenVersion',
 

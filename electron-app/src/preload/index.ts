@@ -134,6 +134,15 @@ const matricaApi = {
     historyList: async (args?: { userId?: string; limit?: number }) => ipcRenderer.invoke('reports:historyList', args),
     historyAdd: async (args: { userId?: string; entry: { presetId: string; title: string; generatedAt: number } }) =>
       ipcRenderer.invoke('reports:historyAdd', args),
+    filterTemplatesList: async (args: { userId?: string; presetId: string }) =>
+      ipcRenderer.invoke('reports:filterTemplatesList', args),
+    filterTemplateSave: async (args: {
+      userId?: string;
+      presetId: string;
+      template: { id?: string; name: string; filters: Record<string, unknown>; disabled: string[] };
+    }) => ipcRenderer.invoke('reports:filterTemplateSave', args),
+    filterTemplateDelete: async (args: { userId?: string; presetId: string; templateId: string }) =>
+      ipcRenderer.invoke('reports:filterTemplateDelete', args),
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),

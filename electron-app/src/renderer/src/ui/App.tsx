@@ -988,12 +988,22 @@ export function App() {
     if (V2_LIST_TABS.has(tab)) setV2ActiveListTab(tab);
   }, [isV2, tab]);
 
-  const requestCardClose = useCallback(() => {
+  // V2: «Закрыть карточку» закрывает и её вкладку (инвариант: любой путь, снимающий карточку
+  // с рабочей области, удаляет её дескриптор из v2OpenCards — иначе зависшая вкладка переоткрывает
+  // устаревшее состояние карточки). closeV2Card содержит dirty-guard и выбор следующего фокуса.
+  function requestCardClose() {
+    if (isV2) {
+      const idn = v2CurrentCardIdentity();
+      if (idn) {
+        closeV2Card(idn);
+        return;
+      }
+    }
     const parentTab = CARD_PARENT_TAB[tab];
     if (parentTab) {
       void closeCardSession({ targetTab: parentTab, appClose: false });
     }
-  }, [tab, closeCardSession]);
+  }
 
   const applyEffectiveUiSettings = useCallback((settings: UiControlSettings) => {
     setEffectiveUiControl(sanitizeUiControlSettings(settings));
@@ -2552,6 +2562,42 @@ export function App() {
     const id = idByTab[tab];
     return id ? { kind: tab, entityId: String(id) } : null;
   }
+
+  // V2: закрытие карточки любым путём (onClose после «Сохранить и закрыть» / черновика /
+  // удаления) зануляет её selected-id — по этому переходу id→null убираем вкладку из
+  // v2OpenCards, иначе зависшая вкладка переоткрывает устаревшее состояние карточки.
+  const v2SelectedByKind: Partial<Record<TabId, string | null>> = {
+    engine: selectedEngineId,
+    engine_brand: selectedEngineBrandId,
+    engine_brand_group: selectedEngineBrandGroupId,
+    request: selectedRequestId,
+    work_order: selectedWorkOrderId,
+    tool: selectedToolId,
+    tool_property: selectedToolPropertyId,
+    employee: selectedEmployeeId,
+    contract: selectedContractId,
+    counterparty: selectedCounterpartyId,
+    product: selectedProductId,
+    service: selectedServiceId,
+    nomenclature_item: selectedNomenclatureId,
+    engine_assembly_bom_item: selectedEngineAssemblyBomId,
+    stock_document: selectedStockDocumentId,
+    report_preset: selectedReportPresetId,
+  };
+  const v2PrevSelectedRef = useRef<Partial<Record<TabId, string | null>>>({});
+  useEffect(() => {
+    const prev = v2PrevSelectedRef.current;
+    const next: Partial<Record<TabId, string | null>> = {};
+    for (const [kind, rawId] of Object.entries(v2SelectedByKind) as Array<[TabId, string | null]>) {
+      const id = rawId ? String(rawId) : null;
+      next[kind] = id;
+      const before = prev[kind];
+      if (isV2 && before && !id) {
+        setV2OpenCards((cards) => cards.filter((c) => !(c.kind === kind && c.entityId === before)));
+      }
+    }
+    v2PrevSelectedRef.current = next;
+  });
 
   function v2CardTitle(kind: TabId, entityId: string): string {
     if (kind === 'engine') {
