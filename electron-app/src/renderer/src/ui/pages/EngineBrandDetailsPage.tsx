@@ -101,16 +101,22 @@ export function EngineBrandDetailsPage(props: {
   // Отмеченные детали (scope=selected) — множество id деталей марки.
   const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
   const dirtyRef = useRef(false);
-  // Phase 3d: recovery-draft движок пилота. Снимок = только локальные несохранённые поля
-  // (name/description); файлы и связи деталей сохраняются сразу — в черновик не входят.
+  // Отложенное сохранение списка деталей: committed-снапшот из последней загрузки,
+  // brandParts — редактируемый драфт. Дифф пишется в БД только по «Сохранить».
+  const committedPartsRef = useRef<BrandPartRow[]>([]);
+  // Phase 3d: recovery-draft движок пилота. Снимок = локальные несохранённые поля
+  // (name/description) + драфт списка деталей; файлы сохраняются сразу — в черновик не входят.
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  // true только если восстановленный черновик содержал драфт списка деталей —
+  // старые черновики без parts не должны блокировать загрузку committed-списка.
+  const draftPartsRestoredRef = useRef(false);
   const DRAFT_CARD_TYPE = 'engine_brand';
 
-  type BrandDraftSnapshot = { name: string; description: string };
+  type BrandDraftSnapshot = { name: string; description: string; parts?: BrandPartRow[] };
 
   function currentDraftSnapshot(): BrandDraftSnapshot {
-    return { name, description };
+    return { name, description, parts: brandParts };
   }
 
   function buildDraftTitle(s: BrandDraftSnapshot): string {
@@ -153,9 +159,21 @@ export function EngineBrandDetailsPage(props: {
   function applyDraftSnapshot(s: Partial<BrandDraftSnapshot>) {
     setName(String(s.name ?? ''));
     setDescription(String(s.description ?? ''));
+    // Старые черновики без parts — не трогаем список (останется committed-копия).
+    if (Array.isArray(s.parts)) {
+      setBrandParts(s.parts as BrandPartRow[]);
+      draftPartsRestoredRef.current = true;
+    }
   }
 
   async function openPropagateModal() {
+    // Распространение читает СОХРАНЁННОЕ состояние связей — при несохранённых правках
+    // оператор получил бы не то, что видит на экране.
+    if (dirtyRef.current) {
+      setPartsStatus('Сначала сохраните карточку («Сохранить») — распространение работает от сохранённого списка.');
+      setTimeout(() => setPartsStatus(''), 4000);
+      return;
+    }
     setPropagateStatus('');
     setPropagateGroups([]);
     setPropagateSelId(null);
@@ -411,7 +429,7 @@ export function EngineBrandDetailsPage(props: {
     await persistBrandSummary(summaryDeps, summaryPersistState.current, props.brandId, kinds, totalQty);
   }
 
-  async function loadBrandParts() {
+  async function loadBrandParts(opts: { force?: boolean } = {}) {
     if (!props.canViewParts) return;
     const r = await listAllPartSpecs({ engineBrandId: props.brandId }).catch(() => ({ ok: false as const, error: 'unknown' }));
     if (!r.ok) {
@@ -465,7 +483,10 @@ export function EngineBrandDetailsPage(props: {
       seenPartIds.add(partId);
     }
     rows.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-    setBrandParts(rows);
+    committedPartsRef.current = rows;
+    // Восстановленный recovery-драфт списка не затираем committed-копией (кроме force: Сброс/после сохранения).
+    const preserveDraft = !opts.force && dirtyRef.current && draftPartsRestoredRef.current;
+    if (!preserveDraft) setBrandParts(rows);
     setPartsStatus('');
     persistBrandSummaryFromRows(rows);
   }
@@ -501,21 +522,25 @@ export function EngineBrandDetailsPage(props: {
     }
   }
 
-  async function saveAllAndClose() {
-    if (!props.canEdit) return;
+  async function saveAllAndClose(): Promise<boolean> {
+    if (!props.canEdit) return false;
     // Стоп ДО любых записей: иначе успешный saveDescription перетёр бы сообщение об ошибке
     // имени статусом «Сохранено», а оператор решил бы, что всё сохранилось.
     if (!name.trim()) {
       setStatus('Ошибка: имя марки не может быть пустым — переименуйте или закройте без сохранения');
-      return;
+      return false;
     }
     await saveName();
     await saveDescription();
+    // Отложенный список деталей: применяем дифф; при частичной ошибке карточка остаётся dirty.
+    const partsOk = await applyBrandPartsDiff();
+    if (!partsOk) return false;
     // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
     // чтобы он не переписал черновик после очистки.
     cancelPendingDraftSave();
     await clearDraft();
     dirtyRef.current = false;
+    return true;
   }
 
   async function handleDelete() {
@@ -580,110 +605,90 @@ export function EngineBrandDetailsPage(props: {
     return { ok: true as const, linkId: r.linkId };
   }
 
-  // Т4: смена галочки акта — немедленное сохранение с явной строкой (не из state,
-  // setState асинхронен и updateBrandPartRow увидел бы устаревшее значение).
-  async function saveBrandPartActFlags(row: BrandPartRow) {
-    if (!props.canEdit || !props.canEditParts) return;
-    setPartsStatus('Сохранение...');
-    const r = await upsertBrandPartLink({
-      partId: row.id,
-      assemblyUnitNumber: row.assemblyUnitNumber === 'не задано' ? '' : row.assemblyUnitNumber,
-      quantity: row.quantity,
-      inCompletenessAct: row.inCompletenessAct,
-      inDefectAct: row.inDefectAct,
-      ...(row.linkId ? { linkId: row.linkId } : {}),
+  // Отложенное сохранение: правка строки — только драфт-state + dirty; в БД пишет
+  // applyBrandPartsDiff по кнопке «Сохранить».
+  function markPartsDirty() {
+    dirtyRef.current = true;
+    setPartsStatus('Изменения списка не сохранены — нажмите «Сохранить».');
+  }
+
+  /** Дифф драфта против committed-снапшота -> записи в БД. Возвращает false при ошибках. */
+  async function applyBrandPartsDiff(): Promise<boolean> {
+    if (!props.canEdit || !props.canEditParts) return true;
+    const committed = committedPartsRef.current;
+    const draft = brandParts;
+    const draftById = new Map(draft.map((r) => [r.id, r] as const));
+    const committedById = new Map(committed.map((r) => [r.id, r] as const));
+    const removed = committed.filter((r) => !draftById.has(r.id));
+    const addedOrChanged = draft.filter((r) => {
+      const prev = committedById.get(r.id);
+      if (!prev) return true;
+      return (
+        prev.quantity !== r.quantity ||
+        prev.inCompletenessAct !== r.inCompletenessAct ||
+        prev.inDefectAct !== r.inDefectAct ||
+        prev.assemblyUnitNumber !== r.assemblyUnitNumber
+      );
     });
-    setPartsStatus(r.ok ? '' : `Ошибка: ${String(r.error ?? 'unknown')}`);
+    if (removed.length === 0 && addedOrChanged.length === 0) return true;
+    setPartsStatus('Сохранение списка деталей…');
+    let failed = 0;
+    for (const row of removed) {
+      try {
+        let linkId = (row.linkId || '').trim();
+        if (!linkId) {
+          const links = await listPartSpecBrandLinks({ partId: row.id });
+          if (!links.ok) throw new Error(links.error ?? 'Не удалось загрузить связи детали');
+          const found = links.brandLinks.find((l) => l.engineBrandId === props.brandId);
+          if (found?.id) linkId = found.id;
+        }
+        if (!linkId) continue; // связи и не было (строка добавлена и удалена в драфте)
+        const del = await deletePartSpecBrandLink({ partId: row.id, linkId });
+        if (!del.ok) throw new Error(del.error ?? 'Не удалось удалить связь');
+      } catch (e) {
+        failed += 1;
+        window.matrica?.log?.send?.('error', `engine_brand_parts diff detach failed: ${String(e)}`).catch(() => {});
+      }
+    }
+    for (const row of addedOrChanged) {
+      const r = await upsertBrandPartLink({
+        partId: row.id,
+        assemblyUnitNumber: row.assemblyUnitNumber === 'не задано' ? '' : row.assemblyUnitNumber,
+        quantity: row.quantity,
+        inCompletenessAct: row.inCompletenessAct,
+        inDefectAct: row.inDefectAct,
+        ...(row.linkId ? { linkId: row.linkId } : {}),
+      });
+      if (!r.ok) failed += 1;
+    }
+    invalidateListAllPartSpecsCache();
+    if (failed > 0) {
+      setPartsStatus(`Ошибка: не сохранились изменения по ${failed} деталям — попробуйте «Сохранить» ещё раз.`);
+      return false;
+    }
+    draftPartsRestoredRef.current = false;
+    await loadBrandParts({ force: true });
+    setPartsStatus('');
+    return true;
   }
 
   // G1 (owner-батч 2026-07-10): массовая простановка/снятие галочки акта у ВСЕХ показанных
   // деталей (текущий срез visibleParts — уважает фильтр/вид). Цикл upsert по деталям с
   // прогрессом и блокировкой повторного клика; useLiveDataRefresh на время правки не мешает
   // (dirtyRef не нужен — правка идёт по одной, но оптимистичный state обновляем сразу).
-  const [bulkActBusy, setBulkActBusy] = useState(false);
-  async function bulkSetActFlag(flag: 'inCompletenessAct' | 'inDefectAct', value: boolean) {
-    if (!props.canEdit || !props.canEditParts || bulkActBusy) return;
+  const [bulkActBusy] = useState(false);
+  function bulkSetActFlag(flag: 'inCompletenessAct' | 'inDefectAct', value: boolean) {
+    if (!props.canEdit || !props.canEditParts) return;
     const targets = visibleParts.filter((p) => p.id && p[flag] !== value);
     if (targets.length === 0) return;
-    setBulkActBusy(true);
-    // Оптимистично проставить флаг во всех показанных строках.
     setBrandParts((prev) => prev.map((x) => (targets.some((t) => t.id === x.id) ? { ...x, [flag]: value } : x)));
-    let done = 0;
-    let failed = 0;
-    for (const p of targets) {
-      const r = await upsertBrandPartLink({
-        partId: p.id,
-        assemblyUnitNumber: p.assemblyUnitNumber === 'не задано' ? '' : p.assemblyUnitNumber,
-        quantity: p.quantity,
-        inCompletenessAct: flag === 'inCompletenessAct' ? value : p.inCompletenessAct,
-        inDefectAct: flag === 'inDefectAct' ? value : p.inDefectAct,
-        ...(p.linkId ? { linkId: p.linkId } : {}),
-      });
-      if (r.ok) done += 1;
-      else failed += 1;
-      setPartsStatus(`Проставляю галочки акта: ${done + failed}/${targets.length}…`);
-    }
-    setBulkActBusy(false);
-    const actLabel = flag === 'inCompletenessAct' ? 'комплектности' : 'дефектовки';
-    setPartsStatus(
-      `Акт ${actLabel}: ${value ? 'проставлено' : 'снято'} у ${done} деталей${failed > 0 ? ` (ошибок: ${failed})` : ''}.`,
-    );
-    setTimeout(() => setPartsStatus(''), 2500);
+    markPartsDirty();
   }
 
-  async function updateBrandPartRow(partId: string, row: BrandPartRow) {
+  function detachBrandPart(partId: string) {
     if (!props.canEdit || !props.canEditParts) return;
-    const rowFromState = brandParts.find((p) => p.id === partId) ?? row;
-    if (!rowFromState?.id) return;
-    setPartsStatus('Сохранение...');
-    const r = await upsertBrandPartLink({
-      partId,
-      assemblyUnitNumber: String(rowFromState.assemblyUnitNumber || ''),
-      quantity: rowFromState.quantity,
-      ...(rowFromState.linkId ? { linkId: rowFromState.linkId } : {}),
-    });
-    if (!r.ok) {
-      setPartsStatus(`Ошибка: ${String(r.error ?? 'unknown')}`);
-      return;
-    }
-    const updatedLinkId = r.linkId;
-    setBrandParts((prev) => {
-      const next = prev.map((x) => (x.id === partId ? { ...x, linkId: x.linkId || updatedLinkId } : x));
-      persistBrandSummaryFromRows(next);
-      return next;
-    });
-    setPartsStatus('Сохранено');
-    setTimeout(() => setPartsStatus(''), 1200);
-  }
-
-  async function detachBrandPart(partId: string) {
-    if (!props.canEdit || !props.canEditParts) return;
-    const current = brandParts.find((x) => x.id === partId);
-    if (!current) return;
-    setPartsStatus('Сохранение связей...');
-    try {
-      let linkId = (current.linkId || '').trim();
-      if (!linkId) {
-        const links = await listPartSpecBrandLinks({ partId });
-        if (!links.ok) throw new Error(links.error ?? 'Не удалось загрузить связи детали');
-        const found = links.brandLinks.find((l) => l.engineBrandId === props.brandId);
-        if (found?.id) linkId = found.id;
-      }
-      if (!linkId) throw new Error('Связь не найдена');
-      const del = await deletePartSpecBrandLink({ partId, linkId });
-      if (!del.ok) throw new Error(del.error ?? 'Не удалось удалить связь');
-      setBrandParts((prev) => {
-        const next = prev.filter((x) => x.id !== partId);
-        persistBrandSummaryFromRows(next);
-        return next;
-      });
-      setPartsStatus('Сохранено');
-      setTimeout(() => setPartsStatus(''), 900);
-    } catch (e) {
-      const msg = String(e);
-      setPartsStatus(`Ошибка: ${msg}`);
-      window.matrica?.log?.send?.('error', `engine_brand_parts update failed: ${msg}`).catch(() => {});
-    }
+    setBrandParts((prev) => prev.filter((x) => x.id !== partId));
+    markPartsDirty();
   }
 
   async function addPart(partId: string) {
@@ -707,37 +712,24 @@ export function EngineBrandDetailsPage(props: {
       // keep fallback
     }
 
-    const r = await upsertBrandPartLink({ partId, assemblyUnitNumber, quantity: 1 });
-    if (!r.ok) {
-      setPartsStatus(`Ошибка: ${String(r.error ?? 'unknown')}`);
-      return;
-    }
-    await loadBrandParts();
-    // Safety net: the link write succeeded, so the part now belongs to this brand. If the
-    // refetch above didn't surface it yet (list eventual-consistency or a racing cache
-    // refill), add it optimistically so the operator always sees the result of their action.
-    // Harmless: it only ever shows a part whose brand-link was just confirmed written.
+    // Отложенно: строка добавляется в драфт, связь запишется по «Сохранить» (applyBrandPartsDiff).
     setBrandParts((prev) => {
       if (prev.some((p) => p.id === partId)) return prev;
       const label = partsOptions.find((o) => o.id === partId)?.label?.trim() || partId;
-      const optimistic: BrandPartRow = {
+      const draftRow: BrandPartRow = {
         id: partId,
         label,
-        ...(r.linkId ? { linkId: r.linkId } : {}),
         article: '',
         assemblyUnitNumber,
         quantity: 1,
         inCompletenessAct: false,
         inDefectAct: false,
       };
-      const next = [...prev, optimistic].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
-      persistBrandSummaryFromRows(next);
-      return next;
+      return [...prev, draftRow].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
     });
     setAddPartId(null);
     setShowAddPart(false);
-    setPartsStatus('Сохранено');
-    setTimeout(() => setPartsStatus(''), 900);
+    markPartsDirty();
   }
 
   async function createAndAddPart(label: string) {
@@ -809,7 +801,7 @@ export function EngineBrandDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
-  }, [name, description, props.canEdit]);
+  }, [name, description, brandParts, props.canEdit]);
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -819,8 +811,9 @@ export function EngineBrandDetailsPage(props: {
         await saveAllAndClose();
       },
       reset: async () => {
-        await loadBrand();
         dirtyRef.current = false;
+        draftPartsRestoredRef.current = false;
+        await Promise.all([loadBrand(), loadBrandParts({ force: true })]);
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -843,7 +836,7 @@ export function EngineBrandDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-  }, [name, description, props.registerCardCloseActions]);
+  }, [name, description, brandParts, props.registerCardCloseActions]);
 
   const selectedParts = brandParts;
   const canPropagate = props.canEdit && props.canViewParts && props.canEditParts;
@@ -976,7 +969,7 @@ export function EngineBrandDetailsPage(props: {
                 onChange={(e) => {
                   const nextRow = { ...p, [flag]: e.target.checked } as BrandPartRow;
                   setBrandParts((prev) => prev.map((x) => (x.id === p.id ? nextRow : x)));
-                  void saveBrandPartActFlags(nextRow);
+                  markPartsDirty();
                 }}
               />
               {flag === 'inCompletenessAct' ? 'Акт компл.' : 'Акт деф.'}
@@ -996,8 +989,8 @@ export function EngineBrandDetailsPage(props: {
               const raw = Number(e.target.value);
               const nextQty = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
               setBrandParts((prev) => prev.map((x) => (x.id === p.id ? { ...x, quantity: nextQty } : x)));
+              markPartsDirty();
             }}
-            onBlur={() => void updateBrandPartRow(p.id, p)}
           />
         </div>
         <Button
@@ -1043,7 +1036,7 @@ export function EngineBrandDetailsPage(props: {
             })();
           }}
           onSave={() => { void saveAllAndClose(); }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAndClose={() => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }); }}
           onSaveAsDraft={() => {
             void (async () => {
               // Явная парковка в черновик: без записи в EAV; отменяем отложенный
@@ -1059,7 +1052,8 @@ export function EngineBrandDetailsPage(props: {
             })();
           }}
           onReset={() => {
-            void loadBrand().then(() => {
+            draftPartsRestoredRef.current = false;
+            void Promise.all([loadBrand(), loadBrandParts({ force: true })]).then(() => {
               dirtyRef.current = false;
             });
           }}

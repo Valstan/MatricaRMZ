@@ -144,6 +144,9 @@ export function MasterdataPage(props: {
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
   const [entityQuery, setEntityQuery] = useState<string>('');
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
+  // Кнопочное сохранение карточки записи: правки копятся локально, пишутся по «Сохранить».
+  const [dirtyAttrCodes, setDirtyAttrCodes] = useState<Set<string>>(new Set());
+  const [brandCardDirty, setBrandCardDirty] = useState(false);
   const [status, setStatus] = useState<string>('');
   const [linkRules, setLinkRules] = useState<LinkRule[]>([]);
   const [entityFilter, setEntityFilter] = useState<'all' | 'named' | 'empty'>('all');
@@ -153,6 +156,7 @@ export function MasterdataPage(props: {
   const [engineBrandName, setEngineBrandName] = useState<string>('');
   const [partsOptions, setPartsOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [engineBrandPartIds, setEngineBrandPartIds] = useState<string[]>([]);
+  const committedBrandPartIdsRef = useRef<string[]>([]);
   const [partsStatus, setPartsStatus] = useState<string>('');
   const autoResyncedTypes = useRef<Set<string>>(new Set());
   const summaryPersistState = useRef<EngineBrandSummarySyncState>(createEngineBrandSummarySyncState());
@@ -727,9 +731,65 @@ export function MasterdataPage(props: {
     closeDeleteDialog();
   }
 
+  /** Кнопочное сохранение карточки записи: пишет только изменённые поля. */
+  async function saveEntityCard() {
+    if (!props.canEditMasterData || !selectedEntityId) return;
+    setStatus('Сохранение...');
+    // Карточка марки двигателя: имя + набор деталей.
+    if (selectedType?.code === 'engine_brand') {
+      if (brandCardDirty) {
+        const nextName = engineBrandName.trim();
+        const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', nextName || null);
+        if (!r.ok) {
+          setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+          return;
+        }
+        await updateBrandParts(engineBrandPartIds);
+        setBrandCardDirty(false);
+      }
+      await refreshEntities(selectedTypeId);
+      setStatus('Сохранено');
+      return;
+    }
+    // Общий случай: изменённые атрибуты. json-поля редактируются строкой — парсим при записи.
+    let failed = 0;
+    const savedCodes = new Set<string>();
+    for (const code of dirtyAttrCodes) {
+      const def = defs.find((d) => d.code === code);
+      let value = entityAttrs[code];
+      if (def?.dataType === 'json' && typeof value === 'string') {
+        try {
+          value = value.trim() ? JSON.parse(value) : null;
+        } catch {
+          setStatus(`Ошибка: поле «${def.name}» — некорректный JSON`);
+          failed += 1;
+          continue;
+        }
+      }
+      const r = await window.matrica.admin.entities.setAttr(selectedEntityId, code, value);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+        failed += 1;
+        continue;
+      }
+      savedCodes.add(code);
+    }
+    if (savedCodes.size > 0) {
+      setDirtyAttrCodes((prev) => {
+        const next = new Set(prev);
+        for (const c of savedCodes) next.delete(c);
+        return next;
+      });
+      await refreshEntities(selectedTypeId);
+    }
+    if (failed === 0) setStatus('Сохранено');
+  }
+
   async function loadEntity(id: string) {
     const d = await window.matrica.admin.entities.get(id);
     setEntityAttrs(d.attributes ?? {});
+    setDirtyAttrCodes(new Set());
+    setBrandCardDirty(false);
   }
 
   async function loadPartsOptions() {
@@ -770,16 +830,18 @@ export function MasterdataPage(props: {
       allIds.push(partId);
     }
     setEngineBrandPartIds(allIds);
+    committedBrandPartIdsRef.current = allIds;
   }
 
   async function updateBrandParts(nextIds: string[]) {
     const brandId = selectedEntityId;
     if (!brandId) return;
     if (!props.canEditMasterData) return;
-    const prev = new Set(engineBrandPartIds);
+    const committed = committedBrandPartIdsRef.current;
+    const prev = new Set(committed);
     const next = new Set(nextIds);
     const toAdd = nextIds.filter((id) => !prev.has(id));
-    const toRemove = engineBrandPartIds.filter((id) => !next.has(id));
+    const toRemove = committed.filter((id) => !next.has(id));
 
     for (const partId of toAdd) {
       const links = await listPartSpecBrandLinks({ partId });
@@ -816,6 +878,7 @@ export function MasterdataPage(props: {
         return;
       }
     }
+    committedBrandPartIdsRef.current = nextIds;
     setPartsStatus('Сохранено');
     invalidateListAllPartSpecsCache();
     void persistEngineBrandSummaries([brandId]);
@@ -1130,11 +1193,26 @@ export function MasterdataPage(props: {
             <div style={{ overflow: 'auto', padding: 12 }}>
               {selectedEntity ? (
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
                     <div style={{ fontWeight: 800, color: 'var(--text)' }}>Карточка записи</div>
                     <div style={{ color: '#64748b', fontSize: 12 }}>
                       {selectedType?.name ? `Справочник: ${selectedType.name}` : ''}
                     </div>
+                    <span style={{ flex: 1 }} />
+                    {props.canEditMasterData ? (
+                      <>
+                        {dirtyAttrCodes.size > 0 || brandCardDirty ? (
+                          <span style={{ color: 'var(--danger)', fontSize: 12 }}>Есть несохранённые изменения</span>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          disabled={dirtyAttrCodes.size === 0 && !brandCardDirty}
+                          onClick={() => void saveEntityCard()}
+                        >
+                          Сохранить
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                   <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 8 }}>
                     {props.canEditMasterData ? 'Редактирование свойств' : 'Свойства (только просмотр)'}
@@ -1146,13 +1224,9 @@ export function MasterdataPage(props: {
                       <Input
                         value={engineBrandName}
                         disabled={!props.canEditMasterData}
-                        onChange={(e) => setEngineBrandName(e.target.value)}
-                        onBlur={async () => {
-                          const next = engineBrandName.trim();
-                          const r = await window.matrica.admin.entities.setAttr(selectedEntityId, 'name', next || null);
-                          if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                          else setStatus('Сохранено');
-                          await refreshEntities(selectedTypeId);
+                        onChange={(e) => {
+                          setEngineBrandName(e.target.value);
+                          setBrandCardDirty(true);
                         }}
                       />
                       <div style={{ color: '#6b7280', alignSelf: 'start', paddingTop: 6 }}>Детали</div>
@@ -1170,7 +1244,7 @@ export function MasterdataPage(props: {
                             const labelById = new Map(partsOptions.map((o) => [o.id, o.label]));
                             const sorted = [...next].sort((a, b) => String(labelById.get(a) ?? a).localeCompare(String(labelById.get(b) ?? b), 'ru'));
                             setEngineBrandPartIds(sorted);
-                            if (props.canEditMasterData) void updateBrandParts(sorted);
+                            setBrandCardDirty(true);
                           }}
                         />
                         {partsStatus && <div style={{ color: partsStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{partsStatus}</div>}
@@ -1192,12 +1266,9 @@ export function MasterdataPage(props: {
                                 {...(lookupMeta ? { lookupOptions: lookupOptionsByCode[d.code] ?? [] } : {})}
                                 {...(lookupMeta ? { lookupStoreAs: lookupMeta.storeAs } : {})}
                                 {...(lookupMeta ? { lookupCreate: async (label: string) => await createLookupEntity(d.code, label) } : {})}
-                                onChange={(v) => setEntityAttrs((p) => ({ ...p, [d.code]: v }))}
-                                onSave={async (v) => {
-                                  const r = await window.matrica.admin.entities.setAttr(selectedEntityId, d.code, v);
-                                  if (!r.ok) setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-                                  else setStatus('Сохранено');
-                                  await refreshEntities(selectedTypeId);
+                                onChange={(v) => {
+                                  setEntityAttrs((p) => ({ ...p, [d.code]: v }));
+                                  setDirtyAttrCodes((prev) => new Set(prev).add(d.code));
                                 }}
                               />
                             </React.Fragment>
@@ -1767,7 +1838,6 @@ function FieldEditor(props: {
   lookupStoreAs?: 'id' | 'label';
   lookupCreate?: (label: string) => Promise<string | null>;
   onChange: (v: unknown) => void;
-  onSave: (v: unknown) => Promise<void>;
 }) {
   const dt = props.def.dataType;
   const linkTargetTypeCode = useMemo(() => {
@@ -1824,7 +1894,6 @@ function FieldEditor(props: {
           onChange={(e) => {
             if (!props.canEdit) return;
             props.onChange(e.target.checked);
-            void props.onSave(e.target.checked);
           }}
         />
         <span style={{ color: '#6b7280', fontSize: 12 }}>{checked ? 'да' : 'нет'}</span>
@@ -1841,9 +1910,7 @@ function FieldEditor(props: {
         disabled={!props.canEdit}
         onChange={(e) => {
           if (!props.canEdit) return;
-          const next = fromInputDate(e.target.value);
-          props.onChange(next);
-          void props.onSave(next);
+          props.onChange(fromInputDate(e.target.value));
         }}
       />
     );
@@ -1859,11 +1926,8 @@ function FieldEditor(props: {
           if (!props.canEdit) return;
           props.onChange(e.target.value === '' ? null : Number(e.target.value));
         }}
-        onBlur={() => {
-          if (!props.canEdit) return;
-          void props.onSave(props.value == null || props.value === '' ? null : Number(props.value));
-        }}
         placeholder="число"
+
       />
     );
   }
@@ -1878,16 +1942,8 @@ function FieldEditor(props: {
           if (!props.canEdit) return;
           props.onChange(e.target.value);
         }}
-        onBlur={() => {
-          if (!props.canEdit) return;
-          try {
-            const v = s ? JSON.parse(s) : null;
-            void props.onSave(v);
-          } catch {
-            // оставим как есть
-          }
-        }}
         placeholder="json"
+
       />
     );
   }
@@ -1903,7 +1959,6 @@ function FieldEditor(props: {
         onChange={(next) => {
           if (!props.canEdit) return;
           props.onChange(next);
-          void props.onSave(next);
         }}
         {...(props.canEdit && linkTargetTypeCode
           ? {
@@ -1911,7 +1966,6 @@ function FieldEditor(props: {
                 const id = await createLinkedEntity(label);
                 if (!id) return null;
                 props.onChange(id);
-                void props.onSave(id);
                 return id;
               },
             }
@@ -1938,12 +1992,9 @@ function FieldEditor(props: {
           if (!props.canEdit) return;
           if (storeAs === 'id') {
             props.onChange(next);
-            void props.onSave(next);
             return;
           }
-          const label = opts.find((o) => o.id === next)?.label ?? '';
-          props.onChange(label);
-          void props.onSave(label);
+          props.onChange(opts.find((o) => o.id === next)?.label ?? '');
         }}
         {...(props.canEdit && props.lookupCreate
           ? {
@@ -1954,7 +2005,6 @@ function FieldEditor(props: {
                 if (!id) return null;
                 const nextValue = storeAs === 'id' ? id : label.trim();
                 props.onChange(nextValue);
-                void props.onSave(nextValue);
                 return id;
               },
             }
@@ -1973,10 +2023,6 @@ function FieldEditor(props: {
       onChange={(e) => {
         if (!props.canEdit) return;
         props.onChange(e.target.value);
-      }}
-      onBlur={() => {
-        if (!props.canEdit) return;
-        void props.onSave(text);
       }}
       placeholder={props.def.code}
     />
