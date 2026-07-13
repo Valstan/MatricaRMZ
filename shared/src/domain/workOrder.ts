@@ -341,6 +341,17 @@ export type WorkOrderPayload = {
    */
   repairIssued?: boolean;
   /**
+   * Наряд «отозван из работы» (после выдачи): момент отзыва (ms). Наличие поля при
+   * `repairIssued !== true` и незакрытой операции даёт статус «Отозван» (не «Просрочен»).
+   * Черновик, который никогда не выдавался, поля не имеет. При повторной выдаче в работу
+   * все `withdrawn*`-поля очищаются (`applyWorkOrderIssue`).
+   */
+  withdrawnAt?: number;
+  /** Причина отзыва: текст оператора или авто-текст «деталь признана утильной». */
+  withdrawnReason?: string;
+  /** true — отзыв выполнен автоматически (утильная деталь в дефектовке двигателя). */
+  withdrawnAuto?: boolean;
+  /**
    * Подписанты наряда по блокам подписей (печать). Оператор выбирает сотрудников из
    * справочника; ФИО и должность подтягиваются из карточки сотрудника при печати.
    * Набор блоков зависит от типа наряда (`getWorkOrderSignatureBlocks`). По умолчанию
@@ -419,11 +430,11 @@ function isWorkOrderKind(value: unknown): value is WorkOrderKind {
  * Принимает payload любой версии (v1/v2/v3) и возвращает нормализованные v3-поля.
  * Не модифицирует исходный объект; ничего не теряет — старые поля сохраняются.
  */
-export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
+export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
   if (!raw || typeof raw !== 'object') return {};
   const rec = raw as Record<string, unknown>;
 
-  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
+  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
 
   const workshopId = typeof rec.workshopId === 'string' ? rec.workshopId.trim() : '';
   if (workshopId) result.workshopId = workshopId;
@@ -463,6 +474,12 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
 
   if (rec.repairIssued === true) result.repairIssued = true;
 
+  const withdrawnAt = Number(rec.withdrawnAt);
+  if (Number.isFinite(withdrawnAt) && withdrawnAt > 0) result.withdrawnAt = withdrawnAt;
+  const withdrawnReason = typeof rec.withdrawnReason === 'string' ? rec.withdrawnReason.trim() : '';
+  if (withdrawnReason) result.withdrawnReason = withdrawnReason;
+  if (rec.withdrawnAuto === true) result.withdrawnAuto = true;
+
   const startDate = Number(rec.startDate);
   if (Number.isFinite(startDate) && startDate > 0) result.startDate = startDate;
   const dueDate = Number(rec.dueDate);
@@ -490,14 +507,16 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
  * - done        — выполнен (операция закрыта ИЛИ проставлена дата выполнения) в срок → зелёный;
  * - overdue     — не выполнен (не закрыт и без даты выполнения), плановая дата прошла → красный;
  * - done_late   — выполнен (закрыт или с датой выполнения), но позже плановой даты → зелёный фон + красная дата.
+ * - withdrawn   — отозван из работы (после выдачи, не закрыт); не «просрочивается» → серый.
  */
-export type WorkOrderStatusCode = 'issued' | 'done' | 'overdue' | 'done_late';
+export type WorkOrderStatusCode = 'issued' | 'done' | 'overdue' | 'done_late' | 'withdrawn';
 
 export const WORK_ORDER_STATUS_LABELS: Record<WorkOrderStatusCode, string> = {
   issued: 'Выдан',
   done: 'Выполнен',
   overdue: 'Просрочен',
   done_late: 'Выполнен с просрочкой',
+  withdrawn: 'Отозван',
 };
 
 const WORK_ORDER_DAY_MS = 86_400_000;
@@ -519,6 +538,8 @@ export function deriveWorkOrderStatusCode(args: {
    * работы сделаны. Без неё незакрытый наряд с прошедшим сроком → overdue (розовый).
    */
   completedDate?: number | null;
+  /** Момент отзыва наряда из работы (ms) или пусто — payload.withdrawnAt. */
+  withdrawnAt?: number | null;
   /** Текущее время (ms). */
   now: number;
 }): WorkOrderStatusCode {
@@ -533,8 +554,63 @@ export function deriveWorkOrderStatusCode(args: {
     if (dueExpiry !== null && completion !== null && completion >= dueExpiry) return 'done_late';
     return 'done';
   }
+  // Отозванный наряд стоит на паузе — просрочка по нему не считается.
+  if (args.withdrawnAt && args.withdrawnAt > 0) return 'withdrawn';
   if (dueExpiry !== null && args.now >= dueExpiry) return 'overdue';
   return 'issued';
+}
+
+/**
+ * Момент отзыва для деривации статуса: `withdrawnAt` действует, только пока наряд
+ * не выдан заново (`repairIssued !== true`) — страховка от payload'а старого клиента,
+ * который выставил `repairIssued`, не очистив `withdrawn*`.
+ */
+export function workOrderWithdrawnAt(rawPayload: Record<string, unknown>): number | null {
+  if (rawPayload.repairIssued === true) return null;
+  const at = Number(rawPayload.withdrawnAt);
+  return Number.isFinite(at) && at > 0 ? at : null;
+}
+
+/**
+ * Отзыв наряда из работы: снимает `repairIssued`, ставит `withdrawnAt/Reason/Auto`
+ * и пишет auditTrail item `{action:'withdraw', note: reason}`. Единая логика для
+ * клиента (модалка причины / клиентский хук утиля) и backend (хук дефектовки).
+ */
+export function applyWorkOrderWithdrawal(
+  payload: WorkOrderPayload,
+  args: { at: number; by: string; reason: string; auto?: boolean },
+): WorkOrderPayload {
+  const reason = args.reason.trim();
+  const next: WorkOrderPayload = {
+    ...payload,
+    withdrawnAt: args.at,
+    ...(reason ? { withdrawnReason: reason } : {}),
+    ...(args.auto === true ? { withdrawnAuto: true } : {}),
+    auditTrail: [
+      ...(Array.isArray(payload.auditTrail) ? payload.auditTrail : []),
+      { at: args.at, by: args.by, action: 'withdraw', ...(reason ? { note: reason } : {}) },
+    ],
+  };
+  delete next.repairIssued;
+  if (!(args.auto === true)) delete next.withdrawnAuto;
+  if (!reason) delete next.withdrawnReason;
+  return next;
+}
+
+/** Выдача наряда в работу: ставит `repairIssued`, очищает `withdrawn*`, пишет auditTrail. */
+export function applyWorkOrderIssue(payload: WorkOrderPayload, args: { at: number; by: string }): WorkOrderPayload {
+  const next: WorkOrderPayload = {
+    ...payload,
+    repairIssued: true,
+    auditTrail: [
+      ...(Array.isArray(payload.auditTrail) ? payload.auditTrail : []),
+      { at: args.at, by: args.by, action: 'issue' },
+    ],
+  };
+  delete next.withdrawnAt;
+  delete next.withdrawnReason;
+  delete next.withdrawnAuto;
+  return next;
 }
 
 function clampFont(value: unknown, range: { min: number; max: number }): number | undefined {

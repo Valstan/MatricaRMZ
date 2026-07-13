@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildAutoWithdrawReason,
   buildRepairFundIntakeFromInventory,
   buildStampedInstancesFromInventory,
   buildSupplyRequestItemsFromInventory,
   engineInventoryRowSignature,
+  listScrapPartNames,
   mergeLegacyChecklistAnswers,
   normalizeEngineInventoryRow,
   normalizeEngineInventoryRows,
@@ -401,5 +403,34 @@ describe('buildStampedInstancesFromInventory (Ф3 ремфонда — личн�
       { part_name: 'Втулка', quantity: 0, present: false, stamped_number: 'Z-0', __part_id: 'p5' },
     ]);
     expect(r.items).toEqual([]);
+  });
+});
+
+describe('listScrapPartNames / buildAutoWithdrawReason', () => {
+  const payloadWith = (rows: unknown[]) => ({
+    kind: 'repair_checklist',
+    answers: { engine_inventory_items: { kind: 'table', rows } },
+  });
+
+  it('возвращает имена строк с scrap_qty > 0, dedup, порядок строк', () => {
+    const names = listScrapPartNames(
+      payloadWith([
+        { part_name: 'Картер верхний', quantity: 1, present: true, scrap_qty: 1 },
+        { part_name: 'Гильза', quantity: 2, present: true, scrap_qty: 0, replace_qty: 1 },
+        { part_name: 'Картер верхний', quantity: 1, present: true, scrap_qty: 1 },
+      ]),
+    );
+    expect(names).toEqual(['Картер верхний']);
+  });
+
+  it('пустой payload / нет утиля → []', () => {
+    expect(listScrapPartNames(null)).toEqual([]);
+    expect(listScrapPartNames(payloadWith([{ part_name: 'Гильза', quantity: 1, present: true }]))).toEqual([]);
+  });
+
+  it('авто-причина: одна деталь / несколько / пусто', () => {
+    expect(buildAutoWithdrawReason(['Картер верхний'])).toBe('Деталь признана утильной: Картер верхний');
+    expect(buildAutoWithdrawReason(['Картер', 'Гильза'])).toBe('Детали признаны утильными: Картер, Гильза');
+    expect(buildAutoWithdrawReason([])).toBe('Утильная деталь в дефектовке двигателя');
   });
 });

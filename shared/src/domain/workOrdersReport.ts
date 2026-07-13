@@ -47,7 +47,7 @@ export type WorkOrdersReportSortBy =
   | 'amountRub';
 
 /** Порядок сортировки по статусу — по срочности: сначала просроченные, затем открытые, потом выполненные. */
-const STATUS_SORT_ORDER: Record<WorkOrderStatusCode, number> = { overdue: 0, issued: 1, done_late: 2, done: 3 };
+const STATUS_SORT_ORDER: Record<WorkOrderStatusCode, number> = { overdue: 0, issued: 1, withdrawn: 2, done_late: 3, done: 4 };
 
 function asNum(v: ReportCellValue | undefined): number {
   return typeof v === 'number' ? v : Number(v) || 0;
@@ -131,6 +131,7 @@ const STATUS_CELL_STYLE: Record<WorkOrderStatusCode, string> = {
   done: 'background:#dcfce7;color:#166534',
   overdue: 'background:#fee2e2;color:#b91c1c',
   done_late: 'background:#fde68a;color:#92400e',
+  withdrawn: 'background:#e5e7eb;color:#374151',
 };
 
 /** CSS печатной формы отчёта — тёмные рамки/шапка как в форме наряда, A4-landscape. */

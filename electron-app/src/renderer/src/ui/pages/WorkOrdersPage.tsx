@@ -55,6 +55,7 @@ type Row = {
   engineNumber: string;
   acceptedByEmployeeId: string | null;
   workOrderKind: string;
+  withdrawnAt: number | null;
 };
 
 /** Палитра подсветки по вычисляемому статусу наряда (Этап 3). */
@@ -63,6 +64,7 @@ const WO_STATUS_PALETTE: Record<WorkOrderStatusCode, { bg: string; fg: string; r
   done: { bg: '#dcfce7', fg: '#166534', rowBg: 'rgba(34, 197, 94, 0.08)' }, // зелёный — выполнен
   overdue: { bg: '#fee2e2', fg: '#b91c1c', rowBg: 'rgba(239, 68, 68, 0.12)' }, // красный — просрочен
   done_late: { bg: '#dcfce7', fg: '#166534', rowBg: 'rgba(34, 197, 94, 0.08)' }, // зелёный фон, дата красным
+  withdrawn: { bg: '#e5e7eb', fg: '#374151', rowBg: 'rgba(107, 114, 128, 0.08)' }, // серый — отозван из работы
 };
 
 function rowStatusCode(row: Row, now: number): WorkOrderStatusCode {
@@ -71,6 +73,7 @@ function rowStatusCode(row: Row, now: number): WorkOrderStatusCode {
     dueDate: row.dueDate,
     completedAt: row.completedAt,
     completedDate: row.completedDate,
+    withdrawnAt: row.withdrawnAt,
     now,
   });
 }
@@ -87,7 +90,7 @@ function StatusBadge({ code }: { code: WorkOrderStatusCode }) {
 type SortKey = 'number' | 'date' | 'start' | 'due' | 'completed' | 'part' | 'brand' | 'engineNo' | 'crew' | 'performers' | 'total' | 'status' | 'updatedAt';
 
 /** Ранг статуса для сортировки: просрочен → выдан → выполнен с опозданием → выполнен. */
-const STATUS_SORT_RANK: Record<string, number> = { overdue: 0, issued: 1, done_late: 2, done: 3 };
+const STATUS_SORT_RANK: Record<string, number> = { overdue: 0, issued: 1, withdrawn: 2, done_late: 3, done: 4 };
 
 function rub(v: number) {
   return `${Math.round((Number(v) || 0) * 100) / 100} ₽`;

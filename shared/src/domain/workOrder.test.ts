@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyWorkOrderIssue,
+  applyWorkOrderWithdrawal,
   deriveWorkOrderStatusCode,
+  workOrderWithdrawnAt,
   isWorkOrderPayloadEmpty,
   normalizeWorkOrderLine,
   normalizeWorkOrderPayloadV3Fields,
@@ -425,5 +428,50 @@ describe('deriveWorkOrderStatusCode', () => {
         now: due + 10 * DAY,
       }),
     ).toBe('done');
+  });
+
+  it('open withdrawn → withdrawn even past due day (no overdue)', () => {
+    expect(deriveWorkOrderStatusCode({ operationStatus: 'open', dueDate: due, withdrawnAt: due, now: due + 10 * DAY })).toBe('withdrawn');
+  });
+  it('closed wins over withdrawn', () => {
+    expect(deriveWorkOrderStatusCode({ operationStatus: 'closed', completedAt: due, withdrawnAt: due, now: due })).toBe('done');
+  });
+});
+
+describe('withdraw/issue lifecycle', () => {
+  const ts = 1_700_000_000_000;
+
+  it('withdraw sets fields, clears repairIssued, appends audit note', () => {
+    const p = emptyPayload({ repairIssued: true });
+    const next = applyWorkOrderWithdrawal(p, { at: ts, by: 'oper', reason: 'картер утильный', auto: true });
+    expect(next.repairIssued).toBeUndefined();
+    expect(next.withdrawnAt).toBe(ts);
+    expect(next.withdrawnReason).toBe('картер утильный');
+    expect(next.withdrawnAuto).toBe(true);
+    expect(next.auditTrail?.at(-1)).toEqual({ at: ts, by: 'oper', action: 'withdraw', note: 'картер утильный' });
+  });
+
+  it('issue clears withdrawn* and sets repairIssued', () => {
+    const withdrawn = applyWorkOrderWithdrawal(emptyPayload({ repairIssued: true }), { at: ts, by: 'oper', reason: 'x' });
+    const next = applyWorkOrderIssue(withdrawn, { at: ts + 1, by: 'oper' });
+    expect(next.repairIssued).toBe(true);
+    expect(next.withdrawnAt).toBeUndefined();
+    expect(next.withdrawnReason).toBeUndefined();
+    expect(next.withdrawnAuto).toBeUndefined();
+    expect(next.auditTrail?.at(-1)).toEqual({ at: ts + 1, by: 'oper', action: 'issue' });
+  });
+
+  it('workOrderWithdrawnAt guards against repairIssued=true from old clients', () => {
+    expect(workOrderWithdrawnAt({ withdrawnAt: ts })).toBe(ts);
+    expect(workOrderWithdrawnAt({ withdrawnAt: ts, repairIssued: true })).toBeNull();
+    expect(workOrderWithdrawnAt({})).toBeNull();
+  });
+
+  it('normalizeWorkOrderPayloadV3Fields round-trips withdrawn fields', () => {
+    const v3 = normalizeWorkOrderPayloadV3Fields({ withdrawnAt: ts, withdrawnReason: ' причина ', withdrawnAuto: true });
+    expect(v3.withdrawnAt).toBe(ts);
+    expect(v3.withdrawnReason).toBe('причина');
+    expect(v3.withdrawnAuto).toBe(true);
+    expect(normalizeWorkOrderPayloadV3Fields({ withdrawnAt: 0, withdrawnAuto: false })).toEqual({});
   });
 });
