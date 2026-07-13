@@ -40,6 +40,8 @@ import {
   findWorkOrderSignatureSlots,
   WORK_ORDER_STATUS_LABELS,
   WORK_ORDER_KIND_LABELS,
+  collectWorkOrderWorkLines,
+  resolveAssemblyEngineId,
   renderWorkOrdersReportHtml,
   selectWorkOrdersReportColumns,
   sortWorkOrdersReportRows,
@@ -1758,13 +1760,24 @@ async function buildWorkOrdersReport(
     let engineNumber = '';
     let engineId = '';
     let firstWorkType = '';
-    const lines = Array.isArray(payload.freeWorks) ? payload.freeWorks : [];
+    const lines = collectWorkOrderWorkLines(payload);
     for (const l of lines) {
       if (!engineBrand) engineBrand = String(l?.engineBrandName ?? '').trim();
       if (!engineBrandId) engineBrandId = String(l?.engineBrandId ?? '').trim();
       if (!engineNumber) engineNumber = String(l?.engineNumber ?? '').trim();
       if (!engineId) engineId = String(l?.engineId ?? '').trim();
       if (!firstWorkType) firstWorkType = String(l?.serviceName ?? '').trim();
+    }
+    // Наряд после #133 несёт двигатель в шапке (payload.assemblyEngineId), построчные
+    // штампы могут отсутствовать — резолвим номер/марку из справочника, как список/печать.
+    if (!engineId) engineId = String(resolveAssemblyEngineId(payload) ?? '').trim();
+    if (engineId && (!engineNumber || !engineBrand || !engineBrandId)) {
+      const eAttrs = snapshot.attrsByEntity.get(engineId) ?? {};
+      if (!engineNumber) engineNumber = normalizeText(eAttrs.engine_number ?? eAttrs.number, '');
+      if (!engineBrandId) engineBrandId = normalizeText(eAttrs.engine_brand_id, '');
+      if (!engineBrand && engineBrandId) {
+        engineBrand = normalizeText(brandNames.get(engineBrandId), '') || normalizeText(snapshot.attrsByEntity.get(engineBrandId)?.name, '');
+      }
     }
     if (brandFilter.length > 0) {
       const matchId = engineBrandId !== '' && brandFilter.includes(engineBrandId);
