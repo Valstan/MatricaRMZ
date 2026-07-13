@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/electron-app",
-  "version": "2026.713.1017",
+  "version": "2026.713.1447",
   "private": true,
   "type": "module",
   "main": "dist/main/index.js",
