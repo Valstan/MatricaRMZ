@@ -9,6 +9,7 @@ import type {
   ReportPresetId,
   ReportPresetPreviewResult,
 } from '@matricarmz/shared';
+import { formatWorkOrdersStatusCountsLine, WORK_ORDERS_STATUS_COUNT_LABELS } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -115,7 +116,6 @@ export function ReportPresetPage(props: {
   const [cachedFiltersKey, setCachedFiltersKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
-  const autoBuildRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildPreviewRef = useRef<() => Promise<PreviewOk | null>>(async () => null);
 
   const activePreset = useMemo(
@@ -265,6 +265,7 @@ export function ReportPresetPage(props: {
   useEffect(() => {
     setPreview(null);
     setStatus('');
+    setCachedFiltersKey(null);
   }, [props.presetId]);
 
   async function appendHistory(report: PreviewOk) {
@@ -298,11 +299,13 @@ export function ReportPresetPage(props: {
       }
       setPreview(result);
       setStatus(`Сформировано строк: ${result.rows.length}`);
-      // Stage 3: для прогноза сборки запоминаем filtersKey + preview в localStorage,
+      // Отчёты строятся только по кнопке: помним filtersKey построенного отчёта,
+      // чтобы показать «фильтры изменились» после правки фильтров.
+      setCachedFiltersKey(filtersKey);
+      // Stage 3: для прогноза сборки дополнительно persist в localStorage,
       // чтобы при следующем открытии страницы (или после navigate away/restart)
       // восстановить состояние без принудительной регенерации.
       if (activePreset.id === ASSEMBLY_FORECAST_PRESET_ID) {
-        setCachedFiltersKey(filtersKey);
         try {
           localStorage.setItem(
             ASSEMBLY_FORECAST_CACHE_KEY,
@@ -324,19 +327,6 @@ export function ReportPresetPage(props: {
   }
 
   buildPreviewRef.current = buildPreview;
-
-  useEffect(() => {
-    if (!activePresetId) return;
-    // Stage 3: прогноз сборки не строится автоматически — оператор жмёт «Сформировать прогноз».
-    if (activePresetId === ASSEMBLY_FORECAST_PRESET_ID) return;
-    if (autoBuildRef.current) clearTimeout(autoBuildRef.current);
-    autoBuildRef.current = setTimeout(() => {
-      void buildPreviewRef.current();
-    }, 400);
-    return () => {
-      if (autoBuildRef.current) clearTimeout(autoBuildRef.current);
-    };
-  }, [activePresetId, filtersKey]);
 
   // Stage 3: восстановление кеша «Прогноза сборки» из localStorage при первом
   // открытии страницы или возврате к этому пресету. Кеш переживает navigate away
@@ -1067,9 +1057,20 @@ export function ReportPresetPage(props: {
           })()
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-                Отчет формируется автоматически при изменении фильтров.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button onClick={() => void buildPreview()} disabled={busy} tone="success">
+                  Сформировать отчёт
+                </Button>
+                {cachedFiltersKey !== null && cachedFiltersKey !== filtersKey ? (
+                  <div style={{ color: 'var(--danger)', fontSize: 12 }}>
+                    Фильтры изменились — нажмите «Сформировать отчёт», чтобы пересчитать.
+                  </div>
+                ) : preview && cachedFiltersKey === filtersKey ? (
+                  <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Отчёт актуален для текущих фильтров.</div>
+                ) : (
+                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>Настройте фильтры и нажмите «Сформировать отчёт».</div>
+                )}
               </div>
               {activePreset.filters.length > 0 && (
                 <button type="button" onClick={resetAllFilters} disabled={busy} style={{ ...filterResetBtnStyle, padding: '3px 10px', fontSize: 12 }}>
@@ -1095,7 +1096,7 @@ export function ReportPresetPage(props: {
           activePresetId === ASSEMBLY_FORECAST_PRESET_ID ? (
             <div className="ui-muted">Нажмите «Сформировать прогноз» в фильтрах слева.</div>
           ) : (
-            <div className="ui-muted">Отчет формируется автоматически при изменении фильтров.</div>
+            <div className="ui-muted">Нажмите «Сформировать отчёт» в фильтрах слева.</div>
           )
         ) : (
           <div className="report-preview-root" style={{ display: 'grid', gap: 8 }}>
@@ -1153,6 +1154,35 @@ export function ReportPresetPage(props: {
                 {preview.totals && Object.keys(preview.totals).length > 0 ? (
                   <div style={{ fontWeight: 700 }}>
                     Итого по отчету: {formatReportTotals(preview.totals).join(', ')}
+                  </div>
+                ) : null}
+                {preview.workOrdersStatusSummary ? (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ fontWeight: 700 }}>{formatWorkOrdersStatusCountsLine(preview.workOrdersStatusSummary.counts)}</div>
+                    {preview.workOrdersStatusSummary.byBrand && preview.workOrdersStatusSummary.byBrand.length > 0 ? (
+                      <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
+                        <table className="list-table">
+                          <thead>
+                            <tr>
+                              <th>Марка</th>
+                              {WORK_ORDERS_STATUS_COUNT_LABELS.map((c) => (
+                                <th key={c.key} style={{ textAlign: 'right' }}>{c.label}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.workOrdersStatusSummary.byBrand.map((b) => (
+                              <tr key={b.brand}>
+                                <td>{b.brand}</td>
+                                {WORK_ORDERS_STATUS_COUNT_LABELS.map((c) => (
+                                  <td key={c.key} style={{ textAlign: 'right' }}>{b.counts[c.key]}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {preview.footerNotes && preview.footerNotes.length > 0 ? (

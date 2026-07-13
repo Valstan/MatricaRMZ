@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   WORK_ORDERS_REPORT_COLUMNS,
+  computeWorkOrdersStatusSummary,
+  formatWorkOrdersStatusCountsLine,
   renderWorkOrdersReportHtml,
   selectWorkOrdersReportColumns,
   sortWorkOrdersReportRows,
@@ -86,5 +88,48 @@ describe('renderWorkOrdersReportHtml', () => {
     const html = renderWorkOrdersReportHtml({ title: 'X', columns, rows });
     expect(html).toMatch(/\d{2}\.\d{2}\.\d{4}/); // дата dd.mm.yyyy
     expect(html).toMatch(/1\D?234,5/); // сумма ru-RU (разделитель тысяч — неразрывный пробел)
+  });
+});
+
+describe('computeWorkOrdersStatusSummary', () => {
+  const mk = (over: Partial<WorkOrdersReportRow>): WorkOrdersReportRow => ({
+    orderDate: 1, workOrderNumber: 1, statusCode: 'issued', engineBrand: '', ...over,
+  });
+  const rows: WorkOrdersReportRow[] = [
+    mk({ statusCode: 'done', engineBrand: 'Д-240', customerSent: true, customerAccepted: true }),
+    mk({ statusCode: 'done_late', engineBrand: 'Д-240', customerSent: true }),
+    mk({ statusCode: 'overdue', engineBrand: 'ЯМЗ-238' }),
+    mk({ statusCode: 'withdrawn', engineBrand: '' }),
+    mk({ statusCode: 'issued', engineBrand: 'ЯМЗ-238' }),
+  ];
+
+  it('считает счётчики', () => {
+    const s = computeWorkOrdersStatusSummary(rows);
+    expect(s.counts).toEqual({ total: 5, done: 1, doneLate: 1, overdue: 1, withdrawn: 1, shipped: 2, accepted: 1 });
+    expect(s.byBrand).toBeUndefined();
+  });
+
+  it('разбивка по маркам (сортировка ru, пустая марка → метка)', () => {
+    const s = computeWorkOrdersStatusSummary(rows, { byBrand: true });
+    expect(s.byBrand?.map((b) => b.brand)).toEqual(['(марка не указана)', 'Д-240', 'ЯМЗ-238']);
+    const d240 = s.byBrand?.find((b) => b.brand === 'Д-240')?.counts;
+    expect(d240).toEqual({ total: 2, done: 1, doneLate: 1, overdue: 0, withdrawn: 0, shipped: 2, accepted: 1 });
+  });
+
+  it('formatWorkOrdersStatusCountsLine и HTML-рендер сводки', () => {
+    const s = computeWorkOrdersStatusSummary(rows, { byBrand: true });
+    expect(formatWorkOrdersStatusCountsLine(s.counts)).toContain('Выписано: 5');
+    expect(formatWorkOrdersStatusCountsLine(s.counts)).toContain('Отгружено заказчику: 2');
+    const html = renderWorkOrdersReportHtml({ title: 'X', columns: WORK_ORDERS_REPORT_COLUMNS, rows, statusSummary: s });
+    expect(html).toContain('Выписано: 5');
+    expect(html).toContain('Сводка по маркам двигателей');
+    expect(html).toContain('Д-240');
+  });
+
+  it('сортировка по shippedDate', () => {
+    const a = mk({ workOrderNumber: 1, shippedDate: 100 });
+    const b = mk({ workOrderNumber: 2, shippedDate: 50 });
+    const sorted = sortWorkOrdersReportRows([a, b], 'shippedDate', 'asc');
+    expect(sorted.map((r) => r.workOrderNumber)).toEqual([2, 1]);
   });
 });
