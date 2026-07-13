@@ -48,7 +48,7 @@ import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEd
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
-import { formatMoscowDate } from '../utils/dateUtils.js';
+import { formatMoscowDate, formatMoscowDayMonthName } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildWorkOrderA4PreviewHtml, escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
@@ -340,7 +340,6 @@ export function WorkOrderDetailsPage(props: {
   const [assemblyFillBusy, setAssemblyFillBusy] = useState(false);
   // Тема D+E: авто-подстановка спецификации при открытии наряда, созданного из ПКМ списка
   // двигателей (сид несёт assemblyEngineId, но onChange не срабатывает) — один раз на маунт.
-  const assemblyAutoFillTriedRef = useRef(false);
   // Phase 4b: карта id номенклатуры → взаимозаменяемые варианты его позиции спецификации.
   // Каждый вариант позиции ссылается на общий список, поэтому смена варианта на строке
   // (partId меняется на id другого варианта) сохраняет переключатель. Только позиции с ≥2 вариантами.
@@ -499,20 +498,8 @@ export function WorkOrderDetailsPage(props: {
     return String(engines.find((e) => e.id === engineId)?.engineBrandId ?? '').trim() || null;
   }, [payload, engines]);
 
-  // Тема D+E: наряд открыт из ПКМ списка двигателей (сид: kind=Assembly + assemblyEngineId,
-  // строк ещё нет) → один раз автоподставить BOM-спецификацию марки, пока карточка чистая.
-  useEffect(() => {
-    if (assemblyAutoFillTriedRef.current || assemblyFillBusy) return;
-    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
-    if (payload.forecastVariantKey) return; // наряд из прогноза уже со строками
-    if (payload.freeWorks.some((l) => String(l.partId ?? '').trim())) return; // строки уже есть
-    const brandId = headerAssemblyEngineBrandId;
-    if (!brandId) return; // марка ещё не резолвилась (engines/engineBrandId не готовы)
-    assemblyAutoFillTriedRef.current = true;
-    const engineId = resolveAssemblyEngineId(payload);
-    const brandName = engineId ? engines.find((e) => e.id === engineId)?.engineBrandName ?? '' : '';
-    void fillAssemblyFromBrandSpecFor(payload, brandId, brandName, { confirmReplace: false, silent: true });
-  }, [payload, headerAssemblyEngineBrandId, assemblyFillBusy, engines]);
+  // Автоподстановка BOM при выборе/сидировании двигателя убрана по решению владельца (2026-07-13):
+  // строки наряда заполняются только вручную, через «Заполнить из спецификации» или через Шаблон.
 
   useEffect(() => {
     if (!primaryAssemblyEngineBrandId) {
@@ -1580,31 +1567,43 @@ export function WorkOrderDetailsPage(props: {
       const byId = raw.includes('-') && raw.length >= 32 ? warehouseNameById.get(raw) : undefined;
       return byId ?? warehouseNameByCode.get(raw) ?? raw;
     };
-    const linesTable = (lines: WorkOrderWorkLine[]) =>
-      lines.length
-        ? `<table><thead><tr>${showEngineCols ? '<th>№ двигателя</th><th>Марка</th>' : ''}${
-            showServiceCol ? '<th>Вид работ</th>' : ''
-          }<th>Наименование изделия</th><th>Артикул</th><th>№ изделия</th><th>Кол-во</th><th>Ед.</th>${
-            isAssembly ? '<th>Склад</th>' : ''
-          }${showPriceCol ? '<th>Цена</th>' : ''}${showAmountCol ? '<th>Сумма</th>' : ''}</tr></thead><tbody>${lines
-            .map(
-              (line) =>
-                `<tr>${
-                  showEngineCols
-                    ? `<td>${escapeHtml(line.engineNumber || '—')}</td><td>${escapeHtml(line.engineBrandName || '—')}</td>`
-                    : ''
-                }${showServiceCol ? `<td>${escapeHtml(line.serviceName || '—')}</td>` : ''}<td>${escapeHtml(
-                  resolvePartName(line) || '—',
-                )}</td><td>${escapeHtml(resolvePartArticle(line) || '—')}</td><td>${escapeHtml(line.productNumber || '—')}</td><td>${escapeHtml(
-                  String(line.qty ?? 0),
-                )}</td><td>${escapeHtml(line.unit || '—')}</td>${
-                  isAssembly ? `<td>${escapeHtml(resolveSourceWarehouseName(line.sourceWarehouseId))}</td>` : ''
-                }${showPriceCol ? `<td>${escapeHtml(money(line.priceRub ?? 0))}</td>` : ''}${
-                  showAmountCol ? `<td>${escapeHtml(money(line.amountRub ?? 0))}</td>` : ''
-                }</tr>`,
-            )
-            .join('')}</tbody></table>`
-        : `<div class="muted">Нет данных</div>`;
+    const linesTable = (lines: WorkOrderWorkLine[]) => {
+      if (!lines.length) return `<div class="muted">Нет данных</div>`;
+      // Колонки, пустые во ВСЕХ строках, из печати исключаются (решение владельца 2026-07-13):
+      // пустая колонка на листе — шум, съедающий ширину у заполненных.
+      const hasAny = (get: (line: WorkOrderWorkLine) => string | null | undefined) =>
+        lines.some((l) => String(get(l) ?? '').trim());
+      const engineCols = showEngineCols && (hasAny((l) => l.engineNumber) || hasAny((l) => l.engineBrandName));
+      const serviceCol = showServiceCol && hasAny((l) => l.serviceName);
+      const articleCol = hasAny((l) => resolvePartArticle(l));
+      const productNumberCol = hasAny((l) => l.productNumber);
+      return `<table><thead><tr>${engineCols ? '<th>№ двигателя</th><th>Марка</th>' : ''}${
+        serviceCol ? '<th>Вид работ</th>' : ''
+      }<th>Наименование изделия</th>${articleCol ? '<th>Артикул</th>' : ''}${
+        productNumberCol ? '<th>№ изделия</th>' : ''
+      }<th>Кол-во</th><th>Ед.</th>${
+        isAssembly ? '<th>Склад</th>' : ''
+      }${showPriceCol ? '<th>Цена</th>' : ''}${showAmountCol ? '<th>Сумма</th>' : ''}</tr></thead><tbody>${lines
+        .map(
+          (line) =>
+            `<tr>${
+              engineCols
+                ? `<td>${escapeHtml(line.engineNumber || '—')}</td><td>${escapeHtml(line.engineBrandName || '—')}</td>`
+                : ''
+            }${serviceCol ? `<td>${escapeHtml(line.serviceName || '—')}</td>` : ''}<td>${escapeHtml(
+              resolvePartName(line) || '—',
+            )}</td>${articleCol ? `<td>${escapeHtml(resolvePartArticle(line) || '—')}</td>` : ''}${
+              productNumberCol ? `<td>${escapeHtml(line.productNumber || '—')}</td>` : ''
+            }<td>${escapeHtml(
+              String(line.qty ?? 0),
+            )}</td><td>${escapeHtml(line.unit || '—')}</td>${
+              isAssembly ? `<td>${escapeHtml(resolveSourceWarehouseName(line.sourceWarehouseId))}</td>` : ''
+            }${showPriceCol ? `<td>${escapeHtml(money(line.priceRub ?? 0))}</td>` : ''}${
+              showAmountCol ? `<td>${escapeHtml(money(line.amountRub ?? 0))}</td>` : ''
+            }</tr>`,
+        )
+        .join('')}</tbody></table>`;
+    };
 
     const crewHtml = current.crew.length
       ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th></tr></thead><tbody>${current.crew
@@ -1695,8 +1694,8 @@ export function WorkOrderDetailsPage(props: {
     // Плановые даты и цех наряда — печатаются по умолчанию, каждую можно снять
     // галочкой в панели печати (settings.hide*).
     const workshop = workshops.find((w) => w.id === String(current.workshopId ?? '').trim());
-    // Плановые даты — без года (ДД.ММ): год виден в дате создания у грифа.
-    const shortDate = (ms: number | undefined) => (ms ? formatMoscowDate(ms).slice(0, 5) : '—');
+    // Плановые даты — день + месяц словом («14 июля»), без года: год виден в дате создания у грифа.
+    const shortDate = (ms: number | undefined) => (ms ? formatMoscowDayMonthName(ms) : '—');
     // Два яруса (вариант Б): «наряд» (№/даты/цех) и «двигатель/контракт» — длинному
     // заказчику не тесно, таблица не расползается за поля листа.
     const tier1: Array<{ label: string; value: string }> = [
@@ -2306,17 +2305,6 @@ export function WorkOrderDetailsPage(props: {
                     }));
                   }
                   patch(nextPayload);
-                  // Тема E: при выборе двигателя и отсутствии строк с деталями — молча
-                  // подставить BOM-спецификацию марки (не пришедший из прогноза наряд).
-                  // Передаём nextPayload явно: state после patch() в этом тике ещё старый.
-                  const brandId = eng?.engineBrandId ? String(eng.engineBrandId).trim() : '';
-                  const alreadyFilled = nextPayload.freeWorks.some((l) => String(l.partId ?? '').trim());
-                  if (brandId && !alreadyFilled && !nextPayload.forecastVariantKey) {
-                    void fillAssemblyFromBrandSpecFor(nextPayload, brandId, eng?.engineBrandName ?? '', {
-                      confirmReplace: false,
-                      silent: true,
-                    });
-                  }
                 }}
               />
             </div>

@@ -56,6 +56,15 @@ export function formatMoscowLongDateTime(value: number | Date) {
   return `${datePart.replace(/\s*г\.?$/u, '')}, ${timePart}`;
 }
 
+// «14 июля» — день + месяц словом, без года (печатные формы: год виден в дате наряда).
+export function formatMoscowDayMonthName(value: number | Date) {
+  return new Intl.DateTimeFormat(RU_LOCALE, {
+    timeZone: MOSCOW_TIME_ZONE,
+    day: 'numeric',
+    month: 'long',
+  }).format(toDate(value));
+}
+
 export function formatRuNumber(value: number, options: Intl.NumberFormatOptions = {}) {
   return toFiniteNumber(value).toLocaleString(RU_LOCALE, options);
 }

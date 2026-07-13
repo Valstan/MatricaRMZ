@@ -203,6 +203,22 @@ export type ReportPresetHistoryEntry = {
   generatedAt: number;
 };
 
+/** Именованный шаблон фильтров отчёта (сохранённый набор значений + отключённые фильтры). */
+export type ReportPresetFilterTemplate = {
+  id: string;
+  name: string;
+  createdAt: number;
+  filters: ReportPresetFilters;
+  disabled: string[];
+};
+
+export type ReportPresetFilterTemplatesListResult =
+  | { ok: true; templates: ReportPresetFilterTemplate[] }
+  | { ok: false; error: string };
+export type ReportPresetFilterTemplateSaveResult =
+  | { ok: true; templates: ReportPresetFilterTemplate[] }
+  | { ok: false; error: string };
+
 export type ReportPresetFavoritesResult = { ok: true; ids: ReportPresetId[] } | { ok: false; error: string };
 export type ReportPresetHistoryListResult = { ok: true; entries: ReportPresetHistoryEntry[] } | { ok: false; error: string };
 export type ReportPresetHistoryAddResult = { ok: true } | { ok: false; error: string };

@@ -6,6 +6,7 @@ import type {
   ReportOptionSource,
   ReportPresetDefinition,
   ReportPresetFilters,
+  ReportPresetFilterTemplate,
   ReportPresetId,
   ReportPresetPreviewResult,
 } from '@matricarmz/shared';
@@ -109,6 +110,11 @@ export function ReportPresetPage(props: {
   // Отключённый фильтр не участвует в отборе (его ключи вырезаются из payload).
   const [disabledFiltersByPreset, setDisabledFiltersByPreset] = useState<Partial<Record<ReportPresetId, string[]>>>({});
   const [filterSearchByPreset, setFilterSearchByPreset] = useState<Partial<Record<ReportPresetId, Record<string, string>>>>({});
+  // Именованные шаблоны фильтров (per-user, per-preset) — чтобы не выставлять одни
+  // и те же фильтры каждый раз. Хранятся в локальном sys-store (как favorites/history).
+  const [filterTemplates, setFilterTemplates] = useState<ReportPresetFilterTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [templateName, setTemplateName] = useState('');
   const [preview, setPreview] = useState<PreviewOk | null>(null);
   // filtersKey, под который был сформирован последний preview. Используется для
   // индикатора «фильтры изменились — нажмите Сформировать прогноз». Только для
@@ -196,6 +202,71 @@ export function ReportPresetPage(props: {
   function resetAllFilters() {
     if (!activePreset) return;
     setFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: buildDefaultFilters(activePreset) }));
+  }
+
+  useEffect(() => {
+    setFilterTemplates([]);
+    setSelectedTemplateId(null);
+    setTemplateName('');
+    if (!activePresetId) return;
+    let alive = true;
+    void window.matrica.reports
+      .filterTemplatesList({ userId: props.userId, presetId: activePresetId })
+      .then((r) => {
+        if (alive && r.ok) setFilterTemplates(r.templates);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [activePresetId, props.userId]);
+
+  function applyFilterTemplate(templateId: string | null) {
+    setSelectedTemplateId(templateId);
+    if (!activePreset || !templateId) return;
+    const tpl = filterTemplates.find((t) => t.id === templateId);
+    if (!tpl) return;
+    // Дефолты + сохранённые значения: фильтры, добавленные после сохранения шаблона,
+    // получают дефолт, а не «дырку».
+    setFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: { ...buildDefaultFilters(activePreset), ...tpl.filters } }));
+    setDisabledFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: [...tpl.disabled] }));
+    setTemplateName(tpl.name);
+  }
+
+  async function saveFilterTemplate() {
+    if (!activePreset) return;
+    const name = templateName.trim();
+    if (!name) return;
+    const r = await window.matrica.reports.filterTemplateSave({
+      userId: props.userId,
+      presetId: activePreset.id,
+      template: { name, filters: activeFilters, disabled: activeDisabled },
+    });
+    if (!r.ok) {
+      setStatus(`Ошибка сохранения шаблона: ${r.error}`);
+      return;
+    }
+    setFilterTemplates(r.templates);
+    setSelectedTemplateId(r.templates.find((t) => t.name === name)?.id ?? null);
+    setStatus(`Шаблон «${name}» сохранён`);
+  }
+
+  async function deleteFilterTemplate() {
+    if (!activePreset || !selectedTemplateId) return;
+    const tpl = filterTemplates.find((t) => t.id === selectedTemplateId);
+    const r = await window.matrica.reports.filterTemplateDelete({
+      userId: props.userId,
+      presetId: activePreset.id,
+      templateId: selectedTemplateId,
+    });
+    if (!r.ok) {
+      setStatus(`Ошибка удаления шаблона: ${r.error}`);
+      return;
+    }
+    setFilterTemplates(r.templates);
+    setSelectedTemplateId(null);
+    setTemplateName('');
+    if (tpl) setStatus(`Шаблон «${tpl.name}» удалён`);
   }
 
   function applyDatePreset(filter: Extract<ReportFilterSpec, { type: 'date_range' }>, preset: (typeof DATE_PERIOD_PRESETS)[number]) {
@@ -1077,6 +1148,36 @@ export function ReportPresetPage(props: {
                   Сбросить все фильтры
                 </button>
               )}
+            </div>
+            <div className="report-preset-filter-block">
+              <div className="report-preset-filter-block-title">Шаблоны фильтров</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 200 }}>
+                  <SearchSelect
+                    value={selectedTemplateId}
+                    options={filterTemplates.map((t) => ({ id: t.id, label: t.name }))}
+                    placeholder={filterTemplates.length ? 'Выберите шаблон' : 'Шаблонов пока нет'}
+                    showAllWhenEmpty
+                    disabled={busy}
+                    onChange={(next) => applyFilterTemplate(next)}
+                  />
+                </div>
+                <Input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="Название шаблона"
+                  disabled={busy}
+                  style={{ width: 180 }}
+                />
+                <Button variant="ghost" onClick={() => void saveFilterTemplate()} disabled={busy || !templateName.trim()}>
+                  Сохранить шаблон
+                </Button>
+                {selectedTemplateId ? (
+                  <Button variant="ghost" tone="danger" onClick={() => void deleteFilterTemplate()} disabled={busy}>
+                    Удалить шаблон
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <div className="report-preset-filter-block report-preset-filter-block-selection">
               <div className="report-preset-filter-block-title">Фильтры отбора</div>
