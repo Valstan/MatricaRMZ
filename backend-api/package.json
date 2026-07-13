@@ -25,6 +25,8 @@
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
     "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
     "security:role-report": "tsx src/scripts/roleReport.ts",
+    "security:reassign-legacy-users": "tsx src/scripts/reassignLegacyUsers.ts",
+    "security:reassign-legacy-users:apply": "tsx src/scripts/reassignLegacyUsers.ts --apply",
     "masterdata:seed-nomenclature-groups": "tsx src/scripts/seedNomenclatureGroups.ts",
     "masterdata:migrate-directories-to-nomenclature": "tsx src/scripts/migrateDirectoriesToNomenclature.ts",
     "masterdata:migrate-directories-to-nomenclature:dry-run": "tsx src/scripts/migrateDirectoriesToNomenclature.ts --dry-run",
