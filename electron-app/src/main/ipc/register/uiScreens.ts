@@ -87,6 +87,8 @@ export function registerUiScreensIpc(ctx: IpcContext) {
         if (!name) return { ok: false, error: 'Укажите название экрана' };
         const spec = sanitizeUiSpec(args?.specJson);
         if (!spec) return { ok: false, error: 'Некорректная спецификация экрана' };
+        // Валидация раздела — для всех, включая superadmin (bypass касается только членства).
+        if (!accessSectionMeta(sectionId)) return { ok: false, error: 'Неизвестный раздел доступа' };
         if (!levelAllowed(access, sectionId, 'editor')) {
           return { ok: false, error: 'Нужен уровень «редактор» в выбранном разделе' };
         }
