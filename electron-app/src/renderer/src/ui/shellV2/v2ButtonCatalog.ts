@@ -40,6 +40,7 @@ export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'timesheets',
   'reports',
   'drafts',
+  'user_screens',
 ]);
 
 export type V2ButtonDescriptor = {

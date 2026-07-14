@@ -68,7 +68,9 @@ export type TabId =
   | 'admin'
   | 'audit'
   | 'notes'
-  | 'settings';
+  | 'settings'
+  | 'user_screens'
+  | 'user_screen';
 
 export type MenuTabId = Exclude<
   TabId,
@@ -91,6 +93,7 @@ export type MenuTabId = Exclude<
   | 'report_preset'
   | 'engine_assembly_bom_item'
   | 'timesheet'
+  | 'user_screen'
 >;
 export type TabsLayoutPrefs = {
   order?: MenuTabId[];
@@ -123,6 +126,7 @@ const PARENT_TAB: Record<string, MenuTabId> = {
   request: 'requests',
   report_preset: 'reports',
   timesheet: 'timesheets',
+  user_screen: 'user_screens',
 };
 
 // Pre-computed set for O(1) lookup
@@ -169,6 +173,7 @@ const menuTabSet = new Set<MenuTabId>([
   'workshops',
   'warehouses_admin',
   'warehouse_locations',
+  'user_screens',
 ]);
 
 export function resolveMenuTab(tab: string): MenuTabId | null {
@@ -201,7 +206,7 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
 
 export const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
-  history: ['history'],
+  history: ['history', 'user_screens'],
   production: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
@@ -290,6 +295,7 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   admin: { icon: '🛡️', subtitle: 'Админ. раздел и полномочия', gradient: 'linear-gradient(135deg, #4b5563 0%, #9ca3af 100%)' },
   auth: { icon: '🔐', subtitle: 'Вход и авторизация', gradient: 'linear-gradient(135deg, #334155 0%, #64748b 100%)' },
   settings: { icon: '⚙️', subtitle: 'Параметры программы', gradient: 'linear-gradient(135deg, #475569 0%, #94a3b8 100%)' },
+  user_screens: { icon: '🧱', subtitle: 'Экраны, собранные операторами', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)' },
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -502,6 +508,7 @@ export function Tabs(props: {
 
   const labels: Record<MenuTabId, string> = {
     history: 'Мой круг',
+    user_screens: 'Мои экраны',
     masterdata: 'Справочники',
     contracts: 'Контракты',
     changes: 'Изменения',

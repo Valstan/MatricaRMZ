@@ -66,6 +66,7 @@ import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { V2Shell } from './shellV2/V2Shell.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
+import { createIntentRuntime } from './uiBuilder/intentRuntime.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -147,6 +148,9 @@ const WarehouseLocationsPage = lazyPage('./pages/WarehouseLocationsPage.tsx', 'W
 const WarehouseLocationsAdminPage = lazyPage('./pages/WarehouseLocationsAdminPage.tsx', 'WarehouseLocationsAdminPage');
 const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
+const UserScreensPage = lazyPage('./pages/UserScreensPage.tsx', 'UserScreensPage');
+const UserScreenViewPage = lazyPage('./pages/UserScreenViewPage.tsx', 'UserScreenViewPage');
+const ScreenEditorPage = lazyPage('./pages/ScreenEditorPage.tsx', 'ScreenEditorPage');
 const ServicesByBrandPage = lazyPage('./pages/ServicesByBrandPage.tsx', 'ServicesByBrandPage');
 const NomenclaturePage = lazyPage('./pages/NomenclaturePage.tsx', 'NomenclaturePage');
 const PartsDedupePage = lazyPage('./pages/PartsDedupePage.tsx', 'PartsDedupePage');
@@ -462,6 +466,8 @@ function appTabTitle(tab: string): string {
     notes: 'Заметки',
     settings: 'Настройки',
     masterdata: 'Справочники',
+    user_screens: 'Мои экраны',
+    user_screen: 'Экран',
   };
   return labels[tab] ?? tab;
 }
@@ -485,6 +491,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   engine_assembly_bom_item: 'engine_assembly_bom',
   stock_document: 'stock_documents',
   report_preset: 'reports',
+  user_screen: 'user_screens',
 };
 
 const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
@@ -505,6 +512,7 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'engine_assembly_bom_item',
   'stock_document',
   'report_preset',
+  'user_screen',
 ];
 
 export function App() {
@@ -601,6 +609,9 @@ export function App() {
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
   const [selectedReportPresetId, setSelectedReportPresetId] = useState<ReportPresetId | null>(null);
+  // UI builder: 'new' = создание нового экрана в редакторе (карточный tab требует непустой id).
+  const [selectedUserScreenId, setSelectedUserScreenId] = useState<string | null>(null);
+  const [userScreenEditMode, setUserScreenEditMode] = useState<boolean>(false);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [globalSearchOpen, setGlobalSearchOpen] = useState<boolean>(false);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
@@ -1797,6 +1808,7 @@ export function App() {
     : capsBase;
   const availableTabs: MenuTabId[] = [
     ...(authStatus.loggedIn ? (['history'] as const) : []),
+    ...(authStatus.loggedIn ? (['user_screens'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
     ...(caps.canViewReports ? (['assembly_forecast'] as const) : []),
@@ -1835,6 +1847,17 @@ export function App() {
   const menuState = deriveMenuState(sectionGatedTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');
+  // UI builder: боевой runtime интентов пользовательских экранов (кнопка на закрытый
+  // для зрителя таб рендерится disabled) + список табов для редактора.
+  const uiScreenRuntime = createIntentRuntime({
+    navigateTab: (tabId) => setTab(tabId as TabId),
+    accessibleMenuTabs: new Set<string>(sectionGatedTabs),
+    openEngine: (id) => void openEngine(id),
+    openWorkOrder: (id) => void openWorkOrder(id),
+  });
+  const userScreenTabOptions = sectionGatedTabs
+    .filter((t) => t !== 'user_screens' && t !== 'auth' && t !== 'settings')
+    .map((t) => ({ id: t as string, label: appTabTitle(t) }));
   const userTab: Exclude<
     TabId,
     | 'engine'
@@ -1858,6 +1881,7 @@ export function App() {
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
   const menuLabels: Record<MenuTabId, string> = {
     history: 'История',
+    user_screens: 'Мои экраны',
     masterdata: 'Справочники',
     contracts: 'Контракты',
     changes: 'Изменения',
@@ -2142,7 +2166,8 @@ export function App() {
       tab === 'nomenclature_item' ||
       tab === 'engine_assembly_bom_item' ||
       tab === 'stock_document' ||
-      tab === 'report_preset'
+      tab === 'report_preset' ||
+      tab === 'user_screen'
     )
       return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
@@ -2436,6 +2461,22 @@ export function App() {
     });
   }
 
+  function openUserScreen(id: string) {
+    v2OpenCardGuarded('user_screen', () => {
+      setSelectedUserScreenId(id);
+      setUserScreenEditMode(false);
+      setTab('user_screen');
+    });
+  }
+
+  function editUserScreen(id: string | null) {
+    v2OpenCardGuarded('user_screen', () => {
+      setSelectedUserScreenId(id ?? 'new');
+      setUserScreenEditMode(true);
+      setTab('user_screen');
+    });
+  }
+
   async function openEngineAssemblyBom(id: string) {
     v2OpenCardGuarded('engine_assembly_bom_item', () => {
       setSelectedEngineAssemblyBomId(id);
@@ -2558,6 +2599,7 @@ export function App() {
       engine_assembly_bom_item: selectedEngineAssemblyBomId,
       stock_document: selectedStockDocumentId,
       report_preset: selectedReportPresetId,
+      user_screen: selectedUserScreenId,
     };
     const id = idByTab[tab];
     return id ? { kind: tab, entityId: String(id) } : null;
@@ -2583,6 +2625,7 @@ export function App() {
     engine_assembly_bom_item: selectedEngineAssemblyBomId,
     stock_document: selectedStockDocumentId,
     report_preset: selectedReportPresetId,
+    user_screen: selectedUserScreenId,
   };
   const v2PrevSelectedRef = useRef<Partial<Record<TabId, string | null>>>({});
   useEffect(() => {
@@ -2627,6 +2670,7 @@ export function App() {
       case 'engine_assembly_bom_item': return void openEngineAssemblyBom(entityId);
       case 'stock_document': return void openStockDocument(entityId);
       case 'report_preset': return void openReportPreset(entityId as ReportPresetId);
+      case 'user_screen': return openUserScreen(entityId);
       default: return;
     }
   }
@@ -4822,6 +4866,29 @@ export function App() {
               setTab('auth');
             }}
           />
+        )}
+
+        {t === 'user_screens' && (
+          <UserScreensPage onOpen={(id: string) => openUserScreen(id)} onEdit={(id: string | null) => editUserScreen(id)} />
+        )}
+        {t === 'user_screen' && selectedUserScreenId && (
+          userScreenEditMode ? (
+            <ScreenEditorPage
+              screenId={selectedUserScreenId === 'new' ? null : selectedUserScreenId}
+              tabOptions={userScreenTabOptions}
+              onSaved={(id: string) => setSelectedUserScreenId(id)}
+              onDeleted={() => {
+                setSelectedUserScreenId(null);
+                requestTabSwitch('user_screens');
+              }}
+            />
+          ) : (
+            <UserScreenViewPage
+              screenId={selectedUserScreenId}
+              runtime={uiScreenRuntime}
+              onEdit={(id: string) => editUserScreen(id)}
+            />
+          )
         )}
 
         {t === 'reports' && (
