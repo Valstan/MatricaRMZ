@@ -22,6 +22,11 @@
       "Bash(gh run list *)",
       "Bash(gh run view *)",
       "Bash(gh release download *)",
+      "Bash(gh release view *)",
+      "Bash(gh run watch *)",
+      "Bash(git tag *)",
+      "Bash(ssh matricarmz *)",
+      "Bash(scp * matricarmz:*)",
       "Bash(corepack pnpm *)",
       "Bash(pnpm *)",
       "Bash(node scripts/*)"
