@@ -625,6 +625,19 @@ import type {
   WarehouseStockListItem,
 } from '../domain/warehouse.js';
 
+/** Operator-built screen (UI builder): EAV `ui_screen`, factory-wide synced. */
+export type UiScreenListItem = {
+  id: string;
+  name: string;
+  sectionId: string;
+  createdBy: string;
+  updatedAt: number;
+  /** Whether the CURRENT viewer may edit/delete (editor of the screen's section). */
+  canEdit: boolean;
+};
+
+export type UiScreenDetails = UiScreenListItem & { specJson: string };
+
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
   app: {
@@ -724,6 +737,17 @@ export type MatricaApi = {
     >;
     releaseWelcomeGet: () => Promise<ReleaseWelcomeGetResult>;
     releaseWelcomeAcknowledge: () => Promise<ReleaseWelcomeAcknowledgeResult>;
+  };
+  uiScreens: {
+    list: () => Promise<{ ok: true; rows: UiScreenListItem[] } | { ok: false; error: string }>;
+    get: (id: string) => Promise<{ ok: true; screen: UiScreenDetails } | { ok: false; error: string }>;
+    save: (args: {
+      id?: string;
+      name: string;
+      sectionId: string;
+      specJson: string;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
   shortcuts: {
     get: (args: { userId: string }) => Promise<{ ok: true; ids: string[] } | { ok: false; error: string }>;

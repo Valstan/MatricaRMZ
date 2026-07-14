@@ -25,6 +25,8 @@ export const EntityTypeCode = {
   PartEngineBrand: 'part_engine_brand',
   Nomenclature: 'nomenclature',
   EngineBrandGroup: 'engine_brand_group',
+  /** Operator-built screens (UI builder pilot) — spec in `spec_json`, access via `section_id`. */
+  UiScreen: 'ui_screen',
 } as const;
 
 export type EntityTypeCode = (typeof EntityTypeCode)[keyof typeof EntityTypeCode];
