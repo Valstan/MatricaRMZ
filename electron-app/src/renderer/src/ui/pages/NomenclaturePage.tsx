@@ -9,6 +9,8 @@ import {
   type NomenclatureTemplateCompositionEditorTemplate,
 } from '../components/NomenclatureTemplateCompositionEditor.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
+import type { LabelTarget } from '../utils/qrLabels.js';
 import { useRegisterSearchScope } from '../context/globalSearchScope.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
@@ -131,6 +133,37 @@ export function NomenclaturePage(props: {
   const [panelPropertiesOpen, setPanelPropertiesOpen] = useState(false);
   const [panelTemplatesOpen, setPanelTemplatesOpen] = useState(false);
   const [panelListOpen, setPanelListOpen] = useState(true);
+  const [labelDialogOpen, setLabelDialogOpen] = useState(false);
+  const [labelTargets, setLabelTargets] = useState<LabelTarget[]>([]);
+  const [labelLoading, setLabelLoading] = useState(false);
+
+  // Печать этикеток: тянем весь каталог (по текущим фильтрам, без привязки к
+  // развёрнутой группе — строки `rows` пусты, пока группа не развёрнута), затем
+  // открываем диалог. Выбор конкретных позиций — уже внутри диалога.
+  const openLabelDialog = useCallback(async () => {
+    setLabelLoading(true);
+    try {
+      const all = await fetchWarehouseNomenclatureAllPages({
+        ...(query.trim() ? { search: query.trim() } : {}),
+        ...(itemType ? { itemType } : {}),
+        ...(directoryKind ? { directoryKind } : {}),
+        ...(groupId ? { groupId } : {}),
+      });
+      setLabelTargets(
+        all.map((r) => ({
+          id: r.id,
+          code: r.code ?? '',
+          name: r.name,
+          subtitle: [r.groupName, r.unitName].filter(Boolean).join(' · ') || null,
+        })),
+      );
+      setLabelDialogOpen(true);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setLabelLoading(false);
+    }
+  }, [query, itemType, directoryKind, groupId]);
 
   const refreshGroupCounts = useCallback(async () => {
     const result = await window.matrica.warehouse.nomenclatureGroupCounts({
@@ -528,7 +561,7 @@ export function NomenclaturePage(props: {
                 display: 'grid',
                 gap: 8,
                 alignItems: 'center',
-                gridTemplateColumns: 'auto minmax(240px, 1fr) minmax(190px, 0.7fr) minmax(190px, 0.8fr) minmax(200px, 0.8fr) auto auto',
+                gridTemplateColumns: 'auto minmax(240px, 1fr) minmax(190px, 0.7fr) minmax(190px, 0.8fr) minmax(200px, 0.8fr) auto auto auto',
                 flexShrink: 0,
               }}
             >
@@ -574,6 +607,9 @@ export function NomenclaturePage(props: {
               </Button>
               <Button variant="ghost" onClick={() => void refreshRefs()}>
                 Справочники
+              </Button>
+              <Button variant="ghost" onClick={() => void openLabelDialog()} disabled={labelLoading}>
+                {labelLoading ? 'Загрузка…' : 'Печать этикеток'}
               </Button>
             </div>
 
@@ -791,6 +827,13 @@ export function NomenclaturePage(props: {
           </div>
         </div>
       )}
+
+      <LabelPrintDialog
+        open={labelDialogOpen}
+        title="Печать QR-этикеток номенклатуры"
+        targets={labelTargets}
+        onClose={() => setLabelDialogOpen(false)}
+      />
     </div>
   );
 }

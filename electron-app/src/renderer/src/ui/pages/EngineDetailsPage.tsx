@@ -8,6 +8,7 @@ import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
+import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EnginePhotoGallery } from '../components/EnginePhotoGallery.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -32,11 +33,12 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'details' | 'files' | 'reclamation';
+export type EngineCardTab = 'main' | 'details' | 'history' | 'files' | 'reclamation';
 
 const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
   { key: 'details', label: 'Детали и акты' },
+  { key: 'history', label: 'История ремонта' },
   { key: 'files', label: 'Фото и документы' },
   { key: 'reclamation', label: 'Рекламация' },
 ];
@@ -1492,7 +1494,7 @@ export function EngineDetailsPage(props: {
         {/* Вкладки карточки (план reclamation-mvp-2026-07 Ф0). Панели НЕ размонтируются
             (скрытие через hidden) — save-on-close/черновики/печать работают по state как раньше. */}
         <div className="entity-card-span-full" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
-          {ENGINE_CARD_TABS.filter((t) => t.key !== 'details' || props.canViewOperations).map((t) => {
+          {ENGINE_CARD_TABS.filter((t) => (t.key !== 'details' && t.key !== 'history') || props.canViewOperations).map((t) => {
             const active = activeTab === t.key;
             return (
               <button
@@ -1671,6 +1673,16 @@ export function EngineDetailsPage(props: {
             {...(props.canCreateWorkOrder ? { canCreateWorkOrder: true } : {})}
             {...(props.onOpenWorkOrder ? { onOpenWorkOrder: props.onOpenWorkOrder } : {})}
           />
+        </div>
+      )}
+
+      {props.canViewOperations && (
+        <div
+          className="entity-card-span-full"
+          hidden={activeTab !== 'history'}
+          style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}
+        >
+          <EngineTimelinePanel engineId={props.engineId} />
         </div>
       )}
 
