@@ -21,6 +21,8 @@
     "positions:backfill:apply": "tsx src/scripts/backfillEmployeePositions.ts --apply",
     "access:backfill-sections": "tsx src/scripts/backfillSectionAccess.ts",
     "fix:owner-batch-20260710": "tsx src/scripts/fixOwnerBatch20260710.ts",
+    "access:owner-batch-20260714": "tsx src/scripts/accessOwnerBatch20260714.ts",
+    "access:owner-batch-20260714:apply": "tsx src/scripts/accessOwnerBatch20260714.ts --apply",
     "access:backfill-sections:apply": "tsx src/scripts/backfillSectionAccess.ts --apply",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
     "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
