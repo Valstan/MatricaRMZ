@@ -323,6 +323,13 @@ const matricaApi = {
     delete: async (id: string) => ipcRenderer.invoke('supplyRequests:delete', id),
     transition: async (args: { id: string; action: string; note?: string | null }) => ipcRenderer.invoke('supplyRequests:transition', args),
   },
+  uiScreens: {
+    list: async () => ipcRenderer.invoke('uiScreens:list'),
+    get: async (id: string) => ipcRenderer.invoke('uiScreens:get', id),
+    save: async (args: { id?: string; name: string; sectionId: string; specJson: string }) =>
+      ipcRenderer.invoke('uiScreens:save', args),
+    delete: async (id: string) => ipcRenderer.invoke('uiScreens:delete', id),
+  },
   workOrders: {
     list: async (args?: { q?: string; month?: string }) => ipcRenderer.invoke('workOrders:list', args),
     get: async (id: string) => ipcRenderer.invoke('workOrders:get', id),

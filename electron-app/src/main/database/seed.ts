@@ -65,6 +65,7 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   const engineNodeTypeId = await ensureEntityType(EntityTypeCode.EngineNode, 'Узлы двигателя');
   const linkFieldRuleTypeId = await ensureEntityType(EntityTypeCode.LinkFieldRule, 'Подсказки link-полей');
   const engineBrandGroupTypeId = await ensureEntityType(EntityTypeCode.EngineBrandGroup, 'Группы марок двигателей');
+  const uiScreenTypeId = await ensureEntityType(EntityTypeCode.UiScreen, 'Экраны оператора');
 
   async function ensureAttrDef(
     entityTypeId: string,
@@ -395,6 +396,12 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   await ensureAttrDef(linkFieldRuleTypeId, 'target_type_code', 'Код справочника', AttributeDataType.Text, 20);
   await ensureAttrDef(linkFieldRuleTypeId, 'priority', 'Приоритет', AttributeDataType.Number, 30);
   await ensureAttrDef(linkFieldRuleTypeId, 'note', 'Комментарий', AttributeDataType.Text, 40);
+
+  // UI builder (docs/plans/ui-builder-pilot-2026-07.md): operator-built screens.
+  await ensureAttrDef(uiScreenTypeId, 'name', 'Название', AttributeDataType.Text, 10);
+  await ensureAttrDef(uiScreenTypeId, 'spec_json', 'Спецификация экрана', AttributeDataType.Json, 20);
+  await ensureAttrDef(uiScreenTypeId, 'section_id', 'Раздел доступа', AttributeDataType.Text, 30);
+  await ensureAttrDef(uiScreenTypeId, 'created_by', 'Автор (логин)', AttributeDataType.Text, 40);
 }
 
 
