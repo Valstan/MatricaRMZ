@@ -10,6 +10,7 @@ export * from './domain/partsDedup.js';
 export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/engineActSnapshot.js';
+export * from './domain/engineTimeline.js';
 export * from './domain/partStatusEvent.js';
 export * from './domain/repairFundInstance.js';
 export * from './domain/supplyRequest.js';
