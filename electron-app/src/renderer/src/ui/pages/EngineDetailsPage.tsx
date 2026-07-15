@@ -217,12 +217,13 @@ function EngineDuplicateHint(props: {
 // STATUS_CODES (shared): сохраняется/читается/идёт в отчёты и прогресс контракта как раньше,
 // просто больше не редактируется вручную здесь.
 const STATUS_DISPLAY_ORDER: StatusCode[] = [
-  'status_rework_sent',
   'status_storage_received',
   'status_repair_started',
   'status_repaired',
   'status_customer_sent',
   'status_customer_accepted',
+  // Утиль — терминальный исход, поэтому в конце списка.
+  'status_rework_sent',
 ];
 
 function toInputDate(ms: number | null | undefined): string {
@@ -1559,15 +1560,15 @@ export function EngineDetailsPage(props: {
     ['ДС контракта', contractSectionNumber],
     ['Дата прихода', formatDateLabel(arrivalDate)],
     ['Забракован', statusPrintValue(Boolean(statusFlags.status_rejected), statusDates.status_rejected)],
-    [
-      'Отправлен заказчику на перекомплектацию',
-      statusPrintValue(Boolean(statusFlags.status_rework_sent), statusDates.status_rework_sent),
-    ],
     ['Принят на хранение', statusPrintValue(Boolean(statusFlags.status_storage_received), statusDates.status_storage_received)],
     ['Начат ремонт', statusPrintValue(Boolean(statusFlags.status_repair_started), statusDates.status_repair_started)],
     ['Отремонтирован', statusPrintValue(Boolean(statusFlags.status_repaired), statusDates.status_repaired)],
     ['Дата отгрузки', statusPrintValue(Boolean(statusFlags.status_customer_sent), statusDates.status_customer_sent)],
     ['Принято заказчиком', statusPrintValue(Boolean(statusFlags.status_customer_accepted), statusDates.status_customer_accepted)],
+    [
+      STATUS_LABELS.status_rework_sent,
+      statusPrintValue(Boolean(statusFlags.status_rework_sent), statusDates.status_rework_sent),
+    ],
   ];
   // Внутренний номер — в заголовке рядом с заводским: оператор ищет карточку по клейму
   // на детали, и в шапке она должна опознаваться тем же номером.
