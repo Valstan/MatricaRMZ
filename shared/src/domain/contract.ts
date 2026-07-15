@@ -81,7 +81,10 @@ export function statusDateCode(code: StatusCode): string {
 }
 
 export const STATUS_LABELS: Record<StatusCode, string> = {
-  status_rework_sent: 'Отправлен заказчику на перекомплектацию',
+  // Переоборудован из «Отправлен заказчику на перекомплектацию» (2026-07-15, на проде
+  // флаг не использовался — 0 записей). Утиль: двигатель признан неремонтопригодным,
+  // после дефектовки собран обратно и возвращён заказчику без ремонта (или с недоремонтом).
+  status_rework_sent: 'Утиль — отправлен заказчику',
   status_storage_received: 'Принят на хранение',
   status_repair_started: 'Начат ремонт',
   status_repaired: 'Отремонтирован',
@@ -96,6 +99,7 @@ export function statusProgressPct(code: StatusCode | null | undefined): number {
     case 'status_customer_sent':
     case 'status_rejected':
     case 'status_customer_accepted':
+    case 'status_rework_sent': // утиль — терминальный исход: двигатель покинул завод
       return 100;
     case 'status_repaired':
       return 70;
@@ -103,8 +107,6 @@ export function statusProgressPct(code: StatusCode | null | undefined): number {
       return 40;
     case 'status_storage_received':
       return 20;
-    case 'status_rework_sent':
-      return 10;
     default:
       return 0;
   }
@@ -148,11 +150,11 @@ export function applyStatusFlagChange(
 /**
  * Ранг статуса по «продвинутости» жизненного цикла двигателя — для guard'а «только
  * вперёд» авто-перехода из наряда сборки (не откатывать более поздний статус назад).
- * `status_rejected` — боковая ветка (брак), в линейный ранг не входит (0).
+ * `status_rejected` и `status_rework_sent` (утиль) — боковые ветки, в линейный ранг не входят (0).
  */
 export const STATUS_ADVANCE_RANK: Record<StatusCode, number> = {
   status_rejected: 0,
-  status_rework_sent: 1,
+  status_rework_sent: 0,
   status_storage_received: 1,
   status_repair_started: 2,
   status_repaired: 3,

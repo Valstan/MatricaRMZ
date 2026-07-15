@@ -149,6 +149,29 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
       41 + STATUS_CODES.indexOf(code) * 2,
     );
   }
+  // Переоборудование статуса в «Утиль» (2026-07-15): у существующих БД defs (флаг из
+  // карточки + дата из seed) уже заведены под старым именем, а ensureAttrDef /
+  // ensureAttributeDefs непустые имена не трогают — правим точечно.
+  const legacyReworkNames: Array<[string, string, string]> = [
+    ['status_rework_sent', 'Отправлен заказчику на перекомплектацию', STATUS_LABELS.status_rework_sent],
+    [
+      statusDateCode('status_rework_sent'),
+      'Дата Отправлен заказчику на перекомплектацию',
+      `Дата ${STATUS_LABELS.status_rework_sent}`,
+    ],
+  ];
+  for (const [code, oldName, newName] of legacyReworkNames) {
+    await db
+      .update(attributeDefs)
+      .set({ name: newName, updatedAt: ts, syncStatus: 'pending' })
+      .where(
+        and(
+          eq(attributeDefs.entityTypeId, engineTypeId),
+          eq(attributeDefs.code, code),
+          eq(attributeDefs.name, oldName),
+        ),
+      );
+  }
   await ensureAttrDef(
     engineTypeId,
     'engine_brand_id',

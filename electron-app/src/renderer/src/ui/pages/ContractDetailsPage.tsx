@@ -272,12 +272,13 @@ function engineOptionLabel(engine: EngineListItem): string {
 function currentEngineStatusLabel(engine: EngineListItem): string {
   const flags = engine.statusFlags ?? {};
   if (flags.status_rejected) return STATUS_LABELS.status_rejected;
+  // Утиль — терминальный исход, приоритетнее промежуточных статусов.
+  if (flags.status_rework_sent) return STATUS_LABELS.status_rework_sent;
   if (flags.status_customer_accepted) return STATUS_LABELS.status_customer_accepted;
   if (flags.status_customer_sent) return STATUS_LABELS.status_customer_sent;
   if (flags.status_repaired) return STATUS_LABELS.status_repaired;
   if (flags.status_repair_started) return STATUS_LABELS.status_repair_started;
   if (flags.status_storage_received || engine.arrivalDate) return 'Приход на завод';
-  if (flags.status_rework_sent) return STATUS_LABELS.status_rework_sent;
   return '—';
 }
 
