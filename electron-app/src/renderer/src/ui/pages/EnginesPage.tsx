@@ -1,9 +1,15 @@
 import React, { useMemo, useState } from 'react';
 
-import { classifyEngineContractBinding, findArchivedArrivalIds } from '@matricarmz/shared';
+import {
+  classifyEngineContractBinding,
+  engineInternalNumberSortKey,
+  findArchivedArrivalIds,
+  formatEngineInternalNumber,
+} from '@matricarmz/shared';
 import type { EngineListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
@@ -87,7 +93,7 @@ function renderBindingCell(e: EngineListItem): React.ReactNode {
 
 export type EnginesPageUiState = {
   query: string;
-  sortKey: 'engineNumber' | 'engineBrand' | 'customerName' | 'binding' | 'arrivalDate' | 'shippingDate';
+  sortKey: 'engineNumber' | 'internalNumber' | 'engineBrand' | 'customerName' | 'binding' | 'arrivalDate' | 'shippingDate';
   sortDir: 'asc' | 'desc';
   page: number;
   showPreviews: boolean;
@@ -294,6 +300,7 @@ export function EnginesPage(props: {
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
+  const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
   const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
   const { containerRef, onScroll } = usePersistedScrollTop('list:engines');
   const query = listState.query;
@@ -330,6 +337,21 @@ export function EnginesPage(props: {
     });
   }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation]);
 
+  // Этикетка клеится на тару с деталями двигателя: в QR — полный внутренний номер
+  // ('41/26'), тот же, что набит на деталях. Скан (сканер печатает как клавиатура) →
+  // строка уходит в поиск и находит двигатель по internalNumberFull. Печатаем то, что
+  // сейчас отфильтровано в списке, — не весь справочник.
+  const labelTargets = useMemo(
+    () =>
+      filtered.map((e) => ({
+        id: e.id,
+        code: formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear),
+        name: String(e.engineBrand ?? '').trim() || 'Двигатель',
+        subtitle: e.engineNumber ? `№ двигателя ${e.engineNumber}` : null,
+      })),
+    [filtered],
+  );
+
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) {
       patchState({ sortDir: sortDir === 'asc' ? 'desc' : 'asc', page: 0 });
@@ -361,6 +383,11 @@ export function EnginesPage(props: {
       switch (sortKey) {
         case 'engineNumber':
           return byText(String(a.engineNumber ?? ''), String(b.engineNumber ?? ''));
+        case 'internalNumber':
+          return byText(
+            engineInternalNumberSortKey(a.internalNumber ?? '', a.internalNumberYear),
+            engineInternalNumberSortKey(b.internalNumber ?? '', b.internalNumberYear),
+          );
         case 'engineBrand':
           return byText(String(a.engineBrand ?? ''), String(b.engineBrand ?? ''));
         case 'customerName':
@@ -445,6 +472,14 @@ export function EnginesPage(props: {
             ) : null}
           </span>
         ),
+      },
+      {
+        id: 'internalNumber',
+        label: 'Внутр. №',
+        sortable: true,
+        sortKey: 'internalNumber',
+        kind: 'name',
+        render: (e) => formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear) || '-',
       },
       { id: 'engineBrand', label: 'Марка', sortable: true, sortKey: 'engineBrand', kind: 'name', render: (e) => e.engineBrand ?? '-' },
       { id: 'customerName', label: 'Контрагент', sortable: true, sortKey: 'customerName', kind: 'name', render: (e) => e.customerName ?? '-' },
@@ -624,6 +659,13 @@ export function EnginesPage(props: {
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
+        <Button
+          variant="ghost"
+          onClick={() => setLabelDialogOpen(true)}
+          title="Печать QR-этикеток на тару с деталями: марка, внутренний номер, QR для поиска двигателя"
+        >
+          Печать этикеток
+        </Button>
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}
@@ -686,6 +728,13 @@ export function EnginesPage(props: {
           onAfterMerge={() => void props.onRefresh()}
         />
       )}
+
+      <LabelPrintDialog
+        open={labelDialogOpen}
+        title="Печать этикеток двигателей"
+        targets={labelTargets}
+        onClose={() => setLabelDialogOpen(false)}
+      />
     </div>
   );
 }

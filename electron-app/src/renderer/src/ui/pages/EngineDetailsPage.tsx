@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import type { EngineDetails, EngineDuplicateMatches, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { parseContractSections, buildContractSectionOptions, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
+import { parseContractSections, buildContractSectionOptions, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -304,6 +304,13 @@ function printEngineReport(
       ? orderedRows
       : [
           ['Номер двигателя', String(context?.engineNumber ?? attrs.engine_number ?? '')],
+          [
+            'Внутренний номер',
+            formatEngineInternalNumber(
+              String(attrs[ENGINE_INTERNAL_NUMBER_CODE] ?? ''),
+              attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+            ),
+          ],
           ['Марка двигателя', String(context?.engineBrand ?? attrs.engine_brand ?? '')],
           ['Дата прихода', String(context?.arrivalDate ?? formatDateLabel(toInputDate(attrs.arrival_date as number | null | undefined)) ?? '')],
           ['Контрагент', String(context?.customer ?? attrs.customer_id ?? '')],
@@ -365,6 +372,15 @@ export function EngineDetailsPage(props: {
   const [isNewEngine, setIsNewEngine] = useState(false);
   const [engineBrand, setEngineBrand] = useState(String(props.engine.attributes?.engine_brand ?? ''));
   const [engineBrandId, setEngineBrandId] = useState(String(props.engine.attributes?.engine_brand_id ?? ''));
+  // Внутренний номер («клеймо» из журнала дефектовки) + год присвоения: годовая нумерация
+  // сбрасывается, уникальна только пара. Год — строка, т.к. это ввод в <Input>.
+  const [internalNumber, setInternalNumber] = useState(
+    String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_CODE] ?? ''),
+  );
+  const [internalNumberYear, setInternalNumberYear] = useState(
+    String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? ''),
+  );
+  const [internalDup, setInternalDup] = useState<EngineInternalNumberDuplicate | null>(null);
   const [arrivalDate, setArrivalDate] = useState(
     toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
   );
@@ -557,6 +573,7 @@ export function EngineDetailsPage(props: {
 
   const initialSnapshot = useRef<{
     engineNumber: string;
+    internalNumberFull: string;
     engineBrand: string;
     arrivalDate: string;
   } | null>(null);
@@ -588,11 +605,56 @@ export function EngineDetailsPage(props: {
     };
   }, [engineNumber, props.engineId]);
 
+  /**
+   * Пара (номер, год) из полей карточки. Номер терпит и '41', и полный '41/26' —
+   * год из ввода главнее поля года; если года нет вовсе, берём его из даты прихода.
+   */
+  function resolveInternalNumberFields(): { number: string; year: number | null } {
+    const parsed = parseEngineInternalNumberInput(internalNumber);
+    if (!parsed.number) return { number: '', year: null };
+    const typedYear = Number(internalNumberYear);
+    const year =
+      parsed.year ??
+      (isValidEngineInternalNumberYear(typedYear)
+        ? typedYear
+        : resolveEngineInternalNumberYear(fromInputDate(arrivalDate), Date.now()));
+    return { number: parsed.number, year };
+  }
+
+  const internalFields = resolveInternalNumberFields();
+  const internalNumberFull = formatEngineInternalNumber(internalFields.number, internalFields.year);
+
+  // Живая проверка занятости пары — оператор видит отказ до сохранения, а не после.
+  useEffect(() => {
+    const { number, year } = resolveInternalNumberFields();
+    if (!number || year == null) {
+      setInternalDup(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void window.matrica.engines
+        .findInternalNumberDuplicate({ internalNumber: number, internalNumberYear: year, excludeEngineId: props.engineId })
+        .then((res) => {
+          if (!cancelled) setInternalDup(res ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setInternalDup(null);
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [internalNumber, internalNumberYear, arrivalDate, props.engineId]);
+
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
     // Phase 3d: восстановленный черновик не перетираем фоновым reload/sync — иначе
     // снимок теряется, а автосейв перештамповал бы его committed-значениями.
     if (draftRestoredRef.current && sessionHadChanges.current) return;
+    setInternalNumber(String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));
+    setInternalNumberYear(String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? ''));
     setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
     setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
     setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
@@ -697,6 +759,10 @@ export function EngineDetailsPage(props: {
     // Reset “editing session” baseline on engine switch.
     initialSnapshot.current = {
       engineNumber: String(props.engine.attributes?.engine_number ?? ''),
+      internalNumberFull: formatEngineInternalNumber(
+        String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_CODE] ?? ''),
+        props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      ),
       engineBrand: String(props.engine.attributes?.engine_brand ?? ''),
       arrivalDate: toInputDate(props.engine.attributes?.arrival_date as number | null | undefined),
     };
@@ -757,12 +823,17 @@ export function EngineDetailsPage(props: {
       const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
       const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
 
+      const internal = resolveInternalNumberFields();
+
       const nextValues: Record<string, unknown> = {
         // Флаги осознанного дубля — ПЕРВЫМИ (до engine_number): гейт запрета дублей
         // (клиентский и серверный) проверяет флаг на сущности в момент записи номера.
         repeat_arrival_flag: repeatArrivalFlag,
         number_collision_flag: numberCollisionFlag,
         previous_arrival_id: asNullableText(previousArrivalId),
+        // Год — ДО внутреннего номера: гейт пары (номер, год) дочитывает второй элемент из БД.
+        [ENGINE_INTERNAL_NUMBER_YEAR_CODE]: internal.year,
+        [ENGINE_INTERNAL_NUMBER_CODE]: asNullableText(internal.number),
         engine_number: engineNumber,
         engine_brand_id: asNullableText(engineBrandId),
         engine_brand: asNullableText(brandLabel),
@@ -789,6 +860,11 @@ export function EngineDetailsPage(props: {
         repeat_arrival_flag: Boolean(attrs.repeat_arrival_flag),
         number_collision_flag: Boolean(attrs.number_collision_flag),
         previous_arrival_id: asNullableText(attrs.previous_arrival_id),
+        [ENGINE_INTERNAL_NUMBER_YEAR_CODE]: (() => {
+          const y = Number(attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE]);
+          return isValidEngineInternalNumberYear(y) ? y : null;
+        })(),
+        [ENGINE_INTERNAL_NUMBER_CODE]: asNullableText(attrs[ENGINE_INTERNAL_NUMBER_CODE]),
         engine_number: String(attrs.engine_number ?? ''),
         engine_brand_id: asNullableText(attrs.engine_brand_id),
         engine_brand: asNullableText(attrs.engine_brand),
@@ -878,6 +954,7 @@ export function EngineDetailsPage(props: {
         if ((a ?? '') !== (b ?? '')) fieldsChanged.push(ru);
       };
       push('Номер', base?.engineNumber ?? '', String(engineNumber ?? ''));
+      push('Внутренний номер', base?.internalNumberFull ?? '', internalNumberFull);
       push('Марка', base?.engineBrand ?? '', String(engineBrand ?? ''));
       push('Дата прихода', base?.arrivalDate ?? '', String(arrivalDate ?? ''));
       if (!fieldsChanged.length) return;
@@ -1019,6 +1096,8 @@ export function EngineDetailsPage(props: {
     if (!props.canEditMasterData || !engineTypeId || engineDefs.length === 0 || coreDefsReady) return;
     const desired = [
       { code: 'engine_number', name: 'Номер двигателя', dataType: 'text', sortOrder: 10 },
+      { code: ENGINE_INTERNAL_NUMBER_CODE, name: 'Внутренний номер', dataType: 'text', sortOrder: 15 },
+      { code: ENGINE_INTERNAL_NUMBER_YEAR_CODE, name: 'Год внутреннего номера', dataType: 'number', sortOrder: 16 },
       {
         code: 'engine_brand_id',
         name: 'Марка двигателя',
@@ -1176,6 +1255,72 @@ export function EngineDetailsPage(props: {
               setPreviousArrivalId('');
             }}
           />
+        </>
+      ),
+    },
+    {
+      code: ENGINE_INTERNAL_NUMBER_CODE,
+      defaultOrder: 15,
+      label: 'Внутренний номер',
+      value: internalNumber,
+      render: (
+        <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Input
+              value={internalNumber}
+              disabled={!props.canEditEngines}
+              data-autogrow="off"
+              placeholder="41"
+              title="Номер из журнала дефектовки — тот, что набивается на детали этого двигателя"
+              style={{ width: '100%', minWidth: '12ch', maxWidth: '16ch' }}
+              onChange={(e) => {
+                setSessionChanged(true);
+                setInternalNumber(e.target.value);
+              }}
+              onBlur={() => {
+                // Разбираем ввод только на blur: на каждом нажатии «41/2» читалось бы как 2002 год.
+                const fields = resolveInternalNumberFields();
+                setInternalNumber(fields.number);
+                setInternalNumberYear(fields.year == null ? '' : String(fields.year));
+              }}
+            />
+            <span style={{ color: 'var(--subtle)' }}>/</span>
+            <Input
+              value={internalNumberYear}
+              disabled={!props.canEditEngines}
+              data-autogrow="off"
+              placeholder="год"
+              title="Год присвоения номера. Подставляется из даты прихода — нумерация в журнале каждый год начинается заново."
+              style={{ width: '100%', minWidth: '7ch', maxWidth: '9ch' }}
+              onChange={(e) => {
+                setSessionChanged(true);
+                setInternalNumberYear(e.target.value.replace(/\D/g, '').slice(0, 4));
+              }}
+            />
+            {internalNumberFull && !internalDup && (
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                полный номер: <b>{internalNumberFull}</b>
+              </span>
+            )}
+          </div>
+          {internalDup ? (
+            <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#b91c1c' }}>{engineInternalNumberDuplicateMessage(internalDup)}</span>
+              {props.onOpenEngine && (
+                <button
+                  type="button"
+                  onClick={() => props.onOpenEngine?.(internalDup.id)}
+                  style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}
+                >
+                  открыть занявший →
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--subtle)' }}>
+              Номер из журнала дефектовки — его набивают на безымянные детали двигателя.
+            </div>
+          )}
         </>
       ),
     },
@@ -1410,6 +1555,7 @@ export function EngineDetailsPage(props: {
 
   const orderedPrintRows: Array<[string, string]> = [
     ['Номер двигателя', engineNumber],
+    ['Внутренний номер', internalNumberFull],
     ['Марка двигателя', engineBrand],
     ['Контрагент', linkLabel('customer_id', customerId)],
     ['Контракт', linkLabel('contract_id', contractId)],
@@ -1426,7 +1572,13 @@ export function EngineDetailsPage(props: {
     ['Дата отгрузки', statusPrintValue(Boolean(statusFlags.status_customer_sent), statusDates.status_customer_sent)],
     ['Принято заказчиком', statusPrintValue(Boolean(statusFlags.status_customer_accepted), statusDates.status_customer_accepted)],
   ];
-  const headerTitle = engineNumber.trim() ? `Двигатель: ${engineNumber.trim()}` : 'Карточка двигателя';
+  // Внутренний номер — в заголовке рядом с заводским: оператор ищет карточку по клейму
+  // на детали, и в шапке она должна опознаваться тем же номером.
+  const headerTitle = engineNumber.trim()
+    ? `Двигатель: ${engineNumber.trim()}${internalNumberFull ? ` (внутр. ${internalNumberFull})` : ''}`
+    : internalNumberFull
+      ? `Двигатель: внутр. ${internalNumberFull}`
+      : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
   const arrivalDateMsForChecklist = fromInputDate(arrivalDate);
   const handlePrint = () => {

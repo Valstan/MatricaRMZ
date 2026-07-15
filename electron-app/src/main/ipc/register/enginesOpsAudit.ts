@@ -10,6 +10,7 @@ import {
   setEngineAttribute,
   advanceEngineStatusForWorkOrder,
   findEngineDuplicateCandidates,
+  findEngineInternalNumberDuplicate,
   type AssemblyEngineStatusTarget,
 } from '../../services/engineService.js';
 import { engineDedupeAnalyze, engineDedupeMerge } from '../../services/erpService.js';
@@ -31,6 +32,18 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
     await requirePermOrThrow(ctx, 'engines.view');
     return findEngineDuplicateCandidates(ctx.dataDb(), args?.engineNumber ?? '', args?.excludeEngineId);
   });
+  ipcMain.handle(
+    'engine:findInternalNumberDuplicate',
+    async (_e, args: { internalNumber: string; internalNumberYear: number; excludeEngineId?: string }) => {
+      await requirePermOrThrow(ctx, 'engines.view');
+      return findEngineInternalNumberDuplicate(
+        ctx.dataDb(),
+        args?.internalNumber ?? '',
+        args?.internalNumberYear,
+        args?.excludeEngineId,
+      );
+    },
+  );
   // Bulk duplicate analysis + operator merge (full server scan — authoritative, not the
   // possibly-partial local cache).
   ipcMain.handle('engine:dedupe:analyze', async () => {

@@ -3,10 +3,16 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
   EntityTypeCode,
   STATUS_CODES,
   applyStatusFlagChange,
+  engineInternalNumberDuplicateMessage,
+  engineInternalNumberKey,
+  formatEngineInternalNumber,
+  isValidEngineInternalNumberYear,
   normalizeLookupCompact,
   parseContractSections,
   searchLookupOptionsTiered,
@@ -16,7 +22,13 @@ import {
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 import { listEntitiesByType } from './entityService.js';
-import type { EngineDetails, EngineDuplicateCandidate, EngineDuplicateMatches, EngineListItem } from '@matricarmz/shared';
+import type {
+  EngineDetails,
+  EngineDuplicateCandidate,
+  EngineDuplicateMatches,
+  EngineInternalNumberDuplicate,
+  EngineListItem,
+} from '@matricarmz/shared';
 
 function nowMs() {
   return Date.now();
@@ -209,6 +221,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
 
   const defs = await getEngineAttrDefs(db);
   const numberDefId = defs['engine_number'];
+  const internalNumberDefId = defs[ENGINE_INTERNAL_NUMBER_CODE];
+  const internalNumberYearDefId = defs[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
   const brandDefId = defs['engine_brand'];
   const brandIdDefId = defs['engine_brand_id'];
   const customerIdDefId = defs['customer_id'];
@@ -230,6 +244,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const crankcaseScrapByEngineId = await getInventoryCrankcaseScrapMap(db, engineIds);
   const baseDefIds = [
     numberDefId,
+    internalNumberDefId,
+    internalNumberYearDefId,
     brandDefId,
     brandIdDefId,
     customerIdDefId,
@@ -291,6 +307,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   for (const e of engines) {
     const rowValues = valuesByEntity.get(e.id) ?? new Map<string, string | null>();
     let engineNumber: string | undefined;
+    let internalNumber: string | undefined;
+    let internalNumberYear: number | undefined;
     let engineBrand: string | undefined;
     let engineBrandId: string | undefined;
     let customerId: string | undefined;
@@ -304,6 +322,15 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     if (numberDefId) {
       const v = rowValues.get(numberDefId);
       engineNumber = v != null ? safeStringFromJson(v) : undefined;
+    }
+    if (internalNumberDefId) {
+      const v = rowValues.get(internalNumberDefId);
+      internalNumber = v != null ? safeStringFromJson(v) : undefined;
+    }
+    if (internalNumberYearDefId) {
+      const v = rowValues.get(internalNumberYearDefId);
+      const parsed = v != null ? Number(safeStringFromJson(v)) : NaN;
+      if (isValidEngineInternalNumberYear(parsed)) internalNumberYear = parsed;
     }
     if (brandDefId) {
       const v = rowValues.get(brandDefId);
@@ -394,6 +421,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     result.push({
       id: e.id,
       engineNumber: engineNumber ?? '',
+      internalNumber: internalNumber ?? '',
+      ...(internalNumberYear != null ? { internalNumberYear } : {}),
+      internalNumberFull: formatEngineInternalNumber(internalNumber ?? '', internalNumberYear),
       engineBrand: engineBrand ?? '',
       engineBrandId: engineBrandId ?? '',
       customerId: customerId ?? '',
@@ -497,6 +527,120 @@ export async function findEngineDuplicateByNumber(
     const parsed = safeJsonParse(String(r.valueJson ?? ''));
     const num = typeof parsed === 'string' ? parsed.trim() : '';
     if (num && normalizeLookupCompact(num) === key) return { id, engineNumber: num };
+  }
+  return null;
+}
+
+/** Год внутреннего номера, лежащий у двигателя сейчас (гейт сверяет пару целиком). */
+async function readEngineInternalNumberYear(
+  db: BetterSQLite3Database,
+  engineId: string,
+  defs: Record<string, string>,
+): Promise<number | null> {
+  const yearDefId = defs[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
+  if (!yearDefId) return null;
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, engineId),
+        eq(attributeValues.attributeDefId, yearDefId),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .orderBy(desc(attributeValues.updatedAt))
+    .limit(1);
+  if (!rows[0]) return null;
+  const parsed = safeJsonParse(String(rows[0].valueJson ?? ''));
+  const year = Number(typeof parsed === 'string' || typeof parsed === 'number' ? parsed : NaN);
+  return isValidEngineInternalNumberYear(year) ? year : null;
+}
+
+/** Внутренний номер, лежащий у двигателя сейчас (гейт при смене только года). */
+async function readEngineInternalNumberValue(
+  db: BetterSQLite3Database,
+  engineId: string,
+  defs: Record<string, string>,
+): Promise<string> {
+  const numberDefId = defs[ENGINE_INTERNAL_NUMBER_CODE];
+  if (!numberDefId) return '';
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, engineId),
+        eq(attributeValues.attributeDefId, numberDefId),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .orderBy(desc(attributeValues.updatedAt))
+    .limit(1);
+  if (!rows[0]) return '';
+  const parsed = safeJsonParse(String(rows[0].valueJson ?? ''));
+  return typeof parsed === 'string' ? parsed.trim() : '';
+}
+
+/**
+ * Дубль внутреннего номера: ключ — пара (номер, год), т.к. журнальная нумерация
+ * ежегодно сбрасывается и «41» сам по себе не уникален. Без годного ключа дублей нет.
+ */
+export async function findEngineInternalNumberDuplicate(
+  db: BetterSQLite3Database,
+  internalNumber: string,
+  internalNumberYear: unknown,
+  excludeEngineId?: string,
+): Promise<EngineInternalNumberDuplicate | null> {
+  const key = engineInternalNumberKey(String(internalNumber ?? ''), internalNumberYear);
+  if (!key) return null;
+
+  const defs = await getEngineAttrDefs(db);
+  const numberDefId = defs[ENGINE_INTERNAL_NUMBER_CODE];
+  const yearDefId = defs[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
+  if (!numberDefId || !yearDefId) return null;
+
+  const rows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
+    .where(
+      and(
+        inArray(attributeValues.attributeDefId, [numberDefId, yearDefId]),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+      ),
+    );
+
+  const byEngine = new Map<string, { number?: string; year?: string }>();
+  for (const r of rows) {
+    const id = String(r.entityId);
+    if (excludeEngineId && id === excludeEngineId) continue;
+    const parsed = safeJsonParse(String(r.valueJson ?? ''));
+    const text = typeof parsed === 'string' || typeof parsed === 'number' ? String(parsed).trim() : '';
+    if (!text) continue;
+    const entry = byEngine.get(id) ?? {};
+    if (String(r.attributeDefId) === numberDefId) entry.number = text;
+    else entry.year = text;
+    byEngine.set(id, entry);
+  }
+
+  for (const [id, entry] of byEngine) {
+    if (!entry.number || !entry.year) continue;
+    if (engineInternalNumberKey(entry.number, Number(entry.year)) !== key) continue;
+    const details = await getEngineDetails(db, id).catch(() => null);
+    const attrs = details?.attributes ?? {};
+    return {
+      id,
+      internalNumber: entry.number,
+      internalNumberYear: Number(entry.year),
+      engineNumber: String(attrs.engine_number ?? ''),
+      engineBrand: String(attrs.engine_brand ?? ''),
+    };
   }
   return null;
 }
@@ -629,6 +773,19 @@ export async function setEngineAttribute(
     // поэтому к моменту проверки флаг уже записан локально.
     if (dup && !(await engineHasDuplicateBypassFlag(db, engineId, defs))) {
       throw new Error(`Двигатель с номером «${dup.engineNumber}» уже существует. Откройте его карточку вместо создания дубля.`);
+    }
+  }
+
+  // Гейт внутреннего номера: уникальна пара (номер, год), поэтому сторожим обе записи —
+  // смена одного только года тоже способна наехать на чужую пару. Второй элемент пары
+  // читается из базы: карточка пишет год ДО номера (порядок ключей в saveAllAndClose).
+  if (code === ENGINE_INTERNAL_NUMBER_CODE || code === ENGINE_INTERNAL_NUMBER_YEAR_CODE) {
+    const isNumberWrite = code === ENGINE_INTERNAL_NUMBER_CODE;
+    const number = isNumberWrite ? String(value ?? '') : await readEngineInternalNumberValue(db, engineId, defs);
+    const year = isNumberWrite ? await readEngineInternalNumberYear(db, engineId, defs) : value;
+    const dup = await findEngineInternalNumberDuplicate(db, number, year, engineId);
+    if (dup) {
+      throw new Error(engineInternalNumberDuplicateMessage(dup));
     }
   }
 

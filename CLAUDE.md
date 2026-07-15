@@ -141,6 +141,7 @@ Health check: `curl -fsk https://127.0.0.1/health`
 Updates status: `curl -fsSk https://127.0.0.1/updates/status`
 
 ## Key architecture decisions
+- **Внутренний номер двигателя** («клеймо» на безымянных деталях): EAV-атрибуты `engine_internal_number` + `engine_internal_number_year`. Уникальна **пара (номер, год)**, не номер: нумерацию ведёт работник в журнале дефектовки и каждый год начинает с единицы. Показывается как `41/26`, в цеху на деталях живёт короткий `41`. Домен — `shared/src/domain/engineInternalNumber.ts` (формат/ключ/парс/сортировка), гейт дублей — на клиенте (`engineService.setEngineAttribute`) и на сервере (`adminMasterdataService` + `engineNumberGuard`), карточка пишет **год до номера** (гейт дочитывает второй элемент пары из БД). Префикс `engine_` обязателен: голый `internal_number` занят договорами. Флаги осознанного дубля (`repeat_arrival_flag`) на внутренний номер **не** распространяются.
 - Services (услуги) belong to the Supply (Снабжение) menu group
 - `engine_brand_ids` attribute on services: JSON array of engine brand entity IDs, stored via EAV
 - Service card origin tracking: `serviceOriginTab` state in App.tsx — close returns to opening tab

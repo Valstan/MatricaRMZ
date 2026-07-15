@@ -71,6 +71,11 @@ const matricaApi = {
     delete: async (engineId: string) => ipcRenderer.invoke('engine:delete', engineId),
     findDuplicateCandidates: async (args: { engineNumber: string; excludeEngineId?: string }) =>
       ipcRenderer.invoke('engine:findDuplicateCandidates', args),
+    findInternalNumberDuplicate: async (args: {
+      internalNumber: string;
+      internalNumberYear: number;
+      excludeEngineId?: string;
+    }) => ipcRenderer.invoke('engine:findInternalNumberDuplicate', args),
     dedupeAnalyze: async () => ipcRenderer.invoke('engine:dedupe:analyze'),
     dedupeMerge: async (args: { survivorId: string; loserIds: string[] }) => ipcRenderer.invoke('engine:dedupe:merge', args),
   },

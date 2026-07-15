@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { AttributeDataType, EntityTypeCode, STATUS_CODES, STATUS_LABELS, statusDateCode } from '@matricarmz/shared';
+import {
+  AttributeDataType,
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  EntityTypeCode,
+  STATUS_CODES,
+  STATUS_LABELS,
+  statusDateCode,
+} from '@matricarmz/shared';
 import { attributeDefs, entityTypes } from './schema.js';
 
 function nowMs() {
@@ -126,6 +134,10 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
 
   // Минимальные поля для MVP (гибкая структура будет расширяться).
   await ensureAttrDef(engineTypeId, 'engine_number', 'Номер двигателя', AttributeDataType.Text, 10);
+  // Внутренний номер регистрируем в seed, а не только в карточке (ensureAttributeDefs):
+  // список двигателей читает def напрямую и до первого открытия карточки показывал бы пусто.
+  await ensureAttrDef(engineTypeId, ENGINE_INTERNAL_NUMBER_CODE, 'Внутренний номер', AttributeDataType.Text, 15);
+  await ensureAttrDef(engineTypeId, ENGINE_INTERNAL_NUMBER_YEAR_CODE, 'Год внутреннего номера', AttributeDataType.Number, 16);
   await ensureAttrDef(engineTypeId, 'engine_brand', 'Марка двигателя', AttributeDataType.Text, 20);
   await ensureAttrDef(engineTypeId, 'arrival_date', 'Дата прихода', AttributeDataType.Date, 25);
   for (const code of STATUS_CODES) {

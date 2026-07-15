@@ -3,7 +3,14 @@
 // client-side search, see shared/src/domain/lookupNormalize.ts).
 // Leaf module: imported by both adminMasterdataService (write gate) and
 // engineDedupeService (merge pass) — keep it free of service imports.
-import { normalizeLookupCompact } from '@matricarmz/shared';
+import {
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  engineInternalNumberKey,
+  isValidEngineInternalNumberYear,
+  normalizeLookupCompact,
+  type EngineInternalNumberDuplicate,
+} from '@matricarmz/shared';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
@@ -77,6 +84,116 @@ function parseTextAttr(valueJson: string | null | undefined): string {
   } catch {
     return String(valueJson).trim();
   }
+}
+
+/**
+ * Значение скалярного атрибута как текст. Отдельно от parseTextAttr: год номера лежит
+ * числом (dataType=number), а parseTextAttr отдаёт '' на всём, что не строка.
+ */
+function parseScalarAttr(valueJson: string | null | undefined): string {
+  if (valueJson == null) return '';
+  try {
+    const parsed = JSON.parse(String(valueJson));
+    if (typeof parsed === 'string') return parsed.trim();
+    if (typeof parsed === 'number' && Number.isFinite(parsed)) return String(parsed);
+    return '';
+  } catch {
+    return String(valueJson).trim();
+  }
+}
+
+/** Текущее значение атрибута двигателя (гейт пары дочитывает второй её элемент). */
+async function readEngineAttrText(entityId: string, code: string): Promise<string> {
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
+    .where(
+      and(
+        eq(attributeValues.entityId, entityId),
+        eq(attributeDefs.code, code),
+        isNull(attributeDefs.deletedAt),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? parseScalarAttr(rows[0].valueJson) : '';
+}
+
+export async function readEngineInternalNumberValue(entityId: string): Promise<string> {
+  return readEngineAttrText(entityId, ENGINE_INTERNAL_NUMBER_CODE);
+}
+
+export async function readEngineInternalNumberYear(entityId: string): Promise<number | null> {
+  const raw = await readEngineAttrText(entityId, ENGINE_INTERNAL_NUMBER_YEAR_CODE);
+  const year = Number(raw);
+  return isValidEngineInternalNumberYear(year) ? year : null;
+}
+
+/**
+ * Дубль внутреннего номера двигателя. Ключ — пара (номер, год): нумерация в журнале
+ * дефектовки ежегодно сбрасывается, поэтому «41» уникален только внутри своего года.
+ */
+export async function findEngineInternalNumberDuplicate(
+  internalNumber: string,
+  internalNumberYear: unknown,
+  excludeEntityId?: string,
+): Promise<EngineInternalNumberDuplicate | null> {
+  const key = engineInternalNumberKey(String(internalNumber ?? ''), internalNumberYear);
+  if (!key) return null;
+
+  const rows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      code: attributeDefs.code,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
+    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(
+      and(
+        eq(entityTypes.code, 'engine'),
+        inArray(attributeDefs.code, [
+          ENGINE_INTERNAL_NUMBER_CODE,
+          ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+          'engine_number',
+          'engine_brand',
+        ]),
+        isNull(attributeDefs.deletedAt),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+        isNull(entityTypes.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const byEngine = new Map<string, Record<string, string>>();
+  for (const r of rows) {
+    const id = String(r.entityId);
+    if (excludeEntityId && id === excludeEntityId) continue;
+    const value = parseScalarAttr(r.valueJson);
+    if (!value) continue;
+    const entry = byEngine.get(id) ?? {};
+    entry[String(r.code)] = value;
+    byEngine.set(id, entry);
+  }
+
+  for (const [id, entry] of byEngine) {
+    const number = entry[ENGINE_INTERNAL_NUMBER_CODE] ?? '';
+    const year = Number(entry[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? NaN);
+    if (!number || !isValidEngineInternalNumberYear(year)) continue;
+    if (engineInternalNumberKey(number, year) !== key) continue;
+    return {
+      id,
+      internalNumber: number,
+      internalNumberYear: year,
+      engineNumber: entry['engine_number'] ?? '',
+      engineBrand: entry['engine_brand'] ?? '',
+    };
+  }
+  return null;
 }
 
 export async function findEngineDuplicateByNumber(

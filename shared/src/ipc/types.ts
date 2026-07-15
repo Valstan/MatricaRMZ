@@ -10,6 +10,16 @@ import type { UiShellPrefs } from '../domain/uiShellV2.js';
 export type EngineListItem = {
   id: string;
   engineNumber?: string;
+  /** Внутренний номер из журнала дефектовки ('41'); уникален только в паре с годом. */
+  internalNumber?: string;
+  /** Год присвоения внутреннего номера (2026) — нумерация сбрасывается ежегодно. */
+  internalNumberYear?: number;
+  /**
+   * Полный номер ('41/26') — денормализация РАДИ ПОИСКА: тир-1 сканирует поля строки,
+   * а по отдельным '41' и '2026' запрос «41/26» не собирается (слэш нормализуется в пробел).
+   * Считается в listEngines из пары выше, врозь разъехаться не может.
+   */
+  internalNumberFull?: string;
   engineBrand?: string;
   engineBrandId?: string;
   customerId?: string;
@@ -60,6 +70,15 @@ export type DuplicateCandidate = {
 
 export type EngineDuplicateCandidate = {
   id: string;
+  engineNumber: string;
+  engineBrand: string;
+};
+
+/** Двигатель, уже занявший пару (внутренний номер, год) — показывается как причина отказа. */
+export type EngineInternalNumberDuplicate = {
+  id: string;
+  internalNumber: string;
+  internalNumberYear: number;
   engineNumber: string;
   engineBrand: string;
 };
@@ -806,6 +825,11 @@ export type MatricaApi = {
       dateMs: number;
     }) => Promise<{ applied: boolean; reason?: string }>;
     findDuplicateCandidates: (args: { engineNumber: string; excludeEngineId?: string }) => Promise<EngineDuplicateMatches>;
+    findInternalNumberDuplicate: (args: {
+      internalNumber: string;
+      internalNumberYear: number;
+      excludeEngineId?: string;
+    }) => Promise<EngineInternalNumberDuplicate | null>;
   };
   operations: {
     list: (engineId: string) => Promise<OperationItem[]>;
