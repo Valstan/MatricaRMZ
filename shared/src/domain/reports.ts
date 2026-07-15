@@ -107,6 +107,28 @@ export type ReportColumn = {
   align?: 'left' | 'right';
 };
 
+/** Суперсет колонок отчёта «Отчёт по двигателям». Порядок = канонический порядок печати. */
+export const ENGINES_LIST_REPORT_COLUMNS: ReportColumn[] = [
+  { key: 'engineNumber', label: '№ двигателя' },
+  { key: 'engineInternalNumber', label: 'Внутр. №' },
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'contractLabel', label: 'Контракт' },
+  { key: 'counterpartyLabel', label: 'Контрагент' },
+  { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
+  { key: 'repairStartedDate', label: 'Начало ремонта', kind: 'date' },
+  { key: 'repairedDate', label: 'Окончание ремонта', kind: 'date' },
+  { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
+  { key: 'isScrap', label: 'Утиль' },
+  { key: 'completenessAct', label: 'Акт комплектности' },
+];
+
+/** Какие колонки печатать (в каноническом порядке). Пусто → все. */
+export function selectEnginesListReportColumns(selectedKeys: ReadonlyArray<string>): ReportColumn[] {
+  const set = new Set(selectedKeys.map((k) => String(k).trim()).filter(Boolean));
+  if (set.size === 0) return [...ENGINES_LIST_REPORT_COLUMNS];
+  return ENGINES_LIST_REPORT_COLUMNS.filter((c) => set.has(c.key));
+}
+
 export type ReportPresetDefinition = {
   id: ReportPresetId;
   title: string;
@@ -728,7 +750,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {
     id: 'engines_list',
     title: 'Отчёт по двигателям',
-    description: 'Список двигателей с фильтрацией по датам, маркам, контрактам, статусу утиля и наличию на заводе.',
+    description:
+      'Список двигателей: фильтры по датам, маркам, контрактам, контрагентам, утилю, наличию на заводе и акту комплектности; выбор колонок для печати.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период (дата создания)', startKey: 'startMs', endKey: 'endMs' },
       { type: 'date_range', key: 'arrivalPeriod', label: 'Дата прихода', startKey: 'arrivalStartMs', endKey: 'arrivalEndMs' },
@@ -737,6 +760,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { type: 'date_range', key: 'shippingPeriod', label: 'Дата отгрузки', startKey: 'shippingStartMs', endKey: 'shippingEndMs' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
       {
         type: 'select',
         key: 'scrapFilter',
@@ -757,19 +781,27 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
           { value: 'no', label: 'Отгруженные' },
         ],
       },
+      {
+        type: 'select',
+        key: 'completenessActFilter',
+        label: 'Акт комплектности',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'Заполнен (начат)' },
+          { value: 'no', label: 'Не заполнен' },
+        ],
+        labelHint: 'Акт считается заполненным, если хотя бы одна деталь отмечена «на месте»',
+      },
+      {
+        type: 'multi_select',
+        key: 'columns',
+        label: 'Колонки отчёта',
+        options: ENGINES_LIST_REPORT_COLUMNS.map((c) => ({ value: c.key, label: c.label })),
+        selectAllByDefault: true,
+        labelHint: 'Какие колонки печатать. Пусто — все.',
+      },
     ],
-    columns: [
-      { key: 'engineNumber', label: '№ двигателя' },
-      { key: 'engineInternalNumber', label: 'Внутр. №' },
-      { key: 'engineBrand', label: 'Марка' },
-      { key: 'contractLabel', label: 'Контракт' },
-      { key: 'counterpartyLabel', label: 'Контрагент' },
-      { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
-      { key: 'repairStartedDate', label: 'Начало ремонта', kind: 'date' },
-      { key: 'repairedDate', label: 'Окончание ремонта', kind: 'date' },
-      { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
-      { key: 'isScrap', label: 'Утиль' },
-    ],
+    columns: ENGINES_LIST_REPORT_COLUMNS,
   },
   {
     id: 'warehouse_stock_path_audit',

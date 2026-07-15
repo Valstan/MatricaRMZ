@@ -25,6 +25,7 @@ import { formatMoscowDate } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
+import { openPrintPreview, escapeHtml } from '../utils/printPreview.js';
 
 
 type EngineRow = EngineListItem & {
@@ -91,15 +92,184 @@ function renderBindingCell(e: EngineListItem): React.ReactNode {
   );
 }
 
+// Текстовая метка привязки — для печати списка (в таблице те же состояния рисуются точками).
+function bindingTextLabel(e: EngineListItem): string {
+  switch (classifyEngineContractBinding(e)) {
+    case 'contract':
+      return 'Договор';
+    case 'addon':
+      return String(e.contractSectionNumber ?? 'ДС').trim() || 'ДС';
+    default:
+      return 'Не привязан';
+  }
+}
+
+// ── Печать списка двигателей с выбором полей ────────────────────────────────
+// Печатает текущее содержимое списка (фильтры/сортировка как на экране) либо только
+// выделенные строки; состав колонок выбирается галочками и запоминается локально.
+
+type EnginePrintField = { id: string; label: string; value: (e: EngineListItem) => string };
+
+const ENGINE_PRINT_FIELDS: EnginePrintField[] = [
+  { id: 'engineNumber', label: 'Номер', value: (e) => String(e.engineNumber ?? '') },
+  {
+    id: 'internalNumber',
+    label: 'Внутр. №',
+    value: (e) => formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear),
+  },
+  { id: 'engineBrand', label: 'Марка', value: (e) => String(e.engineBrand ?? '') },
+  { id: 'customerName', label: 'Контрагент', value: (e) => String(e.customerName ?? '') },
+  { id: 'contractName', label: 'Договор', value: (e) => String(e.contractName ?? '') },
+  { id: 'binding', label: 'Привязка', value: (e) => bindingTextLabel(e) },
+  { id: 'arrivalDate', label: 'Дата прихода', value: (e) => toDateLabel(e.arrivalDate) },
+  { id: 'shippingDate', label: 'Дата отгрузки', value: (e) => toDateLabel(e.shippingDate) },
+  { id: 'completenessAct', label: 'Акт комплектности', value: (e) => (e.hasCompletenessAct ? 'Да' : 'Нет') },
+  { id: 'isScrap', label: 'Утиль', value: (e) => (e.isScrap ? 'Да' : 'Нет') },
+];
+
+const ENGINE_PRINT_FIELDS_STORAGE_KEY = 'list:engines:printFields';
+const ENGINE_PRINT_DEFAULT_FIELD_IDS = ['engineNumber', 'internalNumber', 'engineBrand', 'customerName', 'arrivalDate'];
+
+function loadPrintFieldIds(): string[] {
+  try {
+    const raw = window.localStorage.getItem(ENGINE_PRINT_FIELDS_STORAGE_KEY);
+    if (!raw) return ENGINE_PRINT_DEFAULT_FIELD_IDS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return ENGINE_PRINT_DEFAULT_FIELD_IDS;
+    const known = new Set(ENGINE_PRINT_FIELDS.map((f) => f.id));
+    const ids = parsed.map((v) => String(v)).filter((id) => known.has(id));
+    return ids.length > 0 ? ids : ENGINE_PRINT_DEFAULT_FIELD_IDS;
+  } catch {
+    return ENGINE_PRINT_DEFAULT_FIELD_IDS;
+  }
+}
+
+function EngineListPrintDialog(props: {
+  filteredEngines: EngineListItem[];
+  selectedEngines: EngineListItem[];
+  onClose: () => void;
+}) {
+  const [fieldIds, setFieldIds] = React.useState<string[]>(() => loadPrintFieldIds());
+  const hasSelection = props.selectedEngines.length > 0;
+  const [scope, setScope] = React.useState<'selected' | 'filtered'>(hasSelection ? 'selected' : 'filtered');
+  const targets = scope === 'selected' && hasSelection ? props.selectedEngines : props.filteredEngines;
+
+  const toggleField = (id: string) => {
+    setFieldIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id];
+      try {
+        window.localStorage.setItem(ENGINE_PRINT_FIELDS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // localStorage может быть недоступен — просто не запоминаем выбор
+      }
+      return next;
+    });
+  };
+
+  const doPrint = () => {
+    // Порядок колонок — канонический (как в ENGINE_PRINT_FIELDS), не порядок кликов.
+    const fields = ENGINE_PRINT_FIELDS.filter((f) => fieldIds.includes(f.id));
+    if (fields.length === 0 || targets.length === 0) return;
+    const thead = fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('');
+    const tbody = targets
+      .map((e) => `<tr>${fields.map((f) => `<td>${escapeHtml(f.value(e) || '—')}</td>`).join('')}</tr>`)
+      .join('');
+    openPrintPreview({
+      title: 'Список двигателей',
+      subtitle: `Двигателей: ${targets.length}`,
+      sections: [
+        {
+          id: 'engines-list',
+          title: 'Список двигателей',
+          hideTitle: true,
+          html: `<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
+<div class="muted" style="margin-top:8px">Итого: ${targets.length}</div>`,
+        },
+      ],
+    });
+    props.onClose();
+  };
+
+  return (
+    <div
+      onClick={props.onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 24, overflow: 'auto' }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: 'var(--card-bg, #fff)', color: 'var(--text)', borderRadius: 12, width: 'min(520px, 96vw)', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid rgba(15,23,42,0.12)' }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Печать списка двигателей</div>
+          <div style={{ flex: 1 }} />
+          <Button variant="ghost" onClick={props.onClose}>
+            Закрыть
+          </Button>
+        </div>
+        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {hasSelection ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="radio" checked={scope === 'selected'} onChange={() => setScope('selected')} />
+                Только выделенные ({props.selectedEngines.length})
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="radio" checked={scope === 'filtered'} onChange={() => setScope('filtered')} />
+                Весь список по текущему фильтру ({props.filteredEngines.length})
+              </label>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: 13 }}>
+              Будет напечатан список по текущему фильтру: {props.filteredEngines.length} двигател(я/ей).
+              Чтобы напечатать только часть — выделите строки в списке (Shift+клик / Shift+ПКМ).
+            </div>
+          )}
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Поля для печати</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+              {ENGINE_PRINT_FIELDS.map((f) => (
+                <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                  <input type="checkbox" checked={fieldIds.includes(f.id)} onChange={() => toggleField(f.id)} />
+                  {f.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button variant="ghost" onClick={props.onClose}>
+              Отмена
+            </Button>
+            <Button onClick={doPrint} disabled={fieldIds.length === 0 || targets.length === 0}>
+              Печать…
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export type EnginesPageUiState = {
   query: string;
-  sortKey: 'engineNumber' | 'internalNumber' | 'engineBrand' | 'customerName' | 'binding' | 'arrivalDate' | 'shippingDate';
+  sortKey:
+    | 'engineNumber'
+    | 'internalNumber'
+    | 'engineBrand'
+    | 'customerName'
+    | 'binding'
+    | 'arrivalDate'
+    | 'shippingDate'
+    | 'completenessAct';
   sortDir: 'asc' | 'desc';
   page: number;
   showPreviews: boolean;
   contractDateFrom: string;
   contractDateTo: string;
   onlyReclamation?: boolean;
+  /** Фильтр «Акт комплектности»: yes = заполнен (начат), no = не заполнен. */
+  completenessFilter?: 'all' | 'yes' | 'no';
+  /** Фильтр по контрагенту (customerId); пусто = все. */
+  customerFilter?: string;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -298,9 +468,12 @@ export function EnginesPage(props: {
   canCreate: boolean;
   /** ПКМ → «Наряд на сборку» (тема D): открыть новый сборочный наряд для этого двигателя. */
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
+  /** Кнопка «Отчёт по двигателям» → пресет engines_list (гибкие фильтры/колонки/шаблоны). */
+  onOpenReport?: () => void;
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
   const { containerRef, onScroll } = usePersistedScrollTop('list:engines');
   const query = listState.query;
@@ -310,6 +483,8 @@ export function EnginesPage(props: {
   const contractDateFrom = String(listState.contractDateFrom ?? '');
   const contractDateTo = String(listState.contractDateTo ?? '');
   const onlyReclamation = listState.onlyReclamation === true;
+  const completenessFilter = listState.completenessFilter ?? 'all';
+  const customerFilter = String(listState.customerFilter ?? '');
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -328,6 +503,9 @@ export function EnginesPage(props: {
     const hasDateFilter = fromMs != null || toMs != null;
     return deepFilter.filtered.filter((engine) => {
       if (onlyReclamation && engine.isReclamation !== true) return false;
+      if (completenessFilter === 'yes' && engine.hasCompletenessAct !== true) return false;
+      if (completenessFilter === 'no' && engine.hasCompletenessAct === true) return false;
+      if (customerFilter && String(engine.customerId ?? '') !== customerFilter) return false;
       if (!hasDateFilter) return true;
       const arrivalDate = typeof engine.arrivalDate === 'number' && Number.isFinite(engine.arrivalDate) ? engine.arrivalDate : null;
       if (arrivalDate == null) return false;
@@ -335,7 +513,18 @@ export function EnginesPage(props: {
       if (toMs != null && arrivalDate > toMs) return false;
       return true;
     });
-  }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation]);
+  }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation, completenessFilter, customerFilter]);
+
+  // Опции фильтра по контрагенту — из самих строк списка (у кого он вообще заполнен).
+  const customerOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const e of props.engines) {
+      const id = String(e.customerId ?? '').trim();
+      const name = String(e.customerName ?? '').trim();
+      if (id && name && !byId.has(id)) byId.set(id, name);
+    }
+    return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  }, [props.engines]);
 
   // Этикетка клеится на тару с деталями двигателя: в QR — полный внутренний номер
   // ('41/26'), тот же, что набит на деталях. Скан (сканер печатает как клавиатура) →
@@ -400,6 +589,10 @@ export function EnginesPage(props: {
           return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
         case 'shippingDate':
           return byDate(a.shippingDate ?? null, b.shippingDate ?? null);
+        case 'completenessAct': {
+          const r = ((a.hasCompletenessAct ? 0 : 1) - (b.hasCompletenessAct ? 0 : 1)) * dir;
+          return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
+        }
         default:
           return 0;
       }
@@ -491,6 +684,23 @@ export function EnginesPage(props: {
         kind: 'name',
         render: (e) => renderBindingCell(e),
       },
+      {
+        id: 'completenessAct',
+        label: 'Акт компл.',
+        sortable: true,
+        sortKey: 'completenessAct',
+        kind: 'name',
+        render: (e) =>
+          e.hasCompletenessAct ? (
+            <span title="Акт комплектности заполнен: в списке деталей есть отметки «на месте»" style={{ color: '#16a34a', fontWeight: 600 }}>
+              ✓
+            </span>
+          ) : (
+            <span title="Акт комплектности не заполнен: ни одна деталь не отмечена «на месте»" style={{ color: '#9ca3af' }}>
+              —
+            </span>
+          ),
+      },
       { id: 'arrivalDate', label: 'Дата прихода', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
       { id: 'shippingDate', label: 'Дата отгрузки', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
       {
@@ -568,16 +778,29 @@ export function EnginesPage(props: {
   }
 
   function engineRowProps(e: EngineListItem): VirtualTableRowProps {
+    const isSelected = selection.isSelected(String(e.id));
     return {
-      onClick: () => openEngine(e.id),
-      onContextMenu: props.onCreateAssemblyOrder
-        ? (event) => {
-            const result = selection.onRowContextMenu(event, String(e.id));
-            if (!result.openMenu) return;
-            setMenu({ x: event.clientX, y: event.clientY, targetIds: result.targetIds, bulk: result.bulk });
-          }
-        : undefined,
-      style: { cursor: 'pointer', ...(e.isScrap ? { background: 'rgba(239, 68, 68, 0.18)' } : {}) },
+      onClick: (event) => {
+        // Shift+клик — выделение строк (для печати выделенных), обычный клик — открыть карточку.
+        if (event.shiftKey) {
+          event.preventDefault();
+          selection.toggleSelect(String(e.id));
+          return;
+        }
+        selection.onRowPrimaryAction(String(e.id));
+        openEngine(e.id);
+      },
+      onContextMenu: (event) => {
+        const result = selection.onRowContextMenu(event, String(e.id));
+        if (!result.openMenu || !props.onCreateAssemblyOrder) return;
+        setMenu({ x: event.clientX, y: event.clientY, targetIds: result.targetIds, bulk: result.bulk });
+      },
+      ...(isSelected ? { 'data-list-selected': 'true' as const } : {}),
+      style: {
+        cursor: 'pointer',
+        ...(e.isScrap ? { background: 'rgba(239, 68, 68, 0.18)' } : {}),
+        ...(isSelected ? { background: 'rgba(37, 99, 235, 0.14)' } : {}),
+      },
     };
   }
 
@@ -607,7 +830,12 @@ export function EnginesPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap' }}>
+        {props.onOpenReport && (
+          <Button variant="ghost" onClick={() => props.onOpenReport?.()} title="Гибкие отчёты по двигателям: фильтры, выбор колонок, шаблоны, печать">
+            Отчёт по двигателям
+          </Button>
+        )}
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         <div style={{ flex: 1 }}>
           <Input
@@ -653,6 +881,29 @@ export function EnginesPage(props: {
         >
           Рекламационные
         </Button>
+        <select
+          value={customerFilter}
+          onChange={(e) => patchState({ customerFilter: e.target.value, page: 0 })}
+          title="Фильтр по контрагенту"
+          style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db', maxWidth: 200, background: customerFilter ? 'rgba(37, 99, 235, 0.08)' : undefined }}
+        >
+          <option value="">Контрагент: все</option>
+          {customerOptions.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={completenessFilter}
+          onChange={(e) => patchState({ completenessFilter: e.target.value as 'all' | 'yes' | 'no', page: 0 })}
+          title="Фильтр по акту комплектности: заполнен = хотя бы одна деталь отмечена «на месте»"
+          style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: completenessFilter !== 'all' ? 'rgba(37, 99, 235, 0.08)' : undefined }}
+        >
+          <option value="all">Акт компл.: все</option>
+          <option value="yes">Акт заполнен</option>
+          <option value="no">Акт не заполнен</option>
+        </select>
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
@@ -665,6 +916,13 @@ export function EnginesPage(props: {
           title="Печать QR-этикеток на тару с деталями: марка, внутренний номер, QR для поиска двигателя"
         >
           Печать этикеток
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => setPrintDialogOpen(true)}
+          title="Печать текущего списка (по фильтру или выделенных строк) с выбором полей"
+        >
+          Печать списка
         </Button>
         <ColumnSettingsButton
           columns={columnDescriptors}
@@ -735,6 +993,14 @@ export function EnginesPage(props: {
         targets={labelTargets}
         onClose={() => setLabelDialogOpen(false)}
       />
+
+      {printDialogOpen && (
+        <EngineListPrintDialog
+          filteredEngines={displayRows}
+          selectedEngines={displayRows.filter((e) => selection.isSelected(String(e.id)))}
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }
