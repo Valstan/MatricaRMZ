@@ -32,6 +32,9 @@ import {
   type ReportPresetPreviewRequest,
   type ReportPresetPreviewResult,
   type ReportPresetPrintResult,
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  formatEngineInternalNumber,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
   resolveWorkOrderSignatureDecryptions,
@@ -1104,6 +1107,10 @@ async function buildEngineStagesReport(
     const progressPct = calculated > 0 ? calculated : stageProgressFallback(latest.stage);
     rows.push({
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
+      engineInternalNumber: formatEngineInternalNumber(
+        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      ),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
@@ -1762,6 +1769,7 @@ async function buildWorkOrdersReport(
     let engineBrand = '';
     let engineBrandId = '';
     let engineNumber = '';
+    let engineInternalNumber = '';
     let engineId = '';
     let firstWorkType = '';
     const lines = collectWorkOrderWorkLines(payload);
@@ -1769,15 +1777,23 @@ async function buildWorkOrdersReport(
       if (!engineBrand) engineBrand = String(l?.engineBrandName ?? '').trim();
       if (!engineBrandId) engineBrandId = String(l?.engineBrandId ?? '').trim();
       if (!engineNumber) engineNumber = String(l?.engineNumber ?? '').trim();
+      if (!engineInternalNumber) engineInternalNumber = String((l as { engineInternalNumber?: unknown })?.engineInternalNumber ?? '').trim();
       if (!engineId) engineId = String(l?.engineId ?? '').trim();
       if (!firstWorkType) firstWorkType = String(l?.serviceName ?? '').trim();
     }
     // Наряд после #133 несёт двигатель в шапке (payload.assemblyEngineId), построчные
     // штампы могут отсутствовать — резолвим номер/марку из справочника, как список/печать.
     if (!engineId) engineId = String(resolveAssemblyEngineId(payload) ?? '').trim();
-    if (engineId && (!engineNumber || !engineBrand || !engineBrandId)) {
+    if (engineId && (!engineNumber || !engineBrand || !engineBrandId || !engineInternalNumber)) {
       const eAttrs = snapshot.attrsByEntity.get(engineId) ?? {};
       if (!engineNumber) engineNumber = normalizeText(eAttrs.engine_number ?? eAttrs.number, '');
+      // Старые наряды снимка внутреннего номера не несут — дотягиваем из карточки двигателя.
+      if (!engineInternalNumber) {
+        engineInternalNumber = formatEngineInternalNumber(
+          normalizeText(eAttrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+          eAttrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+        );
+      }
       if (!engineBrandId) engineBrandId = normalizeText(eAttrs.engine_brand_id, '');
       if (!engineBrand && engineBrandId) {
         engineBrand = normalizeText(brandNames.get(engineBrandId), '') || normalizeText(snapshot.attrsByEntity.get(engineBrandId)?.name, '');
@@ -1823,6 +1839,7 @@ async function buildWorkOrdersReport(
       workType,
       engineBrand,
       engineNumber,
+      engineInternalNumber,
       counterparty,
       performers,
       crewCount: crew.length,
@@ -2763,6 +2780,10 @@ async function buildEngineMovementsReport(
       eventAt: ts,
       eventTypeLabel: stageLabel(opType),
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
+      engineInternalNumber: formatEngineInternalNumber(
+        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      ),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
@@ -2859,6 +2880,10 @@ async function buildEnginesListReport(
 
     rows.push({
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, id),
+      engineInternalNumber: formatEngineInternalNumber(
+        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      ),
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
@@ -3158,6 +3183,10 @@ async function buildEngineReadinessToAssembleReport(
     const phase = String(attrs.engine_phase ?? '').trim();
     if (phase && phase !== 'received' && phase !== 'disassembled') continue;
     const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engine.id));
+    const engineInternalNumber = formatEngineInternalNumber(
+      normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+      attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+    );
     const brandLabel = brandId ? normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId) : '';
 
     const totalComponents = bomLines.length;
@@ -3180,6 +3209,7 @@ async function buildEngineReadinessToAssembleReport(
 
     rows.push({
       engineNumber,
+      engineInternalNumber,
       engineBrand: brandLabel,
       enginePhase: phase || '—',
       totalComponents,

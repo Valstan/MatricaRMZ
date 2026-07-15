@@ -89,6 +89,7 @@ function RecentEnginesWidget(props: { limit: number; runtime: UiIntentRuntime })
         ? state.rows.map((e) => (
             <button key={e.id} type="button" style={rowStyle} onClick={() => props.runtime.openEngine(e.id)}>
               {e.engineBrand || 'Двигатель'} №{e.engineNumber || '—'}
+              {e.internalNumberFull ? ` · внутр. ${e.internalNumberFull}` : ''}
               <span style={{ color: theme.colors.muted }}> · {fmtDate(e.updatedAt)}</span>
             </button>
           ))

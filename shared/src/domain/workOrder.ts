@@ -19,6 +19,12 @@ export type WorkOrderWorkLine = {
   productNumber?: string;
   engineId?: string | null;
   engineNumber?: string;
+  /**
+   * Внутренний номер двигателя в готовом виде ('41/26') — снимок на момент выписки.
+   * Хранится строкой, а не парой (номер, год): наряду он нужен только для показа и
+   * печати, а снимок обязан пережить правку номера в карточке двигателя.
+   */
+  engineInternalNumber?: string;
   engineBrandId?: string | null;
   engineBrandName?: string;
   // Наименование изделия (деталь из справочника). Используется backend-ом при закрытии
@@ -92,6 +98,8 @@ export function normalizeWorkOrderLine(line: unknown, lineNo: number): WorkOrder
     result.engineId = engineId;
     const engineNumber = String(raw.engineNumber ?? '').trim();
     if (engineNumber) result.engineNumber = engineNumber;
+    const engineInternalNumber = String(raw.engineInternalNumber ?? '').trim();
+    if (engineInternalNumber) result.engineInternalNumber = engineInternalNumber;
     const engineBrandId = raw.engineBrandId ? String(raw.engineBrandId).trim() : '';
     if (engineBrandId) result.engineBrandId = engineBrandId;
     const engineBrandName = String(raw.engineBrandName ?? '').trim();

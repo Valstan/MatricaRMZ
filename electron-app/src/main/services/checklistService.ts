@@ -55,6 +55,7 @@ function defaultCompletenessTemplate(): RepairChecklistTemplate {
       { id: 'contract_number', label: 'Номер договора', kind: 'text' },
       { id: 'engine_brand', label: 'Марка двигателя', kind: 'text', required: true },
       { id: 'engine_number', label: '№ двигателя', kind: 'text', required: true },
+      { id: 'engine_internal_number', label: 'Внутренний №', kind: 'text' },
       { id: 'inspection_method', label: 'Проверка комплектности (способ)', kind: 'text' },
       {
         id: 'completeness_items',
@@ -89,6 +90,7 @@ function defaultDefectTemplate(): RepairChecklistTemplate {
       { id: 'defect_act_number', label: 'Акт полной дефектовки двигателя (номер)', kind: 'text' },
       { id: 'engine_brand', label: 'Марка двигателя', kind: 'text', required: true },
       { id: 'engine_number', label: '№ двигателя', kind: 'text', required: true },
+      { id: 'engine_internal_number', label: 'Внутренний №', kind: 'text' },
       { id: 'passport_number', label: 'Паспорт двигателя (№)', kind: 'text' },
       { id: 'defect_start_date', label: 'Дата начала дефектовки', kind: 'date' },
       { id: 'defect_end_date', label: 'Дата окончания дефектовки', kind: 'date' },
@@ -124,6 +126,7 @@ function defaultEngineInventoryTemplate(): RepairChecklistTemplate {
       { id: 'contract_number', label: 'Номер договора', kind: 'text' },
       { id: 'engine_brand', label: 'Марка двигателя', kind: 'text', required: true },
       { id: 'engine_number', label: '№ двигателя', kind: 'text', required: true },
+      { id: 'engine_internal_number', label: 'Внутренний №', kind: 'text' },
       { id: 'arrival_date', label: 'Дата приёмки двигателя', kind: 'date' },
       { id: 'defect_start_date', label: 'Дата начала дефектовки', kind: 'date' },
       { id: 'defect_end_date', label: 'Дата окончания дефектовки', kind: 'date' },
@@ -386,7 +389,7 @@ export async function saveEngineActSnapshot(
     engineId: string;
     actType: EngineActType;
     rows: EngineInventoryRow[];
-    header: { engineBrand: string; engineNumber: string; contractNumber: string };
+    header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
     answers: RepairChecklistAnswers;
     selectedCount: number;
     actor: string;
@@ -492,7 +495,7 @@ export async function saveRepairFundRequirementSnapshot(
   args: {
     engineId: string;
     instances: RepairFundInstancePayload[];
-    header: { engineBrand: string; engineNumber: string; contractNumber: string };
+    header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
     actor: string;
   },
 ): Promise<{ ok: true; operationId: string; version: number; deduped: boolean } | { ok: false; error: string }> {

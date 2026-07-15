@@ -302,7 +302,7 @@ const matricaApi = {
       engineId: string;
       actType: 'completeness' | 'defect' | 'claim';
       rows: unknown[];
-      header: { engineBrand: string; engineNumber: string; contractNumber: string };
+      header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
       answers: unknown;
       selectedCount: number;
     }) => ipcRenderer.invoke('checklists:engine:actSnapshot', args),
@@ -317,7 +317,7 @@ const matricaApi = {
     requirementSnapshot: async (args: {
       engineId: string;
       instances: unknown[];
-      header: { engineBrand: string; engineNumber: string; contractNumber: string };
+      header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
     }) => ipcRenderer.invoke('checklists:engine:requirementSnapshot', args),
   },
   supplyRequests: {

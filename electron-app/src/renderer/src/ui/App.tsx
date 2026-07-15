@@ -2651,7 +2651,9 @@ export function App() {
     if (kind === 'engine') {
       const e = engines.find((x) => x.id === entityId);
       const num = e?.engineNumber?.trim();
-      if (num) return `⚙️ ${num}`;
+      const internal = e?.internalNumberFull?.trim();
+      if (num) return internal ? `⚙️ ${num} · ${internal}` : `⚙️ ${num}`;
+      if (internal) return `⚙️ ${internal}`;
     }
     return `${appTabTitle(kind)} · ${entityId.slice(0, 6)}`;
   }

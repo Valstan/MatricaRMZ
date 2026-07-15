@@ -68,7 +68,7 @@ type EmployeeInfo = {
   position?: string | null;
   employmentStatus?: string | null;
 };
-type EngineInfo = { id: string; engineNumber?: string; engineBrandId?: string | null; engineBrandName?: string; contractId?: string | null; customerId?: string | null };
+type EngineInfo = { id: string; engineNumber?: string; engineInternalNumber?: string; engineBrandId?: string | null; engineBrandName?: string; contractId?: string | null; customerId?: string | null };
 /** Резолвленные для печати реквизиты по двигателю: суффикс номера контракта (***NNN) + контрагент. */
 type EngineContractInfo = { contractSuffix: string; counterparty: string };
 
@@ -759,8 +759,14 @@ export function WorkOrderDetailsPage(props: {
   const engineOptions: LinkOpt[] = useMemo(
     () =>
       engines.map((e) => {
-        const hint = joinOptionHint([e.engineNumber, e.engineBrandName]);
-        const search = joinOptionSearch([e.engineNumber || '', e.id, e.engineBrandName || '']);
+        // Внутренний номер — и в подсказку, и в поиск: мастер выписывает наряд, держа
+        // в руках деталь с набитым клеймом, и ищет двигатель именно по нему.
+        const hint = joinOptionHint([
+          e.engineNumber,
+          e.engineInternalNumber ? `внутр. ${e.engineInternalNumber}` : '',
+          e.engineBrandName,
+        ]);
+        const search = joinOptionSearch([e.engineNumber || '', e.engineInternalNumber || '', e.id, e.engineBrandName || '']);
         return buildSearchOption({
           id: e.id,
           label: e.engineNumber || e.id,
@@ -835,6 +841,7 @@ export function WorkOrderDetailsPage(props: {
       const engineInfo = (engineList as any[]).map((e) => ({
         id: String(e.id),
         engineNumber: String(e.engineNumber ?? ''),
+        engineInternalNumber: String(e.internalNumberFull ?? ''),
         engineBrandId: e.engineBrandId ? String(e.engineBrandId) : null,
         engineBrandName: String(e.engineBrand ?? ''),
         contractId: e.contractId ? String(e.contractId) : null,
@@ -1323,7 +1330,7 @@ export function WorkOrderDetailsPage(props: {
           engineBrandId: brandId,
           engineBrandName: brandName,
           partId: String(line.componentNomenclatureId),
-          ...(headerEngine ? { engineId: headerEngine.id, engineNumber: String(headerEngine.engineNumber ?? '') } : {}),
+          ...(headerEngine ? { engineId: headerEngine.id, engineNumber: String(headerEngine.engineNumber ?? ''), engineInternalNumber: String(headerEngine.engineInternalNumber ?? '') } : {}),
         };
         const nm = String(line.componentNomenclatureName ?? '').trim();
         if (nm) wl.partName = nm;
@@ -1473,7 +1480,7 @@ export function WorkOrderDetailsPage(props: {
     const headerEngine = headerEngineId ? engines.find((e) => e.id === headerEngineId) ?? null : null;
     patch({
       ...payload,
-      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: headerEngineId, engineNumber: headerEngine?.engineNumber || '', engineBrandId: headerEngine?.engineBrandId ?? null, engineBrandName: headerEngine?.engineBrandName ?? '', partId: null, partName: '' }],
+      freeWorks: [...payload.freeWorks, { lineNo: payload.freeWorks.length + 1, serviceId: null, serviceName: '', unit: 'шт', qty: 1, priceRub: 0, amountRub: 0, productNumber: '', engineId: headerEngineId, engineNumber: headerEngine?.engineNumber || '', engineInternalNumber: headerEngine?.engineInternalNumber || '', engineBrandId: headerEngine?.engineBrandId ?? null, engineBrandName: headerEngine?.engineBrandName ?? '', partId: null, partName: '' }],
     });
   }
 
@@ -1551,6 +1558,10 @@ export function WorkOrderDetailsPage(props: {
       distinctTrimmed(current.freeWorks.map((l) => l.engineNumber)).join(', ') ||
       String(headerEngineFromPayload?.engineNumber ?? '').trim() ||
       '—';
+    const headerEngineInternalNumber =
+      distinctTrimmed(current.freeWorks.map((l) => l.engineInternalNumber)).join(', ') ||
+      String(headerEngineFromPayload?.engineInternalNumber ?? '').trim() ||
+      '';
     const headerWorkTypes = distinctTrimmed(current.freeWorks.map((l) => l.serviceName));
     const headerWorkType = headerWorkTypes.length === 1 ? headerWorkTypes[0]! : 'Сборка двигателя';
 
@@ -1574,10 +1585,15 @@ export function WorkOrderDetailsPage(props: {
       const hasAny = (get: (line: WorkOrderWorkLine) => string | null | undefined) =>
         lines.some((l) => String(get(l) ?? '').trim());
       const engineCols = showEngineCols && (hasAny((l) => l.engineNumber) || hasAny((l) => l.engineBrandName));
+      // Колонка внутреннего номера появляется только когда он реально проставлен —
+      // на старых нарядах её не будет, и ширина таблицы не пострадает.
+      const engineInternalCol = engineCols && hasAny((l) => l.engineInternalNumber);
       const serviceCol = showServiceCol && hasAny((l) => l.serviceName);
       const articleCol = hasAny((l) => resolvePartArticle(l));
       const productNumberCol = hasAny((l) => l.productNumber);
-      return `<table><thead><tr>${engineCols ? '<th>№ двигателя</th><th>Марка</th>' : ''}${
+      return `<table><thead><tr>${engineCols ? '<th>№ двигателя</th>' : ''}${
+        engineInternalCol ? '<th>Внутр. №</th>' : ''
+      }${engineCols ? '<th>Марка</th>' : ''}${
         serviceCol ? '<th>Вид работ</th>' : ''
       }<th>Наименование изделия</th>${articleCol ? '<th>Артикул</th>' : ''}${
         productNumberCol ? '<th>№ изделия</th>' : ''
@@ -1587,9 +1603,9 @@ export function WorkOrderDetailsPage(props: {
         .map(
           (line) =>
             `<tr>${
-              engineCols
-                ? `<td>${escapeHtml(line.engineNumber || '—')}</td><td>${escapeHtml(line.engineBrandName || '—')}</td>`
-                : ''
+              engineCols ? `<td>${escapeHtml(line.engineNumber || '—')}</td>` : ''
+            }${engineInternalCol ? `<td>${escapeHtml(line.engineInternalNumber || '—')}</td>` : ''}${
+              engineCols ? `<td>${escapeHtml(line.engineBrandName || '—')}</td>` : ''
             }${serviceCol ? `<td>${escapeHtml(line.serviceName || '—')}</td>` : ''}<td>${escapeHtml(
               resolvePartName(line) || '—',
             )}</td>${articleCol ? `<td>${escapeHtml(resolvePartArticle(line) || '—')}</td>` : ''}${
@@ -1709,6 +1725,7 @@ export function WorkOrderDetailsPage(props: {
         ? [
             { label: 'Марка дв.', value: headerEngineBrand },
             { label: '№ дв.', value: headerEngineNumber },
+            ...(headerEngineInternalNumber ? [{ label: 'Внутр. №', value: headerEngineInternalNumber }] : []),
           ]
         : []),
       ...(contractInfo?.contractSuffix ? [{ label: '№ контр.', value: contractInfo.contractSuffix }] : []),
@@ -2290,6 +2307,7 @@ export function WorkOrderDetailsPage(props: {
                     ...line,
                     engineId: next || null,
                     engineNumber: eng?.engineNumber || '',
+                    engineInternalNumber: eng?.engineInternalNumber || '',
                     engineBrandId: eng?.engineBrandId ?? line.engineBrandId ?? null,
                     engineBrandName: eng?.engineBrandName ?? line.engineBrandName ?? '',
                   });
@@ -2953,6 +2971,7 @@ export function WorkOrderDetailsPage(props: {
                                   ...item,
                                   engineId: next || null,
                                   engineNumber: eng?.engineNumber || '',
+                                  engineInternalNumber: eng?.engineInternalNumber || '',
                                   // Не затираем engineBrandId/Name на пустой при clear: они могли прийти
                                   // из прогноза и нужны как фильтр для следующего выбора.
                                   engineBrandId: eng?.engineBrandId ?? item.engineBrandId ?? null,

@@ -355,6 +355,8 @@ export function RepairChecklistPanel(props: {
   canPrint: boolean;
   canExport: boolean;
   engineNumber?: string;
+  /** Внутренний номер ('41/26') — печатается строкой в шапке акта, рядом с № двигателя. */
+  engineInternalNumber?: string;
   engineBrand?: string;
   engineBrandId?: string;
   contractNumber?: string;
@@ -660,6 +662,7 @@ export function RepairChecklistPanel(props: {
     return {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
+      ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
     };
   }
@@ -692,6 +695,7 @@ export function RepairChecklistPanel(props: {
     const ctx = {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
+      ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
       rows,
       answers: ans,
@@ -715,6 +719,7 @@ export function RepairChecklistPanel(props: {
         header: {
           engineBrand: String(props.engineBrand ?? ''),
           engineNumber: String(props.engineNumber ?? ''),
+          ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
           contractNumber: String(props.contractNumber ?? ''),
         },
         answers,
@@ -748,12 +753,14 @@ export function RepairChecklistPanel(props: {
     const locked = new Set<string>();
     const brand = String(props.engineBrand ?? '').trim();
     const number = String(props.engineNumber ?? '').trim();
+    const internalNumber = String(props.engineInternalNumber ?? '').trim();
     const contractNumber = String(props.contractNumber ?? '').trim();
     const hasArrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate);
 
     if (props.stage === 'defect' || props.stage === 'completeness' || props.stage === ENGINE_INVENTORY_STAGE) {
       if (brand) locked.add('engine_brand');
       if (number) locked.add('engine_number');
+      if (internalNumber) locked.add('engine_internal_number');
     }
     if ((props.stage === 'completeness' || props.stage === ENGINE_INVENTORY_STAGE) && contractNumber) {
       locked.add('contract_number');
@@ -763,7 +770,7 @@ export function RepairChecklistPanel(props: {
     }
 
     return locked;
-  }, [props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
+  }, [props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   async function load() {
     setStatus('Загрузка чек-листа...');
@@ -844,6 +851,7 @@ export function RepairChecklistPanel(props: {
     const hasItem = (id: string) => activeTemplate.items.some((it) => it.id === id);
     const brand = String(props.engineBrand ?? '').trim();
     const num = String(props.engineNumber ?? '').trim();
+    const internalNum = String(props.engineInternalNumber ?? '').trim();
     const contractNumber = String(props.contractNumber ?? '').trim();
     const arrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate) ? props.arrivalDate : null;
     const next = { ...answers } as RepairChecklistAnswers;
@@ -869,6 +877,14 @@ export function RepairChecklistPanel(props: {
         changed = true;
       }
     }
+    if (hasItem('engine_internal_number') && internalNum) {
+      const a: any = (answers as any).engine_internal_number;
+      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+      if ((isLockedByEngine && current !== internalNum) || (!isLockedByEngine && !current.trim())) {
+        (next as any).engine_internal_number = { kind: 'text', value: internalNum };
+        changed = true;
+      }
+    }
     if ((isCompleteness || isInventory) && hasItem('contract_number') && contractNumber) {
       const a: any = (answers as any).contract_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
@@ -889,7 +905,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
+  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   useEffect(() => {
     if (!activeTemplate) return;

@@ -91,17 +91,9 @@ describe('parseEngineInternalNumberInput', () => {
 });
 
 describe('resolveEngineInternalNumberYear', () => {
-  const now = new Date(2026, 6, 15).getTime();
-
-  it('берёт год из даты прихода, а не из «сегодня»', () => {
-    const arrival = new Date(2025, 11, 20).getTime();
-    expect(resolveEngineInternalNumberYear(arrival, now)).toBe(2025);
-  });
-
-  it('без даты прихода — текущий год', () => {
-    expect(resolveEngineInternalNumberYear(null, now)).toBe(2026);
-    expect(resolveEngineInternalNumberYear(0, now)).toBe(2026);
-    expect(resolveEngineInternalNumberYear('мусор', now)).toBe(2026);
+  it('подставляет текущий год — номер выдаётся из журнала сегодня', () => {
+    expect(resolveEngineInternalNumberYear(new Date(2026, 6, 15).getTime())).toBe(2026);
+    expect(resolveEngineInternalNumberYear(new Date(2027, 0, 3).getTime())).toBe(2027);
   });
 });
 

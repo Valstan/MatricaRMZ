@@ -155,17 +155,25 @@ function getCrewSurnames(payload: WorkOrderPayload): string {
   return surnames.join(', ');
 }
 
-/** Марка и № двигателя для списка: первые непустые значения по строкам наряда. */
-function getWorkOrderEngineInfo(payload: WorkOrderPayload): { engineBrand: string; engineNumber: string } {
+/** Марка, № и внутренний № двигателя для списка: первые непустые значения по строкам наряда. */
+function getWorkOrderEngineInfo(payload: WorkOrderPayload): {
+  engineBrand: string;
+  engineNumber: string;
+  engineInternalNumber: string;
+} {
   const lines = Array.isArray(payload.freeWorks) ? payload.freeWorks : [];
   let engineBrand = '';
   let engineNumber = '';
+  let engineInternalNumber = '';
   for (const l of lines) {
     if (!engineBrand) engineBrand = String((l as { engineBrandName?: unknown }).engineBrandName ?? '').trim();
     if (!engineNumber) engineNumber = String((l as { engineNumber?: unknown }).engineNumber ?? '').trim();
-    if (engineBrand && engineNumber) break;
+    if (!engineInternalNumber) {
+      engineInternalNumber = String((l as { engineInternalNumber?: unknown }).engineInternalNumber ?? '').trim();
+    }
+    if (engineBrand && engineNumber && engineInternalNumber) break;
   }
-  return { engineBrand, engineNumber };
+  return { engineBrand, engineNumber, engineInternalNumber };
 }
 
 /**
@@ -376,6 +384,7 @@ export async function listWorkOrders(
         completedDate: number | null;
         engineBrand: string;
         engineNumber: string;
+        engineInternalNumber: string;
         acceptedByEmployeeId: string | null;
         workOrderKind: string;
         withdrawnAt: number | null;
@@ -429,6 +438,7 @@ export async function listWorkOrders(
       completedDate: number | null;
       engineBrand: string;
       engineNumber: string;
+      engineInternalNumber: string;
       acceptedByEmployeeId: string | null;
       workOrderKind: string;
       withdrawnAt: number | null;
@@ -454,12 +464,17 @@ export async function listWorkOrders(
       const workType = getWorkOrderPrimaryWorkType(payload);
       const performerSurnames = getCrewSurnames(payload);
       const engineInfo = getWorkOrderEngineInfo(payload);
-      if ((!engineInfo.engineBrand || !engineInfo.engineNumber) && engineById) {
+      if ((!engineInfo.engineBrand || !engineInfo.engineNumber || !engineInfo.engineInternalNumber) && engineById) {
         const engineId = resolveAssemblyEngineId(payload);
         const engine = engineId ? engineById.get(engineId) : undefined;
         if (engine) {
           if (!engineInfo.engineBrand) engineInfo.engineBrand = String(engine.engineBrand ?? '').trim();
           if (!engineInfo.engineNumber) engineInfo.engineNumber = String(engine.engineNumber ?? '').trim();
+          // Наряды, выписанные до внутренних номеров, снимка не имеют — дотягиваем из
+          // карточки двигателя, иначе колонка была бы вечно пустой на старых нарядах.
+          if (!engineInfo.engineInternalNumber) {
+            engineInfo.engineInternalNumber = String(engine.internalNumberFull ?? '').trim();
+          }
         }
       }
       const isClosedRow = String(row.status ?? 'open') === 'closed';
@@ -475,6 +490,7 @@ export async function listWorkOrders(
             performerSurnames,
             partName,
             engineInfo.engineNumber,
+            engineInfo.engineInternalNumber,
             engineInfo.engineBrand,
             row.note ?? '',
             JSON.stringify(payload),
@@ -505,6 +521,7 @@ export async function listWorkOrders(
         completedDate: payload.completedDate != null && Number(payload.completedDate) > 0 ? Number(payload.completedDate) : null,
         engineBrand: engineInfo.engineBrand,
         engineNumber: engineInfo.engineNumber,
+        engineInternalNumber: engineInfo.engineInternalNumber,
         acceptedByEmployeeId: getWorkOrderAcceptedByEmployeeId(payload),
         workOrderKind: String(payload.workOrderKind ?? WorkOrderKind.Regular),
         withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),

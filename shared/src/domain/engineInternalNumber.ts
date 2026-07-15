@@ -90,15 +90,12 @@ export function parseEngineInternalNumberInput(raw: string): { number: string; y
 }
 
 /**
- * Год присвоения: из даты прихода двигателя, иначе — текущий. Год приёмки, а не
- * «сегодня», чтобы двигатель, заведённый задним числом в январе, попал в свой год.
+ * Год присвоения — ТЕКУЩИЙ (решение владельца 2026-07-15): номер берётся из журнала
+ * в момент ввода, значит и год журнала — сегодняшний. Дата прихода тут ни при чём —
+ * двигатель мог приехать в декабре, а номер получить в январе. Поле года остаётся
+ * редактируемым: задним числом правится руками.
  */
-export function resolveEngineInternalNumberYear(arrivalDateMs: unknown, nowMs: number): number {
-  const arrival = Number(arrivalDateMs);
-  if (Number.isFinite(arrival) && arrival > 0) {
-    const year = new Date(arrival).getFullYear();
-    if (isValidEngineInternalNumberYear(year)) return year;
-  }
+export function resolveEngineInternalNumberYear(nowMs: number): number {
   return new Date(nowMs).getFullYear();
 }
 
@@ -113,6 +110,16 @@ export function engineInternalNumberSortKey(number: string, year: unknown): stri
   const yearPart = isValidEngineInternalNumberYear(year) ? String(Number(year)) : '0000';
   const numberPart = /^\d+$/.test(normalized) ? normalized.padStart(12, '0') : normalized;
   return `${yearPart}:${numberPart}`;
+}
+
+/**
+ * Ключ сортировки из готового полного номера ('41/26'). Нужен там, где хранится только
+ * снимок-строка (наряды, отчёты): без разбора обратно на пару '41/26' свернулось бы в
+ * число 4126 и годы перемешались бы с номерами.
+ */
+export function engineInternalNumberSortKeyFromFull(full: string): string {
+  const parsed = parseEngineInternalNumberInput(full);
+  return engineInternalNumberSortKey(parsed.number, parsed.year);
 }
 
 /**

@@ -1172,7 +1172,7 @@ export type MatricaApi = {
       engineId: string;
       actType: EngineActType;
       rows: EngineInventoryRow[];
-      header: { engineBrand: string; engineNumber: string; contractNumber: string };
+      header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
       answers: RepairChecklistAnswers;
       selectedCount: number;
     }) => Promise<
@@ -1203,7 +1203,7 @@ export type MatricaApi = {
     requirementSnapshot: (args: {
       engineId: string;
       instances: RepairFundInstancePayload[];
-      header: { engineBrand: string; engineNumber: string; contractNumber: string };
+      header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
     }) => Promise<{ ok: true; operationId: string; version: number; deduped: boolean } | { ok: false; error: string }>;
   };
 

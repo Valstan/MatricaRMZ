@@ -607,17 +607,14 @@ export function EngineDetailsPage(props: {
 
   /**
    * Пара (номер, год) из полей карточки. Номер терпит и '41', и полный '41/26' —
-   * год из ввода главнее поля года; если года нет вовсе, берём его из даты прихода.
+   * год из ввода главнее поля года; если года нет вовсе, подставляем текущий.
    */
   function resolveInternalNumberFields(): { number: string; year: number | null } {
     const parsed = parseEngineInternalNumberInput(internalNumber);
     if (!parsed.number) return { number: '', year: null };
     const typedYear = Number(internalNumberYear);
     const year =
-      parsed.year ??
-      (isValidEngineInternalNumberYear(typedYear)
-        ? typedYear
-        : resolveEngineInternalNumberYear(fromInputDate(arrivalDate), Date.now()));
+      parsed.year ?? (isValidEngineInternalNumberYear(typedYear) ? typedYear : resolveEngineInternalNumberYear(Date.now()));
     return { number: parsed.number, year };
   }
 
@@ -646,7 +643,7 @@ export function EngineDetailsPage(props: {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [internalNumber, internalNumberYear, arrivalDate, props.engineId]);
+  }, [internalNumber, internalNumberYear, props.engineId]);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
@@ -1290,7 +1287,7 @@ export function EngineDetailsPage(props: {
               disabled={!props.canEditEngines}
               data-autogrow="off"
               placeholder="год"
-              title="Год присвоения номера. Подставляется из даты прихода — нумерация в журнале каждый год начинается заново."
+              title="Год присвоения номера. Подставляется текущий — нумерация в журнале каждый год начинается заново."
               style={{ width: '100%', minWidth: '7ch', maxWidth: '9ch' }}
               onChange={(e) => {
                 setSessionChanged(true);
@@ -1808,6 +1805,7 @@ export function EngineDetailsPage(props: {
             canPrint={props.canPrintEngineCard}
             canExport={props.canExportReports === true}
             engineNumber={engineNumber}
+            engineInternalNumber={internalNumberFull}
             engineBrand={engineBrand}
             contractNumber={contractLabelForChecklist}
             arrivalDate={arrivalDateMsForChecklist}
