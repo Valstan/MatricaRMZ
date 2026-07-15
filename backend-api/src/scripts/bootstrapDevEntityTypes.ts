@@ -1,7 +1,12 @@
 import 'dotenv/config';
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
+import {
+  AttributeDataType,
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  EntityTypeCode,
+} from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
 import { attributeDefs, entityTypes } from '../database/schema.js';
@@ -50,6 +55,8 @@ async function main() {
 
   const engineId = await ensureType(EntityTypeCode.Engine, 'Engine');
   await ensureAttr(engineId, 'engine_number', 'Engine number', AttributeDataType.Text, 10);
+  await ensureAttr(engineId, ENGINE_INTERNAL_NUMBER_CODE, 'Внутренний номер', AttributeDataType.Text, 15);
+  await ensureAttr(engineId, ENGINE_INTERNAL_NUMBER_YEAR_CODE, 'Год внутреннего номера', AttributeDataType.Number, 16);
   await ensureAttr(engineId, 'engine_brand', 'Engine brand', AttributeDataType.Text, 20);
   await ensureAttr(
     engineId,

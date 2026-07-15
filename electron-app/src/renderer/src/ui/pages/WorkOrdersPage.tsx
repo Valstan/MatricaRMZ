@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   WORK_ORDER_KIND_LABELS,
+  engineInternalNumberSortKeyFromFull,
   WORK_ORDER_KIND_ORDER,
   WORK_ORDER_STATUS_LABELS,
   WorkOrderKind,
@@ -53,6 +54,7 @@ type Row = {
   completedDate: number | null;
   engineBrand: string;
   engineNumber: string;
+  engineInternalNumber: string;
   acceptedByEmployeeId: string | null;
   workOrderKind: string;
   withdrawnAt: number | null;
@@ -87,7 +89,7 @@ function StatusBadge({ code }: { code: WorkOrderStatusCode }) {
   );
 }
 
-type SortKey = 'number' | 'date' | 'start' | 'due' | 'completed' | 'part' | 'brand' | 'engineNo' | 'crew' | 'performers' | 'total' | 'status' | 'updatedAt';
+type SortKey = 'number' | 'date' | 'start' | 'due' | 'completed' | 'part' | 'brand' | 'engineNo' | 'engineInternalNo' | 'crew' | 'performers' | 'total' | 'status' | 'updatedAt';
 
 /** Ранг статуса для сортировки: просрочен → выдан → выполнен с опозданием → выполнен. */
 const STATUS_SORT_RANK: Record<string, number> = { overdue: 0, issued: 1, withdrawn: 2, done_late: 3, done: 4 };
@@ -207,6 +209,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       if (key === 'part') return String(row.workType ?? '').toLowerCase();
       if (key === 'brand') return String(row.engineBrand ?? '').toLowerCase();
       if (key === 'engineNo') return String(row.engineNumber ?? '').toLowerCase();
+      if (key === 'engineInternalNo') return engineInternalNumberSortKeyFromFull(row.engineInternalNumber ?? '');
       if (key === 'crew') return Number(row.crewCount ?? 0);
       if (key === 'performers') return acceptedOrCrew(row).toLowerCase();
       if (key === 'total') return Number(row.totalAmountRub ?? 0);
@@ -233,6 +236,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       { title: 'Виды работ', value: (row: Row) => row.workType || '-' },
       { title: 'Марка дв.', value: (row: Row) => row.engineBrand || '-' },
       { title: '№ дв.', value: (row: Row) => row.engineNumber || '-' },
+      { title: 'Внутр. №', value: (row: Row) => row.engineInternalNumber || '-' },
       { title: 'Завершён', value: (row: Row) => ((row.completedAt ?? row.completedDate) ? formatMoscowDate(Number(row.completedAt ?? row.completedDate)) : '-') },
       { title: 'Исполнители', value: (row: Row) => acceptedOrCrew(row) || '-' },
       { title: 'Статус', value: (row: Row) => WORK_ORDER_STATUS_LABELS[rowStatusCode(row, Date.now())] },
@@ -320,6 +324,13 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       { id: 'part', label: 'Виды работ', sortKey: 'part', kind: 'text', render: (row) => row.workType || '-' },
       { id: 'brand', label: 'Марка дв.', sortKey: 'brand', kind: 'text', render: (row) => row.engineBrand || '-' },
       { id: 'engineNo', label: '№ дв.', sortKey: 'engineNo', kind: 'text', render: (row) => row.engineNumber || '-' },
+      {
+        id: 'engineInternalNo',
+        label: 'Внутр. №',
+        sortKey: 'engineInternalNo',
+        kind: 'text',
+        render: (row) => row.engineInternalNumber || '-',
+      },
       {
         id: 'completed',
         label: 'Завершён',

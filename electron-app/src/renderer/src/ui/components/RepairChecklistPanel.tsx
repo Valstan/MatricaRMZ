@@ -355,6 +355,8 @@ export function RepairChecklistPanel(props: {
   canPrint: boolean;
   canExport: boolean;
   engineNumber?: string;
+  /** Внутренний номер ('41/26') — печатается строкой в шапке акта, рядом с № двигателя. */
+  engineInternalNumber?: string;
   engineBrand?: string;
   engineBrandId?: string;
   contractNumber?: string;
@@ -430,6 +432,7 @@ export function RepairChecklistPanel(props: {
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const isInventoryStage = props.stage === ENGINE_INVENTORY_STAGE;
+  const internalNumberForStamp = String(props.engineInternalNumber ?? '').trim();
   // Detail rows marked «заказать новую» (replace_qty>0) → draft supply-request items.
   // Read raw rows (not normalized) so the helper can pick up the optional __part_id/__part_unit hints.
   const defectSupplyItems = useMemo<SupplyRequestItem[]>(() => {
@@ -660,6 +663,7 @@ export function RepairChecklistPanel(props: {
     return {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
+      ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
     };
   }
@@ -692,6 +696,7 @@ export function RepairChecklistPanel(props: {
     const ctx = {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
+      ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
       rows,
       answers: ans,
@@ -715,6 +720,7 @@ export function RepairChecklistPanel(props: {
         header: {
           engineBrand: String(props.engineBrand ?? ''),
           engineNumber: String(props.engineNumber ?? ''),
+          ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
           contractNumber: String(props.contractNumber ?? ''),
         },
         answers,
@@ -748,12 +754,14 @@ export function RepairChecklistPanel(props: {
     const locked = new Set<string>();
     const brand = String(props.engineBrand ?? '').trim();
     const number = String(props.engineNumber ?? '').trim();
+    const internalNumber = String(props.engineInternalNumber ?? '').trim();
     const contractNumber = String(props.contractNumber ?? '').trim();
     const hasArrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate);
 
     if (props.stage === 'defect' || props.stage === 'completeness' || props.stage === ENGINE_INVENTORY_STAGE) {
       if (brand) locked.add('engine_brand');
       if (number) locked.add('engine_number');
+      if (internalNumber) locked.add('engine_internal_number');
     }
     if ((props.stage === 'completeness' || props.stage === ENGINE_INVENTORY_STAGE) && contractNumber) {
       locked.add('contract_number');
@@ -763,7 +771,7 @@ export function RepairChecklistPanel(props: {
     }
 
     return locked;
-  }, [props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
+  }, [props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   async function load() {
     setStatus('Загрузка чек-листа...');
@@ -844,6 +852,7 @@ export function RepairChecklistPanel(props: {
     const hasItem = (id: string) => activeTemplate.items.some((it) => it.id === id);
     const brand = String(props.engineBrand ?? '').trim();
     const num = String(props.engineNumber ?? '').trim();
+    const internalNum = String(props.engineInternalNumber ?? '').trim();
     const contractNumber = String(props.contractNumber ?? '').trim();
     const arrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate) ? props.arrivalDate : null;
     const next = { ...answers } as RepairChecklistAnswers;
@@ -869,6 +878,14 @@ export function RepairChecklistPanel(props: {
         changed = true;
       }
     }
+    if (hasItem('engine_internal_number') && internalNum) {
+      const a: any = (answers as any).engine_internal_number;
+      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
+      if ((isLockedByEngine && current !== internalNum) || (!isLockedByEngine && !current.trim())) {
+        (next as any).engine_internal_number = { kind: 'text', value: internalNum };
+        changed = true;
+      }
+    }
     if ((isCompleteness || isInventory) && hasItem('contract_number') && contractNumber) {
       const a: any = (answers as any).contract_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
@@ -889,7 +906,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.stage]);
+  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   useEffect(() => {
     if (!activeTemplate) return;
@@ -1755,6 +1772,35 @@ export function RepairChecklistPanel(props: {
           </>
         )}
       </div>
+
+      {/*
+        Клеймо двигателя на дефектовке. Только подсказка: в «№ на детали» внутренний номер
+        НЕ подставляем — это поле личного номера экземпляра (ключ ремфонда
+        (engineEntityId, nomenclatureId, stampedNumber)), и одинаковое значение на всех
+        безымянных деталях схлопнуло бы их в один экземпляр. Связь детали с двигателем
+        держит engineEntityId самой записи, а не номер.
+      */}
+      {!collapsed && (isInventoryStage || props.stage === 'defect') && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: internalNumberForStamp ? 'rgba(37, 99, 235, 0.10)' : 'rgba(245, 158, 11, 0.12)',
+            color: internalNumberForStamp ? '#1d4ed8' : '#92400e',
+            fontSize: 12,
+          }}
+        >
+          {internalNumberForStamp ? (
+            <>
+              Клеймо двигателя: <b>{internalNumberForStamp}</b> — набивайте его на детали, у которых нет своего
+              заводского номера. В «№ на детали» вносите только личный номер детали, если он набит изготовителем.
+            </>
+          ) : (
+            <>Внутренний номер не задан. Задайте его на вкладке «Основное» — это клеймо для безымянных деталей двигателя.</>
+          )}
+        </div>
+      )}
 
       {!collapsed && isInventoryStage && inventoryShortage && inventoryShortage.total > 0 && (
         <div

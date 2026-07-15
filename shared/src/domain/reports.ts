@@ -256,6 +256,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
     columns: [
       { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineInternalNumber', label: 'Внутр. №' },
       { key: 'engineBrand', label: 'Марка' },
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
@@ -717,6 +718,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'eventAt', label: 'Дата', kind: 'datetime' },
       { key: 'eventTypeLabel', label: 'Тип события' },
       { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineInternalNumber', label: 'Внутр. №' },
       { key: 'engineBrand', label: 'Марка' },
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
@@ -758,6 +760,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
     columns: [
       { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineInternalNumber', label: 'Внутр. №' },
       { key: 'engineBrand', label: 'Марка' },
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
@@ -1006,6 +1009,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
     columns: [
       { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineInternalNumber', label: 'Внутр. №' },
       { key: 'engineBrand', label: 'Марка' },
       { key: 'enginePhase', label: 'Фаза' },
       { key: 'totalComponents', label: 'Компонентов', kind: 'number', align: 'right' },

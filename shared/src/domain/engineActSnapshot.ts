@@ -130,8 +130,12 @@ export type EngineActSnapshotPayload = {
   version: number;
   /** Строки, вошедшие в акт (отмеченные в печать; если выбора не было — все). */
   rows: EngineInventoryRow[];
-  /** Резолвленная шапка для повторной печати исторического снимка. */
-  header: { engineBrand: string; engineNumber: string; contractNumber: string };
+  /**
+   * Резолвленная шапка для повторной печати исторического снимка.
+   * `engineInternalNumber` опционален: у актов, напечатанных до внутренних номеров,
+   * поля нет — шапка обязана печатать строку только когда значение есть.
+   */
+  header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
   /** Ответы шаблона на момент печати (даты, подписи) — чтобы повтор печати был точным. */
   answers: RepairChecklistAnswers;
   /** Недостача (для комплектности и претензии; для дефектовки — null). */

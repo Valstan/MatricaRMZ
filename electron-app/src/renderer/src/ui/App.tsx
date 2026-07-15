@@ -22,6 +22,9 @@ import type {
 } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  formatEngineInternalNumber,
   WorkOrderKind,
   DEFAULT_UI_CONTROL_SETTINGS,
   DEFAULT_UI_SHELL_PREFS,
@@ -1076,6 +1079,8 @@ export function App() {
       e.updatedAt ?? 0,
       e.syncStatus ?? '',
       e.engineNumber ?? '',
+      e.internalNumber ?? '',
+      e.internalNumberYear ?? '',
       e.engineBrand ?? '',
       e.customerName ?? '',
       e.contractName ?? '',
@@ -2646,7 +2651,9 @@ export function App() {
     if (kind === 'engine') {
       const e = engines.find((x) => x.id === entityId);
       const num = e?.engineNumber?.trim();
-      if (num) return `⚙️ ${num}`;
+      const internal = e?.internalNumberFull?.trim();
+      if (num) return internal ? `⚙️ ${num} · ${internal}` : `⚙️ ${num}`;
+      if (internal) return `⚙️ ${internal}`;
     }
     return `${appTabTitle(kind)} · ${entityId.slice(0, 6)}`;
   }
@@ -2985,8 +2992,14 @@ export function App() {
     if (label) crumbs.push(label);
 
     if (tab === 'engine') {
-      const number = String((engineDetails?.attributes as any)?.engine_number ?? '').trim();
-      if (number) crumbs.push(`№ ${number}`);
+      const attrs = engineDetails?.attributes as Record<string, unknown> | undefined;
+      const number = String(attrs?.engine_number ?? '').trim();
+      const internal = formatEngineInternalNumber(
+        String(attrs?.[ENGINE_INTERNAL_NUMBER_CODE] ?? ''),
+        attrs?.[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      );
+      if (number) crumbs.push(internal ? `№ ${number} (внутр. ${internal})` : `№ ${number}`);
+      else if (internal) crumbs.push(`внутр. ${internal}`);
       else if (selectedEngineId) crumbs.push(`ID ${shortId(selectedEngineId)}`);
     }
     if (tab === 'engine_brand' && selectedEngineBrandId) crumbs.push(`ID ${shortId(selectedEngineBrandId)}`);

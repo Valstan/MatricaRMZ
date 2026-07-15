@@ -122,7 +122,9 @@ export async function searchEnginesByStampedPartNumber(
       if (!matchedStamp) continue;
       const engNo = String(answers.engine_number?.value ?? '').trim();
       const brand = String(answers.engine_brand?.value ?? '').trim();
-      const label = [brand, engNo].filter(Boolean).join(' ') || engNo || engineId;
+      const internalNo = String(answers.engine_internal_number?.value ?? '').trim();
+      const label =
+        [brand, engNo].filter(Boolean).join(' ') + (internalNo ? ` (внутр. ${internalNo})` : '') || engNo || engineId;
       byEngine.set(engineId, {
         kind: 'engine',
         id: engineId,

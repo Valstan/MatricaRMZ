@@ -2,18 +2,27 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import {
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   STATUS_CODES,
   STATUS_LABELS,
   SyncTableName,
   attributeDefRowSchema,
   attributeValueRowSchema,
+  engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
   type StatusCode,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, operations, rowOwners } from '../database/schema.js';
-import { engineHasDuplicateBypassFlag, findEngineDuplicateByNumber } from './engineNumberGuard.js';
+import {
+  engineHasDuplicateBypassFlag,
+  findEngineDuplicateByNumber,
+  findEngineInternalNumberDuplicate,
+  readEngineInternalNumberValue,
+  readEngineInternalNumberYear,
+} from './engineNumberGuard.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
 const ENGINE_STATUS_CODE_SET: ReadonlySet<string> = new Set(STATUS_CODES);
@@ -1053,6 +1062,22 @@ export async function setEntityAttribute(
         ok: false as const,
         error: `Двигатель с номером «${dup.engineNumber}» уже существует. Откройте его карточку вместо создания дубля.`,
       };
+    }
+  }
+  // Гейт внутреннего номера: уникальна пара (номер, год) — журнальная нумерация ежегодно
+  // сбрасывается. Сторожим обе записи пары; второй её элемент дочитываем из БД (клиент
+  // пишет год ДО номера). Флаги осознанного дубля сюда НЕ распространяются: они про
+  // совпадение заводского номера, а внутренний номер выдаёт завод и он обязан быть свой.
+  if (
+    (code === ENGINE_INTERNAL_NUMBER_CODE || code === ENGINE_INTERNAL_NUMBER_YEAR_CODE) &&
+    (await isEngineEntityType(String(e[0].typeId)))
+  ) {
+    const isNumberWrite = code === ENGINE_INTERNAL_NUMBER_CODE;
+    const number = isNumberWrite ? String(value ?? '') : await readEngineInternalNumberValue(entityId);
+    const year = isNumberWrite ? await readEngineInternalNumberYear(entityId) : value;
+    const dup = await findEngineInternalNumberDuplicate(number, year, entityId);
+    if (dup) {
+      return { ok: false as const, error: engineInternalNumberDuplicateMessage(dup) };
     }
   }
   if (existing[0]) {

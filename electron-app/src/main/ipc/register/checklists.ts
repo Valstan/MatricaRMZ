@@ -100,7 +100,7 @@ export function registerChecklistsIpc(ctx: IpcContext) {
         engineId: string;
         actType: EngineActType;
         rows: any[];
-        header: { engineBrand: string; engineNumber: string; contractNumber: string };
+        header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
         answers: any;
         selectedCount: number;
       },
@@ -135,7 +135,7 @@ export function registerChecklistsIpc(ctx: IpcContext) {
       args: {
         engineId: string;
         instances: any[];
-        header: { engineBrand: string; engineNumber: string; contractNumber: string };
+        header: { engineBrand: string; engineNumber: string; contractNumber: string; engineInternalNumber?: string };
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();

@@ -262,7 +262,10 @@ function toggleExpanded(prev: Record<string, boolean>, key: string): Record<stri
 }
 
 function engineOptionLabel(engine: EngineListItem): string {
-  const parts = [engine.engineNumber, engine.engineBrand].filter((value) => typeof value === 'string' && value.trim());
+  const internal = engine.internalNumberFull?.trim();
+  const parts = [engine.engineNumber, internal ? `внутр. ${internal}` : '', engine.engineBrand].filter(
+    (value) => typeof value === 'string' && value.trim(),
+  );
   return parts.length > 0 ? parts.join(' — ') : engine.id.slice(0, 8);
 }
 

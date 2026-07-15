@@ -21,6 +21,7 @@ export const WORK_ORDERS_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'workType', label: 'Виды работ' },
   { key: 'engineBrand', label: 'Марка дв.' },
   { key: 'engineNumber', label: '№ дв.' },
+  { key: 'engineInternalNumber', label: 'Внутр. №' },
   { key: 'counterparty', label: 'Контрагент' },
   { key: 'performers', label: 'Исполнители' },
   { key: 'crewCount', label: 'Бригада, чел.', kind: 'number', align: 'right' },
