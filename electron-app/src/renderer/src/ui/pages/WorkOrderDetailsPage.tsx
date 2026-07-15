@@ -616,10 +616,17 @@ export function WorkOrderDetailsPage(props: {
 
   // Реквизиты контракта/контрагента для печати: резолвим двигатель наряда → контракт
   // (основной номер → ***NNN) и контрагент (краткое наименование, иначе полное) из EAV.
-  const orderEngineIdsKey = useMemo(
-    () => Array.from(new Set((payload?.freeWorks ?? []).map((l) => String(l.engineId ?? '').trim()).filter(Boolean))).sort().join(','),
-    [payload?.freeWorks],
-  );
+  // Двигатель шапки (assemblyEngineId) — наравне с построчными штампами: у сборочного наряда
+  // строки могут быть без engineId (пикер шапки штампует только существующие строки, а
+  // «Заполнить из спецификации» стрижёт штамп в normalizeWorkOrderLine) — реквизиты пропадали
+  // из печати до ритуала «убрать номер → сохранить → вернуть → сохранить» (та же регрессия
+  // после #133, что #168 закрыл для №/марки и #192 — для отчёта).
+  const orderEngineIdsKey = useMemo(() => {
+    const ids = (payload?.freeWorks ?? []).map((l) => String(l.engineId ?? '').trim()).filter(Boolean);
+    const headerEngineId = payload ? resolveAssemblyEngineId(payload) : null;
+    if (headerEngineId) ids.push(headerEngineId);
+    return Array.from(new Set(ids)).sort().join(',');
+  }, [payload?.freeWorks, payload?.workGroups, payload?.assemblyEngineId]);
   useEffect(() => {
     const engineIds = orderEngineIdsKey ? orderEngineIdsKey.split(',') : [];
     if (!engineIds.length || engines.length === 0) {
@@ -1707,7 +1714,11 @@ export function WorkOrderDetailsPage(props: {
     const autoTitle = firstWorkType ? `Наряд на ${firstWorkType}` : `Наряд №${current.workOrderNumber || '—'}`;
     const headerTitle = settings.titleOverride?.trim() || autoTitle;
     // Реквизиты по первому двигателю наряда: суффикс контракта (***NNN) + контрагент.
-    const firstEngineId = current.freeWorks.map((l) => String(l.engineId ?? '').trim()).find(Boolean) ?? '';
+    // Фоллбек на двигатель шапки — как у №/марки выше: строки могут быть без штампа.
+    const firstEngineId =
+      current.freeWorks.map((l) => String(l.engineId ?? '').trim()).find(Boolean) ??
+      resolveAssemblyEngineId(current) ??
+      '';
     const contractInfo = firstEngineId ? engineContractInfo[firstEngineId] : undefined;
 
     // Гриф утверждения (ГОСТ Р 7.0.97 — верхний правый угол, над заголовком).
