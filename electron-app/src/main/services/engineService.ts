@@ -12,6 +12,7 @@ import {
   engineInternalNumberDuplicateMessage,
   engineInternalNumberKey,
   formatEngineInternalNumber,
+  isScrapEngine,
   isValidEngineInternalNumberYear,
   normalizeLookupCompact,
   parseContractSections,
@@ -892,10 +893,9 @@ export async function advanceEngineStatusForWorkOrder(
   const current: Partial<Record<StatusCode, boolean>> = {};
   for (const code of STATUS_CODES) current[code] = attrs[code] === true;
 
-  // Утиль (status_rework_sent) — терминальный исход: сборочный наряд на утильный
-  // двигатель (собрать обратно перед возвратом заказчику) не должен переводить его
-  // в «Начат ремонт»/«Отремонтирован» и тем более гасить сам флаг утиля.
-  if (current.status_rework_sent) return { applied: false, reason: 'scrap-engine' };
+  // Утильный двигатель: сборочный наряд (собрать обратно перед возвратом заказчику)
+  // не должен переводить его в «Начат ремонт»/«Отремонтирован» и гасить метки утиля.
+  if (isScrapEngine(current)) return { applied: false, reason: 'scrap-engine' };
 
   if (target === 'status_repair_started') {
     if (current.status_repaired || current.status_customer_sent || current.status_customer_accepted) {

@@ -9,9 +9,11 @@ import {
   computeInventoryShortage,
   engineActSnapshotSignature,
   ENGINE_INVENTORY_STAGE,
+  isScrapEngine,
   listScrapPartNames,
   resolveAssemblyEngineId,
   WorkOrderKind,
+  type StatusCode,
   type WorkOrderPayload,
   type EngineActSnapshotPayload,
   type EngineActType,
@@ -28,6 +30,7 @@ import {
   type RepairFundRequirementVersionRecord,
 } from '@matricarmz/shared';
 import { operations } from '../database/schema.js';
+import { getEngineDetails } from './engineService.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
 
@@ -246,6 +249,11 @@ export async function getRepairChecklistForEngine(
   }
 }
 
+async function isEngineScrap(db: BetterSQLite3Database, engineId: string): Promise<boolean> {
+  const details = await getEngineDetails(db, engineId).catch(() => null);
+  return isScrapEngine((details?.attributes ?? {}) as Partial<Record<StatusCode, boolean>>);
+}
+
 /**
  * Связка «утиль ⇄ наряд на сборку»: после сохранения дефектовки с утильными строками
  * автоматически отзывает из работы выданные Assembly-наряды этого двигателя
@@ -258,6 +266,9 @@ async function autoWithdrawIssuedAssemblyWorkOrders(
 ): Promise<void> {
   const scrapParts = listScrapPartNames(args.checklistPayload);
   if (scrapParts.length === 0) return;
+  // Утильный двигатель: его наряд на сборку — штатный путь возврата заказчику, утиль в
+  // дефектовке для него ожидаем. Не отзываем (иначе метка утиля отзывала бы свой же наряд).
+  if (await isEngineScrap(db, args.engineId)) return;
   // Без фильтра по engine_entity_id: у старых Assembly-нарядов колонка может быть пустой,
   // двигатель резолвится из payload (resolveAssemblyEngineId) ниже.
   const rows = await db
