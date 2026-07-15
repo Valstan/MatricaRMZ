@@ -56,6 +56,7 @@ export const CONTRACT_EXECUTION_PARTS_ATTR_CODE = 'contract_execution_parts';
 
 export const STATUS_CODES = [
   'status_rework_sent',
+  'status_scrap_confirmed',
   'status_repair_started',
   'status_repaired',
   'status_customer_sent',
@@ -68,6 +69,7 @@ export type StatusCode = (typeof STATUS_CODES)[number];
 
 export const STATUS_DATE_CODES: Record<StatusCode, `${StatusCode}_date`> = {
   status_rework_sent: 'status_rework_sent_date',
+  status_scrap_confirmed: 'status_scrap_confirmed_date',
   status_storage_received: 'status_storage_received_date',
   status_repair_started: 'status_repair_started_date',
   status_repaired: 'status_repaired_date',
@@ -85,6 +87,10 @@ export const STATUS_LABELS: Record<StatusCode, string> = {
   // флаг не использовался — 0 записей). Утиль: двигатель признан неремонтопригодным,
   // после дефектовки собран обратно и возвращён заказчику без ремонта (или с недоремонтом).
   status_rework_sent: 'Утиль — отправлен заказчику',
+  // Ранняя метка утиля: ставится по итогам дефектовки, до сборки и отправки. Снимает
+  // блокировку выдачи Assembly-наряда по утильным деталям (для утильного двигателя утиль
+  // в дефектовке — ожидаемое состояние): его собирают обратно из чего есть, включая утиль.
+  status_scrap_confirmed: 'Признан утильным',
   status_storage_received: 'Принят на хранение',
   status_repair_started: 'Начат ремонт',
   status_repaired: 'Отремонтирован',
@@ -107,9 +113,23 @@ export function statusProgressPct(code: StatusCode | null | undefined): number {
       return 40;
     case 'status_storage_received':
       return 20;
+    // `status_scrap_confirmed` — 0: судьба двигателя решена, но он ещё на заводе (его
+    // собирают перед возвратом). Прогресс закрывает отправка (`status_rework_sent`).
     default:
       return 0;
   }
+}
+
+/**
+ * Утильный двигатель — признан неремонтопригодным на дефектовке (`status_scrap_confirmed`)
+ * либо уже возвращён заказчику как утиль (`status_rework_sent`). Единый источник истины
+ * для связки «утиль ⇄ наряд на сборку»: для такого двигателя утильные детали в дефектовке
+ * — ожидаемое состояние, поэтому блокировка выдачи Assembly-наряда и авто-отзыв по утилю
+ * не применяются (его собирают обратно из чего есть, чтобы вернуть заказчику).
+ */
+export function isScrapEngine(flags: Partial<Record<StatusCode, boolean>> | null | undefined): boolean {
+  if (!flags) return false;
+  return flags.status_scrap_confirmed === true || flags.status_rework_sent === true;
 }
 
 export function computeObjectProgress(flags: Partial<Record<StatusCode, boolean>>): number {
@@ -155,6 +175,7 @@ export function applyStatusFlagChange(
 export const STATUS_ADVANCE_RANK: Record<StatusCode, number> = {
   status_rejected: 0,
   status_rework_sent: 0,
+  status_scrap_confirmed: 0,
   status_storage_received: 1,
   status_repair_started: 2,
   status_repaired: 3,

@@ -222,7 +222,9 @@ const STATUS_DISPLAY_ORDER: StatusCode[] = [
   'status_repaired',
   'status_customer_sent',
   'status_customer_accepted',
-  // Утиль — терминальный исход, поэтому в конце списка.
+  // Утильная ветка — в конце: «Признан утильным» ставится по дефектовке (снимает блок
+  // выдачи наряда на сборку), «Утиль — отправлен заказчику» — терминальный исход.
+  'status_scrap_confirmed',
   'status_rework_sent',
 ];
 
@@ -1565,6 +1567,10 @@ export function EngineDetailsPage(props: {
     ['Отремонтирован', statusPrintValue(Boolean(statusFlags.status_repaired), statusDates.status_repaired)],
     ['Дата отгрузки', statusPrintValue(Boolean(statusFlags.status_customer_sent), statusDates.status_customer_sent)],
     ['Принято заказчиком', statusPrintValue(Boolean(statusFlags.status_customer_accepted), statusDates.status_customer_accepted)],
+    [
+      STATUS_LABELS.status_scrap_confirmed,
+      statusPrintValue(Boolean(statusFlags.status_scrap_confirmed), statusDates.status_scrap_confirmed),
+    ],
     [
       STATUS_LABELS.status_rework_sent,
       statusPrintValue(Boolean(statusFlags.status_rework_sent), statusDates.status_rework_sent),

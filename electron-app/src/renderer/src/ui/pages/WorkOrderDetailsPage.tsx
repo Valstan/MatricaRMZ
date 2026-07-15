@@ -14,6 +14,7 @@ import {
   applyWorkOrderWithdrawal,
   deriveWorkOrderStatusCode,
   ENGINE_INVENTORY_STAGE,
+  isScrapEngine,
   listScrapPartNames,
   workOrderWithdrawnAt,
   formatEmployeeInitialsSurname,
@@ -25,6 +26,7 @@ import {
   normalizeWorkOrderLine,
   resolveAssemblyEngineId,
   type NomenclatureItemType,
+  type StatusCode,
   type WorkOrderPayload,
   type WorkOrderPrintSettings,
   type WorkOrderSignatureBlockSelection,
@@ -352,6 +354,8 @@ export function WorkOrderDetailsPage(props: {
   const [closing, setClosing] = useState(false);
   // Связка «утиль ⇄ наряд на сборку»: утильные детали дефектовки двигателя блокируют выдачу.
   const [scrapParts, setScrapParts] = useState<string[]>([]);
+  /** Двигатель наряда признан утильным / отправлен как утиль — блок по утилю не применяется. */
+  const [scrapEngine, setScrapEngine] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
   const [withdrawReason, setWithdrawReason] = useState('');
   const [closedLocally, setClosedLocally] = useState(false);
@@ -1044,27 +1048,41 @@ export function WorkOrderDetailsPage(props: {
   }
 
   // Связка «утиль ⇄ наряд на сборку»: у Assembly-наряда читаем дефектовку двигателя;
-  // утильные строки (scrap_qty>0) блокируют кнопку «Выдать в работу».
+  // утильные строки (scrap_qty>0) блокируют кнопку «Выдать в работу». Исключение —
+  // утильный сам двигатель (`isScrapEngine`): его собирают обратно из чего есть, чтобы
+  // вернуть заказчику, поэтому утиль в его дефектовке блоком не считается.
   const assemblyEngineIdForScrap =
     payload && payload.workOrderKind === WorkOrderKind.Assembly ? resolveAssemblyEngineId(payload) : null;
   useEffect(() => {
     if (!assemblyEngineIdForScrap) {
       setScrapParts([]);
+      setScrapEngine(false);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const r = await window.matrica.checklists.engineGet({ engineId: assemblyEngineIdForScrap, stage: ENGINE_INVENTORY_STAGE });
-        if (!cancelled) setScrapParts(r?.ok && r.payload ? listScrapPartNames(r.payload) : []);
+        const [checklist, engine] = await Promise.all([
+          window.matrica.checklists.engineGet({ engineId: assemblyEngineIdForScrap, stage: ENGINE_INVENTORY_STAGE }),
+          window.matrica.engines.get(assemblyEngineIdForScrap).catch(() => null),
+        ]);
+        if (cancelled) return;
+        setScrapParts(checklist?.ok && checklist.payload ? listScrapPartNames(checklist.payload) : []);
+        setScrapEngine(isScrapEngine((engine?.attributes ?? {}) as Partial<Record<StatusCode, boolean>>));
       } catch {
-        if (!cancelled) setScrapParts([]);
+        if (!cancelled) {
+          setScrapParts([]);
+          setScrapEngine(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [assemblyEngineIdForScrap]);
+
+  /** Утиль блокирует выдачу только у обычного двигателя; у утильного сборка — штатный путь. */
+  const scrapBlocksIssue = scrapParts.length > 0 && !scrapEngine;
 
   async function currentActorLogin(): Promise<string> {
     try {
@@ -2765,9 +2783,9 @@ export function WorkOrderDetailsPage(props: {
             <Button
               variant={payload.repairIssued ? 'ghost' : 'primary'}
               size="sm"
-              disabled={!payload.repairIssued && scrapParts.length > 0}
+              disabled={!payload.repairIssued && scrapBlocksIssue}
               title={
-                !payload.repairIssued && scrapParts.length > 0
+                !payload.repairIssued && scrapBlocksIssue
                   ? `Выдача заблокирована: утильные детали в дефектовке двигателя — ${scrapParts.join(', ')}`
                   : payload.workOrderKind === WorkOrderKind.Assembly
                     ? payload.repairIssued
@@ -2794,10 +2812,16 @@ export function WorkOrderDetailsPage(props: {
       {(payload.workOrderKind === WorkOrderKind.Repair || payload.workOrderKind === WorkOrderKind.Assembly) &&
       !isClosed &&
       !payload.repairIssued &&
-      scrapParts.length > 0 ? (
+      scrapBlocksIssue ? (
         <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>
           ⛔ Выдача в работу заблокирована: утильные детали в дефектовке двигателя — {scrapParts.join(', ')}. Кнопка
           станет доступна, когда утиль будет снят (деталь заменена/восстановлена).
+        </div>
+      ) : null}
+      {payload.workOrderKind === WorkOrderKind.Assembly && !isClosed && scrapEngine && scrapParts.length > 0 ? (
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+          ♻️ Двигатель признан утильным — сборка для возврата заказчику. Утиль в дефектовке ({scrapParts.join(', ')})
+          выдачу не блокирует, детали можно брать с любого склада, включая «Утиль».
         </div>
       ) : null}
       {!isClosed && workOrderWithdrawnAt(payload as unknown as Record<string, unknown>) ? (

@@ -6,8 +6,10 @@ import {
   applyWorkOrderWithdrawal,
   buildAutoWithdrawReason,
   ENGINE_INVENTORY_STAGE,
+  isScrapEngine,
   listScrapPartNames,
   resolveAssemblyEngineId,
+  type StatusCode,
   SyncTableName,
   WorkOrderKind,
 } from '@matricarmz/shared';
@@ -297,6 +299,10 @@ async function autoWithdrawIssuedAssemblyWorkOrders(args: {
 }): Promise<void> {
   const scrapParts = listScrapPartNames(args.checklistPayload);
   if (scrapParts.length === 0) return;
+  // Утильный двигатель: его наряд на сборку — штатный путь возврата заказчику, утиль в
+  // дефектовке для него ожидаем. Не отзываем (иначе метка утиля отзывала бы свой же наряд).
+  const engine = await getEntityDetails(args.engineId).catch(() => null);
+  if (isScrapEngine((engine?.attributes ?? {}) as Partial<Record<StatusCode, boolean>>)) return;
   // Без фильтра по engine_entity_id: у старых Assembly-нарядов колонка может быть пустой,
   // двигатель резолвится из payload (resolveAssemblyEngineId) ниже.
   const rows = await db
