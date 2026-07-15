@@ -9,7 +9,6 @@ import {
   findWorkOrderSignatureSlots,
   normalizeWorkOrderLine,
   normalizeWorkOrderPayloadV3Fields,
-  primaryAssemblyEngineId,
   resolveAssemblyEngineId,
   workOrderWithdrawnAt,
   type WorkOrderPayload,
@@ -210,10 +209,13 @@ function getPrimaryPartId(payload: WorkOrderPayload): string | null {
 
 // Для Assembly-наряда engine_entity_id должен указывать на собираемый двигатель
 // (бэк-проверка workOrderClosingService требует engine_entity_id у Assembly).
-// partId на Assembly = изделие сборки, не двигатель — поэтому ищем engineId среди строк.
+// partId на Assembly = изделие сборки, не двигатель — поэтому берём двигатель наряда:
+// шапка (`assemblyEngineId`), с фоллбеком на построчные штампы у старых нарядов. Читать
+// только строки нельзя: у наряда с двигателем лишь в шапке провенанс молча уезжал на
+// изделие/контейнер (регрессия после #133).
 function workOrderEngineEntityId(payload: WorkOrderPayload): string {
   if (payload.workOrderKind === WorkOrderKind.Assembly) {
-    const engineId = primaryAssemblyEngineId(payload);
+    const engineId = resolveAssemblyEngineId(payload);
     if (engineId) return engineId;
   }
   return getPrimaryPartId(payload) ?? WORK_ORDERS_CONTAINER_ID;
@@ -588,7 +590,9 @@ export async function getActiveAssemblyVariant(
       if (String(row.status ?? 'open') === 'closed') continue;
       const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
       if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) continue;
-      if (primaryAssemblyEngineId(payload) !== target) continue;
+      // Двигатель наряда — шапка, с фоллбеком на строки: иначе наряд с двигателем только
+      // в шапке не находился и вариант сборки считался незанятым.
+      if (resolveAssemblyEngineId(payload) !== target) continue;
       const vg = String(payload.assemblyVariantGroup ?? '').trim();
       return { ok: true as const, variantGroup: vg || null };
     }
