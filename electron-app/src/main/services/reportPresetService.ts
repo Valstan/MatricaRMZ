@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { BrowserWindow } from 'electron';
 
@@ -34,6 +34,7 @@ import {
   type ReportPresetPrintResult,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  ENGINE_INVENTORY_STAGE,
   formatEngineInternalNumber,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
@@ -47,6 +48,7 @@ import {
   computeWorkOrdersStatusSummary,
   resolveAssemblyEngineId,
   renderWorkOrdersReportHtml,
+  selectEnginesListReportColumns,
   selectWorkOrdersReportColumns,
   sortWorkOrdersReportRows,
   workOrderWithdrawnAt,
@@ -2807,6 +2809,32 @@ async function buildEngineMovementsReport(
   };
 }
 
+// Акт комплектности «заполнен» = в списке деталей (engine_inventory) хотя бы одна деталь
+// отмечена «на месте» (present) — тот же критерий, что hasCompletenessAct в engineService.
+async function getCompletenessActStartedMap(db: BetterSQLite3Database): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  const opRows = await db
+    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson, updatedAt: operations.updatedAt })
+    .from(operations)
+    .where(and(eq(operations.operationType, ENGINE_INVENTORY_STAGE), isNull(operations.deletedAt)))
+    .orderBy(desc(operations.updatedAt));
+  for (const op of opRows as any[]) {
+    const engineId = String(op?.engineEntityId ?? '').trim();
+    if (!engineId || result.has(engineId)) continue;
+    let started = false;
+    try {
+      const payload = op.metaJson ? JSON.parse(String(op.metaJson)) : null;
+      const table = payload?.answers?.engine_inventory_items;
+      const tableRows = table?.kind === 'table' && Array.isArray(table.rows) ? table.rows : [];
+      started = tableRows.some((r: any) => r?.present === true || r?.present === 'true' || r?.present === 1 || r?.present === '1');
+    } catch {
+      started = false;
+    }
+    result.set(engineId, started);
+  }
+  return result;
+}
+
 async function buildEnginesListReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
@@ -2822,9 +2850,13 @@ async function buildEnginesListReport(
   const shippingEnd = asNumberOrNull(filters?.shippingEndMs);
   const brandFilter = asArray(filters?.brandIds);
   const contractFilter = asArray(filters?.contractIds);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
   const scrapFilter = normalizeText(filters?.scrapFilter, 'all');
   const onSiteFilter = normalizeText(filters?.onSiteFilter, 'all');
+  const completenessActFilter = normalizeText(filters?.completenessActFilter, 'all');
+  const columnKeys = asArray(filters?.columns);
 
+  const completenessActByEngineId = await getCompletenessActStartedMap(db);
   const snapshot = await loadSnapshot(db);
   const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
   if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
@@ -2868,12 +2900,17 @@ async function buildEnginesListReport(
 
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
 
     if (scrapFilter === 'yes' && !isScrap) continue;
     if (scrapFilter === 'no' && isScrap) continue;
 
     if (onSiteFilter === 'yes' && !onSite) continue;
     if (onSiteFilter === 'no' && onSite) continue;
+
+    const completenessActStarted = completenessActByEngineId.get(id) === true;
+    if (completenessActFilter === 'yes' && !completenessActStarted) continue;
+    if (completenessActFilter === 'no' && completenessActStarted) continue;
 
     if (isScrap) totalScrap++;
     if (onSite) totalOnSite++;
@@ -2892,6 +2929,7 @@ async function buildEnginesListReport(
       repairedDate: repairedRaw > 0 ? repairedRaw : null,
       shippingDate,
       isScrap: isScrap ? 'Да' : 'Нет',
+      completenessAct: completenessActStarted ? 'Да' : 'Нет',
     });
   }
 
@@ -2903,7 +2941,7 @@ async function buildEnginesListReport(
     presetId: 'engines_list',
     title: preset.title,
     subtitle: period.startMs ? `${msToDate(period.startMs)} — ${msToDate(period.endMs)}` : `по ${msToDate(period.endMs)}`,
-    columns: preset.columns,
+    columns: selectEnginesListReportColumns(columnKeys),
     rows,
     totals: {
       engines: rows.length,

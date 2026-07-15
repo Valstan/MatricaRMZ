@@ -160,31 +160,46 @@ function toNonNegativeInteger(value: unknown): number | null {
 // (migrateChecklistToEngineInventory) объединил defect+completeness в неё и soft-delete'нул
 // прежние defect-акты, поэтому читать надо именно её, иначе флаг всегда пуст (G: метка
 // не снималась — читался опустевший defect-акт, а карточка пишет engine_inventory).
-function isCrankcaseInventoryScrapped(payload: unknown): boolean {
-  if (!payload || typeof payload !== 'object') return false;
+type EngineInventoryFlags = { crankcaseScrapped: boolean; actStarted: boolean };
+
+function inventoryRowsOf(payload: unknown): Array<Record<string, unknown>> {
+  if (!payload || typeof payload !== 'object') return [];
   const answers = (payload as Record<string, unknown>).answers;
-  if (!answers || typeof answers !== 'object') return false;
+  if (!answers || typeof answers !== 'object') return [];
 
   const inventoryItems = (answers as Record<string, unknown>).engine_inventory_items;
-  if (!inventoryItems || typeof inventoryItems !== 'object') return false;
+  if (!inventoryItems || typeof inventoryItems !== 'object') return [];
   const inventoryItemsObj = inventoryItems as { kind?: unknown; rows?: unknown[] };
-  if (inventoryItemsObj.kind !== 'table') return false;
-  if (!Array.isArray(inventoryItemsObj.rows)) return false;
-
-  for (const rawRow of inventoryItemsObj.rows) {
-    if (!rawRow || typeof rawRow !== 'object') continue;
-    const row = rawRow as Record<string, unknown>;
-    const name = String(row.part_name ?? '').toLowerCase();
-    if (!name.includes('картер')) continue;
-    const scrapQty = toNonNegativeInteger(row.scrap_qty);
-    if (scrapQty != null && scrapQty > 0) return true;
-  }
-
-  return false;
+  if (inventoryItemsObj.kind !== 'table') return [];
+  if (!Array.isArray(inventoryItemsObj.rows)) return [];
+  return inventoryItemsObj.rows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
 }
 
-async function getInventoryCrankcaseScrapMap(db: BetterSQLite3Database, engineIds: string[]): Promise<Map<string, boolean>> {
-  const result = new Map<string, boolean>();
+function isPresentValue(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
+  let crankcaseScrapped = false;
+  let actStarted = false;
+  for (const row of inventoryRowsOf(payload)) {
+    // Акт комплектности «заполнен», как только хотя бы одна деталь отмечена «на месте»
+    // (решение владельца 2026-07-15): работник начал заполнять акт.
+    if (!actStarted && isPresentValue(row.present)) actStarted = true;
+    if (!crankcaseScrapped) {
+      const name = String(row.part_name ?? '').toLowerCase();
+      if (name.includes('картер')) {
+        const scrapQty = toNonNegativeInteger(row.scrap_qty);
+        if (scrapQty != null && scrapQty > 0) crankcaseScrapped = true;
+      }
+    }
+    if (actStarted && crankcaseScrapped) break;
+  }
+  return { crankcaseScrapped, actStarted };
+}
+
+async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: string[]): Promise<Map<string, EngineInventoryFlags>> {
+  const result = new Map<string, EngineInventoryFlags>();
   if (engineIds.length === 0) return result;
 
   const rows = await db
@@ -206,7 +221,7 @@ async function getInventoryCrankcaseScrapMap(db: BetterSQLite3Database, engineId
     seen.add(engineId);
 
     const payload = row.metaJson ? safeJsonParse(String(row.metaJson)) : null;
-    result.set(engineId, isCrankcaseInventoryScrapped(payload));
+    result.set(engineId, computeEngineInventoryFlags(payload));
   }
 
   return result;
@@ -241,7 +256,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
   const contractSignedAtById = await getContractSignedAtMap(db);
   const engineIds = engines.map((e) => e.id);
-  const crankcaseScrapByEngineId = await getInventoryCrankcaseScrapMap(db, engineIds);
+  const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
   const baseDefIds = [
     numberDefId,
     internalNumberDefId,
@@ -413,7 +428,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     }
     const statusRejected = statusFlags.status_rejected === true;
     // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).
-    const crankcaseScrapped = crankcaseScrapByEngineId.get(e.id) === true;
+    const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
+    const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
 
     const customerName = customerId ? customerNameById.get(customerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
@@ -438,6 +454,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       isScrap: statusRejected || crankcaseScrapped,
+      ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),

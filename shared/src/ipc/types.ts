@@ -30,6 +30,8 @@ export type EngineListItem = {
   arrivalDate?: number | null;
   shippingDate?: number | null;
   isScrap?: boolean;
+  /** Акт комплектности начат: хотя бы одна деталь в списке деталей отмечена «на месте». */
+  hasCompletenessAct?: boolean;
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;
