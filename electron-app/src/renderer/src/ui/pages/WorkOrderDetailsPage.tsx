@@ -1143,6 +1143,15 @@ export function WorkOrderDetailsPage(props: {
    * optional, lines may also carry productNumber/engineId/engineNumber/engineBrandId/
    * engineBrandName. */
   function buildLinesFromWorkOrderTemplate(template: WorkOrderTemplateLine[]): WorkOrderWorkLine[] {
+    // Строки шаблона наследуют двигатель ШАПКИ, если своего не несут (обычный случай —
+    // шаблон универсальный): без engineId normalizeWorkOrderLine стрипает номер/марку при
+    // первом же recalc, и наряд остаётся без двигателя в строках — отсюда пустые реквизиты
+    // в печати/отчёте и гейт «Выберите двигатель» при выбранном двигателе. Тот же штамп, что
+    // у «Добавить работу» (addFreeWorkLine) и «Заполнить из спецификации». Только Assembly:
+    // у ремонтного наряда двигателя в шапке нет — поведение не меняется.
+    const headerEngineId =
+      payload && payload.workOrderKind === WorkOrderKind.Assembly ? resolveAssemblyEngineId(payload) : null;
+    const headerEngine = headerEngineId ? engines.find((e) => e.id === headerEngineId) ?? null : null;
     return template.map((row, idx) => {
       const svc = row.serviceId ? serviceById.get(row.serviceId) ?? null : null;
       const partId = row.nomenclatureId ?? null;
@@ -1162,10 +1171,24 @@ export function WorkOrderDetailsPage(props: {
         if (partName) line.partName = partName;
       }
       if (row.productNumber) line.productNumber = row.productNumber;
-      if (row.engineId) line.engineId = row.engineId;
-      if (row.engineNumber) line.engineNumber = row.engineNumber;
-      if (row.engineBrandId) line.engineBrandId = row.engineBrandId;
-      if (row.engineBrandName) line.engineBrandName = row.engineBrandName;
+      // Двигатель — целиком из строки шаблона либо целиком из шапки: поля описывают ОДИН
+      // двигатель, смешивать номер одного с id другого нельзя.
+      if (row.engineId) {
+        line.engineId = row.engineId;
+        if (row.engineNumber) line.engineNumber = row.engineNumber;
+        if (row.engineBrandId) line.engineBrandId = row.engineBrandId;
+        if (row.engineBrandName) line.engineBrandName = row.engineBrandName;
+      } else if (headerEngine) {
+        line.engineId = headerEngine.id;
+        if (headerEngine.engineNumber) line.engineNumber = headerEngine.engineNumber;
+        if (headerEngine.engineInternalNumber) line.engineInternalNumber = headerEngine.engineInternalNumber;
+        if (headerEngine.engineBrandId) line.engineBrandId = headerEngine.engineBrandId;
+        if (headerEngine.engineBrandName) line.engineBrandName = headerEngine.engineBrandName;
+      } else {
+        if (row.engineNumber) line.engineNumber = row.engineNumber;
+        if (row.engineBrandId) line.engineBrandId = row.engineBrandId;
+        if (row.engineBrandName) line.engineBrandName = row.engineBrandName;
+      }
       return line;
     });
   }
@@ -2605,14 +2628,16 @@ export function WorkOrderDetailsPage(props: {
           // Сохранение создаёт assembly_consumption в статусе draft и резервирует детали.
           // Проведение/удаление — через отдельные кнопки в состоянии черновика выше.
           (() => {
-            const assemblyEngineId = payload.freeWorks.find((line) => line.engineId)?.engineId ?? null;
+            // Двигатель наряда — шапка, с фоллбеком на строки: раньше гейт читал только
+            // строки и блокировал сохранение при выбранном в шапке двигателе.
+            const assemblyEngineId = resolveAssemblyEngineId(payload);
             const missingAssemblyEngine = !assemblyEngineId;
             const missingWorkshop = !payload.workshopId;
             const saveDisabled = closing || missingAssemblyEngine || missingWorkshop;
             const saveTooltip = missingWorkshop
               ? 'Выберите цех'
               : missingAssemblyEngine
-                ? 'Укажите двигатель сборки хотя бы в одной строке работ'
+                ? 'Выберите двигатель сборки в шапке наряда'
                 : 'Создаст черновик документа assembly_consumption и зарезервирует детали на складах. Списание — отдельной кнопкой «Провести наряд».';
             return (
               <Button
@@ -2621,7 +2646,7 @@ export function WorkOrderDetailsPage(props: {
                 onClick={async () => {
                   if (!confirm) return;
                   if (missingAssemblyEngine) {
-                    setStatus('Для сборочного наряда укажите двигатель хотя бы в одной строке работ.');
+                    setStatus('Для сборочного наряда выберите двигатель в шапке.');
                     return;
                   }
                   if (missingWorkshop) {
@@ -2662,9 +2687,8 @@ export function WorkOrderDetailsPage(props: {
             const isRegular = kind === WorkOrderKind.Regular;
             const needsWorkshop = !isRegular;
             const needsEngine = kind === WorkOrderKind.Assembly;
-            const assemblyEngineId = needsEngine
-              ? (payload.freeWorks.find((line) => line.engineId)?.engineId ?? null)
-              : null;
+            // Двигатель наряда — шапка, с фоллбеком на строки (см. гейт черновика выше).
+            const assemblyEngineId = needsEngine ? resolveAssemblyEngineId(payload) : null;
             const missingAssemblyEngine = needsEngine && !assemblyEngineId;
             const closeDisabled =
               closing ||
@@ -2676,7 +2700,7 @@ export function WorkOrderDetailsPage(props: {
               : needsWorkshop && !payload.workshopId
                 ? 'Выберите цех'
                 : missingAssemblyEngine
-                  ? 'Укажите двигатель сборки хотя бы в одной строке работ'
+                  ? 'Выберите двигатель сборки в шапке наряда'
                   : isRegular
                     ? 'Закроет наряд без складских движений (только учёт зарплат)'
                     : kind === WorkOrderKind.Repair
@@ -2714,7 +2738,7 @@ export function WorkOrderDetailsPage(props: {
                 onClick={async () => {
                   if (!confirm) return;
                   if (missingAssemblyEngine) {
-                    setStatus('Для сборочного наряда укажите двигатель хотя бы в одной строке работ.');
+                    setStatus('Для сборочного наряда выберите двигатель в шапке.');
                     return;
                   }
                   const ok = await confirm({

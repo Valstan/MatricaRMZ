@@ -699,11 +699,14 @@ export function pruneEmptyWorkshopLines(payload: WorkOrderPayload): WorkOrderPay
 }
 
 /**
- * Первый ненулевой engineId среди строк наряда. Используется DAL'ом наряда
- * для записи operations.engine_entity_id у Assembly-нарядов (сборка двигателя):
- * partId на assembly указывает на собираемое изделие, а собираемый двигатель
- * приходит через freeWorks[*].engineId / workGroups[*].lines[*].engineId. Без
- * этой записи бэк-проверка workOrderClosingService падает у любого Assembly.
+ * Первый ненулевой engineId среди строк наряда (legacy-путь).
+ *
+ * ⚠️ НЕ вызывать из прод-кода — только `resolveAssemblyEngineId`. С #133 двигатель сборки
+ * задаётся в ШАПКЕ (`assemblyEngineId`), а строки могут быть без штампа, поэтому чтение
+ * «только строк» даёт молчаливый промах: пустые №/марка (#168), пустые двигатель/заказчик
+ * в отчёте (#192), пустые договор/заказчик в печати и провенанс `engine_entity_id`,
+ * уехавший на изделие/контейнер (#224 и далее). Оставлен экспортированным как fallback-ветка
+ * внутри `resolveAssemblyEngineId` и ради юнит-тестов.
  */
 export function primaryAssemblyEngineId(payload: WorkOrderPayload): string | null {
   const freeWorks = Array.isArray(payload.freeWorks) ? payload.freeWorks : [];
