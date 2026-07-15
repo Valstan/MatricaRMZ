@@ -432,6 +432,7 @@ export function RepairChecklistPanel(props: {
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const isInventoryStage = props.stage === ENGINE_INVENTORY_STAGE;
+  const internalNumberForStamp = String(props.engineInternalNumber ?? '').trim();
   // Detail rows marked «заказать новую» (replace_qty>0) → draft supply-request items.
   // Read raw rows (not normalized) so the helper can pick up the optional __part_id/__part_unit hints.
   const defectSupplyItems = useMemo<SupplyRequestItem[]>(() => {
@@ -1771,6 +1772,35 @@ export function RepairChecklistPanel(props: {
           </>
         )}
       </div>
+
+      {/*
+        Клеймо двигателя на дефектовке. Только подсказка: в «№ на детали» внутренний номер
+        НЕ подставляем — это поле личного номера экземпляра (ключ ремфонда
+        (engineEntityId, nomenclatureId, stampedNumber)), и одинаковое значение на всех
+        безымянных деталях схлопнуло бы их в один экземпляр. Связь детали с двигателем
+        держит engineEntityId самой записи, а не номер.
+      */}
+      {!collapsed && (isInventoryStage || props.stage === 'defect') && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: internalNumberForStamp ? 'rgba(37, 99, 235, 0.10)' : 'rgba(245, 158, 11, 0.12)',
+            color: internalNumberForStamp ? '#1d4ed8' : '#92400e',
+            fontSize: 12,
+          }}
+        >
+          {internalNumberForStamp ? (
+            <>
+              Клеймо двигателя: <b>{internalNumberForStamp}</b> — набивайте его на детали, у которых нет своего
+              заводского номера. В «№ на детали» вносите только личный номер детали, если он набит изготовителем.
+            </>
+          ) : (
+            <>Внутренний номер не задан. Задайте его на вкладке «Основное» — это клеймо для безымянных деталей двигателя.</>
+          )}
+        </div>
+      )}
 
       {!collapsed && isInventoryStage && inventoryShortage && inventoryShortage.total > 0 && (
         <div
