@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ACCESS_SECTION_CATALOG,
   EMPTY_UI_SPEC,
@@ -7,8 +7,11 @@ import {
   MOCK_BLOCK_LABELS_RU,
   MOCK_LINK_KINDS,
   MOCK_LINK_LABELS_RU,
+  MOCKUP_STARTER_TEMPLATE_IDS,
+  MOCKUP_STARTER_TEMPLATE_LABELS_RU,
   UI_SPEC_MAX_BLOCKS,
   UI_SPEC_MAX_LINKS,
+  buildStarterTemplate,
   describeUiSpecForDeveloper,
   sanitizeUiSpec,
   serializeUiSpec,
@@ -16,6 +19,7 @@ import {
   type MockBlockKind,
   type MockLink,
   type MockLinkKind,
+  type MockupStarterTemplateId,
   type UiSpecV2,
 } from '@matricarmz/shared';
 
@@ -64,7 +68,12 @@ const selectStyle: React.CSSProperties = {
   color: theme.colors.text,
 };
 
-function BlockProperties(props: { block: MockBlock; onChange: (next: MockBlock) => void; onRemove: () => void }) {
+function BlockProperties(props: {
+  block: MockBlock;
+  onChange: (next: MockBlock) => void;
+  onRemove: () => void;
+  onDuplicate: () => void;
+}) {
   const { block, onChange } = props;
   const itemsHint = ITEMS_HINT[block.kind];
   return (
@@ -118,8 +127,11 @@ function BlockProperties(props: { block: MockBlock; onChange: (next: MockBlock) 
           </label>
         ))}
       </div>
-      <div style={{ marginTop: 10 }}>
-        <Button size="sm" variant="ghost" tone="danger" onClick={props.onRemove}>
+      <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
+        <Button size="sm" variant="ghost" onClick={props.onDuplicate} title="Ctrl+D">
+          Дублировать
+        </Button>
+        <Button size="sm" variant="ghost" tone="danger" onClick={props.onRemove} title="Delete">
           Удалить элемент
         </Button>
       </div>
@@ -190,15 +202,63 @@ export function ScreenEditorPage(props: {
   const [linkMode, setLinkMode] = useState(false);
   const [linkFromId, setLinkFromId] = useState<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(true);
+  const [zoom, setZoom] = useState(1);
   const [canEdit, setCanEdit] = useState(true);
   const [editorSections, setEditorSections] = useState<Array<{ id: string; titleRu: string }>>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const GRID = 8;
+  const HISTORY_MAX = 60;
+  const historyRef = useRef<{ past: UiSpecV2[]; future: UiSpecV2[] }>({ past: [], future: [] });
+
   const notify = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3500);
   };
+
+  /** All structural edits go through here — every mutation is one undo step. */
+  function mutateSpec(fn: (prev: UiSpecV2) => UiSpecV2) {
+    setSpec((prev) => {
+      const h = historyRef.current;
+      h.past.push(prev);
+      if (h.past.length > HISTORY_MAX) h.past.shift();
+      h.future = [];
+      return fn(prev);
+    });
+  }
+
+  /** Snapshot without changing the spec (start of a drag gesture). */
+  function snapshotForDrag() {
+    setSpec((prev) => {
+      const h = historyRef.current;
+      h.past.push(prev);
+      if (h.past.length > HISTORY_MAX) h.past.shift();
+      h.future = [];
+      return prev;
+    });
+  }
+
+  function undo() {
+    setSpec((prev) => {
+      const h = historyRef.current;
+      const past = h.past.pop();
+      if (!past) return prev;
+      h.future.push(prev);
+      return past;
+    });
+  }
+
+  function redo() {
+    setSpec((prev) => {
+      const h = historyRef.current;
+      const next = h.future.pop();
+      if (!next) return prev;
+      h.past.push(prev);
+      return next;
+    });
+  }
 
   // Разделы, куда автор может сохранять (editor-уровень; superadmin/легаси — все).
   useEffect(() => {
@@ -270,23 +330,67 @@ export function ScreenEditorPage(props: {
       w: def.w,
       h: def.h,
     };
-    setSpec((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
+    mutateSpec((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
     setSelection({ type: 'block', id: block.id });
   }
 
+  function insertStarterTemplate(template: MockupStarterTemplateId) {
+    const made = buildStarterTemplate(template, () => newId('blk'));
+    if (spec.blocks.length + made.blocks.length > UI_SPEC_MAX_BLOCKS) {
+      notify(`Не больше ${UI_SPEC_MAX_BLOCKS} элементов на эскизе`);
+      return;
+    }
+    // Drop below existing content so the starter never buries current work.
+    const baseY = spec.blocks.reduce((m, b) => Math.max(m, b.y + b.h), 0);
+    const dy = baseY > 0 ? baseY + 40 - 30 : 0;
+    const shifted = made.blocks.map((b) => ({ ...b, y: b.y + dy }));
+    mutateSpec((prev) => ({
+      ...prev,
+      canvas: { w: prev.canvas.w, h: Math.max(prev.canvas.h, shifted.reduce((m, b) => Math.max(m, b.y + b.h), 0) + 40) },
+      blocks: [...prev.blocks, ...shifted],
+      links: [...prev.links, ...made.links],
+    }));
+    setSelection(null);
+  }
+
   function updateBlock(next: MockBlock) {
-    setSpec((prev) => ({ ...prev, blocks: prev.blocks.map((b) => (b.id === next.id ? next : b)) }));
+    mutateSpec((prev) => ({ ...prev, blocks: prev.blocks.map((b) => (b.id === next.id ? next : b)) }));
+  }
+
+  function duplicateBlock(id: string) {
+    const src = spec.blocks.find((b) => b.id === id);
+    if (!src) return;
+    if (spec.blocks.length >= UI_SPEC_MAX_BLOCKS) {
+      notify(`Не больше ${UI_SPEC_MAX_BLOCKS} элементов на эскизе`);
+      return;
+    }
+    const copy: MockBlock = { ...src, id: newId('blk'), x: src.x + 24, y: src.y + 24 };
+    mutateSpec((prev) => ({ ...prev, blocks: [...prev.blocks, copy] }));
+    setSelection({ type: 'block', id: copy.id });
+  }
+
+  function nudgeBlock(id: string, dx: number, dy: number) {
+    mutateSpec((prev) => ({
+      ...prev,
+      blocks: prev.blocks.map((b) =>
+        b.id === id ? { ...b, x: Math.max(0, b.x + dx), y: Math.max(0, b.y + dy) } : b,
+      ),
+    }));
   }
 
   function patchBlockGeometry(id: string, patch: { x?: number; y?: number; w?: number; h?: number }) {
+    const snapped = snapToGrid
+      ? Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, Math.round((v as number) / GRID) * GRID]))
+      : patch;
+    // continuous during drag — history snapshot is taken once at gesture start
     setSpec((prev) => ({
       ...prev,
-      blocks: prev.blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)),
+      blocks: prev.blocks.map((b) => (b.id === id ? { ...b, ...snapped } : b)),
     }));
   }
 
   function removeBlock(id: string) {
-    setSpec((prev) => ({
+    mutateSpec((prev) => ({
       ...prev,
       blocks: prev.blocks.filter((b) => b.id !== id),
       links: prev.links.filter((l) => l.fromId !== id && l.toId !== id),
@@ -295,13 +399,53 @@ export function ScreenEditorPage(props: {
   }
 
   function updateLink(next: MockLink) {
-    setSpec((prev) => ({ ...prev, links: prev.links.map((l) => (l.id === next.id ? next : l)) }));
+    mutateSpec((prev) => ({ ...prev, links: prev.links.map((l) => (l.id === next.id ? next : l)) }));
   }
 
   function removeLink(id: string) {
-    setSpec((prev) => ({ ...prev, links: prev.links.filter((l) => l.id !== id) }));
+    mutateSpec((prev) => ({ ...prev, links: prev.links.filter((l) => l.id !== id) }));
     setSelection(null);
   }
+
+  // Keyboard: undo/redo, delete, duplicate, arrow nudge. Skipped while typing in fields.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (!selection) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        if (selection.type === 'block') removeBlock(selection.id);
+        else removeLink(selection.id);
+        return;
+      }
+      if (selection.type !== 'block') return;
+      if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        duplicateBlock(selection.id);
+        return;
+      }
+      const stepPx = e.shiftKey ? 10 : 1;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); nudgeBlock(selection.id, -stepPx, 0); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); nudgeBlock(selection.id, stepPx, 0); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); nudgeBlock(selection.id, 0, -stepPx); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeBlock(selection.id, 0, stepPx); }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selection, spec.blocks.length, snapToGrid]);
 
   function onLinkClick(blockId: string) {
     if (!linkFromId) {
@@ -317,7 +461,7 @@ export function ScreenEditorPage(props: {
       return;
     }
     const link: MockLink = { id: newId('lnk'), fromId: linkFromId, toId: blockId, kind: 'navigate' };
-    setSpec((prev) => ({ ...prev, links: [...prev.links, link] }));
+    mutateSpec((prev) => ({ ...prev, links: [...prev.links, link] }));
     setLinkFromId(null);
     setLinkMode(false);
     setSelection({ type: 'link', id: link.id });
@@ -418,6 +562,45 @@ export function ScreenEditorPage(props: {
         <Button size="sm" variant={showAnnotations ? 'primary' : 'ghost'} onClick={() => setShowAnnotations((v) => !v)}>
           № Сноски
         </Button>
+        <Button size="sm" variant="ghost" onClick={undo} title="Ctrl+Z">
+          ↩ Отменить
+        </Button>
+        <Button size="sm" variant="ghost" onClick={redo} title="Ctrl+Shift+Z / Ctrl+Y">
+          ↪ Вернуть
+        </Button>
+        <Button
+          size="sm"
+          variant={snapToGrid ? 'primary' : 'ghost'}
+          onClick={() => setSnapToGrid((v) => !v)}
+          title="Прилипание к сетке 8px при перетаскивании"
+        >
+          ⌗ Сетка
+        </Button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          <Button size="sm" variant="ghost" onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}>
+            −
+          </Button>
+          <span style={{ fontSize: 12, color: theme.colors.muted, minWidth: 38, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+          <Button size="sm" variant="ghost" onClick={() => setZoom((z) => Math.min(1.5, Math.round((z + 0.25) * 100) / 100))}>
+            +
+          </Button>
+        </span>
+        <select
+          value=""
+          onChange={(e) => {
+            const v = e.target.value as MockupStarterTemplateId | '';
+            if (v) insertStarterTemplate(v);
+          }}
+          style={{ ...selectStyle, width: 'auto' }}
+          title="Готовый скелет эскиза — добавится на холст, дальше лепите под себя"
+        >
+          <option value="">+ Заготовка…</option>
+          {MOCKUP_STARTER_TEMPLATE_IDS.map((tid) => (
+            <option key={tid} value={tid}>
+              {MOCKUP_STARTER_TEMPLATE_LABELS_RU[tid]}
+            </option>
+          ))}
+        </select>
         <Button size="sm" variant="ghost" onClick={() => void copyDeveloperSpec()}>
           📋 Описание для разработчика
         </Button>
@@ -458,7 +641,12 @@ export function ScreenEditorPage(props: {
           </div>
           {selectedBlock ? (
             <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
-              <BlockProperties block={selectedBlock} onChange={updateBlock} onRemove={() => removeBlock(selectedBlock.id)} />
+              <BlockProperties
+                block={selectedBlock}
+                onChange={updateBlock}
+                onRemove={() => removeBlock(selectedBlock.id)}
+                onDuplicate={() => duplicateBlock(selectedBlock.id)}
+              />
             </div>
           ) : selectedLink ? (
             <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
@@ -479,8 +667,10 @@ export function ScreenEditorPage(props: {
             showAnnotations={showAnnotations}
             linkMode={linkMode}
             linkFromId={linkFromId}
+            scale={zoom}
             onSelect={setSelection}
             onLinkClick={onLinkClick}
+            onDragStart={snapshotForDrag}
             onBlockGeometry={patchBlockGeometry}
           />
         </div>

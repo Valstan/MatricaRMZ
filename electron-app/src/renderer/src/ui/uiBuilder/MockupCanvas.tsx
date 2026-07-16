@@ -289,11 +289,16 @@ export function MockupCanvas(props: {
   /** Link-creation mode: block clicks go to onLinkClick instead of select/drag. */
   linkMode?: boolean;
   linkFromId?: string | null;
+  /** Canvas zoom, 1 = 100%. Pointer deltas are divided by it. */
+  scale?: number;
   onSelect?: (sel: MockupSelection) => void;
   onLinkClick?: (blockId: string) => void;
+  /** Fires once at the start of a move/resize gesture (undo snapshot point). */
+  onDragStart?: () => void;
   onBlockGeometry?: (id: string, patch: { x?: number; y?: number; w?: number; h?: number }) => void;
 }) {
   const { spec, mode } = props;
+  const scale = props.scale ?? 1;
   const selection = props.selection ?? null;
   const editable = mode === 'edit';
   const dragRef = useRef<{
@@ -322,14 +327,15 @@ export function MockupCanvas(props: {
       // synthetic/expired pointerId — dragging still works via canvas onPointerMove
     }
     dragRef.current = { id: b.id, kind, startX: e.clientX, startY: e.clientY, origX: b.x, origY: b.y, origW: b.w, origH: b.h };
+    props.onDragStart?.();
     props.onSelect?.({ type: 'block', id: b.id });
   }
 
   function onPointerMove(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
+    const dx = (e.clientX - d.startX) / scale;
+    const dy = (e.clientY - d.startY) / scale;
     if (d.kind === 'move') {
       props.onBlockGeometry?.(d.id, {
         x: Math.max(0, Math.min(spec.canvas.w - MOCK_BLOCK_MIN_SIZE, d.origX + dx)),
@@ -351,9 +357,12 @@ export function MockupCanvas(props: {
   const zOrdered = [...spec.blocks].sort((a, b) => (a.kind === 'panel' ? 0 : 1) - (b.kind === 'panel' ? 0 : 1));
 
   return (
+    <div style={{ width: spec.canvas.w * scale, height: spec.canvas.h * scale }}>
     <div
       style={{
         position: 'relative',
+        transform: scale !== 1 ? `scale(${scale})` : undefined,
+        transformOrigin: '0 0',
         width: spec.canvas.w,
         height: spec.canvas.h,
         background:
@@ -458,6 +467,7 @@ export function MockupCanvas(props: {
           Холст пуст — добавьте элементы из палитры слева.
         </div>
       ) : null}
+    </div>
     </div>
   );
 }
