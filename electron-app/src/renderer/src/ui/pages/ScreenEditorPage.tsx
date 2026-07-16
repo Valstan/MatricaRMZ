@@ -1,234 +1,204 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import React, { useEffect, useState } from 'react';
 import {
   ACCESS_SECTION_CATALOG,
-  UI_LIST_WIDGET_IDS,
-  UI_LIST_WIDGET_LABELS_RU,
+  EMPTY_UI_SPEC,
+  MOCK_BLOCK_DEFAULT_SIZES,
+  MOCK_BLOCK_KINDS,
+  MOCK_BLOCK_LABELS_RU,
+  MOCK_LINK_KINDS,
+  MOCK_LINK_LABELS_RU,
+  UI_SPEC_MAX_BLOCKS,
+  UI_SPEC_MAX_LINKS,
+  describeUiSpecForDeveloper,
   sanitizeUiSpec,
   serializeUiSpec,
-  type UiBlock,
-  type UiSpecV1,
+  type MockBlock,
+  type MockBlockKind,
+  type MockLink,
+  type MockLinkKind,
+  type UiSpecV2,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { theme } from '../theme.js';
-import { SpecRenderer } from '../uiBuilder/SpecRenderer.js';
-import { createPreviewIntentRuntime } from '../uiBuilder/intentRuntime.js';
+import { MockupCanvas, MOCK_LINK_STYLES, type MockupSelection } from '../uiBuilder/MockupCanvas.js';
 
 export type ScreenEditorTabOption = { id: string; label: string };
 
-const BLOCK_KIND_LABELS: Record<UiBlock['kind'], string> = {
-  heading: 'Заголовок',
-  text: 'Текст',
-  button: 'Кнопка-переход',
-  list: 'Список',
+let seq = 0;
+function newId(prefix: string): string {
+  seq += 1;
+  return `${prefix}_${Date.now().toString(36)}_${seq}`;
+}
+
+const ITEMS_HINT: Partial<Record<MockBlockKind, string>> = {
+  table: 'Колонки таблицы (по одной на строку)',
+  tabs: 'Названия вкладок (по одному на строку)',
+  list: 'Пункты списка (по одному на строку, можно оставить пустым)',
 };
 
-let blockSeq = 0;
-function newBlockId(): string {
-  blockSeq += 1;
-  return `blk_${Date.now().toString(36)}_${blockSeq}`;
-}
+const fieldLabel = (text: string) => (
+  <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 8 }}>{text}</div>
+);
 
-function makeBlock(kind: UiBlock['kind'], firstTabId: string): UiBlock {
-  const id = newBlockId();
-  switch (kind) {
-    case 'heading':
-      return { id, kind, text: 'Заголовок' };
-    case 'text':
-      return { id, kind, text: '' };
-    case 'button':
-      return { id, kind, label: 'Перейти', intent: { type: 'navigate_tab', tabId: firstTabId } };
-    case 'list':
-      return { id, kind, widget: 'recent_engines', limit: 10 };
-  }
-}
+const textareaStyle: React.CSSProperties = {
+  width: '100%',
+  fontSize: 13,
+  padding: 6,
+  borderRadius: 6,
+  border: `1px solid ${theme.colors.border}`,
+  background: 'transparent',
+  color: theme.colors.text,
+  resize: 'vertical',
+  boxSizing: 'border-box',
+};
 
-function SortableBlockRow(props: {
-  block: UiBlock;
-  selected: boolean;
-  onSelect: () => void;
-  onRemove: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.block.id });
-  const b = props.block;
-  const summary =
-    b.kind === 'heading' || b.kind === 'text'
-      ? b.text.slice(0, 60) || '(пусто)'
-      : b.kind === 'button'
-        ? b.label
-        : UI_LIST_WIDGET_LABELS_RU[b.widget];
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  fontSize: 13,
+  padding: 6,
+  borderRadius: 6,
+  border: `1px solid ${theme.colors.border}`,
+  background: 'var(--panel, transparent)',
+  color: theme.colors.text,
+};
+
+function BlockProperties(props: { block: MockBlock; onChange: (next: MockBlock) => void; onRemove: () => void }) {
+  const { block, onChange } = props;
+  const itemsHint = ITEMS_HINT[block.kind];
   return (
-    <div
-      ref={setNodeRef}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '6px 8px',
-        border: `1px solid ${props.selected ? theme.colors.borderStrong : theme.colors.border}`,
-        borderRadius: 6,
-        background: props.selected ? 'var(--panel-2, rgba(125,125,125,0.08))' : 'transparent',
-        opacity: isDragging ? 0.6 : 1,
-        transform: CSS.Transform.toString(transform),
-        transition: transition ?? undefined,
-        cursor: 'pointer',
-      }}
-      onClick={props.onSelect}
-    >
-      <span {...attributes} {...listeners} style={{ cursor: 'grab', color: theme.colors.muted }} title="Перетащить">
-        ⋮⋮
-      </span>
-      <span style={{ fontSize: 12, color: theme.colors.muted, minWidth: 96 }}>{BLOCK_KIND_LABELS[b.kind]}</span>
-      <span style={{ fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</span>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.onRemove();
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>Элемент: {MOCK_BLOCK_LABELS_RU[block.kind]}</div>
+      {fieldLabel('Подпись (текст на элементе)')}
+      <Input
+        value={block.label ?? ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          const { label: _label, ...rest } = block;
+          onChange(v ? { ...rest, label: v } : rest);
         }}
-        title="Удалить блок"
-      >
-        ✕
-      </Button>
+      />
+      {itemsHint ? (
+        <>
+          {fieldLabel(itemsHint)}
+          <textarea
+            value={(block.items ?? []).join('\n')}
+            onChange={(e) => {
+              const items = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
+              const { items: _items, ...rest } = block;
+              onChange(items.length > 0 ? { ...rest, items } : rest);
+            }}
+            rows={4}
+            style={textareaStyle}
+          />
+        </>
+      ) : null}
+      {fieldLabel('Что должен делать / что содержит (описание для разработчика)')}
+      <textarea
+        value={block.note ?? ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          const { note: _note, ...rest } = block;
+          onChange(v ? { ...rest, note: v } : rest);
+        }}
+        rows={5}
+        style={textareaStyle}
+        placeholder="Например: по нажатию открывается список двигателей в ремонте, отсортированный по дате…"
+      />
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+        {(['x', 'y', 'w', 'h'] as const).map((k) => (
+          <label key={k} style={{ fontSize: 11, color: theme.colors.muted, display: 'flex', flexDirection: 'column', gap: 2, width: 64 }}>
+            {k === 'x' ? 'X' : k === 'y' ? 'Y' : k === 'w' ? 'Ширина' : 'Высота'}
+            <Input
+              type="number"
+              value={block[k]}
+              onChange={(e) => onChange({ ...block, [k]: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+            />
+          </label>
+        ))}
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Button size="sm" variant="ghost" tone="danger" onClick={props.onRemove}>
+          Удалить элемент
+        </Button>
+      </div>
     </div>
   );
 }
 
-function BlockProperties(props: {
-  block: UiBlock;
-  tabOptions: ScreenEditorTabOption[];
-  onChange: (next: UiBlock) => void;
+function LinkProperties(props: {
+  link: MockLink;
+  blocks: readonly MockBlock[];
+  onChange: (next: MockLink) => void;
+  onRemove: () => void;
 }) {
-  const { block, onChange } = props;
-  const label = (text: string) => <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 8 }}>{text}</div>;
-  if (block.kind === 'heading' || block.kind === 'text') {
-    return (
-      <div>
-        {label(block.kind === 'heading' ? 'Текст заголовка' : 'Текст')}
-        <textarea
-          value={block.text}
-          onChange={(e) => onChange({ ...block, text: e.target.value })}
-          rows={block.kind === 'heading' ? 2 : 4}
-          style={{
-            width: '100%',
-            fontSize: 13,
-            padding: 6,
-            borderRadius: 6,
-            border: `1px solid ${theme.colors.border}`,
-            background: 'transparent',
-            color: theme.colors.text,
-            resize: 'vertical',
-          }}
-        />
-      </div>
-    );
-  }
-  if (block.kind === 'button') {
-    return (
-      <div>
-        {label('Надпись на кнопке')}
-        <Input value={block.label} onChange={(e) => onChange({ ...block, label: e.target.value })} />
-        {label('Куда ведёт')}
-        <select
-          value={block.intent.type === 'navigate_tab' ? block.intent.tabId : 'reports'}
-          onChange={(e) => onChange({ ...block, intent: { type: 'navigate_tab', tabId: e.target.value } })}
-          style={{
-            width: '100%',
-            fontSize: 13,
-            padding: 6,
-            borderRadius: 6,
-            border: `1px solid ${theme.colors.border}`,
-            background: 'var(--panel, transparent)',
-            color: theme.colors.text,
-          }}
-        >
-          {props.tabOptions.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-    );
-  }
+  const { link, onChange } = props;
+  const name = (id: string) => {
+    const b = props.blocks.find((x) => x.id === id);
+    return b ? `${MOCK_BLOCK_LABELS_RU[b.kind]}${b.label ? ` «${b.label}»` : ''}` : '?';
+  };
   return (
     <div>
-      {label('Какой список показать')}
-      <select
-        value={block.widget}
-        onChange={(e) => onChange({ ...block, widget: e.target.value as (typeof UI_LIST_WIDGET_IDS)[number] })}
-        style={{
-          width: '100%',
-          fontSize: 13,
-          padding: 6,
-          borderRadius: 6,
-          border: `1px solid ${theme.colors.border}`,
-          background: 'var(--panel, transparent)',
-          color: theme.colors.text,
-        }}
-      >
-        {UI_LIST_WIDGET_IDS.map((w) => (
-          <option key={w} value={w}>
-            {UI_LIST_WIDGET_LABELS_RU[w]}
+      <div style={{ fontSize: 13, fontWeight: 600 }}>Связь</div>
+      <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 4 }}>
+        {name(link.fromId)} → {name(link.toId)}
+      </div>
+      {fieldLabel('Тип связи')}
+      <select value={link.kind} onChange={(e) => onChange({ ...link, kind: e.target.value as MockLinkKind })} style={selectStyle}>
+        {MOCK_LINK_KINDS.map((k) => (
+          <option key={k} value={k}>
+            {MOCK_LINK_LABELS_RU[k]}
           </option>
         ))}
       </select>
-      {label('Сколько строк (1–50)')}
+      {fieldLabel('Подпись на нити (что за связь)')}
       <Input
-        type="number"
-        min={1}
-        max={50}
-        value={block.limit ?? 10}
+        value={link.label ?? ''}
         onChange={(e) => {
-          const n = Math.max(1, Math.min(50, Math.floor(Number(e.target.value) || 10)));
-          onChange({ ...block, limit: n });
+          const v = e.target.value;
+          const { label: _label, ...rest } = link;
+          onChange(v ? { ...rest, label: v } : rest);
         }}
       />
+      <div style={{ marginTop: 10 }}>
+        <Button size="sm" variant="ghost" tone="danger" onClick={props.onRemove}>
+          Удалить связь
+        </Button>
+      </div>
     </div>
   );
 }
 
 /**
- * Конструктор экранов (пилот): вертикальный список блоков, dnd-kit сортировка,
- * живой превью через тот же SpecRenderer. Сохранение — uiScreens:save (main
- * проверяет editor-уровень в выбранном разделе).
+ * Эскизник модулей: свободный холст mock-блоков + типизированные связи-нити.
+ * Ничего не исполняет — это визуальное ТЗ оператора для владельца/разработчика.
+ * Сохранение — uiScreens:save (main проверяет editor-уровень в выбранном разделе).
  */
 export function ScreenEditorPage(props: {
   screenId: string | null;
-  tabOptions: ScreenEditorTabOption[];
+  /** Оставлено для совместимости вызова из App; эскизнику не нужно. */
+  tabOptions?: ScreenEditorTabOption[];
   onSaved?: (id: string) => void;
   onDeleted?: () => void;
 }) {
   const [screenDbId, setScreenDbId] = useState<string | null>(props.screenId);
   const [name, setName] = useState('');
   const [sectionId, setSectionId] = useState('');
-  const [blocks, setBlocks] = useState<UiBlock[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [spec, setSpec] = useState<UiSpecV2>(() => ({ ...EMPTY_UI_SPEC, canvas: { ...EMPTY_UI_SPEC.canvas }, blocks: [], links: [] }));
+  const [selection, setSelection] = useState<MockupSelection>(null);
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkFromId, setLinkFromId] = useState<string | null>(null);
+  const [showAnnotations, setShowAnnotations] = useState(false);
   const [canEdit, setCanEdit] = useState(true);
   const [editorSections, setEditorSections] = useState<Array<{ id: string; titleRu: string }>>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-
   const notify = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3500);
   };
-  const previewRuntime = useMemo(() => createPreviewIntentRuntime(notify), []);
-  const spec: UiSpecV1 = useMemo(() => ({ version: 1, blocks }), [blocks]);
 
   // Разделы, куда автор может сохранять (editor-уровень; superadmin/легаси — все).
   useEffect(() => {
@@ -259,7 +229,7 @@ export function ScreenEditorPage(props: {
     };
   }, []);
 
-  // Загрузка существующего экрана.
+  // Загрузка существующего экрана (v1 конвертируется в v2 внутри sanitizeUiSpec).
   useEffect(() => {
     let alive = true;
     if (!props.screenId) return undefined;
@@ -274,50 +244,99 @@ export function ScreenEditorPage(props: {
       setName(res.screen.name);
       setSectionId(res.screen.sectionId);
       setCanEdit(res.screen.canEdit);
-      setBlocks(sanitizeUiSpec(res.screen.specJson)?.blocks ?? []);
+      const parsed = sanitizeUiSpec(res.screen.specJson);
+      if (parsed) setSpec(parsed);
     })();
     return () => {
       alive = false;
     };
   }, [props.screenId]);
 
-  const selected = blocks.find((b) => b.id === selectedId) ?? null;
+  const selectedBlock = selection?.type === 'block' ? spec.blocks.find((b) => b.id === selection.id) ?? null : null;
+  const selectedLink = selection?.type === 'link' ? spec.links.find((l) => l.id === selection.id) ?? null : null;
 
-  function addBlock(kind: UiBlock['kind']) {
-    const firstTab = props.tabOptions[0]?.id ?? 'reports';
-    const block = makeBlock(kind, firstTab);
-    setBlocks((prev) => [...prev, block]);
-    setSelectedId(block.id);
+  function addBlock(kind: MockBlockKind) {
+    if (spec.blocks.length >= UI_SPEC_MAX_BLOCKS) {
+      notify(`Не больше ${UI_SPEC_MAX_BLOCKS} элементов на эскизе`);
+      return;
+    }
+    const def = MOCK_BLOCK_DEFAULT_SIZES[kind];
+    const n = spec.blocks.length;
+    const block: MockBlock = {
+      id: newId('blk'),
+      kind,
+      x: 40 + (n % 8) * 28,
+      y: 40 + (n % 8) * 28,
+      w: def.w,
+      h: def.h,
+    };
+    setSpec((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
+    setSelection({ type: 'block', id: block.id });
   }
 
-  function updateBlock(next: UiBlock) {
-    setBlocks((prev) => prev.map((b) => (b.id === next.id ? next : b)));
+  function updateBlock(next: MockBlock) {
+    setSpec((prev) => ({ ...prev, blocks: prev.blocks.map((b) => (b.id === next.id ? next : b)) }));
+  }
+
+  function patchBlockGeometry(id: string, patch: { x?: number; y?: number; w?: number; h?: number }) {
+    setSpec((prev) => ({
+      ...prev,
+      blocks: prev.blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)),
+    }));
   }
 
   function removeBlock(id: string) {
-    setBlocks((prev) => prev.filter((b) => b.id !== id));
-    setSelectedId((cur) => (cur === id ? null : cur));
+    setSpec((prev) => ({
+      ...prev,
+      blocks: prev.blocks.filter((b) => b.id !== id),
+      links: prev.links.filter((l) => l.fromId !== id && l.toId !== id),
+    }));
+    setSelection(null);
   }
 
-  function onDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    setBlocks((prev) => {
-      const from = prev.findIndex((b) => b.id === active.id);
-      const to = prev.findIndex((b) => b.id === over.id);
-      if (from < 0 || to < 0) return prev;
-      const next = [...prev];
-      const moved = next.splice(from, 1)[0];
-      if (!moved) return prev;
-      next.splice(to, 0, moved);
-      return next;
-    });
+  function updateLink(next: MockLink) {
+    setSpec((prev) => ({ ...prev, links: prev.links.map((l) => (l.id === next.id ? next : l)) }));
+  }
+
+  function removeLink(id: string) {
+    setSpec((prev) => ({ ...prev, links: prev.links.filter((l) => l.id !== id) }));
+    setSelection(null);
+  }
+
+  function onLinkClick(blockId: string) {
+    if (!linkFromId) {
+      setLinkFromId(blockId);
+      return;
+    }
+    if (linkFromId === blockId) {
+      setLinkFromId(null);
+      return;
+    }
+    if (spec.links.length >= UI_SPEC_MAX_LINKS) {
+      notify(`Не больше ${UI_SPEC_MAX_LINKS} связей на эскизе`);
+      return;
+    }
+    const link: MockLink = { id: newId('lnk'), fromId: linkFromId, toId: blockId, kind: 'navigate' };
+    setSpec((prev) => ({ ...prev, links: [...prev.links, link] }));
+    setLinkFromId(null);
+    setLinkMode(false);
+    setSelection({ type: 'link', id: link.id });
+  }
+
+  async function copyDeveloperSpec() {
+    const text = describeUiSpecForDeveloper(spec, name.trim() || undefined);
+    try {
+      await navigator.clipboard.writeText(text);
+      notify('Описание для разработчика скопировано в буфер');
+    } catch {
+      notify('Не удалось скопировать в буфер');
+    }
   }
 
   async function save() {
     if (busy) return;
     if (!name.trim()) {
-      notify('Укажите название экрана');
+      notify('Укажите название эскиза');
       return;
     }
     if (!sectionId) {
@@ -326,18 +345,26 @@ export function ScreenEditorPage(props: {
     }
     setBusy(true);
     try {
+      // Autogrow canvas so nothing saved ends up outside the sheet.
+      const maxX = spec.blocks.reduce((m, b) => Math.max(m, b.x + b.w), 0);
+      const maxY = spec.blocks.reduce((m, b) => Math.max(m, b.y + b.h), 0);
+      const grown: UiSpecV2 = {
+        ...spec,
+        canvas: { w: Math.max(spec.canvas.w, maxX + 40), h: Math.max(spec.canvas.h, maxY + 40) },
+      };
       const res = await window.matrica.uiScreens.save({
         ...(screenDbId ? { id: screenDbId } : {}),
         name: name.trim(),
         sectionId,
-        specJson: serializeUiSpec(spec),
+        specJson: serializeUiSpec(grown),
       });
       if (!res.ok) {
         notify(res.error);
         return;
       }
+      setSpec(grown);
       setScreenDbId(res.id);
-      notify('Экран сохранён');
+      notify('Эскиз сохранён');
       props.onSaved?.(res.id);
     } finally {
       setBusy(false);
@@ -353,7 +380,7 @@ export function ScreenEditorPage(props: {
         notify(res.error);
         return;
       }
-      notify('Экран удалён');
+      notify('Эскиз удалён');
       props.onDeleted?.();
     } finally {
       setBusy(false);
@@ -363,26 +390,10 @@ export function ScreenEditorPage(props: {
   const noSections = editorSections.length === 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, height: '100%', overflow: 'auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Input
-          placeholder="Название экрана"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={{ minWidth: 220 }}
-        />
-        <select
-          value={sectionId}
-          onChange={(e) => setSectionId(e.target.value)}
-          style={{
-            fontSize: 13,
-            padding: 6,
-            borderRadius: 6,
-            border: `1px solid ${theme.colors.border}`,
-            background: 'var(--panel, transparent)',
-            color: theme.colors.text,
-          }}
-        >
+        <Input placeholder="Название эскиза" value={name} onChange={(e) => setName(e.target.value)} style={{ minWidth: 220 }} />
+        <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ ...selectStyle, width: 'auto' }}>
           <option value="">— раздел доступа —</option>
           {editorSections.map((s) => (
             <option key={s.id} value={s.id}>
@@ -391,68 +402,87 @@ export function ScreenEditorPage(props: {
           ))}
         </select>
         <Button onClick={() => void save()} disabled={busy || !canEdit || noSections}>
-          Сохранить экран
+          Сохранить эскиз
+        </Button>
+        <Button
+          size="sm"
+          variant={linkMode ? 'primary' : 'ghost'}
+          onClick={() => {
+            setLinkMode((v) => !v);
+            setLinkFromId(null);
+          }}
+          title="Кликните первый элемент, затем второй — появится нить"
+        >
+          🔗 Связать
+        </Button>
+        <Button size="sm" variant={showAnnotations ? 'primary' : 'ghost'} onClick={() => setShowAnnotations((v) => !v)}>
+          № Сноски
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void copyDeveloperSpec()}>
+          📋 Описание для разработчика
         </Button>
         {screenDbId ? (
           <Button variant="ghost" tone="danger" onClick={() => void remove()} disabled={busy || !canEdit}>
-            Удалить экран
+            Удалить эскиз
           </Button>
         ) : null}
         {toast ? <span style={{ fontSize: 13, color: theme.colors.muted }}>{toast}</span> : null}
       </div>
+      {linkMode ? (
+        <div style={{ fontSize: 13, color: theme.colors.muted }}>
+          {linkFromId ? 'Теперь кликните второй элемент — к нему пойдёт нить.' : 'Кликните первый элемент (откуда идёт связь).'}
+        </div>
+      ) : null}
       {noSections ? (
         <div style={{ fontSize: 13, color: theme.colors.muted }}>
-          Для сохранения экранов нужен уровень «редактор» хотя бы в одном разделе — обратитесь к администратору.
+          Для сохранения эскизов нужен уровень «редактор» хотя бы в одном разделе — обратитесь к администратору.
         </div>
       ) : null}
       <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
-        <div style={{ flex: '0 0 380px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
+        <div style={{ flex: '0 0 280px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0, overflow: 'auto' }}>
+          <div style={{ fontSize: 12, color: theme.colors.muted }}>Палитра — кликните, элемент появится на холсте:</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(Object.keys(BLOCK_KIND_LABELS) as Array<UiBlock['kind']>).map((kind) => (
+            {MOCK_BLOCK_KINDS.map((kind) => (
               <Button key={kind} size="sm" variant="ghost" onClick={() => addBlock(kind)}>
-                + {BLOCK_KIND_LABELS[kind]}
+                + {MOCK_BLOCK_LABELS_RU[kind]}
               </Button>
             ))}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflow: 'auto', minHeight: 0 }}>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-              <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                {blocks.map((b) => (
-                  <SortableBlockRow
-                    key={b.id}
-                    block={b}
-                    selected={b.id === selectedId}
-                    onSelect={() => setSelectedId(b.id)}
-                    onRemove={() => removeBlock(b.id)}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-            {blocks.length === 0 ? (
-              <div style={{ fontSize: 13, color: theme.colors.muted, padding: 8 }}>
-                Добавьте блоки кнопками выше — они появятся в этом списке и в предпросмотре справа.
-              </div>
-            ) : null}
+          <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 4 }}>
+            Типы связей:{' '}
+            {MOCK_LINK_KINDS.map((k) => (
+              <span key={k} style={{ color: MOCK_LINK_STYLES[k].stroke, marginRight: 8, whiteSpace: 'nowrap' }}>
+                ━ {MOCK_LINK_LABELS_RU[k]}
+              </span>
+            ))}
           </div>
-          {selected ? (
+          {selectedBlock ? (
             <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>Свойства: {BLOCK_KIND_LABELS[selected.kind]}</div>
-              <BlockProperties block={selected} tabOptions={props.tabOptions} onChange={updateBlock} />
+              <BlockProperties block={selectedBlock} onChange={updateBlock} onRemove={() => removeBlock(selectedBlock.id)} />
             </div>
-          ) : null}
+          ) : selectedLink ? (
+            <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
+              <LinkProperties link={selectedLink} blocks={spec.blocks} onChange={updateLink} onRemove={() => removeLink(selectedLink.id)} />
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: theme.colors.muted, borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
+              Кликните элемент или нить на холсте — здесь появятся его свойства. Элементы можно таскать мышкой и растягивать за
+              правый нижний угол. У каждого элемента заполняйте «что должен делать» — это главное в эскизе.
+            </div>
+          )}
         </div>
-        <div
-          style={{
-            flex: 1,
-            border: `1px dashed ${theme.colors.border}`,
-            borderRadius: 8,
-            padding: 12,
-            overflow: 'auto',
-            minHeight: 0,
-          }}
-        >
-          <div style={{ fontSize: 12, color: theme.colors.muted, marginBottom: 8 }}>Предпросмотр</div>
-          <SpecRenderer spec={spec} runtime={previewRuntime} />
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0, minWidth: 0 }}>
+          <MockupCanvas
+            spec={spec}
+            mode="edit"
+            selection={selection}
+            showAnnotations={showAnnotations}
+            linkMode={linkMode}
+            linkFromId={linkFromId}
+            onSelect={setSelection}
+            onLinkClick={onLinkClick}
+            onBlockGeometry={patchBlockGeometry}
+          />
         </div>
       </div>
     </div>

@@ -69,7 +69,6 @@ import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { V2Shell } from './shellV2/V2Shell.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
-import { createIntentRuntime } from './uiBuilder/intentRuntime.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -1852,17 +1851,6 @@ export function App() {
   const menuState = deriveMenuState(sectionGatedTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');
-  // UI builder: боевой runtime интентов пользовательских экранов (кнопка на закрытый
-  // для зрителя таб рендерится disabled) + список табов для редактора.
-  const uiScreenRuntime = createIntentRuntime({
-    navigateTab: (tabId) => setTab(tabId as TabId),
-    accessibleMenuTabs: new Set<string>(sectionGatedTabs),
-    openEngine: (id) => void openEngine(id),
-    openWorkOrder: (id) => void openWorkOrder(id),
-  });
-  const userScreenTabOptions = sectionGatedTabs
-    .filter((t) => t !== 'user_screens' && t !== 'auth' && t !== 'settings')
-    .map((t) => ({ id: t as string, label: appTabTitle(t) }));
   const userTab: Exclude<
     TabId,
     | 'engine'
@@ -4889,7 +4877,6 @@ export function App() {
           userScreenEditMode ? (
             <ScreenEditorPage
               screenId={selectedUserScreenId === 'new' ? null : selectedUserScreenId}
-              tabOptions={userScreenTabOptions}
               onSaved={(id: string) => setSelectedUserScreenId(id)}
               onDeleted={() => {
                 setSelectedUserScreenId(null);
@@ -4897,11 +4884,7 @@ export function App() {
               }}
             />
           ) : (
-            <UserScreenViewPage
-              screenId={selectedUserScreenId}
-              runtime={uiScreenRuntime}
-              onEdit={(id: string) => editUserScreen(id)}
-            />
+            <UserScreenViewPage screenId={selectedUserScreenId} onEdit={(id: string) => editUserScreen(id)} />
           )
         )}
 
