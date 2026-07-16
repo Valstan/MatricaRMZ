@@ -29,6 +29,7 @@
 | **AI** | `services/aiAgent*.ts`, `services/ai/claudeTools.ts` | AI-tools, learning, chat — **выключено на проде** ([Anthropic geo-block](PENDING_FOLLOWUPS.md#-блокер-anthropic-api-блокирует-рф-ip)) |
 | **Auth / Users** | `routes/auth.ts`, `services/employeeAuthService.ts`, `services/userDeletionService.ts` | Логин сотрудников, GDPR-delete, refresh tokens |
 | **Reports** | `routes/reports.ts`, пресеты в `shared/src/domain/reports.ts` | Отчёты (forecast, payroll, stock-audit), HTML-рендер для печати |
+| **Reports (клиент, движок пресетов)** | `electron-app/src/main/services/reports/` (format / context / options / presets-по-доменам / dispatch / render; `reportPresetService.ts` — шим) | Пресет-отчёты клиента строятся локально из SQLite-реплики; новый пресет = builder в `presets/<домен>.ts` + case в `dispatch.ts` |
 | **Diagnostics / Critical events** | `services/diagnostics*.ts`, `services/criticalEventsService.ts`, `services/criticalEventsTelegramService.ts` | Прод-диагностика, autoheal, Telegram-уведомления |
 | **Updates** | `routes/updates.ts`, `services/updateTorrentService.ts` | Раздача Windows-installer'ов (`.exe` + `latest.yml`), торрент |
 | **Маршруты** | `backend-api/src/routes/*.ts` | Точка входа Express: `warehouse`, `workOrders`, `parts`, `erp`, `sync`, `ledger`, `auth`, ... |
