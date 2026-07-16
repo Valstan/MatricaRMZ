@@ -79,6 +79,38 @@ export function buildWorkOrderA4PreviewHtml(opts: { sections: PrintSection[]; ex
   </style></head><body><div id="wo-a4">${content}</div></body></html>`;
 }
 
+/**
+ * Прямая печать секций: служебное окно без чекбоксов/кнопок — сразу системный диалог печати.
+ * Состав секций выбирает вызывающий (например, диалог настроек печати табеля).
+ * NB: inline <script> в document.write-окне Electron не исполняется — print() зовём из opener.
+ */
+export function printSectionsDirect(opts: { title: string; sections: PrintSection[]; extraCss?: string }) {
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>${escapeHtml(opts.title)}</title>
+  <style>${PRINT_BASE_CSS}
+    body { margin: 0; }
+    ${opts.extraCss ?? ''}
+  </style>
+</head>
+<body>
+${renderSectionsHtml(opts.sections)}
+</body>
+</html>`;
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => {
+    w.addEventListener('afterprint', () => w.close());
+    w.focus();
+    w.print();
+  }, 250);
+}
+
 export function openPrintPreview(opts: { title: string; subtitle?: string; sections: PrintSection[]; extraCss?: string }) {
   const title = escapeHtml(opts.title);
   const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : '';

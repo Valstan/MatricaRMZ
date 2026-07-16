@@ -6,9 +6,9 @@ import { computeTimesheetRowTotals, isTimesheetWeekend, resolveEmploymentStatusC
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
-import { TimesheetPrintDialog, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
+import { TimesheetPrintDialog, type TimesheetPrintBlocks, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
-import { buildWorkOrderA4PreviewHtml, escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { buildWorkOrderA4PreviewHtml, escapeHtml, printSectionsDirect } from '../utils/printPreview.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -441,13 +441,14 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const headerHtml = (f: TimesheetPrintFonts) =>
     `<div style="font-size:${f.header}px;font-weight:700;line-height:1.15">${escapeHtml(printTitle)}</div>` +
     `<div style="font-size:${Math.max(6, Math.round(f.header * 0.7))}px;color:#334155;line-height:1.2">${escapeHtml(printSubtitle)}</div>`;
-  // Рендер ячейки (R10): код-без-часов крупно; код-с-часами — код мелко сверху, часы крупно-жирно снизу.
+  // Рендер ячейки: «Я» не печатаем — только часы во всю ячейку; прочие коды-с-часами — код
+  // мелко сверху; код-без-часов — тем же размером, что и цифры часов (полная ячейка).
   const printCellText = (c: Cell, f: TimesheetPrintFonts) => {
-    const code = c.code ?? '';
+    const code = c.code === 'Я' ? '' : (c.code ?? '');
     const h = c.hours != null ? String(c.hours) : '';
     const small = Math.max(4, Math.round(f.cell * 0.55));
     if (code && h) return `<div style="font-size:${small}px;line-height:1.05">${escapeHtml(code)}</div><div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
-    if (code) return `<div style="font-size:${Math.max(5, Math.round(f.cell * 0.95))}px;font-weight:700;line-height:1.05">${escapeHtml(code)}</div>`;
+    if (code) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(code)}</div>`;
     if (h) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
     return '';
   };
@@ -495,33 +496,29 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const compactPrintCss = `
     @page { size: A4 landscape; margin: 8mm; }
     @media print { body { margin: 0; } }
-    th, td { padding: 1px 2px; line-height: 1.05; vertical-align: middle; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    th, td { padding: 1px 2px; line-height: 1.05; vertical-align: middle; border: 1px solid #1f2937; }
     .section { margin-bottom: 6px; }
   `;
-  const printSections = (f: TimesheetPrintFonts, variant: TimesheetPrintVariant, withLegend: boolean) => [
-    { id: 'header', title: 'Шапка листа', html: headerHtml(f), checked: true, hideTitle: true },
-    { id: 'full', title: 'Месяц целиком', html: gridHtml(1, days, f), checked: variant === 'full', hideTitle: true },
-    { id: 'first', title: 'Первая половина месяца (1–15)', html: gridHtml(1, 15, f), checked: variant === 'first', hideTitle: true },
-    { id: 'second', title: `Вторая половина месяца (16–${days})`, html: gridHtml(16, days, f), checked: variant === 'second', hideTitle: true },
-    { id: 'legend', title: 'Легенда кодов', html: legendHtml(f), checked: withLegend, hideTitle: true },
-    { id: 'decode', title: 'Расшифровки по работникам (на отдельном листе)', html: `<div style="page-break-before:always">${decodeHtml(f)}</div>`, checked: false, hideTitle: true },
-  ];
-  // Живое превью в диалоге: только выбранные секции (расшифровки в превью не показываем — они
-  // на отдельном листе). Не useCallback: блок стоит после ранних return (rules of hooks).
-  const buildPrintPreviewHtml = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, withLegend: boolean) => {
-    const f = resolveTimesheetPrintFonts(settings);
-    const sections = printSections(f, variant, withLegend).filter((s) => s.checked);
-    return buildWorkOrderA4PreviewHtml({ sections, extraCss: compactPrintCss, landscape: true, marginMm: 8 });
+  // Все блоки отключаемые галочками в диалоге; комментарии — на отдельном листе после табеля.
+  const printSections = (f: TimesheetPrintFonts, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
+    const grid = variant === 'full' ? gridHtml(1, days, f) : variant === 'first' ? gridHtml(1, 15, f) : gridHtml(16, days, f);
+    return [
+      ...(blocks.header ? [{ id: 'header', title: 'Шапка листа', html: headerHtml(f), hideTitle: true }] : []),
+      ...(blocks.grid ? [{ id: 'grid', title: 'Табель', html: grid, hideTitle: true }] : []),
+      ...(blocks.legend ? [{ id: 'legend', title: 'Легенда кодов', html: legendHtml(f), hideTitle: true }] : []),
+      ...(blocks.decode ? [{ id: 'decode', title: 'Комментарии по сотрудникам', html: `<div style="page-break-before:always">${decodeHtml(f)}</div>`, hideTitle: true }] : []),
+    ];
   };
-  const doPrint = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, withLegend: boolean) => {
-    // Порядок печати (A6): шапка → табель → легенда (по влезаемости) → расшифровки на отдельном листе.
+  // Не useCallback: блок стоит после ранних return (rules of hooks).
+  const buildPrintPreviewHtml = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
     const f = resolveTimesheetPrintFonts(settings);
-    openPrintPreview({
-      title: printTitle,
-      subtitle: printSubtitle,
-      sections: printSections(f, variant, withLegend),
-      extraCss: compactPrintCss,
-    });
+    return buildWorkOrderA4PreviewHtml({ sections: printSections(f, variant, blocks), extraCss: compactPrintCss, landscape: true, marginMm: 8 });
+  };
+  const doPrint = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
+    // Печать сразу из диалога настроек — без промежуточного окна с чекбоксами.
+    const f = resolveTimesheetPrintFonts(settings);
+    printSectionsDirect({ title: printTitle, sections: printSections(f, variant, blocks), extraCss: compactPrintCss });
   };
 
   return (
@@ -704,7 +701,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
                       >
                         {c.code && c.hours != null ? (
                           <>
-                            <div style={{ fontWeight: 400, lineHeight: 1, fontSize: codeFont, color: '#475569' }}>{c.code}</div>
+                            {c.code !== 'Я' && <div style={{ fontWeight: 400, lineHeight: 1, fontSize: codeFont, color: '#475569' }}>{c.code}</div>}
                             <div style={{ fontWeight: 800, lineHeight: 1, fontSize: hoursFont, color: '#000' }}>{c.hours}</div>
                           </>
                         ) : c.code ? (
@@ -866,7 +863,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
       {printDlg && (
         <TimesheetPrintDialog
           buildHtml={buildPrintPreviewHtml}
-          onPrint={(settings, variant, withLegend) => { setPrintDlg(false); doPrint(settings, variant, withLegend); }}
+          onPrint={(settings, variant, blocks) => { setPrintDlg(false); doPrint(settings, variant, blocks); }}
           onClose={() => setPrintDlg(false)}
         />
       )}
