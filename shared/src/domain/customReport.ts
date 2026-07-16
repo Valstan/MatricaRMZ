@@ -154,7 +154,7 @@ function parseCellNumber(value: ReportCellValue): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'boolean') return value ? 1 : 0;
   if (value == null) return null;
-  const cleaned = String(value).replace(/[\s  ]/g, '').replace(',', '.');
+  const cleaned = String(value).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
   if (!cleaned || !/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
