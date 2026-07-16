@@ -262,7 +262,14 @@ export function normalizeRole(
   // RBAC #474 operator work-area roles — keep the stored key (without this they
   // would collapse to 'user' and the new presets would never take effect).
   if (isOperatorRole(r)) return r as NormalizedRole;
-  return 'user';
+  // Deliberately-assigned legacy full-access tier (approve-flow default; the
+  // only role a non-superadmin admin may propose). Kept until the owner
+  // retires it from the catalog.
+  if (r === 'user') return 'user';
+  // H7 step (в) — fail-closed default: an unknown/typo/empty role must never
+  // silently grant the legacy full-access tier; it resolves to no-access
+  // 'employee' instead (security-hardening-2026-06).
+  return 'employee';
 }
 
 export async function getEmployeeTypeId() {
