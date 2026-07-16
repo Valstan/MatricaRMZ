@@ -293,6 +293,72 @@ export function serializeUiSpec(spec: UiSpecV2): string {
   return JSON.stringify(spec);
 }
 
+export const MOCKUP_STARTER_TEMPLATE_IDS = ['form', 'list_card', 'report'] as const;
+export type MockupStarterTemplateId = (typeof MOCKUP_STARTER_TEMPLATE_IDS)[number];
+
+export const MOCKUP_STARTER_TEMPLATE_LABELS_RU: Record<MockupStarterTemplateId, string> = {
+  form: 'Форма ввода',
+  list_card: 'Список + карточка',
+  report: 'Отчёт с фильтрами',
+};
+
+/**
+ * Starter block sets («заготовки»): a recognizable skeleton the operator
+ * reshapes instead of starting from an empty canvas. Blocks get fresh ids
+ * from `newId`; links reference those ids.
+ */
+export function buildStarterTemplate(
+  template: MockupStarterTemplateId,
+  newId: () => string,
+): { blocks: MockBlock[]; links: MockLink[] } {
+  const b = (block: Omit<MockBlock, 'id'>): MockBlock => ({ id: newId(), ...block });
+  if (template === 'form') {
+    const save = b({ kind: 'button', x: 40, y: 330, w: 160, h: 40, label: 'Сохранить' });
+    return {
+      blocks: [
+        b({ kind: 'heading', x: 40, y: 30, w: 420, h: 44, label: 'Новая запись' }),
+        b({ kind: 'input', x: 40, y: 100, w: 300, h: 40, label: 'Название…' }),
+        b({ kind: 'select', x: 40, y: 156, w: 300, h: 40, label: 'Выберите из списка…' }),
+        b({ kind: 'date', x: 40, y: 212, w: 180, h: 40 }),
+        b({ kind: 'checkbox', x: 40, y: 268, w: 240, h: 32, label: 'Признак' }),
+        save,
+        b({ kind: 'button', x: 216, y: 330, w: 120, h: 40, label: 'Отмена' }),
+        b({ kind: 'note', x: 400, y: 100, w: 220, h: 140, label: 'Опишите здесь, что сохраняет форма и куда попадает запись' }),
+      ],
+      links: [],
+    };
+  }
+  if (template === 'list_card') {
+    const table = b({ kind: 'table', x: 40, y: 100, w: 460, h: 320, label: 'Список', items: ['Название', 'Статус', 'Дата'] });
+    const panel = b({ kind: 'panel', x: 540, y: 100, w: 420, h: 320, label: 'Карточка выбранной строки' });
+    return {
+      blocks: [
+        b({ kind: 'heading', x: 40, y: 30, w: 420, h: 44, label: 'Раздел' }),
+        b({ kind: 'input', x: 40, y: 56, w: 260, h: 34, label: 'Поиск…' }),
+        table,
+        panel,
+        b({ kind: 'text', x: 560, y: 150, w: 380, h: 60, label: 'Поля карточки' }),
+        b({ kind: 'button', x: 560, y: 350, w: 160, h: 40, label: 'Сохранить' }),
+      ],
+      links: [{ id: newId(), fromId: table.id, toId: panel.id, kind: 'data', label: 'выбранная строка' }],
+    };
+  }
+  const filterBtn = b({ kind: 'button', x: 560, y: 90, w: 140, h: 40, label: 'Сформировать' });
+  const table = b({ kind: 'table', x: 40, y: 160, w: 720, h: 300, label: 'Результат', items: ['Колонка 1', 'Колонка 2', 'Итого'] });
+  return {
+    blocks: [
+      b({ kind: 'heading', x: 40, y: 30, w: 420, h: 44, label: 'Отчёт' }),
+      b({ kind: 'date', x: 40, y: 90, w: 160, h: 40, label: 'с даты' }),
+      b({ kind: 'date', x: 216, y: 90, w: 160, h: 40, label: 'по дату' }),
+      b({ kind: 'select', x: 392, y: 90, w: 150, h: 40, label: 'Фильтр…' }),
+      filterBtn,
+      table,
+      b({ kind: 'note', x: 780, y: 160, w: 200, h: 140, label: 'Что считает отчёт, какие итоги нужны' }),
+    ],
+    links: [{ id: newId(), fromId: filterBtn.id, toId: table.id, kind: 'filter', label: 'формирует' }],
+  };
+}
+
 /** Reading order for annotations/export: top-to-bottom, then left-to-right. */
 export function orderBlocksForReading(blocks: readonly MockBlock[]): MockBlock[] {
   return [...blocks].sort((a, b) => (a.y - b.y !== 0 ? a.y - b.y : a.x - b.x));
