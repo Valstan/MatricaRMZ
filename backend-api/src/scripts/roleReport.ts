@@ -11,11 +11,12 @@ import { SYSTEM_ROLE_CATALOG, systemRoleTitleRu } from '@matricarmz/shared';
 // fail-closed default flip (step "в"). Today only a per-user list exists
 // (`/admin/users`) — there is no aggregate count surface.
 //
-// The `user` bucket is the H7 escalation population: `normalizeRole` collapses
-// BOTH an explicit `user` role AND any UNKNOWN/typo role into `user`, which
-// bypasses per-operation ledger authz (ledgerAuthzGuard `!operatorScoped`
-// branch). Unknown raw roles are the dangerous amplifier — a typo silently
-// grants maximum rights — so they are surfaced separately and loudly.
+// The `user` bucket tracks the legacy full-access tier plus role anomalies.
+// Since H7 step (в) `normalizeRole` is fail-closed: only an EXPLICIT `user`
+// role resolves to `user` (bypassing per-operation ledger authz — the
+// ledgerAuthzGuard `!operatorScoped` branch); an UNKNOWN/typo/empty role now
+// resolves to no-access `employee`. Unknown raw roles are still surfaced
+// loudly — a typo no longer grants rights, but it silently REVOKES them.
 //
 // Usage (safe to run on prod — read-only):
 //   pnpm -F @matricarmz/backend-api security:role-report
@@ -52,10 +53,10 @@ export type RoleReport = {
   totalEmployees: number;
   byRole: RoleCount[];
   userBucket: {
-    activeTotal: number; // live accounts resolving to `user` — the H7 bypass population
+    activeTotal: number; // live accounts in the bucket: explicit legacy `user` + fail-closed anomalies
     disabledTotal: number;
     breakdown: UserBucketEntry[];
-    unknownRawRoles: string[]; // distinct unknown raw roles that silently collapsed → user
+    unknownRawRoles: string[]; // distinct unknown raw roles (fail-closed → employee, no access)
     worklist: WorklistRow[]; // live `user` accounts, for per-login migration (step б)
   };
 };
@@ -92,9 +93,14 @@ export function buildRoleReport(rows: EmployeeAuthLike[], worklistLimit = 1000):
     else bucket.disabled += 1;
     counts.set(normalized, bucket);
 
-    if (normalized !== 'user') continue;
-
+    // Bucket membership: explicit legacy `user` (still full access) plus
+    // fail-closed anomalies — rows whose raw role is unknown/empty and only
+    // resolve to `employee` via the normalizeRole default.
     const rawRole = rawRoleOf(row);
+    const inBucket =
+      normalized === 'user' || (normalized === 'employee' && rawRole !== 'employee');
+    if (!inBucket) continue;
+
     const kind = userBucketKind(rawRole);
     const breakdownKey = kind === 'unknown' ? rawRole : kind === 'empty' ? '(empty)' : 'user';
     const b = userBreakdown.get(breakdownKey) ?? { kind, active: 0, disabled: 0 };
@@ -199,29 +205,29 @@ function printHumanReport(report: RoleReport): void {
   console.log('');
 
   const ub = report.userBucket;
-  console.log(`H7 bypass population — accounts resolving to \`user\` (legacy full access):`);
+  console.log(`Legacy/anomaly bucket — explicit \`user\` (full access) + unknown/empty roles (fail-closed, no access):`);
   console.log(`  live: ${ub.activeTotal}   disabled: ${ub.disabledTotal}`);
   if (ub.breakdown.length > 0) {
     console.log('  breakdown by raw stored system_role:');
     for (const b of ub.breakdown) {
-      const tag = b.kind === 'unknown' ? '  ⚠ UNKNOWN (silently collapsed → user)' : b.kind === 'empty' ? '  (no role attr)' : '  (explicit legacy user)';
+      const tag = b.kind === 'unknown' ? '  ⚠ UNKNOWN (fail-closed → employee, no access)' : b.kind === 'empty' ? '  (no role attr, fail-closed)' : '  (explicit legacy user, full access)';
       console.log(`    "${b.rawValue}"  live=${b.active} disabled=${b.disabled} total=${b.total}${tag}`);
     }
   }
   if (ub.unknownRawRoles.length > 0) {
     console.log('');
-    console.log(`  ⚠ ${ub.unknownRawRoles.length} unknown raw role value(s) silently grant max rights: ${ub.unknownRawRoles.map((r) => `"${r}"`).join(', ')}`);
+    console.log(`  ⚠ ${ub.unknownRawRoles.length} unknown raw role value(s) — fail-closed to no access, fix the stored role: ${ub.unknownRawRoles.map((r) => `"${r}"`).join(', ')}`);
   }
   console.log('');
 
   if (ub.worklist.length > 0) {
-    console.log(`Migration worklist — live \`user\` accounts to reassign (step б), showing ${ub.worklist.length} of ${ub.activeTotal}:`);
+    console.log(`Migration worklist — live bucket accounts to reassign, showing ${ub.worklist.length} of ${ub.activeTotal}:`);
     for (const w of ub.worklist) {
       const mark = w.kind === 'unknown' ? ' ⚠' : '';
       console.log(`  - ${w.login}  "${w.fullName ?? ''}"  raw=${w.rawRole}${mark}  (${w.id})`);
     }
   } else {
-    console.log('Migration worklist: empty — no live account resolves to `user`. Step (в) fail-closed flip is safe.');
+    console.log('Migration worklist: empty — no live account in the legacy/anomaly bucket.');
   }
 }
 

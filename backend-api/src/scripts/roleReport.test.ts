@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../database/db.js', () => ({ db: {}, pool: {} }));
 
 const { buildRoleReport } = await import('./roleReport.js');
+const { normalizeRole } = await import('../services/employeeAuthService.js');
 import type { EmployeeAuthLike } from './roleReport.js';
 
 function row(p: Partial<EmployeeAuthLike> & { login: string }): EmployeeAuthLike {
@@ -43,12 +44,14 @@ describe('buildRoleReport — H7 count-by-role', () => {
     expect(r.userBucket.worklist[0]).toMatchObject({ login: 'u1', fullName: 'Иванов И.И.', rawRole: 'user', kind: 'legacy-user' });
   });
 
-  it('flags an UNKNOWN raw role that silently collapses to `user` (H7 amplifier)', () => {
+  it('flags an UNKNOWN raw role (fail-closed → employee since H7 step в)', () => {
     const r = buildRoleReport([
       row({ login: 'typo', systemRole: 'sabotage' }),
       row({ login: 'typo2', systemRole: 'Мастер' }), // cyrillic — not a known key
     ]);
-    // both resolve to `user`
+    // both fail-close to `employee` but stay in the anomaly bucket
+    expect(r.byRole.find((x) => x.role === 'employee')).toMatchObject({ active: 2, total: 2 });
+    expect(r.byRole.find((x) => x.role === 'user')).toBeUndefined();
     expect(r.userBucket.activeTotal).toBe(2);
     expect(r.userBucket.unknownRawRoles).toEqual(['sabotage', 'мастер']);
     const unknownBuckets = r.userBucket.breakdown.filter((b) => b.kind === 'unknown');
@@ -86,10 +89,39 @@ describe('buildRoleReport — H7 count-by-role', () => {
     expect(r.userBucket.worklist).toHaveLength(0);
   });
 
+  it('keeps explicit `employee` rows out of the anomaly bucket', () => {
+    const r = buildRoleReport([row({ login: 'e', systemRole: 'employee' })]);
+    expect(r.userBucket.activeTotal).toBe(0);
+    expect(r.userBucket.worklist).toHaveLength(0);
+  });
+
   it('caps the worklist without capping the counts', () => {
     const many = Array.from({ length: 10 }, (_, i) => row({ login: `u${i}`, systemRole: 'user' }));
     const r = buildRoleReport(many, 3);
     expect(r.userBucket.activeTotal).toBe(10); // count not truncated
     expect(r.userBucket.worklist).toHaveLength(3); // worklist capped
+  });
+});
+
+describe('normalizeRole — H7 step (в) fail-closed default', () => {
+  it('resolves known roles as before', () => {
+    expect(normalizeRole('x', 'admin')).toBe('admin');
+    expect(normalizeRole('x', 'master')).toBe('master');
+    expect(normalizeRole('x', 'pending')).toBe('pending');
+    expect(normalizeRole('x', 'employee')).toBe('employee');
+    expect(normalizeRole('x', 'user')).toBe('user'); // deliberate legacy tier
+  });
+
+  it('fail-closes unknown/typo/empty roles to employee (no access)', () => {
+    expect(normalizeRole('x', 'sabotage')).toBe('employee');
+    expect(normalizeRole('x', 'Мастер')).toBe('employee');
+    expect(normalizeRole('x', 'merged')).toBe('employee');
+    expect(normalizeRole('x', '')).toBe('employee');
+    expect(normalizeRole('x', null)).toBe('employee');
+    expect(normalizeRole('x', undefined)).toBe('employee');
+  });
+
+  it('superadmin login always wins regardless of stored role', () => {
+    expect(normalizeRole('valstan', 'sabotage')).toBe('superadmin');
   });
 });

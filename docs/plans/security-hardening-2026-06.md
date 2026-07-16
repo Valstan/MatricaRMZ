@@ -37,7 +37,7 @@
 - **H4** ✅ — конструктор отчётов выдавал EAV-PII (зарплата/паспорт/ИНН). Строки sensitive-атрибутов режутся для не-админов (`redactReportRows` + `isHiddenAttributeName`). PR #592.
 - **H5** ✅ — `/ledger/state/query` обходил PII-фильтр операторов. Применён `makeOperatorReadFilter` как в соседних эндпойнтах. PR #592.
 - **H6** — AI `execute_safe_sql` достаёт EAV-PII (фильтр режет имена колонок, не строки EAV). `services/ai/claudeTools.ts:352-389`. (AI на проде выключен.)
-- **H7** — legacy-роль `user`/`pending` полностью обходит гард записи ledger. `services/sync/ledgerAuthzGuard.ts:34`. *(Частично нейтрализуется C1+C2: pending теряет `sync.use`, security-атрибуты закрыты backstop'ом; остаётся scoping остальных таблиц для legacy `user`.)*
+- **H7** ✅ — legacy-роль `user`/`pending` полностью обходит гард записи ledger. `services/sync/ledgerAuthzGuard.ts:34`. Шаг (а) #185 role-report; шаг (б) #200 — 4 живых `user` → viewer, live `user`=0; шаг (в) 2026-07-16 — fail-closed `normalizeRole` (unknown/typo/empty → `employee`; явный `user` остаётся назначаемым legacy-tier'ом).
 - **H8** — приватный Ed25519-ключ подписи ledger закоммичен. `backend-api/ledger/server-key.json`. → ротация на проде + `git rm --cached` + чистка истории.
 
 **Общий фикс H1–H6:** table-level read-authorization на pull/query/report-пути, scope из per-модульных `*.View` прав; приватные таблицы (`chat_messages`/`notes`/`note_shares`/`user_presence`) — только admin.
