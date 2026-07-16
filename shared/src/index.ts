@@ -43,6 +43,7 @@ export * from './domain/engineActTemplate.js';
 export * from './domain/uiControl.js';
 export * from './domain/uiShellV2.js';
 export * from './domain/uiSpec.js';
+export * from './domain/customReport.js';
 export * from './domain/userUiProfile.js';
 export * from './domain/reports.js';
 export * from './domain/assemblyForecast.js';

@@ -46,6 +46,7 @@ export const SettingsKey = {
   ReportPresetFavorites: 'reports.presetFavorites',
   ReportPresetHistory: 'reports.presetHistory',
   ReportPresetFilterTemplates: 'reports.presetFilterTemplates',
+  CustomReportTemplates: 'reports.customReportTemplates',
   UiDefaultsVersionApplied: 'ui.defaultsVersionApplied',
   ReleaseWelcomeSeenVersion: 'ui.releaseWelcomeSeenVersion',
 

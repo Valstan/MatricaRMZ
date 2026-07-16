@@ -1,5 +1,10 @@
 import { ipcMain } from 'electron';
-import { REPORT_PRESET_DEFINITIONS } from '@matricarmz/shared';
+import {
+  CUSTOM_REPORT_TEMPLATES_LIMIT,
+  REPORT_PRESET_DEFINITIONS,
+  sanitizeCustomReportSpec,
+  type CustomReportTemplate,
+} from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
@@ -18,6 +23,12 @@ import {
   printReportPreset,
 } from '../../services/reportService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import {
+  exportCustomReportCsv,
+  listCustomReportSources,
+  printCustomReport,
+  runCustomReport,
+} from '../../services/customReportService.js';
 import {
   reportsBuilderExport,
   reportsBuilderExportPdf,
@@ -65,6 +76,26 @@ function sanitizePresetIds(ids: unknown): string[] {
 }
 
 const FILTER_TEMPLATES_LIMIT = 20;
+
+function sanitizeCustomReportTemplates(entries: unknown): CustomReportTemplate[] {
+  if (!Array.isArray(entries)) return [];
+  const out: CustomReportTemplate[] = [];
+  for (const row of entries) {
+    const id = String((row as any)?.id ?? '').trim();
+    const name = String((row as any)?.name ?? '').trim();
+    const spec = sanitizeCustomReportSpec((row as any)?.spec);
+    if (!id || !name || !spec) continue;
+    const createdAtRaw = Number((row as any)?.createdAt ?? 0);
+    out.push({
+      id,
+      name,
+      createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? Math.floor(createdAtRaw) : 0,
+      spec,
+    });
+    if (out.length >= CUSTOM_REPORT_TEMPLATES_LIMIT) break;
+  }
+  return out;
+}
 
 type ReportFilterTemplate = {
   id: string;
@@ -246,6 +277,79 @@ export function registerReportsIpc(ctx: IpcContext) {
       return { ok: true as const, templates: next };
     },
   );
+
+  // «Мои отчёты»: конструктор поверх пресетов (источник → фильтры/колонки/сортировка → шаблон).
+  ipcMain.handle('reports:customSources', async () => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return { ok: true as const, sources: listCustomReportSources() };
+  });
+
+  ipcMain.handle('reports:customRun', async (_e, args?: { spec?: unknown }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return runCustomReport(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+  });
+
+  ipcMain.handle('reports:customPrint', async (_e, args?: { spec?: unknown }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return printCustomReport(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+  });
+
+  ipcMain.handle('reports:customCsv', async (_e, args?: { spec?: unknown }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    return exportCustomReportCsv(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+  });
+
+  ipcMain.handle('reports:customTemplatesList', async (_e, args?: { userId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
+    const byScope = parseByScope<unknown>(raw);
+    return { ok: true as const, templates: sanitizeCustomReportTemplates(byScope[scope]) };
+  });
+
+  ipcMain.handle(
+    'reports:customTemplateSave',
+    async (_e, args?: { userId?: string; template?: { id?: string; name?: string; spec?: unknown } }) => {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      const name = String(args?.template?.name ?? '').trim().slice(0, 200);
+      if (!name) return { ok: false as const, error: 'Пустое имя шаблона' };
+      const spec = sanitizeCustomReportSpec(args?.template?.spec);
+      if (!spec) return { ok: false as const, error: 'Некорректная спецификация отчёта' };
+      const scope = resolveUserScope(args?.userId);
+      const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
+      const byScope = parseByScope<unknown>(raw);
+      const current = sanitizeCustomReportTemplates(byScope[scope]);
+      const id = String(args?.template?.id ?? '').trim() || `crt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const entry: CustomReportTemplate = { id, name, createdAt: Date.now(), spec };
+      // Замена по id или по имени (пересохранение под тем же именем перезаписывает шаблон).
+      const next = [entry, ...current.filter((t) => t.id !== entry.id && t.name !== entry.name)].slice(
+        0,
+        CUSTOM_REPORT_TEMPLATES_LIMIT,
+      );
+      byScope[scope] = next;
+      await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
+      return { ok: true as const, templates: next, id };
+    },
+  );
+
+  ipcMain.handle('reports:customTemplateDelete', async (_e, args?: { userId?: string; templateId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    const templateId = String(args?.templateId ?? '').trim();
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
+    const byScope = parseByScope<unknown>(raw);
+    const next = sanitizeCustomReportTemplates(byScope[scope]).filter((t) => t.id !== templateId);
+    byScope[scope] = next;
+    await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
+    return { ok: true as const, templates: next };
+  });
 
   ipcMain.handle('reports:historyList', async (_e, args?: { userId?: string; limit?: number }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');

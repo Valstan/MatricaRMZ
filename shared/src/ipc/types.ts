@@ -613,6 +613,36 @@ import type {
   ReportPresetPreviewResult,
   ReportPresetPrintResult,
 } from '../domain/reports.js';
+import type { ReportCellValue, ReportColumn, ReportTotals } from '../domain/reports.js';
+import type { CustomReportSpecV1, CustomReportTemplate } from '../domain/customReport.js';
+
+export type CustomReportSourcesResult =
+  | { ok: true; sources: Array<{ presetId: string; title: string }> }
+  | { ok: false; error: string };
+
+export type CustomReportRunIpcResult =
+  | {
+      ok: true;
+      title: string;
+      subtitle: string;
+      sourceTitle: string;
+      columns: ReportColumn[];
+      sourceColumns: ReportColumn[];
+      rows: Record<string, ReportCellValue>[];
+      totals: ReportTotals | null;
+      rowCount: number;
+      sourceRowCount: number;
+      generatedAt: number;
+    }
+  | { ok: false; error: string };
+
+export type CustomReportCsvResult =
+  | { ok: true; csv: string; fileName: string; mime: string }
+  | { ok: false; error: string };
+
+export type CustomReportTemplatesResult =
+  | { ok: true; templates: CustomReportTemplate[] }
+  | { ok: false; error: string };
 import type {
   AiAgentAssistRequest,
   AiAgentAssistResponse,
@@ -886,6 +916,17 @@ export type MatricaApi = {
       presetId: ReportPresetId;
       templateId: string;
     }) => Promise<ReportPresetFilterTemplateSaveResult>;
+    // «Мои отчёты»: конструктор поверх пресетов (customReport.ts).
+    customSources: () => Promise<CustomReportSourcesResult>;
+    customRun: (args: { spec: CustomReportSpecV1 }) => Promise<CustomReportRunIpcResult>;
+    customPrint: (args: { spec: CustomReportSpecV1 }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    customCsv: (args: { spec: CustomReportSpecV1 }) => Promise<CustomReportCsvResult>;
+    customTemplatesList: (args?: { userId?: string }) => Promise<CustomReportTemplatesResult>;
+    customTemplateSave: (args: {
+      userId?: string;
+      template: { id?: string; name: string; spec: CustomReportSpecV1 };
+    }) => Promise<CustomReportTemplatesResult & { id?: string }>;
+    customTemplateDelete: (args: { userId?: string; templateId: string }) => Promise<CustomReportTemplatesResult>;
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
     periodStagesCsv: (args: { startMs?: number; endMs: number }) => Promise<{ ok: true; csv: string } | { ok: false; error: string }>;
     // CSV: “стадии по группам” (заказчик/контракт/наряд) по link-атрибуту двигателя.

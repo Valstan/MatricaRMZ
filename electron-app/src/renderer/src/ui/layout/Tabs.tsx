@@ -36,6 +36,7 @@ export type TabId =
   | 'repair_fund_audit'
   | 'warehouse_analytics'
   | 'workshop_stats'
+  | 'custom_reports'
   | 'engine_assembly_bom'
   | 'engine_assembly_bom_item'
   | 'contracts'
@@ -165,6 +166,7 @@ const menuTabSet = new Set<MenuTabId>([
   'timesheets',
   'access_sections',
   'reports',
+  'custom_reports',
   'audit',
   'admin',
   'auth',
@@ -212,7 +214,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'timesheets', 'access_sections'],
-  control: ['reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
+  control: ['reports', 'custom_reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
 type GroupVisualMeta = { icon: string; subtitle: string; gradient: string };
@@ -287,6 +289,7 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   timesheets: { icon: '🗓️', subtitle: 'Табель учёта рабочего времени (Т-13)', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   access_sections: { icon: '🔐', subtitle: 'Кто видит и правит каждый раздел', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
   reports: { icon: '📊', subtitle: 'Аналитика и выгрузки', gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)' },
+  custom_reports: { icon: '🧩', subtitle: 'Свои отчёты: фильтры, колонки, шаблоны', gradient: 'linear-gradient(135deg, #be185d 0%, #f472b6 100%)' },
   changes: { icon: '🧾', subtitle: 'История изменений данных', gradient: 'linear-gradient(135deg, #6b7280 0%, #94a3b8 100%)' },
   drafts: { icon: '🗂️', subtitle: 'Несохранённые черновики карточек', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' },
   audit: { icon: '🔍', subtitle: 'Журнал аудита действий', gradient: 'linear-gradient(135deg, #374151 0%, #6b7280 100%)' },
@@ -542,6 +545,7 @@ export function Tabs(props: {
     timesheets: 'Табель',
     access_sections: 'Доступы по разделам',
     reports: 'Отчёты',
+    custom_reports: 'Мои отчёты',
     audit: 'Журнал',
     empty_cards: 'Пустые карточки',
     drafts: 'Черновики',

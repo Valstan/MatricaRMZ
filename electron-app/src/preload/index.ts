@@ -148,6 +148,15 @@ const matricaApi = {
     }) => ipcRenderer.invoke('reports:filterTemplateSave', args),
     filterTemplateDelete: async (args: { userId?: string; presetId: string; templateId: string }) =>
       ipcRenderer.invoke('reports:filterTemplateDelete', args),
+    customSources: async () => ipcRenderer.invoke('reports:customSources'),
+    customRun: async (args: { spec: unknown }) => ipcRenderer.invoke('reports:customRun', args),
+    customPrint: async (args: { spec: unknown }) => ipcRenderer.invoke('reports:customPrint', args),
+    customCsv: async (args: { spec: unknown }) => ipcRenderer.invoke('reports:customCsv', args),
+    customTemplatesList: async (args?: { userId?: string }) => ipcRenderer.invoke('reports:customTemplatesList', args),
+    customTemplateSave: async (args: { userId?: string; template: { id?: string; name: string; spec: unknown } }) =>
+      ipcRenderer.invoke('reports:customTemplateSave', args),
+    customTemplateDelete: async (args: { userId?: string; templateId: string }) =>
+      ipcRenderer.invoke('reports:customTemplateDelete', args),
     periodStagesCsv: async (args: { startMs?: number; endMs: number }) => ipcRenderer.invoke('reports:periodStagesCsv', args),
     periodStagesByLinkCsv: async (args: { startMs?: number; endMs: number; linkAttrCode: string }) =>
       ipcRenderer.invoke('reports:periodStagesByLinkCsv', args),

@@ -166,6 +166,7 @@ const StockInventoryPage = lazyPage('./pages/StockInventoryPage.tsx', 'StockInve
 const RepairFundAuditPage = lazyPage('./pages/RepairFundAuditPage.tsx', 'RepairFundAuditPage');
 const WarehouseAnalyticsPage = lazyPage('./pages/WarehouseAnalyticsPage.tsx', 'WarehouseAnalyticsPage');
 const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopStatsPage');
+const CustomReportsPage = lazyPage('./pages/CustomReportsPage.tsx', 'CustomReportsPage');
 const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
 const EngineAssemblyBomPage = lazyPage('./pages/EngineAssemblyBomPage.tsx', 'EngineAssemblyBomPage');
 const EngineAssemblyBomDetailsPage = lazyPage('./pages/EngineAssemblyBomDetailsPage.tsx', 'EngineAssemblyBomDetailsPage');
@@ -1835,7 +1836,7 @@ export function App() {
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(authStatus.loggedIn ? (['drafts'] as const) : []),
-    ...(caps.canViewReports ? (['reports'] as const) : []),
+    ...(caps.canViewReports ? (['reports', 'custom_reports'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewMasterData ? (['empty_cards'] as const) : []),
     ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops', 'workshop_stats'] as const) : []),
@@ -1910,6 +1911,7 @@ export function App() {
     timesheets: 'Табель',
     access_sections: 'Доступы по разделам',
     reports: 'Отчёты',
+    custom_reports: 'Мои отчёты',
     audit: 'Журнал',
     admin: 'Админ',
     auth: 'Вход',
@@ -4653,6 +4655,7 @@ export function App() {
         {t === 'warehouse_analytics' && <WarehouseAnalyticsPage />}
 
         {t === 'workshop_stats' && <WorkshopStatsPage />}
+        {t === 'custom_reports' && <CustomReportsPage />}
 
         {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
 
