@@ -17,6 +17,16 @@ const PREVIEW_SCALE = 0.62;
 
 export type TimesheetPrintVariant = 'full' | 'first' | 'second';
 
+/** Какие блоки выводить на печать (все отключаемые галочками). */
+export type TimesheetPrintBlocks = { header: boolean; grid: boolean; legend: boolean; decode: boolean };
+
+const BLOCK_ROWS: Array<{ key: keyof TimesheetPrintBlocks; label: string; hint?: string }> = [
+  { key: 'header', label: 'Шапка листа' },
+  { key: 'grid', label: 'Таблица табеля' },
+  { key: 'legend', label: 'Легенда кодов' },
+  { key: 'decode', label: 'Комментарии по сотрудникам', hint: 'отдельным листом' },
+];
+
 type FontKey = 'fontHeader' | 'fontFio' | 'fontDayNum' | 'fontWeekday' | 'fontCell' | 'fontLegend';
 const FONT_ROWS: Array<{ key: FontKey; label: string; hint?: string; range: { min: number; max: number }; def: number }> = [
   { key: 'fontHeader', label: 'Шапка листа', hint: 'название, месяц, цех', range: TIMESHEET_PRINT_FONT_RANGES.header, def: TIMESHEET_PRINT_FONT_DEFAULTS.header },
@@ -28,18 +38,18 @@ const FONT_ROWS: Array<{ key: FontKey; label: string; hint?: string; range: { mi
 ];
 
 export function TimesheetPrintDialog(props: {
-  /** Standalone A4-landscape HTML (с #wo-a4) для iframe-превью по настройкам и варианту. */
-  buildHtml: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, withLegend: boolean) => string;
-  onPrint: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, withLegend: boolean) => void;
+  /** Standalone A4-landscape HTML (с #wo-a4) для iframe-превью по настройкам, варианту и блокам. */
+  buildHtml: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => string;
+  onPrint: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<TimesheetPrintSettings>(() => loadTimesheetPrintSettings());
   const [variant, setVariant] = useState<TimesheetPrintVariant>('full');
-  const [withLegend, setWithLegend] = useState(true);
+  const [blocks, setBlocks] = useState<TimesheetPrintBlocks>({ header: true, grid: true, legend: true, decode: false });
   const [pages, setPages] = useState(1);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const html = useMemo(() => props.buildHtml(draft, variant, withLegend), [props.buildHtml, draft, variant, withLegend]);
+  const html = useMemo(() => props.buildHtml(draft, variant, blocks), [props.buildHtml, draft, variant, blocks]);
 
   function update(patch: Partial<TimesheetPrintSettings>) {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -59,7 +69,9 @@ export function TimesheetPrintDialog(props: {
     return () => clearTimeout(t);
   }, [html]);
 
-  const fits = pages <= 1;
+  // Комментарии идут отдельным листом (page-break) — допустимый максимум страниц на 1 больше.
+  const pageLimit = blocks.decode ? 2 : 1;
+  const fits = pages <= pageLimit;
 
   return (
     <div
@@ -112,10 +124,22 @@ export function TimesheetPrintDialog(props: {
             </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={withLegend} onChange={(e) => setWithLegend(e.target.checked)} />
-            Легенда кодов
-          </label>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Блоки на печать</div>
+            <div style={{ display: 'grid', gap: 4 }}>
+              {BLOCK_ROWS.map((b) => (
+                <label key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={blocks[b.key]}
+                    onChange={(e) => setBlocks((prev) => ({ ...prev, [b.key]: e.target.checked }))}
+                  />
+                  {b.label}
+                  {b.hint ? <span style={{ fontSize: 11, color: 'var(--subtle)' }}>({b.hint})</span> : null}
+                </label>
+              ))}
+            </div>
+          </div>
 
           <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>Размеры шрифтов (px)</div>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -144,7 +168,7 @@ export function TimesheetPrintDialog(props: {
           </Button>
 
           <div style={{ fontSize: 13, fontWeight: 700, color: fits ? '#15803d' : '#b45309' }}>
-            {fits ? '✓ Помещается на 1 страницу' : `Страниц: ${pages} — уменьшите шрифты`}
+            {fits ? `✓ Помещается на ${pageLimit === 1 ? '1 страницу' : `${pageLimit} страницы`}` : `Страниц: ${pages} — уменьшите шрифты`}
           </div>
 
           <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -152,7 +176,7 @@ export function TimesheetPrintDialog(props: {
               variant="primary"
               onClick={() => {
                 saveTimesheetPrintSettings(draft);
-                props.onPrint(draft, variant, withLegend);
+                props.onPrint(draft, variant, blocks);
               }}
             >
               Печать…
