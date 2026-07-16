@@ -107,7 +107,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   {
     id: AccessSection.Reports,
     titleRu: 'Отчёты и аналитика',
-    menuTabs: ['reports', 'workshop_stats'],
+    menuTabs: ['reports', 'custom_reports', 'workshop_stats'],
   },
   {
     id: AccessSection.Directories,

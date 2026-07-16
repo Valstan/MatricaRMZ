@@ -96,7 +96,7 @@ type Snapshot = {
 };
 
 type OkPreview = Extract<ReportPresetPreviewResult, { ok: true }>;
-type ReportBuildContext = {
+export type ReportBuildContext = {
   sysDb?: BetterSQLite3Database;
   apiBaseUrl?: string;
 };
