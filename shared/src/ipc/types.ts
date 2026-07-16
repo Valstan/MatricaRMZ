@@ -1142,6 +1142,7 @@ export type MatricaApi = {
     update: (args: { id: string; status?: 'draft' | 'closed'; weekMode?: 5 | 6; normHours?: number | null; allowOthersEdit?: boolean }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     addRows: (args: { timesheetId: string; employees: Array<{ employeeId: string; tabNumber?: string | null; position?: string | null }> }) => Promise<{ ok: true; added: number } | { ok: false; error: string }>;
+    reorderRows: (args: { timesheetId: string; rowIds: string[] }) => Promise<{ ok: true; updated: number } | { ok: false; error: string }>;
     removeRow: (rowId: string) => Promise<{ ok: true; rowId: string } | { ok: false; error: string }>;
     setCells: (args: { rowId: string; cells: Array<{ day: number; code?: string | null; hours?: number | null; comment?: string | null }> }) => Promise<{ ok: true; written: number } | { ok: false; error: string }>;
   };

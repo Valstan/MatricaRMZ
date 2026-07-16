@@ -283,6 +283,7 @@ const matricaApi = {
     addRows: async (args: { timesheetId: string; employees: Array<{ employeeId: string; tabNumber?: string | null; position?: string | null }> }) =>
       ipcRenderer.invoke('timesheets:addRows', args),
     removeRow: async (rowId: string) => ipcRenderer.invoke('timesheets:removeRow', rowId),
+    reorderRows: async (args: { timesheetId: string; rowIds: string[] }) => ipcRenderer.invoke('timesheets:reorderRows', args),
     setCells: async (args: { rowId: string; cells: Array<{ day: number; code?: string | null; hours?: number | null; comment?: string | null }> }) =>
       ipcRenderer.invoke('timesheets:setCells', args),
   },

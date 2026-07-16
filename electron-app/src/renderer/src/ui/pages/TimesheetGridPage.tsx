@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EmployeeListItem, TimesheetCodeDef, TimesheetData } from '@matricarmz/shared';
-import { computeTimesheetRowTotals, isTimesheetWeekend, resolveEmploymentStatusCode, timesheetDayOfWeek, timesheetDaysInMonth } from '@matricarmz/shared';
+import type { EmployeeListItem, TimesheetCodeDef, TimesheetData, TimesheetPrintFonts, TimesheetPrintSettings, TimesheetRowData } from '@matricarmz/shared';
+import { computeTimesheetRowTotals, isTimesheetWeekend, resolveEmploymentStatusCode, resolveTimesheetPrintFonts, timesheetDayOfWeek, timesheetDaysInMonth } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
-import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { TimesheetPrintDialog, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
+import { moveArrayItem } from '../utils/moveArrayItem.js';
+import { buildWorkOrderA4PreviewHtml, escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -53,6 +56,9 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const [fontScale, setFontScale] = useState(14);
   const [autoFont, setAutoFont] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('full');
+  const [printDlg, setPrintDlg] = useState(false);
+  const dragRowIdx = useRef<number | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const appliedFont = autoFont ?? fontScale;
@@ -339,6 +345,23 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     flash(`Убрано: ${ids.length}`);
   }
 
+  // Пересортировка строк: оптимистично в UI, порядок целиком на сервер (sort пересчитывается там).
+  async function applyOrder(next: TimesheetRowData[]) {
+    setTs((prev) => (prev ? { ...prev, rows: next } : prev));
+    const r = await window.matrica.timesheets.reorderRows({ timesheetId: props.timesheetId, rowIds: next.map((x) => x.id) });
+    if (!r.ok) { flash(`Ошибка: ${r.error}`, 3000); await reload(); }
+  }
+  function moveRow(from: number, to: number) {
+    if (!ts) return;
+    const next = moveArrayItem(ts.rows, from, to);
+    if (next !== ts.rows) void applyOrder(next);
+  }
+  function sortRowsAlpha() {
+    if (!ts) return;
+    const next = [...ts.rows].sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'ru'));
+    void applyOrder(next);
+  }
+
   async function openPicker() {
     setPicker(true);
     setPickerSel(new Set());
@@ -410,20 +433,32 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   };
 
   const sheet = ts;
-  // Рендер ячейки для печати (R10): код-без-часов крупно; код-с-часами — код мелко сверху, часы крупно-жирно снизу.
-  const printCellText = (c: Cell) => {
+  // ===== Печать: все размеры — из настроек по блокам (TimesheetPrintSettings), компактная вёрстка,
+  // A4 landscape. Один набор билдеров обслуживает и живое превью диалога, и окно печати.
+  const printTitle = `Табель учёта рабочего времени${workshopName ? ` · ${workshopName}` : ''}`;
+  const printSubtitle = `${MONTHS[sheet.month - 1]} ${sheet.year} · ${sheet.weekMode}-дневка`;
+  // Шапка листа — печатаемая секция (h1 окна печати — .no-print и на бумагу не попадает).
+  const headerHtml = (f: TimesheetPrintFonts) =>
+    `<div style="font-size:${f.header}px;font-weight:700;line-height:1.15">${escapeHtml(printTitle)}</div>` +
+    `<div style="font-size:${Math.max(6, Math.round(f.header * 0.7))}px;color:#334155;line-height:1.2">${escapeHtml(printSubtitle)}</div>`;
+  // Рендер ячейки (R10): код-без-часов крупно; код-с-часами — код мелко сверху, часы крупно-жирно снизу.
+  const printCellText = (c: Cell, f: TimesheetPrintFonts) => {
     const code = c.code ?? '';
     const h = c.hours != null ? String(c.hours) : '';
-    if (code && h) return `<div style="font-size:8px;line-height:1.1">${escapeHtml(code)}</div><div style="font-size:15px;font-weight:800;color:#000;line-height:1.1">${escapeHtml(h)}</div>`;
-    if (code) return `<div style="font-size:14px;font-weight:700">${escapeHtml(code)}</div>`;
-    if (h) return `<div style="font-size:15px;font-weight:800;color:#000">${escapeHtml(h)}</div>`;
+    const small = Math.max(4, Math.round(f.cell * 0.55));
+    if (code && h) return `<div style="font-size:${small}px;line-height:1.05">${escapeHtml(code)}</div><div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
+    if (code) return `<div style="font-size:${Math.max(5, Math.round(f.cell * 0.95))}px;font-weight:700;line-height:1.05">${escapeHtml(code)}</div>`;
+    if (h) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
     return '';
   };
-  const gridHtml = (fromDay: number, toDay: number) => {
+  const gridHtml = (fromDay: number, toDay: number, f: TimesheetPrintFonts) => {
     const cols = dayList.filter((d) => d >= fromDay && d <= toDay);
-    const head = `<tr><th>№</th><th style="text-align:left">ФИО</th>${cols
-      .map((d) => `<th${isTimesheetWeekend(sheet.year, sheet.month, d, sheet.weekMode) ? ' style="background:#eef2ff"' : ''}>${d}<br/><span style="font-weight:400;font-size:9px">${DOW[timesheetDayOfWeek(sheet.year, sheet.month, d)]}</span></th>`)
-      .join('')}<th>Σч</th><th>дн.</th></tr>`;
+    const head = `<tr><th style="font-size:${f.dayNum}px">№</th><th style="text-align:left;font-size:${f.dayNum}px">ФИО</th>${cols
+      .map(
+        (d) =>
+          `<th style="font-size:${f.dayNum}px;line-height:1.05${isTimesheetWeekend(sheet.year, sheet.month, d, sheet.weekMode) ? ';background:#eef2ff' : ''}">${d}<br/><span style="font-weight:400;font-size:${f.weekday}px">${DOW[timesheetDayOfWeek(sheet.year, sheet.month, d)]}</span></th>`,
+      )
+      .join('')}<th style="font-size:${f.dayNum}px">Σч</th><th style="font-size:${f.dayNum}px">дн.</th></tr>`;
     const body = presentRows
       .map((row, i) => {
         const rc = cols.map((d) => ({ day: d, ...getCell(row.id, d) }));
@@ -432,42 +467,60 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
           .map((d) => {
             const c = getCell(row.id, d);
             const we = isTimesheetWeekend(sheet.year, sheet.month, d, sheet.weekMode);
-            return `<td style="text-align:center${we ? ';background:#f1f5f9' : ''}">${printCellText(c)}</td>`;
+            return `<td style="text-align:center${we ? ';background:#f1f5f9' : ''}">${printCellText(c, f)}</td>`;
           })
           .join('');
-        const fio = `${escapeHtml(row.fullName || '')}${row.position ? `<div style="font-size:8px;color:#64748b;font-weight:400">${escapeHtml(row.position)}</div>` : ''}`;
-        return `<tr><td style="text-align:center">${i + 1}</td><td style="text-align:left;white-space:nowrap">${fio}</td>${dayTds}<td style="text-align:center;font-weight:700">${tot.totalHours || ''}</td><td style="text-align:center">${tot.workedDays || ''}</td></tr>`;
+        const fio = `<span style="font-size:${f.fio}px">${escapeHtml(row.fullName || '')}</span>${row.position ? `<div style="font-size:${Math.max(5, f.fio - 3)}px;color:#64748b;font-weight:400;line-height:1.05">${escapeHtml(row.position)}</div>` : ''}`;
+        return `<tr><td style="text-align:center;font-size:${f.dayNum}px">${i + 1}</td><td style="text-align:left;white-space:nowrap">${fio}</td>${dayTds}<td style="text-align:center;font-weight:700;font-size:${f.cell}px">${tot.totalHours || ''}</td><td style="text-align:center;font-size:${f.cell}px">${tot.workedDays || ''}</td></tr>`;
       })
       .join('');
     // ширина: узкие колонки дней (G68 — table-layout:auto раздувает; width:1%+nowrap держит компактно)
-    return `<table style="font-size:11px;table-layout:auto;width:100%">${head}${body}</table>`;
+    return `<table style="font-size:${f.cell}px;table-layout:auto;width:100%">${head}${body}</table>`;
   };
-  const legendHtml = () => `<div style="font-size:11px;color:#334155;line-height:1.6">${codes.map((c) => `<b>${escapeHtml(c.code)}</b> — ${escapeHtml(c.title)}`).join(' · ')}</div>`;
-  const decodeHtml = () => {
+  const legendHtml = (f: TimesheetPrintFonts) =>
+    `<div style="font-size:${f.legend}px;color:#334155;line-height:1.35">${codes.map((c) => `<b>${escapeHtml(c.code)}</b> — ${escapeHtml(c.title)}`).join(' · ')}</div>`;
+  const decodeHtml = (f: TimesheetPrintFonts) => {
     const blocks = presentRows
       .map((row) => {
         const items = dayList.map((d) => ({ d, comment: getCell(row.id, d).comment })).filter((x) => x.comment);
         if (!items.length) return '';
-        return `<div style="margin-bottom:10px"><b>${escapeHtml(row.fullName || '')}</b><ul>${items.map((x) => `<li>${x.d} ${MONTHS[sheet.month - 1]} — ${escapeHtml(String(x.comment))}</li>`).join('')}</ul></div>`;
+        return `<div style="margin-bottom:8px;font-size:${f.legend}px"><b>${escapeHtml(row.fullName || '')}</b><ul>${items.map((x) => `<li>${x.d} ${MONTHS[sheet.month - 1]} — ${escapeHtml(String(x.comment))}</li>`).join('')}</ul></div>`;
       })
       .filter(Boolean)
       .join('');
     return blocks || '<div class="muted">Комментариев нет.</div>';
   };
-  const doPrint = () => {
-    // Порядок печати (A6): табель → легенда (по влезаемости) → расшифровки на отдельном листе.
-    // Легенда — отдельная секция с break-inside:avoid: не рвётся, и оператор может снять галку,
-    // если не влезает. Расшифровки начинаются с новой страницы (page-break-before).
+  // Компактная вёрстка: минимальные отступы ячеек, альбомный A4 с узкими полями,
+  // на печати поля даёт @page (базовый 12mm-margin body гасим).
+  const compactPrintCss = `
+    @page { size: A4 landscape; margin: 8mm; }
+    @media print { body { margin: 0; } }
+    th, td { padding: 1px 2px; line-height: 1.05; vertical-align: middle; }
+    .section { margin-bottom: 6px; }
+  `;
+  const printSections = (f: TimesheetPrintFonts, variant: TimesheetPrintVariant, withLegend: boolean) => [
+    { id: 'header', title: 'Шапка листа', html: headerHtml(f), checked: true, hideTitle: true },
+    { id: 'full', title: 'Месяц целиком', html: gridHtml(1, days, f), checked: variant === 'full', hideTitle: true },
+    { id: 'first', title: 'Первая половина месяца (1–15)', html: gridHtml(1, 15, f), checked: variant === 'first', hideTitle: true },
+    { id: 'second', title: `Вторая половина месяца (16–${days})`, html: gridHtml(16, days, f), checked: variant === 'second', hideTitle: true },
+    { id: 'legend', title: 'Легенда кодов', html: legendHtml(f), checked: withLegend, hideTitle: true },
+    { id: 'decode', title: 'Расшифровки по работникам (на отдельном листе)', html: `<div style="page-break-before:always">${decodeHtml(f)}</div>`, checked: false, hideTitle: true },
+  ];
+  // Живое превью в диалоге: только выбранные секции (расшифровки в превью не показываем — они
+  // на отдельном листе). Не useCallback: блок стоит после ранних return (rules of hooks).
+  const buildPrintPreviewHtml = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, withLegend: boolean) => {
+    const f = resolveTimesheetPrintFonts(settings);
+    const sections = printSections(f, variant, withLegend).filter((s) => s.checked);
+    return buildWorkOrderA4PreviewHtml({ sections, extraCss: compactPrintCss, landscape: true, marginMm: 8 });
+  };
+  const doPrint = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, withLegend: boolean) => {
+    // Порядок печати (A6): шапка → табель → легенда (по влезаемости) → расшифровки на отдельном листе.
+    const f = resolveTimesheetPrintFonts(settings);
     openPrintPreview({
-      title: `Табель учёта рабочего времени${workshopName ? ` · ${workshopName}` : ''}`,
-      subtitle: `${MONTHS[sheet.month - 1]} ${sheet.year} · ${sheet.weekMode}-дневка`,
-      sections: [
-        { id: 'full', title: 'Месяц целиком', html: gridHtml(1, days), checked: true },
-        { id: 'first', title: 'Первая половина месяца (1–15)', html: gridHtml(1, 15), checked: false },
-        { id: 'second', title: `Вторая половина месяца (16–${days})`, html: gridHtml(16, days), checked: false },
-        { id: 'legend', title: 'Легенда кодов', html: legendHtml(), checked: true },
-        { id: 'decode', title: 'Расшифровки по работникам (на отдельном листе)', html: `<div style="page-break-before:always">${decodeHtml()}</div>`, checked: false },
-      ],
+      title: printTitle,
+      subtitle: printSubtitle,
+      sections: printSections(f, variant, withLegend),
+      extraCss: compactPrintCss,
     });
   };
 
@@ -506,9 +559,12 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
         )}
         {busy && <span style={{ fontSize: 12, color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b' }}>{busy}</span>}
         {canEdit && <Button variant="ghost" onClick={() => void openPicker()}>+ Сотрудники</Button>}
+        {canEdit && presentRows.length > 1 && (
+          <Button variant="ghost" title="Отсортировать сотрудников по алфавиту (порядок сохранится)" onClick={() => sortRowsAlpha()}>А→Я</Button>
+        )}
         {canEdit && rowSel.size > 0 && <Button variant="ghost" title="Убрать отмеченных сотрудников из табеля" onClick={() => void removeSelectedRows()}>🗑 Убрать отмеченных ({rowSel.size})</Button>}
         {canEdit && <Button variant="ghost" disabled={!sel} title="Комментарий к выбранной ячейке (где был / что делал)" onClick={() => sel && openComment(sel.rowId, sel.day)}>💬 Комментарий</Button>}
-        <Button variant="ghost" onClick={doPrint}>Печать</Button>
+        <Button variant="ghost" onClick={() => setPrintDlg(true)}>Печать</Button>
       </div>
 
       {canEdit && (
@@ -599,7 +655,25 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
               return (
                 <tr key={row.id}>
                   <td style={{ ...bCell, position: 'sticky', left: 0, background: '#fff', zIndex: 1 }}>{idx + 1}</td>
-                  <td style={{ ...bCell, position: 'sticky', left: 30, background: '#fff', zIndex: 1, textAlign: 'left', whiteSpace: 'nowrap' }}>
+                  <td
+                    draggable={canEdit}
+                    onDragStart={(e) => { dragRowIdx.current = idx; e.dataTransfer.effectAllowed = 'move'; }}
+                    onDragOver={(e) => { if (dragRowIdx.current == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropIdx !== idx) setDropIdx(idx); }}
+                    onDrop={(e) => { e.preventDefault(); const from = dragRowIdx.current; dragRowIdx.current = null; setDropIdx(null); if (from != null && from !== idx) moveRow(from, idx); }}
+                    onDragEnd={() => { dragRowIdx.current = null; setDropIdx(null); }}
+                    title={canEdit ? 'Перетащите, чтобы поменять сотрудников местами' : undefined}
+                    style={{
+                      ...bCell,
+                      position: 'sticky',
+                      left: 30,
+                      background: '#fff',
+                      zIndex: 1,
+                      textAlign: 'left',
+                      whiteSpace: 'nowrap',
+                      cursor: canEdit ? 'grab' : 'default',
+                      boxShadow: dropIdx === idx ? 'inset 0 2px 0 0 #2563eb' : undefined,
+                    }}
+                  >
                     {row.fullName || '(без имени)'}
                     {row.position ? <div style={{ fontSize: 10, color: '#94a3b8' }}>{row.position}</div> : null}
                   </td>
@@ -647,6 +721,12 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
                   {canEdit && (
                     <td style={bCell}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        <RowReorderButtons
+                          canMoveUp={idx > 0}
+                          canMoveDown={idx < presentRows.length - 1}
+                          onMoveUp={() => moveRow(idx, idx - 1)}
+                          onMoveDown={() => moveRow(idx, idx + 1)}
+                        />
                         <input
                           type="checkbox"
                           title="Отметить для группового удаления"
@@ -781,6 +861,14 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
             </div>
           </div>
         </div>
+      )}
+
+      {printDlg && (
+        <TimesheetPrintDialog
+          buildHtml={buildPrintPreviewHtml}
+          onPrint={(settings, variant, withLegend) => { setPrintDlg(false); doPrint(settings, variant, withLegend); }}
+          onClose={() => setPrintDlg(false)}
+        />
       )}
 
       {commentEdit && (

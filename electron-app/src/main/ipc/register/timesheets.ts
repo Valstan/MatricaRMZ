@@ -77,6 +77,13 @@ export function registerTimesheetsIpc(ctx: IpcContext) {
     return toResult(await httpAuthed(ctx.sysDb, base(), `/timesheets/${encodeURIComponent(args.timesheetId)}/rows`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employees: args.employees }) }));
   });
 
+  ipcMain.handle('timesheets:reorderRows', async (_e, args: { timesheetId: string; rowIds: string[] }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'timesheet.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/timesheets/${encodeURIComponent(args.timesheetId)}/rows-order`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rowIds: args.rowIds }) }));
+  });
+
   ipcMain.handle('timesheets:removeRow', async (_e, rowId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'timesheet.edit');

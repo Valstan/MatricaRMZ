@@ -58,16 +58,19 @@ function renderSectionsHtml(sections: PrintSection[]): string {
  * без управляющих элементов; контент шириной с A4-лист (186мм = 210 − 2×12мм поля).
  * Высоту печатной области одной страницы (273мм) меряет вызывающий по scrollHeight.
  */
-export function buildWorkOrderA4PreviewHtml(opts: { sections: PrintSection[]; extraCss?: string }): string {
+export function buildWorkOrderA4PreviewHtml(opts: { sections: PrintSection[]; extraCss?: string; landscape?: boolean; marginMm?: number }): string {
   const content = renderSectionsHtml(opts.sections);
+  const w = opts.landscape ? 297 : 210;
+  const h = opts.landscape ? 210 : 297;
+  const m = opts.marginMm ?? 12;
   return `<!doctype html><html><head><meta charset="utf-8"/><style>${PRINT_BASE_CSS}
     html, body { margin: 0; background: #e7e9ef; }
-    /* Лист A4 как на печати: 210мм ширина, поля 12мм (= 186мм контента, перенос строк 1:1 с печатью). */
+    /* Лист A4 как на печати: поля внутри как padding (перенос строк 1:1 с печатью). */
     #wo-a4 {
       box-sizing: border-box;
-      width: 210mm;
-      min-height: 297mm;
-      padding: 12mm;
+      width: ${w}mm;
+      min-height: ${h}mm;
+      padding: ${m}mm;
       margin: 0 auto;
       background: #fff;
       box-shadow: 0 1px 8px rgba(15,23,42,0.20);

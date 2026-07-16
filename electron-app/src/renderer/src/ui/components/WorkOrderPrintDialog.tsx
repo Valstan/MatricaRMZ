@@ -91,7 +91,7 @@ function StepArrow(props: { dir: 'up' | 'down'; disabled: boolean; onPress: () =
   );
 }
 
-function FontStepper(props: { label: string; hint?: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+export function FontStepper(props: { label: string; hint?: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   const { label, hint, value, min, max, onChange } = props;
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   return (
