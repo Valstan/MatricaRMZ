@@ -102,6 +102,61 @@ export const TIMESHEET_DEFAULT_CODES: TimesheetCodeDef[] = [
   { code: 'НН', numCode: '30', title: 'Неявка по невыясненным причинам', countsAsWorked: false, defaultHours: null, color: '#fde68a', sort: 190 },
 ];
 
+/**
+ * Настройки печати табеля: размеры шрифтов по блокам (px). Персистятся локально
+ * на машине оператора (localStorage), как у печати нарядов (woPrintTemplates).
+ */
+export type TimesheetPrintSettings = {
+  /** Шапка листа: «Табель…», месяц, цех. */
+  fontHeader?: number;
+  /** ФИО сотрудников. */
+  fontFio?: number;
+  /** Числа месяца в шапке колонок. */
+  fontDayNum?: number;
+  /** Буквы дней недели под числами. */
+  fontWeekday?: number;
+  /** Цифры часов и коды в ячейках. */
+  fontCell?: number;
+  /** Легенда кодов и расшифровки комментариев. */
+  fontLegend?: number;
+};
+
+export type TimesheetPrintFontKey = 'header' | 'fio' | 'dayNum' | 'weekday' | 'cell' | 'legend';
+export type TimesheetPrintFonts = Record<TimesheetPrintFontKey, number>;
+
+/** Компактные умолчания: приоритет крупным цифрам ячеек, служебное — мельче. */
+export const TIMESHEET_PRINT_FONT_DEFAULTS: TimesheetPrintFonts = { header: 14, fio: 11, dayNum: 9, weekday: 6, cell: 12, legend: 8 };
+export const TIMESHEET_PRINT_FONT_RANGES: Record<TimesheetPrintFontKey, { min: number; max: number }> = {
+  header: { min: 8, max: 24 },
+  fio: { min: 6, max: 16 },
+  dayNum: { min: 5, max: 14 },
+  weekday: { min: 4, max: 12 },
+  cell: { min: 6, max: 18 },
+  legend: { min: 5, max: 14 },
+};
+
+const TIMESHEET_PRINT_SETTING_KEYS: Record<TimesheetPrintFontKey, keyof TimesheetPrintSettings> = {
+  header: 'fontHeader',
+  fio: 'fontFio',
+  dayNum: 'fontDayNum',
+  weekday: 'fontWeekday',
+  cell: 'fontCell',
+  legend: 'fontLegend',
+};
+
+/** Разрешить настройки в готовые размеры: невалидное/отсутствующее → дефолт, значения клампятся в диапазон. */
+export function resolveTimesheetPrintFonts(settings?: TimesheetPrintSettings | null): TimesheetPrintFonts {
+  const out = { ...TIMESHEET_PRINT_FONT_DEFAULTS };
+  for (const key of Object.keys(TIMESHEET_PRINT_FONT_RANGES) as TimesheetPrintFontKey[]) {
+    const raw = settings?.[TIMESHEET_PRINT_SETTING_KEYS[key]];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      const { min, max } = TIMESHEET_PRINT_FONT_RANGES[key];
+      out[key] = Math.min(max, Math.max(min, Math.round(raw)));
+    }
+  }
+  return out;
+}
+
 /** Число дней в месяце (month: 1..12). */
 export function timesheetDaysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();

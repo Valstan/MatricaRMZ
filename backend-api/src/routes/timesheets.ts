@@ -12,6 +12,7 @@ import {
   listTimesheetDepartments,
   listTimesheets,
   removeTimesheetRow,
+  reorderTimesheetRows,
   setTimesheetCells,
   updateTimesheet,
 } from '../services/timesheetService.js';
@@ -123,6 +124,14 @@ timesheetsRouter.post('/:id/rows', requirePermission(PermissionCode.TimesheetEdi
       ...(e.position !== undefined ? { position: e.position } : {}),
     })),
   });
+  return res.status(r.ok ? 200 : 400).json(r);
+});
+
+timesheetsRouter.put('/:id/rows-order', requirePermission(PermissionCode.TimesheetEdit), async (req, res) => {
+  const schema = z.object({ rowIds: z.array(z.string().uuid()).min(1).max(2_000) });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const r = await reorderTimesheetRows({ timesheetId: String(req.params.id || ''), rowIds: parsed.data.rowIds, actor: actorOf(req) });
   return res.status(r.ok ? 200 : 400).json(r);
 });
 

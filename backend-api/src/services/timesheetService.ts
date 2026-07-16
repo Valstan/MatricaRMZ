@@ -404,6 +404,47 @@ export async function addTimesheetRows(args: {
   }
 }
 
+/**
+ * Полная пересортировка строк табеля: клиент присылает желаемый порядок rowIds.
+ * Строки, не попавшие в список (гонка с параллельным добавлением), сохраняют
+ * прежний относительный порядок и уходят в хвост.
+ */
+export async function reorderTimesheetRows(args: { timesheetId: string; rowIds: string[]; actor?: string | null }): Promise<Result<{ updated: number }>> {
+  try {
+    const timesheetId = String(args.timesheetId || '').trim();
+    if (!timesheetId) return { ok: false, error: 'timesheetId обязателен' };
+    const denied = await assertCanEditTimesheet(timesheetId, args.actor);
+    if (denied) return denied;
+    const existing = await db
+      .select({ id: timesheetRows.id, sort: timesheetRows.sort })
+      .from(timesheetRows)
+      .where(eq(timesheetRows.timesheetId, timesheetId))
+      .orderBy(asc(timesheetRows.sort));
+    const known = new Set(existing.map((r) => String(r.id)));
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const raw of args.rowIds) {
+      const id = String(raw || '').trim();
+      if (!id || !known.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      ordered.push(id);
+    }
+    for (const r of existing) {
+      const id = String(r.id);
+      if (!seen.has(id)) ordered.push(id);
+    }
+    let updated = 0;
+    for (let i = 0; i < ordered.length; i += 1) {
+      await db.update(timesheetRows).set({ sort: (i + 1) * 10 }).where(eq(timesheetRows.id, ordered[i]!));
+      updated += 1;
+    }
+    if (updated > 0) await db.update(timesheets).set({ updatedAt: nowMs() }).where(eq(timesheets.id, timesheetId));
+    return { ok: true, updated };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function removeTimesheetRow(args: { rowId: string; actor?: string | null }): Promise<Result<{ rowId: string }>> {
   try {
     const rowId = String(args.rowId || '').trim();
