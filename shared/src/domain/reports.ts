@@ -26,7 +26,8 @@ export type ReportPresetId =
   | 'workshop_throughput'
   | 'engine_readiness_to_assemble'
   | 'defect_returns_summary'
-  | 'movement_integrity_audit';
+  | 'movement_integrity_audit'
+  | 'scrap_register';
 
 export type ReportFilterOption = {
   value: string;
@@ -119,6 +120,7 @@ export const ENGINES_LIST_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'repairedDate', label: 'Окончание ремонта', kind: 'date' },
   { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
   { key: 'isScrap', label: 'Утиль' },
+  { key: 'scrapReason', label: 'Причина утиля' },
   { key: 'completenessAct', label: 'Акт комплектности' },
 ];
 
@@ -128,6 +130,35 @@ export function selectEnginesListReportColumns(selectedKeys: ReadonlyArray<strin
   if (set.size === 0) return [...ENGINES_LIST_REPORT_COLUMNS];
   return ENGINES_LIST_REPORT_COLUMNS.filter((c) => set.has(c.key));
 }
+
+/** Суперсет колонок отчёта «Утиль». Порядок = канонический порядок печати. */
+export const SCRAP_REPORT_COLUMNS: ReportColumn[] = [
+  { key: 'rowKind', label: 'Вид' },
+  { key: 'engineNumber', label: '№ двигателя' },
+  { key: 'engineInternalNumber', label: 'Внутр. №' },
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'contractLabel', label: 'Контракт' },
+  { key: 'counterpartyLabel', label: 'Контрагент' },
+  { key: 'partName', label: 'Деталь' },
+  { key: 'partNumber', label: '№ по чертежу' },
+  { key: 'stampedNumber', label: 'Клеймо' },
+  { key: 'scrapQty', label: 'Кол-во утиля', kind: 'number', align: 'right' },
+  { key: 'scrapReason', label: 'Причина утиля' },
+  { key: 'replenishmentBranch', label: 'Замещение' },
+  { key: 'scrapDate', label: 'Дата', kind: 'date' },
+];
+
+export function selectScrapReportColumns(selectedKeys: ReadonlyArray<string>): ReportColumn[] {
+  const set = new Set(selectedKeys.map((k) => String(k).trim()).filter(Boolean));
+  if (set.size === 0) return [...SCRAP_REPORT_COLUMNS];
+  return SCRAP_REPORT_COLUMNS.filter((c) => set.has(c.key));
+}
+
+export const REPLENISHMENT_BRANCH_REPORT_LABELS: Record<string, string> = {
+  customer: 'Заказчик (давальческая)',
+  repair: 'Свой ремонт',
+  purchase: 'Закупка',
+};
 
 export type ReportPresetDefinition = {
   id: ReportPresetId;
@@ -821,6 +852,58 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
     ],
     columns: ENGINES_LIST_REPORT_COLUMNS,
+  },
+  {
+    id: 'scrap_register',
+    title: 'Утиль: реестр с причинами',
+    description:
+      'Все утильные позиции завода: детали из дефектовок (кол-во, причина, ветка замещения) и двигатели, признанные утильными целиком. Фильтры по маркам, контрактам, контрагентам, номеру двигателя, датам и замещению.',
+    filters: [
+      {
+        type: 'date_range',
+        key: 'period',
+        label: 'Период',
+        startKey: 'startMs',
+        endKey: 'endMs',
+        labelHint: 'Дата дефектовки (для деталей) / дата утильного статуса (для двигателей).',
+      },
+      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      { type: 'text', key: 'engineNumberQuery', label: '№ двигателя', placeholder: 'часть номера или внутр. №' },
+      {
+        type: 'select',
+        key: 'branchFilter',
+        label: 'Замещение утиля',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'customer', label: 'Заказчик (давальческая)' },
+          { value: 'repair', label: 'Свой ремонт' },
+          { value: 'purchase', label: 'Закупка' },
+          { value: 'none', label: 'Не выбрано' },
+        ],
+        labelHint: 'Ветка восполнения из дефектовки: кто замещает утильную деталь.',
+      },
+      {
+        type: 'select',
+        key: 'kindFilter',
+        label: 'Вид утиля',
+        options: [
+          { value: 'all', label: 'Детали и двигатели' },
+          { value: 'parts', label: 'Только детали' },
+          { value: 'engines', label: 'Только двигатели целиком' },
+        ],
+      },
+      {
+        type: 'multi_select',
+        key: 'columns',
+        label: 'Колонки отчёта',
+        options: SCRAP_REPORT_COLUMNS.map((c) => ({ value: c.key, label: c.label })),
+        selectAllByDefault: true,
+        labelHint: 'Какие колонки печатать. Пусто — все.',
+      },
+    ],
+    columns: SCRAP_REPORT_COLUMNS,
   },
   {
     id: 'warehouse_stock_path_audit',

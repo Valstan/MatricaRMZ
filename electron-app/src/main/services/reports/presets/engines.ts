@@ -11,7 +11,10 @@ import {
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
   formatEngineInternalNumber,
+  normalizeEngineInventoryRow,
+  REPLENISHMENT_BRANCH_REPORT_LABELS,
   selectEnginesListReportColumns,
+  selectScrapReportColumns,
   } from '@matricarmz/shared';
 
 import {
@@ -302,6 +305,7 @@ export async function buildEnginesListReport(
       repairedDate: repairedRaw > 0 ? repairedRaw : null,
       shippingDate,
       isScrap: isScrap ? 'Да' : 'Нет',
+      scrapReason: normalizeText(attrs.scrap_reason, ''),
       completenessAct: completenessActStarted ? 'Да' : 'Нет',
     });
   }
@@ -325,6 +329,177 @@ export async function buildEnginesListReport(
   };
 }
 
+
+/**
+ * Отчёт «Утиль: реестр с причинами» (scrap-transparency 2026-07): все утильные
+ * позиции — строки дефектовок с scrap_qty>0 (последняя дефектовка каждого
+ * двигателя, как getCompletenessActStartedMap) + двигатели с утильными статусами
+ * (status_scrap_confirmed / status_rework_sent).
+ */
+export async function buildScrapRegisterReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const brandFilter = asArray(filters?.brandIds);
+  const contractFilter = asArray(filters?.contractIds);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const engineQuery = normalizeText(filters?.engineNumberQuery, '').trim().toLowerCase();
+  const branchFilter = normalizeText(filters?.branchFilter, 'all');
+  const kindFilter = normalizeText(filters?.kindFilter, 'all');
+  const columnKeys = asArray(filters?.columns);
+
+  const snapshot = await loadSnapshot(db);
+  const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
+  if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
+  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+
+  // Последняя дефектовка каждого двигателя (свежайшая операция стадии engine_inventory).
+  const opRows = await db
+    .select({
+      engineEntityId: operations.engineEntityId,
+      metaJson: operations.metaJson,
+      performedAt: operations.performedAt,
+      createdAt: operations.createdAt,
+      updatedAt: operations.updatedAt,
+    })
+    .from(operations)
+    .where(and(eq(operations.operationType, ENGINE_INVENTORY_STAGE), isNull(operations.deletedAt)))
+    .orderBy(desc(operations.updatedAt));
+  const latestOpByEngine = new Map<string, { metaJson: string | null; ts: number }>();
+  for (const op of opRows as any[]) {
+    const engineId = String(op?.engineEntityId ?? '').trim();
+    if (!engineId || latestOpByEngine.has(engineId)) continue;
+    latestOpByEngine.set(engineId, {
+      metaJson: op.metaJson == null ? null : String(op.metaJson),
+      ts: Number(op.performedAt ?? op.updatedAt ?? op.createdAt ?? 0),
+    });
+  }
+
+  type EngineCtx = {
+    engineNumber: string;
+    engineInternalNumber: string;
+    engineBrand: string;
+    contractLabel: string;
+    counterpartyLabel: string;
+  };
+  const engineCtx = (attrs: Record<string, unknown>, id: string): { ctx: EngineCtx; pass: boolean; haystack: string } => {
+    const brandId = normalizeText(attrs.engine_brand_id, '');
+    const contractId = normalizeText(attrs.contract_id, '');
+    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
+    const engineNumber = normalizeText(attrs.engine_number ?? attrs.number, id);
+    const internal = formatEngineInternalNumber(
+      normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+      attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+    );
+    let pass = true;
+    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) pass = false;
+    if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) pass = false;
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) pass = false;
+    return {
+      ctx: {
+        engineNumber,
+        engineInternalNumber: internal,
+        engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        contractLabel: resolveContractLabel(contractId, contractOptions),
+        counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
+      },
+      pass,
+      haystack: `${engineNumber} ${internal}`.toLowerCase(),
+    };
+  };
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalScrapQty = 0;
+  const branchTotals: Record<string, number> = { customer: 0, repair: 0, purchase: 0, none: 0 };
+
+  for (const [id, entity] of snapshot.entitiesById.entries()) {
+    if (entity.typeId !== engineTypeId) continue;
+    const attrs = snapshot.attrsByEntity.get(id) ?? {};
+    const { ctx, pass, haystack } = engineCtx(attrs, id);
+    if (!pass) continue;
+    if (engineQuery && !haystack.includes(engineQuery)) continue;
+
+    // Двигатель целиком.
+    const scrapConfirmed = attrs.status_scrap_confirmed === true || attrs.status_scrap_confirmed === 'true';
+    const reworkSent = attrs.status_rework_sent === true || attrs.status_rework_sent === 'true';
+    if (kindFilter !== 'parts' && (scrapConfirmed || reworkSent) && branchFilter === 'all') {
+      const statusDate = toNumber(attrs.status_rework_sent_date) || toNumber(attrs.status_scrap_confirmed_date);
+      const inPeriod =
+        (period.startMs == null || statusDate <= 0 || statusDate >= period.startMs) && (statusDate <= 0 || statusDate <= period.endMs);
+      if (inPeriod) {
+        rows.push({
+          rowKind: reworkSent ? 'Двигатель · отправлен заказчику' : 'Двигатель · признан утильным',
+          ...ctx,
+          partName: 'Двигатель целиком',
+          partNumber: '',
+          stampedNumber: '',
+          scrapQty: 1,
+          scrapReason: normalizeText(attrs.scrap_reason, ''),
+          replenishmentBranch: '',
+          scrapDate: statusDate > 0 ? statusDate : null,
+        });
+      }
+    }
+
+    // Детали из последней дефектовки.
+    if (kindFilter === 'engines') continue;
+    const op = latestOpByEngine.get(id);
+    if (!op?.metaJson) continue;
+    let rawRows: Array<Record<string, unknown>> = [];
+    try {
+      const payload = JSON.parse(op.metaJson);
+      const table = payload?.answers?.engine_inventory_items;
+      rawRows = table?.kind === 'table' && Array.isArray(table.rows) ? table.rows : [];
+    } catch {
+      rawRows = [];
+    }
+    if (period.startMs != null && op.ts > 0 && op.ts < period.startMs) continue;
+    if (op.ts > 0 && op.ts > period.endMs) continue;
+    for (const raw of rawRows) {
+      const { row } = normalizeEngineInventoryRow(raw);
+      if (row.scrap_qty <= 0) continue;
+      const branchKey = row.replenishment_branch ?? 'none';
+      if (branchFilter !== 'all' && branchKey !== branchFilter) continue;
+      totalScrapQty += row.scrap_qty;
+      branchTotals[branchKey] = (branchTotals[branchKey] ?? 0) + row.scrap_qty;
+      rows.push({
+        rowKind: 'Деталь',
+        ...ctx,
+        partName: row.part_name,
+        partNumber: row.part_number,
+        stampedNumber: row.stamped_number ?? '',
+        scrapQty: row.scrap_qty,
+        scrapReason: row.scrap_reason ?? '',
+        replenishmentBranch: row.replenishment_branch ? (REPLENISHMENT_BRANCH_REPORT_LABELS[row.replenishment_branch] ?? row.replenishment_branch) : '',
+        scrapDate: op.ts > 0 ? op.ts : null,
+      });
+    }
+  }
+
+  rows.sort((a, b) => toNumber(b.scrapDate) - toNumber(a.scrapDate));
+
+  const preset = getPreset('scrap_register');
+  return {
+    ok: true,
+    presetId: 'scrap_register',
+    title: preset.title,
+    subtitle: period.startMs ? `${msToDate(period.startMs)} — ${msToDate(period.endMs)}` : `по ${msToDate(period.endMs)}`,
+    columns: selectScrapReportColumns(columnKeys),
+    rows,
+    totals: {
+      positions: rows.length,
+      scrapQty: totalScrapQty,
+      customerQty: branchTotals.customer ?? 0,
+      repairQty: branchTotals.repair ?? 0,
+      purchaseQty: branchTotals.purchase ?? 0,
+      noBranchQty: branchTotals.none ?? 0,
+    },
+    generatedAt: Date.now(),
+  };
+}
 
 export async function buildEngineReadinessToAssembleReport(
   db: BetterSQLite3Database,

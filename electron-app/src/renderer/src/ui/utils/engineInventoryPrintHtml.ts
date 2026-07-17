@@ -363,14 +363,15 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
   const tableHead = `
     <thead>
       <tr>
-        <th style="width:24%">Наименование детали (узла)</th>
-        <th style="width:14%">№ сборочной единицы</th>
-        <th style="width:12%">№ на детали</th>
-        <th style="width:8%">Кол-во</th>
-        <th style="width:12%">Ремонтопригодная</th>
-        <th style="width:9%">Утиль</th>
-        <th style="width:11%">Заменить новой</th>
-        <th style="width:10%">Восполнение</th>
+        <th style="width:21%">Наименование детали (узла)</th>
+        <th style="width:12%">№ сборочной единицы</th>
+        <th style="width:10%">№ на детали</th>
+        <th style="width:7%">Кол-во</th>
+        <th style="width:10%">Ремонтопригодная</th>
+        <th style="width:8%">Утиль</th>
+        <th style="width:13%">Причина утиля</th>
+        <th style="width:10%">Заменить новой</th>
+        <th style="width:9%">Восполнение</th>
       </tr>
     </thead>`;
 
@@ -383,6 +384,7 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
             <td class="num">${escapeHtml(r.quantity)}</td>
             <td class="num">${blank ? '' : escapeHtml(qtyOrBlank(r.repairable_qty))}</td>
             <td class="num">${blank ? '' : escapeHtml(qtyOrBlank(r.scrap_qty))}</td>
+            <td>${blank ? '' : escapeHtml(r.scrap_qty > 0 ? String(r.scrap_reason ?? '') : '')}</td>
             <td class="num">${blank ? '' : escapeHtml(qtyOrBlank(r.replace_qty))}</td>
             <td class="ctr">${blank ? '' : escapeHtml(r.scrap_qty + r.replace_qty > 0 ? branchLabel(r.replenishment_branch) : '')}</td>
           </tr>`,
@@ -390,8 +392,8 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
     .join('');
   const tableBody =
     ctx.rows.length === 0 && !blank
-      ? `<tbody><tr><td colspan="8" class="muted ctr">Нет данных</td></tr></tbody>`
-      : `<tbody>${dataRows}${blank ? spareRows(8, BLANK_SPARE_ROWS) : ''}</tbody>`;
+      ? `<tbody><tr><td colspan="9" class="muted ctr">Нет данных</td></tr></tbody>`
+      : `<tbody>${dataRows}${blank ? spareRows(9, BLANK_SPARE_ROWS) : ''}</tbody>`;
 
   const signatures = `
     <div class="sigs">

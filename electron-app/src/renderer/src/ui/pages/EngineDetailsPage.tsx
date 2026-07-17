@@ -436,6 +436,8 @@ export function EngineDetailsPage(props: {
     toInputDate(props.engine.attributes?.reclamation_shipped_date as number | null | undefined),
   );
   const [reclComment, setReclComment] = useState(String(props.engine.attributes?.reclamation_comment ?? ''));
+  // Причина утиля двигателя (scrap-transparency 2026-07): показывается при утильных статусах.
+  const [scrapReason, setScrapReason] = useState(String(props.engine.attributes?.scrap_reason ?? ''));
 
   // Повторный заезд / коллизия номера (Ф2): осознанный обход запрета дублей.
   const [repeatArrivalFlag, setRepeatArrivalFlag] = useState(Boolean(props.engine.attributes?.repeat_arrival_flag));
@@ -678,6 +680,7 @@ export function EngineDetailsPage(props: {
     setReclRepairStatus(String(attrs.reclamation_repair_status ?? ''));
     setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
     setReclComment(String(attrs.reclamation_comment ?? ''));
+    setScrapReason(String(attrs.scrap_reason ?? ''));
     setRepeatArrivalFlag(Boolean(attrs.repeat_arrival_flag));
     setNumberCollisionFlag(Boolean(attrs.number_collision_flag));
     setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
@@ -855,6 +858,7 @@ export function EngineDetailsPage(props: {
       nextValues.reclamation_repair_status = asNullableText(reclRepairStatus);
       nextValues.reclamation_shipped_date = fromInputDate(reclShippedDate);
       nextValues.reclamation_comment = asNullableText(reclComment);
+      nextValues.scrap_reason = asNullableText(scrapReason);
 
       const currentValues: Record<string, unknown> = {
         repeat_arrival_flag: Boolean(attrs.repeat_arrival_flag),
@@ -886,6 +890,7 @@ export function EngineDetailsPage(props: {
       currentValues.reclamation_repair_status = asNullableText(attrs.reclamation_repair_status);
       currentValues.reclamation_shipped_date = normalizeDateInput(attrs.reclamation_shipped_date);
       currentValues.reclamation_comment = asNullableText(attrs.reclamation_comment);
+      currentValues.scrap_reason = asNullableText(attrs.scrap_reason);
 
       const changedEntries = Object.entries(nextValues).filter(([code, nextValue]) => !sameValue(currentValues[code], nextValue));
       if (changedEntries.length > 0) {
@@ -1141,6 +1146,7 @@ export function EngineDetailsPage(props: {
       { code: 'reclamation_repair_status', name: 'Статус рекламационного ремонта', dataType: 'text', sortOrder: 85 },
       { code: 'reclamation_shipped_date', name: 'Дата отправки после рекламации', dataType: 'date', sortOrder: 86 },
       { code: 'reclamation_comment', name: 'Комментарий по рекламации', dataType: 'text', sortOrder: 87 },
+      { code: 'scrap_reason', name: 'Причина утиля', dataType: 'text', sortOrder: 78 },
       // Повторный заезд / коллизия номера (Ф2)
       { code: 'repeat_arrival_flag', name: 'Повторный заезд', dataType: 'boolean', sortOrder: 90 },
       { code: 'number_collision_flag', name: 'Коллизия номера', dataType: 'boolean', sortOrder: 91 },
@@ -1546,6 +1552,24 @@ export function EngineDetailsPage(props: {
                 setStatusDates((prev) => ({ ...prev, [code]: fromInputDate(e.target.value) }));
               }}
             />
+            {(code === 'status_scrap_confirmed' || code === 'status_rework_sent') && statusFlags[code] ? (
+              <Input
+                type="text"
+                value={scrapReason}
+                disabled={!props.canEditEngines}
+                placeholder="почему утиль?"
+                title="Причина отправки двигателя в утиль — видна в печати карточки и отчётах"
+                style={{
+                  minWidth: 200,
+                  flex: 1,
+                  ...(scrapReason.trim() ? {} : { border: '1px solid rgba(220, 38, 38, 0.55)' }),
+                }}
+                onChange={(e) => {
+                  setSessionChanged(true);
+                  setScrapReason(e.target.value);
+                }}
+              />
+            ) : null}
           </div>
         ),
       };
@@ -1575,6 +1599,9 @@ export function EngineDetailsPage(props: {
       STATUS_LABELS.status_rework_sent,
       statusPrintValue(Boolean(statusFlags.status_rework_sent), statusDates.status_rework_sent),
     ],
+    ...((statusFlags.status_scrap_confirmed || statusFlags.status_rework_sent) && scrapReason.trim()
+      ? ([['Причина утиля', scrapReason.trim()]] as Array<[string, string]>)
+      : []),
   ];
   // Внутренний номер — в заголовке рядом с заводским: оператор ищет карточку по клейму
   // на детали, и в шапке она должна опознаваться тем же номером.
@@ -1739,6 +1766,7 @@ export function EngineDetailsPage(props: {
               setReclRepairStatus(String(attrs.reclamation_repair_status ?? ''));
               setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
               setReclComment(String(attrs.reclamation_comment ?? ''));
+              setScrapReason(String(attrs.scrap_reason ?? ''));
               setRepeatArrivalFlag(Boolean(attrs.repeat_arrival_flag));
               setNumberCollisionFlag(Boolean(attrs.number_collision_flag));
               setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));

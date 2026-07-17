@@ -327,6 +327,13 @@ export type EngineInventoryRow = {
   replenishment_branch: ReplenishmentBranch | null;
 
   /**
+   * Причина утиля (scrap-transparency 2026-07): свободный текст оператора «почему
+   * утиль». Живёт только при scrap_qty>0 (нормализация сбрасывает в '' иначе);
+   * legacy-строка без ключа ≈ '' (не считается изменением, как replenishment_branch).
+   */
+  scrap_reason?: string;
+
+  /**
    * Т4: эффективные галочки актов строки. При brand-resync пересчитываются из
    * привязки деталь↔марка (PartSpecBrandLink), поэтому правка шаблона марки доезжает
    * до двигателей. undefined = legacy-строка без флагов (печать актов не фильтрует).
@@ -353,6 +360,7 @@ const ENGINE_INVENTORY_KEYS = [
   'scrap_qty',
   'replace_qty',
   'replenishment_branch',
+  'scrap_reason',
 ] as const satisfies readonly (keyof EngineInventoryRow)[];
 
 function toBranchField(value: unknown): ReplenishmentBranch | null {
@@ -432,6 +440,8 @@ export function normalizeEngineInventoryRow(raw: Record<string, unknown>): {
     branch = null;
   }
 
+  const scrapReason = scrap > 0 ? toStringField(raw.scrap_reason).trim() : '';
+
   const row: EngineInventoryRow = {
     part_name: partName,
     assembly_unit_number: assemblyUnit,
@@ -444,6 +454,7 @@ export function normalizeEngineInventoryRow(raw: Record<string, unknown>): {
     scrap_qty: scrap,
     replace_qty: replace,
     replenishment_branch: branch,
+    scrap_reason: scrapReason,
     ...(raw.stamped_number !== undefined ? { stamped_number: toStringField(raw.stamped_number) } : {}),
     ...(raw.in_completeness_act !== undefined ? { in_completeness_act: toBoolField(raw.in_completeness_act) } : {}),
     ...(raw.in_defect_act !== undefined ? { in_defect_act: toBoolField(raw.in_defect_act) } : {}),
@@ -460,6 +471,14 @@ export function normalizeEngineInventoryRow(raw: Record<string, unknown>): {
     // replenishment_branch: legacy row без ключа (undefined) ≈ канонический null — не считаем изменением.
     if (key === 'replenishment_branch') {
       if ((rawVal ?? null) !== row[key]) {
+        changed = true;
+        break;
+      }
+      continue;
+    }
+    // scrap_reason: legacy row без ключа (undefined) ≈ каноническая '' — не считаем изменением.
+    if (key === 'scrap_reason') {
+      if (String(rawVal ?? '') !== (row.scrap_reason ?? '')) {
         changed = true;
         break;
       }
@@ -651,12 +670,13 @@ export function buildSupplyRequestItemsFromInventory(
       continue;
     }
     const ref = [row.part_number, row.assembly_unit_number].map((s) => s.trim()).filter(Boolean).join(' · ');
+    const reason = (row.scrap_reason ?? '').trim();
     byKey.set(key, {
       ...(partId ? { productId: partId } : {}),
       name: name || row.part_number.trim() || 'Деталь',
       qty: row.replace_qty,
       ...(unit ? { unit } : {}),
-      note: ref ? `Дефектовка: ${ref}` : 'Дефектовка',
+      note: `${ref ? `Дефектовка: ${ref}` : 'Дефектовка'}${reason ? `; утиль: ${reason}` : ''}`,
     });
   }
   let lineNo = 0;
