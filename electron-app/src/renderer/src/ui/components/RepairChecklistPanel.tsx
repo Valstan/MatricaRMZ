@@ -2507,6 +2507,7 @@ export function RepairChecklistPanel(props: {
                               { id: 'quantity', label: 'Количество', kind: 'number' as const },
                               { id: 'repairable_qty', label: 'Ремонтно-пригодная', kind: 'number' as const },
                               { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
+                              { id: 'scrap_reason', label: 'Причина утиля' },
                             ]
                           : props.stage === 'completeness' && it.id === 'completeness_items'
                             ? [
@@ -2535,6 +2536,7 @@ export function RepairChecklistPanel(props: {
                                     { id: 'present', label: 'На месте', kind: 'boolean' as const },
                                     { id: 'repairable_qty', label: 'Ремонт', kind: 'number' as const },
                                     { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
+                                    { id: 'scrap_reason', label: 'Причина утиля' },
                                     { id: 'replace_qty', label: 'Заменить', kind: 'number' as const },
                                     { id: 'in_defect_act', label: 'В акте' },
                                     { id: 'replenishment_branch', label: 'Восполнение' },
@@ -2698,6 +2700,42 @@ export function RepairChecklistPanel(props: {
                                         setValue(rowIdx, 'replace_qty', 0, true);
                                       }}
                                     />
+                                  );
+                                },
+                                // Причина утиля (scrap-transparency 2026-07): активна при scrap_qty>0;
+                                // мягкая подсветка когда утиль есть, а причина пуста — не блокируем сохранение.
+                                scrap_reason: ({ rowIdx, row, value, setValue }: any) => {
+                                  const hasScrap = Number((row as any).scrap_qty ?? 0) > 0;
+                                  const text = String(value ?? '');
+                                  return (
+                                    <>
+                                      <input
+                                        type="text"
+                                        list="scrap-reason-hints"
+                                        value={text}
+                                        disabled={!props.canEdit || !hasScrap}
+                                        placeholder={hasScrap ? 'почему утиль?' : '—'}
+                                        title={hasScrap ? 'Причина отправки в утиль (видна в актах и отчётах)' : 'Доступно для строк с утилём (Утиль > 0)'}
+                                        onChange={(e) => setValue(rowIdx, 'scrap_reason', e.target.value, true)}
+                                        style={{
+                                          width: '100%',
+                                          minWidth: 140,
+                                          padding: '7px 8px',
+                                          borderRadius: 8,
+                                          border: hasScrap && !text.trim() ? '1px solid rgba(220, 38, 38, 0.55)' : '1px solid rgba(15, 23, 42, 0.25)',
+                                          background: hasScrap ? 'var(--input-bg)' : 'rgba(100,116,139,0.08)',
+                                          color: hasScrap ? 'var(--text)' : '#94a3b8',
+                                        }}
+                                      />
+                                      <datalist id="scrap-reason-hints">
+                                        <option value="Трещина" />
+                                        <option value="Износ сверх допуска" />
+                                        <option value="Коррозия" />
+                                        <option value="Деформация" />
+                                        <option value="Обрыв резьбы" />
+                                        <option value="Не подлежит восстановлению" />
+                                      </datalist>
+                                    </>
                                   );
                                 },
                                 // Ф3/Ф4: ветка восполнения per-деталь — активна при дефекте (утиль или замена > 0):

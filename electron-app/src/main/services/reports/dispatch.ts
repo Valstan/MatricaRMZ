@@ -13,7 +13,7 @@ import {
 
 
 import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport } from './presets/warehouse.js';
-import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport } from './presets/engines.js';
+import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
@@ -63,6 +63,8 @@ export async function buildReportByPreset(
         return buildEngineMovementsReport(db, args.filters);
       case 'engines_list':
         return buildEnginesListReport(db, args.filters);
+      case 'scrap_register':
+        return buildScrapRegisterReport(db, args.filters);
       case 'warehouse_stock_path_audit':
         return buildWarehouseStockPathAuditReport(db, args.filters);
       case 'assembly_forecast_7d':
