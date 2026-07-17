@@ -13,7 +13,7 @@ import {
 
 
 import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport } from './presets/warehouse.js';
-import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport } from './presets/engines.js';
+import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
@@ -75,6 +75,8 @@ export async function buildReportByPreset(
         return buildWorkshopThroughputReport(db, args.filters, ctx);
       case 'engine_readiness_to_assemble':
         return buildEngineReadinessToAssembleReport(db, args.filters, ctx);
+      case 'engine_kitting':
+        return buildEngineKittingReport(db, args.filters, ctx);
       case 'defect_returns_summary':
         return buildDefectReturnsSummaryReport(db, args.filters);
       case 'movement_integrity_audit':

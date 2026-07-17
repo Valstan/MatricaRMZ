@@ -27,7 +27,8 @@ export type ReportPresetId =
   | 'engine_readiness_to_assemble'
   | 'defect_returns_summary'
   | 'movement_integrity_audit'
-  | 'scrap_register';
+  | 'scrap_register'
+  | 'engine_kitting';
 
 export type ReportFilterOption = {
   value: string;
@@ -45,6 +46,8 @@ export type ReportOptionSource =
   | 'warehouses'
   | 'assemblyBrands'
   | 'assemblySleeves'
+  /** Двигатели (все, кроме утильных): подпись №/внутр.№/марка, поиск по номерам. */
+  | 'engines'
   /** Контракты для режима «По контрактам» в прогнозе сборки: подпись № / внутр. / заказчик и поиск по номерам. */
   | 'assembly_forecast_contracts';
 
@@ -1205,6 +1208,41 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'selfHash', label: 'self_hash (фрагмент)' },
       { key: 'expectedPrev', label: 'Ожидалось prev_hash' },
       { key: 'detail', label: 'Детали' },
+    ],
+  },
+  {
+    id: 'engine_kitting',
+    title: 'Комплектование двигателя',
+    description:
+      'Подбор деталей на сборку конкретного двигателя: по BOM его марки — что уже выдано в сборку, ' +
+      'что осталось выдать, где лежит доступное (склады/цеха), что можно закрыть ремфондом и чистый дефицит. ' +
+      'Печать — пикинг-лист для кладовщика/комплектовщика.',
+    filters: [
+      {
+        type: 'select',
+        key: 'engineId',
+        label: 'Двигатель',
+        optionsSource: 'engines',
+        labelHint: 'Двигатель, который комплектуем. Марка определяет BOM (активный, по умолчанию).',
+      },
+      {
+        type: 'checkbox',
+        key: 'onlyMissing',
+        label: 'Только неукомплектованные',
+        labelHint: 'Показывать только позиции, по которым ещё осталось выдать детали.',
+      },
+    ],
+    columns: [
+      { key: 'componentName', label: 'Деталь' },
+      { key: 'componentCode', label: 'Код' },
+      { key: 'requiredQty', label: 'Требуется', kind: 'number', align: 'right' },
+      { key: 'issuedQty', label: 'Выдано в сборку', kind: 'number', align: 'right' },
+      { key: 'remainingQty', label: 'Осталось выдать', kind: 'number', align: 'right' },
+      { key: 'availableQty', label: 'Доступно', kind: 'number', align: 'right' },
+      { key: 'locationsHint', label: 'Где лежит' },
+      { key: 'repairFundQty', label: 'В ремфонде', kind: 'number', align: 'right' },
+      { key: 'deficitQty', label: 'Дефицит', kind: 'number', align: 'right' },
+      { key: 'variantNote', label: 'Варианты / примечание' },
     ],
   },
 ];

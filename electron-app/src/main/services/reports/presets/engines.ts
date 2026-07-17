@@ -10,6 +10,7 @@ import {
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
+  StockMovementType,
   formatEngineInternalNumber,
   normalizeEngineInventoryRow,
   REPLENISHMENT_BRANCH_REPORT_LABELS,
@@ -19,7 +20,11 @@ import {
 
 import {
   erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
+  erpEngineAssemblyBomLines,
+  erpNomenclature,
   erpRegStockBalance,
+  erpRegStockMovements,
   operations,
 } from '../../../database/schema.js';
 
@@ -604,6 +609,253 @@ export async function buildEngineReadinessToAssembleReport(
     subtitle: rows.length === 0 ? 'Нет двигателей по фильтру' : `Двигателей: ${rows.length}`,
     columns: preset.columns,
     rows,
+    generatedAt: Date.now(),
+  };
+}
+
+/**
+ * «Комплектование двигателя»: BOM марки × выдано в сборку (движения по engineId) ×
+ * доступные остатки (без технических локаций) × ремфонд → осталось выдать / дефицит.
+ * Вариантные группы BOM схлопываются в одну позицию: требуется по основному варианту,
+ * выдано/доступно — суммарно по всем вариантам группы.
+ */
+export async function buildEngineKittingReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const preset = getPreset('engine_kitting');
+  const engineId = String((filters as Record<string, unknown> | undefined)?.engineId ?? '').trim();
+  const onlyMissing = Boolean((filters as Record<string, unknown> | undefined)?.onlyMissing);
+  const empty = (subtitle: string): ReportPresetPreviewResult => ({
+    ok: true,
+    presetId: 'engine_kitting',
+    title: preset.title,
+    subtitle,
+    columns: preset.columns,
+    rows: [],
+    generatedAt: Date.now(),
+  });
+  if (!engineId) return empty('Выберите двигатель в фильтре');
+
+  const snapshot = await loadSnapshot(db);
+  const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+  const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engineId.slice(0, 8)));
+  const engineInternalNumber = formatEngineInternalNumber(
+    normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+    attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+  );
+  const brandId = normalizeText(attrs.engine_brand_id, '');
+  if (!brandId) return empty(`Двигатель №${engineNumber}: марка не указана — BOM не определить`);
+  const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
+
+  const bomHeaders = (await db
+    .select({
+      id: erpEngineAssemblyBom.id,
+      name: erpEngineAssemblyBom.name,
+      status: erpEngineAssemblyBom.status,
+      isDefault: erpEngineAssemblyBom.isDefault,
+      updatedAt: erpEngineAssemblyBom.updatedAt,
+    })
+    .from(erpEngineAssemblyBom)
+    .innerJoin(
+      erpEngineAssemblyBomBrandLinks,
+      and(
+        eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+        eq(erpEngineAssemblyBomBrandLinks.engineBrandId, brandId),
+        isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+      ),
+    )
+    .where(isNull(erpEngineAssemblyBom.deletedAt))) as Array<{
+    id: string;
+    name: string;
+    status: string;
+    isDefault: boolean;
+    updatedAt: number;
+  }>;
+  if (bomHeaders.length === 0) return empty(`Марка «${brandLabel}»: BOM не найден`);
+  const bomRank = (h: { status: string; isDefault: boolean }) =>
+    (h.isDefault ? 2 : 0) + (h.status === 'active' ? 1 : 0);
+  const bom = [...bomHeaders].sort(
+    (a, b) => bomRank(b) - bomRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0),
+  )[0]!;
+
+  const bomLines = (await db
+    .select()
+    .from(erpEngineAssemblyBomLines)
+    .where(and(eq(erpEngineAssemblyBomLines.bomId, bom.id), isNull(erpEngineAssemblyBomLines.deletedAt)))) as Array<
+    Record<string, unknown>
+  >;
+  if (bomLines.length === 0) return empty(`BOM «${bom.name}»: нет строк состава`);
+
+  const nomenRows = (await db
+    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+    .from(erpNomenclature)) as Array<{ id: string; code: unknown; name: unknown }>;
+  const nomenById = new Map<string, { code: string; name: string }>();
+  for (const row of nomenRows) nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+
+  // Выдано в сборку на ЭТОТ двигатель: приход на «в сборке» минус возвраты (+ учёт сторно).
+  const movementRows = (await db
+    .select({
+      nomenclatureId: erpRegStockMovements.nomenclatureId,
+      movementType: erpRegStockMovements.movementType,
+      qty: erpRegStockMovements.qty,
+    })
+    .from(erpRegStockMovements)
+    .where(eq(erpRegStockMovements.engineId, engineId))) as Array<{
+    nomenclatureId: string;
+    movementType: string;
+    qty: number;
+  }>;
+  const issuedByNom = new Map<string, number>();
+  const issuedSign: Record<string, number> = {
+    [StockMovementType.AssemblyConsumptionIn]: 1,
+    [StockMovementType.AssemblyReturnOut]: -1,
+    [`reversal_${StockMovementType.AssemblyConsumptionIn}`]: -1,
+    [`reversal_${StockMovementType.AssemblyReturnOut}`]: 1,
+  };
+  for (const mv of movementRows) {
+    const sign = issuedSign[String(mv.movementType ?? '')];
+    if (!sign) continue;
+    const nomId = String(mv.nomenclatureId ?? '');
+    if (!nomId) continue;
+    issuedByNom.set(nomId, (issuedByNom.get(nomId) ?? 0) + sign * Number(mv.qty ?? 0));
+  }
+
+  // Доступные остатки (qty − reserved) без технических локаций; ремфонд — отдельно.
+  const locByUuid = await getWarehouseLocationsById(ctx);
+  const balanceRows = (await db.select().from(erpRegStockBalance)) as Array<Record<string, unknown>>;
+  const availableByNom = new Map<string, number>();
+  const repairFundByNom = new Map<string, number>();
+  const binsByNom = new Map<string, Array<{ label: string; qty: number }>>();
+  for (const raw of balanceRows) {
+    const nomId = String(raw.nomenclatureId ?? '');
+    if (!nomId) continue;
+    const locId = String(raw.warehouseLocationId ?? '');
+    const loc = locByUuid.get(locId);
+    const code = loc?.code ?? '';
+    if (code === 'scrap' || code === 'assembly_in_progress') continue;
+    if (code === 'repair_fund') {
+      const qty = Math.max(0, Math.floor(Number(raw.qty ?? 0)));
+      if (qty > 0) repairFundByNom.set(nomId, (repairFundByNom.get(nomId) ?? 0) + qty);
+      continue;
+    }
+    const avail = Math.max(0, Math.floor(Number(raw.qty ?? 0) - Number(raw.reservedQty ?? 0)));
+    if (avail <= 0) continue;
+    availableByNom.set(nomId, (availableByNom.get(nomId) ?? 0) + avail);
+    const bins = binsByNom.get(nomId) ?? [];
+    bins.push({ label: loc?.name ?? locId.slice(0, 8), qty: avail });
+    binsByNom.set(nomId, bins);
+  }
+
+  // Позиции: строки без variantGroup — сами по себе; вариантные группы — одна позиция.
+  type Slot = {
+    primary: Record<string, unknown>;
+    nomIds: string[];
+    variantGroup: string;
+    isRequired: boolean;
+  };
+  const slots: Slot[] = [];
+  const byGroup = new Map<string, Array<Record<string, unknown>>>();
+  for (const line of bomLines) {
+    const group = String(line.variantGroup ?? '').trim();
+    if (!group) {
+      slots.push({
+        primary: line,
+        nomIds: [String(line.componentNomenclatureId ?? '')],
+        variantGroup: '',
+        isRequired: Boolean(line.isRequired),
+      });
+      continue;
+    }
+    const list = byGroup.get(group) ?? [];
+    list.push(line);
+    byGroup.set(group, list);
+  }
+  for (const [group, lines] of byGroup) {
+    const ordered = [...lines].sort(
+      (a, b) => Number(a.priority ?? 100) - Number(b.priority ?? 100) || Number(a.createdAt ?? 0) - Number(b.createdAt ?? 0),
+    );
+    slots.push({
+      primary: ordered[0]!,
+      nomIds: ordered.map((l) => String(l.componentNomenclatureId ?? '')).filter(Boolean),
+      variantGroup: group,
+      isRequired: ordered.some((l) => Boolean(l.isRequired)),
+    });
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let positionsDone = 0;
+  let positionsDeficit = 0;
+  let totalDeficitQty = 0;
+  for (const slot of slots) {
+    const primaryNomId = String(slot.primary.componentNomenclatureId ?? '');
+    const nomen = nomenById.get(primaryNomId);
+    const requiredQty = Math.max(0, Math.floor(Number(slot.primary.qtyPerUnit ?? 0)));
+    if (requiredQty === 0) continue;
+    const uniqNomIds = Array.from(new Set(slot.nomIds));
+    const sum = (m: Map<string, number>) => uniqNomIds.reduce((acc, id) => acc + (m.get(id) ?? 0), 0);
+    const issuedQty = Math.max(0, sum(issuedByNom));
+    const remainingQty = Math.max(0, requiredQty - issuedQty);
+    const availableQty = sum(availableByNom);
+    const repairFundQty = sum(repairFundByNom);
+    const deficitQty = slot.isRequired ? Math.max(0, remainingQty - availableQty) : 0;
+    if (remainingQty === 0) positionsDone += 1;
+    if (deficitQty > 0) {
+      positionsDeficit += 1;
+      totalDeficitQty += deficitQty;
+    }
+    if (onlyMissing && remainingQty === 0) continue;
+
+    const bins = uniqNomIds
+      .flatMap((id) => binsByNom.get(id) ?? [])
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 3);
+    const alternatives = slot.variantGroup
+      ? uniqNomIds
+          .slice(1)
+          .map((id) => nomenById.get(id)?.name ?? id.slice(0, 8))
+          .filter(Boolean)
+      : [];
+    const noteParts = [
+      slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
+      alternatives.length > 0 ? `или: ${alternatives.join(', ')}` : '',
+      slot.isRequired ? '' : 'опционально',
+      normalizeText(slot.primary.notes, ''),
+    ].filter(Boolean);
+
+    rows.push({
+      componentName: nomen?.name ?? primaryNomId.slice(0, 8),
+      componentCode: nomen?.code ?? '',
+      requiredQty,
+      issuedQty,
+      remainingQty,
+      availableQty,
+      locationsHint: bins.map((b) => `${b.label}: ${b.qty}`).join('; '),
+      repairFundQty,
+      deficitQty,
+      variantNote: noteParts.join(' · '),
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Number(b.deficitQty ?? 0) - Number(a.deficitQty ?? 0) ||
+      Number(b.remainingQty ?? 0) - Number(a.remainingQty ?? 0) ||
+      String(a.componentName ?? '').localeCompare(String(b.componentName ?? ''), 'ru'),
+  );
+
+  const totalPositions = slots.filter((s) => Math.max(0, Math.floor(Number(s.primary.qtyPerUnit ?? 0))) > 0).length;
+  const engineLabel = [`№${engineNumber}`, engineInternalNumber ? `внутр. ${engineInternalNumber}` : '', brandLabel]
+    .filter(Boolean)
+    .join(' · ');
+  return {
+    ok: true,
+    presetId: 'engine_kitting',
+    title: preset.title,
+    subtitle: `${engineLabel} · BOM «${bom.name}» · укомплектовано ${positionsDone}/${totalPositions} позиций`,
+    columns: preset.columns,
+    rows,
+    totals: { totalPositions, positionsDone, positionsDeficit, totalDeficitQty },
     generatedAt: Date.now(),
   };
 }

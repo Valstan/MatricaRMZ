@@ -5,6 +5,9 @@ import {
   REPORT_PRESET_DEFINITIONS,
   mergeBrandKits,
   parseContractSections,
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  formatEngineInternalNumber,
   type ReportFilterOption,
   type ReportPresetListResult,
   } from '@matricarmz/shared';
@@ -163,6 +166,45 @@ export function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilter
         ...(meta.searchText ? { searchText: meta.searchText } : {}),
       };
     })
+    .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+}
+
+/** Двигатели для селектора «Комплектование двигателя»: № · внутр. № · марка; утильные исключены. */
+export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
+  return getIdsByType(snapshot, 'engine')
+    .map((id) => {
+      const attrs = snapshot.attrsByEntity.get(id) ?? {};
+      if (normalizeText(attrs.status_scrap_confirmed, '') || normalizeText(attrs.status_rework_sent, '')) return null;
+      const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, ''));
+      const internalNumber = formatEngineInternalNumber(
+        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      );
+      const brandId = normalizeText(attrs.engine_brand_id, '');
+      const brandLabel = brandId ? relatedEntityLabel(snapshot, brandId) : '';
+      const label = [
+        `№${engineNumber || id.slice(0, 8)}`,
+        internalNumber ? `внутр. ${internalNumber}` : '',
+        brandLabel,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const searchText = joinOptionSearch([
+        engineNumber,
+        internalNumber,
+        brandLabel,
+        String(engineNumber).replace(/\D/g, ''),
+      ]);
+      const phase = normalizeText(attrs.engine_phase, '');
+      const hintText = joinOptionHint([phase && `Фаза: ${phase}`]);
+      return {
+        value: id,
+        label,
+        ...(hintText ? { hintText } : {}),
+        ...(searchText ? { searchText } : {}),
+      };
+    })
+    .filter((o): o is ReportFilterOption => o !== null)
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
 
@@ -423,6 +465,7 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
         assemblyBrands: await buildAssemblyBomEngineOptions(db, snapshot, ctx),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
         assembly_forecast_contracts: buildAssemblyForecastContractOptions(snapshot),
+        engines: buildEngineOptions(snapshot),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
