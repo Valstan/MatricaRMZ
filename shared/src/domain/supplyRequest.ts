@@ -58,6 +58,7 @@ export type SupplyRequestPayload = {
   compiledAt: number; // дата составления
   sentAt?: number | null; // дата отправки заявки
   acceptedAt?: number | null; // дата принятия снабжением
+  expectedDeliveryAt?: number | null; // ожидаемая дата поставки (для прогноза сборки)
   arrivedAt?: number | null; // дата поступления деталей на завод
   fulfilledAt?: number | null; // дата исполнения
 
@@ -88,6 +89,52 @@ export type SupplyRequestPayload = {
  * вложений и заголовка. Номер/дата проставляются автоматически и содержимым не считаются.
  * Defensive: принимает сырой payload — используется чисткой пустых карточек на бэкенде.
  */
+export type SupplyIncomingLine = {
+  productId: string;
+  orderedQty: number;
+  deliveredQty: number; // сумма поставок (deliveries) по позиции
+  expectedAt: number; // ms epoch
+};
+
+/**
+ * Ф2 (G4): заявки снабжения → канал будущего прихода прогноза сборки.
+ * Считаются только заявки, принятые снабжением (`accepted` / `fulfilled_partial`) и с заполненной
+ * «ожидаемой датой поставки»: до принятия закупка не подтверждена, без даты позицию некуда
+ * поставить на таймлайн. Позиции без `productId` пропускаются (нечего матчить с номенклатурой).
+ * Заказано/привезено отдаются раздельно (включая полностью привезённые позиции): остаток считает
+ * вызывающий как `ordered − max(delivered, received)` — привезённое по deliveries и оформленный
+ * приход на склад описывают одни и те же физические поставки, вычитать их суммой нельзя
+ * (см. warehouseForecastService).
+ */
+export function buildSupplyIncomingFromRequestPayloads(payloads: unknown[]): SupplyIncomingLine[] {
+  const out: SupplyIncomingLine[] = [];
+  for (const raw of payloads) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const p = raw as Record<string, unknown>;
+    if (p.kind !== 'supply_request') continue;
+    const status = String(p.status ?? '');
+    if (status !== 'accepted' && status !== 'fulfilled_partial') continue;
+    const expectedAt = Number(p.expectedDeliveryAt);
+    if (!Number.isFinite(expectedAt) || expectedAt <= 0) continue;
+    const items = Array.isArray(p.items) ? p.items : [];
+    for (const itRaw of items) {
+      if (!itRaw || typeof itRaw !== 'object') continue;
+      const it = itRaw as Record<string, unknown>;
+      const productId = String(it.productId ?? '').trim();
+      if (!productId) continue;
+      const ordered = Math.max(0, Math.floor(Number(it.qty ?? 0)));
+      if (ordered <= 0) continue;
+      const deliveries = Array.isArray(it.deliveries) ? it.deliveries : [];
+      const delivered = deliveries.reduce((acc: number, d) => {
+        const q = d && typeof d === 'object' ? Number((d as Record<string, unknown>).qty ?? 0) : 0;
+        return acc + (Number.isFinite(q) && q > 0 ? q : 0);
+      }, 0);
+      out.push({ productId, orderedQty: ordered, deliveredQty: Math.floor(delivered), expectedAt });
+    }
+  }
+  return out;
+}
+
 export function isSupplyRequestPayloadEmpty(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return true;
   const p = payload as Record<string, unknown>;

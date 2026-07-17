@@ -413,6 +413,7 @@ export async function createSupplyRequest(
       compiledAt: ts,
       sentAt: null,
       acceptedAt: null,
+      expectedDeliveryAt: null,
       arrivedAt: null,
       fulfilledAt: null,
       title: '',
