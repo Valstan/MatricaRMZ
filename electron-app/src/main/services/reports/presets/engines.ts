@@ -547,13 +547,9 @@ export async function buildEngineReadinessToAssembleReport(
     stockByNom.set(nomenclatureId, (stockByNom.get(nomenclatureId) ?? 0) + avail);
   }
 
-  let bomLines: Array<Record<string, unknown>> = [];
-  try {
-    bomLines = (await db.select().from(erpEngineAssemblyBom)) as Array<Record<string, unknown>>;
-  } catch {
-    bomLines = [];
-  }
-
+  // G13: BOM берём через loadBomKitForBrand (REST + офлайн-fallback) — локальные BOM-таблицы
+  // на клиентах пусты (не входят в sync), прежний код читал их и показывал 0 компонентов.
+  const brandKitCache = new Map<string, { bomName: string; kitLines: BomKitLine[] }>();
   const engineRows = Array.from(snapshot.entitiesById.values()).filter((e) => e.typeId === engineTypeId);
   const rows: Array<Record<string, ReportCellValue>> = [];
   for (const engine of engineRows) {
@@ -569,16 +565,23 @@ export async function buildEngineReadinessToAssembleReport(
     );
     const brandLabel = brandId ? normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId) : '';
 
-    const totalComponents = bomLines.length;
+    let kit = brandId ? brandKitCache.get(brandId) : { bomName: '', kitLines: [] as BomKitLine[] };
+    if (!kit) {
+      kit = await loadBomKitForBrand(db, ctx, brandId);
+      brandKitCache.set(brandId, kit);
+    }
+    const slots = collapseBomKitSlots(kit.kitLines).filter((s) => s.primary.qty > 0);
+    const totalComponents = slots.length;
     const shortages: Array<{ name: string; need: number; have: number }> = [];
-    for (const line of bomLines) {
-      const nomenclatureId = String((line as Record<string, unknown>).componentNomenclatureId ?? '');
-      const need = Math.max(0, Math.floor(Number((line as Record<string, unknown>).qtyPerUnit ?? 0)));
-      if (need === 0 || !nomenclatureId) continue;
-      const have = stockByNom.get(nomenclatureId) ?? 0;
+    for (const slot of slots) {
+      const need = slot.primary.qty;
+      const nomIds = Array.from(
+        new Set([slot.primary, ...slot.alternatives].map((l) => l.nomenclatureId).filter(Boolean)),
+      );
+      const have = nomIds.reduce((acc, id) => acc + (stockByNom.get(id) ?? 0), 0);
       if (have < need) {
         shortages.push({
-          name: `${nomenclatureId.slice(0, 8)}`,
+          name: slot.primary.name || slot.primary.code || slot.primary.nomenclatureId.slice(0, 8),
           need,
           have,
         });
@@ -595,10 +598,13 @@ export async function buildEngineReadinessToAssembleReport(
       totalComponents,
       componentsShort: shortages.length,
       totalShortQty,
-      shortageSummary: shortages
-        .slice(0, 5)
-        .map((s) => `${s.name}: ${s.have}/${s.need}`)
-        .join('; '),
+      shortageSummary:
+        totalComponents === 0
+          ? 'BOM не найден (нет связи с сервером или BOM не заведён)'
+          : shortages
+              .slice(0, 5)
+              .map((s) => `${s.name}: ${s.have}/${s.need}`)
+              .join('; '),
     });
   }
   rows.sort((a, b) => Number(b.componentsShort ?? 0) - Number(a.componentsShort ?? 0));
@@ -614,59 +620,33 @@ export async function buildEngineReadinessToAssembleReport(
   };
 }
 
+type BomKitLine = {
+  nomenclatureId: string;
+  name: string;
+  code: string;
+  qty: number;
+  group: string;
+  isRequired: boolean;
+  priority: number;
+  isDefaultOption: boolean;
+  notes: string;
+};
+
+const bomKitRank = (h: { status?: unknown; isDefault?: unknown }) =>
+  (h.isDefault ? 2 : 0) + (String(h.status ?? '') === 'active' ? 1 : 0);
+
 /**
- * «Комплектование двигателя»: BOM марки × выдано в сборку (движения по engineId) ×
- * доступные остатки (без технических локаций) × ремфонд → осталось выдать / дефицит.
- * Вариантные группы BOM схлопываются в одну позицию: требуется по основному варианту,
- * выдано/доступно — суммарно по всем вариантам группы.
+ * BOM марки двигателя: сначала REST (клиентские BOM-таблицы НЕ входят в sync-пайплайн и на
+ * клиентах пусты — G13), локальная реплика — офлайн-fallback (на случай будущего включения
+ * BOM в sync). Пустой kitLines = BOM недоступен (нет связи или не заведён).
  */
-export async function buildEngineKittingReport(
+async function loadBomKitForBrand(
   db: BetterSQLite3Database,
-  filters: ReportPresetFilters | undefined,
-  ctx?: ReportBuildContext,
-): Promise<ReportPresetPreviewResult> {
-  const preset = getPreset('engine_kitting');
-  const engineId = String((filters as Record<string, unknown> | undefined)?.engineId ?? '').trim();
-  const onlyMissing = Boolean((filters as Record<string, unknown> | undefined)?.onlyMissing);
-  const empty = (subtitle: string): ReportPresetPreviewResult => ({
-    ok: true,
-    presetId: 'engine_kitting',
-    title: preset.title,
-    subtitle,
-    columns: preset.columns,
-    rows: [],
-    generatedAt: Date.now(),
-  });
-  if (!engineId) return empty('Выберите двигатель в фильтре');
-
-  const snapshot = await loadSnapshot(db);
-  const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
-  const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engineId.slice(0, 8)));
-  const engineInternalNumber = formatEngineInternalNumber(
-    normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
-    attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
-  );
-  const brandId = normalizeText(attrs.engine_brand_id, '');
-  if (!brandId) return empty(`Двигатель №${engineNumber}: марка не указана — BOM не определить`);
-  const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
-
-  // BOM: сначала REST (клиентские BOM-таблицы НЕ входят в sync-пайплайн и на клиентах пусты),
-  // локальная реплика — офлайн-fallback (на случай будущего включения BOM в sync).
-  type KitLine = {
-    nomenclatureId: string;
-    name: string;
-    code: string;
-    qty: number;
-    group: string;
-    isRequired: boolean;
-    priority: number;
-    isDefaultOption: boolean;
-    notes: string;
-  };
+  ctx: ReportBuildContext | undefined,
+  brandId: string,
+): Promise<{ bomName: string; kitLines: BomKitLine[] }> {
   let bomName = '';
-  let kitLines: KitLine[] = [];
-  const bomRank = (h: { status?: unknown; isDefault?: unknown }) =>
-    (h.isDefault ? 2 : 0) + (String(h.status ?? '') === 'active' ? 1 : 0);
+  let kitLines: BomKitLine[] = [];
   const apiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
   if (ctx?.sysDb && apiBase) {
     try {
@@ -679,7 +659,7 @@ export async function buildEngineKittingReport(
       );
       const listJson = listRes.ok && listRes.json && typeof listRes.json === 'object' ? (listRes.json as Record<string, unknown>) : null;
       const headers = listJson?.ok === true && Array.isArray(listJson.rows) ? (listJson.rows as Array<Record<string, unknown>>) : [];
-      const best = [...headers].sort((a, b) => bomRank(b) - bomRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))[0];
+      const best = [...headers].sort((a, b) => bomKitRank(b) - bomKitRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))[0];
       if (best?.id) {
         const detRes = await httpAuthed(
           ctx.sysDb,
@@ -737,7 +717,7 @@ export async function buildEngineKittingReport(
       updatedAt: number;
     }>;
     const bom = [...bomHeaders].sort(
-      (a, b) => bomRank(b) - bomRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0),
+      (a, b) => bomKitRank(b) - bomKitRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0),
     )[0];
     if (bom) {
       const bomLines = (await db
@@ -769,6 +749,78 @@ export async function buildEngineKittingReport(
       });
     }
   }
+  return { bomName, kitLines };
+}
+
+/** Вариантные позиции BOM: строки без группы — сами по себе; группы — одна позиция (основной вариант + альтернативы). */
+function collapseBomKitSlots(kitLines: BomKitLine[]): Array<{
+  primary: BomKitLine;
+  alternatives: BomKitLine[];
+  variantGroup: string;
+  isRequired: boolean;
+}> {
+  const slots: Array<{ primary: BomKitLine; alternatives: BomKitLine[]; variantGroup: string; isRequired: boolean }> = [];
+  const byGroup = new Map<string, BomKitLine[]>();
+  for (const line of kitLines) {
+    if (!line.group) {
+      slots.push({ primary: line, alternatives: [], variantGroup: '', isRequired: line.isRequired });
+      continue;
+    }
+    const list = byGroup.get(line.group) ?? [];
+    list.push(line);
+    byGroup.set(line.group, list);
+  }
+  for (const [group, lines] of byGroup) {
+    const ordered = [...lines].sort(
+      (a, b) => Number(b.isDefaultOption) - Number(a.isDefaultOption) || a.priority - b.priority,
+    );
+    slots.push({
+      primary: ordered[0]!,
+      alternatives: ordered.slice(1),
+      variantGroup: group,
+      isRequired: ordered.some((l) => l.isRequired),
+    });
+  }
+  return slots;
+}
+
+/**
+ * «Комплектование двигателя»: BOM марки × выдано в сборку (движения по engineId) ×
+ * доступные остатки (без технических локаций) × ремфонд → осталось выдать / дефицит.
+ * Вариантные группы BOM схлопываются в одну позицию: требуется по основному варианту,
+ * выдано/доступно — суммарно по всем вариантам группы.
+ */
+export async function buildEngineKittingReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const preset = getPreset('engine_kitting');
+  const engineId = String((filters as Record<string, unknown> | undefined)?.engineId ?? '').trim();
+  const onlyMissing = Boolean((filters as Record<string, unknown> | undefined)?.onlyMissing);
+  const empty = (subtitle: string): ReportPresetPreviewResult => ({
+    ok: true,
+    presetId: 'engine_kitting',
+    title: preset.title,
+    subtitle,
+    columns: preset.columns,
+    rows: [],
+    generatedAt: Date.now(),
+  });
+  if (!engineId) return empty('Выберите двигатель в фильтре');
+
+  const snapshot = await loadSnapshot(db);
+  const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+  const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engineId.slice(0, 8)));
+  const engineInternalNumber = formatEngineInternalNumber(
+    normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+    attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+  );
+  const brandId = normalizeText(attrs.engine_brand_id, '');
+  if (!brandId) return empty(`Двигатель №${engineNumber}: марка не указана — BOM не определить`);
+  const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
+
+  const { bomName, kitLines } = await loadBomKitForBrand(db, ctx, brandId);
   if (kitLines.length === 0) {
     return empty(`Марка «${brandLabel}»: BOM не найден (нет связи с сервером или BOM не заведён)`);
   }
@@ -827,35 +879,7 @@ export async function buildEngineKittingReport(
     binsByNom.set(nomId, bins);
   }
 
-  // Позиции: строки без группы — сами по себе; вариантные группы (positionKey/variantGroup) — одна позиция.
-  type Slot = {
-    primary: KitLine;
-    alternatives: KitLine[];
-    variantGroup: string;
-    isRequired: boolean;
-  };
-  const slots: Slot[] = [];
-  const byGroup = new Map<string, KitLine[]>();
-  for (const line of kitLines) {
-    if (!line.group) {
-      slots.push({ primary: line, alternatives: [], variantGroup: '', isRequired: line.isRequired });
-      continue;
-    }
-    const list = byGroup.get(line.group) ?? [];
-    list.push(line);
-    byGroup.set(line.group, list);
-  }
-  for (const [group, lines] of byGroup) {
-    const ordered = [...lines].sort(
-      (a, b) => Number(b.isDefaultOption) - Number(a.isDefaultOption) || a.priority - b.priority,
-    );
-    slots.push({
-      primary: ordered[0]!,
-      alternatives: ordered.slice(1),
-      variantGroup: group,
-      isRequired: ordered.some((l) => l.isRequired),
-    });
-  }
+  const slots = collapseBomKitSlots(kitLines);
 
   const rows: Array<Record<string, ReportCellValue>> = [];
   let positionsDone = 0;
