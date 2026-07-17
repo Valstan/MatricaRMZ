@@ -428,6 +428,11 @@ export type WarehouseDocumentHeaderPayload = {
   contractId: string | null;
   reason: string | null;
   counterpartyId: string | null;
+  /** Ф3 (G3): адресная выдача/списание — привязка документа к двигателю (entities.id, опционально). */
+  engineId: string | null;
+  /** Ф3 (G3): привязка к наряду (operations.id) + человекочитаемый номер для карточки/печати. */
+  workOrderId: string | null;
+  workOrderNo: string | null;
 };
 
 export type WarehouseDocumentLinePayload = {
@@ -529,6 +534,9 @@ export type WarehouseDocumentListItem = {
   reasonLabel?: string | null;
   counterpartyId: string | null;
   counterpartyName: string | null;
+  engineId?: string | null;
+  workOrderId?: string | null;
+  workOrderNo?: string | null;
   createdAt: number;
   updatedAt: number;
   postedAt: number | null;
@@ -588,6 +596,9 @@ export type WarehouseDocumentUpsertInput = {
     contractId?: string | null;
     reason?: string | null;
     counterpartyId?: string | null;
+    engineId?: string | null;
+    workOrderId?: string | null;
+    workOrderNo?: string | null;
   };
   lines: WarehouseDocumentLineInput[];
 };
