@@ -212,12 +212,22 @@ func isRegularFile(path string) bool {
 // --- installer discovery + validation --------------------------------------
 
 func findInstaller(hs *handshake) (path string, source string, err error) {
+	// When the server is reachable, only accept local installers that carry the
+	// latest published version — a stale cached exe "recovers" the client back
+	// onto the old version it was stuck on (observed 2026-07-17: owner reinstall
+	// command reinstalled 2026.628 from updates-dir while the server served
+	// 2026.717). With the server unreachable (latestVersion == ""), any valid
+	// local installer beats leaving the machine without an app.
+	latestVersion := ""
+	if meta, merr := fetchLatestMeta(hs.APIBaseURL); merr == nil {
+		latestVersion = strings.TrimSpace(meta.Version)
+	}
 	// 1) pending-update.json staged by the app.
-	if p, ok := installerFromPending(hs); ok {
+	if p, v, ok := installerFromPending(hs); ok && (latestVersion == "" || v == latestVersion) {
 		return p, "pending-update", nil
 	}
-	// 2) any valid *.exe already sitting in the updates dir (newest first).
-	if p, ok := installerFromUpdatesDir(hs); ok {
+	// 2) a valid *.exe already sitting in the updates dir (newest first).
+	if p, ok := installerFromUpdatesDir(hs, latestVersion); ok {
 		return p, "updates-dir", nil
 	}
 	// 3) download a fresh installer from the server.
@@ -228,29 +238,29 @@ func findInstaller(hs *handshake) (path string, source string, err error) {
 	return p, "download", nil
 }
 
-func installerFromPending(hs *handshake) (string, bool) {
+func installerFromPending(hs *handshake) (string, string, bool) {
 	if hs.UpdatesRootDir == "" {
-		return "", false
+		return "", "", false
 	}
 	raw, err := os.ReadFile(filepath.Join(hs.UpdatesRootDir, "pending-update.json"))
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	var pu pendingUpdate
 	if json.Unmarshal(raw, &pu) != nil || strings.TrimSpace(pu.InstallerPath) == "" {
-		return "", false
+		return "", "", false
 	}
 	var size int64
 	if pu.ExpectedSize != nil {
 		size = *pu.ExpectedSize
 	}
 	if validateInstaller(pu.InstallerPath, size, pu.ExpectedSha) == nil {
-		return pu.InstallerPath, true
+		return pu.InstallerPath, strings.TrimSpace(pu.Version), true
 	}
-	return "", false
+	return "", "", false
 }
 
-func installerFromUpdatesDir(hs *handshake) (string, bool) {
+func installerFromUpdatesDir(hs *handshake, latestVersion string) (string, bool) {
 	if hs.UpdatesRootDir == "" {
 		return "", false
 	}
@@ -265,6 +275,11 @@ func installerFromUpdatesDir(hs *handshake) (string, bool) {
 	var cands []cand
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".exe") {
+			continue
+		}
+		// Installer filenames embed the version (MatricaRMZ-Setup-<version>.exe);
+		// with a known latest version, skip anything else as stale.
+		if latestVersion != "" && !strings.Contains(e.Name(), latestVersion) {
 			continue
 		}
 		full := filepath.Join(hs.UpdatesRootDir, e.Name())
