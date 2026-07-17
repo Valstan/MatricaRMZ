@@ -30,6 +30,7 @@ import {
 
 
 
+import { httpAuthed } from '../../httpClient.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
@@ -649,50 +650,128 @@ export async function buildEngineKittingReport(
   if (!brandId) return empty(`Двигатель №${engineNumber}: марка не указана — BOM не определить`);
   const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
 
-  const bomHeaders = (await db
-    .select({
-      id: erpEngineAssemblyBom.id,
-      name: erpEngineAssemblyBom.name,
-      status: erpEngineAssemblyBom.status,
-      isDefault: erpEngineAssemblyBom.isDefault,
-      updatedAt: erpEngineAssemblyBom.updatedAt,
-    })
-    .from(erpEngineAssemblyBom)
-    .innerJoin(
-      erpEngineAssemblyBomBrandLinks,
-      and(
-        eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
-        eq(erpEngineAssemblyBomBrandLinks.engineBrandId, brandId),
-        isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
-      ),
-    )
-    .where(isNull(erpEngineAssemblyBom.deletedAt))) as Array<{
-    id: string;
+  // BOM: сначала REST (клиентские BOM-таблицы НЕ входят в sync-пайплайн и на клиентах пусты),
+  // локальная реплика — офлайн-fallback (на случай будущего включения BOM в sync).
+  type KitLine = {
+    nomenclatureId: string;
     name: string;
-    status: string;
-    isDefault: boolean;
-    updatedAt: number;
-  }>;
-  if (bomHeaders.length === 0) return empty(`Марка «${brandLabel}»: BOM не найден`);
-  const bomRank = (h: { status: string; isDefault: boolean }) =>
-    (h.isDefault ? 2 : 0) + (h.status === 'active' ? 1 : 0);
-  const bom = [...bomHeaders].sort(
-    (a, b) => bomRank(b) - bomRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0),
-  )[0]!;
-
-  const bomLines = (await db
-    .select()
-    .from(erpEngineAssemblyBomLines)
-    .where(and(eq(erpEngineAssemblyBomLines.bomId, bom.id), isNull(erpEngineAssemblyBomLines.deletedAt)))) as Array<
-    Record<string, unknown>
-  >;
-  if (bomLines.length === 0) return empty(`BOM «${bom.name}»: нет строк состава`);
-
-  const nomenRows = (await db
-    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
-    .from(erpNomenclature)) as Array<{ id: string; code: unknown; name: unknown }>;
-  const nomenById = new Map<string, { code: string; name: string }>();
-  for (const row of nomenRows) nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+    code: string;
+    qty: number;
+    group: string;
+    isRequired: boolean;
+    priority: number;
+    isDefaultOption: boolean;
+    notes: string;
+  };
+  let bomName = '';
+  let kitLines: KitLine[] = [];
+  const bomRank = (h: { status?: unknown; isDefault?: unknown }) =>
+    (h.isDefault ? 2 : 0) + (String(h.status ?? '') === 'active' ? 1 : 0);
+  const apiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  if (ctx?.sysDb && apiBase) {
+    try {
+      const listRes = await httpAuthed(
+        ctx.sysDb,
+        apiBase,
+        `/warehouse/assembly-bom?engineBrandId=${encodeURIComponent(brandId)}`,
+        { method: 'GET' },
+        { timeoutMs: 15_000 },
+      );
+      const listJson = listRes.ok && listRes.json && typeof listRes.json === 'object' ? (listRes.json as Record<string, unknown>) : null;
+      const headers = listJson?.ok === true && Array.isArray(listJson.rows) ? (listJson.rows as Array<Record<string, unknown>>) : [];
+      const best = [...headers].sort((a, b) => bomRank(b) - bomRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))[0];
+      if (best?.id) {
+        const detRes = await httpAuthed(
+          ctx.sysDb,
+          apiBase,
+          `/warehouse/assembly-bom/${encodeURIComponent(String(best.id))}`,
+          { method: 'GET' },
+          { timeoutMs: 15_000 },
+        );
+        const detJson = detRes.ok && detRes.json && typeof detRes.json === 'object' ? (detRes.json as Record<string, unknown>) : null;
+        const bomObj = detJson?.ok === true && detJson.bom && typeof detJson.bom === 'object' ? (detJson.bom as Record<string, unknown>) : null;
+        const header = bomObj?.header && typeof bomObj.header === 'object' ? (bomObj.header as Record<string, unknown>) : null;
+        const lines = Array.isArray(bomObj?.lines) ? (bomObj!.lines as Array<Record<string, unknown>>) : [];
+        if (header && lines.length > 0) {
+          bomName = normalizeText(header.name, String(best.name ?? ''));
+          kitLines = lines.map((l) => ({
+            nomenclatureId: String(l.componentNomenclatureId ?? ''),
+            name: normalizeText(l.componentNomenclatureName, ''),
+            code: normalizeText(l.componentNomenclatureCode, ''),
+            qty: Math.max(0, Math.floor(Number(l.qtyPerUnit ?? 0))),
+            group: normalizeText(l.positionKey, normalizeText(l.variantGroup, '')),
+            isRequired: Boolean(l.isRequired),
+            priority: Number(l.priority ?? 100),
+            isDefaultOption: Boolean(l.isDefaultOption),
+            notes: normalizeText(l.notes, ''),
+          }));
+        }
+      }
+    } catch {
+      // REST недоступен — офлайн-fallback ниже.
+    }
+  }
+  if (kitLines.length === 0) {
+    const bomHeaders = (await db
+      .select({
+        id: erpEngineAssemblyBom.id,
+        name: erpEngineAssemblyBom.name,
+        status: erpEngineAssemblyBom.status,
+        isDefault: erpEngineAssemblyBom.isDefault,
+        updatedAt: erpEngineAssemblyBom.updatedAt,
+      })
+      .from(erpEngineAssemblyBom)
+      .innerJoin(
+        erpEngineAssemblyBomBrandLinks,
+        and(
+          eq(erpEngineAssemblyBomBrandLinks.bomId, erpEngineAssemblyBom.id),
+          eq(erpEngineAssemblyBomBrandLinks.engineBrandId, brandId),
+          isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+        ),
+      )
+      .where(isNull(erpEngineAssemblyBom.deletedAt))) as Array<{
+      id: string;
+      name: string;
+      status: string;
+      isDefault: boolean;
+      updatedAt: number;
+    }>;
+    const bom = [...bomHeaders].sort(
+      (a, b) => bomRank(b) - bomRank(a) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0),
+    )[0];
+    if (bom) {
+      const bomLines = (await db
+        .select()
+        .from(erpEngineAssemblyBomLines)
+        .where(and(eq(erpEngineAssemblyBomLines.bomId, bom.id), isNull(erpEngineAssemblyBomLines.deletedAt)))) as Array<
+        Record<string, unknown>
+      >;
+      const nomenRows = (await db
+        .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+        .from(erpNomenclature)) as Array<{ id: string; code: unknown; name: unknown }>;
+      const nomenById = new Map<string, { code: string; name: string }>();
+      for (const row of nomenRows) nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+      bomName = bom.name;
+      kitLines = bomLines.map((l) => {
+        const nomId = String(l.componentNomenclatureId ?? '');
+        const nomen = nomenById.get(nomId);
+        return {
+          nomenclatureId: nomId,
+          name: nomen?.name ?? '',
+          code: nomen?.code ?? '',
+          qty: Math.max(0, Math.floor(Number(l.qtyPerUnit ?? 0))),
+          group: normalizeText(l.variantGroup, ''),
+          isRequired: Boolean(l.isRequired),
+          priority: Number(l.priority ?? 100),
+          isDefaultOption: false,
+          notes: normalizeText(l.notes, ''),
+        };
+      });
+    }
+  }
+  if (kitLines.length === 0) {
+    return empty(`Марка «${brandLabel}»: BOM не найден (нет связи с сервером или BOM не заведён)`);
+  }
 
   // Выдано в сборку на ЭТОТ двигатель: приход на «в сборке» минус возвраты (+ учёт сторно).
   const movementRows = (await db
@@ -748,39 +827,33 @@ export async function buildEngineKittingReport(
     binsByNom.set(nomId, bins);
   }
 
-  // Позиции: строки без variantGroup — сами по себе; вариантные группы — одна позиция.
+  // Позиции: строки без группы — сами по себе; вариантные группы (positionKey/variantGroup) — одна позиция.
   type Slot = {
-    primary: Record<string, unknown>;
-    nomIds: string[];
+    primary: KitLine;
+    alternatives: KitLine[];
     variantGroup: string;
     isRequired: boolean;
   };
   const slots: Slot[] = [];
-  const byGroup = new Map<string, Array<Record<string, unknown>>>();
-  for (const line of bomLines) {
-    const group = String(line.variantGroup ?? '').trim();
-    if (!group) {
-      slots.push({
-        primary: line,
-        nomIds: [String(line.componentNomenclatureId ?? '')],
-        variantGroup: '',
-        isRequired: Boolean(line.isRequired),
-      });
+  const byGroup = new Map<string, KitLine[]>();
+  for (const line of kitLines) {
+    if (!line.group) {
+      slots.push({ primary: line, alternatives: [], variantGroup: '', isRequired: line.isRequired });
       continue;
     }
-    const list = byGroup.get(group) ?? [];
+    const list = byGroup.get(line.group) ?? [];
     list.push(line);
-    byGroup.set(group, list);
+    byGroup.set(line.group, list);
   }
   for (const [group, lines] of byGroup) {
     const ordered = [...lines].sort(
-      (a, b) => Number(a.priority ?? 100) - Number(b.priority ?? 100) || Number(a.createdAt ?? 0) - Number(b.createdAt ?? 0),
+      (a, b) => Number(b.isDefaultOption) - Number(a.isDefaultOption) || a.priority - b.priority,
     );
     slots.push({
       primary: ordered[0]!,
-      nomIds: ordered.map((l) => String(l.componentNomenclatureId ?? '')).filter(Boolean),
+      alternatives: ordered.slice(1),
       variantGroup: group,
-      isRequired: ordered.some((l) => Boolean(l.isRequired)),
+      isRequired: ordered.some((l) => l.isRequired),
     });
   }
 
@@ -789,11 +862,11 @@ export async function buildEngineKittingReport(
   let positionsDeficit = 0;
   let totalDeficitQty = 0;
   for (const slot of slots) {
-    const primaryNomId = String(slot.primary.componentNomenclatureId ?? '');
-    const nomen = nomenById.get(primaryNomId);
-    const requiredQty = Math.max(0, Math.floor(Number(slot.primary.qtyPerUnit ?? 0)));
+    const requiredQty = slot.primary.qty;
     if (requiredQty === 0) continue;
-    const uniqNomIds = Array.from(new Set(slot.nomIds));
+    const uniqNomIds = Array.from(
+      new Set([slot.primary, ...slot.alternatives].map((l) => l.nomenclatureId).filter(Boolean)),
+    );
     const sum = (m: Map<string, number>) => uniqNomIds.reduce((acc, id) => acc + (m.get(id) ?? 0), 0);
     const issuedQty = Math.max(0, sum(issuedByNom));
     const remainingQty = Math.max(0, requiredQty - issuedQty);
@@ -811,22 +884,19 @@ export async function buildEngineKittingReport(
       .flatMap((id) => binsByNom.get(id) ?? [])
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 3);
-    const alternatives = slot.variantGroup
-      ? uniqNomIds
-          .slice(1)
-          .map((id) => nomenById.get(id)?.name ?? id.slice(0, 8))
-          .filter(Boolean)
-      : [];
+    const alternatives = slot.alternatives
+      .map((l) => l.name || l.nomenclatureId.slice(0, 8))
+      .filter(Boolean);
     const noteParts = [
       slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
       alternatives.length > 0 ? `или: ${alternatives.join(', ')}` : '',
       slot.isRequired ? '' : 'опционально',
-      normalizeText(slot.primary.notes, ''),
+      slot.primary.notes,
     ].filter(Boolean);
 
     rows.push({
-      componentName: nomen?.name ?? primaryNomId.slice(0, 8),
-      componentCode: nomen?.code ?? '',
+      componentName: slot.primary.name || slot.primary.nomenclatureId.slice(0, 8),
+      componentCode: slot.primary.code,
       requiredQty,
       issuedQty,
       remainingQty,
@@ -844,7 +914,7 @@ export async function buildEngineKittingReport(
       String(a.componentName ?? '').localeCompare(String(b.componentName ?? ''), 'ru'),
   );
 
-  const totalPositions = slots.filter((s) => Math.max(0, Math.floor(Number(s.primary.qtyPerUnit ?? 0))) > 0).length;
+  const totalPositions = slots.filter((s) => s.primary.qty > 0).length;
   const engineLabel = [`№${engineNumber}`, engineInternalNumber ? `внутр. ${engineInternalNumber}` : '', brandLabel]
     .filter(Boolean)
     .join(' · ');
@@ -852,7 +922,7 @@ export async function buildEngineKittingReport(
     ok: true,
     presetId: 'engine_kitting',
     title: preset.title,
-    subtitle: `${engineLabel} · BOM «${bom.name}» · укомплектовано ${positionsDone}/${totalPositions} позиций`,
+    subtitle: `${engineLabel} · BOM «${bomName}» · укомплектовано ${positionsDone}/${totalPositions} позиций`,
     columns: preset.columns,
     rows,
     totals: { totalPositions, positionsDone, positionsDeficit, totalDeficitQty },

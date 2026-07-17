@@ -169,9 +169,11 @@ export function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilter
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 }
 
-/** Двигатели для селектора «Комплектование двигателя»: № · внутр. № · марка; утильные исключены. */
+/** Двигатели для селектора «Комплектование двигателя»: № · внутр. № · марка; утильные исключены.
+ * Первая опция — пустой плейсхолдер: generic select-фильтр показывает первую опцию как выбранную,
+ * не записывая её в filters, — без плейсхолдера UI показывал бы двигатель, а билдер получал бы пустой id. */
 export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
-  return getIdsByType(snapshot, 'engine')
+  const engines = getIdsByType(snapshot, 'engine')
     .map((id) => {
       const attrs = snapshot.attrsByEntity.get(id) ?? {};
       if (normalizeText(attrs.status_scrap_confirmed, '') || normalizeText(attrs.status_rework_sent, '')) return null;
@@ -206,6 +208,7 @@ export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
     })
     .filter((o): o is ReportFilterOption => o !== null)
     .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  return [{ value: '', label: '— выберите двигатель —' }, ...engines];
 }
 
 /** Список контрактов для фильтра прогноза сборки: №, внутр. №, заказчик; поиск по подряд идущим цифрам в номере и внутр. номере (через searchText / subsequence). */
