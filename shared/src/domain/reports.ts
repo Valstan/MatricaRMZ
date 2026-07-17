@@ -755,12 +755,31 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     filters: [
       { type: 'date_range', key: 'period', label: 'Период (дата создания)', startKey: 'startMs', endKey: 'endMs' },
       { type: 'date_range', key: 'arrivalPeriod', label: 'Дата прихода', startKey: 'arrivalStartMs', endKey: 'arrivalEndMs' },
-      { type: 'date_range', key: 'repairStartPeriod', label: 'Начало ремонта', startKey: 'repairStartStartMs', endKey: 'repairStartEndMs' },
+      {
+        type: 'date_range',
+        key: 'repairStartPeriod',
+        label: 'Начало ремонта',
+        startKey: 'repairStartStartMs',
+        endKey: 'repairStartEndMs',
+        labelHint:
+          'Исторический фильтр: ремонт был начат в периоде, включая уже отремонтированные и отгруженные. Для «в ремонте сейчас» — фильтр «Статус „Начат ремонт“».',
+      },
       { type: 'date_range', key: 'repairEndPeriod', label: 'Окончание ремонта', startKey: 'repairEndStartMs', endKey: 'repairEndEndMs' },
       { type: 'date_range', key: 'shippingPeriod', label: 'Дата отгрузки', startKey: 'shippingStartMs', endKey: 'shippingEndMs' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
       { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      {
+        type: 'select',
+        key: 'repairActiveFilter',
+        label: 'Статус «Начат ремонт»',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'В ремонте сейчас (галочка стоит)' },
+          { value: 'no', label: 'Не в ремонте (галочка снята)' },
+        ],
+        labelHint: 'Текущая галочка в карточке двигателя, в отличие от исторического фильтра дат «Начало ремонта».',
+      },
       {
         type: 'select',
         key: 'scrapFilter',

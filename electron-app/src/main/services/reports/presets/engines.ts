@@ -218,6 +218,7 @@ export async function buildEnginesListReport(
   const brandFilter = asArray(filters?.brandIds);
   const contractFilter = asArray(filters?.contractIds);
   const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const repairActiveFilter = normalizeText(filters?.repairActiveFilter, 'all');
   const scrapFilter = normalizeText(filters?.scrapFilter, 'all');
   const onSiteFilter = normalizeText(filters?.onSiteFilter, 'all');
   const completenessActFilter = normalizeText(filters?.completenessActFilter, 'all');
@@ -268,6 +269,11 @@ export async function buildEnginesListReport(
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+
+    const repairActive =
+      attrs.status_repair_started === true || attrs.status_repair_started === 'true' || attrs.status_repair_started === 1;
+    if (repairActiveFilter === 'yes' && !repairActive) continue;
+    if (repairActiveFilter === 'no' && repairActive) continue;
 
     if (scrapFilter === 'yes' && !isScrap) continue;
     if (scrapFilter === 'no' && isScrap) continue;
