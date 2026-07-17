@@ -2,8 +2,10 @@ import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import {
   buildRepairIncomingFromWorkOrderPayloads,
+  buildSupplyIncomingFromRequestPayloads,
   computeAssemblyForecast,
   EntityTypeCode,
+  SystemIds,
   workshopWarehouseId,
   type AssemblyComponentRole,
   type AssemblyEngineBrandKit,
@@ -25,6 +27,8 @@ import {
   attributeValues,
   directoryWorkshops,
   entityTypes,
+  erpDocumentHeaders,
+  erpDocumentLines,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
@@ -240,6 +244,130 @@ async function loadOpenRepairIncomingLines(args: {
   return {
     lines: [...byNomenclature.entries()].map(([nomenclatureId, qty]) => ({ dayOffset: 1, nomenclatureId, qty })),
     positions: byNomenclature.size,
+  };
+}
+
+/**
+ * Ф2 (G4): заявки снабжения, принятые снабжением, с «ожидаемой датой поставки» →
+ * канал будущего прихода прогноза. Payload заявки живёт в operations.metaJson (sync),
+ * позиции матчатся с номенклатурой через мост directory_parts → erp_nomenclature (как ремканал).
+ * Дедуп с «Оформить приход на склад» (Ф2-ядро): по каждой заявке остаток =
+ * заказано − max(привезено по deliveries, оформлено приходами) — deliveries и документы
+ * purchase_receipt (sourceRef «Заявка N · <operationId>») описывают одни и те же физические
+ * поставки; planned-приход уже в erp_planned_incoming, posted — уже в стоке.
+ * Склад в заявке не указан — приход считается на основной склад ('default'),
+ * фильтр складов прогноза уважается через его локацию. Просроченные ожидаемые даты
+ * (раньше сегодняшнего дня) в прогноз не входят — симметрично erp_planned_incoming.
+ */
+async function loadSupplyRequestIncomingLines(args: {
+  horizonDays: number;
+  warehouseIds?: string[];
+}): Promise<{ lines: Array<{ dayOffset: number; nomenclatureId: string; qty: number }>; positions: number }> {
+  const empty = { lines: [], positions: 0 };
+  if (args.warehouseIds?.length) {
+    const defaultLocId = await resolveWarehouseLocationIdByCode('default');
+    if (!defaultLocId || !args.warehouseIds.includes(defaultLocId)) return empty;
+  }
+  const rows = await db
+    .select({ id: operations.id, metaJson: operations.metaJson })
+    .from(operations)
+    .where(
+      and(
+        eq(operations.operationType, 'supply_request'),
+        eq(operations.engineEntityId, SystemIds.SupplyRequestsContainerEntityId),
+        isNull(operations.deletedAt),
+      ),
+    );
+  const perRequest: Array<{ opId: string; lines: ReturnType<typeof buildSupplyIncomingFromRequestPayloads> }> = [];
+  for (const row of rows) {
+    if (!row.metaJson) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(String(row.metaJson));
+    } catch {
+      continue;
+    }
+    const lines = buildSupplyIncomingFromRequestPayloads([parsed]);
+    if (lines.length > 0) perRequest.push({ opId: String(row.id).toLowerCase(), lines });
+  }
+  if (perRequest.length === 0) return empty;
+
+  const opIds = new Set(perRequest.map((r) => r.opId));
+  const headerRows = await db
+    .select({ id: erpDocumentHeaders.id, payloadJson: erpDocumentHeaders.payloadJson })
+    .from(erpDocumentHeaders)
+    .where(
+      and(
+        eq(erpDocumentHeaders.docType, 'purchase_receipt'),
+        ne(erpDocumentHeaders.status, 'cancelled'),
+        isNull(erpDocumentHeaders.deletedAt),
+      ),
+    );
+  const headerToOp = new Map<string, string>();
+  for (const h of headerRows) {
+    if (!h.payloadJson) continue;
+    let sourceRef = '';
+    try {
+      const payload = JSON.parse(String(h.payloadJson)) as Record<string, unknown> | null;
+      sourceRef = String(payload?.sourceRef ?? '');
+    } catch {
+      continue;
+    }
+    const m = sourceRef.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*$/i);
+    const opId = m?.[1]?.toLowerCase();
+    if (opId && opIds.has(opId)) headerToOp.set(String(h.id), opId);
+  }
+  const receivedByOpNom = new Map<string, number>();
+  if (headerToOp.size > 0) {
+    const lineRows = await db
+      .select({ headerId: erpDocumentLines.headerId, nomenclatureId: erpDocumentLines.nomenclatureId, qty: erpDocumentLines.qty })
+      .from(erpDocumentLines)
+      .where(and(inArray(erpDocumentLines.headerId, [...headerToOp.keys()]), isNull(erpDocumentLines.deletedAt)));
+    for (const l of lineRows) {
+      const opId = headerToOp.get(String(l.headerId));
+      const nid = l.nomenclatureId ? String(l.nomenclatureId) : '';
+      if (!opId || !nid) continue;
+      const key = `${opId}::${nid}`;
+      receivedByOpNom.set(key, (receivedByOpNom.get(key) ?? 0) + Math.max(0, Math.floor(Number(l.qty ?? 0))));
+    }
+  }
+
+  const nomMap = await resolvePartIdToNomenclatureMap(perRequest.flatMap((r) => r.lines.map((l) => l.productId)));
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const todayStart = new Date(now).setHours(0, 0, 0, 0);
+  const to = now + args.horizonDays * DAY;
+  const byKey = new Map<string, number>();
+  let positions = 0;
+  for (const req of perRequest) {
+    const perNom = new Map<string, { ordered: number; delivered: number; expectedAt: number }>();
+    for (const line of req.lines) {
+      if (line.expectedAt < todayStart || line.expectedAt > to) continue;
+      const nid = nomMap.get(line.productId) ?? line.productId;
+      const cur = perNom.get(nid);
+      if (cur) {
+        cur.ordered += line.orderedQty;
+        cur.delivered += line.deliveredQty;
+      } else {
+        perNom.set(nid, { ordered: line.orderedQty, delivered: line.deliveredQty, expectedAt: line.expectedAt });
+      }
+    }
+    for (const [nid, agg] of perNom) {
+      const received = receivedByOpNom.get(`${req.opId}::${nid}`) ?? 0;
+      const qty = agg.ordered - Math.max(agg.delivered, received);
+      if (qty <= 0) continue;
+      const dayOffset = Math.max(0, Math.min(30, Math.floor((agg.expectedAt - now) / DAY)));
+      const key = `${dayOffset}::${nid}`;
+      byKey.set(key, (byKey.get(key) ?? 0) + qty);
+      positions += 1;
+    }
+  }
+  return {
+    lines: [...byKey.entries()].map(([key, qty]) => {
+      const [offsetRaw, nomenclatureId] = key.split('::');
+      return { dayOffset: Number(offsetRaw) || 0, nomenclatureId: String(nomenclatureId), qty };
+    }),
+    positions,
   };
 }
 
@@ -758,6 +886,8 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
   });
   // Ф5 (GAP-5): открытые ремнаряды — будущий приход отремонтированных деталей.
   const repairIncoming = await loadOpenRepairIncomingLines({ ...(warehouseIds ? { warehouseIds } : {}) });
+  // Ф2 (G4): принятые заявки снабжения с ожидаемой датой поставки — будущий приход закупок.
+  const supplyIncoming = await loadSupplyRequestIncomingLines({ horizonDays, ...(warehouseIds ? { warehouseIds } : {}) });
   // Фаза 3: сток нужен ДО сборки китов — при отсутствии основного варианта позиции на складе
   // в прогноз подставляется запасной. (No-kits early-return ниже смещается на эти 3 запроса — приемлемо.)
   const [stockResult, whLabels, repairFundStock] = await Promise.all([
@@ -795,7 +925,7 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     stockByNomenclatureId: stock,
     warehouseStockBins,
     repairFundByNomenclatureId: repairFundStock,
-    incomingLines: [...dbIncomingLines, ...repairIncoming.lines],
+    incomingLines: [...dbIncomingLines, ...repairIncoming.lines, ...supplyIncoming.lines],
     ...(priorityEngineBrandIds?.length ? { priorityEngineBrandIds } : {}),
     ...(workingWeekdays?.length ? { workingWeekdays } : {}),
     ...(brandMaxEnginesHorizon && brandMaxEnginesHorizon.size > 0 ? { brandMaxEnginesHorizon } : {}),
@@ -809,9 +939,14 @@ export async function computeAssemblyForecastFromServer(args: ForecastRequest) {
     repairIncoming.positions > 0
       ? [`Учтены ремнаряды, выданные в работу: ${repairIncoming.positions} позиц. деталей ожидаются как приход (день +1).`]
       : [];
+  // Ф2 (G4): нота про канал заявок снабжения — оператор видит, что закупки включены в расчёт.
+  const supplyChannelNotes =
+    supplyIncoming.positions > 0
+      ? [`Учтены принятые заявки снабжения: ${supplyIncoming.positions} позиц. ожидаются как приход по датам поставки.`]
+      : [];
   return {
     ...result,
-    warnings: [...kitWarnings, ...repairChannelNotes, ...stockDataNotes, ...result.warnings],
+    warnings: [...kitWarnings, ...repairChannelNotes, ...supplyChannelNotes, ...stockDataNotes, ...result.warnings],
     existingAssemblyOrdersByVariantKey,
   };
 }

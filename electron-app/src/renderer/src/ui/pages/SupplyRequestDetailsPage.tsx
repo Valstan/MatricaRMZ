@@ -945,6 +945,20 @@ export function SupplyRequestDetailsPage(props: {
         ),
       },
       {
+        code: 'expected_delivery_at',
+        defaultOrder: 25.5,
+        label: 'Ожидаемая дата поставки',
+        value: toInputDate(payload.expectedDeliveryAt ?? null),
+        render: (
+          <Input
+            type="date"
+            value={toInputDate(payload.expectedDeliveryAt ?? null)}
+            disabled={!props.canEdit}
+            onChange={(e) => scheduleSave({ ...payload, expectedDeliveryAt: fromInputDate(e.target.value) })}
+          />
+        ),
+      },
+      {
         code: 'arrived_at',
         defaultOrder: 26,
         label: 'Дата поступления товаров на завод',
@@ -1211,7 +1225,7 @@ export function SupplyRequestDetailsPage(props: {
                     docDate: now,
                     header: {
                       warehouseId: 'default',
-                      expectedDate: p.arrivedAt ?? now,
+                      expectedDate: p.arrivedAt ?? p.expectedDeliveryAt ?? now,
                       sourceType: 'supplier_purchase',
                       sourceRef: `Заявка ${num || '—'} · ${props.id}`,
                       reason: `Приход по заявке снабжения ${num || props.id}`,
