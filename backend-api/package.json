@@ -81,6 +81,7 @@
     "dev:seed-variant-bom-verify": "tsx src/scripts/seedVariantBomVerifyFixture.ts",
     "warehouse:import-base-parts": "tsx src/scripts/importBasePartsList.ts",
     "warehouse:import-v-matrix": "tsx src/scripts/importEngineUnitsVMatrix.ts",
+    "warehouse:import-utd20-v84-norms": "tsx src/scripts/importUtd20V84Norms.ts",
     "warehouse:reconcile-code-name": "tsx src/scripts/reconcileNomenclatureDirectoryCodeName.ts",
     "warehouse:reconcile-code-name:apply": "tsx src/scripts/reconcileNomenclatureDirectoryCodeName.ts --apply",
     "warehouse:blank-synthetic-codes": "tsx src/scripts/blankSyntheticCodes.ts",
