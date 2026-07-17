@@ -28,7 +28,8 @@ export type ReportPresetId =
   | 'defect_returns_summary'
   | 'movement_integrity_audit'
   | 'scrap_register'
-  | 'engine_kitting';
+  | 'engine_kitting'
+  | 'supply_receipt_gap';
 
 export type ReportFilterOption = {
   value: string;
@@ -1243,6 +1244,39 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'repairFundQty', label: 'В ремфонде', kind: 'number', align: 'right' },
       { key: 'deficitQty', label: 'Дефицит', kind: 'number', align: 'right' },
       { key: 'variantNote', label: 'Варианты / примечание' },
+    ],
+  },
+  {
+    id: 'supply_receipt_gap',
+    title: 'Заявки снабжения без прихода на склад',
+    description:
+      'Контроль разрыва «снабжение → склад»: заявки в исполнении и исполненные — оформлен ли по ним ' +
+      'приходный документ (связь через «Источник/ссылка» документа, кнопка «Оформить приход» на карточке заявки). ' +
+      'Заявка без прихода = привезённое не оприходовано.',
+    filters: [
+      {
+        type: 'date_range',
+        key: 'period',
+        label: 'Период',
+        startKey: 'startMs',
+        endKey: 'endMs',
+        labelHint: 'По дате заявки (исполнение / поступление / принятие / составление — первая заполненная).',
+      },
+      {
+        type: 'checkbox',
+        key: 'onlyMissing',
+        label: 'Только без прихода',
+      },
+    ],
+    columns: [
+      { key: 'requestNumber', label: '№ заявки' },
+      { key: 'statusLabel', label: 'Статус заявки' },
+      { key: 'requestDate', label: 'Дата', kind: 'date' },
+      { key: 'itemsCount', label: 'Позиций', kind: 'number', align: 'right' },
+      { key: 'orderedQty', label: 'Заказано', kind: 'number', align: 'right' },
+      { key: 'deliveredQty', label: 'Привезено', kind: 'number', align: 'right' },
+      { key: 'receiptDocNo', label: 'Документ прихода' },
+      { key: 'receiptStatusLabel', label: 'Статус документа' },
     ],
   },
 ];
