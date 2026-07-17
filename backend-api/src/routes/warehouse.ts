@@ -782,6 +782,9 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
         contractId: z.string().nullable().optional(),
         reason: z.string().nullable().optional(),
         counterpartyId: z.string().uuid().nullable().optional(),
+        engineId: z.string().uuid().nullable().optional(),
+        workOrderId: z.string().uuid().nullable().optional(),
+        workOrderNo: z.string().nullable().optional(),
       })
       .optional(),
     payloadJson: z.string().nullable().optional(),
@@ -855,6 +858,9 @@ warehouseRouter.post('/documents', requirePermission(PermissionCode.ErpDocuments
             ...(parsed.data.header.contractId !== undefined ? { contractId: parsed.data.header.contractId } : {}),
             ...(parsed.data.header.reason !== undefined ? { reason: parsed.data.header.reason } : {}),
             ...(parsed.data.header.counterpartyId !== undefined ? { counterpartyId: parsed.data.header.counterpartyId } : {}),
+            ...(parsed.data.header.engineId !== undefined ? { engineId: parsed.data.header.engineId } : {}),
+            ...(parsed.data.header.workOrderId !== undefined ? { workOrderId: parsed.data.header.workOrderId } : {}),
+            ...(parsed.data.header.workOrderNo !== undefined ? { workOrderNo: parsed.data.header.workOrderNo } : {}),
           },
         }
       : {}),

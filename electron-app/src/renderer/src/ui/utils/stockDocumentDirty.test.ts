@@ -33,6 +33,8 @@ function state(partial: Partial<StockDocSnapshotState> = {}): StockDocSnapshotSt
     contractId: '',
     reason: '',
     counterpartyId: null,
+    engineId: null,
+    workOrderId: null,
     lines: [line()],
     ...partial,
   };
@@ -47,6 +49,8 @@ describe('buildStockDocumentSnapshot', () => {
     expect(buildStockDocumentSnapshot(state())).not.toBe(buildStockDocumentSnapshot(state({ docNo: 'DOC-2' })));
     expect(buildStockDocumentSnapshot(state())).not.toBe(buildStockDocumentSnapshot(state({ reason: 'правка' })));
     expect(buildStockDocumentSnapshot(state())).not.toBe(buildStockDocumentSnapshot(state({ counterpartyId: 'cp-1' })));
+    expect(buildStockDocumentSnapshot(state())).not.toBe(buildStockDocumentSnapshot(state({ engineId: 'eng-1' })));
+    expect(buildStockDocumentSnapshot(state())).not.toBe(buildStockDocumentSnapshot(state({ workOrderId: 'wo-1' })));
   });
 
   it('changes when a line field changes', () => {

@@ -13,6 +13,8 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { buildStockDocumentSnapshot } from '../utils/stockDocumentDirty.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 import {
   lookupToSelectOptions,
   warehouseDocTypeLabel,
@@ -120,9 +122,16 @@ export function StockDocumentDetailsPage(props: {
   const [contractId, setContractId] = useState('');
   const [reason, setReason] = useState('');
   const [counterpartyId, setCounterpartyId] = useState<string | null>(null);
+  const [engineId, setEngineId] = useState<string | null>(null);
+  const [workOrderId, setWorkOrderId] = useState<string | null>(null);
+  const [workOrderNo, setWorkOrderNo] = useState('');
+  const [engineOptions, setEngineOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [workOrderOptions, setWorkOrderOptions] = useState<Array<{ id: string; label: string; number: string }>>([]);
   const [lines, setLines] = useState<EditableLine[]>([]);
   const [incomingSaveStatus, setIncomingSaveStatus] = useState<'draft' | 'planned'>('draft');
   const isIncoming = INCOMING_DOC_TYPES.includes(docType);
+  // Ф3 (G3): адресная выдача/списание — привязка к двигателю/наряду (опциональная, анти-бюрократия).
+  const isAddressable = docType === 'stock_issue' || docType === 'stock_writeoff';
 
   // Несохранённые изменения: «Провести» не пересохраняет шапку/строки, поэтому перед
   // проведением предупреждаем оператора. baseline снимается сразу после load().
@@ -139,9 +148,11 @@ export function StockDocumentDetailsPage(props: {
         contractId,
         reason,
         counterpartyId,
+        engineId,
+        workOrderId,
         lines,
       }),
-    [docNo, docDate, docType, warehouseId, expectedDate, sourceType, sourceRef, contractId, reason, counterpartyId, lines],
+    [docNo, docDate, docType, warehouseId, expectedDate, sourceType, sourceRef, contractId, reason, counterpartyId, engineId, workOrderId, lines],
   );
   const cleanSnapshotRef = useRef<string | null>(null);
   const armBaselineRef = useRef(false);
@@ -181,6 +192,9 @@ export function StockDocumentDetailsPage(props: {
       setContractId(String(nextDocument.header.contractId ?? ''));
       setReason(nextDocument.header.reason ?? '');
       setCounterpartyId(nextDocument.header.counterpartyId ?? null);
+      setEngineId(nextDocument.header.engineId ?? null);
+      setWorkOrderId(nextDocument.header.workOrderId ?? null);
+      setWorkOrderNo(String(nextDocument.header.workOrderNo ?? ''));
       setLines((nextDocument.lines ?? []).map((line, index) => toEditableLine(line, index)));
       if (INCOMING_DOC_TYPES.includes((nextDocument.header.docType ?? 'stock_receipt') as WarehouseDocumentType)) {
         setIncomingSaveStatus(nextDocument.header.status === 'planned' ? 'planned' : 'draft');
@@ -202,6 +216,46 @@ export function StockDocumentDetailsPage(props: {
     if (docType === 'inventory_opening' && sourceType !== 'opening_balance') setSourceType('opening_balance');
     if (!['draft', 'planned'].includes(incomingSaveStatus)) setIncomingSaveStatus('draft');
   }, [docType, incomingSaveStatus, isIncoming, sourceType]);
+
+  // Ф3 (G3): справочники двигателей/нарядов подгружаются лениво и только для адресных типов.
+  // Нет прав на разделы — селекты остаются пустыми, привязка просто недоступна (не ошибка).
+  const addressableRefsLoaded = useRef(false);
+  useEffect(() => {
+    if (!isAddressable || addressableRefsLoaded.current) return;
+    addressableRefsLoaded.current = true;
+    void (async () => {
+      try {
+        const engines = await window.matrica.engines.list();
+        if (Array.isArray(engines)) {
+          setEngineOptions(
+            engines.map((e: { id: string; engineNumber?: string; internalNumberFull?: string; engineBrand?: string }) => {
+              const num = String(e.engineNumber ?? '').trim() || String(e.internalNumberFull ?? '').trim() || '(без номера)';
+              const brand = String(e.engineBrand ?? '').trim();
+              return { id: String(e.id), label: brand ? `${num} — ${brand}` : num };
+            }),
+          );
+        }
+      } catch {
+        // engines.view отсутствует — селект остаётся пустым
+      }
+      try {
+        const wo = await window.matrica.workOrders.list();
+        if (wo?.ok && Array.isArray(wo.rows)) {
+          const rows = [...wo.rows].sort((a, b) => Number(b.workOrderNumber ?? 0) - Number(a.workOrderNumber ?? 0));
+          setWorkOrderOptions(
+            rows.map((r) => {
+              const num = String(r.workOrderNumber ?? '');
+              const engine = [String(r.engineBrand ?? '').trim(), String(r.engineNumber ?? '').trim()].filter(Boolean).join(' ');
+              const closed = String(r.status ?? '') === 'closed' ? ' · закрыт' : '';
+              return { id: String(r.id), number: num, label: `№${num}${engine ? ` · ${engine}` : ''}${closed}` };
+            }),
+          );
+        }
+      } catch {
+        // work_orders.view отсутствует — селект остаётся пустым
+      }
+    })();
+  }, [isAddressable]);
 
   const canEditDocument = props.canEdit && document?.header.status === 'draft';
   const isTransfer = docType === 'stock_transfer';
@@ -321,6 +375,13 @@ export function StockDocumentDetailsPage(props: {
         ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
         reason: reason.trim() || null,
         counterpartyId,
+        ...(isAddressable
+          ? {
+              engineId: engineId ?? null,
+              workOrderId: workOrderId ?? null,
+              workOrderNo: workOrderNo.trim() || null,
+            }
+          : {}),
       },
       lines: lines.map((line) => ({
         qty: Number(line.qty || 0),
@@ -415,6 +476,13 @@ export function StockDocumentDetailsPage(props: {
         ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
         reason: reason.trim() || null,
         counterpartyId,
+        ...(isAddressable
+          ? {
+              engineId: engineId ?? null,
+              workOrderId: workOrderId ?? null,
+              workOrderNo: workOrderNo.trim() || null,
+            }
+          : {}),
       },
       lines: lines.map((line) => ({
         qty: Number(line.qty || 0),
@@ -457,6 +525,70 @@ export function StockDocumentDetailsPage(props: {
     }
     setStatus(result.queued ? 'Команда на отмену поставлена в очередь.' : 'Документ отменен.');
     await load();
+  }
+
+  // Ф3 (G11): печать требования-накладной (расход) / акта списания из карточки — печатается
+  // текущее состояние экрана (для непроведённого — черновик как пикинг-лист, это осознанно).
+  function printIssueDocument() {
+    const nomenclatureById = new Map(nomenclature.map((item) => [String(item.id), item]));
+    const warehouseLabel = warehouseOptions.find((o) => o.id === warehouseId)?.label ?? '';
+    const counterpartyLabel = counterpartyOptions.find((o) => o.id === counterpartyId)?.label ?? '';
+    const engineLabel = engineOptions.find((o) => o.id === engineId)?.label ?? '';
+    const reasonText = isWriteoff ? (writeoffReasonOptions.find((o) => o.id === reason)?.label ?? reason) : reason;
+    const title = isWriteoff ? `Акт списания № ${docNo}` : `Требование-накладная № ${docNo}`;
+    const docDateMs = docDate ? new Date(`${docDate}T00:00:00`).getTime() : null;
+
+    const mainRows: Array<[string, string]> = [
+      ['Дата', docDateMs ? formatMoscowDate(docDateMs) : '—'],
+      ['Склад', warehouseLabel || '—'],
+      ...(isWriteoff ? ([['Причина списания', reasonText || '—']] as Array<[string, string]>) : []),
+      ...(!isWriteoff && reasonText ? ([['Основание', reasonText]] as Array<[string, string]>) : []),
+      ...(engineLabel ? ([['Двигатель', engineLabel]] as Array<[string, string]>) : []),
+      ...(workOrderNo.trim() ? ([['Наряд', `№ ${workOrderNo.trim()}`]] as Array<[string, string]>) : []),
+      ...(counterpartyLabel ? ([['Контрагент', counterpartyLabel]] as Array<[string, string]>) : []),
+      ['Статус', warehouseDocumentStatusLabel(document?.header.status ?? 'draft')],
+    ];
+    const mainHtml = `<table><tbody>${mainRows
+      .map(([k, v]) => `<tr><th style="text-align:left;white-space:nowrap;">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
+      .join('')}</tbody></table>`;
+
+    const linesHtml = `<table>
+  <thead><tr><th>№</th><th>Номенклатура</th><th>Код</th><th>Ед.</th><th>Кол-во</th></tr></thead>
+  <tbody>${
+    lines
+      .map((line, idx) => {
+        const nom = line.nomenclatureId ? nomenclatureById.get(String(line.nomenclatureId)) : null;
+        return `<tr>
+  <td>${idx + 1}</td>
+  <td>${escapeHtml(String(nom?.name ?? line.note ?? '—'))}</td>
+  <td>${escapeHtml(String(nom?.code ?? ''))}</td>
+  <td>${escapeHtml(line.unit || 'шт')}</td>
+  <td style="text-align:right;">${escapeHtml(line.qty || '0')}</td>
+</tr>`;
+      })
+      .join('\n') || '<tr><td colspan="5" class="muted">Нет строк</td></tr>'
+  }</tbody>
+</table>`;
+
+    const signHtml = isWriteoff
+      ? `<div style="margin-top:18px;">
+  <div><b>Составил:</b> ______________________ (Ф.И.О., подпись)</div>
+  <div style="margin-top:10px;"><b>Утвердил:</b> ______________________ (Ф.И.О., подпись)</div>
+</div>`
+      : `<div style="margin-top:18px;">
+  <div><b>Отпустил (кладовщик):</b> ______________________ (Ф.И.О., подпись)</div>
+  <div style="margin-top:10px;"><b>Получил:</b> ______________________ (Ф.И.О., подпись)</div>
+</div>`;
+
+    openPrintPreview({
+      title,
+      ...(docDateMs ? { subtitle: `Дата: ${formatMoscowDate(docDateMs)}` } : {}),
+      sections: [
+        { id: 'main', title: 'Основное', html: mainHtml },
+        { id: 'lines', title: 'Позиции', html: linesHtml },
+        { id: 'sign', title: 'Подписи', html: signHtml },
+      ],
+    });
   }
 
   const nomenclatureOptions = useMemo(
@@ -514,6 +646,11 @@ export function StockDocumentDetailsPage(props: {
         {canEditDocument && isInventory ? (
           <Button variant="ghost" onClick={() => void loadInventoryLines()}>
             Заполнить по остаткам
+          </Button>
+        ) : null}
+        {isAddressable ? (
+          <Button variant="ghost" onClick={() => printIssueDocument()}>
+            {isWriteoff ? 'Печать: акт списания' : 'Печать: требование-накладная'}
           </Button>
         ) : null}
         <Button variant="ghost" onClick={() => void refreshRefs()}>
@@ -619,6 +756,33 @@ export function StockDocumentDetailsPage(props: {
           ) : (
             <Input value={reason} disabled={!canEditDocument} onChange={(e) => setReason(e.target.value)} placeholder="Основание документа" />
           )}
+          {isAddressable ? <div>Двигатель (адресно)</div> : null}
+          {isAddressable ? (
+            <SearchSelect
+              value={engineId}
+              disabled={!canEditDocument}
+              options={engineOptions}
+              placeholder="Двигатель — куда уходят детали (опц.)"
+              showAllWhenEmpty
+              emptyQueryLimit={15}
+              onChange={(next) => setEngineId(next)}
+            />
+          ) : null}
+          {isAddressable ? <div>Наряд (адресно)</div> : null}
+          {isAddressable ? (
+            <SearchSelect
+              value={workOrderId}
+              disabled={!canEditDocument}
+              options={workOrderOptions}
+              placeholder="Наряд — по какому наряду выдача (опц.)"
+              showAllWhenEmpty
+              emptyQueryLimit={15}
+              onChange={(next) => {
+                setWorkOrderId(next);
+                setWorkOrderNo(next ? workOrderOptions.find((o) => o.id === next)?.number ?? '' : '');
+              }}
+            />
+          ) : null}
           <div>Статус</div>
           <div>
             {warehouseDocumentStatusLabel(document?.header.status ?? 'draft')}

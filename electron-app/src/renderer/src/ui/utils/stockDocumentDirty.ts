@@ -39,6 +39,8 @@ export type StockDocSnapshotState = {
   contractId: string;
   reason: string;
   counterpartyId: string | null;
+  engineId: string | null;
+  workOrderId: string | null;
   lines: ReadonlyArray<StockDocSnapshotLine>;
 };
 
@@ -54,6 +56,8 @@ export function buildStockDocumentSnapshot(state: StockDocSnapshotState): string
     contractId: state.contractId,
     reason: state.reason,
     counterpartyId: state.counterpartyId ?? null,
+    engineId: state.engineId ?? null,
+    workOrderId: state.workOrderId ?? null,
     // Массив (а не объект) — порядок строк значим: перестановка = изменение.
     lines: state.lines.map((l) => [
       l.nomenclatureId ?? null,

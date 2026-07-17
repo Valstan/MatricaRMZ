@@ -123,6 +123,9 @@ type HeaderPayloadInput = {
   contractId?: string | null;
   reason?: string | null;
   counterpartyId?: string | null;
+  engineId?: string | null;
+  workOrderId?: string | null;
+  workOrderNo?: string | null;
 };
 
 type LookupOption = {
@@ -957,6 +960,9 @@ function parseWarehouseHeaderPayload(raw: string | null | undefined) {
     contractId: strField(payload, 'contractId') ?? null,
     reason: strField(payload, 'reason') ?? null,
     counterpartyId: strField(payload, 'counterpartyId') ?? null,
+    engineId: strField(payload, 'engineId') ?? null,
+    workOrderId: strField(payload, 'workOrderId') ?? null,
+    workOrderNo: strField(payload, 'workOrderNo') ?? null,
   };
 }
 
@@ -987,6 +993,9 @@ function mergeHeaderPayloadJson(raw: string | null | undefined, input?: HeaderPa
   if (input?.contractId !== undefined) payload.contractId = input.contractId;
   if (input?.reason !== undefined) payload.reason = input.reason;
   if (input?.counterpartyId !== undefined) payload.counterpartyId = input.counterpartyId;
+  if (input?.engineId !== undefined) payload.engineId = input.engineId;
+  if (input?.workOrderId !== undefined) payload.workOrderId = input.workOrderId;
+  if (input?.workOrderNo !== undefined) payload.workOrderNo = input.workOrderNo;
   const compact = Object.fromEntries(Object.entries(payload).filter((entry) => entry[1] != null && entry[1] !== ''));
   return Object.keys(compact).length > 0 ? JSON.stringify(compact) : null;
 }
@@ -2431,6 +2440,9 @@ export async function listWarehouseDocuments(args?: {
         reasonLabel,
         counterpartyId: headerPayload.counterpartyId,
         counterpartyName: readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId),
+        engineId: headerPayload.engineId,
+        workOrderId: headerPayload.workOrderId,
+        workOrderNo: headerPayload.workOrderNo,
         authorName: readLookupLabel(refs.employeeById, row.authorId == null ? null : String(row.authorId)),
         linesCount: docLines.length,
         totalQty: docLines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
@@ -2562,6 +2574,9 @@ export async function getWarehouseDocument(args: {
           reasonLabel: readLookupLabel(refs.writeoffReasonById, headerPayload.reason) ?? headerPayload.reason,
           counterpartyId: headerPayload.counterpartyId,
           counterpartyName: readLookupLabel(refs.counterpartyById, headerPayload.counterpartyId),
+          engineId: headerPayload.engineId,
+          workOrderId: headerPayload.workOrderId,
+          workOrderNo: headerPayload.workOrderNo,
           authorName: readLookupLabel(refs.employeeById, header.authorId == null ? null : String(header.authorId)),
           linesCount: lines.length,
           totalQty: lines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
@@ -3222,11 +3237,11 @@ export async function postWarehouseDocument(args: {
       } else if (String(header.docType) === 'stock_issue') {
         if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
-        planned.push({ nomenclatureId, warehouseId, movementType: 'issue', direction: 'out', qty, delta: -qty, reason, counterpartyId });
+        planned.push({ nomenclatureId, warehouseId, movementType: 'issue', direction: 'out', qty, delta: -qty, reason, counterpartyId, engineId: lineEngineId });
       } else if (String(header.docType) === 'stock_writeoff') {
         if (qty <= 0) continue;
         const warehouseId = strField(payload, 'warehouseId') ?? strField(headerPayload, 'warehouseId') ?? 'default';
-        planned.push({ nomenclatureId, warehouseId, movementType: 'writeoff', direction: 'out', qty, delta: -qty, reason, counterpartyId });
+        planned.push({ nomenclatureId, warehouseId, movementType: 'writeoff', direction: 'out', qty, delta: -qty, reason, counterpartyId, engineId: lineEngineId });
       } else if (String(header.docType) === 'stock_transfer') {
         if (qty <= 0) continue;
         const fromWarehouseId = strField(payload, 'fromWarehouseId') ?? strField(headerPayload, 'fromWarehouseId');
