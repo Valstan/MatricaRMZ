@@ -4472,6 +4472,7 @@ export function App() {
             onOpenProduct={openProduct}
             onOpenService={openService}
             onOpenNomenclature={openNomenclature}
+            onOpenStockDocument={openStockDocument}
             onOpenPart={openPart}
             onClose={() => {
               setSelectedRequestId(null);

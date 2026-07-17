@@ -4,6 +4,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   StockMovementType,
   WarehouseDocumentTypeLabels,
+  warehouseDocumentStatusLabel,
   warehouseLocationLabel,
   tryParseWarehousePartNomenclatureMirror,
   type ReportCellValue,
@@ -25,6 +26,7 @@ import {
 
 
 
+import { httpAuthed } from '../../httpClient.js';
 import { resolveContractLabel, safeJsonParse, toNumber, normalizeText, asArray, asBool, readPeriod, msToDate, statusLabel } from '../format.js';
 import { getWarehouseLocationsById, getPreset, loadSnapshot, type ReportBuildContext } from '../context.js';
 
@@ -763,3 +765,137 @@ export async function buildWarehouseStockPathAuditReport(
   };
 }
 
+
+const SUPPLY_REQUEST_STATUS_REPORT_LABELS: Record<string, string> = {
+  draft: 'Черновик',
+  signed: 'Подписана',
+  director_approved: 'Одобрена директором',
+  accepted: 'Принята к исполнению',
+  fulfilled_full: 'Исполнена полностью',
+  fulfilled_partial: 'Исполнена частично',
+};
+
+const NO_RECEIPT_MARK = '— НЕТ —';
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * «Заявки снабжения без прихода на склад»: заявки в исполнении/исполненные × приходные
+ * документы purchase_receipt, связанные через payloadJson.sourceRef (uuid заявки —
+ * кнопка «Оформить приход» на карточке заявки пишет его туда).
+ */
+export async function buildSupplyReceiptGapReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const onlyMissing = Boolean((filters as Record<string, unknown> | undefined)?.onlyMissing);
+
+  // Приходные документы — по REST: локальная erp_document_headers на клиентах не наполняется
+  // (документы вне клиентского sync-пайплайна, офлайн-кэш мёртвый — тот же класс, что G13 BOM).
+  const receiptByRequestId = new Map<string, { docNo: string; status: string; docDate: number }>();
+  const putReceipt = (sourceRef: string, docNo: string, status: string, docDate: number) => {
+    const m = sourceRef.match(UUID_RE);
+    if (!m) return;
+    const requestId = m[0]!.toLowerCase();
+    const prev = receiptByRequestId.get(requestId);
+    if (!prev || docDate > prev.docDate) receiptByRequestId.set(requestId, { docNo, status, docDate });
+  };
+  let receiptsLoaded = false;
+  const apiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  if (ctx?.sysDb && apiBase) {
+    try {
+      const res = await httpAuthed(
+        ctx.sysDb,
+        apiBase,
+        '/warehouse/documents?docType=purchase_receipt&limit=10000',
+        { method: 'GET' },
+        { timeoutMs: 15_000 },
+      );
+      const json = res.ok && res.json && typeof res.json === 'object' ? (res.json as Record<string, unknown>) : null;
+      if (json?.ok === true && Array.isArray(json.rows)) {
+        receiptsLoaded = true;
+        for (const h of json.rows as Array<Record<string, unknown>>) {
+          putReceipt(String(h.sourceRef ?? ''), String(h.docNo ?? ''), String(h.status ?? ''), Number(h.docDate ?? 0));
+        }
+      }
+    } catch {
+      // офлайн — fallback на локальный кэш ниже.
+    }
+  }
+  if (!receiptsLoaded) {
+    const headerRows = (await db.select().from(erpDocumentHeaders)) as Array<Record<string, unknown>>;
+    for (const h of headerRows) {
+      if (String(h.docType ?? '') !== 'purchase_receipt') continue;
+      if (h.deletedAt != null) continue;
+      const payload = safeJsonParse(String(h.payloadJson ?? '')) as Record<string, unknown> | null;
+      putReceipt(String(payload?.sourceRef ?? ''), String(h.docNo ?? ''), String(h.status ?? ''), Number(h.docDate ?? 0));
+    }
+  }
+
+  const ops = (await db
+    .select()
+    .from(operations)
+    .where(and(eq(operations.operationType, 'supply_request'), isNull(operations.deletedAt)))) as Array<
+    Record<string, unknown>
+  >;
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let withReceipt = 0;
+  let withoutReceipt = 0;
+  for (const op of ops) {
+    const payload = safeJsonParse(String(op.metaJson ?? '')) as Record<string, unknown> | null;
+    if (!payload || payload.kind !== 'supply_request') continue;
+    const status = String(payload.status ?? '');
+    const items = Array.isArray(payload.items) ? (payload.items as Array<Record<string, unknown>>) : [];
+    const deliveredQty = items.reduce(
+      (acc, it) =>
+        acc +
+        (Array.isArray(it.deliveries)
+          ? (it.deliveries as Array<Record<string, unknown>>).reduce((a, d) => a + Number(d.qty ?? 0), 0)
+          : 0),
+      0,
+    );
+    const inFulfillment = status === 'accepted' || status === 'fulfilled_full' || status === 'fulfilled_partial';
+    if (!inFulfillment && deliveredQty <= 0) continue;
+    const requestDate = Number(
+      payload.fulfilledAt ?? payload.arrivedAt ?? payload.acceptedAt ?? payload.compiledAt ?? op.createdAt ?? 0,
+    );
+    if (period.startMs != null && requestDate < period.startMs) continue;
+    if (period.endMs > 0 && requestDate > period.endMs) continue;
+    const receipt = receiptByRequestId.get(String(op.id ?? '').toLowerCase());
+    if (receipt) withReceipt += 1;
+    else withoutReceipt += 1;
+    if (onlyMissing && receipt) continue;
+    rows.push({
+      requestNumber: String(payload.requestNumber ?? '').trim() || String(op.id ?? '').slice(0, 8),
+      statusLabel: SUPPLY_REQUEST_STATUS_REPORT_LABELS[status] ?? status,
+      requestDate,
+      itemsCount: items.length,
+      orderedQty: items.reduce((acc, it) => acc + Number(it.qty ?? 0), 0),
+      deliveredQty,
+      receiptDocNo: receipt ? receipt.docNo : NO_RECEIPT_MARK,
+      receiptStatusLabel: receipt ? warehouseDocumentStatusLabel(receipt.status) : '',
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      (a.receiptDocNo === NO_RECEIPT_MARK ? 0 : 1) - (b.receiptDocNo === NO_RECEIPT_MARK ? 0 : 1) ||
+      Number(b.requestDate ?? 0) - Number(a.requestDate ?? 0),
+  );
+
+  const preset = getPreset('supply_receipt_gap');
+  return {
+    ok: true,
+    presetId: 'supply_receipt_gap',
+    title: preset.title,
+    subtitle:
+      rows.length === 0
+        ? 'Нет заявок в исполнении по фильтру'
+        : `Заявок: ${withReceipt + withoutReceipt} · без прихода: ${withoutReceipt}`,
+    columns: preset.columns,
+    rows,
+    totals: { requests: withReceipt + withoutReceipt, withReceipt, withoutReceipt },
+    generatedAt: Date.now(),
+  };
+}

@@ -263,6 +263,7 @@ export function SupplyRequestDetailsPage(props: {
   onOpenService?: (serviceId: string) => void;
   onOpenNomenclature?: (nomenclatureId: string) => void;
   onOpenPart?: (partId: string) => void;
+  onOpenStockDocument?: (documentId: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -1171,6 +1172,64 @@ export function SupplyRequestDetailsPage(props: {
               </Button>
             </>
           )}
+
+          {props.canFulfill &&
+            payload &&
+            ['accepted', 'fulfilled_partial', 'fulfilled_full'].includes(String(payload.status ?? '')) && (
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  const p = payload;
+                  if (!p) return;
+                  const items = Array.isArray(p.items) ? p.items : [];
+                  const lines = items.flatMap((it) => {
+                    const ordered = Number(it.qty ?? 0);
+                    const delivered = sumDelivered(it.deliveries);
+                    const qty = delivered > 0 ? delivered : ordered;
+                    if (!(qty > 0)) return [];
+                    const pid = String(it.productId ?? '').trim();
+                    const ref = pid ? productOptions.find((o) => o.id === pid) : undefined;
+                    const isNomenclature = Boolean(ref && (ref.refKind === 'nomenclature' || ref.refKind === 'part'));
+                    return [
+                      {
+                        qty,
+                        ...(isNomenclature ? { nomenclatureId: pid } : {}),
+                        ...(it.unit ? { unit: String(it.unit) } : {}),
+                        note: String(it.name ?? '').trim() || null,
+                      },
+                    ];
+                  });
+                  if (lines.length === 0) {
+                    setSaveStatus('Нет позиций с количеством — приход оформлять не из чего.');
+                    return;
+                  }
+                  const now = Date.now();
+                  const num = String(p.requestNumber ?? '').trim();
+                  const created = await window.matrica.warehouse.documentCreate({
+                    docType: 'purchase_receipt',
+                    docNo: `WH-${String(now).slice(-8)}`,
+                    docDate: now,
+                    header: {
+                      warehouseId: 'default',
+                      expectedDate: p.arrivedAt ?? now,
+                      sourceType: 'supplier_purchase',
+                      sourceRef: `Заявка ${num || '—'} · ${props.id}`,
+                      reason: `Приход по заявке снабжения ${num || props.id}`,
+                      counterpartyId: null,
+                    },
+                    lines,
+                  });
+                  if (!created?.ok || !created.id) {
+                    setSaveStatus(`Ошибка создания прихода: ${String(!created?.ok && created ? created.error : 'неизвестная ошибка')}`);
+                    return;
+                  }
+                  setSaveStatus(`Черновик прихода создан (${lines.length} строк) — проверьте и проведите.`);
+                  props.onOpenStockDocument?.(String(created.id));
+                }}
+              >
+                Оформить приход на склад
+              </Button>
+            )}
 
           <div style={{ flex: 1 }} />
           {props.canEdit && <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Автосохранение: изменения сохраняются автоматически.</div>}
