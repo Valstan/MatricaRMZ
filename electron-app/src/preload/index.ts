@@ -664,6 +664,7 @@ const matricaApi = {
     repairFundSetInstanceRepaired: async (args: { operationId: string; repaired: boolean }) =>
       ipcRenderer.invoke('warehouse:repairFund:setInstanceRepaired', args),
     documentCancel: async (id: string) => ipcRenderer.invoke('warehouse:documents:cancel', id),
+    documentReverse: async (arg: string | { id: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('warehouse:documents:reverse', arg),
     assemblyBomList: async (args?: { engineBrandId?: string; engineBrandIds?: string[]; engineNomenclatureId?: string; status?: string }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:list', args),
     assemblyBomSchemaGet: async () => ipcRenderer.invoke('warehouse:assemblyBom:schema:get'),

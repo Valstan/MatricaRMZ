@@ -17,6 +17,7 @@ import {
   WAREHOUSE_LOCATION_SCRAP,
   WAREHOUSE_LOCATION_ASSEMBLY_IN_PROGRESS,
   isWorkshopWarehouseId,
+  reversalMovementType,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import {
@@ -963,6 +964,11 @@ function parseWarehouseHeaderPayload(raw: string | null | undefined) {
     engineId: strField(payload, 'engineId') ?? null,
     workOrderId: strField(payload, 'workOrderId') ?? null,
     workOrderNo: strField(payload, 'workOrderNo') ?? null,
+    reversalOfId: strField(payload, 'reversalOfId') ?? null,
+    reversalOfDocNo: strField(payload, 'reversalOfDocNo') ?? null,
+    reversedByDocumentId: strField(payload, 'reversedByDocumentId') ?? null,
+    reversedByDocNo: strField(payload, 'reversedByDocNo') ?? null,
+    reversedAt: numField(payload, 'reversedAt') ?? null,
   };
 }
 
@@ -2443,6 +2449,11 @@ export async function listWarehouseDocuments(args?: {
         engineId: headerPayload.engineId,
         workOrderId: headerPayload.workOrderId,
         workOrderNo: headerPayload.workOrderNo,
+        reversalOfId: headerPayload.reversalOfId,
+        reversalOfDocNo: headerPayload.reversalOfDocNo,
+        reversedByDocumentId: headerPayload.reversedByDocumentId,
+        reversedByDocNo: headerPayload.reversedByDocNo,
+        reversedAt: headerPayload.reversedAt,
         authorName: readLookupLabel(refs.employeeById, row.authorId == null ? null : String(row.authorId)),
         linesCount: docLines.length,
         totalQty: docLines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
@@ -2577,6 +2588,11 @@ export async function getWarehouseDocument(args: {
           engineId: headerPayload.engineId,
           workOrderId: headerPayload.workOrderId,
           workOrderNo: headerPayload.workOrderNo,
+          reversalOfId: headerPayload.reversalOfId,
+          reversalOfDocNo: headerPayload.reversalOfDocNo,
+          reversedByDocumentId: headerPayload.reversedByDocumentId,
+          reversedByDocNo: headerPayload.reversedByDocNo,
+          reversedAt: headerPayload.reversedAt,
           authorName: readLookupLabel(refs.employeeById, header.authorId == null ? null : String(header.authorId)),
           linesCount: lines.length,
           totalQty: lines.reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
@@ -2762,7 +2778,7 @@ export async function cancelWarehouseDocument(args: {
       return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
     }
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
-    if (String(header.status) === 'posted') return { ok: false, error: 'Проведенный документ нельзя отменить без сторнирующей операции' };
+    if (String(header.status) === 'posted') return { ok: false, error: 'Проведенный документ нельзя отменить — используйте «Сторнировать» на карточке документа' };
     if (String(header.status) === 'cancelled') return { ok: true, id: args.documentId, status: 'cancelled' };
 
     await db.update(erpDocumentHeaders).set({ status: 'cancelled', updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
@@ -2776,6 +2792,295 @@ export async function cancelWarehouseDocument(args: {
     });
 
     return { ok: true, id: args.documentId, status: 'cancelled' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Ф4 (G5): сторно проведённого складского документа. Создаёт авто-документ того же типа
+ * с docNo «СТОРНО-<номер>» и зеркальными движениями (`reversal_<type>`, direction наоборот)
+ * по фактическим строкам РЕГИСТРА исходного документа — не по строкам документа, чтобы
+ * сторнировалось ровно то, что реально легло в регистр при проведении. Балансы двигаются
+ * обратно с запретом ухода в минус (сторно прихода, который уже израсходован, блокируется).
+ * Исходный документ остаётся posted (история регистра неизменна) и помечается reversedBy*
+ * в payload; повторное сторно и сторно самого сторно запрещены.
+ */
+export async function reverseWarehouseDocument(args: {
+  documentId: string;
+  actor: Actor;
+  expectedUpdatedAt?: number;
+}): Promise<Result<{ id: string; docNo: string }>> {
+  try {
+    const ts = nowMs();
+    const headerRows = await db
+      .select()
+      .from(erpDocumentHeaders)
+      .where(and(eq(erpDocumentHeaders.id, args.documentId), isNull(erpDocumentHeaders.deletedAt)))
+      .limit(1);
+    const header = headerRows[0];
+    if (!header) return { ok: false, error: 'Документ не найден' };
+    if (args.expectedUpdatedAt != null && Number(header.updatedAt) !== Math.trunc(Number(args.expectedUpdatedAt))) {
+      return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
+    }
+    if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
+    if (String(header.status) !== 'posted') return { ok: false, error: 'Сторнировать можно только проведенный документ' };
+    const headerPayload = parseWarehouseHeaderPayload(header.payloadJson);
+    if (headerPayload.reversedByDocumentId) {
+      return { ok: false, error: `Документ уже сторнирован${headerPayload.reversedByDocNo ? ` (№ ${headerPayload.reversedByDocNo})` : ''}` };
+    }
+    if (headerPayload.reversalOfId) {
+      return { ok: false, error: 'Сторно-документ нельзя сторнировать — при необходимости создайте исходный документ заново' };
+    }
+
+    const movements = await db.select().from(erpRegStockMovements).where(eq(erpRegStockMovements.documentHeaderId, args.documentId));
+    if (movements.length === 0) return { ok: false, error: 'У документа нет движений по регистру — сторнировать нечего' };
+
+    // Обратные дельты по балансам; уход в минус запрещён (классический учётный инвариант).
+    const balanceByKey = new Map<string, { id: string; qty: number; reservedQty: number; locationId: string; nomenclatureId: string }>();
+    for (const m of movements) {
+      const locationId = m.warehouseLocationId ? String(m.warehouseLocationId) : '';
+      if (!locationId) return { ok: false, error: 'У движения исходного документа не указан склад — сторно невозможно' };
+      const nomenclatureId = String(m.nomenclatureId);
+      const key = `${nomenclatureId}::${locationId}`;
+      if (balanceByKey.has(key)) continue;
+      const balanceRows = await db
+        .select()
+        .from(erpRegStockBalance)
+        .where(and(eq(erpRegStockBalance.nomenclatureId, nomenclatureId as any), eq(erpRegStockBalance.warehouseLocationId, locationId as any)))
+        .limit(1);
+      const balance = balanceRows[0];
+      balanceByKey.set(key, {
+        id: balance?.id ? String(balance.id) : randomUUID(),
+        qty: Number(balance?.qty ?? 0),
+        reservedQty: Number(balance?.reservedQty ?? 0),
+        locationId,
+        nomenclatureId,
+      });
+    }
+    for (const m of movements) {
+      const key = `${String(m.nomenclatureId)}::${String(m.warehouseLocationId)}`;
+      const current = balanceByKey.get(key)!;
+      const inverseDelta = String(m.direction) === 'in' ? -Number(m.qty) : Number(m.qty);
+      const nextQty = current.qty + inverseDelta;
+      if (nextQty < 0) {
+        return {
+          ok: false,
+          error: `Недостаточно остатка для сторно (номенклатура ${String(m.nomenclatureId)}): приход уже израсходован. Оформите корректирующий документ.`,
+        };
+      }
+      current.qty = nextQty;
+    }
+
+    // Номер сторно-документа: «СТОРНО-<номер>»; doc_no уникален — при коллизии добавляем суффикс.
+    let reversalDocNo = `СТОРНО-${String(header.docNo)}`;
+    const docNoTaken = async (docNo: string) =>
+      (await db.select({ id: erpDocumentHeaders.id }).from(erpDocumentHeaders).where(eq(erpDocumentHeaders.docNo, docNo)).limit(1)).length > 0;
+    if (await docNoTaken(reversalDocNo)) reversalDocNo = `СТОРНО-${String(header.docNo)}-${String(ts).slice(-5)}`;
+
+    const reversalId = randomUUID();
+    const originalLines = await db
+      .select()
+      .from(erpDocumentLines)
+      .where(and(eq(erpDocumentLines.headerId, args.documentId), isNull(erpDocumentLines.deletedAt)))
+      .orderBy(asc(erpDocumentLines.lineNo));
+    const reversalPayloadObj = parseJsonObject(header.payloadJson ?? null);
+    delete reversalPayloadObj.reversedByDocumentId;
+    delete reversalPayloadObj.reversedByDocNo;
+    delete reversalPayloadObj.reversedAt;
+    reversalPayloadObj.reason = `Сторно документа ${String(header.docNo)}`;
+    reversalPayloadObj.reversalOfId = args.documentId;
+    reversalPayloadObj.reversalOfDocNo = String(header.docNo);
+
+    await db.transaction(async (tx) => {
+      await tx.insert(erpDocumentHeaders).values({
+        id: reversalId,
+        docType: String(header.docType),
+        docNo: reversalDocNo,
+        docDate: ts,
+        status: 'posted',
+        authorId: null,
+        departmentId: header.departmentId ?? null,
+        payloadJson: JSON.stringify(reversalPayloadObj),
+        createdAt: ts,
+        updatedAt: ts,
+        postedAt: ts,
+        deletedAt: null,
+      });
+      if (originalLines.length > 0) {
+        await tx.insert(erpDocumentLines).values(
+          originalLines.map((line) => ({
+            id: randomUUID(),
+            headerId: reversalId,
+            lineNo: Number(line.lineNo),
+            partCardId: line.partCardId ?? null,
+            nomenclatureId: line.nomenclatureId ?? null,
+            qty: Number(line.qty ?? 0),
+            price: line.price ?? null,
+            payloadJson: line.payloadJson ?? null,
+            createdAt: ts,
+            updatedAt: ts,
+            deletedAt: null,
+          })),
+        );
+      }
+
+      for (const [, current] of balanceByKey) {
+        const existing = await tx.select({ id: erpRegStockBalance.id }).from(erpRegStockBalance).where(eq(erpRegStockBalance.id, current.id as any)).limit(1);
+        if (existing[0]) {
+          await tx.update(erpRegStockBalance).set({ qty: current.qty, reservedQty: current.reservedQty, updatedAt: ts }).where(eq(erpRegStockBalance.id, current.id as any));
+        } else {
+          await tx.insert(erpRegStockBalance).values({
+            id: current.id,
+            nomenclatureId: current.nomenclatureId,
+            partCardId: null,
+            warehouseLocationId: current.locationId,
+            qty: current.qty,
+            reservedQty: current.reservedQty,
+            updatedAt: ts,
+          });
+        }
+      }
+
+      for (const m of movements) {
+        const movementId = randomUUID();
+        const inverseDirection = String(m.direction) === 'in' ? 'out' : 'in';
+        const movementType = reversalMovementType(String(m.movementType));
+        let prevHash: string | null = null;
+        let selfHash: string | null = null;
+        if (HASHCHAIN_ENABLED) {
+          const lastChainRow = await tx
+            .select({ selfHash: erpRegStockMovements.selfHash })
+            .from(erpRegStockMovements)
+            .where(isNotNull(erpRegStockMovements.selfHash))
+            .orderBy(desc(erpRegStockMovements.performedAt), desc(erpRegStockMovements.createdAt), desc(erpRegStockMovements.id))
+            .limit(1);
+          prevHash = lastChainRow[0]?.selfHash ?? null;
+          const canonical = JSON.stringify({
+            id: movementId,
+            nomenclatureId: String(m.nomenclatureId),
+            warehouseId: String(m.warehouseLocationId),
+            documentHeaderId: reversalId,
+            movementType,
+            qty: Number(m.qty),
+            direction: inverseDirection,
+            engineId: m.engineId ?? null,
+            counterpartyId: m.counterpartyId ?? null,
+            reason: `Сторно ${String(header.docNo)}`,
+            performedAt: ts,
+            performedBy: args.actor.username,
+            prevHash,
+          });
+          selfHash = createHash('sha256').update(canonical).digest('hex');
+        }
+        await tx.insert(erpRegStockMovements).values({
+          id: movementId,
+          nomenclatureId: String(m.nomenclatureId),
+          warehouseLocationId: m.warehouseLocationId ?? null,
+          documentHeaderId: reversalId,
+          movementType,
+          qty: Number(m.qty),
+          direction: inverseDirection,
+          engineId: m.engineId ?? null,
+          counterpartyId: m.counterpartyId ?? null,
+          reason: `Сторно ${String(header.docNo)}`,
+          performedAt: ts,
+          performedBy: args.actor.username,
+          prevHash,
+          selfHash,
+          createdAt: ts,
+        });
+      }
+
+      // Пометка исходного: остаётся posted, но получает reversedBy* и событие в журнале.
+      const originalPayloadObj = parseJsonObject(header.payloadJson ?? null);
+      originalPayloadObj.reversedByDocumentId = reversalId;
+      originalPayloadObj.reversedByDocNo = reversalDocNo;
+      originalPayloadObj.reversedAt = ts;
+      await tx
+        .update(erpDocumentHeaders)
+        .set({ payloadJson: JSON.stringify(originalPayloadObj), updatedAt: ts })
+        .where(eq(erpDocumentHeaders.id, args.documentId));
+
+      await tx.insert(erpJournalDocuments).values([
+        {
+          id: randomUUID(),
+          documentHeaderId: reversalId,
+          eventType: 'posted',
+          eventPayloadJson: JSON.stringify({ by: args.actor.username, reversalOf: String(header.docNo) }),
+          eventAt: ts,
+        },
+        {
+          id: randomUUID(),
+          documentHeaderId: args.documentId,
+          eventType: 'reversed',
+          eventPayloadJson: JSON.stringify({ by: args.actor.username, reversalDocumentId: reversalId, reversalDocNo }),
+          eventAt: ts,
+        },
+      ]);
+    });
+
+    // Ledger — после коммита, как при обычном проведении.
+    const ledgerPayloads: Array<{
+      type: 'upsert';
+      table: LedgerTableName;
+      row_id: string;
+      row: Record<string, unknown>;
+      actor: { userId: string; username: string; role: string };
+      ts: number;
+    }> = [];
+    const balanceRows = await db
+      .select()
+      .from(erpRegStockBalance)
+      .where(inArray(erpRegStockBalance.id, Array.from(new Set(Array.from(balanceByKey.values()).map((item) => item.id))) as any));
+    for (const balance of balanceRows) {
+      ledgerPayloads.push({
+        type: 'upsert',
+        table: LedgerTableName.ErpRegStockBalance,
+        row_id: String(balance.id),
+        row: {
+          id: String(balance.id),
+          nomenclature_id: balance.nomenclatureId,
+          part_card_id: balance.partCardId,
+          warehouse_location_id: balance.warehouseLocationId ?? null,
+          qty: Number(balance.qty),
+          reserved_qty: Number(balance.reservedQty ?? 0),
+          updated_at: Number(balance.updatedAt),
+        },
+        actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+        ts,
+      });
+    }
+    const reversalMovementRows = await db.select().from(erpRegStockMovements).where(eq(erpRegStockMovements.documentHeaderId, reversalId));
+    for (const movement of reversalMovementRows) {
+      ledgerPayloads.push({
+        type: 'upsert',
+        table: LedgerTableName.ErpRegStockMovements,
+        row_id: String(movement.id),
+        row: {
+          id: String(movement.id),
+          nomenclature_id: String(movement.nomenclatureId),
+          warehouse_location_id: movement.warehouseLocationId ?? null,
+          document_header_id: movement.documentHeaderId,
+          movement_type: String(movement.movementType),
+          qty: Number(movement.qty),
+          direction: String(movement.direction),
+          engine_id: movement.engineId,
+          counterparty_id: movement.counterpartyId,
+          reason: movement.reason,
+          performed_at: Number(movement.performedAt),
+          performed_by: movement.performedBy,
+          prev_hash: movement.prevHash,
+          self_hash: movement.selfHash,
+          created_at: Number(movement.createdAt),
+        },
+        actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+        ts,
+      });
+    }
+    if (ledgerPayloads.length > 0) signAndAppendDetailed(ledgerPayloads);
+
+    return { ok: true, id: reversalId, docNo: reversalDocNo };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

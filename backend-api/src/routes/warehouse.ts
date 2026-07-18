@@ -36,6 +36,7 @@ import {
   listWarehouseStock,
   postWarehouseDocument,
   planWarehouseDocument,
+  reverseWarehouseDocument,
   upsertWarehouseEngineInstance,
   upsertWarehouseNomenclature,
 } from '../services/warehouseService.js';
@@ -918,6 +919,29 @@ warehouseRouter.post('/documents/:id/post', requirePermission(PermissionCode.Erp
   if (!parsedBody.success) return res.status(400).json({ ok: false, error: parsedBody.error.flatten() });
   const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
   const result = await postWarehouseDocument({
+    documentId: id,
+    ...(parsedBody.data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: parsedBody.data.expectedUpdatedAt } : {}),
+    actor: {
+      id: String(user?.id ?? ''),
+      username: String(user?.username ?? 'unknown'),
+      role: String(user?.role ?? 'user'),
+    },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Ф4 (G5): сторно проведённого документа — авто-документ с зеркальными reversal-движениями.
+warehouseRouter.post('/documents/:id/reverse', requirePermission(PermissionCode.MovementsRevert), async (req, res) => {
+  const bodySchema = z.object({
+    expectedUpdatedAt: z.coerce.number().int().optional(),
+  });
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsedBody = bodySchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) return res.status(400).json({ ok: false, error: parsedBody.error.flatten() });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await reverseWarehouseDocument({
     documentId: id,
     ...(parsedBody.data.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: parsedBody.data.expectedUpdatedAt } : {}),
     actor: {

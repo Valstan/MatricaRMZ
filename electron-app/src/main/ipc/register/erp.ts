@@ -17,6 +17,7 @@ import {
   warehouseEngineInstanceUpsert,
   warehouseDocumentCreate,
   warehouseDocumentCancel,
+  warehouseDocumentReverse,
   warehouseDocumentGet,
   warehouseDocumentPlan,
   warehouseLookupsGet,
@@ -494,6 +495,21 @@ export function registerErpIpc(ctx: IpcContext) {
         ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
         : undefined;
     return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), cancelArgs);
+  });
+
+  // Ф4 (G5): сторно проведённого документа. Право movements.revert (admin-only) проверяет сервер;
+  // локальный гейт — по erp.documents.post, чтобы кнопка честно падала с серверным отказом прав.
+  ipcMain.handle('warehouse:documents:reverse', async (_e, arg: string | { id: string; expectedUpdatedAt?: number }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    const id = typeof arg === 'string' ? arg : arg?.id;
+    const rawEv = typeof arg === 'object' && arg != null ? arg.expectedUpdatedAt : undefined;
+    const reverseArgs =
+      rawEv !== undefined && rawEv !== null && Number.isFinite(Number(rawEv))
+        ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
+        : undefined;
+    return warehouseDocumentReverse(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), reverseArgs);
   });
 
   ipcMain.handle(

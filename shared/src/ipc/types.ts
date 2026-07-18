@@ -1852,6 +1852,9 @@ export type MatricaApi = {
     documentCancel: (
       arg: string | { id: string; expectedUpdatedAt?: number },
     ) => Promise<{ ok: true; id: string; status: string; queued?: boolean } | { ok: false; error: string }>;
+    documentReverse: (
+      arg: string | { id: string; expectedUpdatedAt?: number },
+    ) => Promise<{ ok: true; id: string; docNo: string } | { ok: false; error: string }>;
     assemblyBomList: (args?: {
       engineBrandId?: string;
       engineBrandIds?: string[];

@@ -1542,6 +1542,35 @@ export async function warehouseDocumentCancel(
   };
 }
 
+// Ф4 (G5): сторно — только онлайн, без offline-очереди: отложенное авто-сторно могло бы
+// сработать сильно позже и по уже изменившимся остаткам; операция осознанная и редкая.
+export async function warehouseDocumentReverse(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  id: string,
+  args?: { expectedUpdatedAt?: number },
+): Promise<{ ok: true; id: string; docNo: string } | { ok: false; error: string }> {
+  const path = `/warehouse/documents/${encodeURIComponent(id)}/reverse`;
+  try {
+    const body: Record<string, unknown> = {};
+    if (args?.expectedUpdatedAt != null) body.expectedUpdatedAt = Math.trunc(Number(args.expectedUpdatedAt));
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      ...(Object.keys(body).length > 0
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {}),
+    });
+    if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true, id: String(r.json.id ?? ''), docNo: String(r.json.docNo ?? '') };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function warehouseForecastIncomingGet(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

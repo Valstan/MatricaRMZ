@@ -514,6 +514,30 @@ export function StockDocumentDetailsPage(props: {
     await load();
   }
 
+  // Ф4 (G5): сторно проведённого документа — сервер создаёт авто-документ с зеркальными движениями.
+  async function reverseDocument() {
+    const go = await confirm({
+      title: 'Сторнировать документ?',
+      detail:
+        `Будет создан сторно-документ с зеркальными движениями по всем строкам регистра. ` +
+        `Исходный документ останется проведённым и получит пометку «сторнирован». Операция необратима.`,
+      confirmLabel: 'Сторнировать',
+      cancelLabel: 'Отмена',
+      confirmTone: 'danger',
+    });
+    if (!go) return;
+    const result = await window.matrica.warehouse.documentReverse({
+      id: props.id,
+      ...(document?.header?.updatedAt != null ? { expectedUpdatedAt: Number(document.header.updatedAt) } : {}),
+    });
+    if (!result?.ok) {
+      setStatus(`Ошибка: ${String(result?.error ?? 'не удалось сторнировать документ')}`);
+      return;
+    }
+    setStatus(`Создан сторно-документ ${result.docNo}.`);
+    await load();
+  }
+
   async function cancelDocument() {
     const result = await window.matrica.warehouse.documentCancel({
       id: props.id,
@@ -636,6 +660,11 @@ export function StockDocumentDetailsPage(props: {
         {canEditDocument ? (
           <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => void cancelDocument()}>
             Отменить документ
+          </Button>
+        ) : null}
+        {props.canEdit && document?.header.status === 'posted' && !document?.header.reversedByDocumentId && !document?.header.reversalOfId ? (
+          <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => void reverseDocument()}>
+            Сторнировать
           </Button>
         ) : null}
         {canEditDocument ? (
@@ -788,6 +817,12 @@ export function StockDocumentDetailsPage(props: {
             {warehouseDocumentStatusLabel(document?.header.status ?? 'draft')}
             {document?.header.warehouseName ? ` • ${document.header.warehouseName}` : ''}
             {document?.header.counterpartyName ? ` • ${document.header.counterpartyName}` : ''}
+            {document?.header.reversalOfDocNo ? (
+              <span style={{ color: 'var(--danger)', fontWeight: 700 }}> • Сторно документа № {document.header.reversalOfDocNo}</span>
+            ) : null}
+            {document?.header.reversedByDocNo ? (
+              <span style={{ color: 'var(--danger)', fontWeight: 700 }}> • Сторнирован документом № {document.header.reversedByDocNo}</span>
+            ) : null}
           </div>
         </div>
       </div>
