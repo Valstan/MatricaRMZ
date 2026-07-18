@@ -13,7 +13,7 @@ import {
 
 
 import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport } from './presets/warehouse.js';
-import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport } from './presets/engines.js';
+import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
@@ -81,6 +81,8 @@ export async function buildReportByPreset(
         return buildEngineKittingReport(db, args.filters, ctx);
       case 'supply_receipt_gap':
         return buildSupplyReceiptGapReport(db, args.filters, ctx);
+      case 'norms_purchase_plan':
+        return buildNormsPurchasePlanReport(db, args.filters, ctx);
       case 'defect_returns_summary':
         return buildDefectReturnsSummaryReport(db, args.filters);
       case 'movement_integrity_audit':

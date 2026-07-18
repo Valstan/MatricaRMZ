@@ -697,6 +697,8 @@ export type EngineAssemblyBomLine = {
   isRequired: boolean;
   priority: number;
   notes: string | null;
+  /** Норма расхода, % (G8). null = не задана. */
+  normPercent?: number | null;
   /** Ключ позиции — группирует взаимозаменяемые варианты в одну позицию. null = позиция-одиночка. */
   positionKey?: string | null;
   /** Имя позиции («Картер верхний»), отдельно от имени детали. */
@@ -747,10 +749,41 @@ export type EngineAssemblyBomLineInput = {
   isRequired?: boolean;
   priority?: number;
   notes?: string | null;
+  /** Норма расхода, % (G8): доля двигателей, которым при ремонте требуется замена детали. */
+  normPercent?: number | null;
   positionKey?: string | null;
   positionLabel?: string | null;
   isDefaultOption?: boolean;
 };
+
+/**
+ * Норма расхода из notes BOM-строки (G8): типизированное поле `normPercent` меты
+ * `bom_line_meta_v1`, fallback — человеческий текст «… норма расхода N%» (импорт УТД-20/В-84
+ * писал только текст до типизации). Возвращает % (>0, до 2 знаков) либо null.
+ */
+export function extractBomLineNormPercent(rawNotes: string | null | undefined): number | null {
+  const raw = String(rawNotes ?? '').trim();
+  if (!raw) return null;
+  let text = raw;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const rec = parsed as Record<string, unknown>;
+      if (String(rec.format ?? '') === 'bom_line_meta_v1') {
+        const typed = Number(rec.normPercent);
+        if (Number.isFinite(typed) && typed > 0) return Math.round(typed * 100) / 100;
+        text = rec.text == null ? '' : String(rec.text);
+      }
+    }
+  } catch {
+    // не JSON — обычный текст примечания
+  }
+  const m = /норма\s+расхода\s+(\d+(?:[.,]\d+)?)\s*%/i.exec(text);
+  if (!m) return null;
+  const value = Number(m[1]!.replace(',', '.'));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.round(value * 100) / 100;
+}
 
 export type EngineAssemblyBomUpsertInput = {
   id?: string;
