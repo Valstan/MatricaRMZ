@@ -1830,6 +1830,14 @@ export type MatricaApi = {
       | { ok: true; pendingQty: number; pendingPositions: number; skippedNoNom: number }
       | { ok: false; error: string }
     >;
+    scrapIntake: (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => Promise<
+      | { ok: true; posted: number; addedQty: number; nomenclatureCount: number; unchanged: boolean; documentId: string | null; skippedNoNom?: number }
+      | { ok: false; error: string }
+    >;
+    scrapIntakePreview: (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => Promise<
+      | { ok: true; pendingQty: number; pendingPositions: number; skippedNoNom: number }
+      | { ok: false; error: string }
+    >;
     repairFundCaptureInstances: (args: {
       engineId: string;
       instances: Array<{ partId: string; partLabel: string; stampedNumber: string; classification: string }>;

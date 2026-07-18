@@ -657,6 +657,10 @@ const matricaApi = {
       ipcRenderer.invoke('warehouse:repairFund:intake', args),
     repairFundIntakePreview: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intakePreview', args),
+    scrapIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
+      ipcRenderer.invoke('warehouse:scrap:intake', args),
+    scrapIntakePreview: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
+      ipcRenderer.invoke('warehouse:scrap:intakePreview', args),
     repairFundCaptureInstances: async (args: {
       engineId: string;
       instances: Array<{ partId: string; partLabel: string; stampedNumber: string; classification: string }>;

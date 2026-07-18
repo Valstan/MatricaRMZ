@@ -771,6 +771,44 @@ export function buildRepairFundIntakeFromInventory(rawRows: ReadonlyArray<Record
 }
 
 /**
+ * Ф6 (G6): утиль дефектовки для списания в scrap-локацию. Берёт строки с
+ * `scrap_qty > 0`, qty = `scrap_qty`. Привязка и агрегация — как у соседнего
+ * `buildRepairFundIntakeFromInventory` (partId из `__brand_part_id`/`__part_id`,
+ * строки без привязки — в `skippedNoPartId`).
+ */
+export function buildScrapIntakeFromInventory(rawRows: ReadonlyArray<Record<string, unknown>>): {
+  items: RepairOrderDraftItem[];
+  skippedNoPartId: number;
+} {
+  const byPartId = new Map<string, RepairOrderDraftItem>();
+  let skipped = 0;
+  for (const raw of rawRows) {
+    const { row } = normalizeEngineInventoryRow(raw);
+    if (row.scrap_qty <= 0) continue;
+    const brandPartId = typeof raw.__brand_part_id === 'string' ? raw.__brand_part_id.trim() : '';
+    const manualPartId = typeof raw.__part_id === 'string' ? raw.__part_id.trim() : '';
+    const partId = brandPartId || manualPartId;
+    if (!partId) {
+      skipped += 1;
+      continue;
+    }
+    const qty = Math.max(0, Math.floor(Number(row.scrap_qty) || 0));
+    if (qty <= 0) continue;
+    const existing = byPartId.get(partId);
+    if (existing) {
+      existing.qty += qty;
+      continue;
+    }
+    byPartId.set(partId, {
+      partId,
+      partLabel: row.part_name.trim() || row.part_number.trim() || 'Деталь',
+      qty,
+    });
+  }
+  return { items: [...byPartId.values()], skippedNoPartId: skipped };
+}
+
+/**
  * Ремфонд Ф3: номерные экземпляры деталей двигателя для поэкземплярного учёта.
  * Берёт строки дефектовки с непустым `stamped_number` (личный набитый номер) и
  * хоть какой-то диспозицией (repairable/scrap/replace > 0). classification — по

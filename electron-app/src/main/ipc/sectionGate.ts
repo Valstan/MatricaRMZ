@@ -130,6 +130,7 @@ const WRITE_CHANNELS = new Set([
   'warehouse:nomenclature:templates:delete',
   'warehouse:partsDedupe:merge',
   'warehouse:repairFund:intake',
+  'warehouse:scrap:intake',
   'warehouseLocations:delete',
   'warehouseLocations:registerUsage',
   'erp:documents:post',

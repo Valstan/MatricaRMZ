@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAutoWithdrawReason,
   buildRepairFundIntakeFromInventory,
+  buildScrapIntakeFromInventory,
   buildStampedInstancesFromInventory,
   buildSupplyRequestItemsFromInventory,
   engineInventoryRowSignature,
@@ -359,6 +360,28 @@ describe('buildRepairFundIntakeFromInventory (Ф1 ремфонда)', () => {
       { part_name: 'Гильза', quantity: 3, present: true, __brand_part_id: 'p1' },
     ]);
     expect(r.items).toEqual([{ partId: 'p1', partLabel: 'Гильза', qty: 5 }]);
+  });
+});
+
+describe('buildScrapIntakeFromInventory (Ф6, G6 — утиль в scrap-локацию)', () => {
+  it('берёт строки scrap_qty>0, qty = scrap_qty, агрегирует по partId, без partId → skipped', () => {
+    const r = buildScrapIntakeFromInventory([
+      { part_name: 'Гильза', quantity: 7, present: true, scrap_qty: 2, replace_qty: 0, __brand_part_id: 'p1' },
+      { part_name: 'Гильза', quantity: 3, present: true, scrap_qty: 1, replace_qty: 0, __brand_part_id: 'p1' },
+      // без утиля — пропускается
+      { part_name: 'Поршень', quantity: 3, present: true, scrap_qty: 0, replace_qty: 0, __part_id: 'p2' },
+      // утиль без привязки — skipped
+      { part_name: 'Шпонка', quantity: 1, present: true, scrap_qty: 1, replace_qty: 0 },
+    ]);
+    expect(r.items).toEqual([{ partId: 'p1', partLabel: 'Гильза', qty: 3 }]);
+    expect(r.skippedNoPartId).toBe(1);
+  });
+
+  it('scrap_qty клампится количеством (нормализация)', () => {
+    const r = buildScrapIntakeFromInventory([
+      { part_name: 'Кольцо', quantity: 2, present: true, scrap_qty: 5, replace_qty: 0, __part_id: 'p4' },
+    ]);
+    expect(r.items).toEqual([{ partId: 'p4', partLabel: 'Кольцо', qty: 2 }]);
   });
 });
 
