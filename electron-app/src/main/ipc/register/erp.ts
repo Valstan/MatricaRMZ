@@ -36,6 +36,8 @@ import {
   warehouseDocumentPost,
   warehouseRepairFundIntake,
   warehouseRepairFundIntakePreview,
+  warehouseScrapIntake,
+  warehouseScrapIntakePreview,
   warehouseRepairFundCaptureInstances,
   warehouseRepairFundSetInstanceRepaired,
   warehouseDocumentsList,
@@ -455,6 +457,21 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.documents.view');
     if (!gate.ok) return gate as any;
     return warehouseRepairFundIntakePreview(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  // Ф6 (G6): списание утиля дефектовки в scrap-локацию — зеркало ремфонд-заноса.
+  ipcMain.handle('warehouse:scrap:intake', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: scrap intake is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    return warehouseScrapIntake(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:scrap:intakePreview', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: true as const, pendingQty: 0, pendingPositions: 0, skippedNoNom: 0 };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseScrapIntakePreview(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle(

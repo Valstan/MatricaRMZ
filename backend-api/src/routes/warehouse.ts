@@ -5,7 +5,7 @@ import type { PartMetadata } from '@matricarmz/shared';
 
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
-import { intakeRepairFundFromEngine, previewRepairFundIntakeFromEngine } from '../services/repairFundService.js';
+import { intakeRepairFundFromEngine, intakeScrapFromEngine, previewRepairFundIntakeFromEngine, previewScrapIntakeFromEngine } from '../services/repairFundService.js';
 import { captureStampedInstancesFromEngine, setStampedInstanceRepaired } from '../services/repairFundInstanceService.js';
 import {
   cancelWarehouseDocument,
@@ -999,6 +999,56 @@ warehouseRouter.post('/repair-fund/intake-preview', requirePermission(Permission
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await previewRepairFundIntakeFromEngine({
+    engineId: parsed.data.engineId,
+    items: parsed.data.items.map((i) => ({ partId: i.partId, partLabel: i.partLabel, qty: i.qty })),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Ф6 (G6): списание утиля дефектовки двигателя в scrap-локацию (идемпотентно, high-water-mark).
+warehouseRouter.post('/scrap/intake-from-engine', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const schema = z.object({
+    engineId: z.string().min(1),
+    items: z
+      .array(
+        z.object({
+          partId: z.string().min(1),
+          partLabel: z.string().optional().default(''),
+          qty: z.coerce.number().int(),
+        }),
+      )
+      .default([]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await intakeScrapFromEngine({
+    engineId: parsed.data.engineId,
+    items: parsed.data.items.map((i) => ({ partId: i.partId, partLabel: i.partLabel, qty: i.qty })),
+    actor: { id: String(user?.id ?? ''), username: String(user?.username ?? 'unknown') },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Ф6 (G6): read-only превью дельты списания утиля (бейдж «утиль не списан в локацию»).
+warehouseRouter.post('/scrap/intake-preview', requirePermission(PermissionCode.ErpDocumentsView), async (req, res) => {
+  const schema = z.object({
+    engineId: z.string().min(1),
+    items: z
+      .array(
+        z.object({
+          partId: z.string().min(1),
+          partLabel: z.string().optional().default(''),
+          qty: z.coerce.number().int(),
+        }),
+      )
+      .default([]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await previewScrapIntakeFromEngine({
     engineId: parsed.data.engineId,
     items: parsed.data.items.map((i) => ({ partId: i.partId, partLabel: i.partLabel, qty: i.qty })),
   });

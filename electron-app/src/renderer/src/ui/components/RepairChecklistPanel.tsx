@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairFundIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairFundIntakeFromInventory, buildScrapIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -379,6 +379,8 @@ export function RepairChecklistPanel(props: {
   const [supplyRequestBusy, setSupplyRequestBusy] = useState(false);
   const [repairOrderBusy, setRepairOrderBusy] = useState(false);
   const [repairFundBusy, setRepairFundBusy] = useState(false);
+  // Ф6 (G6): списание утиля дефектовки в scrap-локацию.
+  const [scrapIntakeBusy, setScrapIntakeBusy] = useState(false);
   // Ф5 (GAP-4): производные статусы «в ремонте/готова к сборке» per partId.
   const [repairPartStates, setRepairPartStates] = useState<Record<string, EngineRepairPartState>>({});
   // Ф5 (GAP-6): история статусов деталей (события part_status_event, новые сверху).
@@ -463,6 +465,12 @@ export function RepairChecklistPanel(props: {
     const raw = a && a.kind === 'table' && Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]) : [];
     return buildRepairFundIntakeFromInventory(raw);
   }, [answers]);
+  // Ф6 (G6): утиль дефектовки (scrap_qty>0) для списания в scrap-локацию.
+  const scrapIntakeDraft = useMemo(() => {
+    const a = (answers as Record<string, unknown>).engine_inventory_items as { kind?: string; rows?: unknown } | undefined;
+    const raw = a && a.kind === 'table' && Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]) : [];
+    return buildScrapIntakeFromInventory(raw);
+  }, [answers]);
   // Ремфонд Ф3: строки с личным набитым номером (stamped_number) для поэкземплярного захвата.
   const stampedDraft = useMemo(() => buildStampedInstancesFromInventory(inventoryRawRows(answers)), [answers]);
   // Ф3 forecast-remfond-aware: бейдж «дефектовка не занесена в ремфонд» — read-only превью дельты
@@ -491,6 +499,31 @@ export function RepairChecklistPanel(props: {
       window.clearTimeout(timer);
     };
   }, [isInventoryStage, props.engineId, repairFundDraft, repairFundBusy]);
+  // Ф6 (G6): бейдж «утиль не списан в утиль-локацию» — превью дельты, дебаунс как у ремфонда.
+  const [scrapIntakePending, setScrapIntakePending] = useState<{ qty: number; positions: number } | null>(null);
+  useEffect(() => {
+    if (!isInventoryStage || !props.engineId || scrapIntakeDraft.items.length === 0) {
+      setScrapIntakePending(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await window.matrica.warehouse.scrapIntakePreview({
+          engineId: props.engineId,
+          items: scrapIntakeDraft.items,
+        });
+        if (cancelled) return;
+        setScrapIntakePending(r.ok && Number(r.pendingQty) > 0 ? { qty: Number(r.pendingQty), positions: Number(r.pendingPositions) } : null);
+      } catch {
+        if (!cancelled) setScrapIntakePending(null);
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isInventoryStage, props.engineId, scrapIntakeDraft, scrapIntakeBusy]);
   const variantFilterActive =
     isInventoryStage && variantFilterOn && !!assemblyVariant && !!variantMembership && variantMembership.size > 0;
   const panelTitle = isInventoryStage
@@ -600,6 +633,31 @@ export function RepairChecklistPanel(props: {
       setStatus(`Ошибка: ${String(e)}`);
     } finally {
       setRepairFundBusy(false);
+    }
+  }
+
+  // Ф6 (G6): списание утиля дефектовки в scrap-локацию (только прирост, идемпотентно).
+  async function intakeScrapFromDefects() {
+    if (scrapIntakeBusy || scrapIntakeDraft.items.length === 0) return;
+    setScrapIntakeBusy(true);
+    try {
+      const r = await window.matrica.warehouse.scrapIntake({
+        engineId: props.engineId,
+        items: scrapIntakeDraft.items,
+      });
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      setStatus(
+        r.unchanged
+          ? 'Склад утиля уже актуален по этой дефектовке — нового утиля нет.'
+          : `В утиль-локацию списано ${r.addedQty} шт (${r.posted} поз.).${r.skippedNoNom ? ` Пропущено без номенклатуры: ${r.skippedNoNom}.` : ''}`,
+      );
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setScrapIntakeBusy(false);
     }
   }
 
@@ -3029,6 +3087,40 @@ export function RepairChecklistPanel(props: {
           )}
           <span style={{ color: '#64748b', fontSize: 12, flexBasis: '100%' }}>
             Годные к ремонту детали приходуются в «Ремонтный фонд» (ожидают ремонта). Ревизия/правка — «Склад → Ревизия ремфонда».
+          </span>
+        </div>
+      )}
+
+      {/* Ф6 (G6): утиль дефектовки (scrap_qty>0) → списание в scrap-локацию склада. */}
+      {!collapsed && isInventoryStage && props.canCreateWorkOrder && (
+        <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={scrapIntakeDraft.items.length === 0 || scrapIntakeBusy}
+            title="Списать утиль дефектовки в локацию «Утиль» — физическая куча утиля появится в складском учёте и инвентаризации. Повторное нажатие не двоит — списывается только прирост."
+            onClick={() => void intakeScrapFromDefects()}
+          >
+            {scrapIntakeBusy ? 'Списываем…' : `🗑 Утиль → склад утиля (${scrapIntakeDraft.items.length})`}
+          </Button>
+          {scrapIntakePending && (
+            <span
+              style={{ color: '#b45309', fontSize: 12, fontWeight: 600 }}
+              title="По текущей дефектовке есть утиль, ещё не отражённый в scrap-локации склада. Нажмите кнопку — спишется только прирост."
+            >
+              ⚠ Не списано в утиль-локацию: {scrapIntakePending.qty} шт. ({scrapIntakePending.positions} поз.)
+            </span>
+          )}
+          {scrapIntakeDraft.items.length === 0 && (
+            <span style={{ color: '#64748b', fontSize: 12 }}>Нет строк с утилём (scrap_qty &gt; 0).</span>
+          )}
+          {scrapIntakeDraft.skippedNoPartId > 0 && (
+            <span style={{ color: '#b45309', fontSize: 12 }}>
+              Пропущено {scrapIntakeDraft.skippedNoPartId} строк без привязки к справочнику.
+            </span>
+          )}
+          <span style={{ color: '#64748b', fontSize: 12, flexBasis: '100%' }}>
+            Утиль приходуется в локацию «Утиль»: физическая куча совпадает с данными, инвентаризация утиля становится возможной.
           </span>
         </div>
       )}

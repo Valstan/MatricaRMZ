@@ -1445,6 +1445,48 @@ export async function warehouseRepairFundIntake(
   }
 }
 
+// Ф6 (G6): превью дельты списания утиля дефектовки в scrap-локацию.
+export async function warehouseScrapIntakePreview(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> },
+) {
+  const path = '/warehouse/scrap/intake-preview';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+// Ф6 (G6): списание утиля дефектовки в scrap-локацию (только онлайн, как ремфонд-занос).
+export async function warehouseScrapIntake(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> },
+) {
+  const path = '/warehouse/scrap/intake-from-engine';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 /**
  * Ремфонд Ф3: захват номерных экземпляров деталей двигателя (личные набитые номера).
  * Требует онлайн-бэкенд (резолв номенклатуры + идемпотентный upsert) — в офлайне

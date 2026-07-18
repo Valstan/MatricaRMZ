@@ -12,7 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
-import { WAREHOUSE_LOCATION_REPAIR_FUND } from '@matricarmz/shared';
+import { WAREHOUSE_LOCATION_REPAIR_FUND, WAREHOUSE_LOCATION_SCRAP } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { erpRegStockBalance, operations, warehouseLocations } from '../database/schema.js';
@@ -20,6 +20,33 @@ import { createWarehouseDocument, postWarehouseDocument } from './warehouseServi
 import { resolvePartIdToNomenclatureMap } from './workOrderClosingService.js';
 
 const REPAIR_FUND_INTAKE_TYPE = 'repair_fund_intake';
+// Ф6 (G6): списание утиля дефектовки в scrap-локацию — тот же idempotent-контур
+// (high-water-mark по двигателю), другая локация и тип операции.
+const SCRAP_INTAKE_TYPE = 'scrap_intake';
+
+type IntakeTarget = {
+  opType: string;
+  warehouseId: string;
+  docPrefix: string;
+  reason: string;
+  opNote: (positions: number) => string;
+};
+
+const REPAIR_FUND_TARGET: IntakeTarget = {
+  opType: REPAIR_FUND_INTAKE_TYPE,
+  warehouseId: WAREHOUSE_LOCATION_REPAIR_FUND,
+  docPrefix: 'RFI',
+  reason: 'Занос дефектовки в ремонтный фонд',
+  opNote: (positions) => `Ремфонд: занос дефектовки (${positions} поз.)`,
+};
+
+const SCRAP_TARGET: IntakeTarget = {
+  opType: SCRAP_INTAKE_TYPE,
+  warehouseId: WAREHOUSE_LOCATION_SCRAP,
+  docPrefix: 'SCI',
+  reason: 'Списание утиля дефектовки в утиль-локацию',
+  opNote: (positions) => `Утиль: списание дефектовки в утиль-локацию (${positions} поз.)`,
+};
 
 type Actor = { id: string; username: string };
 
@@ -43,14 +70,14 @@ function safeJsonParse(s: string): unknown {
   }
 }
 
-/** Читает high-water-mark уже занесённого этим двигателем в фонд (nomenclatureId → qty). */
-async function loadEngineIntake(engineId: string): Promise<{ opId: string | null; items: Map<string, IntakeRecordItem> }> {
+/** Читает high-water-mark уже занесённого этим двигателем (nomenclatureId → qty) для типа операции. */
+async function loadEngineIntake(engineId: string, opType: string): Promise<{ opId: string | null; items: Map<string, IntakeRecordItem> }> {
   const rows = await db
     .select()
     .from(operations)
     .where(
       and(
-        eq(operations.operationType, REPAIR_FUND_INTAKE_TYPE),
+        eq(operations.operationType, opType),
         eq(operations.engineEntityId, engineId),
         isNull(operations.deletedAt),
       ),
@@ -83,6 +110,21 @@ export async function previewRepairFundIntakeFromEngine(args: {
   engineId: string;
   items: IntakeItem[];
 }): Promise<Result<{ pendingQty: number; pendingPositions: number; skippedNoNom: number }>> {
+  return previewIntakeFromEngine(args, REPAIR_FUND_TARGET);
+}
+
+/** Ф6 (G6): превью дельты списания утиля дефектовки в scrap-локацию. */
+export async function previewScrapIntakeFromEngine(args: {
+  engineId: string;
+  items: IntakeItem[];
+}): Promise<Result<{ pendingQty: number; pendingPositions: number; skippedNoNom: number }>> {
+  return previewIntakeFromEngine(args, SCRAP_TARGET);
+}
+
+async function previewIntakeFromEngine(
+  args: { engineId: string; items: IntakeItem[] },
+  cfg: IntakeTarget,
+): Promise<Result<{ pendingQty: number; pendingPositions: number; skippedNoNom: number }>> {
   try {
     const engineId = String(args.engineId ?? '').trim();
     if (!engineId) return { ok: false, error: 'Не задан двигатель' };
@@ -101,7 +143,7 @@ export async function previewRepairFundIntakeFromEngine(args: {
       }
       target.set(nomenclatureId, (target.get(nomenclatureId) ?? 0) + qty);
     }
-    const prior = await loadEngineIntake(engineId);
+    const prior = await loadEngineIntake(engineId, cfg.opType);
     let pendingQty = 0;
     let pendingPositions = 0;
     for (const [nomenclatureId, qty] of target) {
@@ -127,6 +169,43 @@ export async function intakeRepairFundFromEngine(args: {
   items: IntakeItem[];
   actor: Actor;
 }): Promise<
+  Result<{
+    posted: number;
+    addedQty: number;
+    nomenclatureCount: number;
+    unchanged: boolean;
+    documentId: string | null;
+    skippedNoNom?: number;
+  }>
+> {
+  return intakeFromEngine(args, REPAIR_FUND_TARGET);
+}
+
+/**
+ * Ф6 (G6): списывает утиль дефектовки двигателя в scrap-локацию (только прирост,
+ * идемпотентно по high-water-mark — та же защита от двойных приходов, что у ремфонда).
+ */
+export async function intakeScrapFromEngine(args: {
+  engineId: string;
+  items: IntakeItem[];
+  actor: Actor;
+}): Promise<
+  Result<{
+    posted: number;
+    addedQty: number;
+    nomenclatureCount: number;
+    unchanged: boolean;
+    documentId: string | null;
+    skippedNoNom?: number;
+  }>
+> {
+  return intakeFromEngine(args, SCRAP_TARGET);
+}
+
+async function intakeFromEngine(
+  args: { engineId: string; items: IntakeItem[]; actor: Actor },
+  cfg: IntakeTarget,
+): Promise<
   Result<{
     posted: number;
     addedQty: number;
@@ -162,7 +241,7 @@ export async function intakeRepairFundFromEngine(args: {
     }
 
     // 3) High-water-mark прошлого заноса и положительная дельта.
-    const prior = await loadEngineIntake(engineId);
+    const prior = await loadEngineIntake(engineId, cfg.opType);
     const deltaLines: Array<{ nomenclatureId: string; qty: number; label: string }> = [];
     const nextItems = new Map<string, IntakeRecordItem>(prior.items);
     for (const [nomenclatureId, t] of target) {
@@ -178,19 +257,19 @@ export async function intakeRepairFundFromEngine(args: {
       return { ok: true, posted: 0, addedQty: 0, nomenclatureCount: target.size, unchanged: true, documentId: null };
     }
 
-    // 4) Проводим прирост приходом inventory_opening в локацию repair_fund.
+    // 4) Проводим прирост приходом inventory_opening в целевую локацию.
     const ts = nowMs();
-    const docNo = `RFI-${engineId.slice(0, 8)}-${String(ts).slice(-8)}`;
+    const docNo = `${cfg.docPrefix}-${engineId.slice(0, 8)}-${String(ts).slice(-8)}`;
     const created = await createWarehouseDocument({
       docType: 'inventory_opening',
       status: 'planned',
       docNo,
       docDate: ts,
       payloadJson: JSON.stringify({
-        warehouseId: WAREHOUSE_LOCATION_REPAIR_FUND,
+        warehouseId: cfg.warehouseId,
         expectedDate: ts,
         sourceType: 'inventory_opening',
-        reason: 'Занос дефектовки в ремонтный фонд',
+        reason: cfg.reason,
         engineId,
       }),
       lines: deltaLines.map((l) => ({ qty: l.qty, nomenclatureId: l.nomenclatureId })),
@@ -202,7 +281,7 @@ export async function intakeRepairFundFromEngine(args: {
 
     // 5) Перезаписываем запись заноса двигателя (soft-delete прежней + новая).
     const intakePayload = {
-      kind: REPAIR_FUND_INTAKE_TYPE,
+      kind: cfg.opType,
       engineEntityId: engineId,
       documentId: created.id,
       items: [...nextItems.values()],
@@ -213,9 +292,9 @@ export async function intakeRepairFundFromEngine(args: {
     await db.insert(operations).values({
       id: randomUUID(),
       engineEntityId: engineId,
-      operationType: REPAIR_FUND_INTAKE_TYPE,
+      operationType: cfg.opType,
       status: 'event',
-      note: `Ремфонд: занос дефектовки (${deltaLines.length} поз.)`,
+      note: cfg.opNote(deltaLines.length),
       performedAt: ts,
       performedBy: args.actor.username || 'system',
       metaJson: JSON.stringify(intakePayload),
