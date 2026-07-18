@@ -30,6 +30,9 @@ export function StockInventoryPage(props: {
   const [status, setStatus] = useState('');
   const [warehouseId, setWarehouseId] = useState<string | null>('default');
   const [reason, setReason] = useState('Плановая инвентаризация');
+  // Ф6 (G9): слепой подсчёт — факт вводится без подсказки учётным, колонки «Учет»/«Расхождение»
+  // скрыты. В документ идут только строки с введённым фактом (частичная инвентаризация).
+  const [blindMode, setBlindMode] = useState(false);
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<InventoryLine[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -45,8 +48,10 @@ export function StockInventoryPage(props: {
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...visibleRows].sort((a, b) => {
-      const actualA = Number(a.actualQty || a.bookQty);
-      const actualB = Number(b.actualQty || b.bookQty);
+      // G9: в слепом режиме пустой факт не подменяется учётным — сортировка по «Факт»
+      // не должна выдавать учётный порядок.
+      const actualA = Number(a.actualQty || (blindMode ? 0 : a.bookQty));
+      const actualB = Number(b.actualQty || (blindMode ? 0 : b.bookQty));
       const deltaA = actualA - a.bookQty;
       const deltaB = actualB - b.bookQty;
       let cmp = 0;
@@ -59,7 +64,7 @@ export function StockInventoryPage(props: {
       if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       return cmp * dir;
     });
-  }, [visibleRows, sortDir, sortKey]);
+  }, [visibleRows, sortDir, sortKey, blindMode]);
   const warehouseOptions = useMemo(
     () => withRecents('warehouseId', lookupToSelectOptions(lookups.warehouses)),
     [lookups.warehouses, withRecents],
@@ -85,9 +90,15 @@ export function StockInventoryPage(props: {
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('code')}>{sortLabel('Код', 'code')}</th>
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Номенклатура', 'name')}</th>
         <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('unit')}>{sortLabel('Ед.', 'unit')}</th>
-        <th data-col-kind="num" title="Учет" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('book')}>{sortLabel('Учет', 'book')}</th>
+        {/* G9: в слепом режиме учёт/расхождение не показываем и не даём сортировать по ним
+            (порядок строк по учёту тоже подсказка). */}
+        {!blindMode && (
+          <th data-col-kind="num" title="Учет" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('book')}>{sortLabel('Учет', 'book')}</th>
+        )}
         <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('actual')}>{sortLabel('Факт', 'actual')}</th>
-        <th data-col-kind="num" title="Расхождение" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('delta')}>{sortLabel('Расхождение', 'delta')}</th>
+        {!blindMode && (
+          <th data-col-kind="num" title="Расхождение" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('delta')}>{sortLabel('Расхождение', 'delta')}</th>
+        )}
       </tr>
     </thead>
   );
@@ -100,11 +111,12 @@ export function StockInventoryPage(props: {
         <td data-col-kind="name">{row.code || '—'}</td>
         <td data-col-kind="name">{row.name || '—'}</td>
         <td>{row.unitName || '—'}</td>
-        <td data-col-kind="num">{row.bookQty}</td>
+        {!blindMode && <td data-col-kind="num">{row.bookQty}</td>}
         <td>
           <Input
             type="number"
             value={row.actualQty}
+            placeholder={blindMode ? 'посчитайте' : undefined}
             onChange={(e) =>
               setRows((prev) =>
                 prev.map((item) =>
@@ -114,7 +126,9 @@ export function StockInventoryPage(props: {
             }
           />
         </td>
-        <td data-col-kind="num" style={{ color: delta === 0 ? 'var(--subtle)' : delta > 0 ? 'var(--success)' : 'var(--danger)' }}>{delta}</td>
+        {!blindMode && (
+          <td data-col-kind="num" style={{ color: delta === 0 ? 'var(--subtle)' : delta > 0 ? 'var(--success)' : 'var(--danger)' }}>{delta}</td>
+        )}
       </>
     );
   }
@@ -141,7 +155,7 @@ export function StockInventoryPage(props: {
       name: String(row.nomenclatureName ?? ''),
       warehouseId: String(row.warehouseId ?? warehouseId),
       bookQty: Number(row.qty ?? 0),
-      actualQty: String(row.qty ?? 0),
+      actualQty: blindMode ? '' : String(row.qty ?? 0),
       unitName: row.unitName ?? null,
     }));
     const withId = nextRows.filter((row) => row.nomenclatureId);
@@ -174,6 +188,23 @@ export function StockInventoryPage(props: {
           <div>Основание</div>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={blindMode}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setBlindMode(next);
+              if (next && (sortKey === 'book' || sortKey === 'delta')) setSortKey('name');
+              // Переключение режима сбрасывает «Факт»: вслепую — пусто, обычный — предзаполнен учётным.
+              setRows((prev) => prev.map((row) => ({ ...row, actualQty: next ? '' : String(row.bookQty) })));
+            }}
+          />
+          <span>
+            Слепая инвентаризация — факт вводится без подсказки учётным; в документ попадут только строки с введённым фактом
+            (частичный подсчёт).
+          </span>
+        </label>
         {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
         {props.canEdit ? (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -185,8 +216,14 @@ export function StockInventoryPage(props: {
             </Button>
             <Button
               onClick={async () => {
-                const effectiveRows = rows.map((row) => {
-                  const actual = Number(row.actualQty || row.bookQty);
+                // G9: вслепую в документ идут только строки с введённым фактом (cycle counting).
+                const sourceRows = blindMode ? rows.filter((row) => row.actualQty.trim() !== '') : rows;
+                if (blindMode && sourceRows.length === 0) {
+                  setStatus('Ошибка: не введено ни одного факта — вслепую в документ попадают только посчитанные строки.');
+                  return;
+                }
+                const effectiveRows = sourceRows.map((row) => {
+                  const actual = Number(row.actualQty || (blindMode ? 0 : row.bookQty));
                   return {
                     qty: 0,
                     nomenclatureId: row.nomenclatureId,
@@ -211,7 +248,11 @@ export function StockInventoryPage(props: {
                   setStatus(`Ошибка: ${String(!result?.ok && result ? result.error : 'не удалось создать документ')}`);
                   return;
                 }
-                setStatus('Документ инвентаризации создан');
+                setStatus(
+                  blindMode
+                    ? `Документ инвентаризации создан (посчитано строк: ${effectiveRows.length} из ${rows.length}).`
+                    : 'Документ инвентаризации создан',
+                );
                 props.onOpenDocument(String(result.id));
               }}
             >
@@ -242,7 +283,7 @@ export function StockInventoryPage(props: {
               <tbody>
                 {sortedRows.length === 0 ? (
                   <tr>
-                    <td style={{ padding: 10, color: '#6b7280' }} colSpan={6}>
+                    <td style={{ padding: 10, color: '#6b7280' }} colSpan={blindMode ? 4 : 6}>
                       Загрузите остатки по складу, чтобы начать инвентаризацию.
                     </td>
                   </tr>
