@@ -30,7 +30,8 @@ export type ReportPresetId =
   | 'movement_integrity_audit'
   | 'scrap_register'
   | 'engine_kitting'
-  | 'supply_receipt_gap';
+  | 'supply_receipt_gap'
+  | 'norms_purchase_plan';
 
 export type ReportFilterOption = {
   value: string;
@@ -1140,6 +1141,48 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'receiptQty', label: 'Приход', kind: 'number', align: 'right' },
       { key: 'issueQty', label: 'Расход', kind: 'number', align: 'right' },
       { key: 'closingQty', label: 'Сальдо кон.', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'norms_purchase_plan',
+    title: 'План закупок по нормам',
+    description:
+      'Для экономистов: BOM марки × норма расхода (%) × количество двигателей = план потребности; минус свободные остатки = к закупке. Нормы без типизированного процента считаются как 100%.',
+    filters: [
+      {
+        type: 'select',
+        key: 'brandId',
+        label: 'Марка двигателя',
+        labelHint: 'Марка, по активному BOM которой считается план.',
+        optionsSource: 'assemblyBrands',
+      },
+      {
+        type: 'number',
+        key: 'enginesCount',
+        label: 'Количество двигателей',
+        labelHint: 'Плановое число ремонтов, на которое считается закупка.',
+        min: 1,
+        max: 10000,
+        step: 1,
+        defaultValue: 1,
+      },
+      {
+        type: 'checkbox',
+        key: 'onlyToPurchase',
+        label: 'Только позиции к закупке',
+        labelHint: 'Скрыть строки, полностью закрытые свободными остатками.',
+      },
+    ],
+    columns: [
+      { key: 'componentName', label: 'Деталь' },
+      { key: 'componentCode', label: 'Код' },
+      { key: 'qtyPerUnit', label: 'Кол-во на 1 дв.', kind: 'number', align: 'right' },
+      { key: 'normPercentLabel', label: 'Норма, %', align: 'right' },
+      { key: 'planQty', label: 'План (шт)', kind: 'number', align: 'right' },
+      { key: 'availableQty', label: 'Доступно', kind: 'number', align: 'right' },
+      { key: 'repairFundQty', label: 'Ремфонд', kind: 'number', align: 'right' },
+      { key: 'toPurchaseQty', label: 'К закупке', kind: 'number', align: 'right' },
+      { key: 'variantNote', label: 'Примечание' },
     ],
   },
   {

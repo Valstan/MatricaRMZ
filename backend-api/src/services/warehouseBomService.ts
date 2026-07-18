@@ -18,7 +18,7 @@ import {
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 import { ensureNomenclatureBrandPart } from './bomBrandPartSync.js';
-import { parseWarehouseBomLineMeta, serializeWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
+import { normalizeNormPercent, parseWarehouseBomLineMeta, serializeWarehouseBomLineMeta } from './warehouseBomLineMeta.js';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 type Actor = { id: string; username: string; role?: string };
@@ -78,6 +78,8 @@ type BomLineInput = {
   isRequired?: boolean;
   priority?: number;
   notes?: string | null;
+  /** Норма расхода, % (G8). undefined = не прислано клиентом (наследуем от существующей строки), null = явно очистить. */
+  normPercent?: number | null;
   positionKey?: string | null;
   positionLabel?: string | null;
   isDefaultOption?: boolean;
@@ -326,6 +328,7 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
         isRequired: Boolean(row.isRequired),
         priority: Number(row.priority ?? 100),
         notes: parsedLineMeta.get(String(row.id))?.text ?? null,
+        normPercent: parsedLineMeta.get(String(row.id))?.normPercent ?? null,
         positionKey: row.positionKey ?? null,
         positionLabel: row.positionLabel ?? null,
         isDefaultOption: Boolean(row.isDefaultOption ?? true),
@@ -426,6 +429,7 @@ export async function upsertWarehouseAssemblyBom(args: {
         isRequired: line.isRequired !== false,
         priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
         notesText: line.notes == null ? null : String(line.notes),
+        normPercentInput: line.normPercent === undefined ? undefined : normalizeNormPercent(line.normPercent),
         positionKey: line.positionKey == null ? null : String(line.positionKey).trim() || null,
         positionLabel: line.positionLabel == null ? null : String(line.positionLabel).trim() || null,
         isDefaultOption: line.isDefaultOption !== false,
@@ -603,6 +607,31 @@ export async function upsertWarehouseAssemblyBom(args: {
       };
     }
 
+    // G8: normPercent живёт в notes-мете. Клиенты, не знающие поля, не шлют его вовсе —
+    // наследуем от существующей строки по ключу (variantGroup, componentType, номенклатура),
+    // чтобы сохранение BOM старым клиентом не срезало типизированные нормы молча.
+    const existingNormByKey = new Map<string, number>();
+    const existingLineRows = (await db
+      .select({
+        variantGroup: erpEngineAssemblyBomLines.variantGroup,
+        componentType: erpEngineAssemblyBomLines.componentType,
+        componentNomenclatureId: erpEngineAssemblyBomLines.componentNomenclatureId,
+        notes: erpEngineAssemblyBomLines.notes,
+      })
+      .from(erpEngineAssemblyBomLines)
+      .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)))) as Array<{
+      variantGroup: string | null;
+      componentType: string;
+      componentNomenclatureId: string;
+      notes: string | null;
+    }>;
+    for (const row of existingLineRows) {
+      const pct = parseWarehouseBomLineMeta(row.notes).normPercent;
+      if (pct == null) continue;
+      // Ключ без componentType: auto-fix типа компонента (v1.21.3) не должен рвать наследование.
+      existingNormByKey.set(`${row.variantGroup ?? ''}::${row.componentNomenclatureId}`, pct);
+    }
+
     await db
       .update(erpEngineAssemblyBomLines)
       .set({ deletedAt: ts, updatedAt: ts, syncStatus: 'synced' })
@@ -614,6 +643,10 @@ export async function upsertWarehouseAssemblyBom(args: {
         text: line.notesText,
         lineKey: line.lineKey,
         parentLineKey: line.parentLineKey ?? null,
+        normPercent:
+          line.normPercentInput !== undefined
+            ? line.normPercentInput
+            : existingNormByKey.get(`${line.variantGroup ?? ''}::${line.componentNomenclatureId}`) ?? null,
       }),
     }));
 

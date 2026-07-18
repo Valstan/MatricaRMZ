@@ -49,6 +49,8 @@ type BomDetails = {
     isRequired: boolean;
     priority: number;
     notes?: string | null;
+    /** Норма расхода, % (G8) — round-trip, чтобы сохранение BOM не срезало типизированные нормы. */
+    normPercent?: number | null;
     /** Модель «Позиции + варианты»: строки с общим positionKey — взаимозаменяемые варианты одной позиции. */
     positionKey?: string | null;
     /** Имя позиции («Картер верхний»). */
@@ -459,6 +461,7 @@ export function EngineAssemblyBomDetailsPage(props: {
         isRequired: current.isRequired !== false,
         priority: Number(current.priority ?? 100),
         notes: current.notes ?? null,
+        normPercent: current.normPercent ?? null,
         positionKey: current.positionKey ?? null,
         positionLabel: current.positionLabel ?? null,
         isDefaultOption: current.isDefaultOption !== false,
@@ -721,6 +724,7 @@ export function EngineAssemblyBomDetailsPage(props: {
           isRequired: line.isRequired !== false,
           priority: Number(line.priority ?? 100),
           notes: line.notes ?? null,
+          normPercent: line.normPercent ?? null,
           positionKey: line.positionKey ?? null,
           positionLabel: line.positionLabel ?? null,
           isDefaultOption: line.isDefaultOption !== false,

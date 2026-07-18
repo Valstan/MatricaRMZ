@@ -11,6 +11,7 @@ import {
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
   StockMovementType,
+  extractBomLineNormPercent,
   formatEngineInternalNumber,
   normalizeEngineInventoryRow,
   REPLENISHMENT_BRANCH_REPORT_LABELS,
@@ -630,6 +631,8 @@ type BomKitLine = {
   priority: number;
   isDefaultOption: boolean;
   notes: string;
+  /** Норма расхода, % (G8): типизированное поле либо распарсенный текст примечания. null = не задана. */
+  normPercent: number | null;
 };
 
 const bomKitRank = (h: { status?: unknown; isDefault?: unknown }) =>
@@ -684,6 +687,10 @@ async function loadBomKitForBrand(
             priority: Number(l.priority ?? 100),
             isDefaultOption: Boolean(l.isDefaultOption),
             notes: normalizeText(l.notes, ''),
+            normPercent:
+              Number.isFinite(Number(l.normPercent)) && Number(l.normPercent) > 0
+                ? Number(l.normPercent)
+                : extractBomLineNormPercent(l.notes == null ? null : String(l.notes)),
           }));
         }
       }
@@ -745,6 +752,7 @@ async function loadBomKitForBrand(
           priority: Number(l.priority ?? 100),
           isDefaultOption: false,
           notes: normalizeText(l.notes, ''),
+          normPercent: extractBomLineNormPercent(l.notes == null ? null : String(l.notes)),
         };
       });
     }
@@ -954,3 +962,115 @@ export async function buildEngineKittingReport(
   };
 }
 
+
+/**
+ * «План закупок по нормам» (G8): BOM марки × норма расхода (%) × кол-во двигателей = план;
+ * минус свободные остатки (без техлокаций) = к закупке. Норма без типизированного процента
+ * считается как 100% (полная замена) — помечается в примечании.
+ */
+export async function buildNormsPurchasePlanReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const preset = getPreset('norms_purchase_plan');
+  const brandId = String((filters as Record<string, unknown> | undefined)?.brandId ?? '').trim();
+  const enginesCount = Math.max(1, Math.trunc(Number((filters as Record<string, unknown> | undefined)?.enginesCount ?? 1)));
+  const onlyToPurchase = Boolean((filters as Record<string, unknown> | undefined)?.onlyToPurchase);
+  const empty = (subtitle: string): ReportPresetPreviewResult => ({
+    ok: true,
+    presetId: 'norms_purchase_plan',
+    title: preset.title,
+    subtitle,
+    columns: preset.columns,
+    rows: [],
+    generatedAt: Date.now(),
+  });
+  if (!brandId) return empty('Выберите марку двигателя в фильтре');
+
+  const snapshot = await loadSnapshot(db);
+  const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
+  const { bomName, kitLines } = await loadBomKitForBrand(db, ctx, brandId);
+  if (kitLines.length === 0) {
+    return empty(`Марка «${brandLabel}»: BOM не найден (нет связи с сервером или BOM не заведён)`);
+  }
+
+  // Свободные остатки (qty − reserved) без технических локаций; ремфонд — отдельной колонкой.
+  const locByUuid = await getWarehouseLocationsById(ctx);
+  const balanceRows = (await db.select().from(erpRegStockBalance)) as Array<Record<string, unknown>>;
+  const availableByNom = new Map<string, number>();
+  const repairFundByNom = new Map<string, number>();
+  for (const raw of balanceRows) {
+    const nomId = String(raw.nomenclatureId ?? '');
+    if (!nomId) continue;
+    const loc = locByUuid.get(String(raw.warehouseLocationId ?? ''));
+    const code = loc?.code ?? '';
+    if (code === 'scrap' || code === 'assembly_in_progress') continue;
+    if (code === 'repair_fund') {
+      const qty = Math.max(0, Math.floor(Number(raw.qty ?? 0)));
+      if (qty > 0) repairFundByNom.set(nomId, (repairFundByNom.get(nomId) ?? 0) + qty);
+      continue;
+    }
+    const avail = Math.max(0, Math.floor(Number(raw.qty ?? 0) - Number(raw.reservedQty ?? 0)));
+    if (avail > 0) availableByNom.set(nomId, (availableByNom.get(nomId) ?? 0) + avail);
+  }
+
+  const slots = collapseBomKitSlots(kitLines);
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalPlanQty = 0;
+  let totalToPurchaseQty = 0;
+  let positionsWithoutNorm = 0;
+  for (const slot of slots) {
+    const qtyPerUnit = slot.primary.qty;
+    if (qtyPerUnit <= 0) continue;
+    const normPercent = slot.primary.normPercent;
+    if (normPercent == null) positionsWithoutNorm += 1;
+    const effectivePct = normPercent ?? 100;
+    const planQty = Math.ceil((qtyPerUnit * enginesCount * effectivePct) / 100);
+    const uniqNomIds = Array.from(
+      new Set([slot.primary, ...slot.alternatives].map((l) => l.nomenclatureId).filter(Boolean)),
+    );
+    const sum = (m: Map<string, number>) => uniqNomIds.reduce((acc, id) => acc + (m.get(id) ?? 0), 0);
+    const availableQty = sum(availableByNom);
+    const repairFundQty = sum(repairFundByNom);
+    const toPurchaseQty = Math.max(0, planQty - availableQty);
+    totalPlanQty += planQty;
+    totalToPurchaseQty += toPurchaseQty;
+    if (onlyToPurchase && toPurchaseQty <= 0) continue;
+    const noteParts = [
+      normPercent == null ? 'норма не задана — 100%' : '',
+      slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
+      slot.isRequired ? '' : 'опционально',
+    ].filter(Boolean);
+    rows.push({
+      componentName: slot.primary.name || slot.primary.nomenclatureId.slice(0, 8),
+      componentCode: slot.primary.code,
+      qtyPerUnit,
+      normPercentLabel: normPercent == null ? '—' : String(normPercent),
+      planQty,
+      availableQty,
+      repairFundQty,
+      toPurchaseQty,
+      variantNote: noteParts.join(' · '),
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Number(b.toPurchaseQty ?? 0) - Number(a.toPurchaseQty ?? 0) ||
+      String(a.componentName ?? '').localeCompare(String(b.componentName ?? ''), 'ru'),
+  );
+
+  return {
+    ok: true,
+    presetId: 'norms_purchase_plan',
+    title: preset.title,
+    subtitle: `${brandLabel} · BOM «${bomName}» · двигателей: ${enginesCount}`,
+    columns: preset.columns,
+    rows,
+    totals: { totalPlanQty, totalToPurchaseQty, positionsWithoutNorm },
+    ...(positionsWithoutNorm > 0
+      ? { footerNotes: [`Позиций без типизированной нормы: ${positionsWithoutNorm} — посчитаны как 100% замены.`] }
+      : {}),
+    generatedAt: Date.now(),
+  };
+}
