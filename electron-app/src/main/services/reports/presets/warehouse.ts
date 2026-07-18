@@ -2,8 +2,10 @@ import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  REPAIR_FUND_INSTANCE_TYPE,
   StockMovementType,
   WarehouseDocumentTypeLabels,
+  parseRepairFundInstancePayload,
   warehouseDocumentStatusLabel,
   warehouseLocationLabel,
   tryParseWarehousePartNomenclatureMirror,
@@ -1022,6 +1024,118 @@ export async function buildSupplyReceiptGapReport(
     columns: preset.columns,
     rows,
     totals: { requests: withReceipt + withoutReceipt, withReceipt, withoutReceipt },
+    generatedAt: Date.now(),
+  };
+}
+
+/**
+ * Ф6 (G10): сверка поэкземплярного ремфонда (операции repair_fund_instance со статусом
+ * in_fund) с агрегатным остатком локации repair_fund по номенклатуре. Экземпляров
+ * больше остатка — красный сигнал расползания двух учётов; остаток больше экземпляров —
+ * просто безымянные детали (информативно).
+ */
+export async function buildRepairFundReconciliationReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const onlyMismatch = Boolean((filters as Record<string, unknown> | undefined)?.onlyMismatch);
+  const nomenclatureSearch = String((filters as Record<string, unknown> | undefined)?.nomenclatureSearch ?? '')
+    .trim()
+    .toLowerCase();
+
+  const locByUuid = await getWarehouseLocationsById(ctx);
+
+  type Bucket = { instances: number; fundQty: number; stampedNumbers: string[] };
+  const agg = new Map<string, Bucket>();
+  const bucket = (nomenclatureId: string): Bucket => {
+    let cur = agg.get(nomenclatureId);
+    if (!cur) {
+      cur = { instances: 0, fundQty: 0, stampedNumbers: [] };
+      agg.set(nomenclatureId, cur);
+    }
+    return cur;
+  };
+
+  const instanceOps = (await db
+    .select({ metaJson: operations.metaJson })
+    .from(operations)
+    .where(and(eq(operations.operationType, REPAIR_FUND_INSTANCE_TYPE), isNull(operations.deletedAt)))) as Array<{
+    metaJson: string | null;
+  }>;
+  for (const op of instanceOps) {
+    const payload = parseRepairFundInstancePayload(op.metaJson);
+    if (!payload || payload.status !== 'in_fund') continue;
+    const nomenclatureId = String(payload.nomenclatureId ?? '');
+    if (!nomenclatureId) continue;
+    const b = bucket(nomenclatureId);
+    b.instances += 1;
+    if (payload.stampedNumber) b.stampedNumbers.push(payload.stampedNumber);
+  }
+
+  const balanceRows = (await db.select().from(erpRegStockBalance)) as Array<Record<string, unknown>>;
+  for (const raw of balanceRows) {
+    const nomenclatureId = raw.nomenclatureId ? String(raw.nomenclatureId) : '';
+    if (!nomenclatureId) continue;
+    const loc = locByUuid.get(String(raw.warehouseLocationId ?? ''));
+    const isFund = loc ? loc.code === 'repair_fund' : String(raw.warehouseId ?? '') === 'repair_fund';
+    if (!isFund) continue;
+    bucket(nomenclatureId).fundQty += Math.max(0, Math.floor(Number(raw.qty ?? 0)));
+  }
+
+  const nomenRows = await db
+    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt));
+  const nomenById = new Map<string, { code: string; name: string }>();
+  for (const row of nomenRows as Array<{ id: unknown; code: unknown; name: unknown }>) {
+    nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let totalInstances = 0;
+  let totalFundQty = 0;
+  let mismatchPositions = 0;
+  for (const [nomenclatureId, b] of agg.entries()) {
+    if (b.instances === 0 && b.fundQty === 0) continue;
+    const nomen = nomenById.get(nomenclatureId);
+    if (nomenclatureSearch) {
+      const hay = `${nomen?.name ?? ''} ${nomen?.code ?? ''}`.toLowerCase();
+      if (!hay.includes(nomenclatureSearch)) continue;
+    }
+    const excessInstances = Math.max(0, b.instances - b.fundQty);
+    if (excessInstances > 0) mismatchPositions += 1;
+    if (onlyMismatch && excessInstances === 0) continue;
+    totalInstances += b.instances;
+    totalFundQty += b.fundQty;
+    rows.push({
+      nomenclatureName: nomen?.name ?? nomenclatureId,
+      nomenclatureCode: nomen?.code ?? '',
+      instancesInFund: b.instances,
+      fundQty: b.fundQty,
+      unnamedQty: Math.max(0, b.fundQty - b.instances),
+      excessInstances,
+      stampedNumbers: b.stampedNumbers.slice(0, 10).join(', ') + (b.stampedNumbers.length > 10 ? '…' : ''),
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Number(b.excessInstances ?? 0) - Number(a.excessInstances ?? 0) ||
+      String(a.nomenclatureName ?? '').localeCompare(String(b.nomenclatureName ?? ''), 'ru'),
+  );
+
+  const preset = getPreset('repair_fund_reconciliation');
+  return {
+    ok: true,
+    presetId: 'repair_fund_reconciliation',
+    title: preset.title,
+    subtitle:
+      mismatchPositions > 0
+        ? `⚠ Расхождений: ${mismatchPositions} позиц. (экземпляров больше остатка фонда)`
+        : 'Расхождений нет: все клеймёные экземпляры покрыты остатком фонда',
+    columns: preset.columns,
+    rows,
+    totals: { totalInstances, totalFundQty, mismatchPositions },
     generatedAt: Date.now(),
   };
 }
