@@ -433,6 +433,13 @@ export type WarehouseDocumentHeaderPayload = {
   /** Ф3 (G3): привязка к наряду (operations.id) + человекочитаемый номер для карточки/печати. */
   workOrderId: string | null;
   workOrderNo: string | null;
+  /** Ф4 (G5): на сторно-документе — ссылка на исходный проведённый документ. Ставит только сервер. */
+  reversalOfId: string | null;
+  reversalOfDocNo: string | null;
+  /** Ф4 (G5): на исходном документе — каким сторно-документом он сторнирован. Ставит только сервер. */
+  reversedByDocumentId: string | null;
+  reversedByDocNo: string | null;
+  reversedAt: number | null;
 };
 
 export type WarehouseDocumentLinePayload = {
@@ -537,6 +544,11 @@ export type WarehouseDocumentListItem = {
   engineId?: string | null;
   workOrderId?: string | null;
   workOrderNo?: string | null;
+  reversalOfId?: string | null;
+  reversalOfDocNo?: string | null;
+  reversedByDocumentId?: string | null;
+  reversedByDocNo?: string | null;
+  reversedAt?: number | null;
   createdAt: number;
   updatedAt: number;
   postedAt: number | null;

@@ -239,7 +239,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     code: PermissionCode.MovementsRevert,
     group: 'Склад',
     titleRu: 'Сторнирование движения склада',
-    descriptionRu: 'Создание зеркальной reversal-записи для отдельного движения склада.',
+    descriptionRu: 'Сторно проведённого складского документа: авто-документ с зеркальными reversal-движениями по всем строкам.',
     adminOnly: true,
   },
 
