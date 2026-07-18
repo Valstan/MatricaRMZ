@@ -411,6 +411,132 @@ export async function buildPartMovementJournalReport(
   };
 }
 
+/**
+ * Оборотная ведомость: сальдо нач. + приход − расход = сальдо кон. по (локация × номенклатура).
+ * Сальдо привязаны к текущим остаткам регистра (erp_reg_stock_balance), а не к сумме движений
+ * с нуля: closing = current − движения после конца периода, opening = closing − нетто за период.
+ * Так легаси-остатки без истории движений не искажают ведомость.
+ */
+export async function buildStockTurnoverReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const startMs = Number((filters as Record<string, unknown> | undefined)?.startMs ?? 0);
+  const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
+  const warehouseFilter = asArray(filters?.warehouseIds);
+  const onlyWithMovements = Boolean((filters as Record<string, unknown> | undefined)?.onlyWithMovements);
+  const nomenclatureSearch = String((filters as Record<string, unknown> | undefined)?.nomenclatureSearch ?? '')
+    .trim()
+    .toLowerCase();
+
+  const locByUuid = await getWarehouseLocationsById(ctx);
+
+  const nomenRows = await db
+    .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt));
+  const nomenById = new Map<string, { code: string; name: string }>();
+  for (const row of nomenRows as Array<{ id: unknown; code: unknown; name: unknown }>) {
+    nomenById.set(String(row.id), { code: String(row.code ?? ''), name: String(row.name ?? '') });
+  }
+
+  type Bucket = { currentQty: number; afterEndNet: number; receiptQty: number; issueQty: number };
+  const agg = new Map<string, Bucket>();
+  const bucket = (warehouseLocationId: string, nomenclatureId: string): Bucket => {
+    const key = `${warehouseLocationId}::${nomenclatureId}`;
+    let cur = agg.get(key);
+    if (!cur) {
+      cur = { currentQty: 0, afterEndNet: 0, receiptQty: 0, issueQty: 0 };
+      agg.set(key, cur);
+    }
+    return cur;
+  };
+
+  const movementRows = await db.select().from(erpRegStockMovements);
+  for (const raw of movementRows as Array<Record<string, unknown>>) {
+    const nomenclatureId = String(raw.nomenclatureId ?? '');
+    if (!nomenclatureId) continue;
+    const warehouseLocationId = String(raw.warehouseLocationId ?? '');
+    const qty = Number(raw.qty ?? 0);
+    const signed = raw.direction === 'in' ? qty : -qty;
+    const performedAt = Number(raw.performedAt ?? 0);
+    const b = bucket(warehouseLocationId, nomenclatureId);
+    if (endMs > 0 && performedAt > endMs) {
+      b.afterEndNet += signed;
+      continue;
+    }
+    if (startMs > 0 && performedAt < startMs) continue;
+    if (signed >= 0) b.receiptQty += signed;
+    else b.issueQty += -signed;
+  }
+
+  const balanceRows = await db.select().from(erpRegStockBalance);
+  for (const raw of balanceRows as Array<Record<string, unknown>>) {
+    const nomenclatureId = raw.nomenclatureId ? String(raw.nomenclatureId) : '';
+    if (!nomenclatureId) continue; // part-card-only легаси-строки — вне номенклатурной оборотки
+    bucket(String(raw.warehouseLocationId ?? ''), nomenclatureId).currentQty += Number(raw.qty ?? 0);
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  const totals = { openingQty: 0, receiptQty: 0, issueQty: 0, closingQty: 0 };
+  const totalsByWarehouse = new Map<string, typeof totals>();
+  for (const [key, b] of agg.entries()) {
+    const sep = key.indexOf('::');
+    const warehouseLocationId = key.slice(0, sep);
+    const nomenclatureId = key.slice(sep + 2);
+    if (warehouseFilter.length > 0 && !warehouseFilter.includes(warehouseLocationId)) continue;
+    const closingQty = b.currentQty - b.afterEndNet;
+    const openingQty = closingQty - (b.receiptQty - b.issueQty);
+    if (openingQty === 0 && b.receiptQty === 0 && b.issueQty === 0 && closingQty === 0) continue;
+    if (onlyWithMovements && b.receiptQty === 0 && b.issueQty === 0) continue;
+    const nomen = nomenById.get(nomenclatureId);
+    if (nomenclatureSearch) {
+      const hay = `${nomen?.name ?? ''} ${nomen?.code ?? ''}`.toLowerCase();
+      if (!hay.includes(nomenclatureSearch)) continue;
+    }
+    const warehouseLabel = locByUuid.get(warehouseLocationId)?.name ?? warehouseLocationLabel(warehouseLocationId, null);
+    rows.push({
+      warehouseLabel,
+      nomenclatureName: nomen?.name ?? nomenclatureId,
+      nomenclatureCode: nomen?.code ?? '',
+      openingQty,
+      receiptQty: b.receiptQty,
+      issueQty: b.issueQty,
+      closingQty,
+    });
+    totals.openingQty += openingQty;
+    totals.receiptQty += b.receiptQty;
+    totals.issueQty += b.issueQty;
+    totals.closingQty += closingQty;
+    const group = totalsByWarehouse.get(warehouseLabel) ?? { openingQty: 0, receiptQty: 0, issueQty: 0, closingQty: 0 };
+    group.openingQty += openingQty;
+    group.receiptQty += b.receiptQty;
+    group.issueQty += b.issueQty;
+    group.closingQty += closingQty;
+    totalsByWarehouse.set(warehouseLabel, group);
+  }
+
+  rows.sort(
+    (a, b) =>
+      String(a.warehouseLabel ?? '').localeCompare(String(b.warehouseLabel ?? ''), 'ru') ||
+      String(a.nomenclatureName ?? '').localeCompare(String(b.nomenclatureName ?? ''), 'ru'),
+  );
+
+  const preset = getPreset('stock_turnover');
+  return {
+    ok: true,
+    presetId: 'stock_turnover',
+    title: preset.title,
+    subtitle: `${msToDate(startMs > 0 ? startMs : null)} — ${msToDate(endMs > 0 ? endMs : Date.now())} · позиций: ${rows.length}`,
+    columns: preset.columns,
+    rows,
+    totals,
+    totalsByGroup: Array.from(totalsByWarehouse.entries()).map(([group, totals]) => ({ group, totals })),
+    generatedAt: Date.now(),
+  };
+}
+
 export async function buildWorkshopThroughputReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
