@@ -31,7 +31,8 @@ export type ReportPresetId =
   | 'scrap_register'
   | 'engine_kitting'
   | 'supply_receipt_gap'
-  | 'norms_purchase_plan';
+  | 'norms_purchase_plan'
+  | 'repair_fund_reconciliation';
 
 export type ReportFilterOption = {
   value: string;
@@ -1183,6 +1184,35 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'repairFundQty', label: 'Ремфонд', kind: 'number', align: 'right' },
       { key: 'toPurchaseQty', label: 'К закупке', kind: 'number', align: 'right' },
       { key: 'variantNote', label: 'Примечание' },
+    ],
+  },
+  {
+    id: 'repair_fund_reconciliation',
+    title: 'Сверка ремфонда: экземпляры vs остаток',
+    description:
+      'Контроль расползания двух учётов: клеймёные экземпляры «в ремфонде» (поэкземплярный реестр) против агрегатного остатка локации «Ремонтный фонд» по каждой номенклатуре. Экземпляров больше остатка — красный сигнал.',
+    filters: [
+      {
+        type: 'text',
+        key: 'nomenclatureSearch',
+        label: 'Деталь (поиск по названию/коду)',
+        placeholder: 'часть имени или кода',
+      },
+      {
+        type: 'checkbox',
+        key: 'onlyMismatch',
+        label: 'Только расхождения',
+        labelHint: 'Показать только позиции, где клеймёных экземпляров числится больше, чем агрегатный остаток фонда.',
+      },
+    ],
+    columns: [
+      { key: 'nomenclatureName', label: 'Деталь' },
+      { key: 'nomenclatureCode', label: 'Код' },
+      { key: 'instancesInFund', label: 'Экземпляров «в ремфонде»', kind: 'number', align: 'right' },
+      { key: 'fundQty', label: 'Остаток фонда (агрегат)', kind: 'number', align: 'right' },
+      { key: 'unnamedQty', label: 'Безымянных (остаток − экз.)', kind: 'number', align: 'right' },
+      { key: 'excessInstances', label: 'Экз. сверх остатка ⚠', kind: 'number', align: 'right' },
+      { key: 'stampedNumbers', label: 'Личные №' },
     ],
   },
   {

@@ -12,7 +12,7 @@ import {
 
 
 
-import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport } from './presets/warehouse.js';
+import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport, buildRepairFundReconciliationReport } from './presets/warehouse.js';
 import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
@@ -83,6 +83,8 @@ export async function buildReportByPreset(
         return buildSupplyReceiptGapReport(db, args.filters, ctx);
       case 'norms_purchase_plan':
         return buildNormsPurchasePlanReport(db, args.filters, ctx);
+      case 'repair_fund_reconciliation':
+        return buildRepairFundReconciliationReport(db, args.filters, ctx);
       case 'defect_returns_summary':
         return buildDefectReturnsSummaryReport(db, args.filters);
       case 'movement_integrity_audit':
