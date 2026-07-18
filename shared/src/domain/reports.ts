@@ -23,6 +23,7 @@ export type ReportPresetId =
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
   | 'part_movement_journal'
+  | 'stock_turnover'
   | 'workshop_throughput'
   | 'engine_readiness_to_assemble'
   | 'defect_returns_summary'
@@ -1102,6 +1103,43 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'documentDocType', label: 'Тип документа' },
       { key: 'performedBy', label: 'Исполнитель' },
       { key: 'reason', label: 'Причина' },
+    ],
+  },
+  {
+    id: 'stock_turnover',
+    title: 'Оборотная ведомость по складу',
+    description:
+      'Классическая оборотка по номенклатуре и локации: сальдо на начало периода + приход − расход = сальдо на конец. Сальдо привязаны к текущим остаткам регистра.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'multi_select',
+        key: 'warehouseIds',
+        label: 'Склады',
+        labelHint: 'Локации остатков. Пустой список = все.',
+        optionsSource: 'warehouses',
+      },
+      {
+        type: 'text',
+        key: 'nomenclatureSearch',
+        label: 'Деталь (поиск по названию/коду)',
+        placeholder: 'часть имени или кода',
+      },
+      {
+        type: 'checkbox',
+        key: 'onlyWithMovements',
+        label: 'Только с движением за период',
+        labelHint: 'Скрыть позиции, у которых за период не было ни прихода, ни расхода (только сальдо).',
+      },
+    ],
+    columns: [
+      { key: 'warehouseLabel', label: 'Локация' },
+      { key: 'nomenclatureName', label: 'Деталь' },
+      { key: 'nomenclatureCode', label: 'Код' },
+      { key: 'openingQty', label: 'Сальдо нач.', kind: 'number', align: 'right' },
+      { key: 'receiptQty', label: 'Приход', kind: 'number', align: 'right' },
+      { key: 'issueQty', label: 'Расход', kind: 'number', align: 'right' },
+      { key: 'closingQty', label: 'Сальдо кон.', kind: 'number', align: 'right' },
     ],
   },
   {

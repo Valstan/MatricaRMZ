@@ -12,7 +12,7 @@ import {
 
 
 
-import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport } from './presets/warehouse.js';
+import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport } from './presets/warehouse.js';
 import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
@@ -71,6 +71,8 @@ export async function buildReportByPreset(
         return buildAssemblyForecast7dReport(db, args.filters, ctx);
       case 'part_movement_journal':
         return buildPartMovementJournalReport(db, args.filters, ctx);
+      case 'stock_turnover':
+        return buildStockTurnoverReport(db, args.filters, ctx);
       case 'workshop_throughput':
         return buildWorkshopThroughputReport(db, args.filters, ctx);
       case 'engine_readiness_to_assemble':
