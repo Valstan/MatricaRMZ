@@ -2,6 +2,7 @@ import { and, eq, isNull, like, or } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import {
+  aiChatRequests,
   attributeValues,
   chatMessages,
   directoryParts,
@@ -173,7 +174,26 @@ async function computeFileAccess(actor: FileActor, file: FileRow): Promise<boole
     if (permsForEntityTypeCode(String(r.code || '')).some((p) => has(p))) return true;
   }
 
-  // 5) directory_parts mirror of part FileRefs (parts card or part-spec card).
+  // 5) AI-чат: файл вопроса/ответа читаем владельцем запроса (ответные файлы
+  // создаёт актор ai-agent, поэтому createdByUserId-ветки недостаточно).
+  {
+    const aiRows = await db
+      .select({ q: aiChatRequests.questionFileJson, a: aiChatRequests.answerFilesJson })
+      .from(aiChatRequests)
+      .where(
+        and(
+          isNull(aiChatRequests.deletedAt),
+          eq(aiChatRequests.userId, actor.id as any),
+          or(like(aiChatRequests.questionFileJson, likeArg), like(aiChatRequests.answerFilesJson, likeArg)),
+        ),
+      )
+      .limit(50);
+    for (const r of aiRows) {
+      if (jsonContainsId(r.q, id) || jsonContainsId(r.a, id)) return true;
+    }
+  }
+
+  // 6) directory_parts mirror of part FileRefs (parts card or part-spec card).
   if (has(PermissionCode.PartsView) || has(PermissionCode.ErpDictionaryView)) {
     const dpRows = await db
       .select({ meta: directoryParts.metadataJson })
