@@ -28,6 +28,7 @@ import { maintenanceRouter } from './routes/maintenance.js';
 import { checklistsRouter } from './routes/checklists.js';
 import { diagnosticsRouter } from './routes/diagnostics.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
+import { aiChatRouter } from './routes/aiChat.js';
 import { searchRouter } from './routes/search.js';
 import { ledgerRouter } from './routes/ledger.js';
 import { notesRouter } from './routes/notes.js';
@@ -163,6 +164,7 @@ export function createApp() {
   app.use('/checklists', checklistsRouter);
   app.use('/diagnostics', diagnosticsRouter);
   app.use('/ai', aiAgentRouter);
+  app.use('/ai-chat', aiChatRouter);
   app.use('/reports', requireAuth, requirePermission(PermissionCode.ReportsView), reportsRouter);
   app.use('/erp', erpRouter);
   app.use('/warehouse', warehouseRouter);

@@ -744,6 +744,14 @@ const matricaApi = {
     reorder: async (args: { noteId: string; sortOrder: number }) => ipcRenderer.invoke('notes:reorder', args),
     burningCount: async () => ipcRenderer.invoke('notes:burningCount'),
   },
+  aiChat: {
+    list: async () => ipcRenderer.invoke('aiChat:list'),
+    create: async (args: { questionText: string; filePath?: string }) => ipcRenderer.invoke('aiChat:create', args),
+    update: async (args: { id: string; questionText: string }) => ipcRenderer.invoke('aiChat:update', args),
+    delete: async (args: { id: string }) => ipcRenderer.invoke('aiChat:delete', args),
+    setVerdict: async (args: { id: string; verdictText: string }) => ipcRenderer.invoke('aiChat:setVerdict', args),
+    meta: async () => ipcRenderer.invoke('aiChat:meta'),
+  },
   aiAgent: {
     assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
     logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),
