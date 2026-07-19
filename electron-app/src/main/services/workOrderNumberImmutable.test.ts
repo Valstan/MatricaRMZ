@@ -1,0 +1,130 @@
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { describe, expect, it } from 'vitest';
+
+import type { WorkOrderPayload } from '@matricarmz/shared';
+
+import { createWorkOrder, updateWorkOrder } from './workOrderService.js';
+
+// Guard for the «№ новый навсегда» data-loss incident: a stale recovery draft (snapshot
+// taken before deferred-create materialization) carries workOrderNumber: 0 — committing it
+// over a materialized order must never downgrade the assigned number.
+
+function makeDb() {
+  const sqlite = new Database(':memory:');
+  sqlite.exec(`
+    CREATE TABLE operations (
+      id text PRIMARY KEY NOT NULL,
+      engine_entity_id text NOT NULL,
+      operation_type text NOT NULL,
+      status text NOT NULL,
+      note text,
+      performed_at integer,
+      performed_by text,
+      meta_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE TABLE audit_log (
+      id text PRIMARY KEY NOT NULL,
+      actor text NOT NULL,
+      action text NOT NULL,
+      entity_id text,
+      table_name text,
+      payload_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+  `);
+  return { sqlite, db: drizzle(sqlite) as any };
+}
+
+async function materialize(db: any): Promise<{ id: string; payload: WorkOrderPayload; number: number }> {
+  const created = await createWorkOrder(db, 'tester');
+  if (!created.ok) throw new Error(created.error);
+  const saved = await updateWorkOrder(db, { id: created.id, payload: created.payload, actor: 'tester' });
+  if (!saved.ok) throw new Error(saved.error);
+  return { id: created.id, payload: created.payload, number: saved.workOrderNumber };
+}
+
+function storedNumber(sqlite: Database.Database, id: string): number {
+  const row = sqlite.prepare(`SELECT meta_json FROM operations WHERE id = ?`).get(id) as { meta_json: string };
+  return Number((JSON.parse(row.meta_json) as WorkOrderPayload).workOrderNumber ?? 0);
+}
+
+describe('work order number immutability', () => {
+  it('first save materializes the row and assigns max+1', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const first = await materialize(db);
+      const second = await materialize(db);
+      expect(first.number).toBe(1);
+      expect(second.number).toBe(2);
+      expect(storedNumber(sqlite, second.id)).toBe(2);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('committing a stale draft payload (number 0) keeps the assigned number', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      // Stale recovery snapshot: taken before materialization → number 0.
+      const stale: WorkOrderPayload = { ...order.payload, workOrderNumber: 0 };
+      const saved = await updateWorkOrder(db, { id: order.id, payload: stale, actor: 'tester' });
+      expect(saved.ok).toBe(true);
+      if (saved.ok) expect(saved.workOrderNumber).toBe(order.number);
+      expect(storedNumber(sqlite, order.id)).toBe(order.number);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('a foreign number in the payload cannot overwrite the assigned one', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      const tampered: WorkOrderPayload = { ...order.payload, workOrderNumber: 999 };
+      const saved = await updateWorkOrder(db, { id: order.id, payload: tampered, actor: 'tester' });
+      expect(saved.ok).toBe(true);
+      if (saved.ok) expect(saved.workOrderNumber).toBe(order.number);
+      expect(storedNumber(sqlite, order.id)).toBe(order.number);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('heals an already-broken row (stored number 0) by assigning a fresh number on save', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db); // consumes number 1
+      const broken = await materialize(db); // number 2
+      // Simulate the past incident: stored payload downgraded to 0.
+      sqlite
+        .prepare(`UPDATE operations SET meta_json = ? WHERE id = ?`)
+        .run(JSON.stringify({ ...broken.payload, workOrderNumber: 0 }), broken.id);
+      expect(storedNumber(sqlite, broken.id)).toBe(0);
+
+      const saved = await updateWorkOrder(db, {
+        id: broken.id,
+        payload: { ...broken.payload, workOrderNumber: 0 },
+        actor: 'tester',
+      });
+      expect(saved.ok).toBe(true);
+      if (saved.ok) {
+        expect(saved.workOrderNumber).toBeGreaterThan(0);
+        expect(saved.workOrderNumber).not.toBe(order.number);
+        expect(storedNumber(sqlite, broken.id)).toBe(saved.workOrderNumber);
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+});

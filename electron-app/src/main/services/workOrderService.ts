@@ -643,7 +643,7 @@ export async function updateWorkOrder(
   try {
     const ts = nowMs();
     const existing = await db
-      .select({ id: operations.id })
+      .select({ id: operations.id, metaJson: operations.metaJson })
       .from(operations)
       .where(
         and(
@@ -683,9 +683,20 @@ export async function updateWorkOrder(
       return { ok: true as const, workOrderNumber };
     }
 
+    // The assigned number is immutable: a stale recovery draft (snapshot taken before
+    // materialization) carries `workOrderNumber: 0` — committing it must never downgrade the
+    // stored number (the «№ новый навсегда» loss). Row's number wins; if the row itself is
+    // broken (0, from a past incident), heal it: keep a valid payload number or assign a fresh one.
+    const existingParsed = existing[0]?.metaJson ? (safeJsonParse(String(existing[0].metaJson)) as any) : null;
+    const existingNumber = Number(existingParsed?.workOrderNumber ?? 0);
+    const payloadNumber = Number(args.payload.workOrderNumber ?? 0);
+    const workOrderNumber =
+      existingNumber > 0 ? existingNumber : payloadNumber > 0 ? payloadNumber : await nextWorkOrderNumber(db);
+
     const payload = recalcPayload({
       ...args.payload,
       operationId: args.id,
+      workOrderNumber,
       auditTrail: [...(args.payload.auditTrail ?? []), { at: ts, by: args.actor, action: 'update' }],
     });
 
