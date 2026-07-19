@@ -7,6 +7,7 @@ import {
   MOCK_BLOCK_LABELS_RU,
   MOCK_LINK_KINDS,
   MOCK_LINK_LABELS_RU,
+  MOCK_BLOCK_MIN_SIZE,
   MOCKUP_STARTER_TEMPLATE_IDS,
   MOCKUP_STARTER_TEMPLATE_LABELS_RU,
   UI_SPEC_MAX_BLOCKS,
@@ -249,6 +250,8 @@ export function ScreenEditorPage(props: {
   const [sectionId, setSectionId] = useState('');
   const [spec, setSpec] = useState<UiSpecV2>(() => ({ ...EMPTY_UI_SPEC, canvas: { ...EMPTY_UI_SPEC.canvas }, blocks: [], links: [] }));
   const [selection, setSelection] = useState<MockupSelection>(null);
+  const [multiIds, setMultiIds] = useState<ReadonlySet<string>>(new Set());
+  const moveOriginRef = useRef<Map<string, { x: number; y: number }> | null>(null);
   const [linkMode, setLinkMode] = useState(false);
   const [linkFromId, setLinkFromId] = useState<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(false);
@@ -384,6 +387,32 @@ export function ScreenEditorPage(props: {
 
   const selectedBlock = selection?.type === 'block' ? spec.blocks.find((b) => b.id === selection.id) ?? null : null;
   const selectedLink = selection?.type === 'link' ? spec.links.find((l) => l.id === selection.id) ?? null : null;
+  const isMulti = multiIds.size > 1;
+
+  function handleSelect(sel: MockupSelection) {
+    setSelection(sel);
+    setMultiIds(sel?.type === 'block' ? new Set([sel.id]) : new Set());
+  }
+
+  function toggleSelect(id: string) {
+    const next = new Set(multiIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setMultiIds(next);
+    setSelection(next.size > 0 ? { type: 'block', id: next.has(id) ? id : [...next][next.size - 1]! } : null);
+  }
+
+  function marqueeSelect(ids: string[], additive: boolean) {
+    const next = additive ? new Set([...multiIds, ...ids]) : new Set(ids);
+    setMultiIds(next);
+    setSelection(next.size > 0 ? { type: 'block', id: [...next][next.size - 1]! } : null);
+  }
+
+  /** Ids the group operations act on: multi-selection, else the single selected block. */
+  function targetIds(): Set<string> {
+    if (multiIds.size > 0) return new Set(multiIds);
+    return selection?.type === 'block' ? new Set([selection.id]) : new Set();
+  }
 
   function addBlock(kind: MockBlockKind) {
     if (spec.blocks.length >= UI_SPEC_MAX_BLOCKS) {
@@ -402,6 +431,7 @@ export function ScreenEditorPage(props: {
     };
     mutateSpec((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
     setSelection({ type: 'block', id: block.id });
+    setMultiIds(new Set([block.id]));
   }
 
   function insertStarterTemplate(template: MockupStarterTemplateId) {
@@ -421,29 +451,32 @@ export function ScreenEditorPage(props: {
       links: [...prev.links, ...made.links],
     }));
     setSelection(null);
+    setMultiIds(new Set());
   }
 
   function updateBlock(next: MockBlock) {
     mutateSpec((prev) => ({ ...prev, blocks: prev.blocks.map((b) => (b.id === next.id ? next : b)) }));
   }
 
-  function duplicateBlock(id: string) {
-    const src = spec.blocks.find((b) => b.id === id);
-    if (!src) return;
-    if (spec.blocks.length >= UI_SPEC_MAX_BLOCKS) {
+  function duplicateBlocks(ids: Set<string>) {
+    const src = spec.blocks.filter((b) => ids.has(b.id));
+    if (src.length === 0) return;
+    if (spec.blocks.length + src.length > UI_SPEC_MAX_BLOCKS) {
       notify(`Не больше ${UI_SPEC_MAX_BLOCKS} элементов на эскизе`);
       return;
     }
-    const copy: MockBlock = { ...src, id: newId('blk'), x: src.x + 24, y: src.y + 24 };
-    mutateSpec((prev) => ({ ...prev, blocks: [...prev.blocks, copy] }));
-    setSelection({ type: 'block', id: copy.id });
+    const copies: MockBlock[] = src.map((b) => ({ ...b, id: newId('blk'), x: b.x + 24, y: b.y + 24 }));
+    mutateSpec((prev) => ({ ...prev, blocks: [...prev.blocks, ...copies] }));
+    const copyIds = new Set(copies.map((c) => c.id));
+    setMultiIds(copyIds);
+    setSelection({ type: 'block', id: copies[copies.length - 1]!.id });
   }
 
-  function nudgeBlock(id: string, dx: number, dy: number) {
+  function nudgeBlocks(ids: Set<string>, dx: number, dy: number) {
     mutateSpec((prev) => ({
       ...prev,
       blocks: prev.blocks.map((b) =>
-        b.id === id ? { ...b, x: Math.max(0, b.x + dx), y: Math.max(0, b.y + dy) } : b,
+        ids.has(b.id) ? { ...b, x: Math.max(0, b.x + dx), y: Math.max(0, b.y + dy) } : b,
       ),
     }));
   }
@@ -459,13 +492,71 @@ export function ScreenEditorPage(props: {
     }));
   }
 
-  function removeBlock(id: string) {
+  /** Move gesture (deltas from gesture start): drags the whole multi-selection. */
+  function handleBlockMove(id: string, dx: number, dy: number) {
+    if (!moveOriginRef.current) {
+      const ids = multiIds.has(id) ? multiIds : new Set([id]);
+      moveOriginRef.current = new Map(spec.blocks.filter((b) => ids.has(b.id)).map((b) => [b.id, { x: b.x, y: b.y }]));
+    }
+    const origins = moveOriginRef.current;
+    const snap = (v: number) => (snapToGrid ? Math.round(v / GRID) * GRID : v);
+    setSpec((prev) => ({
+      ...prev,
+      blocks: prev.blocks.map((b) => {
+        const org = origins.get(b.id);
+        if (!org) return b;
+        return {
+          ...b,
+          x: Math.max(0, Math.min(prev.canvas.w - MOCK_BLOCK_MIN_SIZE, snap(org.x + dx))),
+          y: Math.max(0, Math.min(prev.canvas.h - MOCK_BLOCK_MIN_SIZE, snap(org.y + dy))),
+        };
+      }),
+    }));
+  }
+
+  function handleDragStart() {
+    moveOriginRef.current = null;
+    snapshotForDrag();
+  }
+
+  function removeBlocks(ids: Set<string>) {
     mutateSpec((prev) => ({
       ...prev,
-      blocks: prev.blocks.filter((b) => b.id !== id),
-      links: prev.links.filter((l) => l.fromId !== id && l.toId !== id),
+      blocks: prev.blocks.filter((b) => !ids.has(b.id)),
+      links: prev.links.filter((l) => !ids.has(l.fromId) && !ids.has(l.toId)),
     }));
     setSelection(null);
+    setMultiIds(new Set());
+  }
+
+  /** «Выровнять»: ≥2 выбранных — левые края к минимальному + всё к сетке; иначе весь эскиз к сетке. */
+  function alignBlocks() {
+    const ids = targetIds();
+    const snap = (v: number) => Math.round(v / GRID) * GRID;
+    mutateSpec((prev) => {
+      if (ids.size >= 2) {
+        const sel = prev.blocks.filter((b) => ids.has(b.id));
+        const left = snap(Math.min(...sel.map((b) => b.x)));
+        return {
+          ...prev,
+          blocks: prev.blocks.map((b) =>
+            ids.has(b.id)
+              ? { ...b, x: left, y: snap(b.y), w: Math.max(MOCK_BLOCK_MIN_SIZE, snap(b.w)), h: Math.max(MOCK_BLOCK_MIN_SIZE, snap(b.h)) }
+              : b,
+          ),
+        };
+      }
+      return {
+        ...prev,
+        blocks: prev.blocks.map((b) => ({
+          ...b,
+          x: snap(b.x),
+          y: snap(b.y),
+          w: Math.max(MOCK_BLOCK_MIN_SIZE, snap(b.w)),
+          h: Math.max(MOCK_BLOCK_MIN_SIZE, snap(b.h)),
+        })),
+      };
+    });
   }
 
   function updateLink(next: MockLink) {
@@ -494,28 +585,28 @@ export function ScreenEditorPage(props: {
         redo();
         return;
       }
-      if (!selection) return;
+      if (!selection && multiIds.size === 0) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        if (selection.type === 'block') removeBlock(selection.id);
-        else removeLink(selection.id);
+        if (selection?.type === 'link') removeLink(selection.id);
+        else removeBlocks(targetIds());
         return;
       }
-      if (selection.type !== 'block') return;
+      if (selection?.type === 'link') return;
       if (mod && e.key.toLowerCase() === 'd') {
         e.preventDefault();
-        duplicateBlock(selection.id);
+        duplicateBlocks(targetIds());
         return;
       }
       const stepPx = e.shiftKey ? 10 : 1;
-      if (e.key === 'ArrowLeft') { e.preventDefault(); nudgeBlock(selection.id, -stepPx, 0); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); nudgeBlock(selection.id, stepPx, 0); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); nudgeBlock(selection.id, 0, -stepPx); }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeBlock(selection.id, 0, stepPx); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); nudgeBlocks(targetIds(), -stepPx, 0); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); nudgeBlocks(targetIds(), stepPx, 0); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); nudgeBlocks(targetIds(), 0, -stepPx); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeBlocks(targetIds(), 0, stepPx); }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selection, spec.blocks.length, snapToGrid]);
+  }, [selection, multiIds, spec.blocks.length, snapToGrid]);
 
   function onLinkClick(blockId: string) {
     if (!linkFromId) {
@@ -646,6 +737,14 @@ export function ScreenEditorPage(props: {
         >
           ⌗ Сетка
         </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={alignBlocks}
+          title="≥2 выбранных: левые края к минимальному + всё к сетке; иначе весь эскиз к сетке 8px"
+        >
+          ▤ Выровнять
+        </Button>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
           <Button size="sm" variant="ghost" onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}>
             −
@@ -709,15 +808,33 @@ export function ScreenEditorPage(props: {
               </span>
             ))}
           </div>
-          {selectedBlock ? (
+          {isMulti ? (
+            <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Выбрано элементов: {multiIds.size}</div>
+              <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 4 }}>
+                Тащите любой из выбранных — двигается вся группа. Стрелки — сдвиг, Shift+стрелки — крупнее.
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <Button size="sm" variant="ghost" onClick={() => duplicateBlocks(targetIds())} title="Ctrl+D">
+                  Дублировать группу
+                </Button>
+                <Button size="sm" variant="ghost" onClick={alignBlocks} title="Левые края — к минимальному, всё — к сетке 8px">
+                  ⌗ Выровнять
+                </Button>
+                <Button size="sm" variant="ghost" tone="danger" onClick={() => removeBlocks(targetIds())} title="Delete">
+                  Удалить группу
+                </Button>
+              </div>
+            </div>
+          ) : selectedBlock ? (
             <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
               <BlockProperties
                 block={selectedBlock}
                 tabOptions={props.tabOptions ?? []}
                 reportTemplates={reportTemplates}
                 onChange={updateBlock}
-                onRemove={() => removeBlock(selectedBlock.id)}
-                onDuplicate={() => duplicateBlock(selectedBlock.id)}
+                onRemove={() => removeBlocks(new Set([selectedBlock.id]))}
+                onDuplicate={() => duplicateBlocks(new Set([selectedBlock.id]))}
               />
             </div>
           ) : selectedLink ? (
@@ -727,7 +844,8 @@ export function ScreenEditorPage(props: {
           ) : (
             <div style={{ fontSize: 12, color: theme.colors.muted, borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
               Кликните элемент или нить на холсте — здесь появятся его свойства. Элементы можно таскать мышкой и растягивать за
-              правый нижний угол. У каждого элемента заполняйте «что должен делать» — это главное в эскизе.
+              правый нижний угол. Рамка по пустому месту или Shift+клик — выделение нескольких элементов сразу. У каждого
+              элемента заполняйте «что должен делать» — это главное в эскизе.
             </div>
           )}
         </div>
@@ -740,10 +858,14 @@ export function ScreenEditorPage(props: {
             linkMode={linkMode}
             linkFromId={linkFromId}
             scale={zoom}
-            onSelect={setSelection}
+            selectedIds={multiIds}
+            onSelect={handleSelect}
+            onToggleSelect={toggleSelect}
+            onMarqueeSelect={marqueeSelect}
             onLinkClick={onLinkClick}
-            onDragStart={snapshotForDrag}
+            onDragStart={handleDragStart}
             onBlockGeometry={patchBlockGeometry}
+            onBlockMove={handleBlockMove}
           />
         </div>
       </div>
