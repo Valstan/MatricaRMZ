@@ -26,6 +26,7 @@ export * from './domain/part.js';
 export * from './domain/liveGroupLinks.js';
 export * from './domain/notes.js';
 export * from './domain/aiAgent.js';
+export * from './domain/aiChatSchedule.js';
 export * from './domain/systemIds.js';
 export * from './domain/permissions.js';
 export * from './domain/ledgerAuthz.js';

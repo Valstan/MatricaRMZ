@@ -1999,6 +1999,17 @@ export type MatricaApi = {
     usersList: () => Promise<ChatUsersListResult>;
     burningCount: () => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   };
+  aiChat: {
+    // Асинхронный AI-чат (очередь вопросов, отвечает облачная рутина).
+    list: () => Promise<
+      { ok: true; items: import('../domain/aiChatSchedule.js').AiChatRequestItem[] } | { ok: false; error: string }
+    >;
+    create: (args: { questionText: string; filePath?: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    update: (args: { id: string; questionText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    delete: (args: { id: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    setVerdict: (args: { id: string; verdictText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    meta: () => Promise<import('../domain/aiChatSchedule.js').AiChatMetaResult>;
+  };
   aiAgent: {
     assist: (args: AiAgentAssistRequest) => Promise<AiAgentAssistResponse>;
     logEvent: (args: AiAgentLogRequest) => Promise<AiAgentLogResponse>;

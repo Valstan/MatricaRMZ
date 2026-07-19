@@ -1,13 +1,13 @@
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
+// Асинхронный AI-чат: очередь вопросов (≤5/час), ответы пишет облачная рутина
+// (Пн–Пт 8:00–17:00 МСК, раз в час). Вопрос можно редактировать/удалять, пока он
+// не обработан. Файлы — через существующий files-контур (Яндекс.Диск).
+import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
-import type {
-  AiAgentAssistResponse,
-  AiAgentContext,
-  AiAgentEvent,
-  AiAgentStreamEvent,
-  AiAgentSuggestion,
-  AiChatConversationSummary,
-  AiChatHistoryMessage,
+import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, FileRef } from '@matricarmz/shared';
+import {
+  AI_CHAT_MAX_QUESTIONS_PER_HOUR,
+  AI_CHAT_STATUS_LABELS,
+  getNextAiRunAt,
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
@@ -15,70 +15,58 @@ import { theme } from '../theme.js';
 import { formatMoscowTime } from '../utils/dateUtils.js';
 import { renderMarkdown } from '../utils/markdownLite.js';
 
-type ChatItem =
-  | { id: string; role: 'user'; text: string; ts: number }
-  | {
-      id: string;
-      role: 'assistant';
-      text: string;
-      ts: number;
-      kind: AiAgentSuggestion['kind'];
-      actions?: string[];
-      model?: string | null;
-      streaming?: boolean;
-      toolCalls?: string[];
-    };
-
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 800;
-const DEFAULT_WIDTH = 480;
+const DEFAULT_WIDTH = 520;
+const REFRESH_MS = 60_000;
 
-const QUICK_TEMPLATES: ReadonlyArray<{ title: string; text: string }> = [
-  { title: 'Остатки', text: 'Покажи остатки на складе по детали ' },
-  { title: 'Заявки', text: 'Покажи последние заявки в снабжение за неделю' },
-  { title: 'Прогноз сборки', text: '/sql Покажи прогноз сборки двигателей на 7 дней' },
-  { title: 'Карточка двигателя', text: 'Расскажи про двигатель ' },
-];
-
-function nowMs() {
-  return Date.now();
-}
-
-function makeId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function formatTime(ts: number) {
-  return formatMoscowTime(ts);
-}
-
-function mapErrorToUserMessage(text: string) {
-  const normalized = String(text ?? '').toLowerCase();
-  if (
-    normalized.includes('timeout') ||
-    normalized.includes('time-out') ||
-    normalized.includes('тайм') ||
-    normalized.includes('http 408') ||
-    normalized.includes('http 504')
-  ) {
-    return 'Я не успеваю ответить, я еще учусь, но скоро начну быстро отвечать на ваши вопросы и помогать вам в работе!';
+function parseFileRef(json: string | null): FileRef | null {
+  if (!json) return null;
+  try {
+    const v = JSON.parse(json);
+    return v && typeof v === 'object' && v.id ? (v as FileRef) : null;
+  } catch {
+    return null;
   }
-  return text;
 }
 
-function modelBadge(model?: string | null): { label: string; color: string } | null {
-  if (!model) return null;
-  const m = model.toLowerCase();
-  if (m.includes('opus')) return { label: '🟣 Opus', color: '#7c3aed' };
-  if (m.includes('sonnet')) return { label: '🟢 Sonnet', color: '#059669' };
-  if (m.includes('haiku')) return { label: '🟡 Haiku', color: '#d97706' };
-  return { label: model, color: theme.colors.muted };
+function parseFileRefs(json: string | null): FileRef[] {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? (v.filter((x) => x && typeof x === 'object' && x.id) as FileRef[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function FileChip(props: { file: FileRef }) {
+  return (
+    <button
+      onClick={() => void window.matrica.files.open({ fileId: props.file.id })}
+      title={`Открыть «${props.file.name}» (${Math.round(props.file.size / 1024)} КБ)`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 8px',
+        borderRadius: 999,
+        border: `1px solid ${theme.colors.border}`,
+        background: 'transparent',
+        color: theme.colors.text,
+        fontSize: 12,
+        cursor: 'pointer',
+        maxWidth: 260,
+      }}
+    >
+      📎
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props.file.name}</span>
+    </button>
+  );
 }
 
 export type AiAgentChatHandle = {
-  appendAssistant: (text: string, kind?: AiAgentSuggestion['kind']) => void;
-  appendUser: (text: string) => void;
-  setLoading: (loading: boolean) => void;
+  refresh: () => void;
 };
 
 export const AiAgentChat = forwardRef<AiAgentChatHandle, {
@@ -88,222 +76,113 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   recentEvents?: AiAgentEvent[];
   onClose: () => void;
 }>((props, ref) => {
+  const [items, setItems] = useState<AiChatRequestItem[]>([]);
   const [text, setText] = useState('');
-  const [items, setItems] = useState<ChatItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [attach, setAttach] = useState<{ path: string; name: string } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [verdictDrafts, setVerdictDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<number | null>(null);
+  const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [fullscreen, setFullscreen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [conversations, setConversations] = useState<AiChatConversationSummary[]>([]);
-  const [conversationsLoading, setConversationsLoading] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [now, setNow] = useState<number>(Date.now());
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const streamingItemIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [items, loading]);
-
-  const refreshConversations = useCallback(async () => {
-    setConversationsLoading(true);
-    try {
-      const res = await window.matrica.aiAgent.conversationsList({ limit: 50 });
-      if (res.ok) setConversations(res.items);
-    } finally {
-      setConversationsLoading(false);
-    }
+  const refresh = useCallback(async () => {
+    const res = await window.matrica.aiChat.list();
+    if (res.ok) setItems(res.items);
+    const meta = await window.matrica.aiChat.meta();
+    if (meta.ok) setLastRunAt(meta.lastRunAt);
   }, []);
 
   useEffect(() => {
-    if (historyOpen) void refreshConversations();
-  }, [historyOpen, refreshConversations]);
+    if (!props.visible) return;
+    void refresh();
+    void window.matrica.auth.status().then((s: any) => {
+      const u = s?.user;
+      if (u?.id) setMe({ id: String(u.id), role: String(u.role ?? '') });
+    });
+    const t = setInterval(() => {
+      void refresh();
+      setNow(Date.now());
+    }, REFRESH_MS);
+    return () => clearInterval(t);
+  }, [props.visible, refresh]);
 
-  function appendItem(item: ChatItem) {
-    setItems((prev) => [...prev, item]);
-  }
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [items.length]);
 
-  function updateAssistantStreaming(deltaOrFinal: { delta?: string; final?: ChatItem }) {
-    if (deltaOrFinal.final) {
-      setItems((prev) => prev.map((m) => (m.id === streamingItemIdRef.current ? deltaOrFinal.final! : m)));
-      return;
-    }
-    if (deltaOrFinal.delta) {
-      const id = streamingItemIdRef.current;
-      if (!id) return;
-      setItems((prev) =>
-        prev.map((m) => (m.id === id && m.role === 'assistant'
-          ? { ...m, text: (m.text ?? '') + (deltaOrFinal.delta ?? '') }
-          : m)),
-      );
-    }
-  }
+  useImperativeHandle(ref, () => ({ refresh: () => void refresh() }), [refresh]);
 
-  async function sendMessage(messageText: string) {
-    const msg = messageText.trim();
-    if (!msg || loading) return;
-    const userItem: ChatItem = { id: makeId(), role: 'user', text: msg, ts: nowMs() };
-    appendItem(userItem);
-
-    const streamingItemId = makeId();
-    streamingItemIdRef.current = streamingItemId;
-    const placeholder: ChatItem = {
-      id: streamingItemId,
-      role: 'assistant',
-      text: '',
-      ts: nowMs(),
-      kind: 'info',
-      streaming: true,
-    };
-    appendItem(placeholder);
-    setLoading(true);
-
-    const toolCalls: string[] = [];
-    let lastModel: string | null = null;
-    try {
-      const res = (await window.matrica.aiAgent.assistStream(
-        {
-          message: msg,
-          context: props.context,
-          lastEvent: props.lastEvent,
-          recentEvents: props.recentEvents ?? [],
-          ...(conversationId ? { conversationId } : {}),
-        },
-        (rawEv) => {
-          const ev = rawEv as AiAgentStreamEvent;
-          if (ev.type === 'start') {
-            if (!conversationId) setConversationId(ev.conversationId);
-          } else if (ev.type === 'text') {
-            updateAssistantStreaming({ delta: ev.delta });
-          } else if (ev.type === 'tool_use') {
-            toolCalls.push(ev.name);
-            setItems((prev) =>
-              prev.map((m) =>
-                m.id === streamingItemId && m.role === 'assistant'
-                  ? { ...m, toolCalls: [...(m.toolCalls ?? []), ev.name] }
-                  : m,
-              ),
-            );
-          } else if (ev.type === 'final') {
-            lastModel = ev.model;
-            const finalItem: ChatItem = {
-              id: streamingItemId,
-              role: 'assistant',
-              text: ev.reply.text,
-              ts: nowMs(),
-              kind: ev.reply.kind,
-              ...(ev.reply.actions && ev.reply.actions.length > 0 ? { actions: ev.reply.actions } : {}),
-              model: lastModel,
-              ...(toolCalls.length > 0 ? { toolCalls } : {}),
-            };
-            updateAssistantStreaming({ final: finalItem });
-            if (!conversationId && ev.conversationId) setConversationId(ev.conversationId);
-          } else if (ev.type === 'error') {
-            updateAssistantStreaming({
-              final: {
-                id: streamingItemId,
-                role: 'assistant',
-                text: mapErrorToUserMessage(ev.error),
-                ts: nowMs(),
-                kind: 'info',
-              },
-            });
-          }
-        },
-      )) as AiAgentAssistResponse;
-      if (res && !res.ok) {
-        updateAssistantStreaming({
-          final: {
-            id: streamingItemId,
-            role: 'assistant',
-            text: mapErrorToUserMessage(res.error ?? 'Ошибка ИИ‑агента'),
-            ts: nowMs(),
-            kind: 'info',
-          },
-        });
-      }
-    } catch (e) {
-      updateAssistantStreaming({
-        final: {
-          id: streamingItemId,
-          role: 'assistant',
-          text: mapErrorToUserMessage(String(e)),
-          ts: nowMs(),
-          kind: 'info',
-        },
-      });
-    } finally {
-      streamingItemIdRef.current = null;
-      setLoading(false);
-    }
-  }
+  const isSuperadmin = (me?.role ?? '').toLowerCase() === 'superadmin';
+  const myItems = useMemo(() => (me ? items.filter((i) => i.userId === me.id) : items), [items, me]);
+  const foreignEscalated = useMemo(
+    () => (isSuperadmin && me ? items.filter((i) => i.userId !== me.id && i.status === 'escalated') : []),
+    [items, me, isSuperadmin],
+  );
+  const usedThisHour = useMemo(
+    () => myItems.filter((i) => i.createdAt > now - 60 * 60 * 1000).length,
+    [myItems, now],
+  );
+  const leftThisHour = Math.max(0, AI_CHAT_MAX_QUESTIONS_PER_HOUR - usedThisHour);
+  const nextRunAt = getNextAiRunAt(now);
 
   async function send() {
-    const msg = text.trim();
-    if (!msg) return;
-    setText('');
-    await sendMessage(msg);
-  }
-
-  async function loadConversation(convId: string) {
-    setLoading(true);
+    const q = text.trim();
+    if (!q || busy) return;
+    setBusy(true);
+    setError(null);
     try {
-      const res = await window.matrica.aiAgent.conversationMessages({ conversationId: convId, limit: 500 });
-      if (res.ok) {
-        const newItems: ChatItem[] = res.messages
-          .filter((m: AiChatHistoryMessage) => m.role === 'user' || m.role === 'assistant')
-          .map((m: AiChatHistoryMessage) =>
-            m.role === 'user'
-              ? { id: m.id, role: 'user' as const, text: m.content, ts: m.ts }
-              : {
-                  id: m.id,
-                  role: 'assistant' as const,
-                  text: m.content,
-                  ts: m.ts,
-                  kind: 'info' as const,
-                  ...(m.model ? { model: m.model } : {}),
-                },
-          );
-        setItems(newItems);
-        setConversationId(convId);
-        setHistoryOpen(false);
+      const res = await window.matrica.aiChat.create({ questionText: q, ...(attach ? { filePath: attach.path } : {}) });
+      if (!res.ok) {
+        setError(res.error);
+        return;
       }
+      setText('');
+      setAttach(null);
+      await refresh();
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
-  async function deleteConversation(convId: string) {
-    const ok = window.confirm('Удалить этот разговор без возможности восстановления?');
-    if (!ok) return;
-    const res = await window.matrica.aiAgent.conversationDelete({ conversationId: convId });
-    if (res.ok) {
-      if (conversationId === convId) {
-        setConversationId(null);
-        setItems([]);
-      }
-      await refreshConversations();
+  async function pickFile() {
+    const r = await window.matrica.files.pick();
+    if (r.ok && r.paths[0]) {
+      const p = String(r.paths[0]);
+      setAttach({ path: p, name: p.split(/[\\/]/).pop() ?? p });
     }
   }
 
-  function startNewConversation() {
-    setConversationId(null);
-    setItems([]);
-    setHistoryOpen(false);
+  async function saveEdit() {
+    if (!editingId) return;
+    const q = editText.trim();
+    if (!q) return;
+    const res = await window.matrica.aiChat.update({ id: editingId, questionText: q });
+    if (!res.ok) setError(res.error);
+    setEditingId(null);
+    await refresh();
   }
 
-  function copyMessage(itemId: string, text: string) {
-    try {
-      navigator.clipboard?.writeText(text);
-      setCopiedId(itemId);
-      setTimeout(() => setCopiedId((c) => (c === itemId ? null : c)), 1500);
-    } catch {
-      // ignore clipboard errors silently
-    }
+  async function removeQuestion(id: string) {
+    if (!window.confirm('Удалить вопрос?')) return;
+    const res = await window.matrica.aiChat.delete({ id });
+    if (!res.ok) setError(res.error);
+    await refresh();
+  }
+
+  async function saveVerdict(id: string) {
+    const v = (verdictDrafts[id] ?? '').trim();
+    if (!v) return;
+    const res = await window.matrica.aiChat.setVerdict({ id, verdictText: v });
+    if (!res.ok) setError(res.error);
+    await refresh();
   }
 
   function onResizeMouseDown(e: React.MouseEvent) {
@@ -317,8 +196,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       const r = resizingRef.current;
       if (!r) return;
       const delta = r.startX - e.clientX;
-      const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, r.startWidth + delta));
-      setWidth(next);
+      setWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, r.startWidth + delta)));
     }
     function onMouseUp() {
       resizingRef.current = null;
@@ -330,22 +208,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       window.removeEventListener('mouseup', onMouseUp);
     };
   }, []);
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      appendAssistant: (textValue, kind = 'info') => {
-        if (!textValue) return;
-        appendItem({ id: makeId(), role: 'assistant', text: textValue, ts: nowMs(), kind });
-      },
-      appendUser: (textValue) => {
-        if (!textValue) return;
-        appendItem({ id: makeId(), role: 'user', text: textValue, ts: nowMs() });
-      },
-      setLoading: (next) => setLoading(next),
-    }),
-    [],
-  );
 
   if (!props.visible) return null;
 
@@ -376,20 +238,158 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         zIndex: 20,
       };
 
+  function renderCard(item: AiChatRequestItem, foreign: boolean) {
+    const questionFile = parseFileRef(item.questionFileJson);
+    const answerFiles = parseFileRefs(item.answerFilesJson);
+    const editable = !foreign && item.status === 'pending';
+    const isEditing = editingId === item.id;
+    return (
+      <div
+        key={item.id}
+        style={{
+          marginBottom: 12,
+          border: `1px solid ${theme.colors.border}`,
+          borderRadius: 10,
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: '8px 10px', background: theme.colors.chatMineBg }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: theme.colors.muted }}>
+              {foreign ? `Вопрос от ${item.username} · ` : ''}
+              {formatMoscowTime(item.createdAt)}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600 }}>{AI_CHAT_STATUS_LABELS[item.status]}</span>
+            {editable && !isEditing && (
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => {
+                    setEditingId(item.id);
+                    setEditText(item.questionText);
+                  }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, color: theme.colors.muted }}
+                  title="Редактировать вопрос (пока не обработан)"
+                >
+                  ✎
+                </button>
+                <button
+                  onClick={() => void removeQuestion(item.id)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, color: theme.colors.muted }}
+                  title="Удалить вопрос"
+                >
+                  🗑
+                </button>
+              </span>
+            )}
+          </div>
+          {isEditing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  border: '1px solid var(--input-border)',
+                  background: 'var(--input-bg)',
+                  color: theme.colors.text,
+                  fontSize: 13,
+                  resize: 'vertical',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button onClick={() => void saveEdit()} disabled={!editText.trim()}>
+                  Сохранить
+                </Button>
+                <Button variant="ghost" onClick={() => setEditingId(null)}>
+                  Отмена
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.questionText}</div>
+          )}
+          {questionFile && (
+            <div style={{ marginTop: 6 }}>
+              <FileChip file={questionFile} />
+            </div>
+          )}
+        </div>
+
+        {item.status === 'answered' && item.answerText != null && (
+          <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
+            <div style={{ fontSize: 11, color: theme.colors.muted, marginBottom: 4 }}>
+              🤖 Ответ ИИ · {item.answeredAt ? formatMoscowTime(item.answeredAt) : ''}
+            </div>
+            <div
+              style={{ fontSize: 13, lineHeight: 1.45 }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(item.answerText) }}
+            />
+            {answerFiles.length > 0 && (
+              <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {answerFiles.map((f) => (
+                  <FileChip key={f.id} file={f} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {item.status === 'escalated' && (
+          <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
+            <div style={{ fontSize: 12, color: theme.colors.muted }}>
+              Вопрос передан на рассмотрение администратору.
+              {item.escalationNote ? ` Причина: ${item.escalationNote}` : ''}
+            </div>
+            {item.verdictText && (
+              <div style={{ fontSize: 12, marginTop: 4 }}>Решение принято, ответ будет в следующий запуск ИИ.</div>
+            )}
+            {isSuperadmin && !item.verdictText && (
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <textarea
+                  value={verdictDrafts[item.id] ?? ''}
+                  onChange={(e) => setVerdictDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
+                  placeholder="Вердикт для ИИ: как отвечать на такие вопросы…"
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    padding: '6px 8px',
+                    border: '1px solid var(--input-border)',
+                    background: 'var(--input-bg)',
+                    color: theme.colors.text,
+                    fontSize: 12,
+                    resize: 'vertical',
+                  }}
+                />
+                <div>
+                  <Button onClick={() => void saveVerdict(item.id)} disabled={!(verdictDrafts[item.id] ?? '').trim()}>
+                    Отправить вердикт
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {item.status === 'rejected' && (
+          <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
+            <div style={{ fontSize: 12, color: theme.colors.muted }}>
+              ИИ не может ответить на этот вопрос.
+              {item.answerText ? ` ${item.answerText}` : ''}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div data-ai-agent-ignore="true" data-input-assist="off" style={containerStyle}>
       {!fullscreen && (
         <div
           onMouseDown={onResizeMouseDown}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: -4,
-            width: 8,
-            height: '100%',
-            cursor: 'ew-resize',
-            zIndex: 21,
-          }}
+          style={{ position: 'absolute', top: 0, left: -4, width: 8, height: '100%', cursor: 'ew-resize', zIndex: 21 }}
         />
       )}
       <div
@@ -401,14 +401,9 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           gap: 6,
         }}
       >
-        <div style={{ fontWeight: 900, flex: 1 }}>
-          ИИ‑агент (Claude){conversationId ? <span style={{ color: theme.colors.muted, fontWeight: 400, marginLeft: 6, fontSize: 11 }}>#{conversationId.slice(0, 8)}</span> : null}
-        </div>
-        <Button variant="ghost" onClick={startNewConversation} title="Новый разговор">
-          ＋
-        </Button>
-        <Button variant="ghost" onClick={() => setHistoryOpen((v) => !v)} title="История разговоров">
-          {historyOpen ? '✕ История' : '☰ История'}
+        <div style={{ fontWeight: 900, flex: 1 }}>ИИ‑помощник</div>
+        <Button variant="ghost" onClick={() => void refresh()} title="Обновить">
+          ⟳
         </Button>
         <Button variant="ghost" onClick={() => setFullscreen((v) => !v)} title={fullscreen ? 'Свернуть' : 'На весь экран'}>
           {fullscreen ? '⤓' : '⤢'}
@@ -418,170 +413,51 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         </Button>
       </div>
 
-      {historyOpen && (
-        <div
-          style={{
-            padding: 8,
-            borderBottom: `1px solid ${theme.colors.border}`,
-            background: theme.colors.surface2 ?? theme.colors.surface,
-            maxHeight: 280,
-            overflowY: 'auto',
-          }}
-        >
-          {conversationsLoading && <div style={{ fontSize: 12, color: theme.colors.muted }}>Загрузка…</div>}
-          {!conversationsLoading && conversations.length === 0 && (
-            <div style={{ fontSize: 12, color: theme.colors.muted }}>Разговоров пока нет.</div>
-          )}
-          {conversations.map((c) => (
-            <div
-              key={c.conversationId}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 4px',
-                borderRadius: 6,
-                background: conversationId === c.conversationId ? theme.colors.chatMineBg : 'transparent',
-                cursor: 'pointer',
-              }}
-              onClick={() => void loadConversation(c.conversationId)}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={c.lastUserMessage}
-                >
-                  {c.lastUserMessage || '(пустое сообщение)'}
-                </div>
-                <div style={{ fontSize: 10, color: theme.colors.muted }}>
-                  {formatTime(c.lastMessageAt)} · {c.messageCount} сообщений
-                  {c.lastModel ? ` · ${c.lastModel.replace(/^claude-/, '')}` : ''}
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void deleteConversation(c.conversationId);
-                }}
-                title="Удалить"
-              >
-                🗑
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
+      <div
+        style={{
+          padding: '6px 10px',
+          borderBottom: `1px solid ${theme.colors.border}`,
+          fontSize: 12,
+          color: theme.colors.muted,
+          display: 'flex',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span title="ИИ отвечает раз в час, Пн–Пт с 8:00 до 17:00 МСК">
+          Следующий ответ ИИ: <b>{formatMoscowTime(nextRunAt)}</b>
+        </span>
+        {lastRunAt != null && <span>Последний запуск: {formatMoscowTime(lastRunAt)}</span>}
+      </div>
 
       <div ref={scrollRef} style={{ padding: 10, overflowY: 'auto', flex: '1 1 auto' }}>
-        {items.length === 0 && (
+        {myItems.length === 0 && foreignEscalated.length === 0 && (
           <div style={{ color: theme.colors.muted, fontSize: 13 }}>
-            Я могу помочь заполнить карточки, посмотреть остатки и собрать отчёт. Задайте вопрос.
+            Задайте вопрос по данным программы — остатки, двигатели, контракты, отчёты. ИИ проанализирует базу данных и
+            ответит в ближайший запуск (раз в час в рабочее время).
           </div>
         )}
-        {items.map((m) => {
-          const isUser = m.role === 'user';
-          const badge = !isUser && 'model' in m ? modelBadge(m.model) : null;
-          return (
-            <div key={m.id} style={{ marginBottom: 10, textAlign: isUser ? 'right' : 'left' }}>
-              <div
-                style={{
-                  display: 'inline-block',
-                  padding: '6px 10px',
-                  borderRadius: 10,
-                  background: isUser ? theme.colors.chatMineBg : theme.colors.chatOtherBg,
-                  border: `1px solid ${isUser ? theme.colors.chatMineBorder : theme.colors.chatOtherBorder}`,
-                  color: theme.colors.text,
-                  maxWidth: '90%',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  textAlign: 'left',
-                }}
-              >
-                {isUser ? (
-                  m.text
-                ) : (
-                  <div
-                    style={{ fontSize: 14, lineHeight: 1.45 }}
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text || (loading ? '…' : '')) }}
-                  />
-                )}
-              </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: theme.colors.muted,
-                  marginTop: 2,
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  justifyContent: isUser ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <span>{formatTime(m.ts)}</span>
-                {badge && <span style={{ color: badge.color, fontWeight: 600 }}>{badge.label}</span>}
-                {!isUser && 'toolCalls' in m && m.toolCalls && m.toolCalls.length > 0 && (
-                  <span title={m.toolCalls.join(', ')}>🔧 {m.toolCalls.length}</span>
-                )}
-                {!isUser && (
-                  <button
-                    onClick={() => copyMessage(m.id, m.text)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 0,
-                      color: theme.colors.muted,
-                      cursor: 'pointer',
-                      fontSize: 10,
-                    }}
-                    title="Скопировать"
-                  >
-                    {copiedId === m.id ? '✓ скопировано' : '⧉ копировать'}
-                  </button>
-                )}
-              </div>
-              {!isUser && 'actions' in m && m.actions && m.actions.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, justifyContent: 'flex-start' }}>
-                  {m.actions.map((a, idx) => (
-                    <Button key={idx} variant="ghost" onClick={() => void sendMessage(a)} disabled={loading}>
-                      {a}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {loading && streamingItemIdRef.current == null && (
-          <div style={{ color: theme.colors.muted, fontSize: 12 }}>ИИ‑агент печатает…</div>
+        {foreignEscalated.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>⚠️ Эскалации (требуют вердикта)</div>
+            {foreignEscalated.map((i) => renderCard(i, true))}
+          </div>
         )}
+        {myItems.map((i) => renderCard(i, false))}
       </div>
 
       <div style={{ padding: 10, borderTop: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {QUICK_TEMPLATES.map((tpl) => (
-            <Button
-              key={tpl.title}
-              variant="ghost"
-              onClick={() => setText((t) => (t.endsWith(' ') ? t : `${t}${t ? ' ' : ''}`) + tpl.text)}
-              disabled={loading}
-              title={tpl.text}
-            >
-              {tpl.title}
-            </Button>
-          ))}
-        </div>
+        {error && (
+          <div style={{ fontSize: 12, color: theme.colors.danger ?? '#dc2626' }}>
+            {error.includes('rate_limit') ? 'Лимит: не больше 5 вопросов в час.' : error}
+          </div>
+        )}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Введите вопрос…"
+          placeholder={leftThisHour === 0 ? 'Лимит вопросов на этот час исчерпан…' : 'Введите вопрос…'}
           rows={2}
+          disabled={leftThisHour === 0}
           style={{
             width: '100%',
             padding: '7px 10px',
@@ -602,12 +478,27 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
             }
           }}
         />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Button onClick={() => void send()} disabled={!text.trim() || loading}>
-            ▶
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button onClick={() => void send()} disabled={!text.trim() || busy || leftThisHour === 0}>
+            Отправить
           </Button>
+          <Button variant="ghost" onClick={() => void pickFile()} disabled={busy} title="Прикрепить файл к вопросу">
+            📎
+          </Button>
+          {attach && (
+            <span style={{ fontSize: 12, color: theme.colors.muted, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {attach.name}
+              <button
+                onClick={() => setAttach(null)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: theme.colors.muted }}
+                title="Убрать файл"
+              >
+                ✕
+              </button>
+            </span>
+          )}
           <div style={{ flex: 1, fontSize: 11, color: theme.colors.muted, textAlign: 'right' }}>
-            Enter — отправить · Shift+Enter — новая строка
+            Осталось {leftThisHour} из {AI_CHAT_MAX_QUESTIONS_PER_HOUR} вопросов в этот час
           </div>
         </div>
       </div>
