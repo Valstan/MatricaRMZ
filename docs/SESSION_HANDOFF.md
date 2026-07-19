@@ -7,40 +7,34 @@
 **Status:** ACTIVE
 **Updated:** 2026-07-19 (Claude session, машина `PC40`)
 **Branch:** `main` = `origin/main`.
-**Last released version:** **v2026.719.1555** (асинхронный AI-чат; статус раскатки — см. тело релизного PR).
+**Last released version:** **v2026.719.2040** (батч A–E: наряды/досинк/чипы ИИ/телеметрия + REST-рутина; статус раскатки — тело релизного PR).
 
 ## Текущая нитка
 
-**Асинхронный AI-чат** — код отгружен целиком (PR #277–#281 + релиз v2026.719.1555), план [`ai-chat-async-2026-07`](plans/ai-chat-async-2026-07.md). Остался **запуск рутины** (Ф6, ручная часть — [`ai-chat/ROUTINE.md`](ai-chat/ROUTINE.md)):
-
-1. На проде: сотрудник `ai-agent` (login `ai-agent`, роль admin) — актор ответов; без него runner пишет от суперадмина.
-2. Залить seed правил: `node dist/scripts/aiChatRoutineIO.js set-rules --file docs/ai-chat/RULES.seed.md --changed-by owner-seed`.
-3. (Опц.) PG-роль `ai_readonly` (SELECT-only) для прямых SELECT рутины.
-4. Scheduled-агент claude.ai по промпту ROUTINE.md, cron `0 5-14 * * 1-5` UTC.
-5. Первый запуск — под присмотром.
+**Запуск облачной AI-рутины (REST-вариант)** — код отгружен целиком (план [`ai-chat-ux-drafts-telemetry-2026-07`](plans/ai-chat-ux-drafts-telemetry-2026-07.md), задача C). Прод готов: `ai-agent` (admin), `ai_readonly`+`AI_READONLY_URL`, `AI_ROUTINE_TOKEN` в `.env`, эндпойнты `/ai-chat/routine/*` в релизе v2026.719.2040. Владелец обновил промпт рутины (REST-версия из [`ai-chat/ROUTINE.md`](ai-chat/ROUTINE.md)) и добавляет в облачное окружение `AI_ROUTINE_TOKEN` + домен `a6fd55b8e0ae.vps.myjino.ru` (⚠️ в окружении лежал домен Сарафана `3931b3fe50ab...` — проверить, что заменён/дополнен). Окружение общее с рутиной Сарафана — рекомендовано разделить (env-vars видны всем рутинам окружения), решение за владельцем.
 
 ## Следующий шаг
 
-Проверить первый реальный цикл рутины (вопрос оператора → ответ в клиенте) и собрать отзыв операторов по v2026.719.1555.
+Проверить первый реальный REST-цикл рутины (вопрос оператора → ответ в клиенте; `mark-run` должен обновить «Последний запуск» в чате). Затем — первый понедельничный дайджест (post-digest в AI-чат суперадмина, данные телеметрии начнут копиться после раскатки клиентов).
 
 ## Контекст
 
-- Runner на проде: `backend-api/dist/scripts/aiChatRoutineIO.js` (list-pending / post-answer / escalate / get-rules / set-rules / mark-run). Записи — только через ledger (`writeSyncChanges`, actor ai-agent, allowSyncConflicts).
-- Гейты: 5 вопросов/час (push-guard в транзакции), правки только pending, вердикт — суперадмин; trusted-bypass для серверных записей и ledger-replay.
-- E2E CDP-смоук пройден (драйвер `.verifier-electron/_ai-chat-smoke.mjs`, грабли — в профиле PC40).
+- REST рутины: `/ai-chat/routine/*` (bearer `AI_ROUTINE_TOKEN`, 503 без env). run-select: SELECT/WITH-only + роль `ai_readonly`, 15с, ≤5000 строк. Логика — `backend-api/src/services/ai/aiChatRoutineService.ts`, CLI-обёртка (SSH-путь) сохранена.
+- Наряды: номер неизменяем (`updateWorkOrder` — строка БД побеждает payload, сломанные «№ новый» самолечатся при сохранении); гонка late-upsert черновика закрыта; on-close — финальный `sync.run` (20с) с оверлеем.
+- Телеметрия: `ui.visit`/`ui.card_open`/`ui.report_open` → audit_log (троттлинг 30с). Дайджест — ROUTINE.md §5.
 
 ## Открытые вопросы для пользователя
 
-- Отзыв операторов по live-экранам/группировкам (v2026.719.1157) и AI-чату (v2026.719.1555).
+- Отзыв операторов по v2026.719.2040 (наряды, чипы ИИ) после раскатки.
+- Общее окружение рутин Матрицы и Сарафана — оставить или разделить (рекомендация: разделить).
 - Планшет для цеха: Windows vs Android — решение не принято ([`plans/tablet-shop-floor.md`](plans/tablet-shop-floor.md)).
-- Распределённые серверы: тёплый standby в LAN — по сигналу владельца.
 
 ## Не забыть (low-priority)
 
 1. Ledger release-token — exp **2026-08-15**; ротация ≤ ~2026-08-12 (PENDING §Ротация).
 2. Ротация SSH-ключей прода — до 2026-08-21.
 3. Мастера жмут «Выдать в работу» на ремнарядах, иначе прогноз/комплектование неполны.
-4. deadcode-прогон — ~2026-08-04; кандидат: старая синхронная aiAgent-поверхность (SSE/conversations) — UI её больше не зовёт.
-5. Ф2 де-дуп `blank-synthetic-codes` — ждёт переустановки клиентов на 5 машинах; перепроверка ~2026-07-24.
+4. deadcode-прогон — ~2026-08-04; кандидат: старая синхронная aiAgent-поверхность (SSE/conversations).
+5. Ф2 де-дуп `blank-synthetic-codes` — перепроверка ~2026-07-24.
 6. Бэкап-таблицы на проде (`*_bak_20260717`, `*_bak_norms20260717`) — снести ~август.
 7. Флак `ledgerStore.concurrency.test.ts` под параллельной нагрузкой — если повторится, завести пунктом.
