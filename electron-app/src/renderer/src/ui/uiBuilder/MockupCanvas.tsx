@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   MOCK_BLOCK_LABELS_RU,
   MOCK_BLOCK_MIN_SIZE,
@@ -307,11 +307,19 @@ export function MockupCanvas(props: {
   linkFromId?: string | null;
   /** Canvas zoom, 1 = 100%. Pointer deltas are divided by it. */
   scale?: number;
+  /** Multi-select: additional selected block ids (marquee / shift-click). */
+  selectedIds?: ReadonlySet<string>;
   onSelect?: (sel: MockupSelection) => void;
+  /** Shift-click on a block toggles it in the multi-selection. */
+  onToggleSelect?: (id: string) => void;
+  /** Marquee finished: blocks intersecting the rect; additive = shift held. */
+  onMarqueeSelect?: (ids: string[], additive: boolean) => void;
   onLinkClick?: (blockId: string) => void;
   /** Fires once at the start of a move/resize gesture (undo snapshot point). */
   onDragStart?: () => void;
   onBlockGeometry?: (id: string, patch: { x?: number; y?: number; w?: number; h?: number }) => void;
+  /** Move gesture as deltas from gesture start — lets the editor drag the whole selection. */
+  onBlockMove?: (id: string, dx: number, dy: number) => void;
   /** View mode: live widget to render instead of the sketch body (report blocks etc). */
   renderLiveBlock?: (b: MockBlock) => React.ReactNode | null;
   /** View mode: called on click for actionable blocks (button with targetTab). */
@@ -331,6 +339,19 @@ export function MockupCanvas(props: {
     origW: number;
     origH: number;
   } | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number; shift: boolean } | null>(null);
+  // Rect also lives in a ref: pointer events can land faster than React re-renders,
+  // and endDrag must see the latest rect, not the closure's state snapshot.
+  const marqueeRectRef = useRef<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const suppressClickRef = useRef(false);
+  const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+
+  function canvasPoint(e: React.PointerEvent): { x: number; y: number } {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+  }
 
   const annotationNums = new Map<string, number>();
   if (props.showAnnotations) {
@@ -339,6 +360,7 @@ export function MockupCanvas(props: {
 
   function startDrag(e: React.PointerEvent, b: MockBlock, kind: 'move' | 'resize') {
     if (!editable || props.linkMode) return;
+    if (e.shiftKey && kind === 'move') return; // shift-click = toggle multi-select, not drag
     e.stopPropagation();
     e.preventDefault();
     try {
@@ -348,19 +370,41 @@ export function MockupCanvas(props: {
     }
     dragRef.current = { id: b.id, kind, startX: e.clientX, startY: e.clientY, origX: b.x, origY: b.y, origW: b.w, origH: b.h };
     props.onDragStart?.();
-    props.onSelect?.({ type: 'block', id: b.id });
+    // Dragging a block that's already in the multi-selection keeps the group.
+    if (!props.selectedIds?.has(b.id)) props.onSelect?.({ type: 'block', id: b.id });
+  }
+
+  function startMarquee(e: React.PointerEvent) {
+    if (!editable || props.linkMode || dragRef.current) return;
+    const tag = (e.target as Element).tagName?.toLowerCase();
+    if (tag === 'line') return; // link hit-area — click selects the link
+    const p = canvasPoint(e);
+    marqueeStartRef.current = { x: p.x, y: p.y, shift: e.shiftKey };
+    marqueeRectRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+    setMarquee(marqueeRectRef.current);
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    const m = marqueeStartRef.current;
+    if (m) {
+      const p = canvasPoint(e);
+      marqueeRectRef.current = { x1: m.x, y1: m.y, x2: p.x, y2: p.y };
+      setMarquee(marqueeRectRef.current);
+      return;
+    }
     const d = dragRef.current;
     if (!d) return;
     const dx = (e.clientX - d.startX) / scale;
     const dy = (e.clientY - d.startY) / scale;
     if (d.kind === 'move') {
-      props.onBlockGeometry?.(d.id, {
-        x: Math.max(0, Math.min(spec.canvas.w - MOCK_BLOCK_MIN_SIZE, d.origX + dx)),
-        y: Math.max(0, Math.min(spec.canvas.h - MOCK_BLOCK_MIN_SIZE, d.origY + dy)),
-      });
+      if (props.onBlockMove) {
+        props.onBlockMove(d.id, dx, dy);
+      } else {
+        props.onBlockGeometry?.(d.id, {
+          x: Math.max(0, Math.min(spec.canvas.w - MOCK_BLOCK_MIN_SIZE, d.origX + dx)),
+          y: Math.max(0, Math.min(spec.canvas.h - MOCK_BLOCK_MIN_SIZE, d.origY + dy)),
+        });
+      }
     } else {
       props.onBlockGeometry?.(d.id, {
         w: Math.max(MOCK_BLOCK_MIN_SIZE, d.origW + dx),
@@ -371,6 +415,24 @@ export function MockupCanvas(props: {
 
   function endDrag() {
     dragRef.current = null;
+    const m = marqueeStartRef.current;
+    const rect = marqueeRectRef.current;
+    if (m && rect) {
+      const x1 = Math.min(rect.x1, rect.x2);
+      const y1 = Math.min(rect.y1, rect.y2);
+      const x2 = Math.max(rect.x1, rect.x2);
+      const y2 = Math.max(rect.y1, rect.y2);
+      if (x2 - x1 > 4 || y2 - y1 > 4) {
+        const hit = spec.blocks
+          .filter((b) => b.x < x2 && b.x + b.w > x1 && b.y < y2 && b.y + b.h > y1)
+          .map((b) => b.id);
+        props.onMarqueeSelect?.(hit, m.shift);
+        suppressClickRef.current = true; // the pointerup also fires a canvas click — don't clear selection
+      }
+    }
+    marqueeStartRef.current = null;
+    marqueeRectRef.current = null;
+    setMarquee(null);
   }
 
   // Panels behind everything, then reading order — so overlapping blocks stay reachable.
@@ -392,14 +454,22 @@ export function MockupCanvas(props: {
         overflow: 'hidden',
         cursor: props.linkMode ? 'crosshair' : 'default',
       }}
+      ref={canvasRef}
+      onPointerDown={editable ? startMarquee : undefined}
       onPointerMove={editable ? onPointerMove : undefined}
       onPointerUp={editable ? endDrag : undefined}
       onPointerLeave={editable ? endDrag : undefined}
-      onClick={() => props.onSelect?.(null)}
+      onClick={() => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          return;
+        }
+        props.onSelect?.(null);
+      }}
     >
       <LinksLayer spec={spec} selection={selection} onSelectLink={props.onSelect ? (id) => props.onSelect?.({ type: 'link', id }) : undefined} />
       {zOrdered.map((b) => {
-        const selected = selection?.type === 'block' && selection.id === b.id;
+        const selected = (selection?.type === 'block' && selection.id === b.id) || props.selectedIds?.has(b.id) === true;
         const isLinkSource = props.linkFromId === b.id;
         const num = annotationNums.get(b.id);
         const isNote = b.kind === 'note';
@@ -435,6 +505,7 @@ export function MockupCanvas(props: {
               e.stopPropagation();
               if (props.linkMode) props.onLinkClick?.(b.id);
               else if (activatable) props.onActivateBlock?.(b);
+              else if (e.shiftKey && props.onToggleSelect) props.onToggleSelect(b.id);
               else props.onSelect?.({ type: 'block', id: b.id });
             }}
             onPointerDown={(e) => startDrag(e, b, 'move')}
@@ -485,6 +556,20 @@ export function MockupCanvas(props: {
           </div>
         );
       })}
+      {marquee ? (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(marquee.x1, marquee.x2),
+            top: Math.min(marquee.y1, marquee.y2),
+            width: Math.abs(marquee.x2 - marquee.x1),
+            height: Math.abs(marquee.y2 - marquee.y1),
+            border: `1px dashed ${sketch.selected}`,
+            background: `${sketch.selected}14`,
+            pointerEvents: 'none',
+          }}
+        />
+      ) : null}
       {spec.blocks.length === 0 ? (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: sketch.muted, fontSize: 14 }}>
           Холст пуст — добавьте элементы из палитры слева.
