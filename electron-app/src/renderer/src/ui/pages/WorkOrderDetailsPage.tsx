@@ -370,6 +370,10 @@ export function WorkOrderDetailsPage(props: {
   // explicit reset reloads the committed payload instead of re-reviving the draft).
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  // In-flight draft write: a commit must wait for it before clearing, otherwise the late
+  // upsert resurrects the cleared draft (deletedAt: null) and the card pops up on next start
+  // as an «unsaved» ghost — with a pre-materialize number-0 snapshot inside.
+  const draftWriteRef = useRef<Promise<unknown> | null>(null);
   const { confirm } = useConfirm();
 
   function buildDraftTitle(p: WorkOrderPayload): string {
@@ -381,20 +385,26 @@ export function WorkOrderDetailsPage(props: {
 
   async function saveDraftNow(p: WorkOrderPayload, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!canEditNow) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: WORK_ORDER_DRAFT_TYPE,
-        cardId: props.id,
-        kind,
-        title: buildDraftTitle(p),
-        payloadJson: JSON.stringify(p),
-        baseUpdatedAt: operationUpdatedAt || null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    const write = (async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: WORK_ORDER_DRAFT_TYPE,
+          cardId: props.id,
+          kind,
+          title: buildDraftTitle(p),
+          payloadJson: JSON.stringify(p),
+          baseUpdatedAt: operationUpdatedAt || null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    })();
+    draftWriteRef.current = write;
+    const ok = await write;
+    if (draftWriteRef.current === write) draftWriteRef.current = null;
+    return ok;
   }
 
   async function clearDraft() {
@@ -954,7 +964,17 @@ export function WorkOrderDetailsPage(props: {
       try {
         const d = await window.matrica.drafts.get({ cardType: WORK_ORDER_DRAFT_TYPE, cardId: props.id });
         if (d.ok && d.draft?.payloadJson) {
-          setPayload(recalcLocally(JSON.parse(d.draft.payloadJson) as WorkOrderPayload));
+          // The draft snapshot may predate materialization (workOrderNumber: 0) — the committed
+          // number/creation date always win, or the revived card shows «№ новый» and a later
+          // save would try to commit the downgrade.
+          const draftPayload = JSON.parse(d.draft.payloadJson) as WorkOrderPayload;
+          setPayload(
+            recalcLocally({
+              ...draftPayload,
+              workOrderNumber: committed.workOrderNumber,
+              orderDate: committed.orderDate,
+            }),
+          );
           dirtyRef.current = true;
           draftRestoredRef.current = true;
           restored = true;
@@ -1044,7 +1064,9 @@ export function WorkOrderDetailsPage(props: {
     setStatus('Сохранено');
     dirtyRef.current = false;
     // A commit supersedes the recovery snapshot — drop it (any standalone «Сохранить», not just
-    // the close-guard path). A later edit re-arms autosave with a fresh draft.
+    // the close-guard path). A later edit re-arms autosave with a fresh draft. Wait out an
+    // in-flight autosave first, or its late upsert resurrects the draft we're about to clear.
+    if (draftWriteRef.current) await draftWriteRef.current.catch(() => undefined);
     await clearDraft();
   }
 
