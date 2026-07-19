@@ -1908,6 +1908,76 @@ table.list-table.list-table--catalog {
   line-height: 1.35;
 }
 
+/* Прогноз сборки: тематические секции-аккордеоны настроек. Заголовок несёт живую
+   сводку выбранного, так что свёрнутая секция остаётся информативной. */
+.report-preset-af-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.report-preset-af-section[data-open='true'] {
+  border-color: var(--button-ghost-border);
+}
+
+.report-preset-af-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: var(--button-ghost-bg);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.report-preset-af-section-header:hover {
+  background: rgba(96, 165, 250, 0.10);
+}
+
+.report-preset-af-section-num {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(96, 165, 250, 0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-preset-af-section-title {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.report-preset-af-section-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-preset-af-section-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.report-preset-af-section-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
 @media (max-width: 1280px) {
   .report-preset-split-layout {
     grid-template-columns: 1fr;

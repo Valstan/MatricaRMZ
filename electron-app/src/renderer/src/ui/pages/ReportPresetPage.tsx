@@ -122,6 +122,9 @@ export function ReportPresetPage(props: {
   const [cachedFiltersKey, setCachedFiltersKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  // Прогноз сборки: раскрытие тематических секций настроек (свёрнуты по умолчанию —
+  // в заголовке каждой живая сводка выбранного, разворачивать нужно только для правки).
+  const [afOpenSections, setAfOpenSections] = useState<Record<string, boolean>>({});
   const buildPreviewRef = useRef<() => Promise<PreviewOk | null>>(async () => null);
 
   const activePreset = useMemo(
@@ -575,6 +578,47 @@ export function ReportPresetPage(props: {
 
     const priorityManualDisabled = pm === 'contracts';
 
+    // --- Живые сводки для заголовков секций (видны в свёрнутом виде) ---
+    const numVal = (f: Extract<ReportFilterSpec, { type: 'number' }>) => {
+      const raw = activeFilters[f.key];
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(n) ? n : f.defaultValue ?? 0;
+    };
+    const prioSummary =
+      pm === 'contracts'
+        ? `По контрактам · ${allContractsSelected || selContracts.length === 0 ? `все контракты (${contractOpts.length})` : `контрактов: ${selContracts.length}`}${onSiteOnlyChecked ? ' · только в ремонте' : ''}`
+        : `Вручную${selPriBrand.length > 0 ? ` · приоритетных марок: ${selPriBrand.length}` : ' · приоритет не задан'}`;
+    const scopeSummary = `Склады: ${allWhSelected ? `все (${warehouseOpts.length})` : selWh.length || 'все'} · Марки: ${allBrandsSelected ? `все (${brandOpts.length})` : selBrand.length || 'все'}`;
+    const WEEKDAY_SHORT: Record<string, string> = { '1': 'Пн', '2': 'Вт', '3': 'Ср', '4': 'Чт', '5': 'Пт', '6': 'Сб', '0': 'Вс' };
+    const weekdaysSummary = allWeekdaysSelected
+      ? 'все дни'
+      : selWorkingWeekdays.length === 0
+        ? 'дни не выбраны!'
+        : allWeekdayIds.filter((id) => selWorkingWeekdays.includes(id)).map((id) => WEEKDAY_SHORT[id] ?? id).join(' ');
+    const paceSummary = `${numVal(tgtF)} дв./сутки · серия ${numVal(batchF)} · горизонт ${numVal(horF)} дн. · ${weekdaysSummary}`;
+
+    function afSection(id: string, num: string, title: string, summary: string, children: React.ReactNode) {
+      const open = Boolean(afOpenSections[id]);
+      return (
+        <div className="report-preset-af-section" data-open={open ? 'true' : 'false'}>
+          <button
+            type="button"
+            className="report-preset-af-section-header"
+            onClick={() => setAfOpenSections((prev) => ({ ...prev, [id]: !open }))}
+            title={open ? 'Свернуть' : 'Развернуть настройки'}
+          >
+            <span className="report-preset-af-section-num">{num}</span>
+            <span className="report-preset-af-section-title">{title}</span>
+            <span className="report-preset-af-section-summary" title={summary}>
+              {summary}
+            </span>
+            <span className="report-preset-af-section-chevron">{open ? '▾' : '▸'}</span>
+          </button>
+          {open ? <div className="report-preset-af-section-body">{children}</div> : null}
+        </div>
+      );
+    }
+
     function renderAfNumber(filter: Extract<ReportFilterSpec, { type: 'number' }>) {
       const raw = activeFilters[filter.key];
       const num = typeof raw === 'number' ? raw : Number(raw);
@@ -605,10 +649,7 @@ export function ReportPresetPage(props: {
 
     return (
       <div className="report-preset-af-stack">
-        <Button type="button" variant="primary" size="lg" className="report-preset-af-reset-all" onClick={resetAllFilters} disabled={busy}>
-          Сбросить все фильтры
-        </Button>
-
+        {afSection('priority', '1', 'Приоритет сборки', prioSummary, <>
         <div className="report-preset-af-row">
           <div className="report-preset-af-label" title={filterLabelHint(prio)}>
             {prio.label}
@@ -720,6 +761,9 @@ export function ReportPresetPage(props: {
           )}
         </div>
 
+        </>)}
+
+        {afSection('scope', '2', 'Склады и марки', scopeSummary, <>
         <div className="report-preset-af-block">
           <div className="report-preset-af-label" title={filterLabelHint(whF)}>
             {whF.label}
@@ -830,6 +874,9 @@ export function ReportPresetPage(props: {
           )}
         </div>
 
+        </>)}
+
+        {afSection('pace', '3', 'Темп и календарь', paceSummary, <>
         {renderAfNumber(tgtF)}
         {renderAfNumber(batchF)}
         {renderAfNumber(horF)}
@@ -872,6 +919,7 @@ export function ReportPresetPage(props: {
                 : `Рабочие: ${weekdayOpts.filter((o) => selWorkingWeekdays.includes(String(o.value))).map((o) => o.label).join(', ')}`}
           </div>
         </div>
+        </>)}
       </div>
     );
   }
@@ -1114,13 +1162,47 @@ export function ReportPresetPage(props: {
                   </Button>
                   {filtersChangedSinceCache ? (
                     <div style={{ color: 'var(--danger)', fontSize: 12 }}>
-                      Фильтры изменились — нажмите «Сформировать прогноз», чтобы пересчитать.
+                      Настройки изменились — нажмите «Сформировать прогноз», чтобы пересчитать.
                     </div>
                   ) : preview && cachedFiltersKey === filtersKey ? (
-                    <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Прогноз актуален для текущих фильтров.</div>
+                    <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Прогноз актуален для текущих настроек.</div>
                   ) : (
                     <div style={{ color: 'var(--muted)', fontSize: 12 }}>Нажмите «Сформировать прогноз», чтобы построить отчёт.</div>
                   )}
+                  <div style={{ flex: 1 }} />
+                  <button type="button" onClick={resetAllFilters} disabled={busy} style={{ ...filterResetBtnStyle, padding: '3px 10px', fontSize: 12 }}>
+                    Сбросить все настройки
+                  </button>
+                </div>
+                <div className="report-preset-filter-block">
+                  <div className="report-preset-filter-block-title">Мои настройки прогноза — сохранить и применять одной кнопкой</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 220 }}>
+                      <SearchSelect
+                        value={selectedTemplateId}
+                        options={filterTemplates.map((t) => ({ id: t.id, label: t.name }))}
+                        placeholder={filterTemplates.length ? 'Применить сохранённые настройки…' : 'Сохранённых настроек пока нет'}
+                        showAllWhenEmpty
+                        disabled={busy}
+                        onChange={(next) => applyFilterTemplate(next)}
+                      />
+                    </div>
+                    <Input
+                      value={templateName}
+                      onChange={(e) => setTemplateName(e.target.value)}
+                      placeholder="Название набора настроек"
+                      disabled={busy}
+                      style={{ width: 200 }}
+                    />
+                    <Button variant="ghost" onClick={() => void saveFilterTemplate()} disabled={busy || !templateName.trim()}>
+                      Сохранить
+                    </Button>
+                    {selectedTemplateId ? (
+                      <Button variant="ghost" tone="danger" onClick={() => void deleteFilterTemplate()} disabled={busy}>
+                        Удалить
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
                 {renderAssemblyForecastFilters()}
               </div>
