@@ -1584,6 +1584,10 @@ export async function applyPushBatch(
         const existingMap = new Map<string, any>();
         for (const e of existing as any[]) existingMap.set(String(e.id), e);
 
+        // Серверные записи (рутина через writeSyncChanges c allowSyncConflicts)
+        // и ledger-replay — доверенные: поля ответа/статуса проходят как есть.
+        // Клиентский push сюда не попадает (у него нет allowSyncConflicts).
+        const trustedServerWrite = isReplayClient || applyOpts.allowSyncConflicts === true;
         const actorIsSuperadmin = actorRole === 'superadmin';
         const hourAgo = Date.now() - 60 * 60 * 1000;
         // Rate limit считаем в ТОЙ ЖЕ транзакции: существующие строки за час + новые в этом батче.
@@ -1595,6 +1599,10 @@ export async function applyPushBatch(
 
         const allowed: typeof rows = [];
         for (const r of rows) {
+          if (trustedServerWrite) {
+            allowed.push(r);
+            continue;
+          }
           const cur = existingMap.get(String(r.id));
           if (!cur) {
             hourCount += 1;

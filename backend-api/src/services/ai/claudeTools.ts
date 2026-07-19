@@ -315,7 +315,7 @@ function extractTables(sql: string): string[] {
   return Array.from(new Set(tables));
 }
 
-function buildAllowedTablesFromPerms(perms: Record<string, boolean>): Set<string> {
+export function buildAllowedTablesFromPerms(perms: Record<string, boolean>): Set<string> {
   const allowed = new Set<string>();
   if (perms['masterdata.view']) {
     allowed.add('entity_types');
