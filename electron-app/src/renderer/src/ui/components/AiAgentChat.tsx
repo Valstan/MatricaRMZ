@@ -324,6 +324,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
             </div>
             <div
               style={{ fontSize: 13, lineHeight: 1.45 }}
+              // renderMarkdown escapeHtml-ит вход перед разметкой (markdownLite) — XSS-safe; тот же паттерн, что и прежний AI-чат — nosemgrep
               dangerouslySetInnerHTML={{ __html: renderMarkdown(item.answerText) }}
             />
             {answerFiles.length > 0 && (
