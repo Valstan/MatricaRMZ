@@ -70,6 +70,8 @@ const selectStyle: React.CSSProperties = {
 
 function BlockProperties(props: {
   block: MockBlock;
+  tabOptions: ScreenEditorTabOption[];
+  reportTemplates: Array<{ id: string; name: string }>;
   onChange: (next: MockBlock) => void;
   onRemove: () => void;
   onDuplicate: () => void;
@@ -79,6 +81,54 @@ function BlockProperties(props: {
   return (
     <div>
       <div style={{ fontSize: 13, fontWeight: 600 }}>Элемент: {MOCK_BLOCK_LABELS_RU[block.kind]}</div>
+      {block.kind === 'report' ? (
+        <>
+          {fieldLabel('Шаблон из «Моих отчётов» (в просмотре — живые данные)')}
+          {props.reportTemplates.length === 0 ? (
+            <div style={{ fontSize: 12, color: theme.colors.muted }}>
+              Сначала сохраните шаблон на вкладке «Мои отчёты» — он появится в этом списке.
+            </div>
+          ) : (
+            <select
+              value={block.reportTemplateId ?? ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                const { reportTemplateId: _tpl, ...rest } = block;
+                onChange(v ? { ...rest, reportTemplateId: v } : rest);
+              }}
+              style={selectStyle}
+            >
+              <option value="">— шаблон не выбран —</option>
+              {props.reportTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </>
+      ) : null}
+      {block.kind === 'button' ? (
+        <>
+          {fieldLabel('Переход на вкладку (в просмотре кнопка реально переходит)')}
+          <select
+            value={block.targetTab ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              const { targetTab: _tab, ...rest } = block;
+              onChange(v ? { ...rest, targetTab: v } : rest);
+            }}
+            style={selectStyle}
+          >
+            <option value="">— без перехода (эскизная кнопка) —</option>
+            {props.tabOptions.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </>
+      ) : null}
       {fieldLabel('Подпись (текст на элементе)')}
       <Input
         value={block.label ?? ''}
@@ -189,7 +239,7 @@ function LinkProperties(props: {
  */
 export function ScreenEditorPage(props: {
   screenId: string | null;
-  /** Оставлено для совместимости вызова из App; эскизнику не нужно. */
+  /** Доступные вкладки приложения — цели для кнопок-переходов. */
   tabOptions?: ScreenEditorTabOption[];
   onSaved?: (id: string) => void;
   onDeleted?: () => void;
@@ -206,6 +256,7 @@ export function ScreenEditorPage(props: {
   const [zoom, setZoom] = useState(1);
   const [canEdit, setCanEdit] = useState(true);
   const [editorSections, setEditorSections] = useState<Array<{ id: string; titleRu: string }>>([]);
+  const [reportTemplates, setReportTemplates] = useState<Array<{ id: string; name: string }>>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -282,6 +333,25 @@ export function ScreenEditorPage(props: {
         }
       } catch {
         if (alive) setEditorSections([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Личные шаблоны «Моих отчётов» — источники для блоков «Живой отчёт».
+  // Нет прав reports.view / нет шаблонов — просто пустой список, не ошибка.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const status = await window.matrica.auth.status();
+        const uid = String(status?.user?.id ?? '');
+        const tpl = await window.matrica.reports.customTemplatesList({ userId: uid });
+        if (alive && tpl.ok) setReportTemplates(tpl.templates.map((t) => ({ id: t.id, name: t.name })));
+      } catch {
+        if (alive) setReportTemplates([]);
       }
     })();
     return () => {
@@ -643,6 +713,8 @@ export function ScreenEditorPage(props: {
             <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: 8 }}>
               <BlockProperties
                 block={selectedBlock}
+                tabOptions={props.tabOptions ?? []}
+                reportTemplates={reportTemplates}
                 onChange={updateBlock}
                 onRemove={() => removeBlock(selectedBlock.id)}
                 onDuplicate={() => duplicateBlock(selectedBlock.id)}

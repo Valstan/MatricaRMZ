@@ -38,7 +38,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, deriveMenuState } from './layout/Tabs.js';
+import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 // «Доступ по разделам» (Ф1): таб меню → раздел. Табы вне разделов (заметки, история,
@@ -4881,6 +4881,7 @@ export function App() {
           userScreenEditMode ? (
             <ScreenEditorPage
               screenId={selectedUserScreenId === 'new' ? null : selectedUserScreenId}
+              tabOptions={sectionGatedTabs.map((id) => ({ id, label: MENU_TAB_LABELS[id] }))}
               onSaved={(id: string) => setSelectedUserScreenId(id)}
               onDeleted={() => {
                 setSelectedUserScreenId(null);
@@ -4888,7 +4889,13 @@ export function App() {
               }}
             />
           ) : (
-            <UserScreenViewPage screenId={selectedUserScreenId} onEdit={(id: string) => editUserScreen(id)} />
+            <UserScreenViewPage
+              screenId={selectedUserScreenId}
+              onEdit={(id: string) => editUserScreen(id)}
+              onNavigateTab={(tabId: string) => {
+                if ((sectionGatedTabs as string[]).includes(tabId)) setTab(tabId as TabId);
+              }}
+            />
           )
         )}
 

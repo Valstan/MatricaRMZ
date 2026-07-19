@@ -128,6 +128,22 @@ function BlockBody(props: { block: MockBlock }) {
         </div>
       );
     }
+    case 'report':
+      return (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: `1.5px solid ${sketch.border}`, borderRadius: 6, overflow: 'hidden', fontSize: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: sketch.fillStrong, fontWeight: 600 }}>
+            <span>📊</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label || 'Живой отчёт'}</span>
+            {!b.reportTemplateId ? <span style={{ color: sketch.muted, fontWeight: 400 }}>— шаблон не выбран</span> : null}
+          </div>
+          <div style={{ flex: 1, padding: 8, display: 'flex', flexDirection: 'column', gap: 7, overflow: 'hidden' }}>
+            <GreyLines count={Math.max(2, Math.floor((b.h - 50) / 17))} />
+          </div>
+          <div style={{ padding: '3px 8px', fontSize: 11, color: sketch.muted, borderTop: `1px solid ${sketch.fillStrong}` }}>
+            в просмотре — живые данные из «Моих отчётов»
+          </div>
+        </div>
+      );
     case 'list':
       return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, border: `1px solid ${sketch.border}`, borderRadius: 6, padding: 8, overflow: 'hidden' }}>
@@ -296,6 +312,10 @@ export function MockupCanvas(props: {
   /** Fires once at the start of a move/resize gesture (undo snapshot point). */
   onDragStart?: () => void;
   onBlockGeometry?: (id: string, patch: { x?: number; y?: number; w?: number; h?: number }) => void;
+  /** View mode: live widget to render instead of the sketch body (report blocks etc). */
+  renderLiveBlock?: (b: MockBlock) => React.ReactNode | null;
+  /** View mode: called on click for actionable blocks (button with targetTab). */
+  onActivateBlock?: (b: MockBlock) => void;
 }) {
   const { spec, mode } = props;
   const scale = props.scale ?? 1;
@@ -383,6 +403,8 @@ export function MockupCanvas(props: {
         const isLinkSource = props.linkFromId === b.id;
         const num = annotationNums.get(b.id);
         const isNote = b.kind === 'note';
+        const live = !editable ? (props.renderLiveBlock?.(b) ?? null) : null;
+        const activatable = !editable && props.onActivateBlock != null && b.kind === 'button' && Boolean(b.targetTab);
         return (
           <div
             key={b.id}
@@ -406,17 +428,18 @@ export function MockupCanvas(props: {
               background: isNote ? sketch.noteBg : b.kind === 'panel' ? sketch.fill : 'transparent',
               boxShadow: selected ? `0 0 0 2px ${sketch.selected}44` : isLinkSource ? `0 0 0 2px ${sketch.selected}88` : 'none',
               color: sketch.text,
-              cursor: props.linkMode ? 'crosshair' : editable ? 'move' : 'default',
+              cursor: props.linkMode ? 'crosshair' : editable ? 'move' : activatable ? 'pointer' : 'default',
               userSelect: 'none',
             }}
             onClick={(e) => {
               e.stopPropagation();
               if (props.linkMode) props.onLinkClick?.(b.id);
+              else if (activatable) props.onActivateBlock?.(b);
               else props.onSelect?.({ type: 'block', id: b.id });
             }}
             onPointerDown={(e) => startDrag(e, b, 'move')}
           >
-            <BlockBody block={b} />
+            {live ?? <BlockBody block={b} />}
             {num != null ? (
               <span
                 style={{
