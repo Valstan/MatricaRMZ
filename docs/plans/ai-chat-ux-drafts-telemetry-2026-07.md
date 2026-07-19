@@ -9,7 +9,8 @@
 - **B ✅** PR #284 (в main): все пути allowClose → `respondAppClose()` — финальный `sync.run` (потолок 20с) с оверлеем «Синхронизация с сервером…», потом закрытие. CDP-смоук `_close-sync-smoke.mjs`: наряд в БД сервера после смерти процесса.
 - **C ⏳** прод-часть выполнена: сотрудник `ai-agent` (admin, id=22025958…), правила уже в БД, PG-роль `ai_readonly` (SELECT-only, проверена) + `AI_READONLY_URL` в .env. **Остался шаг владельца:** scheduled-агент в claude.ai UI (промпт ROUTINE.md, cron `0 5-14 * * 1-5` UTC) + решить SSH-доступ облака (ключ-секрет в окружении или REST-вариант отдельным PR).
 - **D 🔄** ветка `feat/ai-chat-suggestion-chips`: чипы-подсказки (формат DOCX/Excel/PDF/текст, кратко/подробно, таблицей, период), «Сохранить как шаблон» на отвеченных, выпадашка «Шаблоны и частые запросы» (частые = только answered, группировка по нормализованному тексту). Шаблоны — в `UserUiProfile.aiChatTemplates` (EAV `ui_profile_json`, синк между ПК, без DDL).
-- **E ⬜** не начато. Решения владельца учтены (см. ниже).
+- **D ✅** PR #285 (в main).
+- **E ✅** ветка `feat/ui-usage-telemetry-weekly-digest`: `ui.visit`/`ui.card_open`/`ui.report_open` в синкающийся `audit_log` (троттлинг 30с, fire-and-forget; V2-списки логируются в setTab), runner-команда `post-digest` (answered-запись в AI-чат суперадмина), ROUTINE.md §5 — понедельничный дайджест по `audit_log` за 7 дней + предложения по улучшению программы.
 
 ## Приоритеты (предложение)
 

@@ -65,6 +65,7 @@ import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { loadContractActivityAlerts } from './utils/contractAlerts.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
+import { logUiUsage } from './utils/uiUsageLog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { V2Shell } from './shellV2/V2Shell.js';
@@ -984,6 +985,8 @@ export function App() {
     // V2: кнопка-список раскрывает колонку списков, не трогая рабочую область
     // (открытую карточку/страницу). Обычный переход — только когда фокус уже на списке.
     if (isV2 && V2_LIST_TABS.has(nextTab) && nextTab !== tab && !V2_LIST_TABS.has(tab)) {
+      // V2: списки живут в колонке и не меняют tab — визит логируем здесь же (задача E).
+      logUiUsage('ui.visit', nextTab);
       setV2ActiveListTab(nextTab);
       return;
     }
@@ -994,8 +997,16 @@ export function App() {
   // списка меняет selectedXId БЕЗ смены таба — requestTabSwitch не сработает, и key-ремоунт
   // молча потерял бы несохранённые правки. Гейтим замену карточки тем же dirty-диалогом;
   // отложенное открытие выполняет finalizeCardClose.
+  // Телеметрия навигации (задача E): визит вкладки в синкающийся audit_log —
+  // еженедельная AI-рутина агрегирует это в дайджест суперадмину.
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    logUiUsage('ui.visit', tab);
+  }, [tab, authStatus.loggedIn]);
+
   const v2OpenCardGuarded = useCallback(
     (kind: TabId, run: () => void) => {
+      logUiUsage('ui.card_open', kind);
       if (!isV2 || tab !== kind) {
         run();
         return;
@@ -2559,6 +2570,7 @@ export function App() {
   }
 
   function openReportPreset(presetId: ReportPresetId) {
+    logUiUsage('ui.report_open', presetId);
     v2OpenCardGuarded('report_preset', () => {
       setSelectedReportPresetId(presetId);
       setTab('report_preset');
