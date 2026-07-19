@@ -10,7 +10,10 @@
  * Storage is unchanged from the v1 pilot: EAV entity type `ui_screen`
  * (attr `spec_json`), factory-wide sync, access enforced in UI + IPC only
  * (screen belongs to one AccessSection, view needs viewer+, edit needs
- * editor). Specs carry no executable behavior by design.
+ * editor). Specs carry no executable behavior by design, with two narrow
+ * read-only exceptions rendered live in view mode: `report` blocks (a saved
+ * «Мои отчёты» template, data built locally under the template's own
+ * permissions) and buttons with `targetTab` (navigate to an app tab).
  *
  * Legacy v1 specs (working blocks with intents/widgets) are upgraded to v2
  * mock blocks on parse; there is no downgrade path.
@@ -25,6 +28,7 @@ export const MOCK_BLOCK_KINDS = [
   'checkbox',
   'date',
   'table',
+  'report',
   'list',
   'panel',
   'tabs',
@@ -42,6 +46,7 @@ export const MOCK_BLOCK_LABELS_RU: Record<MockBlockKind, string> = {
   checkbox: 'Галочка',
   date: 'Дата',
   table: 'Таблица',
+  report: 'Живой отчёт',
   list: 'Список',
   panel: 'Панель / раздел',
   tabs: 'Вкладки',
@@ -72,6 +77,13 @@ export type MockBlock = {
   note?: string;
   /** Колонки таблицы / названия вкладок / пункты списка. */
   items?: string[];
+  /**
+   * kind='report': id личного шаблона «Моих отчётов» — в просмотре блок
+   * рендерится живыми данными (права шаблона/пресета наследуются на чтении).
+   */
+  reportTemplateId?: string;
+  /** kind='button': id вкладки приложения — в просмотре кнопка реально переходит. */
+  targetTab?: string;
 };
 
 export type MockLink = {
@@ -109,6 +121,7 @@ export const MOCK_BLOCK_DEFAULT_SIZES: Record<MockBlockKind, { w: number; h: num
   checkbox: { w: 200, h: 32 },
   date: { w: 180, h: 40 },
   table: { w: 480, h: 200 },
+  report: { w: 560, h: 300 },
   list: { w: 320, h: 200 },
   panel: { w: 520, h: 280 },
   tabs: { w: 480, h: 44 },
@@ -148,6 +161,8 @@ function sanitizeMockBlock(raw: unknown, index: number): MockBlock | null {
   const label = String(obj.label ?? '').slice(0, MOCK_LABEL_MAX);
   const note = String(obj.note ?? '').slice(0, MOCK_NOTE_MAX);
   const items = sanitizeItems(obj.items);
+  const reportTemplateId = String(obj.reportTemplateId ?? '').trim().slice(0, 64);
+  const targetTab = String(obj.targetTab ?? '').trim().slice(0, 64);
   return {
     id,
     kind: kind as MockBlockKind,
@@ -158,6 +173,8 @@ function sanitizeMockBlock(raw: unknown, index: number): MockBlock | null {
     ...(label.trim() ? { label } : {}),
     ...(note.trim() ? { note } : {}),
     ...(items ? { items } : {}),
+    ...(kind === 'report' && reportTemplateId ? { reportTemplateId } : {}),
+    ...(kind === 'button' && targetTab ? { targetTab } : {}),
   };
 }
 
@@ -293,13 +310,14 @@ export function serializeUiSpec(spec: UiSpecV2): string {
   return JSON.stringify(spec);
 }
 
-export const MOCKUP_STARTER_TEMPLATE_IDS = ['form', 'list_card', 'report'] as const;
+export const MOCKUP_STARTER_TEMPLATE_IDS = ['form', 'list_card', 'report', 'dashboard'] as const;
 export type MockupStarterTemplateId = (typeof MOCKUP_STARTER_TEMPLATE_IDS)[number];
 
 export const MOCKUP_STARTER_TEMPLATE_LABELS_RU: Record<MockupStarterTemplateId, string> = {
   form: 'Форма ввода',
   list_card: 'Список + карточка',
   report: 'Отчёт с фильтрами',
+  dashboard: 'Дашборд (живые виджеты)',
 };
 
 /**
@@ -343,6 +361,18 @@ export function buildStarterTemplate(
       links: [{ id: newId(), fromId: table.id, toId: panel.id, kind: 'data', label: 'выбранная строка' }],
     };
   }
+  if (template === 'dashboard') {
+    return {
+      blocks: [
+        b({ kind: 'heading', x: 40, y: 30, w: 480, h: 44, label: 'Мой рабочий экран' }),
+        b({ kind: 'report', x: 40, y: 100, w: 560, h: 300, label: 'Отчёт 1', note: 'Выберите шаблон из «Моих отчётов» в свойствах блока — в просмотре здесь будут живые данные' }),
+        b({ kind: 'report', x: 640, y: 100, w: 560, h: 300, label: 'Отчёт 2' }),
+        b({ kind: 'button', x: 40, y: 430, w: 200, h: 44, label: 'Наряды', note: 'Назначьте вкладку в свойствах — кнопка будет реально переходить' }),
+        b({ kind: 'button', x: 260, y: 430, w: 200, h: 44, label: 'Мои отчёты' }),
+      ],
+      links: [],
+    };
+  }
   const filterBtn = b({ kind: 'button', x: 560, y: 90, w: 140, h: 40, label: 'Сформировать' });
   const table = b({ kind: 'table', x: 40, y: 160, w: 720, h: 300, label: 'Результат', items: ['Колонка 1', 'Колонка 2', 'Итого'] });
   return {
@@ -384,6 +414,8 @@ export function describeUiSpecForDeveloper(spec: UiSpecV2, screenName?: string):
       const what = b.kind === 'table' ? 'Колонки' : b.kind === 'tabs' ? 'Вкладки' : 'Пункты';
       lines.push(`   ${what}: ${b.items.join(', ')}`);
     }
+    if (b.kind === 'report') lines.push(`   Источник: личный шаблон «Моих отчётов»${b.reportTemplateId ? ` (id ${b.reportTemplateId})` : ' — не выбран'}`);
+    if (b.targetTab) lines.push(`   Переход: вкладка «${b.targetTab}» (кнопка работает в просмотре)`);
     if (b.note?.trim()) lines.push(`   Назначение: ${b.note.trim()}`);
   }
   if (spec.links.length > 0) {
