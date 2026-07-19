@@ -789,6 +789,33 @@ export function App() {
     [],
   );
 
+  // Финальный push перед закрытием окна: только что закоммиченные карточки и soft-delete
+  // черновиков лежат в реплике как pending — если закрыть окно сразу, они не доедут до
+  // сервера, и на другом ПК (или после переустановки) документы всплывут stale-черновиками.
+  // Ждём один sync.run с потолком 20с (оффлайн/зависший сервер не должен запирать выход);
+  // по таймауту закрываемся — pending дойдёт при следующем запуске, recovery остаётся страховкой.
+  const appCloseFinalizingRef = useRef(false);
+  const [appCloseSyncing, setAppCloseSyncing] = useState(false);
+  const respondAppClose = useCallback(() => {
+    if (appCloseFinalizingRef.current) return;
+    appCloseFinalizingRef.current = true;
+    void (async () => {
+      try {
+        const s = await window.matrica.auth.status().catch(() => null);
+        if (s?.loggedIn) {
+          setAppCloseSyncing(true);
+          await Promise.race([
+            window.matrica.sync.run().catch(() => null),
+            new Promise((resolve) => window.setTimeout(resolve, 20000)),
+          ]);
+        }
+      } catch {
+        // финальный синк — best-effort, закрытие не блокируем
+      }
+      window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+    })();
+  }, []);
+
   const closeCardSession = useCallback(
     async (opts: { targetTab: TabId | null; appClose: boolean; panes?: Array<'primary' | 'secondary'> }) => {
       if (cardCloseInProgressRef.current && opts.appClose) {
@@ -823,7 +850,7 @@ export function App() {
           if (p === 'secondary') clearSecondaryPaneState();
         }
         if (fromApp) {
-          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+          respondAppClose();
         } else {
           const pendingOpen = pendingCardOpenRef.current;
           if (pendingOpen) {
@@ -865,7 +892,7 @@ export function App() {
         }, 1000);
       }
     },
-    [setTabState, paneCloseActions, clearSecondaryPaneState],
+    [setTabState, paneCloseActions, clearSecondaryPaneState, respondAppClose],
   );
 
   const finalizeCardClose = useCallback(
@@ -882,7 +909,7 @@ export function App() {
       cardCloseFromAppRef.current = false;
 
       if (panes.length === 0) {
-        if (fromApp) window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        if (fromApp) respondAppClose();
         return;
       }
 
@@ -918,14 +945,14 @@ export function App() {
         pendingCardOpenRef.current = null;
         pendingOpen();
         if (fromApp) {
-          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+          respondAppClose();
         }
         return;
       }
 
       if (replayQueuedHistoryStep()) {
         if (fromApp) {
-          window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+          respondAppClose();
         }
         return;
       }
@@ -935,10 +962,10 @@ export function App() {
       }
 
       if (fromApp) {
-        window.matrica.app.respondToCloseRequest?.({ allowClose: true });
+        respondAppClose();
       }
     },
-    [setTabState, paneCloseActions, clearSecondaryPaneState],
+    [setTabState, paneCloseActions, clearSecondaryPaneState, respondAppClose],
   );
 
   const requestTabSwitch = useCallback(
@@ -1319,7 +1346,7 @@ export function App() {
       };
       const dirty = paneDirty(cardCloseActionsRef.current) || paneDirty(secondaryCloseRef.current);
       if (!dirty) {
-        window.matrica.app?.respondToCloseRequest?.({ allowClose: true });
+        respondAppClose();
         return;
       }
 
@@ -1332,7 +1359,7 @@ export function App() {
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [closeCardSession, isCardTab, tab, v2SecondaryCard]);
+  }, [closeCardSession, isCardTab, tab, v2SecondaryCard, respondAppClose]);
 
   useEffect(() => {
     const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
@@ -3875,6 +3902,31 @@ export function App() {
     );
   }
 
+  function renderAppCloseSyncOverlay() {
+    if (!appCloseSyncing) return null;
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1300,
+          padding: 20,
+        }}
+      >
+        <div style={{ width: 'min(420px, 90vw)', background: 'var(--surface)', borderRadius: 14, padding: 20, textAlign: 'center' }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Синхронизация с сервером…</div>
+          <div style={{ marginTop: 8, color: 'var(--muted)' }}>
+            Отправляем несохранённые изменения на сервер. Программа закроется автоматически.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderRecoveryModal() {
     if (!recoveryDrafts || recoveryDrafts.length === 0) return null;
     return (
@@ -5169,6 +5221,7 @@ export function App() {
         {renderFatalModal()}
         {renderCardCloseModal()}
         {renderRecoveryModal()}
+        {renderAppCloseSyncOverlay()}
         {accountMenuPos && (
           <ListContextMenu
             x={accountMenuPos.x}
