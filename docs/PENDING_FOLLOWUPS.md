@@ -22,6 +22,7 @@ Anthropic режет РФ-IP на edge (прод `195.161.41.30`, myjino, RU →
 
 - **Решение (рекомендуемое):** forward HTTPS-proxy на зарубежном VPS (Hetzner DE/FI ~€4/мес) → `HTTPS_PROXY` в `.env` + `httpAgent` в `claudeProvider.ts`. Минимальные правки. **Ждёт решения владельца по VPS.**
 - **Сцеплено (разблокируется вместе):** GitHub secret `ANTHROPIC_API_KEY` + раскомментить `pull_request` в `claude-code-review.yml` (авто-ревью PR); отложенные AI-tools (`get_report`, спец `get_work_orders`/`get_supply_requests`).
+- **Частично обойдено (2026-07-19, v2026.719.1555):** пользовательский AI-чат переделан в **асинхронную очередь** — отвечает облачная рутина claude.ai по SSH (без API-ключа, в рамках подписки), гео-блок не мешает. Блокер остаётся только для старого синхронного контура (стриминг/чат-learning/лог-анализ) и PR-авторевью.
 - Память: [[anthropic_geo_block]].
 
 ---
