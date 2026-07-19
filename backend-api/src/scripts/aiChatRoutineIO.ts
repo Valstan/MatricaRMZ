@@ -17,6 +17,10 @@
  *     status='escalated' + DM суперадмину от актора ai-agent.
  *   get-rules / set-rules --file <path> [--changed-by <who>]
  *     «Конституция ответов» в ai_chat_meta.rules_md + append-only история.
+ *   post-digest --file <path.md> [--title <text>] [--attach <path>]...
+ *     Еженедельный дайджест использования программы: создаёт ГОТОВУЮ answered-запись
+ *     в AI-чате суперадмина (вопрос-заглушка + ответ из файла). Задача E плана
+ *     ai-chat-ux-drafts-telemetry-2026-07 («куда класть отчёт — в AI-чат суперадмину»).
  *   mark-run
  *     Штампит last_run_at в ai_chat_meta.
  */
@@ -299,6 +303,45 @@ async function cmdEscalate() {
   out({ ok: true, id, notifiedSuperadmin: Boolean(sa?.id) });
 }
 
+async function cmdPostDigest() {
+  const file = argValue('file');
+  if (!file) throw new Error('usage: post-digest --file <path.md> [--title <text>] [--attach <path>]...');
+  const answerText = readFileSync(file, 'utf8').trim();
+  if (!answerText) throw new Error('empty digest');
+  const title = argValue('title') ?? '📊 Еженедельный отчёт по использованию программы';
+
+  const list = await listEmployeesAuth();
+  const sa = list.ok ? list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin') : null;
+  if (!sa?.id) throw new Error('superadmin not found');
+
+  const actor = await getActor();
+  const id = randomUUID();
+  const attachRefs = [];
+  for (const p of argValues('attach')) {
+    attachRefs.push(await uploadAnswerFile(id, p, actor.id));
+  }
+
+  const ts = nowMs();
+  const row = {
+    id,
+    userId: String(sa.id),
+    username: String(sa.login ?? 'superadmin'),
+    questionText: title,
+    questionFileJson: null,
+    status: 'answered',
+    answerText,
+    answerFilesJson: attachRefs.length > 0 ? JSON.stringify(attachRefs) : null,
+    answeredAt: ts,
+    escalationNote: null,
+    verdictText: null,
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+  };
+  const res = await writeRow(actor, row);
+  out({ ok: true, id, attachments: attachRefs.length, dbApplied: res.dbApplied, skipped: res.skipped });
+}
+
 async function upsertMeta(key: string, value: string) {
   const ts = nowMs();
   await db
@@ -344,10 +387,12 @@ async function main() {
       return cmdGetRules();
     case 'set-rules':
       return cmdSetRules();
+    case 'post-digest':
+      return cmdPostDigest();
     case 'mark-run':
       return cmdMarkRun();
     default:
-      throw new Error(`unknown command: ${cmd ?? '(none)'}; commands: list-pending | post-answer | escalate | get-rules | set-rules | mark-run`);
+      throw new Error(`unknown command: ${cmd ?? '(none)'}; commands: list-pending | post-answer | escalate | get-rules | set-rules | post-digest | mark-run`);
   }
 }
 
