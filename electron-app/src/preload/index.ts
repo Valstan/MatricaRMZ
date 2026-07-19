@@ -153,7 +153,7 @@ const matricaApi = {
     customPrint: async (args: { spec: unknown }) => ipcRenderer.invoke('reports:customPrint', args),
     customCsv: async (args: { spec: unknown }) => ipcRenderer.invoke('reports:customCsv', args),
     customTemplatesList: async (args?: { userId?: string }) => ipcRenderer.invoke('reports:customTemplatesList', args),
-    customTemplateSave: async (args: { userId?: string; template: { id?: string; name: string; spec: unknown } }) =>
+    customTemplateSave: async (args: { userId?: string; template: { id?: string; name: string; spec: unknown; shared?: boolean } }) =>
       ipcRenderer.invoke('reports:customTemplateSave', args),
     customTemplateDelete: async (args: { userId?: string; templateId: string }) =>
       ipcRenderer.invoke('reports:customTemplateDelete', args),

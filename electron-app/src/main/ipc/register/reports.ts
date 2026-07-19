@@ -77,6 +77,10 @@ function sanitizePresetIds(ids: unknown): string[] {
 
 const FILTER_TEMPLATES_LIMIT = 20;
 
+// Общие (для всех операторов) шаблоны «Моих отчётов» живут в том же блобе под
+// служебным scope-ключом; он не пересекается с userId (uuid) и с '__global__'.
+const CUSTOM_REPORT_SHARED_SCOPE = '__shared__';
+
 function sanitizeCustomReportTemplates(entries: unknown): CustomReportTemplate[] {
   if (!Array.isArray(entries)) return [];
   const out: CustomReportTemplate[] = [];
@@ -86,11 +90,13 @@ function sanitizeCustomReportTemplates(entries: unknown): CustomReportTemplate[]
     const spec = sanitizeCustomReportSpec((row as any)?.spec);
     if (!id || !name || !spec) continue;
     const createdAtRaw = Number((row as any)?.createdAt ?? 0);
+    const ownerId = String((row as any)?.ownerId ?? '').trim();
     out.push({
       id,
       name,
       createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? Math.floor(createdAtRaw) : 0,
       spec,
+      ...(ownerId ? { ownerId } : {}),
     });
     if (out.length >= CUSTOM_REPORT_TEMPLATES_LIMIT) break;
   }
@@ -303,18 +309,33 @@ export function registerReportsIpc(ctx: IpcContext) {
     return exportCustomReportCsv(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
   });
 
+  const isAdminViewer = async (): Promise<boolean> => {
+    const role = String((await ctx.currentViewer()).role ?? '').toLowerCase();
+    return role === 'admin' || role === 'superadmin';
+  };
+
+  // Комбинированный список: личные шаблоны + общие (shared-бакет, помечены shared/ownerId).
+  const listCustomTemplates = (byScope: Record<string, unknown>, scope: string): CustomReportTemplate[] => {
+    const personal = sanitizeCustomReportTemplates(byScope[scope]);
+    const shared = sanitizeCustomReportTemplates(byScope[CUSTOM_REPORT_SHARED_SCOPE]).map((t) => ({
+      ...t,
+      shared: true as const,
+    }));
+    return [...personal, ...shared];
+  };
+
   ipcMain.handle('reports:customTemplatesList', async (_e, args?: { userId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
     const scope = resolveUserScope(args?.userId);
     const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
     const byScope = parseByScope<unknown>(raw);
-    return { ok: true as const, templates: sanitizeCustomReportTemplates(byScope[scope]) };
+    return { ok: true as const, templates: listCustomTemplates(byScope, scope) };
   });
 
   ipcMain.handle(
     'reports:customTemplateSave',
-    async (_e, args?: { userId?: string; template?: { id?: string; name?: string; spec?: unknown } }) => {
+    async (_e, args?: { userId?: string; template?: { id?: string; name?: string; spec?: unknown; shared?: boolean } }) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
       const name = String(args?.template?.name ?? '').trim().slice(0, 200);
@@ -322,19 +343,31 @@ export function registerReportsIpc(ctx: IpcContext) {
       const spec = sanitizeCustomReportSpec(args?.template?.spec);
       if (!spec) return { ok: false as const, error: 'Некорректная спецификация отчёта' };
       const scope = resolveUserScope(args?.userId);
+      const shared = args?.template?.shared === true;
+      const bucket = shared ? CUSTOM_REPORT_SHARED_SCOPE : scope;
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
       const byScope = parseByScope<unknown>(raw);
-      const current = sanitizeCustomReportTemplates(byScope[scope]);
+      const current = sanitizeCustomReportTemplates(byScope[bucket]);
       const id = String(args?.template?.id ?? '').trim() || `crt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const entry: CustomReportTemplate = { id, name, createdAt: Date.now(), spec };
       // Замена по id или по имени (пересохранение под тем же именем перезаписывает шаблон).
+      const replaced = current.find((t) => t.id === id || t.name === name);
+      if (shared && replaced && replaced.ownerId && replaced.ownerId !== scope && !(await isAdminViewer())) {
+        return { ok: false as const, error: 'Общий шаблон может изменить только автор или администратор' };
+      }
+      const entry: CustomReportTemplate = {
+        id,
+        name,
+        createdAt: Date.now(),
+        spec,
+        ...(shared ? { ownerId: replaced?.ownerId ?? scope } : {}),
+      };
       const next = [entry, ...current.filter((t) => t.id !== entry.id && t.name !== entry.name)].slice(
         0,
         CUSTOM_REPORT_TEMPLATES_LIMIT,
       );
-      byScope[scope] = next;
+      byScope[bucket] = next;
       await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
-      return { ok: true as const, templates: next, id };
+      return { ok: true as const, templates: listCustomTemplates(byScope as Record<string, unknown>, scope), id };
     },
   );
 
@@ -345,10 +378,21 @@ export function registerReportsIpc(ctx: IpcContext) {
     const templateId = String(args?.templateId ?? '').trim();
     const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
     const byScope = parseByScope<unknown>(raw);
-    const next = sanitizeCustomReportTemplates(byScope[scope]).filter((t) => t.id !== templateId);
-    byScope[scope] = next;
+    const personal = sanitizeCustomReportTemplates(byScope[scope]);
+    if (personal.some((t) => t.id === templateId)) {
+      byScope[scope] = personal.filter((t) => t.id !== templateId);
+    } else {
+      const sharedList = sanitizeCustomReportTemplates(byScope[CUSTOM_REPORT_SHARED_SCOPE]);
+      const target = sharedList.find((t) => t.id === templateId);
+      if (target) {
+        if (target.ownerId && target.ownerId !== scope && !(await isAdminViewer())) {
+          return { ok: false as const, error: 'Общий шаблон может удалить только автор или администратор' };
+        }
+        byScope[CUSTOM_REPORT_SHARED_SCOPE] = sharedList.filter((t) => t.id !== templateId);
+      }
+    }
     await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
-    return { ok: true as const, templates: next };
+    return { ok: true as const, templates: listCustomTemplates(byScope as Record<string, unknown>, scope) };
   });
 
   ipcMain.handle('reports:historyList', async (_e, args?: { userId?: string; limit?: number }) => {
