@@ -1771,8 +1771,9 @@ export function App() {
   const canChat = !!authStatus.permissions?.['chat.use'];
   const canChatExport = !!authStatus.permissions?.['chat.export'];
   const canChatAdminView = !!authStatus.permissions?.['chat.admin.view'];
-  const [aiEnabledOnServer, setAiEnabledOnServer] = useState<boolean>(true);
-  const canAiAgent = authStatus.loggedIn && canChat && aiEnabledOnServer;
+  // Асинхронный AI-чат (очередь + облачная рутина) не зависит от серверного
+  // AI_ENABLED (флаг старого синхронного Anthropic-контура) — только chat.use.
+  const canAiAgent = authStatus.loggedIn && canChat;
   const caps = viewMode
     ? {
         ...capsBase,
@@ -1939,26 +1940,6 @@ export function App() {
   useEffect(() => {
     if (!canAiAgent) setAiChatOpen(false);
   }, [canAiAgent]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const r = await window.matrica.server.health();
-        if (cancelled) return;
-        const enabled = (r as { aiEnabled?: boolean })?.aiEnabled !== false;
-        setAiEnabledOnServer(enabled);
-      } catch {
-        // ignore — keep last known value (default true) so we don't accidentally hide chat on transient health error
-      }
-    };
-    void refresh();
-    const stop = pollWhenVisible(() => void refresh(), 5 * 60_000);
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, []);
 
   useEffect(() => {
     if (!trashOpen) return;
