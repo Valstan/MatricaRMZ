@@ -3,7 +3,7 @@
 // не обработан. Файлы — через существующий files-контур (Яндекс.Диск).
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
-import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, FileRef } from '@matricarmz/shared';
+import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
 import {
   AI_CHAT_MAX_QUESTIONS_PER_HOUR,
   AI_CHAT_STATUS_LABELS,
@@ -19,6 +19,28 @@ const MIN_WIDTH = 360;
 const MAX_WIDTH = 800;
 const DEFAULT_WIDTH = 520;
 const REFRESH_MS = 60_000;
+
+// Чипы-подсказки: оператор забывает уточнить формат/период — тумблеры дописывают
+// требования к вопросу при отправке (см. план ai-chat-ux-drafts-telemetry-2026-07, задача D).
+// Группы single-select: формат ответа, объём, период. «Таблицей» — независимый тумблер.
+type HintChip = { key: string; label: string; hint: string; group: 'format' | 'detail' | 'period' | 'shape' };
+const HINT_CHIPS: HintChip[] = [
+  { key: 'docx', label: '📄 DOCX', hint: 'ответ оформи отдельным файлом Word (.docx)', group: 'format' },
+  { key: 'xlsx', label: '📊 Excel', hint: 'ответ оформи отдельным файлом Excel (.xlsx)', group: 'format' },
+  { key: 'pdf', label: '📕 PDF', hint: 'ответ оформи отдельным файлом PDF', group: 'format' },
+  { key: 'text', label: '📃 Текстом', hint: 'ответ дай текстом прямо в чат, без файлов', group: 'format' },
+  { key: 'brief', label: 'Кратко', hint: 'ответь кратко, только итоговые цифры и факты', group: 'detail' },
+  { key: 'full', label: 'Подробно', hint: 'ответь подробно, с пояснениями и методикой расчёта', group: 'detail' },
+  { key: 'table', label: 'Таблицей', hint: 'оформи данные таблицей', group: 'shape' },
+  { key: 'today', label: 'За сегодня', hint: 'данные за сегодня', group: 'period' },
+  { key: 'week', label: 'За неделю', hint: 'данные за последние 7 дней', group: 'period' },
+  { key: 'month', label: 'За месяц', hint: 'данные за последний месяц', group: 'period' },
+];
+
+/** Ключ группировки «одинаковых» вопросов для списка частых запросов. */
+function normalizeQuestionKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
 function parseFileRef(json: string | null): FileRef | null {
   if (!json) return null;
@@ -89,6 +111,9 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [fullscreen, setFullscreen] = useState(false);
   const [now, setNow] = useState<number>(Date.now());
+  const [activeHints, setActiveHints] = useState<string[]>([]);
+  const [templates, setTemplates] = useState<AiChatTemplate[]>([]);
+  const [savedTemplateFor, setSavedTemplateFor] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -100,9 +125,34 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     if (meta.ok) setLastRunAt(meta.lastRunAt);
   }, []);
 
+  const loadTemplates = useCallback(async () => {
+    try {
+      const r = await window.matrica.auth.uiProfileGet();
+      if (r.ok) setTemplates(r.profile?.aiChatTemplates ?? []);
+    } catch {
+      // best-effort — шаблоны не блокируют чат
+    }
+  }, []);
+
+  // Шаблоны живут в синкающемся UserUiProfile: fetch-modify-set, LWW разруливает сервер.
+  const persistTemplates = useCallback(async (next: AiChatTemplate[]) => {
+    setTemplates(next);
+    try {
+      const r = await window.matrica.auth.uiProfileGet();
+      const base = r.ok && r.profile ? r.profile : { updatedAt: 0 };
+      const saved = await window.matrica.auth.uiProfileSet({
+        profile: { ...base, updatedAt: Date.now(), aiChatTemplates: next },
+      });
+      if (saved.ok) setTemplates(saved.profile.aiChatTemplates ?? next);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
   useEffect(() => {
     if (!props.visible) return;
     void refresh();
+    void loadTemplates();
     void window.matrica.auth.status().then((s: any) => {
       const u = s?.user;
       if (u?.id) setMe({ id: String(u.id), role: String(u.role ?? '') });
@@ -112,7 +162,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       setNow(Date.now());
     }, REFRESH_MS);
     return () => clearInterval(t);
-  }, [props.visible, refresh]);
+  }, [props.visible, refresh, loadTemplates]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -133,8 +183,50 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const leftThisHour = Math.max(0, AI_CHAT_MAX_QUESTIONS_PER_HOUR - usedThisHour);
   const nextRunAt = getNextAiRunAt(now);
 
-  async function send() {
+  // Частые запросы: только доведённые до ответа (answered) свои вопросы,
+  // сгруппированные по нормализованному тексту — топ по повторам, затем по свежести.
+  const frequentQuestions = useMemo(() => {
+    const byKey = new Map<string, { text: string; count: number; lastAt: number }>();
+    for (const i of myItems) {
+      if (i.status !== 'answered') continue;
+      const key = normalizeQuestionKey(i.questionText);
+      if (!key) continue;
+      const prev = byKey.get(key);
+      if (prev) {
+        prev.count += 1;
+        if (i.createdAt > prev.lastAt) {
+          prev.lastAt = i.createdAt;
+          prev.text = i.questionText;
+        }
+      } else {
+        byKey.set(key, { text: i.questionText, count: 1, lastAt: i.createdAt });
+      }
+    }
+    const templateKeys = new Set(templates.map((t) => normalizeQuestionKey(t.text)));
+    return [...byKey.values()]
+      .filter((v) => !templateKeys.has(normalizeQuestionKey(v.text)))
+      .sort((a, b) => b.count - a.count || b.lastAt - a.lastAt)
+      .slice(0, 7);
+  }, [myItems, templates]);
+
+  function toggleHint(chip: HintChip) {
+    setActiveHints((prev) => {
+      if (prev.includes(chip.key)) return prev.filter((k) => k !== chip.key);
+      // группы single-select: новый чип вытесняет одногруппника
+      const sameGroup = HINT_CHIPS.filter((c) => c.group === chip.group && c.group !== 'shape').map((c) => c.key);
+      return [...prev.filter((k) => !sameGroup.includes(k)), chip.key];
+    });
+  }
+
+  function composeQuestion(): string {
     const q = text.trim();
+    if (!q) return q;
+    const hints = HINT_CHIPS.filter((c) => activeHints.includes(c.key)).map((c) => c.hint);
+    return hints.length ? `${q}\n\nТребования к ответу: ${hints.join('; ')}.` : q;
+  }
+
+  async function send() {
+    const q = composeQuestion();
     if (!q || busy) return;
     setBusy(true);
     setError(null);
@@ -146,10 +238,29 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       }
       setText('');
       setAttach(null);
+      setActiveHints([]);
       await refresh();
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveAsTemplate(item: AiChatRequestItem) {
+    const exists = templates.some((t) => normalizeQuestionKey(t.text) === normalizeQuestionKey(item.questionText));
+    if (!exists) {
+      const entry: AiChatTemplate = {
+        id: item.id,
+        title: item.questionText.trim().slice(0, 60),
+        text: item.questionText.trim(),
+        createdAt: Date.now(),
+      };
+      await persistTemplates([entry, ...templates].slice(0, 30));
+    }
+    setSavedTemplateFor(item.id);
+  }
+
+  async function removeTemplate(id: string) {
+    await persistTemplates(templates.filter((t) => t.id !== id));
   }
 
   async function pickFile() {
@@ -334,6 +445,25 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
                 ))}
               </div>
             )}
+            {!foreign && (
+              <div style={{ marginTop: 6 }}>
+                <button
+                  onClick={() => void saveAsTemplate(item)}
+                  disabled={savedTemplateFor === item.id}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: savedTemplateFor === item.id ? 'default' : 'pointer',
+                    fontSize: 11,
+                    color: theme.colors.muted,
+                    padding: 0,
+                  }}
+                  title="Сохранить вопрос как шаблон — потом выбрать из списка вместо повторного набора"
+                >
+                  {savedTemplateFor === item.id ? '✓ В шаблонах' : '⭐ Сохранить как шаблон'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -453,6 +583,91 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
             {error.includes('rate_limit') ? 'Лимит: не больше 5 вопросов в час.' : error}
           </div>
         )}
+        {(templates.length > 0 || frequentQuestions.length > 0) && (
+          <select
+            value=""
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return;
+              const [kind, idx] = v.split(':');
+              if (kind === 't') {
+                const t = templates[Number(idx)];
+                if (t) setText(t.text);
+              } else if (kind === 'f') {
+                const f = frequentQuestions[Number(idx)];
+                if (f) setText(f.text);
+              } else if (kind === 'del') {
+                const t = templates[Number(idx)];
+                if (t && window.confirm(`Удалить шаблон «${t.title}»?`)) void removeTemplate(t.id);
+              }
+            }}
+            disabled={leftThisHour === 0}
+            style={{
+              width: '100%',
+              padding: '5px 8px',
+              border: '1px solid var(--input-border)',
+              background: 'var(--input-bg)',
+              color: theme.colors.muted,
+              fontSize: 12,
+              borderRadius: 6,
+            }}
+            title="Готовые запросы: ваши шаблоны и часто повторяемые вопросы, на которые ИИ уже отвечал"
+          >
+            <option value="">Шаблоны и частые запросы…</option>
+            {templates.length > 0 && (
+              <optgroup label="Мои шаблоны">
+                {templates.map((t, i) => (
+                  <option key={t.id} value={`t:${i}`}>
+                    ⭐ {t.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {frequentQuestions.length > 0 && (
+              <optgroup label="Частые запросы (с ответом)">
+                {frequentQuestions.map((f, i) => (
+                  <option key={`f${i}`} value={`f:${i}`}>
+                    {f.count > 1 ? `×${f.count} ` : ''}
+                    {f.text.slice(0, 70)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {templates.length > 0 && (
+              <optgroup label="Удалить шаблон">
+                {templates.map((t, i) => (
+                  <option key={`d${t.id}`} value={`del:${i}`}>
+                    🗑 {t.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        )}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {HINT_CHIPS.map((c) => {
+            const active = activeHints.includes(c.key);
+            return (
+              <button
+                key={c.key}
+                onClick={() => toggleHint(c)}
+                disabled={leftThisHour === 0}
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  border: `1px solid ${active ? 'var(--border-strong)' : theme.colors.border}`,
+                  background: active ? 'rgba(37, 99, 235, 0.12)' : 'transparent',
+                  color: active ? theme.colors.text : theme.colors.muted,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+                title={`Добавит к вопросу: «${c.hint}»`}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}

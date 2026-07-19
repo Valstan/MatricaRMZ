@@ -25,6 +25,13 @@ export type UserUiProfileQuickStartScore = {
   lastAt: number;
 };
 
+export type AiChatTemplate = {
+  id: string;
+  title: string;
+  text: string;
+  createdAt: number;
+};
+
 export type UserUiProfile = {
   /** LWW-штамп: PATCH со штампом старше серверного отклоняется (клиент применяет серверный). */
   updatedAt: number;
@@ -32,6 +39,8 @@ export type UserUiProfile = {
   shortcuts?: string[];
   recentVisits?: UserUiProfileRecentVisit[];
   quickStartScores?: Record<string, UserUiProfileQuickStartScore>;
+  /** Сохранённые шаблоны запросов AI-чата («Сохранить как шаблон»), синкаются между ПК оператора. */
+  aiChatTemplates?: AiChatTemplate[];
 };
 
 const MAX_LIST = 200;
@@ -121,6 +130,25 @@ function sanitizeQuickStartScores(raw: unknown): Record<string, UserUiProfileQui
   return out;
 }
 
+const MAX_TEMPLATES = 30;
+const MAX_TEMPLATE_TEXT = 2000;
+
+function sanitizeAiChatTemplates(raw: unknown): AiChatTemplate[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: AiChatTemplate[] = [];
+  for (const item of raw.slice(0, MAX_TEMPLATES)) {
+    if (typeof item !== 'object' || item == null) continue;
+    const r = item as Record<string, unknown>;
+    const id = String(r.id ?? '').trim().slice(0, MAX_STR);
+    const title = String(r.title ?? '').trim().slice(0, MAX_STR);
+    const text = String(r.text ?? '').trim().slice(0, MAX_TEMPLATE_TEXT);
+    const createdAt = Number(r.createdAt ?? 0);
+    if (!id || !text || !Number.isFinite(createdAt)) continue;
+    out.push({ id, title: title || text.slice(0, 60), text, createdAt });
+  }
+  return out;
+}
+
 export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   const r = (typeof raw === 'object' && raw != null ? raw : {}) as Record<string, unknown>;
   const updatedAt = Number(r.updatedAt ?? 0);
@@ -133,5 +161,7 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (recentVisits !== undefined) out.recentVisits = recentVisits;
   const quickStartScores = sanitizeQuickStartScores(r.quickStartScores);
   if (quickStartScores !== undefined) out.quickStartScores = quickStartScores;
+  const aiChatTemplates = sanitizeAiChatTemplates(r.aiChatTemplates);
+  if (aiChatTemplates !== undefined) out.aiChatTemplates = aiChatTemplates;
   return out;
 }
