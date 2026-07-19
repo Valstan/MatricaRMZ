@@ -9,12 +9,13 @@ import {
   noteRowSchema,
   noteShareRowSchema,
   cardDraftRowSchema,
+  aiChatRequestRowSchema,
   entityRowSchema,
   entityTypeRowSchema,
   operationRowSchema,
   type SyncPushRequest,
 } from '@matricarmz/shared';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
@@ -33,6 +34,7 @@ import {
   notes,
   noteShares,
   cardDrafts,
+  aiChatRequests,
   operations,
   rowOwners,
   syncState,
@@ -1559,6 +1561,131 @@ export async function applyPushBatch(
               },
             });
           await updateSeqAndCollect(cardDrafts, SyncTableName.CardDrafts, allowed);
+          applied += allowed.length;
+        }
+      }
+    }
+
+    // AiChatRequests (owner-private AI-чат): клиент пишет ТОЛЬКО вопрос.
+    // Гейты: владелец = актор; ≤5 новых вопросов/час; правки/удаление только у
+    // pending; ответ/статус/эскалацию клиент не авторит (серверные поля
+    // затираются из текущей строки); исключение — суперадмин пишет verdict_text
+    // в escalated-строки. Ответы пишет рутина через recordSyncChanges (мимо push).
+    {
+      const raw = grouped.get(SyncTableName.AiChatRequests) ?? [];
+      const parsedAll = parseRows(SyncTableName.AiChatRequests, raw, aiChatRequestRowSchema);
+      if (parsedAll.length > 0 && actorId) {
+        const rows = await filterStaleBySeqOrUpdatedAt(aiChatRequests, parsedAll, SyncTableName.AiChatRequests);
+        const ids = rows.map((r) => r.id);
+        const existing =
+          ids.length === 0
+            ? []
+            : await tx.select().from(aiChatRequests).where(inArray(aiChatRequests.id, ids as any)).limit(50_000);
+        const existingMap = new Map<string, any>();
+        for (const e of existing as any[]) existingMap.set(String(e.id), e);
+
+        const actorIsSuperadmin = actorRole === 'superadmin';
+        const hourAgo = Date.now() - 60 * 60 * 1000;
+        // Rate limit считаем в ТОЙ ЖЕ транзакции: существующие строки за час + новые в этом батче.
+        const recentRows = await tx
+          .select({ n: sql<number>`count(*)` })
+          .from(aiChatRequests)
+          .where(and(eq(aiChatRequests.userId, actorId as any), gt(aiChatRequests.createdAt, hourAgo), isNull(aiChatRequests.deletedAt)));
+        let hourCount = Number((recentRows as any[])[0]?.n ?? 0);
+
+        const allowed: typeof rows = [];
+        for (const r of rows) {
+          const cur = existingMap.get(String(r.id));
+          if (!cur) {
+            hourCount += 1;
+            if (hourCount > 5 && !actorIsAdmin) throw new Error('sync_policy_denied: ai_chat_rate_limit');
+            // Новый вопрос: владелец всегда актор, статус всегда pending, серверные поля пусты.
+            allowed.push({
+              ...r,
+              user_id: actorId,
+              status: 'pending' as const,
+              answer_text: null,
+              answer_files_json: null,
+              answered_at: null,
+              escalation_note: null,
+              verdict_text: null,
+            });
+            continue;
+          }
+          const isOwner = String(cur.userId ?? '') === actorId;
+          if (!isOwner && !actorIsAdmin) throw new Error('sync_policy_denied: ai_chat_owner');
+          const curStatus = String(cur.status ?? 'pending');
+          if (actorIsSuperadmin && curStatus === 'escalated') {
+            // Суперадмин: только вердикт, остальное — из текущей строки.
+            allowed.push({
+              ...r,
+              user_id: String(cur.userId),
+              username: String(cur.username),
+              question_text: String(cur.questionText),
+              question_file_json: cur.questionFileJson ?? null,
+              status: curStatus as any,
+              answer_text: cur.answerText ?? null,
+              answer_files_json: cur.answerFilesJson ?? null,
+              answered_at: cur.answeredAt ?? null,
+              escalation_note: cur.escalationNote ?? null,
+              deleted_at: cur.deletedAt ?? null,
+            });
+            continue;
+          }
+          if (curStatus !== 'pending') throw new Error('sync_policy_denied: ai_chat_not_pending');
+          // Владелец правит/удаляет свой pending-вопрос; серверные поля не трогает.
+          allowed.push({
+            ...r,
+            user_id: String(cur.userId),
+            status: 'pending' as const,
+            answer_text: null,
+            answer_files_json: null,
+            answered_at: null,
+            escalation_note: null,
+            verdict_text: null,
+          });
+        }
+
+        if (allowed.length > 0) {
+          await tx
+            .insert(aiChatRequests)
+            .values(
+              allowed.map((r) => ({
+                id: r.id as any,
+                userId: r.user_id as any,
+                username: r.username,
+                questionText: r.question_text,
+                questionFileJson: r.question_file_json ?? null,
+                status: r.status,
+                answerText: r.answer_text ?? null,
+                answerFilesJson: r.answer_files_json ?? null,
+                answeredAt: r.answered_at ?? null,
+                escalationNote: r.escalation_note ?? null,
+                verdictText: r.verdict_text ?? null,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at,
+                deletedAt: r.deleted_at ?? null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoUpdate({
+              target: aiChatRequests.id,
+              set: {
+                username: sql`excluded.username`,
+                questionText: sql`excluded.question_text`,
+                questionFileJson: sql`excluded.question_file_json`,
+                status: sql`excluded.status`,
+                answerText: sql`excluded.answer_text`,
+                answerFilesJson: sql`excluded.answer_files_json`,
+                answeredAt: sql`excluded.answered_at`,
+                escalationNote: sql`excluded.escalation_note`,
+                verdictText: sql`excluded.verdict_text`,
+                updatedAt: sql`excluded.updated_at`,
+                deletedAt: sql`excluded.deleted_at`,
+                syncStatus: 'synced',
+              },
+            });
+          await updateSeqAndCollect(aiChatRequests, SyncTableName.AiChatRequests, allowed);
           applied += allowed.length;
         }
       }

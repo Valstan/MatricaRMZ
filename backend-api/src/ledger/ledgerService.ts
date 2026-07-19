@@ -26,6 +26,7 @@ import {
   notes,
   noteShares,
   cardDrafts,
+  aiChatRequests,
   operations,
   userPresence,
 } from '../database/schema.js';
@@ -410,6 +411,7 @@ export async function ensureLedgerBootstrap(
   await importTable(SyncTableName.Notes, await db.select().from(notes));
   await importTable(SyncTableName.NoteShares, await db.select().from(noteShares));
   await importTable(SyncTableName.CardDrafts, await db.select().from(cardDrafts));
+  await importTable(SyncTableName.AiChatRequests, await db.select().from(aiChatRequests));
 
   writeFileSync(
     markerPath,

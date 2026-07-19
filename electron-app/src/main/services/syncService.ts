@@ -11,6 +11,7 @@ import {
   noteRowSchema,
   noteShareRowSchema,
   cardDraftRowSchema,
+  aiChatRequestRowSchema,
   operationRowSchema,
   userPresenceRowSchema,
   type SyncPullResponse,
@@ -40,6 +41,7 @@ import {
   noteShares,
   notes,
   cardDrafts,
+  aiChatRequests,
   operations,
   userPresence,
 } from '../database/schema.js';
@@ -85,6 +87,7 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.Notes]: 500,
   [SyncTableName.NoteShares]: 500,
   [SyncTableName.CardDrafts]: 500,
+  [SyncTableName.AiChatRequests]: 100,
 };
 // better-sqlite3 bundles modern SQLite (SQLITE_MAX_VARIABLE_NUMBER=32766 since 3.32).
 // Large chunks matter: each INSERT statement outside a transaction is its own commit,
@@ -983,6 +986,7 @@ async function collectPending(db: BetterSQLite3Database) {
   await recoverErroredRows(notes, noteRowSchema, SyncTableName.Notes);
   await recoverErroredRows(noteShares, noteShareRowSchema, SyncTableName.NoteShares);
   await recoverErroredRows(cardDrafts, cardDraftRowSchema, SyncTableName.CardDrafts);
+  await recoverErroredRows(aiChatRequests, aiChatRequestRowSchema, SyncTableName.AiChatRequests);
   await recoverErroredRows(userPresence, userPresenceRowSchema, SyncTableName.UserPresence);
 
   async function add(table: SyncTableName, rows: unknown[]) {
@@ -1266,6 +1270,29 @@ async function collectPending(db: BetterSQLite3Database) {
     await add(SyncTableName.CardDrafts, valid);
   }
   {
+    const pendingAiRequests = await db
+      .select()
+      .from(aiChatRequests)
+      .where(eq(aiChatRequests.syncStatus, pending))
+      .limit(limitFor(SyncTableName.AiChatRequests));
+    const valid: typeof pendingAiRequests = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingAiRequests) {
+      const syncRow = toSyncRow(SyncTableName.AiChatRequests, row);
+      const parsed = aiChatRequestRowSchema.safeParse(syncRow);
+      if (parsed.success) {
+        valid.push(row);
+      } else {
+        invalidIds.push(String(row.id));
+      }
+    }
+    if (invalidIds.length > 0) {
+      await markPendingError(db, SyncTableName.AiChatRequests, invalidIds);
+      logSync(`push drop invalid ai_chat_requests count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.AiChatRequests, valid);
+  }
+  {
     const pendingPresence = await db
       .select()
       .from(userPresence)
@@ -1356,6 +1383,9 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
         break;
       case SyncTableName.CardDrafts:
         await db.update(cardDrafts).set({ syncStatus: 'synced' }).where(inArray(cardDrafts.id, chunk));
+        break;
+      case SyncTableName.AiChatRequests:
+        await db.update(aiChatRequests).set({ syncStatus: 'synced' }).where(inArray(aiChatRequests.id, chunk));
         break;
       case SyncTableName.UserPresence:
         await db.update(userPresence).set({ syncStatus: 'synced' }).where(inArray(userPresence.id, chunk));
@@ -1495,6 +1525,7 @@ async function applyPulledChanges(
     [SyncTableName.Notes]: [],
     [SyncTableName.NoteShares]: [],
     [SyncTableName.CardDrafts]: [],
+    [SyncTableName.AiChatRequests]: [],
     [SyncTableName.ErpNomenclature]: [],
     [SyncTableName.ErpEngineAssemblyBom]: [],
     [SyncTableName.ErpEngineAssemblyBomLines]: [],
@@ -1703,6 +1734,29 @@ async function applyPulledChanges(
             title: payload.title ?? null,
             payloadJson: payload.payload_json ?? null,
             baseUpdatedAt: payload.base_updated_at ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.AiChatRequests:
+        {
+          const payload = payloadRaw;
+          groups.ai_chat_requests.push({
+            id: payload.id,
+            userId: payload.user_id,
+            username: payload.username,
+            questionText: payload.question_text,
+            questionFileJson: payload.question_file_json ?? null,
+            status: payload.status ?? 'pending',
+            answerText: payload.answer_text ?? null,
+            answerFilesJson: payload.answer_files_json ?? null,
+            answeredAt: payload.answered_at ?? null,
+            escalationNote: payload.escalation_note ?? null,
+            verdictText: payload.verdict_text ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -2274,6 +2328,26 @@ async function applyPulledChanges(
       importance: sql`excluded.importance`,
       dueAt: sql`excluded.due_at`,
       sortOrder: sql`excluded.sort_order`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ai_chat_requests.length > 0) {
+    emitApply(SyncTableName.AiChatRequests, groups.ai_chat_requests.length);
+    await upsertPulledRowsInChunks(db, aiChatRequests, groups.ai_chat_requests, aiChatRequests.id, {
+      userId: sql`excluded.user_id`,
+      username: sql`excluded.username`,
+      questionText: sql`excluded.question_text`,
+      questionFileJson: sql`excluded.question_file_json`,
+      status: sql`excluded.status`,
+      answerText: sql`excluded.answer_text`,
+      answerFilesJson: sql`excluded.answer_files_json`,
+      answeredAt: sql`excluded.answered_at`,
+      escalationNote: sql`excluded.escalation_note`,
+      verdictText: sql`excluded.verdict_text`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

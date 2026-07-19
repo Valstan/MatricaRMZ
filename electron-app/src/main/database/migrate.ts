@@ -102,6 +102,32 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS card_drafts_sync_status_idx ON card_drafts(sync_status);
   `);
 
+  // ai_chat_requests — синкаемая таблица асинхронного AI-чата. Дублируем в idempotent-путь
+  // (та же причина, что card_drafts: свежая установка идёт мимо drizzle-цепочки).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS ai_chat_requests (
+      id text PRIMARY KEY NOT NULL,
+      user_id text NOT NULL,
+      username text NOT NULL,
+      question_text text NOT NULL,
+      question_file_json text,
+      status text NOT NULL DEFAULT 'pending',
+      answer_text text,
+      answer_files_json text,
+      answered_at integer,
+      escalation_note text,
+      verdict_text text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ai_chat_requests_user_created_idx ON ai_chat_requests(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS ai_chat_requests_status_idx ON ai_chat_requests(status);
+    CREATE INDEX IF NOT EXISTS ai_chat_requests_sync_status_idx ON ai_chat_requests(sync_status);
+  `);
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (hasTable('erp_document_lines')) {
     if (!columnNames('erp_document_lines').has('nomenclature_id')) {

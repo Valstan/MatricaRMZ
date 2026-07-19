@@ -100,6 +100,8 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.Notes]: { kind: 'open' },
   [SyncTableName.NoteShares]: { kind: 'open' },
   [SyncTableName.ChatMessages]: { kind: 'open' },
+  // AI-чат: owner-checked + rate-limited в push-guard (aiChatPushGuard)
+  [SyncTableName.AiChatRequests]: { kind: 'open' },
   [SyncTableName.ChatReads]: { kind: 'open' },
   [SyncTableName.UserPresence]: { kind: 'open' },
   [SyncTableName.AuditLog]: { kind: 'open' },

@@ -64,6 +64,10 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
     case SyncTableName.CardDrafts:
       if (!(base as any).owner_user_id || !(base as any).card_type || !(base as any).card_id) return null;
       return base;
+    case SyncTableName.AiChatRequests:
+      if (!(base as any).user_id || !(base as any).username || !(base as any).question_text) return null;
+      if (!(base as any).status) (base as any).status = 'pending';
+      return base;
     case SyncTableName.ErpNomenclature:
       if (!(base as any).code || !(base as any).name || !(base as any).item_type) return null;
       return base;

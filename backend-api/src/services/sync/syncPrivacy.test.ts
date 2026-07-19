@@ -56,6 +56,12 @@ describe('makePrivacyRowFilter — operator (non-admin)', () => {
     expect(fOwned(SyncTableName.NoteShares, { note_id: 'n5', recipient_user_id: OTHER })).toBe(true);
   });
 
+  it('ai_chat_requests: only own visible', () => {
+    expect(isPrivacyTable(SyncTableName.AiChatRequests)).toBe(true);
+    expect(f(SyncTableName.AiChatRequests, { user_id: ME, status: 'pending' })).toBe(true);
+    expect(f(SyncTableName.AiChatRequests, { user_id: OTHER, status: 'answered' })).toBe(false);
+  });
+
   it('non-privacy tables pass through', () => {
     expect(f(SyncTableName.Entities, { id: 'e1' })).toBe(true);
     expect(f(SyncTableName.UserPresence, { user_id: OTHER })).toBe(true);
