@@ -72,6 +72,18 @@ export function customReportOpsForKind(kind: ReportColumn['kind']): CustomReport
 export type CustomReportFilter = { key: string; op: CustomReportOp; value?: string };
 export type CustomReportSort = { key: string; dir: 'asc' | 'desc' };
 
+export type CustomReportAgg = 'sum' | 'count' | 'avg' | 'min' | 'max';
+
+export const CUSTOM_REPORT_AGG_LABELS_RU: Record<CustomReportAgg, string> = {
+  sum: 'сумма',
+  count: 'кол-во',
+  avg: 'среднее',
+  min: 'мин',
+  max: 'макс',
+};
+
+const AGGS = new Set<string>(Object.keys(CUSTOM_REPORT_AGG_LABELS_RU));
+
 export type CustomReportSpecV1 = {
   version: 1;
   sourcePresetId: CustomReportSourcePresetId;
@@ -83,6 +95,10 @@ export type CustomReportSpecV1 = {
   filters: CustomReportFilter[];
   sort?: CustomReportSort;
   limit?: number;
+  /** Group rows by this column's value; adds per-group subtotals. */
+  groupBy?: string;
+  /** Aggregate per numeric column key (totals and group subtotals); default sum. */
+  aggs?: Record<string, CustomReportAgg>;
 };
 
 export type CustomReportTemplate = {
@@ -90,6 +106,10 @@ export type CustomReportTemplate = {
   name: string;
   createdAt: number;
   spec: CustomReportSpecV1;
+  /** Set on templates from the shared bucket: the app-user id of the author. */
+  ownerId?: string;
+  /** True when the template lives in the shared (all operators) bucket. */
+  shared?: boolean;
 };
 
 export const CUSTOM_REPORT_MAX_FILTERS = 20;
@@ -138,6 +158,17 @@ export function sanitizeCustomReportSpec(raw: unknown): CustomReportSpecV1 | nul
   const limitNum = Number(rec.limit);
   const limit = Number.isFinite(limitNum) && limitNum >= 1 ? Math.min(CUSTOM_REPORT_MAX_LIMIT, Math.floor(limitNum)) : null;
   const title = String(rec.title ?? '').trim().slice(0, 200);
+  const groupBy = String(rec.groupBy ?? '').trim();
+  let aggs: Record<string, CustomReportAgg> | undefined;
+  if (rec.aggs && typeof rec.aggs === 'object' && !Array.isArray(rec.aggs)) {
+    const out: Record<string, CustomReportAgg> = {};
+    for (const [k, v] of Object.entries(rec.aggs as Record<string, unknown>).slice(0, 100)) {
+      const key = String(k ?? '').trim();
+      const fn = String(v ?? '');
+      if (key && AGGS.has(fn)) out[key] = fn as CustomReportAgg;
+    }
+    if (Object.keys(out).length > 0) aggs = out;
+  }
   return {
     version: 1,
     sourcePresetId,
@@ -146,6 +177,8 @@ export function sanitizeCustomReportSpec(raw: unknown): CustomReportSpecV1 | nul
     ...(title ? { title } : {}),
     ...(sort ? { sort } : {}),
     ...(limit != null ? { limit } : {}),
+    ...(groupBy ? { groupBy } : {}),
+    ...(aggs ? { aggs } : {}),
   };
 }
 
@@ -250,13 +283,55 @@ function matchesFilter(value: ReportCellValue, filter: CustomReportFilter, kind:
   }
 }
 
+export type CustomReportGroup = {
+  /** Display value of the groupBy column for this group. */
+  value: string;
+  count: number;
+  totals: ReportTotals | null;
+  rows: ReportRow[];
+};
+
 export type CustomReportResult = {
   columns: ReportColumn[];
   rows: ReportRow[];
   totals: ReportTotals | null;
+  /** Present when spec.groupBy is an existing column: rows split into groups with subtotals. */
+  groups: CustomReportGroup[] | null;
+  /** Label of the groupBy column (for headers). */
+  groupByLabel: string | null;
   /** Rows in the source before filtering (for the «N из M» hint). */
   sourceRowCount: number;
 };
+
+/** Aggregate numeric projected columns over rows per spec.aggs (default sum). */
+function computeTotals(
+  rows: readonly ReportRow[],
+  columns: readonly ReportColumn[],
+  aggs: Record<string, CustomReportAgg> | undefined,
+): ReportTotals | null {
+  const totals: ReportTotals = {};
+  for (const col of columns) {
+    if (col.kind !== 'number') continue;
+    const fn: CustomReportAgg = aggs?.[col.key] ?? 'sum';
+    let sum = 0;
+    let count = 0;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const row of rows) {
+      const n = parseCellNumber(row[col.key] ?? null);
+      if (n == null) continue;
+      sum += n;
+      count += 1;
+      if (n < min) min = n;
+      if (n > max) max = n;
+    }
+    if (count === 0) continue;
+    const value =
+      fn === 'count' ? count : fn === 'avg' ? sum / count : fn === 'min' ? min : fn === 'max' ? max : sum;
+    totals[col.key] = Math.round(value * 100) / 100;
+  }
+  return Object.keys(totals).length > 0 ? totals : null;
+}
 
 /**
  * The whole recipe as a pure transform: filter (AND) → sort → project columns
@@ -289,31 +364,49 @@ export function applyCustomReportTransform(
   const limit = Math.min(CUSTOM_REPORT_MAX_LIMIT, Math.max(1, spec.limit ?? CUSTOM_REPORT_DEFAULT_LIMIT));
   const limited = rows.slice(0, limit);
 
-  const totals: ReportTotals = {};
-  for (const col of columns) {
-    if (col.kind !== 'number') continue;
-    let sum = 0;
-    let seen = false;
-    for (const row of limited) {
-      const n = parseCellNumber(row[col.key] ?? null);
-      if (n != null) {
-        sum += n;
-        seen = true;
-      }
-    }
-    if (seen) totals[col.key] = Math.round(sum * 100) / 100;
-  }
-
-  const projectedRows = limited.map((row) => {
+  const project = (row: ReportRow): ReportRow => {
     const out: ReportRow = {};
     for (const col of columns) out[col.key] = row[col.key] ?? null;
     return out;
-  });
+  };
+  const projectedRows = limited.map(project);
+  const totals = computeTotals(projectedRows, columns, spec.aggs);
+
+  const groupCol = spec.groupBy ? byKey.get(spec.groupBy) : undefined;
+  let groups: CustomReportGroup[] | null = null;
+  if (groupCol) {
+    // Groups in first-appearance order over the (already sorted) rows; the
+    // group value is read from the source row, so the groupBy column need not
+    // be projected.
+    const order: string[] = [];
+    const bucket = new Map<string, ReportRow[]>();
+    for (const row of limited) {
+      const value = cellText(row[groupCol.key] ?? null).trim() || '—';
+      let list = bucket.get(value);
+      if (!list) {
+        list = [];
+        bucket.set(value, list);
+        order.push(value);
+      }
+      list.push(project(row));
+    }
+    groups = order.map((value) => {
+      const groupRows = bucket.get(value) ?? [];
+      return {
+        value,
+        count: groupRows.length,
+        totals: computeTotals(groupRows, columns, spec.aggs),
+        rows: groupRows,
+      };
+    });
+  }
 
   return {
     columns,
     rows: projectedRows,
-    totals: Object.keys(totals).length > 0 ? totals : null,
+    totals,
+    groups,
+    groupByLabel: groupCol ? groupCol.label : null,
     sourceRowCount: sourceRows.length,
   };
 }
@@ -333,6 +426,9 @@ export function describeCustomReportFilters(
     });
   if (spec.sort && byKey.has(spec.sort.key)) {
     parts.push(`сортировка: ${byKey.get(spec.sort.key)?.label ?? spec.sort.key} ${spec.sort.dir === 'desc' ? '↓' : '↑'}`);
+  }
+  if (spec.groupBy && byKey.has(spec.groupBy)) {
+    parts.push(`группировка: ${byKey.get(spec.groupBy)?.label ?? spec.groupBy}`);
   }
   return parts.join(' · ');
 }

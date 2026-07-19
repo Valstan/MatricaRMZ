@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  CUSTOM_REPORT_AGG_LABELS_RU,
   CUSTOM_REPORT_OP_LABELS_RU,
   customReportOpsForKind,
   isCustomReportSourcePresetId,
+  type CustomReportAgg,
   type CustomReportFilter,
   type CustomReportOp,
   type CustomReportSpecV1,
@@ -53,6 +55,7 @@ export function CustomReportsPage() {
   const [sources, setSources] = useState<Array<{ presetId: string; title: string }>>([]);
   const [templates, setTemplates] = useState<CustomReportTemplate[]>([]);
   const [userId, setUserId] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [sourcePresetId, setSourcePresetId] = useState('');
   const [sourceColumns, setSourceColumns] = useState<ReportColumn[]>([]);
@@ -60,6 +63,8 @@ export function CustomReportsPage() {
   const [filters, setFilters] = useState<CustomReportFilter[]>([]);
   const [sortKey, setSortKey] = useState('');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [groupBy, setGroupBy] = useState('');
+  const [aggs, setAggs] = useState<Record<string, CustomReportAgg>>({});
   const [limit, setLimit] = useState(1000);
   const [title, setTitle] = useState('');
 
@@ -67,6 +72,7 @@ export function CustomReportsPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
+  const [shareTemplate, setShareTemplate] = useState(false);
 
   const notify = (msg: string) => {
     setToast(msg);
@@ -84,6 +90,8 @@ export function CustomReportsPage() {
       else notify(src.error);
       const uid = String(status?.user?.id ?? '');
       setUserId(uid);
+      const role = String(status?.user?.role ?? '').toLowerCase();
+      setIsAdmin(role === 'admin' || role === 'superadmin');
       const tpl = await window.matrica.reports.customTemplatesList({ userId: uid });
       if (alive && tpl.ok) setTemplates(tpl.templates);
     })();
@@ -101,6 +109,8 @@ export function CustomReportsPage() {
       filters: filters.filter((f) => f.key && (f.op === 'empty' || f.op === 'not_empty' || (f.value ?? '') !== '')),
       ...(title.trim() ? { title: title.trim() } : {}),
       ...(sortKey ? { sort: { key: sortKey, dir: sortDir } } : {}),
+      ...(groupBy ? { groupBy } : {}),
+      ...(Object.keys(aggs).length > 0 ? { aggs } : {}),
       limit,
     };
   }
@@ -111,6 +121,8 @@ export function CustomReportsPage() {
     setPickedColumns([]);
     setFilters([]);
     setSortKey('');
+    setGroupBy('');
+    setAggs({});
     setResult(null);
     if (!isCustomReportSourcePresetId(presetId)) return;
     setBusy(true);
@@ -178,7 +190,11 @@ export function CustomReportsPage() {
       notify('Укажите имя шаблона');
       return;
     }
-    const res = await window.matrica.reports.customTemplateSave({ userId, template: { name, spec } });
+    const existing = templates.find((t) => t.name === name && Boolean(t.shared) === shareTemplate);
+    const res = await window.matrica.reports.customTemplateSave({
+      userId,
+      template: { ...(existing ? { id: existing.id } : {}), name, spec, shared: shareTemplate },
+    });
     if (!res.ok) {
       notify(res.error);
       return;
@@ -190,10 +206,13 @@ export function CustomReportsPage() {
   async function applyTemplate(tpl: CustomReportTemplate) {
     setTitle(tpl.spec.title ?? tpl.name);
     setTemplateName(tpl.name);
+    setShareTemplate(tpl.shared === true);
     setSourcePresetId(tpl.spec.sourcePresetId);
     setFilters(tpl.spec.filters);
     setSortKey(tpl.spec.sort?.key ?? '');
     setSortDir(tpl.spec.sort?.dir ?? 'asc');
+    setGroupBy(tpl.spec.groupBy ?? '');
+    setAggs(tpl.spec.aggs ?? {});
     setLimit(tpl.spec.limit ?? 1000);
     setResult(null);
     setBusy(true);
@@ -270,6 +289,10 @@ export function CustomReportsPage() {
             onChange={(e) => setTemplateName(e.target.value)}
             style={{ width: 160 }}
           />
+          <label style={{ fontSize: 12, color: theme.colors.muted, display: 'inline-flex', gap: 4, alignItems: 'center' }} title="Общий шаблон видят все операторы; изменить или удалить его может автор или администратор">
+            <input type="checkbox" checked={shareTemplate} onChange={(e) => setShareTemplate(e.target.checked)} />
+            общий
+          </label>
           <Button size="sm" variant="ghost" onClick={() => void saveTemplate()} disabled={busy || !sourcePresetId}>
             💾 Сохранить шаблон
           </Button>
@@ -279,23 +302,36 @@ export function CustomReportsPage() {
       <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
         <div style={{ flex: '0 0 340px', overflow: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {templates.length > 0 ? (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Мои шаблоны</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {templates.map((tpl) => (
-                  <div key={tpl.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <a
-                      style={{ fontSize: 13, cursor: 'pointer', flex: 1, color: theme.colors.text, textDecoration: 'underline' }}
-                      onClick={() => void applyTemplate(tpl)}
-                    >
-                      {tpl.name}
-                    </a>
-                    <Button size="sm" variant="ghost" tone="danger" onClick={() => void deleteTemplate(tpl.id)} title="Удалить шаблон">
-                      ✕
-                    </Button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {(
+                [
+                  { label: 'Мои шаблоны', list: templates.filter((t) => !t.shared) },
+                  { label: 'Общие шаблоны', list: templates.filter((t) => t.shared) },
+                ] as const
+              )
+                .filter((s) => s.list.length > 0)
+                .map((s) => (
+                  <div key={s.label}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{s.label}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {s.list.map((tpl) => (
+                        <div key={tpl.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <a
+                            style={{ fontSize: 13, cursor: 'pointer', flex: 1, color: theme.colors.text, textDecoration: 'underline' }}
+                            onClick={() => void applyTemplate(tpl)}
+                          >
+                            {tpl.name}
+                          </a>
+                          {!tpl.shared || tpl.ownerId === userId || isAdmin ? (
+                            <Button size="sm" variant="ghost" tone="danger" onClick={() => void deleteTemplate(tpl.id)} title="Удалить шаблон">
+                              ✕
+                            </Button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
-              </div>
             </div>
           ) : (
             <div style={{ fontSize: 12, color: theme.colors.muted }}>
@@ -393,6 +429,23 @@ export function CustomReportsPage() {
               </div>
 
               <div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Группировка</div>
+                <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={selectStyle}>
+                  <option value="">— без группировки —</option>
+                  {sourceColumns.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+                {groupBy ? (
+                  <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 4 }}>
+                    Строки группируются по значению колонки, у каждой группы — подытоги по числовым колонкам.
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
                   Колонки ({orderedPicked.length} из {sourceColumns.length})
                 </div>
@@ -407,6 +460,28 @@ export function CustomReportsPage() {
                         <label htmlFor={`col_${key}`} style={{ flex: 1, cursor: 'pointer' }}>
                           {col.label}
                         </label>
+                        {checked && col.kind === 'number' ? (
+                          <select
+                            value={aggs[key] ?? 'sum'}
+                            onChange={(e) => {
+                              const fn = e.target.value as CustomReportAgg;
+                              setAggs((prev) => {
+                                const next = { ...prev };
+                                if (fn === 'sum') delete next[key];
+                                else next[key] = fn;
+                                return next;
+                              });
+                            }}
+                            style={{ ...selectStyle, fontSize: 12, padding: '2px 4px' }}
+                            title="Итог по колонке (и подытоги групп)"
+                          >
+                            {(Object.keys(CUSTOM_REPORT_AGG_LABELS_RU) as CustomReportAgg[]).map((fn) => (
+                              <option key={fn} value={fn}>
+                                {CUSTOM_REPORT_AGG_LABELS_RU[fn]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
                         {checked ? (
                           <>
                             <Button size="sm" variant="ghost" onClick={() => moveColumn(key, -1)} title="Выше">
@@ -469,22 +544,79 @@ export function CustomReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.rows.map((row, i) => (
-                    <tr key={i}>
-                      {result.columns.map((c) => (
-                        <td
-                          key={c.key}
-                          style={{
-                            border: `1px solid ${theme.colors.border}`,
-                            padding: '4px 6px',
-                            textAlign: c.align === 'right' ? 'right' : 'left',
-                          }}
-                        >
-                          {formatCell(row[c.key] ?? null)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {(result.groups
+                    ? result.groups.flatMap((g, gi) => [
+                        <tr key={`g${gi}`}>
+                          <td
+                            colSpan={result.columns.length}
+                            style={{
+                              border: `1px solid ${theme.colors.border}`,
+                              padding: '4px 6px',
+                              fontWeight: 700,
+                              background: 'var(--panel, #e2e8f0)',
+                            }}
+                          >
+                            {result.groupByLabel}: {g.value} ({g.count})
+                          </td>
+                        </tr>,
+                        ...g.rows.map((row, i) => (
+                          <tr key={`g${gi}r${i}`}>
+                            {result.columns.map((c) => (
+                              <td
+                                key={c.key}
+                                style={{
+                                  border: `1px solid ${theme.colors.border}`,
+                                  padding: '4px 6px',
+                                  textAlign: c.align === 'right' ? 'right' : 'left',
+                                }}
+                              >
+                                {formatCell(row[c.key] ?? null)}
+                              </td>
+                            ))}
+                          </tr>
+                        )),
+                        ...(g.totals
+                          ? [
+                              <tr key={`g${gi}t`}>
+                                <td
+                                  colSpan={result.columns.length}
+                                  style={{
+                                    border: `1px solid ${theme.colors.border}`,
+                                    padding: '4px 6px',
+                                    fontStyle: 'italic',
+                                    color: theme.colors.muted,
+                                  }}
+                                >
+                                  Итого по группе:{' '}
+                                  {result.columns
+                                    .filter((c) => g.totals && g.totals[c.key] != null)
+                                    .map((c) => {
+                                      const fn = result.aggs?.[c.key] ?? 'sum';
+                                      const suffix = fn === 'sum' ? '' : ` (${CUSTOM_REPORT_AGG_LABELS_RU[fn]})`;
+                                      return `${c.label}${suffix}: ${g.totals![c.key]}`;
+                                    })
+                                    .join(' · ')}
+                                </td>
+                              </tr>,
+                            ]
+                          : []),
+                      ])
+                    : result.rows.map((row, i) => (
+                        <tr key={i}>
+                          {result.columns.map((c) => (
+                            <td
+                              key={c.key}
+                              style={{
+                                border: `1px solid ${theme.colors.border}`,
+                                padding: '4px 6px',
+                                textAlign: c.align === 'right' ? 'right' : 'left',
+                              }}
+                            >
+                              {formatCell(row[c.key] ?? null)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))) as React.ReactNode}
                 </tbody>
               </table>
               {result.rows.length === 0 ? (
@@ -495,7 +627,11 @@ export function CustomReportsPage() {
                   Итого:{' '}
                   {result.columns
                     .filter((c) => result.totals && result.totals[c.key] != null)
-                    .map((c) => `${c.label}: ${result.totals![c.key]}`)
+                    .map((c) => {
+                      const fn = result.aggs?.[c.key] ?? 'sum';
+                      const suffix = fn === 'sum' ? '' : ` (${CUSTOM_REPORT_AGG_LABELS_RU[fn]})`;
+                      return `${c.label}${suffix}: ${result.totals![c.key]}`;
+                    })
                     .join(' · ')}
                 </div>
               ) : null}

@@ -4,8 +4,11 @@ import {
   applyCustomReportTransform,
   describeCustomReportFilters,
   sanitizeCustomReportSpec,
+  CUSTOM_REPORT_AGG_LABELS_RU,
   CUSTOM_REPORT_SOURCE_PRESET_IDS,
   REPORT_PRESET_DEFINITIONS,
+  type CustomReportGroup,
+  type CustomReportSpecV1,
   type ReportCellValue,
   type ReportColumn,
   type ReportPresetPreviewResult,
@@ -27,6 +30,10 @@ export type CustomReportRunResult =
       sourceColumns: ReportColumn[];
       rows: Record<string, ReportCellValue>[];
       totals: Record<string, number> | null;
+      groups: CustomReportGroup[] | null;
+      groupByLabel: string | null;
+      /** Chosen aggregate per column (for labels in totals). */
+      aggs: CustomReportSpecV1['aggs'] | null;
       rowCount: number;
       sourceRowCount: number;
       generatedAt: number;
@@ -69,6 +76,9 @@ export async function runCustomReport(
     sourceColumns: base.columns,
     rows: t.rows,
     totals: t.totals,
+    groups: t.groups,
+    groupByLabel: t.groupByLabel,
+    aggs: spec.aggs ?? null,
     rowCount: t.rows.length,
     sourceRowCount: t.sourceRowCount,
     generatedAt: Date.now(),
@@ -85,28 +95,45 @@ function formatCellText(value: ReportCellValue): string {
   return String(value);
 }
 
+function totalsText(report: Extract<CustomReportRunResult, { ok: true }>, totals: Record<string, number>): string {
+  return report.columns
+    .filter((c) => totals[c.key] != null)
+    .map((c) => {
+      const fn = report.aggs?.[c.key] ?? 'sum';
+      const suffix = fn === 'sum' ? '' : ` (${CUSTOM_REPORT_AGG_LABELS_RU[fn]})`;
+      return `${c.label}${suffix}: ${totals[c.key]}`;
+    })
+    .join(', ');
+}
+
 export function renderCustomReportHtml(report: Extract<CustomReportRunResult, { ok: true }>): string {
   const headers = report.columns
     .map((c) => `<th style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(c.label)}</th>`)
     .join('');
-  const rows = report.rows
-    .map((row) => {
-      const tds = report.columns
-        .map(
-          (c) =>
-            `<td style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(formatCellText(row[c.key] ?? null))}</td>`,
-        )
-        .join('');
-      return `<tr>${tds}</tr>`;
-    })
-    .join('');
+  const rowHtml = (row: Record<string, ReportCellValue>) => {
+    const tds = report.columns
+      .map(
+        (c) =>
+          `<td style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(formatCellText(row[c.key] ?? null))}</td>`,
+      )
+      .join('');
+    return `<tr>${tds}</tr>`;
+  };
+  const colCount = report.columns.length;
+  const rows = report.groups
+    ? report.groups
+        .map((g) => {
+          const header = `<tr class="grp"><td colspan="${colCount}"><b>${htmlEscape(`${report.groupByLabel ?? ''}: ${g.value}`)}</b> (${g.count})</td></tr>`;
+          const body = g.rows.map(rowHtml).join('');
+          const sub = g.totals
+            ? `<tr class="sub"><td colspan="${colCount}">Итого по группе: ${htmlEscape(totalsText(report, g.totals))}</td></tr>`
+            : '';
+          return header + body + sub;
+        })
+        .join('')
+    : report.rows.map(rowHtml).join('');
   const totalsHtml = report.totals
-    ? `<div class="totals"><b>Итого:</b> ${htmlEscape(
-        report.columns
-          .filter((c) => report.totals && report.totals[c.key] != null)
-          .map((c) => `${c.label}: ${report.totals![c.key]}`)
-          .join(', '),
-      )}</div>`
+    ? `<div class="totals"><b>Итого:</b> ${htmlEscape(totalsText(report, report.totals))}</div>`
     : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
@@ -118,6 +145,8 @@ table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #cbd5e1;padding:5px 6px;text-align:left;vertical-align:top}
 th{background:#f1f5f9}
 .totals{margin-top:10px;font-weight:700}
+tr.grp td{background:#e2e8f0}
+tr.sub td{background:#f8fafc;font-style:italic}
 </style>
 </head><body>
 <h1>${htmlEscape(report.title)}</h1>
@@ -133,16 +162,20 @@ function csvEscape(value: string): string {
 
 export function buildCustomReportCsv(report: Extract<CustomReportRunResult, { ok: true }>): string {
   const lines = [report.columns.map((c) => csvEscape(c.label)).join(';')];
-  for (const row of report.rows) {
+  const pushRow = (row: Record<string, ReportCellValue>) =>
     lines.push(report.columns.map((c) => csvEscape(formatCellText(row[c.key] ?? null))).join(';'));
+  if (report.groups) {
+    for (const g of report.groups) {
+      lines.push(csvEscape(`${report.groupByLabel ?? ''}: ${g.value} (${g.count})`));
+      for (const row of g.rows) pushRow(row);
+      if (g.totals) lines.push(csvEscape(`Итого по группе: ${totalsText(report, g.totals)}`));
+    }
+  } else {
+    for (const row of report.rows) pushRow(row);
   }
   if (report.totals) {
     lines.push('');
-    lines.push(
-      ['Итого', ...report.columns.filter((c) => report.totals![c.key] != null).map((c) => `${c.label}: ${report.totals![c.key]}`)]
-        .map(csvEscape)
-        .join(';'),
-    );
+    lines.push(['Итого', totalsText(report, report.totals)].map(csvEscape).join(';'));
   }
   return '﻿' + lines.join('\n') + '\n';
 }

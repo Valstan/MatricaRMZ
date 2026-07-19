@@ -614,7 +614,7 @@ import type {
   ReportPresetPrintResult,
 } from '../domain/reports.js';
 import type { ReportCellValue, ReportColumn, ReportTotals } from '../domain/reports.js';
-import type { CustomReportSpecV1, CustomReportTemplate } from '../domain/customReport.js';
+import type { CustomReportAgg, CustomReportGroup, CustomReportSpecV1, CustomReportTemplate } from '../domain/customReport.js';
 
 export type CustomReportSourcesResult =
   | { ok: true; sources: Array<{ presetId: string; title: string }> }
@@ -630,6 +630,9 @@ export type CustomReportRunIpcResult =
       sourceColumns: ReportColumn[];
       rows: Record<string, ReportCellValue>[];
       totals: ReportTotals | null;
+      groups: CustomReportGroup[] | null;
+      groupByLabel: string | null;
+      aggs: Record<string, CustomReportAgg> | null;
       rowCount: number;
       sourceRowCount: number;
       generatedAt: number;
@@ -924,7 +927,7 @@ export type MatricaApi = {
     customTemplatesList: (args?: { userId?: string }) => Promise<CustomReportTemplatesResult>;
     customTemplateSave: (args: {
       userId?: string;
-      template: { id?: string; name: string; spec: CustomReportSpecV1 };
+      template: { id?: string; name: string; spec: CustomReportSpecV1; shared?: boolean };
     }) => Promise<CustomReportTemplatesResult & { id?: string }>;
     customTemplateDelete: (args: { userId?: string; templateId: string }) => Promise<CustomReportTemplatesResult>;
     // CSV: “сколько двигателей на какой стадии” по состоянию на дату endMs.
