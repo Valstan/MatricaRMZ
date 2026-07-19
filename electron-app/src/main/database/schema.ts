@@ -237,6 +237,35 @@ export const cardDrafts = sqliteTable(
   }),
 );
 
+// Асинхронный AI-чат (sync): одна строка = пара «вопрос → ответ». Вопрос создаёт
+// клиент, ответ приезжает pull'ом от серверной рутины.
+export const aiChatRequests = sqliteTable(
+  'ai_chat_requests',
+  {
+    id: text('id').primaryKey(), // uuid
+    userId: text('user_id').notNull(), // uuid спросившего
+    username: text('username').notNull(),
+    questionText: text('question_text').notNull(),
+    questionFileJson: text('question_file_json'),
+    status: text('status').notNull().default('pending'),
+    answerText: text('answer_text'),
+    answerFilesJson: text('answer_files_json'),
+    answeredAt: integer('answered_at'),
+    escalationNote: text('escalation_note'),
+    verdictText: text('verdict_text'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    userCreatedIdx: index('ai_chat_requests_user_created_idx').on(t.userId, t.createdAt),
+    statusIdx: index('ai_chat_requests_status_idx').on(t.status),
+    syncStatusIdx: index('ai_chat_requests_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
 export const userPresence = sqliteTable(
   'user_presence',
   {

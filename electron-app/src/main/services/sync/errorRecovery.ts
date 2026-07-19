@@ -16,6 +16,7 @@ import {
   noteShares,
   notes,
   cardDrafts,
+  aiChatRequests,
   operations,
   userPresence,
 } from '../../database/schema.js';
@@ -60,6 +61,7 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.Notes]: notes,
   [SyncTableName.NoteShares]: noteShares,
   [SyncTableName.CardDrafts]: cardDrafts,
+  [SyncTableName.AiChatRequests]: aiChatRequests,
   [SyncTableName.ErpNomenclature]: undefined,
   [SyncTableName.ErpEngineAssemblyBom]: undefined,
   [SyncTableName.ErpEngineAssemblyBomLines]: undefined,

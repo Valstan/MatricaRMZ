@@ -33,6 +33,7 @@ import {
   notes,
   noteShares,
   cardDrafts,
+  aiChatRequests,
   operations,
   userPresence,
 } from '../../database/schema.js';
@@ -58,6 +59,7 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
   [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
   [SyncTableName.CardDrafts]: { drizzle: cardDrafts, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.CardDrafts, r) },
+  [SyncTableName.AiChatRequests]: { drizzle: aiChatRequests, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AiChatRequests, r) },
   [SyncTableName.ErpNomenclature]: { drizzle: erpNomenclature, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, r) },
   [SyncTableName.ErpEngineAssemblyBom]: {
     drizzle: erpEngineAssemblyBom,

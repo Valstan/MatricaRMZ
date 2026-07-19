@@ -124,6 +124,22 @@ export const cardDraftRowSchema = z.object({
   base_updated_at: z.number().int().nullable().optional(),
 });
 
+// Асинхронный AI-чат: одна строка = пара «вопрос → ответ». Вопрос пишет клиент
+// (owner-private), ответ/статусы пишет серверная рутина через recordSyncChanges.
+export const aiChatRequestRowSchema = z.object({
+  ...baseRowFields,
+  user_id: z.string().uuid(),
+  username: z.string().min(1),
+  question_text: z.string().min(1),
+  question_file_json: z.string().nullable().optional(), // JSON FileRef прикреплённого к вопросу файла
+  status: z.enum(['pending', 'answered', 'escalated', 'rejected']),
+  answer_text: z.string().nullable().optional(),
+  answer_files_json: z.string().nullable().optional(), // JSON массив FileRef ответных файлов
+  answered_at: z.number().int().nullable().optional(),
+  escalation_note: z.string().nullable().optional(),
+  verdict_text: z.string().nullable().optional(), // вердикт суперадмина по эскалации
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -137,6 +153,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.Notes]: noteRowSchema,
   [SyncTableName.NoteShares]: noteShareRowSchema,
   [SyncTableName.CardDrafts]: cardDraftRowSchema,
+  [SyncTableName.AiChatRequests]: aiChatRequestRowSchema,
   [SyncTableName.ErpNomenclature]: erpNomenclatureRowSchema,
   [SyncTableName.ErpEngineAssemblyBom]: erpEngineAssemblyBomRowSchema,
   [SyncTableName.ErpEngineAssemblyBomLines]: erpEngineAssemblyBomLineRowSchema,

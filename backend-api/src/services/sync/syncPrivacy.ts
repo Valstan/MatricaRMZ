@@ -25,6 +25,7 @@ export const PRIVACY_TABLES = new Set<string>([
   SyncTableName.Notes,
   SyncTableName.NoteShares,
   SyncTableName.CardDrafts,
+  SyncTableName.AiChatRequests,
 ]);
 
 export function isPrivacyTable(table: string): boolean {
@@ -54,6 +55,8 @@ export function privacyFilterForTable(
       return eq(pgTable.recipientUserId, actorId);
     case SyncTableName.CardDrafts:
       return eq(pgTable.ownerUserId, actorId);
+    case SyncTableName.AiChatRequests:
+      return eq(pgTable.userId, actorId);
     default:
       return undefined;
   }
@@ -111,6 +114,8 @@ export function makePrivacyRowFilter(
         return String(row['recipient_user_id'] ?? '') === actor.id || ctx.ownedNoteIds.has(String(row['note_id'] ?? ''));
       case SyncTableName.CardDrafts:
         return String(row['owner_user_id'] ?? '') === actor.id;
+      case SyncTableName.AiChatRequests:
+        return String(row['user_id'] ?? '') === actor.id;
       default:
         return true;
     }

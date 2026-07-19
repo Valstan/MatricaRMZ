@@ -654,6 +654,63 @@ export const cardDrafts = pgTable(
   }),
 );
 
+// Асинхронный AI-чат (sync): одна строка = пара «вопрос → ответ». Вопрос создаёт
+// клиент (owner-private, ≤5/час — гейт в aiChatPushGuard), ответ/эскалацию пишет
+// облачная рутина через recordSyncChanges (актор ai-agent).
+export const aiChatRequests = pgTable(
+  'ai_chat_requests',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => entities.id),
+    username: text('username').notNull(),
+    questionText: text('question_text').notNull(),
+    questionFileJson: text('question_file_json'),
+    status: text('status').notNull().default('pending'),
+    answerText: text('answer_text'),
+    answerFilesJson: text('answer_files_json'),
+    answeredAt: bigint('answered_at', { mode: 'number' }),
+    escalationNote: text('escalation_note'),
+    verdictText: text('verdict_text'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    userCreatedIdx: index('ai_chat_requests_user_created_idx').on(t.userId, t.createdAt),
+    statusIdx: index('ai_chat_requests_status_idx').on(t.status),
+  }),
+);
+
+// Служебный key/value AI-чата (НЕ синкается): last_run_at, rules_md и т.п.
+// Пишется рутиной через aiChatRoutineIO, читается тонким REST /api/ai-chat/meta.
+export const aiChatMeta = pgTable(
+  'ai_chat_meta',
+  {
+    key: text('key').primaryKey(),
+    value: text('value').notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (_t) => ({}),
+);
+
+// Append-only история правил AI-чата (аудит «конституции ответов»).
+export const aiChatRulesHistory = pgTable(
+  'ai_chat_rules_history',
+  {
+    id: uuid('id').primaryKey(),
+    rulesMd: text('rules_md').notNull(),
+    changedBy: text('changed_by').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    createdAtIdx: index('ai_chat_rules_history_created_at_idx').on(t.createdAt),
+  }),
+);
+
 export const userPresence = pgTable(
   'user_presence',
   {

@@ -16,6 +16,7 @@ import {
   noteShares,
   notes,
   cardDrafts,
+  aiChatRequests,
   operations,
 } from '../database/schema.js';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
@@ -58,6 +59,7 @@ async function run() {
     { name: SyncTableName.Notes, table: notes },
     { name: SyncTableName.NoteShares, table: noteShares },
     { name: SyncTableName.CardDrafts, table: cardDrafts },
+    { name: SyncTableName.AiChatRequests, table: aiChatRequests },
   ];
   const list = tableArg ? tables.filter((t) => t.name === tableArg) : tables;
   if (tableArg && list.length === 0) throw new Error(`неизвестная таблица ${tableArg}`);

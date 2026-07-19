@@ -26,6 +26,7 @@ import {
   noteRowSchema,
   noteShareRowSchema,
   cardDraftRowSchema,
+  aiChatRequestRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
@@ -167,6 +168,19 @@ const CARD_DRAFT_FIELDS = withBase(
   { db: 'title', dto: 'title' },
   { db: 'payloadJson', dto: 'payload_json' },
   { db: 'baseUpdatedAt', dto: 'base_updated_at' },
+);
+
+const AI_CHAT_REQUEST_FIELDS = withBase(
+  { db: 'userId', dto: 'user_id' },
+  { db: 'username', dto: 'username' },
+  { db: 'questionText', dto: 'question_text' },
+  { db: 'questionFileJson', dto: 'question_file_json' },
+  { db: 'status', dto: 'status' },
+  { db: 'answerText', dto: 'answer_text' },
+  { db: 'answerFilesJson', dto: 'answer_files_json' },
+  { db: 'answeredAt', dto: 'answered_at' },
+  { db: 'escalationNote', dto: 'escalation_note' },
+  { db: 'verdictText', dto: 'verdict_text' },
 );
 
 const ERP_NOMENCLATURE_FIELDS: readonly FieldMapping[] = [
@@ -379,6 +393,14 @@ const ENTRIES: readonly SyncTableEntry[] = [
     ledgerName: SyncTableName.CardDrafts,
     schema: cardDraftRowSchema,
     fields: CARD_DRAFT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.AiChatRequests,
+    ledgerName: SyncTableName.AiChatRequests,
+    schema: aiChatRequestRowSchema,
+    fields: AI_CHAT_REQUEST_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [],
   },

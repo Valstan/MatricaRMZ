@@ -14,6 +14,7 @@ export const SyncTableName = {
   Notes: 'notes',
   NoteShares: 'note_shares',
   CardDrafts: 'card_drafts',
+  AiChatRequests: 'ai_chat_requests',
   ErpNomenclature: 'erp_nomenclature',
   ErpEngineAssemblyBom: 'erp_engine_assembly_bom',
   ErpEngineAssemblyBomLines: 'erp_engine_assembly_bom_lines',

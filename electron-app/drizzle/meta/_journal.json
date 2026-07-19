@@ -120,6 +120,13 @@
       "when": 1784233218000,
       "tag": "0016_code_uq_partial",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784500000000,
+      "tag": "0017_ai_chat_requests",
+      "breakpoints": true
     }
   ]
 }

@@ -41,6 +41,7 @@ import {
   notes,
   noteShares,
   cardDrafts,
+  aiChatRequests,
   operations,
   syncState,
   userPresence,
@@ -339,6 +340,7 @@ const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Reco
   [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
   [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
   [SyncTableName.CardDrafts]: { drizzle: cardDrafts, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.CardDrafts, r) },
+  [SyncTableName.AiChatRequests]: { drizzle: aiChatRequests, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AiChatRequests, r) },
   [LedgerTableName.ErpNomenclature]: {
     drizzle: erpNomenclature,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, r),
