@@ -12,6 +12,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { countListedPartsByBrand } from '../utils/engineBrandSummary.js';
 
 type BrandRow = { id: string; name: string };
 
@@ -79,15 +80,7 @@ export function EngineBrandsPage(props: {
     try {
       const specsResult = await window.matrica.warehouse.nomenclaturePartSpecsList();
       if (!specsResult?.ok) return;
-      const counts: Record<string, number> = {};
-      for (const part of specsResult.rows ?? []) {
-        for (const link of part.brandLinks ?? []) {
-          const brandId = String(link.engineBrandId ?? '').trim();
-          if (!brandId) continue;
-          counts[brandId] = (counts[brandId] ?? 0) + 1;
-        }
-      }
-      setBrandPartCounts(counts);
+      setBrandPartCounts(countListedPartsByBrand(specsResult.rows ?? []));
     } catch {
       setBrandPartCounts({});
     }
@@ -213,8 +206,8 @@ export function EngineBrandsPage(props: {
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>
           {sortLabel('Наименование марки двигателя', 'name')}
         </th>
-        <th data-col-kind="num" title="Количество деталей, прикреплённых к этой марке двигателя" style={{ textAlign: 'right', cursor: 'pointer', width: 220 }} onClick={() => onSort('parts')}>
-          {sortLabel('Количество деталей, прикреплённых к этой марке двигателя', 'parts')}
+        <th data-col-kind="num" title="Количество номенклатурных позиций деталей в списке марки" style={{ textAlign: 'right', cursor: 'pointer', width: 220 }} onClick={() => onSort('parts')}>
+          {sortLabel('Списочное количество деталей', 'parts')}
         </th>
       </tr>
     </thead>

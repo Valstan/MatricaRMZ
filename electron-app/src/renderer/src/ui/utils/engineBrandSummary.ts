@@ -173,6 +173,26 @@ export function computeSummaryFromBrandRows(rows: Array<{ quantity: unknown }>):
   return { kinds, totalQty };
 }
 
+export function countListedPartsByBrand(
+  parts: Array<{ id?: unknown; brandLinks?: Array<{ engineBrandId?: unknown; quantity?: unknown }> }>,
+): Record<string, number> {
+  const partIdsByBrand = new Map<string, Set<string>>();
+
+  for (const part of parts) {
+    const partId = String(part.id ?? '').trim();
+    if (!partId) continue;
+    for (const link of part.brandLinks ?? []) {
+      const brandId = String(link.engineBrandId ?? '').trim();
+      if (!brandId) continue;
+      const partIds = partIdsByBrand.get(brandId) ?? new Set<string>();
+      partIds.add(partId);
+      partIdsByBrand.set(brandId, partIds);
+    }
+  }
+
+  return Object.fromEntries([...partIdsByBrand].map(([brandId, partIds]) => [brandId, partIds.size]));
+}
+
 export async function persistEngineBrandSummary(
   deps: EngineBrandSummaryDeps,
   state: EngineBrandSummarySyncState,
