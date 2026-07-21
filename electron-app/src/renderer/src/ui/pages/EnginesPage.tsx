@@ -470,6 +470,7 @@ export function EnginesPage(props: {
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
   /** Кнопка «Отчёт по двигателям» → пресет engines_list (гибкие фильтры/колонки/шаблоны). */
   onOpenReport?: () => void;
+  onOpenContractsReport?: () => void;
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
@@ -834,6 +835,11 @@ export function EnginesPage(props: {
         {props.onOpenReport && (
           <Button variant="ghost" onClick={() => props.onOpenReport?.()} title="Гибкие отчёты по двигателям: фильтры, выбор колонок, шаблоны, печать">
             Отчёт по двигателям
+          </Button>
+        )}
+        {props.onOpenContractsReport && (
+          <Button variant="ghost" onClick={() => props.onOpenContractsReport?.()} title="Двигатели и контракты: план / приехало / отгружено / на заводе, по маркам и контрактам">
+            Двигатели и контракты
           </Button>
         )}
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}

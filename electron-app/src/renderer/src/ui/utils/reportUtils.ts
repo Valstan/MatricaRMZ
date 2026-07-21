@@ -52,6 +52,14 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   partOnlyRows: 'Только part_card, шт.',
   forecastRows: 'Строк прогноза, шт.',
   plannedEngines: 'Двигателей в плане, шт.',
+  planQty: 'План, шт.',
+  arrivedQty: 'Приехало, шт.',
+  awaitingQty: 'Ожидается, шт.',
+  atFactoryQty: 'На заводе, шт.',
+  readyNotShippedQty: 'Готово, не отгружено, шт.',
+  shippedQty: 'Отгружено, шт.',
+  overdueDays: 'Просрочка, дн.',
+  avgTatDays: 'Средний TAT, дн.',
 };
 
 const REPORT_METRIC_NOTES: Record<string, string> = {
