@@ -10,6 +10,7 @@ import { OverflowTooltipInput } from './OverflowTooltipInput.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
+import { useTabletDevice, useUiMode } from '../hooks/useUiMode.js';
 import {
   buildEngineRequirementHtml,
   buildInventoryActHtml,
@@ -3359,6 +3360,10 @@ function TableEditor(props: {
   renderRowExtra?: (rowIdx: number, row: Record<string, string | boolean | number>) => React.ReactNode;
 }) {
   const { confirm } = useConfirm();
+  // Планшетный режим (Ф1b): в планшете степперы +/- показываем даже в списке деталей и крупнее.
+  const { isTabletDevice } = useTabletDevice();
+  const { isTabletUi } = useUiMode();
+  const tabletActive = isTabletDevice && isTabletUi;
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
   const isDefectItemsTable = props.tableId === 'defect_items';
@@ -3545,7 +3550,9 @@ function TableEditor(props: {
       // Список деталей в табличном виде ужимается под ширину окна: число заполняет ячейку,
       // степперы +/- скрыты (13 колонок иначе не влезают). Компактный режим и листы
       // дефектовки/комплектности сохраняют степперы.
-      const numberFitMode = isInventoryItemsTable && !compactMode;
+      // В планшете степперы +/- нужны под палец — не ужимаем в fit-режим (широкая таблица
+      // тогда уходит в горизонтальный скролл, это ожидаемо для планшетного режима).
+      const numberFitMode = isInventoryItemsTable && !compactMode && !tabletActive;
       const lockedByPresence =
         isInventoryItemsTable &&
         (column.id === 'scrap_qty' || column.id === 'replace_qty') &&
@@ -3598,8 +3605,9 @@ function TableEditor(props: {
                 setCell(rowIdx, column.id, next, true);
               }}
               style={{
-                width: 30,
-                height: 28,
+                width: tabletActive ? 44 : 30,
+                height: tabletActive ? 44 : 28,
+                ...(tabletActive ? { fontSize: 22, fontWeight: 700 } : {}),
                 borderRadius: 6,
                 border: '1px solid var(--input-border)',
                 background: 'var(--input-bg)',
@@ -3627,8 +3635,9 @@ function TableEditor(props: {
                 setCell(rowIdx, column.id, next, true);
               }}
               style={{
-                width: 30,
-                height: 28,
+                width: tabletActive ? 44 : 30,
+                height: tabletActive ? 44 : 28,
+                ...(tabletActive ? { fontSize: 22, fontWeight: 700 } : {}),
                 borderRadius: 6,
                 border: '1px solid var(--input-border)',
                 background: 'var(--input-bg)',
