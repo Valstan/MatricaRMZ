@@ -20,6 +20,7 @@ export type ReportPresetId =
   | 'counterparties_summary'
   | 'engine_movements'
   | 'engines_list'
+  | 'engines_contracts_overview'
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
   | 'part_movement_journal'
@@ -136,6 +137,58 @@ export function selectEnginesListReportColumns(selectedKeys: ReadonlyArray<strin
   const set = new Set(selectedKeys.map((k) => String(k).trim()).filter(Boolean));
   if (set.size === 0) return [...ENGINES_LIST_REPORT_COLUMNS];
   return ENGINES_LIST_REPORT_COLUMNS.filter((c) => set.has(c.key));
+}
+
+/**
+ * Отчёт «Двигатели и контракты» — колонки по разрезам (groupBy).
+ * `contracts` — сводка по контрактам (план/приехало/отгружено/на заводе);
+ * `brands` — агрегат по маркам; `engines` — детальный список двигателей.
+ */
+export const ENGINES_CONTRACTS_CONTRACT_COLUMNS: ReportColumn[] = [
+  { key: 'contractLabel', label: 'Контракт' },
+  { key: 'counterpartyLabel', label: 'Заказчик' },
+  { key: 'dueAt', label: 'Срок', kind: 'date' },
+  { key: 'planQty', label: 'План, шт', kind: 'number', align: 'right' },
+  { key: 'arrivedQty', label: 'Приехало, шт', kind: 'number', align: 'right' },
+  { key: 'awaitingQty', label: 'Ожидается, шт', kind: 'number', align: 'right' },
+  { key: 'atFactoryQty', label: 'На заводе, шт', kind: 'number', align: 'right' },
+  { key: 'readyNotShippedQty', label: 'Готово, не отгружено, шт', kind: 'number', align: 'right' },
+  { key: 'shippedQty', label: 'Отгружено, шт', kind: 'number', align: 'right' },
+  { key: 'scrapQty', label: 'Утиль, шт', kind: 'number', align: 'right' },
+  { key: 'progressPct', label: 'Выполнение, %', kind: 'number', align: 'right' },
+  { key: 'overdueDays', label: 'Просрочка, дн', kind: 'number', align: 'right' },
+];
+
+export const ENGINES_CONTRACTS_BRAND_COLUMNS: ReportColumn[] = [
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'arrivedQty', label: 'Приехало, шт', kind: 'number', align: 'right' },
+  { key: 'atFactoryQty', label: 'На заводе, шт', kind: 'number', align: 'right' },
+  { key: 'readyNotShippedQty', label: 'Готово, не отгружено, шт', kind: 'number', align: 'right' },
+  { key: 'shippedQty', label: 'Отгружено, шт', kind: 'number', align: 'right' },
+  { key: 'scrapQty', label: 'Утиль, шт', kind: 'number', align: 'right' },
+  { key: 'avgTatDays', label: 'Средний TAT, дн', kind: 'number', align: 'right' },
+];
+
+/** Суперсет колонок разреза «По двигателям» (выбор колонок доступен оператору). */
+export const ENGINES_CONTRACTS_ENGINE_COLUMNS: ReportColumn[] = [
+  { key: 'engineNumber', label: '№ двигателя' },
+  { key: 'engineInternalNumber', label: 'Внутр. №' },
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'contractLabel', label: 'Контракт' },
+  { key: 'counterpartyLabel', label: 'Заказчик' },
+  { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
+  { key: 'repairStartedDate', label: 'Начало ремонта', kind: 'date' },
+  { key: 'repairedDate', label: 'Окончание ремонта', kind: 'date' },
+  { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
+  { key: 'daysOnSite', label: 'Дней на заводе', kind: 'number', align: 'right' },
+  { key: 'stateLabel', label: 'Состояние' },
+  { key: 'isScrap', label: 'Утиль' },
+];
+
+export function selectEnginesContractsEngineColumns(selectedKeys: ReadonlyArray<string>): ReportColumn[] {
+  const set = new Set(selectedKeys.map((k) => String(k).trim()).filter(Boolean));
+  if (set.size === 0) return [...ENGINES_CONTRACTS_ENGINE_COLUMNS];
+  return ENGINES_CONTRACTS_ENGINE_COLUMNS.filter((c) => set.has(c.key));
 }
 
 /** Суперсет колонок отчёта «Утиль». Порядок = канонический порядок печати. */
@@ -859,6 +912,78 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
     ],
     columns: ENGINES_LIST_REPORT_COLUMNS,
+  },
+  {
+    id: 'engines_contracts_overview',
+    title: 'Двигатели и контракты',
+    description:
+      'Разносторонний обзор: по контрактам (план / приехало / отгружено / осталось на заводе), по маркам и детально по двигателям. Настройки разбиты на сворачиваемые секции, шаблоны сохраняются.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'select',
+        key: 'periodBasis',
+        label: 'Учитывать период',
+        options: [
+          { value: 'none', label: 'Весь период (не ограничивать)' },
+          { value: 'arrival', label: 'По дате прихода' },
+          { value: 'shipping', label: 'По дате отгрузки' },
+        ],
+        labelHint:
+          'Как применять период. «Весь период» — цифры за всё время контракта/завода. «По дате прихода/отгрузки» — только двигатели с соответствующей датой в диапазоне.',
+      },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Заказчики', optionsSource: 'counterparties' },
+      {
+        type: 'select',
+        key: 'engineState',
+        label: 'Состояние двигателя',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'on_site', label: 'На заводе (не отгружены)' },
+          { value: 'shipped', label: 'Отгружены заказчику' },
+          { value: 'ready_not_shipped', label: 'Готовы, но не отгружены' },
+          { value: 'scrap', label: 'Утиль' },
+        ],
+      },
+      { type: 'checkbox', key: 'hideScrap', label: 'Скрыть утиль' },
+      {
+        type: 'checkbox',
+        key: 'overdueOnly',
+        label: 'Только просроченные контракты',
+        labelHint: 'Разрез «По контрактам»: показывать только контракты с истёкшим сроком и незакрытым исполнением.',
+      },
+      {
+        type: 'number',
+        key: 'agingDays',
+        label: 'Застряли на заводе дольше, дн',
+        min: 0,
+        step: 1,
+        defaultValue: 0,
+        labelHint: '0 — не фильтровать. Иначе показывать только двигатели на заводе, которые ждут ремонта/отгрузки дольше N дней.',
+      },
+      {
+        type: 'select',
+        key: 'groupBy',
+        label: 'Разрез отчёта',
+        options: [
+          { value: 'contracts', label: 'По контрактам' },
+          { value: 'brands', label: 'По маркам двигателей' },
+          { value: 'engines', label: 'По двигателям (детально)' },
+        ],
+        labelHint: 'Что показывать строками: сводку по контрактам, агрегат по маркам или детальный список двигателей.',
+      },
+      {
+        type: 'multi_select',
+        key: 'columns',
+        label: 'Колонки (разрез «По двигателям»)',
+        options: ENGINES_CONTRACTS_ENGINE_COLUMNS.map((c) => ({ value: c.key, label: c.label })),
+        selectAllByDefault: true,
+        labelHint: 'Какие колонки печатать в детальном разрезе по двигателям. Пусто — все.',
+      },
+    ],
+    columns: ENGINES_CONTRACTS_CONTRACT_COLUMNS,
   },
   {
     id: 'scrap_register',

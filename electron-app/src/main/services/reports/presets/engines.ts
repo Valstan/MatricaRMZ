@@ -4,9 +4,13 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   STATUS_CODES,
   computeObjectProgress,
+  isScrapEngine,
+  effectiveContractDueAt,
+  parseContractSections,
   type ReportCellValue,
   type ReportPresetFilters,
   type ReportPresetPreviewResult,
+  type StatusCode,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
@@ -16,8 +20,13 @@ import {
   normalizeEngineInventoryRow,
   REPLENISHMENT_BRANCH_REPORT_LABELS,
   selectEnginesListReportColumns,
+  selectEnginesContractsEngineColumns,
+  ENGINES_CONTRACTS_CONTRACT_COLUMNS,
+  ENGINES_CONTRACTS_BRAND_COLUMNS,
   selectScrapReportColumns,
   } from '@matricarmz/shared';
+
+import { collectContractEngineQty } from './contracts.js';
 
 import {
   erpEngineAssemblyBom,
@@ -333,6 +342,326 @@ export async function buildEnginesListReport(
       onSiteQty: totalOnSite,
     },
     generatedAt: Date.now(),
+  };
+}
+
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+type EngineOverviewAgg = {
+  arrived: number;
+  atFactory: number;
+  shipped: number;
+  readyNotShipped: number;
+  scrap: number;
+  tatSum: number;
+  tatCount: number;
+};
+
+function emptyOverviewAgg(): EngineOverviewAgg {
+  return { arrived: 0, atFactory: 0, shipped: 0, readyNotShipped: 0, scrap: 0, tatSum: 0, tatCount: 0 };
+}
+
+type EngineOverviewRec = {
+  contractId: string;
+  brandId: string;
+  onFactory: boolean;
+  leftFactory: boolean;
+  readyNotShipped: boolean;
+  scrap: boolean;
+  tat: number | null;
+  aging: number | null;
+  shippingDate: number | null;
+};
+
+function accIntoOverviewAgg(map: Map<string, EngineOverviewAgg>, key: string, rec: EngineOverviewRec): void {
+  const agg = map.get(key) ?? emptyOverviewAgg();
+  agg.arrived += 1;
+  if (rec.onFactory) agg.atFactory += 1;
+  if (rec.leftFactory) agg.shipped += 1;
+  if (rec.readyNotShipped) agg.readyNotShipped += 1;
+  if (rec.scrap) agg.scrap += 1;
+  if (rec.tat != null) {
+    agg.tatSum += rec.tat;
+    agg.tatCount += 1;
+  }
+  map.set(key, agg);
+}
+
+/**
+ * Отчёт «Двигатели и контракты» — единый разносторонний обзор с переключателем разреза
+ * (по контрактам / по маркам / по двигателям). Статусы двигателя не пересчитываются —
+ * переиспользуется каноническая resolveEngineShippingState + isScrapEngine. «Покинул завод»
+ * = отгружен заказчику (customer_sent/accepted) ЛИБО возвращён как утиль (status_rework_sent);
+ * «на заводе» = всё остальное. «Приехало» = число заведённых двигателей контракта; «план» —
+ * сумма марок в contract_sections (collectContractEngineQty, с fallback на engine_count_total).
+ */
+export async function buildEnginesContractsOverviewReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const period = readPeriod(filters);
+  const periodBasis = normalizeText(filters?.periodBasis, 'none');
+  const usePeriod = periodBasis === 'arrival' || periodBasis === 'shipping';
+  const brandFilter = asArray(filters?.brandIds);
+  const contractFilter = asArray(filters?.contractIds);
+  const counterpartyFilter = asArray(filters?.counterpartyIds);
+  const engineState = normalizeText(filters?.engineState, 'all');
+  const hideScrap = filters?.hideScrap === true;
+  const overdueOnly = filters?.overdueOnly === true;
+  const agingDays = Math.max(0, toNumber(filters?.agingDays));
+  const groupBy = normalizeText(filters?.groupBy, 'contracts');
+  const columnKeys = asArray(filters?.columns);
+
+  const snapshot = await loadSnapshot(db);
+  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
+  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+
+  // Провенанс контрактов: план / срок / заказчик заранее — используется и разрезом
+  // «По контрактам», и метрикой «в срок» (on-time) для всех разрезов.
+  const contractPlanById = new Map<string, number>();
+  const contractDueAtById = new Map<string, number | null>();
+  const contractCounterpartyById = new Map<string, string>();
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const sections = parseContractSections(attrs);
+    contractPlanById.set(contractId, collectContractEngineQty(attrs));
+    contractDueAtById.set(contractId, effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date));
+    contractCounterpartyById.set(contractId, normalizeText(sections.primary.customerId ?? attrs.customer_id, ''));
+  }
+
+  const now = Date.now();
+  const byContract = new Map<string, EngineOverviewAgg>();
+  const byBrand = new Map<string, EngineOverviewAgg>();
+  const engineRows: Array<Record<string, ReportCellValue>> = [];
+  let engOnSite = 0;
+  let engScrap = 0;
+  let globalTatSum = 0;
+  let globalTatCount = 0;
+  let onTimeEligible = 0;
+  let onTimeMet = 0;
+
+  for (const engineId of getIdsByType(snapshot, 'engine')) {
+    const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+    const brandId = normalizeText(attrs.engine_brand_id, '');
+    const contractId = normalizeText(attrs.contract_id, '');
+    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
+
+    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+
+    const statusFlags: Partial<Record<StatusCode, boolean>> = {};
+    for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
+    const scrap = isScrapEngine(statusFlags);
+    const reworkSent = statusFlags.status_rework_sent === true;
+    const repaired = statusFlags.status_repaired === true;
+    const { shippingDate, onSite: baseOnSite } = resolveEngineShippingState(attrs);
+    // Утиль-возврат (status_rework_sent) resolveEngineShippingState не считает выбытием —
+    // для честного «осталось на заводе» добавляем его как выбытие явно.
+    const leftFactory = !baseOnSite || reworkSent;
+    const onFactory = !leftFactory;
+    const readyNotShipped = repaired && onFactory;
+    const arrivalRaw = toNumber(attrs.arrival_date);
+
+    if (usePeriod) {
+      const basisDate = periodBasis === 'arrival' ? arrivalRaw : shippingDate ?? 0;
+      if (!(basisDate > 0)) continue;
+      if (period.startMs != null && basisDate < period.startMs) continue;
+      if (basisDate > period.endMs) continue;
+    }
+
+    if (hideScrap && scrap) continue;
+    if (engineState === 'on_site' && !onFactory) continue;
+    if (engineState === 'shipped' && !leftFactory) continue;
+    if (engineState === 'ready_not_shipped' && !readyNotShipped) continue;
+    if (engineState === 'scrap' && !scrap) continue;
+
+    const aging = onFactory && arrivalRaw > 0 ? Math.round((now - arrivalRaw) / MS_PER_DAY) : null;
+    if (agingDays > 0 && !(onFactory && aging != null && aging >= agingDays)) continue;
+
+    const tat = leftFactory && shippingDate != null && arrivalRaw > 0 ? Math.round((shippingDate - arrivalRaw) / MS_PER_DAY) : null;
+    if (tat != null) {
+      globalTatSum += tat;
+      globalTatCount += 1;
+    }
+    if (leftFactory) {
+      const dueAt = contractDueAtById.get(contractId) ?? null;
+      if (dueAt != null && shippingDate != null) {
+        onTimeEligible += 1;
+        if (shippingDate <= dueAt) onTimeMet += 1;
+      }
+    }
+
+    const rec: EngineOverviewRec = {
+      contractId,
+      brandId,
+      onFactory,
+      leftFactory,
+      readyNotShipped,
+      scrap,
+      tat,
+      aging,
+      shippingDate,
+    };
+    accIntoOverviewAgg(byContract, contractId, rec);
+    accIntoOverviewAgg(byBrand, brandId || '(без марки)', rec);
+
+    if (groupBy === 'engines') {
+      if (onFactory) engOnSite += 1;
+      if (scrap) engScrap += 1;
+      const repairStartedRaw = toNumber(attrs.status_repair_started_date);
+      const repairedRaw = toNumber(attrs.status_repaired_date);
+      const stateLabel = scrap
+        ? 'Утиль'
+        : leftFactory
+          ? 'Отгружен'
+          : readyNotShipped
+            ? 'Готов, не отгружен'
+            : statusFlags.status_repair_started
+              ? 'В ремонте'
+              : statusFlags.status_storage_received
+                ? 'Принят'
+                : 'На заводе';
+      engineRows.push({
+        engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
+        engineInternalNumber: formatEngineInternalNumber(
+          normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+          attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+        ),
+        engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        contractLabel: resolveContractLabel(contractId, contractOptions),
+        counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
+        arrivalDate: arrivalRaw > 0 ? arrivalRaw : null,
+        repairStartedDate: repairStartedRaw > 0 ? repairStartedRaw : null,
+        repairedDate: repairedRaw > 0 ? repairedRaw : null,
+        shippingDate,
+        daysOnSite: leftFactory ? tat : aging,
+        stateLabel,
+        isScrap: scrap ? 'Да' : 'Нет',
+      });
+    }
+  }
+
+  const preset = getPreset('engines_contracts_overview');
+  const subtitle =
+    periodBasis === 'none'
+      ? 'За всё время'
+      : `${periodBasis === 'arrival' ? 'Приход' : 'Отгрузка'}: ${msToDate(period.startMs)} — ${msToDate(period.endMs)}`;
+
+  if (groupBy === 'engines') {
+    engineRows.sort((a, b) => toNumber(b.arrivalDate) - toNumber(a.arrivalDate));
+    return {
+      ok: true,
+      presetId: 'engines_contracts_overview',
+      title: preset.title,
+      subtitle,
+      columns: selectEnginesContractsEngineColumns(columnKeys),
+      rows: engineRows,
+      totals: { engines: engineRows.length, onSiteQty: engOnSite, scrapQty: engScrap },
+      generatedAt: now,
+    };
+  }
+
+  if (groupBy === 'brands') {
+    const rows: Array<Record<string, ReportCellValue>> = [];
+    for (const [brandKey, agg] of byBrand.entries()) {
+      rows.push({
+        engineBrand: brandOptions.get(brandKey) ?? brandKey,
+        arrivedQty: agg.arrived,
+        atFactoryQty: agg.atFactory,
+        readyNotShippedQty: agg.readyNotShipped,
+        shippedQty: agg.shipped,
+        scrapQty: agg.scrap,
+        avgTatDays: agg.tatCount > 0 ? Math.round(agg.tatSum / agg.tatCount) : null,
+      });
+    }
+    rows.sort((a, b) => toNumber(b.arrivedQty) - toNumber(a.arrivedQty) || String(a.engineBrand ?? '').localeCompare(String(b.engineBrand ?? ''), 'ru'));
+    const totals = {
+      brands: rows.length,
+      arrivedQty: rows.reduce((acc, r) => acc + toNumber(r.arrivedQty), 0),
+      onSiteQty: rows.reduce((acc, r) => acc + toNumber(r.atFactoryQty), 0),
+      shippedQty: rows.reduce((acc, r) => acc + toNumber(r.shippedQty), 0),
+      scrapQty: rows.reduce((acc, r) => acc + toNumber(r.scrapQty), 0),
+      avgTatDays: globalTatCount > 0 ? Math.round(globalTatSum / globalTatCount) : 0,
+    };
+    return {
+      ok: true,
+      presetId: 'engines_contracts_overview',
+      title: preset.title,
+      subtitle,
+      columns: ENGINES_CONTRACTS_BRAND_COLUMNS,
+      rows,
+      totals,
+      generatedAt: now,
+    };
+  }
+
+  // groupBy === 'contracts' (по умолчанию)
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  let backlog = 0;
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    if (contractFilter.length > 0 && !contractFilter.includes(contractId)) continue;
+    const counterpartyId = contractCounterpartyById.get(contractId) ?? '';
+    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
+    const plan = contractPlanById.get(contractId) ?? 0;
+    const agg = byContract.get(contractId) ?? emptyOverviewAgg();
+    if (plan === 0 && agg.arrived === 0) continue;
+    const dueAt = contractDueAtById.get(contractId) ?? null;
+    const awaiting = Math.max(0, plan - agg.arrived);
+    const progressPct = plan > 0 ? Math.min(100, (agg.shipped / plan) * 100) : agg.arrived > 0 ? (agg.shipped / agg.arrived) * 100 : 0;
+    const overdueDays = dueAt != null && dueAt < now && progressPct < 100 ? Math.ceil((now - dueAt) / MS_PER_DAY) : 0;
+    if (overdueOnly && overdueDays <= 0) continue;
+    backlog += Math.max(0, plan - agg.shipped);
+    rows.push({
+      contractLabel: resolveContractLabel(contractId, contractOptions),
+      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
+      dueAt,
+      planQty: plan,
+      arrivedQty: agg.arrived,
+      awaitingQty: awaiting,
+      atFactoryQty: agg.atFactory,
+      readyNotShippedQty: agg.readyNotShipped,
+      shippedQty: agg.shipped,
+      scrapQty: agg.scrap,
+      progressPct,
+      overdueDays,
+    });
+  }
+  rows.sort(
+    (a, b) => toNumber(b.overdueDays) - toNumber(a.overdueDays) || String(a.contractLabel ?? '').localeCompare(String(b.contractLabel ?? ''), 'ru'),
+  );
+  const totals = {
+    contracts: rows.length,
+    planQty: rows.reduce((acc, r) => acc + toNumber(r.planQty), 0),
+    arrivedQty: rows.reduce((acc, r) => acc + toNumber(r.arrivedQty), 0),
+    onSiteQty: rows.reduce((acc, r) => acc + toNumber(r.atFactoryQty), 0),
+    shippedQty: rows.reduce((acc, r) => acc + toNumber(r.shippedQty), 0),
+    scrapQty: rows.reduce((acc, r) => acc + toNumber(r.scrapQty), 0),
+  };
+  const totalArrived = totals.arrivedQty;
+  const totalShipped = totals.shippedQty;
+  const footerNotes = [
+    `Незакрытый остаток по контрактам (план − отгружено): ${backlog} дв.`,
+    `Средний срок ремонта (TAT, приход → отгрузка): ${globalTatCount > 0 ? Math.round(globalTatSum / globalTatCount) : '—'} дн. (по ${globalTatCount} отгруженным).`,
+    `Доля утиля: ${totalArrived > 0 ? ((totals.scrapQty / totalArrived) * 100).toFixed(1) : '0.0'}% (${totals.scrapQty} из ${totalArrived}).`,
+    onTimeEligible > 0
+      ? `Отгрузка в срок: ${((onTimeMet / onTimeEligible) * 100).toFixed(1)}% (${onTimeMet} из ${onTimeEligible} с заданным сроком).`
+      : 'Отгрузка в срок: нет контрактов с заданным сроком среди отгруженных.',
+    `Отгружено всего: ${totalShipped} из ${totalArrived} приехавших.`,
+  ];
+
+  return {
+    ok: true,
+    presetId: 'engines_contracts_overview',
+    title: preset.title,
+    subtitle,
+    columns: ENGINES_CONTRACTS_CONTRACT_COLUMNS,
+    rows,
+    totals,
+    footerNotes,
+    generatedAt: now,
   };
 }
 
