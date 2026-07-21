@@ -837,12 +837,12 @@ export function EnginesPage(props: {
             Отчёт по двигателям
           </Button>
         )}
+        {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         {props.onOpenContractsReport && (
           <Button variant="ghost" onClick={() => props.onOpenContractsReport?.()} title="Двигатели и контракты: план / приехало / отгружено / на заводе, по маркам и контрактам">
             Двигатели и контракты
           </Button>
         )}
-        {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
         <div style={{ flex: 1 }}>
           <Input
             value={query}
