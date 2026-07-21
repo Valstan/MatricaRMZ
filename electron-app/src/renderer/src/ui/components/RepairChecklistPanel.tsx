@@ -7,6 +7,7 @@ import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { OverflowTooltipInput } from './OverflowTooltipInput.js';
+import { NumpadOverlay } from './NumpadOverlay.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -3375,6 +3376,20 @@ function TableEditor(props: {
   // Список деталей делится на два сворачиваемых блока; по умолчанию оба свёрнуты.
   const [baseGroupOpen, setBaseGroupOpen] = useState(false);
   const [otherGroupOpen, setOtherGroupOpen] = useState(false);
+  // Планшетный numpad для количества (Ф-later): тап по числовому полю открывает крупную экранную
+  // клавиатуру; на confirm клампим ровно как обычный ввод (см. renderCellInput onChange).
+  const [numpad, setNumpad] = useState<{ rowIdx: number; columnId: string; current: number | string; max: number | null; title: string } | null>(null);
+  function applyQtyFromNumpad(rowIdx: number, columnId: string, n: number) {
+    if (!props.canEdit || isReadOnlyNumberColumn(rowIdx, columnId)) return;
+    const maxQty = getQuantityByRowIndex(rowIdx);
+    let next = Math.max(0, Math.trunc(Number.isFinite(n) ? n : 0));
+    if (isDefectItemsTable && columnId === 'scrap_qty') next = Math.min(next, maxQty);
+    if (isCompletenessItemsTable && columnId === 'actual_qty') next = Math.min(next, maxQty);
+    if (isInventoryItemsTable && (columnId === 'actual_qty' || columnId === 'scrap_qty' || columnId === 'replace_qty')) {
+      next = Math.min(next, maxQty);
+    }
+    setCell(rowIdx, columnId, next, true);
+  }
 
   // Массовые операции по списку деталей (наличие/корзины ремонта) — только список деталей, с правами.
   const showBulkOps = isInventoryItemsTable && props.canEdit;
@@ -3557,6 +3572,11 @@ function TableEditor(props: {
         isInventoryItemsTable &&
         (column.id === 'scrap_qty' || column.id === 'replace_qty') &&
         !(rows[rowIdx] as any)?.present;
+      // Колонки, чьё значение ограничено количеством строки (тот же кламп, что в onChange ниже).
+      const clampsToQty =
+        (isDefectItemsTable && column.id === 'scrap_qty') ||
+        (isCompletenessItemsTable && column.id === 'actual_qty') ||
+        (isInventoryItemsTable && (column.id === 'actual_qty' || column.id === 'scrap_qty' || column.id === 'replace_qty'));
       return (
         <div
           style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}
@@ -3567,6 +3587,19 @@ function TableEditor(props: {
             inputMode="numeric"
             pattern="[0-9]*"
             value={String(value ?? '')}
+            {...(tabletActive && props.canEdit && !readOnly
+              ? {
+                  readOnly: true,
+                  onClick: () =>
+                    setNumpad({
+                      rowIdx,
+                      columnId: column.id,
+                      current: (rows[rowIdx] as any)?.[column.id] ?? '',
+                      max: clampsToQty ? maxQty : null,
+                      title: column.label,
+                    }),
+                }
+              : {})}
             style={numberFitMode ? { width: '100%', minWidth: 0 } : { minWidth: 72, maxWidth: compactMode ? 110 : undefined }}
             disabled={!props.canEdit || readOnly}
             onChange={(e) => {
@@ -3586,6 +3619,9 @@ function TableEditor(props: {
             }}
             onBlur={() => {
               if (!props.canEdit || readOnly) return;
+              // В планшете значение вводится numpad'ом (поле readOnly) — blur не должен ни
+              // сохранять, ни нормализовать пустое в 0, иначе отмена numpad'а оставит 0.
+              if (tabletActive) return;
               const current = (rows[rowIdx] as any)?.[column.id];
               if (current === '' || current == null || Number.isNaN(current)) {
                 setCell(rowIdx, column.id, 0, true);
@@ -3883,6 +3919,16 @@ function TableEditor(props: {
             Добавить строку
           </Button>
         </div>
+      )}
+      {numpad && (
+        <NumpadOverlay
+          open
+          title={`${numpad.title}: количество`}
+          initialValue={numpad.current}
+          {...(numpad.max != null ? { max: numpad.max } : {})}
+          onConfirm={(v) => applyQtyFromNumpad(numpad.rowIdx, numpad.columnId, v)}
+          onClose={() => setNumpad(null)}
+        />
       )}
     </div>
   );
