@@ -1,11 +1,11 @@
 import 'dotenv/config';
 
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
-import { SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
+import { LedgerTableName } from '@matricarmz/ledger';
 
 import { db, pool } from '../database/db.js';
 import { erpNomenclature, directoryParts } from '../database/schema.js';
-import { recordSyncChanges } from '../services/sync/syncChangeService.js';
+import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 
 /**
  * Phase 3.8 WS-A2 — reconcile code/name divergence between id-identical
@@ -19,19 +19,25 @@ import { recordSyncChanges } from '../services/sync/syncChangeService.js';
  *     (live-HTTP, NOT synced) → plain UPDATE, no ledger, instantly visible.
  *  2. CODE PROMOTE: where directory_parts.code is a REAL article and
  *     erp_nomenclature.code is a synthetic placeholder (^(DET|NM)-) → set
- *     nomenclature.code = directory.code so the synced client list shows the real
- *     article. erp_nomenclature IS synced → write THROUGH recordSyncChanges
- *     (ledger → index → PG, bumps last_server_seq) so clients pull it.
- *     erp_nomenclature.code is GLOBALLY unique (non-partial index incl. deleted)
- *     → skip any code already used by another row (collision = manual merge).
+ *     nomenclature.code = directory.code so the client list shows the real article.
+ *     Пишем канонически: прямой UPDATE в PG + signAndAppendDetailed (как
+ *     upsertWarehouseNomenclature). НЕ recordSyncChanges: applyPushBatch не имеет
+ *     веток для erp_*-таблиц, поэтому тот путь подписывает ledger и молча ничего не
+ *     приземляет в PG, откуда клиенты и читают (выучено вживую 2026-07-12 в
+ *     linkNomenclatureToPart.ts). ⚠️ Прогон 2026-07-12 шёл по сломанному пути —
+ *     «18 промоутнутых артикулов» в PG, скорее всего, не приземлились; проверить
+ *     SELECT'ом и при необходимости прогнать заново.
+ *     Уникальность code — partial (`deleted_at is null AND code <> ''`, PG 0075),
+ *     поэтому коллизию ищем среди ЖИВЫХ строк (занято = ручной merge).
  *
- * MATRICA_SYNC_GUARD=strict не требуется (используем штатный write-путь).
+ * Промоут артикулов дублируется в `warehouse:blank-synthetic-codes` (он делает
+ * PROMOTE перед BLANK, иначе реальный артикул терялся бы навсегда) — гнать этот
+ * скрипт до него не обязательно.
  * Dry-run by default; pass --apply to mutate. Run on prod after the release pull;
  * pg_dump erp_nomenclature + directory_parts beforehand.
  */
 const APPLY = process.argv.includes('--apply');
 const SYNTHETIC = /^(DET|NM)-/;
-const actor = { id: 'system', username: 'system', role: 'system' as const };
 
 type Row = { id: string; nCode: string | null; dCode: string | null; nName: string | null; dName: string | null };
 
@@ -48,18 +54,27 @@ async function main() {
     .filter((r) => r.nCode !== r.dCode || r.nName !== r.dName);
 
   const nameFixes = rows.filter((r) => (r.nName ?? '') !== (r.dName ?? '') && (r.nName ?? '').trim() !== '');
-  const codeCandidates = rows.filter(
-    (r) => (r.dCode ?? '').trim() !== '' && r.dCode !== r.nCode && SYNTHETIC.test(r.nCode ?? ''),
-  );
+  // dCode обязан быть РЕАЛЬНЫМ артикулом: без этой проверки скрипт переносил бы
+  // синтетику из карточки в зеркало и объявлял это «промоутом».
+  const codeCandidates = rows
+    .map((r) => ({ ...r, dCode: (r.dCode ?? '').trim() }))
+    .filter((r) => r.dCode !== '' && !SYNTHETIC.test(r.dCode) && r.dCode !== r.nCode && SYNTHETIC.test(r.nCode ?? ''));
 
-  // collision check against the global unique index (includes soft-deleted rows)
+  // collision check под партиал-уникальный индекс (deleted_at is null AND code <> ''):
+  // занятость проверяем только среди ЖИВЫХ строк, soft-deleted уникальности не держат.
   const promote: Row[] = [];
   const collide: Row[] = [];
   for (const r of codeCandidates) {
     const dup = await db
       .select({ c: sql<number>`count(*)` })
       .from(erpNomenclature)
-      .where(and(eq(erpNomenclature.code, r.dCode as string), ne(erpNomenclature.id, r.id as any)));
+      .where(
+        and(
+          eq(erpNomenclature.code, r.dCode as string),
+          ne(erpNomenclature.id, r.id as any),
+          isNull(erpNomenclature.deletedAt),
+        ),
+      );
     (Number(dup[0]?.c ?? 0) > 0 ? collide : promote).push(r);
   }
 
@@ -84,12 +99,45 @@ async function main() {
 
   let codeDone = 0;
   for (const r of promote) {
-    const cur = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, r.id as any)).limit(1);
-    if (!cur[0]) continue;
-    const dto = SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, cur[0] as Record<string, unknown>);
-    dto.code = r.dCode;
-    dto.updated_at = ts;
-    await recordSyncChanges(actor, [{ tableName: SyncTableName.ErpNomenclature, rowId: r.id, op: 'upsert', payload: dto }]);
+    await db
+      .update(erpNomenclature)
+      .set({ code: String(r.dCode), updatedAt: ts })
+      .where(eq(erpNomenclature.id, r.id as any));
+    const saved = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, r.id as any)).limit(1);
+    const row = saved[0] as Record<string, any> | undefined;
+    if (!row) continue;
+    signAndAppendDetailed([
+      {
+        type: 'upsert',
+        table: LedgerTableName.ErpNomenclature,
+        row_id: r.id,
+        row: {
+          id: String(row.id),
+          code: String(row.code),
+          sku: row.sku ?? null,
+          name: String(row.name),
+          item_type: String(row.itemType),
+          category: row.category ?? null,
+          directory_kind: row.directoryKind ?? null,
+          directory_ref_id: row.directoryRefId ?? null,
+          group_id: row.groupId,
+          unit_id: row.unitId,
+          barcode: row.barcode,
+          min_stock: row.minStock,
+          max_stock: row.maxStock,
+          default_brand_id: row.defaultBrandId ?? null,
+          is_serial_tracked: Boolean(row.isSerialTracked),
+          default_warehouse_id: row.defaultWarehouseId,
+          spec_json: row.specJson,
+          is_active: Boolean(row.isActive),
+          created_at: Number(row.createdAt),
+          updated_at: Number(row.updatedAt),
+          deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+        },
+        actor: { userId: 'system', username: 'system', role: 'system' },
+        ts,
+      },
+    ]);
     codeDone += 1;
   }
 

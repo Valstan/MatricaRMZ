@@ -69,7 +69,10 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
       if (!(base as any).status) (base as any).status = 'pending';
       return base;
     case SyncTableName.ErpNomenclature:
-      if (!(base as any).code || !(base as any).name || !(base as any).item_type) return null;
+      // code == '' — легальная конвенция «артикула нет» (Ф1 де-дупа, партиал-уникальный
+      // индекс 0075 её и исключает из уникальности). Falsy-проверка выбрасывала такие
+      // строки из replay целиком: при DR-восстановлении номенклатуры просто не было бы.
+      if ((base as any).code == null || !(base as any).name || !(base as any).item_type) return null;
       return base;
     case SyncTableName.ErpEngineAssemblyBom:
       if (!(base as any).name) return null;
