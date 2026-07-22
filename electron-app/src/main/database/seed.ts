@@ -6,6 +6,7 @@ import {
   AttributeDataType,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  ENGINE_RESERVATION_CODE,
   EntityTypeCode,
   STATUS_CODES,
   STATUS_LABELS,
@@ -138,6 +139,9 @@ export async function seedIfNeeded(db: BetterSQLite3Database) {
   // список двигателей читает def напрямую и до первого открытия карточки показывал бы пусто.
   await ensureAttrDef(engineTypeId, ENGINE_INTERNAL_NUMBER_CODE, 'Внутренний номер', AttributeDataType.Text, 15);
   await ensureAttrDef(engineTypeId, ENGINE_INTERNAL_NUMBER_YEAR_CODE, 'Год внутреннего номера', AttributeDataType.Number, 16);
+  // Резерв пишет только сервер; здесь def нужен, чтобы список двигателей читал замок
+  // у роли `engineer` — у неё нет masterdata.edit, и ensureAttributeDefs карточки не сработает.
+  await ensureAttrDef(engineTypeId, ENGINE_RESERVATION_CODE, 'Резерв двигателя', AttributeDataType.Json, 95);
   await ensureAttrDef(engineTypeId, 'engine_brand', 'Марка двигателя', AttributeDataType.Text, 20);
   await ensureAttrDef(engineTypeId, 'arrival_date', 'Дата прихода', AttributeDataType.Date, 25);
   for (const code of STATUS_CODES) {

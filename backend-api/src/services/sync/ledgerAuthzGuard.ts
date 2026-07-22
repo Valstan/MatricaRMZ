@@ -23,6 +23,10 @@ import { inArray, isNull } from 'drizzle-orm';
 
 import {
   canEditWorkOrder,
+  ENGINE_RESERVATION_CODE,
+  engineReservationSkipReason,
+  isEngineEditBlockedByReservation,
+  isEngineReservationGatedOperationType,
   isOperatorRole,
   isServerOnlyEmployeeAttr,
   ledgerWriteRequirement,
@@ -35,6 +39,7 @@ import {
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { db } from '../../database/db.js';
 import { attributeDefs, entities, entityTypes } from '../../database/schema.js';
+import { getLiveEngineReservations } from '../engineReservationGuard.js';
 import type { SyncSkippedRow } from './applyPushBatch.js';
 import {
   getRestrictedWorkOrderOwners,
@@ -45,6 +50,12 @@ import type { SyncWriteActor, SyncWriteInput } from './syncWriteService.js';
 
 function str(v: unknown): string {
   return v == null ? '' : String(v);
+}
+
+/** Аварийный выключатель advisory-гейта: откат без передеплоя (systemd env). */
+function engineReservationGateEnabled(): boolean {
+  const raw = String(process.env.MATRICA_ENGINE_RESERVATION_GATE ?? '').toLowerCase();
+  return !(raw === 'off' || raw === 'false' || raw === '0');
 }
 
 export async function partitionLedgerInputsByAuthz(
@@ -104,6 +115,34 @@ export async function partitionLedgerInputsByAuthz(
     for (const d of defs) codeByDefId.set(str(d.id), str(d.code));
   }
 
+  // Advisory-резерв двигателя (Ф2). Собираем двигатели, которых касается батч:
+  // сама engine-entity, её атрибуты и операции карточки двигателя (по белому
+  // списку типов — `engine_entity_id` есть и у нарядов, и у заявок снабжения,
+  // а их пишут мастер и снабженец, у которых кнопки резерва нет).
+  const reservationGateOn = engineReservationGateEnabled();
+  const touchedEngineIds = new Set<string>();
+  if (reservationGateOn) {
+    for (const inp of inputs) {
+      if (inp.table === SyncTableName.Entities) {
+        const tid = str(inp.row?.['entity_type_id']);
+        if (codeByTypeId.get(tid) === 'engine') touchedEngineIds.add(str(inp.row?.['id'] ?? inp.row_id));
+      } else if (inp.table === SyncTableName.AttributeValues) {
+        const eid = str(inp.row?.['entity_id']);
+        const tid = eid ? typeIdByEntityId.get(eid) : undefined;
+        if (tid && codeByTypeId.get(tid) === 'engine') touchedEngineIds.add(eid);
+      } else if (inp.table === SyncTableName.Operations) {
+        if (isEngineReservationGatedOperationType(str(inp.row?.['operation_type']))) {
+          const eid = str(inp.row?.['engine_entity_id']);
+          if (eid) touchedEngineIds.add(eid);
+        }
+      }
+    }
+  }
+  const reservations =
+    touchedEngineIds.size > 0 ? await getLiveEngineReservations([...touchedEngineIds]) : new Map();
+  const actorIsAdmin = role === 'admin' || role === 'superadmin';
+  const gateNow = Date.now();
+
   const perms = operatorScoped ? await getEffectivePermissionsForUser(actor.id) : {};
 
   // Restricted work-order write isolation (Phase 3): map of restricted order id ->
@@ -153,6 +192,49 @@ export async function partitionLedgerInputsByAuthz(
           row_id: inp.row_id,
           reason: `forbidden:employee_auth_attr:${attrCode}`,
         });
+        continue;
+      }
+      // Резерв — server-managed (пишется только через REST с серверными часами):
+      // клиент не может ни подделать чужой замок, ни стереть свой оффлайн. Заодно
+      // гейт ниже не блокирует сам себя — снятие замка не проходит этим путём.
+      if (attrCode === ENGINE_RESERVATION_CODE) {
+        denied.push({
+          table: inp.table,
+          row_id: inp.row_id,
+          reason: `forbidden:server_managed_attr:${ENGINE_RESERVATION_CODE}`,
+        });
+        continue;
+      }
+    }
+
+    // Advisory-резерв двигателя (Ф2): мягкий гейт — чужие правки занятого
+    // двигателя уезжают в skipped, батч не падает, очередь не отравляется.
+    // Правки со штампом раньше взятия замка (оффлайн-планшет) проходят.
+    if (reservationGateOn && reservations.size > 0) {
+      let gatedEngineId = '';
+      if (inp.table === SyncTableName.Entities && entityTypeCode === 'engine') {
+        gatedEngineId = str(inp.row?.['id'] ?? inp.row_id);
+      } else if (inp.table === SyncTableName.AttributeValues && entityTypeCode === 'engine') {
+        gatedEngineId = str(inp.row?.['entity_id']);
+      } else if (
+        inp.table === SyncTableName.Operations &&
+        isEngineReservationGatedOperationType(str(inp.row?.['operation_type']))
+      ) {
+        gatedEngineId = str(inp.row?.['engine_entity_id']);
+      }
+
+      const reservation = gatedEngineId ? (reservations.get(gatedEngineId) ?? null) : null;
+      if (
+        reservation &&
+        isEngineEditBlockedByReservation({
+          reservation,
+          actorUserId: str(actor.id),
+          rowUpdatedAt: Number(inp.row?.['updated_at'] ?? 0),
+          nowMs: gateNow,
+          actorIsAdmin,
+        })
+      ) {
+        denied.push({ table: inp.table, row_id: inp.row_id, reason: engineReservationSkipReason(reservation) });
         continue;
       }
     }
