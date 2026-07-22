@@ -90,6 +90,8 @@ ledger/state.json
 # Shared project hooks/config (brain #010 SessionStart git-sync hook).
 # settings.local.json stays ignored — it is machine-local.
 !.claude/settings.json
+!.claude/scripts/
+!.claude/scripts/**
 
 # electron-builder icon resources live under electron-app/build (buildResources).
 # The broad `build` ignore above would drop them — re-include the committed icons.
