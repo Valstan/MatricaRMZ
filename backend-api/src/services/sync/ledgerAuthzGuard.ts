@@ -114,6 +114,16 @@ export async function partitionLedgerInputsByAuthz(
       .where(inArray(attributeDefs.id, [...defIds] as string[]));
     for (const d of defs) codeByDefId.set(str(d.id), str(d.code));
   }
+  // Определения, ПРИЕХАВШИЕ В ЭТОМ ЖЕ БАТЧЕ, в БД ещё нет — без них backstop'ы
+  // обходятся: клиент кладёт свой attribute_def с защищённым кодом и пишет
+  // значение по его id, а гейт видит код как «неизвестный» и пропускает.
+  // Батчевое определение приоритетнее (тот же порядок, что у typeIdByEntityId).
+  for (const inp of inputs) {
+    if (inp.table !== SyncTableName.AttributeDefs) continue;
+    const did = str(inp.row?.['id'] ?? inp.row_id);
+    const code = str(inp.row?.['code']);
+    if (did && code && defIds.has(did)) codeByDefId.set(did, code);
+  }
 
   // Advisory-резерв двигателя (Ф2). Собираем двигатели, которых касается батч:
   // сама engine-entity, её атрибуты и операции карточки двигателя (по белому

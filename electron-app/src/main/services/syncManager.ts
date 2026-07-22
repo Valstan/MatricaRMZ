@@ -101,9 +101,10 @@ export class SyncManager {
       this.lastResult = r;
       if (r.ok) this.lastSyncAt = nowMs();
       // Ф2: досылаем снятия резерва, сделанные оффлайн у станка. Сеть только что
-      // была — момент лучший; на результат синка влиять не должно.
+      // была — момент лучший. БЕЗ await: флеш ходит по сети, а мы ещё под inFlight,
+      // и его ретраи задержали бы следующий синк на всё время недоступности сервера.
       if (r.ok) {
-        await flushPendingEngineReservationReleases(this.db, this.db, this.apiBaseUrl).catch(() => 0);
+        void flushPendingEngineReservationReleases(this.db, this.db, this.apiBaseUrl).catch(() => 0);
       }
       this.state = r.ok || offline ? 'idle' : 'error';
       this.lastError = !r.ok && !offline ? (r.error ?? 'unknown') : null;

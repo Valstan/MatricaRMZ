@@ -366,6 +366,22 @@ describe('advisory engine reservation gate (Ф2)', () => {
     expect(off.denied).toHaveLength(0);
   });
 
+  it('backstop не обходится подложным attribute_def из ТОГО ЖЕ батча', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([]); // подложного def'а в БД ещё нет — он приехал этим же батчем
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_defs', row: { id: 'def-fake', code: 'engine_reservation', entity_type_id: 't-engine' }, row_id: 'def-fake' },
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-fake', updated_at: NOW }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(denied.map((d) => d.row_id)).toContain('a1');
+    expect(denied.find((d) => d.row_id === 'a1')?.reason).toBe('forbidden:server_managed_attr:engine_reservation');
+    expect(allowed.map((i) => i.row_id)).not.toContain('a1');
+  });
+
   it('сам атрибут резерва не пишется клиентом ни при какой роли (server-managed backstop)', async () => {
     seedTypes();
     seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);

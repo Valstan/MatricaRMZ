@@ -14,6 +14,7 @@ import {
   ENGINE_RESERVATION_TTL_MS,
   type EngineReservation,
   isEngineReservationLive,
+  parseEngineReservation,
   shouldRenewEngineReservation,
   SyncTableName,
 } from '@matricarmz/shared';
@@ -107,6 +108,7 @@ async function readReservationRow(engineId: string, defId: string) {
   const rows = await db
     .select({
       id: attributeValues.id,
+      valueJson: attributeValues.valueJson,
       createdAt: attributeValues.createdAt,
       updatedAt: attributeValues.updatedAt,
     })
@@ -129,8 +131,11 @@ async function writeReservationValue(args: {
   defId: string;
   value: EngineReservation;
   actor: ReservationActor;
+  /** Версия строки, на которой принималось решение. Перечитывать её здесь нельзя:
+   * CAS сравнивал бы значение сам с собой и окно решение→запись осталось бы открытым. */
+  existing: Awaited<ReturnType<typeof readReservationRow>>;
 }): Promise<{ ok: true; row: ReservationRow } | { raced: true }> {
-  const existing = await readReservationRow(args.engineId, args.defId);
+  const existing = args.existing;
   const now = Date.now();
   const ts = existing ? Math.max(now, Number(existing.updatedAt) + 1) : now;
   const valueJson = JSON.stringify(args.value);
@@ -207,7 +212,8 @@ export async function acquireEngineReservation(args: {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const now = Date.now();
-    const current = (await readEngineReservations([engineId])).get(engineId) ?? null;
+    const existing = await readReservationRow(engineId, defId);
+    const current = existing ? parseEngineReservation(existing.valueJson) : null;
 
     if (isEngineReservationLive(current, now)) {
       const live = current as EngineReservation;
@@ -233,7 +239,7 @@ export async function acquireEngineReservation(args: {
       releasedBy: null,
     };
 
-    const written = await writeReservationValue({ engineId, defId, value: next, actor });
+    const written = await writeReservationValue({ engineId, defId, value: next, actor, existing });
     if ('ok' in written) return { ok: true, reservation: next, serverNow: now, row: written.row };
   }
 
@@ -251,7 +257,8 @@ export async function releaseEngineReservation(args: {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const now = Date.now();
-    const current = (await readEngineReservations([engineId])).get(engineId) ?? null;
+    const existing = await readReservationRow(engineId, defId);
+    const current = existing ? parseEngineReservation(existing.valueJson) : null;
     if (!isEngineReservationLive(current, now)) return { ok: true, reservation: current, serverNow: now };
 
     const live = current as EngineReservation;
@@ -266,7 +273,7 @@ export async function releaseEngineReservation(args: {
       releasedAt: now,
       releasedBy: live.holderUserId === actor.id ? 'holder' : 'admin',
     };
-    const written = await writeReservationValue({ engineId, defId, value: next, actor });
+    const written = await writeReservationValue({ engineId, defId, value: next, actor, existing });
     if ('ok' in written) return { ok: true, reservation: next, serverNow: now, row: written.row };
   }
 

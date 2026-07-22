@@ -735,7 +735,9 @@ export function EngineDetailsPage(props: {
     }
     // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
     // Один раз на маунт (draftRestoredRef) — «Сброс» перезагружает committed.
-    if (canEditEnginesEff && !draftRestoredRef.current) {
+    // Гейт по ПРАВУ, а не по эффективному: чужой замок не должен прятать уже
+    // набранное оператором — иначе черновик удалится, ни разу не показавшись.
+    if (props.canEditEngines && !draftRestoredRef.current) {
       void (async () => {
         try {
           const d = await window.matrica.drafts.get({ cardType: DRAFT_CARD_TYPE, cardId: props.engineId });

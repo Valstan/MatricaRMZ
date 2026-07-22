@@ -42,6 +42,9 @@ function formatHttpError(r: { status: number; json?: any; text?: string }): stri
   if (holder) {
     return `Двигатель уже взял ${formatEngineReservationHolder(holder)} — ${formatEngineReservationUntil(holder.expiresAt)}`;
   }
+  // Двигатель материализуется в БД только первой записью атрибута (deferred create),
+  // поэтому на только что созданной карточке сервер честно отвечает 404.
+  if (r.status === 404) return 'Сначала сохраните карточку двигателя, потом берите его в работу';
   const msg = typeof body?.error === 'string' ? body.error : typeof r.text === 'string' ? r.text.trim() : '';
   return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
 }
@@ -129,9 +132,20 @@ export async function acquireEngineReservation(
   apiBaseUrl: string,
   engineId: string,
 ): Promise<EngineReservationResult> {
-  const r = await httpAuthed(sysDb, apiBaseUrl, `/engines/${encodeURIComponent(engineId)}/reservation`, {
-    method: 'POST',
-  });
+  let r: Awaited<ReturnType<typeof httpAuthed>>;
+  try {
+    // attempts:1 — взятие не идемпотентно и оператор ждёт ответа у станка:
+    // три ретрая с бэкоффом это ~90 с молчания вместо честного «нет связи».
+    r = await httpAuthed(
+      sysDb,
+      apiBaseUrl,
+      `/engines/${encodeURIComponent(engineId)}/reservation`,
+      { method: 'POST' },
+      { attempts: 1, timeoutMs: 15_000 },
+    );
+  } catch {
+    return { ok: false, error: 'Нет связи с сервером — взять двигатель в работу можно только онлайн' };
+  }
   if (!r.ok) return { ok: false, error: formatHttpError(r) };
   await applyReservationRow(dataDb, r.json?.row);
   return { ok: true, ...toInfo(r.json) };

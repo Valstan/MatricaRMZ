@@ -94,16 +94,22 @@ describe('engineReservationState', () => {
 });
 
 describe('shouldRenewEngineReservation', () => {
-  it('продлеваем только свой живой резерв и только после половины TTL', () => {
-    const fresh = makeReservation({ startedAt: NOW - 1000 });
+  it('продлеваем только свой живой резерв и только когда остаток меньше половины TTL', () => {
+    const fresh = makeReservation({ expiresAt: NOW + ENGINE_RESERVATION_TTL_MS });
     expect(shouldRenewEngineReservation(fresh, { nowMs: NOW, viewerUserId: 'user-a' })).toBe(false);
 
-    const old = makeReservation({
-      startedAt: NOW - ENGINE_RESERVATION_RENEW_AFTER_MS - 1000,
-      expiresAt: NOW + 1000,
+    const expiring = makeReservation({ expiresAt: NOW + ENGINE_RESERVATION_RENEW_AFTER_MS - 1000 });
+    expect(shouldRenewEngineReservation(expiring, { nowMs: NOW, viewerUserId: 'user-a' })).toBe(true);
+    expect(shouldRenewEngineReservation(expiring, { nowMs: NOW, viewerUserId: 'user-b' })).toBe(false);
+  });
+
+  it('после продления НЕ просит продлевать снова: startedAt заморожен, считаем по остатку', () => {
+    // Резерв взят 10 ч назад и только что продлён: startedAt старый, expiresAt свежий.
+    const renewed = makeReservation({
+      startedAt: NOW - 10 * 60 * 60 * 1000,
+      expiresAt: NOW + ENGINE_RESERVATION_TTL_MS,
     });
-    expect(shouldRenewEngineReservation(old, { nowMs: NOW, viewerUserId: 'user-a' })).toBe(true);
-    expect(shouldRenewEngineReservation(old, { nowMs: NOW, viewerUserId: 'user-b' })).toBe(false);
+    expect(shouldRenewEngineReservation(renewed, { nowMs: NOW, viewerUserId: 'user-a' })).toBe(false);
   });
 });
 

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
+import { ENGINE_RESERVATION_CODE } from '@matricarmz/shared';
+
 import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
 import type { EntityDetails, EntityListItem } from '@matricarmz/shared';
 
@@ -177,6 +179,12 @@ export async function setEntityAttribute(
   fallbackTypeId?: string,
 ) {
   try {
+    // Ф2: резерв двигателя server-managed. Гейт в engineService закрывает карточку
+    // двигателя, но общий путь мастер-данных идёт сюда — без дубля строка ушла бы
+    // в pending и вечно отбивалась server-managed backstop'ом на сервере.
+    if (code === ENGINE_RESERVATION_CODE) {
+      return { ok: false as const, error: 'Резерв меняется кнопками «Взять в работу» / «Вернуть», а не правкой карточки' };
+    }
     const ts = nowMs();
     const e = await db.select().from(entities).where(eq(entities.id, entityId)).limit(1);
     let typeId: string;

@@ -123,6 +123,12 @@ export function engineReservationState(
   return 'free';
 }
 
+/**
+ * Считаем по ОСТАТКУ до истечения, а не по возрасту от `startedAt`: при продлении
+ * `startedAt` намеренно не сдвигается (иначе поехало бы окно pre-lock grace), и
+ * отсчёт от него после первого же продления давал бы «продлевать всегда» —
+ * ledger-запись на каждое сохранение карточки (класс M28).
+ */
 export function shouldRenewEngineReservation(
   reservation: EngineReservation | null,
   args: { nowMs: number; viewerUserId: string },
@@ -130,7 +136,7 @@ export function shouldRenewEngineReservation(
   if (!isEngineReservationLive(reservation, args.nowMs)) return false;
   const r = reservation as EngineReservation;
   if (r.holderUserId !== args.viewerUserId) return false;
-  return args.nowMs - r.startedAt > ENGINE_RESERVATION_RENEW_AFTER_MS;
+  return r.expiresAt - args.nowMs < ENGINE_RESERVATION_RENEW_AFTER_MS;
 }
 
 /** ЕДИНСТВЕННОЕ правило гейта — одно и то же на сервере (мягкий скип) и в UI (read-only). */
