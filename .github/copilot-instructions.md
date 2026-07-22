@@ -5,7 +5,7 @@ This file contains targeted, discoverable guidance for an AI coding agent workin
 1. Start-up checklist (must do)
    - Read `CLAUDE.md` (project rules, git flow, session commands) and `docs/CODEBASE_MAP.md`.
    - Run `git status --branch --short` and `git fetch origin --prune`. Do not overwrite local work.
-   - Git is PR-only ([ADR-0002](../brain_matrica/adr/0002-pr-only-flow-no-direct-push.md)): never push directly to `main`; branch -> push -> PR -> merge. GitHub is the source of truth between machines.
+   - Git is PR-only ([ADR-0002](../../brain_matrica/adr/0002-pr-only-flow-no-direct-push.md)): never push directly to `main`; branch -> push -> PR -> merge. GitHub is the source of truth between machines.
    - Use corepack+pnpm for commands (examples below).
 
 2. Fast setup / dev commands

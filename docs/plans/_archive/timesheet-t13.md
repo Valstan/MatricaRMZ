@@ -2,7 +2,7 @@
 
 **Статус:** APPROVED 2026-06-17 — владелец выбрал **Фазу 1 = учёт + печать без зарплаты** (зарплата → отложенная Ф3). Строим Ф1.
 **Создан:** 2026-06-17 (Claude Opus 4.8)
-**Источник:** директива brain [`2026-06-16-timesheet-module-t13.md`](../../../brain_matrica/mailboxes/MatricaRMZ/from-brain/2026-06-16-timesheet-module-t13.md) (kind=directive, compliance=recommend). Заявка владельца 2026-06-16.
+**Источник:** директива brain [`2026-06-16-timesheet-module-t13.md`](../../../../brain_matrica/mailboxes/MatricaRMZ/from-brain/2026-06-16-timesheet-module-t13.md) (kind=directive, compliance=recommend). Заявка владельца 2026-06-16.
 **Референс печати:** `D:\valstan\Скачано с интернета\табель за июнь цех№2.docx` (есть на машине; разобран — см. ниже).
 
 ## Цель

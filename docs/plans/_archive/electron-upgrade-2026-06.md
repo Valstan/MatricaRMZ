@@ -6,7 +6,7 @@
 
 ## Context
 
-`electron@^33.2.1` (≈окт 2024) — **≈9 мажоров позади**, давно EOL (Electron 39 EOL 2026-05-05). Это накопленный **security-долг** (Chromium CVE), не гонка за фичами. ADR-0001 ([`docs/adr/0001-client-install-update-architecture.md`](../adr/0001-client-install-update-architecture.md)) Блок 4 + Этап 3 зафиксировали направление: поднять Electron в поддерживаемое окно, `electron-builder → 26.x`, **обязательный rebuild `better-sqlite3`** под новый ABI, smoke-тест клиента, **отдельным релизом** (не смешивать с delta-обновлениями Этапа 2).
+`electron@^33.2.1` (≈окт 2024) — **≈9 мажоров позади**, давно EOL (Electron 39 EOL 2026-05-05). Это накопленный **security-долг** (Chromium CVE), не гонка за фичами. ADR-0001 ([`docs/adr/0001-client-install-update-architecture.md`](../../adr/0001-client-install-update-architecture.md)) Блок 4 + Этап 3 зафиксировали направление: поднять Electron в поддерживаемое окно, `electron-builder → 26.x`, **обязательный rebuild `better-sqlite3`** под новый ABI, smoke-тест клиента, **отдельным релизом** (не смешивать с delta-обновлениями Этапа 2).
 
 Цель — выйти из EOL с максимальным запасом по сроку поддержки, не сломав: загрузку нативной SQLite в клиенте, IPC, печать отчётов и кастомный апдейтер.
 

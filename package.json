@@ -23,6 +23,7 @@
     "build": "corepack pnpm -r build",
     "lint": "corepack pnpm -r lint",
     "deadcode": "knip",
+    "deadcode:pages": "node scripts/check-dead-pages.mjs",
     "typecheck": "corepack pnpm -r typecheck",
     "test": "corepack pnpm -r --workspace-concurrency=1 test",
     "format": "prettier -w .",

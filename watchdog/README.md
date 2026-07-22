@@ -6,7 +6,7 @@ botched update (app exe / shortcuts gone) and silently reinstalls from a local
 or downloaded installer. Pure stdlib — no third-party dependencies.
 
 See the full design and rationale in
-[`docs/plans/client-watchdog-agent.md`](../docs/plans/client-watchdog-agent.md).
+[`docs/plans/_archive/client-watchdog-agent.md`](../docs/plans/_archive/client-watchdog-agent.md).
 
 ## Why an external process
 

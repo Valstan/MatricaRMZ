@@ -45,9 +45,9 @@
 | **Склад → BOM сборки** | `pages/EngineAssemblyBomPage.tsx`, `EngineAssemblyBomDetailsPage.tsx` | BOM спецификация двигателя, режим дерева, варианты сборки |
 | **Снабжение** | `pages/SupplyRequestsPage.tsx`, `SupplyRequestDetailsPage.tsx`, `ServicesPage.tsx`, `ServicesByBrandPage.tsx`, `SupplyToolMovementsPage.tsx` | Заявки в снабжение, услуги (с фильтром по марке) |
 | **Производство** | `pages/WorkOrdersPage.tsx`, `WorkOrderDetailsPage.tsx`, `EnginesPage.tsx`, `EngineDetailsPage.tsx` | Наряды (4 типа), двигатели, контракты на ремонт |
-| **Справочники** | `pages/PartsPage.tsx`, `PartDetailsPage.tsx`, `ToolsPage.tsx`, `ProductsPage.tsx`, `EngineBrandsPage.tsx`, `EmployeesPage.tsx`, `CounterpartiesPage.tsx`, `MasterdataDirectoryPage.tsx`, `SimpleMasterdataDetailsPage.tsx` | Детали, инструменты, изделия, марки, сотрудники, контрагенты. EAV-атрибуты регистрируются в `ensureAttributeDefs` внутри `SimpleMasterdataDetailsPage.tsx` |
-| **Отчёты** | `pages/ReportsCatalogPage.tsx`, `ReportsPage.tsx`, `ReportPresetPage.tsx` | Каталог пресетов, параметры, экспорт HTML/печать |
-| **Админ** | `pages/AdminPage.tsx`, `AdminUsersPage.tsx`, `SuperadminAuditPage.tsx`, `AuditPage.tsx`, `HistoryPage.tsx`, `ChangesPage.tsx` | Пользователи, аудит, история изменений |
+| **Справочники** | `pages/PartsPage.tsx`, `PartDetailsPage.tsx`, `ToolsPage.tsx`, `EngineBrandsPage.tsx`, `EmployeesPage.tsx`, `CounterpartiesPage.tsx`, `MasterdataPage` (экспорт из `AdminPage.tsx`), `SimpleMasterdataDetailsPage.tsx` | Детали, инструменты, изделия, марки, сотрудники, контрагенты. EAV-атрибуты регистрируются в `ensureAttributeDefs` внутри `SimpleMasterdataDetailsPage.tsx` |
+| **Отчёты** | `pages/ReportsCatalogPage.tsx`, `ReportPresetPage.tsx`, `CustomReportsPage.tsx` | Каталог пресетов по темам, параметры, экспорт HTML/печать, «Мои отчёты» |
+| **Админ** | `pages/AdminPage.tsx`, `SuperadminAuditPage.tsx`, `HistoryPage.tsx`, `ChangesPage.tsx` | Пользователи, аудит, история изменений. Экраны пользователей/аудита в браузере — свои файлы в `web-admin/src/ui/` |
 | **Auth / Settings** | `pages/AuthPage.tsx`, `SettingsPage.tsx` | Логин, локальные настройки |
 | **Главное окно / IPC** | `electron-app/src/main/`, `electron-app/src/preload/`, `electron-app/src/renderer/src/main.tsx` | Bootstrap, миграции SQLite, IPC bridges, autoupdater |
 

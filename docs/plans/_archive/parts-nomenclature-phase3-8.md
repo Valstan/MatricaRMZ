@@ -2,7 +2,7 @@
 
 > **Статус:** 📋 план на согласовании. Создан 2026-06-17 (Claude Opus 4.8).
 > **Решение владельца (2026-06-17):** **scope A — минимальный безопасный.** НЕ заводим `directory_parts` в синк-реестр, НЕ разворачиваем live-HTTP чтение спеков (Phase 3.7 WS1). Только: (1) снести пустой junction `erp_nomenclature_engine_brand` из sync-протокола/кода/схем; (2) разобрать и занулить 116 расхождений зеркала code/name.
-> **Предшественники:** [`parts-nomenclature-phase3-7.md`](_archive/parts-nomenclature-phase3-7.md) (id-тождество, brand-links → `directory.brand_links_json`, live-HTTP spec-read), [`PENDING_FOLLOWUPS.md`](../PENDING_FOLLOWUPS.md) §🟢 #6.
+> **Предшественники:** [`parts-nomenclature-phase3-7.md`](parts-nomenclature-phase3-7.md) (id-тождество, brand-links → `directory.brand_links_json`, live-HTTP spec-read), [`PENDING_FOLLOWUPS.md`](../../PENDING_FOLLOWUPS.md) §🟢 #6.
 > **Что отложено (вариант B, НЕ делаем):** синк `directory_parts` на клиент + offline-чтение спеков из SQLite. Это разворот рабочего live-HTTP + расширение sync-протокола (риск порчи). Если когда-нибудь понадобится offline-specs — отдельная нитка с воркстримами.
 
 ## Grounded state (прод-снимок 2026-06-17, read-only)

@@ -1,6 +1,6 @@
 # Blockmap-delta обновления клиента (ADR-0001 Этап-2, Путь B)
 
-Источник: [ADR-0001](../adr/0001-client-install-update-architecture.md) Блок 3 + директива brain `client-perf-initial-sync-and-delta-updates` (боль владельца: ~85 МиБ на каждое обновление). Цель: типовой релиз (меняется наш JS/asar) → закачка единицы МБ; Electron-блоки не качаются, пока не меняются.
+Источник: [ADR-0001](../../adr/0001-client-install-update-architecture.md) Блок 3 + директива brain `client-perf-initial-sync-and-delta-updates` (боль владельца: ~85 МиБ на каждое обновление). Цель: типовой релиз (меняется наш JS/asar) → закачка единицы МБ; Electron-блоки не качаются, пока не меняются.
 
 ## Контекст (разведка 2026-06-12)
 

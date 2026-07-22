@@ -7,7 +7,7 @@ import { getSession } from './authService.js';
 
 // Черновики/recovery-снимки карточек в работе (Phase 3). Owner-private, синкается между ПК
 // оператора. card_id — id целевого документа (может ещё не существовать). См.
-// docs/plans/drafts-no-empty-cards-recovery-2026-06.md.
+// docs/plans/_archive/drafts-no-empty-cards-recovery-2026-06.md.
 
 function nowMs() {
   return Date.now();

@@ -1,8 +1,8 @@
 # Work-order rework + Ramzia isolation — 2026-06
 
 > Источник: две скоординированные директивы brain (06-30, `compliance: recommend`):
-> [`naryad-card-completion-button-dates`](../../mailbox/to-brain/2026-06-30-ledger-audit-and-0630-batch-intake.md) (карточка: кнопка «выполнен» + 4 даты + список-колонки/поиск) и
-> [`naryad-list-filter-roles-isolation`](../../mailbox/) (список: фильтр по типу + **ролевая изоляция нарядов Рамзии на sync-границе**).
+> [`naryad-card-completion-button-dates`](../../../mailbox/to-brain/2026-06-30-ledger-audit-and-0630-batch-intake.md) (карточка: кнопка «выполнен» + 4 даты + список-колонки/поиск) и
+> [`naryad-list-filter-roles-isolation`](../../../mailbox/) (список: фильтр по типу + **ролевая изоляция нарядов Рамзии на sync-границе**).
 > Письма требуют **одной** доработки списка (не два прохода) и для части B — **recon ДО дизайна**, серверный энфорс (#063), adversarial-review + verify под обеими ролями.
 
 ## Recon-итог (что есть в коде — с file:line)
