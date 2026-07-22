@@ -334,6 +334,64 @@ body {
   --role-user-text: #2f6d1f;
 }
 
+/* Планшетный режим (Ф1a). Ортогонален теме: включается data-ui-mode='tablet' на :root из App.tsx
+   (по кнопке «Комп/Планшет»). Переопределяет только РАЗМЕРЫ — палитра остаётся от активной темы.
+   Токены гонят общие Input/Button/списки/карточки → большинство экранов масштабируется без правки
+   компонентов. `--ui-list-font-size`/`--ui-card-font-size` тут НЕ трогаем — их поднимает инлайн-
+   эффект displayPrefs в App.tsx (инлайн > CSS), уважая больший пользовательский размер. */
+:root[data-ui-mode='tablet'] {
+  --ui-title-size: 22px;
+  --ui-section-size: 18px;
+  --ui-body-size: 16px;
+  --ui-muted-size: 14px;
+  --ui-table-size: 16px;
+  --ui-report-font-size: 16px;
+
+  --ui-input-height: 46px;
+  --ui-input-padding: 8px 10px;
+  --ui-input-font-size: 16px;
+
+  --ui-button-sm-height: 40px;
+  --ui-button-sm-padding: 8px 12px;
+  --ui-button-sm-font-size: 14px;
+  --ui-button-md-height: 44px;
+  --ui-button-md-padding: 10px 14px;
+  --ui-button-md-font-size: 15px;
+  --ui-button-lg-height: 48px;
+  --ui-button-lg-padding: 12px 18px;
+  --ui-button-lg-font-size: 16px;
+
+  --list-row-padding-y: 10px;
+  --list-row-padding-x: 10px;
+  --card-row-padding-y: 10px;
+  --card-row-padding-x: 10px;
+  --card-row-gap: 8px;
+
+  --ui-datepicker-font-size: 16px;
+}
+
+/* «Сырые» контролы, которые не идут через токены — правим точечно, но всё ещё без JSX. */
+:root[data-ui-mode='tablet'] input[type='checkbox'],
+:root[data-ui-mode='tablet'] input[type='radio'] {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  cursor: pointer;
+}
+/* Дата-инпут (UnifiedDateInput) стилизован инлайном (fontSize/minHeight/padding) → нужен !important,
+   чтобы планшет-размер переборол инлайн. */
+:root[data-ui-mode='tablet'] .matrica-datepicker-input {
+  min-height: 44px !important;
+  font-size: 16px !important;
+  padding: 8px 10px !important;
+}
+/* Пункты левого меню v2 (.v2-menu-btn в shellV2.css) захардкожены padding/font — поднимаем. */
+:root[data-ui-mode='tablet'] .v2-menu-btn {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--text);

@@ -61,6 +61,7 @@ import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
 import { useListColumnsMode } from './hooks/useListColumnsMode.js';
+import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { loadContractActivityAlerts } from './utils/contractAlerts.js';
@@ -650,6 +651,12 @@ export function App() {
   useAutoGrowInputs();
   useAdaptiveListTables();
   const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
+  // Планшетный режим (Ф1a): isTabletDevice — «эта машина цеховой планшет» (гейт видимости
+  // кнопки, машинно-локально, сеётся эвристикой один раз); isTabletUi — живой touch-layout,
+  // что переключает большая кнопка «Комп/Планшет» в шапке.
+  const { isTabletDevice } = useTabletDevice();
+  const { isTabletUi, toggle: toggleUiMode } = useUiMode();
+  const tabletActive = isTabletDevice && isTabletUi;
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   // V2 shell («Резиновый»): per-user выбор оболочки + личные настройки 3-колоночного макета.
   const [shellPrefs, setShellPrefs] = useState<UiShellPrefs | null>(null);
@@ -1767,13 +1774,31 @@ export function App() {
     }
   }, [resolvedTheme]);
 
+  // Планшетный режим → data-ui-mode на :root; CSS-блок [data-ui-mode='tablet'] в global.css
+  // поднимает хит-таргеты/шрифты/паддинги. На не-планшете (или при выборе «Комп») — 'comp'.
+  useEffect(() => {
+    try {
+      document.documentElement.dataset.uiMode = tabletActive ? 'tablet' : 'comp';
+    } catch {
+      // ignore
+    }
+  }, [tabletActive]);
+
   useEffect(() => {
     const root = document.documentElement;
-    const listSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.listFontSize ?? DEFAULT_UI_DISPLAY_PREFS.listFontSize)));
-    const cardSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.cardFontSize ?? DEFAULT_UI_DISPLAY_PREFS.cardFontSize)));
+    const TABLET_MIN_FONT = 17;
+    let listSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.listFontSize ?? DEFAULT_UI_DISPLAY_PREFS.listFontSize)));
+    let cardSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.cardFontSize ?? DEFAULT_UI_DISPLAY_PREFS.cardFontSize)));
+    // Списочный/карточный шрифт задаётся ЭТИМ инлайн-каналом (инлайн > CSS-правило темы),
+    // поэтому планшет-минимум подмешиваем здесь же, а не в CSS-блоке. Больший пользовательский
+    // размер уважаем (Math.max) — лишь поднимаем мелкий до планшетного минимума.
+    if (tabletActive) {
+      listSize = Math.max(listSize, TABLET_MIN_FONT);
+      cardSize = Math.max(cardSize, TABLET_MIN_FONT);
+    }
     root.style.setProperty('--ui-list-font-size', `${listSize}px`);
     root.style.setProperty('--ui-card-font-size', `${cardSize}px`);
-  }, [uiPrefs.displayPrefs]);
+  }, [uiPrefs.displayPrefs, tabletActive]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) {
@@ -5044,6 +5069,22 @@ export function App() {
         center={headerStatus}
         right={
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+          {/* Крупная кнопка режима «Комп/Планшет» (Ф1a). Появляется ТОЛЬКО когда машина помечена
+              планшетом (Настройки → «Это планшет»), на всех страницах обеих оболочек. Палец-таргет
+              ~48px. На обычном ПК кнопки нет вовсе. */}
+          {authStatus.loggedIn && isTabletDevice && (
+            <Button
+              variant={isTabletUi ? 'primary' : 'ghost'}
+              onClick={() => toggleUiMode()}
+              title={isTabletUi
+                ? 'Планшетный режим включён (крупные элементы для пальца). Нажмите для режима компьютера.'
+                : 'Режим компьютера (обычные размеры). Нажмите для планшетного режима.'}
+              aria-label={isTabletUi ? 'Режим: Планшет' : 'Режим: Комп'}
+              style={{ minHeight: 48, padding: '10px 18px', fontSize: 16, fontWeight: 600 }}
+            >
+              {isTabletUi ? '📱 Планшет' : '💻 Комп'}
+            </Button>
+          )}
           {/* Переключатель темы интерфейса — всегда виден в верхней панели (в т.ч. до входа).
               Тема глобальная и применяется мгновенно; выбранная подсвечивается primary. */}
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} title="Тема интерфейса">

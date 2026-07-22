@@ -5,6 +5,7 @@ import { formatClientLabel } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { useTabletDevice } from '../hooks/useUiMode.js';
 
 type CriticalEventItem = {
   id: string;
@@ -47,6 +48,8 @@ export function SettingsPage(props: {
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark' | 'warm'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [enterAsTab, setEnterAsTab] = useState<boolean>(props.uiPrefs.enterAsTab === true);
+  // «Это планшет» — машинно-локальный флаг (localStorage), применяется сразу, не через «Сохранить».
+  const { isTabletDevice, setIsTabletDevice } = useTabletDevice();
   const [pwCurrent, setPwCurrent] = useState<string>('');
   const [pwNew, setPwNew] = useState<string>('');
   const [pwRepeat, setPwRepeat] = useState<string>('');
@@ -621,6 +624,21 @@ export function SettingsPage(props: {
               </div>
               <div style={{ color: 'var(--muted)', fontSize: 12 }}>
                 Enter — переход к следующему полю, Shift+Enter — к предыдущему.
+              </div>
+            </div>
+            <div style={{ color: 'var(--muted)' }}>Это планшет</div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button variant={isTabletDevice ? 'primary' : 'ghost'} onClick={() => setIsTabletDevice(true)}>
+                  Да (цеховой режим)
+                </Button>
+                <Button variant={!isTabletDevice ? 'primary' : 'ghost'} onClick={() => setIsTabletDevice(false)}>
+                  Нет (обычный ПК)
+                </Button>
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                На планшете в шапке появляется крупная кнопка «Комп/Планшет» — переключает размер
+                интерфейса под палец. Применяется сразу и хранится на этом устройстве.
               </div>
             </div>
           </div>
