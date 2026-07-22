@@ -13,6 +13,11 @@ import {
   findEngineInternalNumberDuplicate,
   type AssemblyEngineStatusTarget,
 } from '../../services/engineService.js';
+import {
+  acquireEngineReservation,
+  getEngineReservation,
+  releaseEngineReservation,
+} from '../../services/engineReservationClient.js';
 import { engineDedupeAnalyze, engineDedupeMerge } from '../../services/erpService.js';
 import { listOperations, addOperation } from '../../services/operationService.js';
 import { addAudit, listAudit } from '../../services/auditService.js';
@@ -58,6 +63,25 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
       survivorId: String(args?.survivorId ?? ''),
       loserIds: Array.isArray(args?.loserIds) ? args.loserIds.map(String) : [],
     });
+  });
+
+  // Advisory-резерв двигателя (Ф2). Резерв server-managed: `byAdmin` определяет
+  // СЕРВЕР по роли сессии — клиент его не шлёт и подменить не может.
+  ipcMain.handle('engine:reservation:get', async (_e, engineId: string) => {
+    await requirePermOrThrow(ctx, 'engines.view');
+    return getEngineReservation(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(engineId ?? ''));
+  });
+  ipcMain.handle('engine:reservation:acquire', async (_e, engineId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'engines.edit');
+    if (!gate.ok) return gate;
+    return acquireEngineReservation(ctx.sysDb, ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(engineId ?? ''));
+  });
+  ipcMain.handle('engine:reservation:release', async (_e, engineId: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'engines.edit');
+    if (!gate.ok) return gate;
+    return releaseEngineReservation(ctx.sysDb, ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(engineId ?? ''));
   });
 
   // Engines (write)

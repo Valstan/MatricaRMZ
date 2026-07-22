@@ -30,8 +30,20 @@ const ENGINE_TYPE_CODE = 'engine';
 
 export type ReservationActor = { id: string; username: string; role?: string | undefined };
 
+/** `row` — строка attribute_values в формате sync-payload: клиент кладёт её в реплику сразу, не дожидаясь pull'а. */
+export type ReservationRow = {
+  id: string;
+  entity_id: string;
+  attribute_def_id: string;
+  value_json: string;
+  created_at: number;
+  updated_at: number;
+  deleted_at: null;
+  sync_status: 'synced';
+};
+
 export type ReservationResult =
-  | { ok: true; reservation: EngineReservation | null; serverNow: number }
+  | { ok: true; reservation: EngineReservation | null; serverNow: number; row?: ReservationRow }
   | { ok: false; status: 403 | 404 | 409; error: string; holder?: EngineReservation; serverNow: number };
 
 let cachedDefId: string | null = null;
@@ -117,7 +129,7 @@ async function writeReservationValue(args: {
   defId: string;
   value: EngineReservation;
   actor: ReservationActor;
-}): Promise<{ ok: true } | { raced: true }> {
+}): Promise<{ ok: true; row: ReservationRow } | { raced: true }> {
   const existing = await readReservationRow(args.engineId, args.defId);
   const now = Date.now();
   const ts = existing ? Math.max(now, Number(existing.updatedAt) + 1) : now;
@@ -156,26 +168,23 @@ async function writeReservationValue(args: {
     createdAt = ts;
   }
 
+  const row: ReservationRow = {
+    id: rowId,
+    entity_id: args.engineId,
+    attribute_def_id: args.defId,
+    value_json: valueJson,
+    created_at: createdAt,
+    updated_at: ts,
+    deleted_at: null,
+    sync_status: 'synced',
+  };
+
   await recordSyncChanges({ id: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' }, [
-    {
-      tableName: SyncTableName.AttributeValues,
-      rowId,
-      op: 'upsert',
-      payload: {
-        id: rowId,
-        entity_id: args.engineId,
-        attribute_def_id: args.defId,
-        value_json: valueJson,
-        created_at: createdAt,
-        updated_at: ts,
-        deleted_at: null,
-        sync_status: 'synced',
-      },
-    },
+    { tableName: SyncTableName.AttributeValues, rowId, op: 'upsert', payload: { ...row } },
   ]);
 
   invalidateEngineReservationCache(args.engineId);
-  return { ok: true };
+  return { ok: true, row };
 }
 
 export async function getEngineReservation(engineId: string): Promise<ReservationResult> {
@@ -225,7 +234,7 @@ export async function acquireEngineReservation(args: {
     };
 
     const written = await writeReservationValue({ engineId, defId, value: next, actor });
-    if ('ok' in written) return { ok: true, reservation: next, serverNow: now };
+    if ('ok' in written) return { ok: true, reservation: next, serverNow: now, row: written.row };
   }
 
   return { ok: false, status: 409, error: 'Резерв изменён другим клиентом, повторите', serverNow: Date.now() };
@@ -258,7 +267,7 @@ export async function releaseEngineReservation(args: {
       releasedBy: live.holderUserId === actor.id ? 'holder' : 'admin',
     };
     const written = await writeReservationValue({ engineId, defId, value: next, actor });
-    if ('ok' in written) return { ok: true, reservation: next, serverNow: now };
+    if ('ok' in written) return { ok: true, reservation: next, serverNow: now, row: written.row };
   }
 
   return { ok: false, status: 409, error: 'Резерв изменён другим клиентом, повторите', serverNow: Date.now() };

@@ -5,6 +5,7 @@ import {
   engineInternalNumberSortKey,
   findArchivedArrivalIds,
   formatEngineInternalNumber,
+  formatEngineReservationUntil,
 } from '@matricarmz/shared';
 import type { EngineListItem } from '@matricarmz/shared';
 
@@ -662,6 +663,14 @@ export function EnginesPage(props: {
                 style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(37, 99, 235, 0.12)', color: '#1d4ed8', whiteSpace: 'nowrap' }}
               >
                 🔁
+              </span>
+            ) : null}
+            {e.reservedByLabel ? (
+              <span
+                title={`Взят в работу: ${e.reservedByLabel}${e.reservedUntil ? ` — ${formatEngineReservationUntil(e.reservedUntil)}` : ''}`}
+                style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: '#fffbeb', color: '#b45309', whiteSpace: 'nowrap' }}
+              >
+                🔒
               </span>
             ) : null}
           </span>

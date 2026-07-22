@@ -1,3 +1,4 @@
+import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
 import type { WorkshopStatsResult } from '../domain/workshopStats.js';
@@ -35,6 +36,10 @@ export type EngineListItem = {
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;
+  /** Ф2: живой advisory-резерв — «логин + ФИО» держателя и срок (для бейджа в списке). */
+  reservedByLabel?: string;
+  reservedByUserId?: string;
+  reservedUntil?: number;
   createdAt?: number;
   updatedAt: number;
   syncStatus: string;
@@ -84,6 +89,11 @@ export type EngineInternalNumberDuplicate = {
   engineNumber: string;
   engineBrand: string;
 };
+
+/** Ответ операций резерва двигателя (Ф2). `queued` — снятие отложено до появления сети. */
+export type EngineReservationResult =
+  | { ok: true; reservation: EngineReservation | null; serverNow: number; queued?: boolean }
+  | { ok: false; error: string };
 
 /**
  * Proactive engine-number duplicate hint (#317). `exact` = same canonical key
@@ -242,6 +252,8 @@ export type SyncRunResult = {
   serverCursor: number;
   serverLastSeq?: number;
   error?: string;
+  /** Строки, отбитые чужим резервом двигателя (Ф2): остаются pending и уедут, когда замок снимут. */
+  reservedSkipped?: { count: number; holders: string[] };
 };
 
 export type SyncStatus = {
@@ -865,6 +877,11 @@ export type MatricaApi = {
       internalNumberYear: number;
       excludeEngineId?: string;
     }) => Promise<EngineInternalNumberDuplicate | null>;
+    reservation: {
+      get: (engineId: string) => Promise<EngineReservationResult>;
+      acquire: (engineId: string) => Promise<EngineReservationResult>;
+      release: (engineId: string) => Promise<EngineReservationResult>;
+    };
   };
   operations: {
     list: (engineId: string) => Promise<OperationItem[]>;

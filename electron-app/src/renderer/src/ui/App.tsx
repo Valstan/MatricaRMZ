@@ -4190,6 +4190,8 @@ export function App() {
             onReload={() => loadSecondaryEngine(id)}
             onEngineUpdated={async () => { await refreshEngines(); await loadSecondaryEngine(id); }}
             canEditEngines={caps.canEditEngines}
+            currentUserId={String(authStatus.user?.id ?? '')}
+            currentUserRole={userRole}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}
             canPrintEngineCard={caps.canPrintReports}
@@ -4458,6 +4460,8 @@ export function App() {
               await reloadEngine();
             }}
             canEditEngines={caps.canEditEngines}
+            currentUserId={String(authStatus.user?.id ?? '')}
+            currentUserRole={userRole}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}
             canPrintEngineCard={caps.canPrintReports}
@@ -5369,6 +5373,22 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
+          {/* Ф2: часть правок не уехала — двигатель занят. Отдельным блоком, а НЕ через
+              postLoginSyncMsg: тот рисуется только при матче регекспа на текст ошибки. */}
+          {syncStatus?.lastResult?.reservedSkipped ? (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 12,
+                border: '1px solid #fde68a',
+                background: '#fffbeb',
+                color: '#b45309',
+              }}
+            >
+              {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(', ') || 'другой сотрудник'}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
+            </div>
+          ) : null}
           {isV2 ? (
             <V2Shell
               prefs={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2}
