@@ -368,6 +368,10 @@ body {
   --card-row-gap: 8px;
 
   --ui-datepicker-font-size: 16px;
+
+  /* Плитки тем в каталоге отчётов — палец, а не мышь. */
+  --ui-report-theme-tile-height: 128px;
+  --ui-report-theme-tile-padding: 16px 20px;
 }
 
 /* «Сырые» контролы, которые не идут через токены — правим точечно, но всё ещё без JSX. */

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { WorkOrderPayload } from '@matricarmz/shared';
 
-import { createWorkOrder, updateWorkOrder } from './workOrderService.js';
+import { createWorkOrder, setWorkOrderNumber, updateWorkOrder } from './workOrderService.js';
 
 // Guard for the «№ новый навсегда» data-loss incident: a stale recovery draft (snapshot
 // taken before deferred-create materialization) carries workOrderNumber: 0 — committing it
@@ -123,6 +123,91 @@ describe('work order number immutability', () => {
         expect(saved.workOrderNumber).not.toBe(order.number);
         expect(storedNumber(sqlite, broken.id)).toBe(saved.workOrderNumber);
       }
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+// Смена номера суперадмином — единственный легальный путь правки номера (IPC проверяет роль).
+describe('setWorkOrderNumber (superadmin repair path)', () => {
+  it('assigns a free number and keeps it through an ordinary save', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      const changed = await setWorkOrderNumber(db, { id: order.id, workOrderNumber: 85, actor: 'root' });
+      expect(changed.ok).toBe(true);
+      expect(storedNumber(sqlite, order.id)).toBe(85);
+
+      const saved = await updateWorkOrder(db, { id: order.id, payload: order.payload, actor: 'tester' });
+      expect(saved.ok).toBe(true);
+      if (saved.ok) expect(saved.workOrderNumber).toBe(85);
+      expect(storedNumber(sqlite, order.id)).toBe(85);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('repairs a zeroed number without touching the neighbour', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const keep = await materialize(db);
+      const broken = await materialize(db);
+      sqlite
+        .prepare(`UPDATE operations SET meta_json = ? WHERE id = ?`)
+        .run(JSON.stringify({ ...broken.payload, workOrderNumber: 0 }), broken.id);
+
+      const changed = await setWorkOrderNumber(db, { id: broken.id, workOrderNumber: 86, actor: 'root' });
+      expect(changed.ok).toBe(true);
+      expect(storedNumber(sqlite, broken.id)).toBe(86);
+      expect(storedNumber(sqlite, keep.id)).toBe(keep.number);
+      const note = sqlite.prepare(`SELECT note FROM operations WHERE id = ?`).get(broken.id) as { note: string };
+      expect(note.note).toBe('Наряд №86');
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('blocks a number already taken by another live order', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const first = await materialize(db);
+      const second = await materialize(db);
+      const changed = await setWorkOrderNumber(db, { id: second.id, workOrderNumber: first.number, actor: 'root' });
+      expect(changed.ok).toBe(false);
+      if (!changed.ok) expect(changed.error).toContain('уже занят');
+      expect(storedNumber(sqlite, second.id)).toBe(second.number);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('rejects non-positive and non-integer numbers', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      for (const bad of [0, -3, 1.5, Number.NaN, 1_000_000]) {
+        const changed = await setWorkOrderNumber(db, { id: order.id, workOrderNumber: bad, actor: 'root' });
+        expect(changed.ok, `number ${bad} must be rejected`).toBe(false);
+      }
+      expect(storedNumber(sqlite, order.id)).toBe(order.number);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('writes an audit row with the old and the new number', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      await setWorkOrderNumber(db, { id: order.id, workOrderNumber: 42, actor: 'root' });
+      const row = sqlite
+        .prepare(`SELECT actor, action, payload_json FROM audit_log WHERE action = 'work_order.number_change'`)
+        .get() as { actor: string; action: string; payload_json: string };
+      expect(row?.actor).toBe('root');
+      const payload = JSON.parse(row.payload_json) as { from: number; to: number };
+      expect(payload.from).toBe(order.number);
+      expect(payload.to).toBe(42);
     } finally {
       sqlite.close();
     }

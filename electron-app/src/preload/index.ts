@@ -356,6 +356,7 @@ const matricaApi = {
     activeAssemblyVariant: async (engineId: string) => ipcRenderer.invoke('workOrders:activeAssemblyVariant', engineId),
     create: async () => ipcRenderer.invoke('workOrders:create'),
     update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('workOrders:update', args),
+    setNumber: async (args: { id: string; workOrderNumber: number }) => ipcRenderer.invoke('workOrders:setNumber', args),
     delete: async (id: string) => ipcRenderer.invoke('workOrders:delete', id),
     close: async (args: { operationId: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('workOrders:close', args),
     saveAssemblyDraft: async (args: { operationId: string; expectedUpdatedAt?: number }) =>

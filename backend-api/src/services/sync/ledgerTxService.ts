@@ -8,6 +8,7 @@ import type { LedgerTableName } from '@matricarmz/ledger';
 
 import { recordLedgerAuthzDenial } from '../authzDenialLog.js';
 import { partitionLedgerInputsByAuthz } from './ledgerAuthzGuard.js';
+import { enforceWorkOrderNumberImmutability, reportWorkOrderNumberHeals } from './workOrderNumberGuard.js';
 import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor } from './syncWriteService.js';
 
 type LedgerTxInput = {
@@ -52,6 +53,11 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
   // are dropped to `skipped` (not failed) so the offline queue is not poisoned.
   const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs, writeActor);
   if (denied.length > 0) recordLedgerAuthzDenial(writeActor, denied);
+
+  // Номер наряда неизменяем для всех, кроме суперадмина. Лечим строку ДО подписи в ledger,
+  // иначе ledger и PG разъедутся, и replay вернул бы неправильный номер.
+  const numberHeals = await enforceWorkOrderNumberImmutability(allowed, writeActor);
+  reportWorkOrderNumberHeals(writeActor, numberHeals);
 
   const result = await writeSyncChanges(allowed, writeActor);
 
