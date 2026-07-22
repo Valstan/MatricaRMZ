@@ -101,6 +101,7 @@ const WRITE_CHANNELS = new Set([
   // work_orders
   'workOrders:create',
   'workOrders:update',
+  'workOrders:setNumber',
   'workOrders:delete',
   'workOrders:close',
   'workOrders:assemblyReturn',

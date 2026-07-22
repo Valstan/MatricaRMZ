@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 
-import { WorkOrderKind, type WorkOrderPayload, type WorkOrderWorkLine } from '@matricarmz/shared';
+import { WorkOrderKind, isSuperadminRole, type WorkOrderPayload, type WorkOrderWorkLine } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
@@ -10,6 +10,7 @@ import {
   getActiveAssemblyVariant,
   getWorkOrder,
   listWorkOrders,
+  setWorkOrderNumber,
   updateWorkOrder,
 } from '../../services/workOrderService.js';
 import {
@@ -48,6 +49,21 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'work_orders.edit');
     if (!gate.ok) return gate as any;
     return updateWorkOrder(ctx.dataDb(), { id: args.id, payload: args.payload, actor: await ctx.currentActor() });
+  });
+
+  ipcMain.handle('workOrders:setNumber', async (_e, args: { id: string; workOrderNumber: number }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_orders.edit');
+    if (!gate.ok) return gate as any;
+    const viewer = await ctx.currentViewer();
+    if (!isSuperadminRole(viewer.role)) {
+      return { ok: false as const, error: 'permission denied: сменить номер наряда может только суперадминистратор' };
+    }
+    return setWorkOrderNumber(ctx.dataDb(), {
+      id: args.id,
+      workOrderNumber: Number(args.workOrderNumber),
+      actor: await ctx.currentActor(),
+    });
   });
 
   ipcMain.handle('workOrders:delete', async (_e, id: string) => {

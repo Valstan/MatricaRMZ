@@ -1337,6 +1337,10 @@ export type MatricaApi = {
     >;
     create: () => Promise<{ ok: true; id: string; payload: WorkOrderPayload } | { ok: false; error: string }>;
     update: (args: { id: string; payload: WorkOrderPayload }) => Promise<{ ok: true; workOrderNumber: number } | { ok: false; error: string }>;
+    /** Смена номера наряда — только суперадмин (обычный `update` номер не пускает). */
+    setNumber: (args: { id: string; workOrderNumber: number }) => Promise<
+      { ok: true; workOrderNumber: number } | { ok: false; error: string }
+    >;
     delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     close: (args: { operationId: string; expectedUpdatedAt?: number }) => Promise<
       | { ok: true; operationId: string; documentId: string | null; posted: boolean; updatedAt: number }

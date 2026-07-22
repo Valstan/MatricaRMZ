@@ -17,6 +17,7 @@ import type {
   V2Prefs,
   ReleaseWelcomeContent,
   ReportPresetId,
+  ReportThemeId,
   WorkOrderPayload,
   SupplyRequestPayload,
 } from '@matricarmz/shared';
@@ -615,6 +616,9 @@ export function App() {
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
   const [selectedReportPresetId, setSelectedReportPresetId] = useState<ReportPresetId | null>(null);
+  // Тема каталога отчётов живёт здесь, а не в странице: возврат из карточки пресета ремонтирует
+  // ReportsCatalogPage, и локальное состояние уронило бы оператора обратно на корень тем.
+  const [reportsThemeId, setReportsThemeId] = useState<ReportThemeId | null>(null);
   // UI builder: 'new' = создание нового экрана в редакторе (карточный tab требует непустой id).
   const [selectedUserScreenId, setSelectedUserScreenId] = useState<string | null>(null);
   const [userScreenEditMode, setUserScreenEditMode] = useState<boolean>(false);
@@ -4236,7 +4240,7 @@ export function App() {
         );
       case 'work_order':
         return (
-          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
+          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
         );
       case 'contract':
         return (
@@ -4574,6 +4578,7 @@ export function App() {
             canCloseWorkOrders={caps.canCloseWorkOrders}
             canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates}
             canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates}
+            canChangeWorkOrderNumber={userRole === 'superadmin'}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenPart={openPart}
@@ -4984,6 +4989,8 @@ export function App() {
           <ReportsCatalogPage
             userId={authStatus.user?.id ?? ''}
             onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
+            themeId={reportsThemeId}
+            onThemeChange={setReportsThemeId}
             pinnedShortcuts={pinnedShortcuts}
             onAddShortcut={addPinnedShortcut}
             onRemoveShortcut={removePinnedShortcut}

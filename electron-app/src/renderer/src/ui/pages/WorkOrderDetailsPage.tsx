@@ -322,6 +322,8 @@ export function WorkOrderDetailsPage(props: {
   canCloseWorkOrders?: boolean;
   canEditWorkshopRepairTemplates?: boolean;
   canEditWorkOrderTemplates?: boolean;
+  /** Смена номера наряда — только суперадмин (чинить номера, потерянные старым багом). */
+  canChangeWorkOrderNumber?: boolean;
   onOpenPart?: (partId: string) => void;
   onOpenService?: (serviceId: string) => void;
   onOpenEmployee?: (employeeId: string) => void;
@@ -336,6 +338,7 @@ export function WorkOrderDetailsPage(props: {
   const [engines, setEngines] = useState<EngineInfo[]>([]);
   const [engineContractInfo, setEngineContractInfo] = useState<Record<string, EngineContractInfo>>({});
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [numberEditor, setNumberEditor] = useState<{ value: string; busy: boolean; error: string } | null>(null);
   const [parts, setParts] = useState<PartInfo[]>([]);
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
@@ -2243,6 +2246,64 @@ export function WorkOrderDetailsPage(props: {
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>№</span>
           <Input value={Number(payload.workOrderNumber) > 0 ? String(payload.workOrderNumber) : 'новый'} disabled style={{ ...amountInputStyle, width: 60 }} />
+          {props.canChangeWorkOrderNumber && operationUpdatedAt > 0 && !numberEditor ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Сменить номер наряда (только суперадминистратор)"
+              onClick={() => setNumberEditor({ value: String(Number(payload.workOrderNumber) || ''), busy: false, error: '' })}
+            >
+              ✎ №
+            </Button>
+          ) : null}
+          {numberEditor ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
+              <Input
+                value={numberEditor.value}
+                inputMode="numeric"
+                autoFocus
+                disabled={numberEditor.busy}
+                onChange={(e) => setNumberEditor({ ...numberEditor, value: e.currentTarget.value.replace(/[^0-9]/g, ''), error: '' })}
+                style={{ ...amountInputStyle, width: 70 }}
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={numberEditor.busy || !numberEditor.value}
+                onClick={async () => {
+                  const next = Number(numberEditor.value);
+                  const previous = Number(payload.workOrderNumber) || 0;
+                  if (!Number.isInteger(next) || next <= 0) {
+                    setNumberEditor({ ...numberEditor, error: 'Номер должен быть целым числом больше нуля' });
+                    return;
+                  }
+                  const confirmed = window.confirm(
+                    `Сменить номер наряда №${previous || '—'} → №${next}?\n\n` +
+                      'Номер уходит в печатные формы и в номера складских документов. ' +
+                      'Уже проведённые документы при этом НЕ переименовываются.',
+                  );
+                  if (!confirmed) return;
+                  setNumberEditor({ ...numberEditor, busy: true, error: '' });
+                  const r = await window.matrica.workOrders.setNumber({ id: props.id, workOrderNumber: next });
+                  if (!r?.ok) {
+                    setNumberEditor({ value: numberEditor.value, busy: false, error: r?.error ?? 'unknown' });
+                    return;
+                  }
+                  setPayload((prev) => (prev ? { ...prev, workOrderNumber: r.workOrderNumber } : prev));
+                  setNumberEditor(null);
+                  setStatus(`Номер наряда изменён: №${previous || '—'} → №${r.workOrderNumber}`);
+                }}
+              >
+                Сохранить
+              </Button>
+              <Button variant="ghost" size="sm" disabled={numberEditor.busy} onClick={() => setNumberEditor(null)}>
+                Отмена
+              </Button>
+              {numberEditor.error ? (
+                <span style={{ fontSize: 12, color: 'var(--danger)' }}>{numberEditor.error}</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Дата создания</span>

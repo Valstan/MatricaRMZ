@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { REPORT_PRESET_DEFINITIONS } from './reports.js';
+import {
+  REPORT_PRESET_DEFINITIONS,
+  REPORT_PRESET_THEMES,
+  REPORT_THEMES,
+  reportPresetsByTheme,
+  reportThemeCounts,
+} from './reports.js';
 
 function preset(id: string) {
   return REPORT_PRESET_DEFINITIONS.find((item) => item.id === id);
@@ -119,6 +125,43 @@ describe('report presets regressions', () => {
       'amountRub',
       'avgWorkOrderAmountRub',
     ]);
+  });
+});
+
+describe('report themes', () => {
+  const themeIds = new Set(REPORT_THEMES.map((theme) => theme.id));
+
+  it('keeps theme ids unique and described', () => {
+    expect(themeIds.size).toBe(REPORT_THEMES.length);
+    for (const theme of REPORT_THEMES) {
+      expect(theme.title.trim().length).toBeGreaterThan(0);
+      expect(theme.description.trim().length).toBeGreaterThan(0);
+      expect(theme.icon.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('assigns every preset to at least one existing theme', () => {
+    for (const preset of REPORT_PRESET_DEFINITIONS) {
+      const themes = REPORT_PRESET_THEMES[preset.id];
+      expect(themes, `preset ${preset.id} has no themes`).toBeTruthy();
+      expect(themes.length).toBeGreaterThan(0);
+      expect(new Set(themes).size, `preset ${preset.id} repeats a theme`).toBe(themes.length);
+      for (const themeId of themes) expect(themeIds.has(themeId), `preset ${preset.id} → unknown theme ${themeId}`).toBe(true);
+    }
+  });
+
+  it('leaves no empty theme tile', () => {
+    const counts = reportThemeCounts();
+    for (const theme of REPORT_THEMES) {
+      expect(counts[theme.id], `theme ${theme.id} is empty`).toBeGreaterThan(0);
+      expect(reportPresetsByTheme(theme.id).length).toBe(counts[theme.id]);
+    }
+  });
+
+  it('gives every preset a non-empty description for the theme list', () => {
+    for (const preset of REPORT_PRESET_DEFINITIONS) {
+      expect(preset.description.trim().length, `preset ${preset.id} has no description`).toBeGreaterThan(0);
+    }
   });
 });
 

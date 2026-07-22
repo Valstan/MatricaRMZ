@@ -228,6 +228,139 @@ export type ReportPresetDefinition = {
   columns: ReportColumn[];
 };
 
+export type ReportThemeId =
+  | 'engines'
+  | 'contracts'
+  | 'supply'
+  | 'work_orders'
+  | 'payroll'
+  | 'warehouse'
+  | 'catalogs'
+  | 'audit';
+
+export type ReportThemeDefinition = {
+  id: ReportThemeId;
+  /** Короткое имя для крупной кнопки-темы. */
+  title: string;
+  /** Одна строка мелким шрифтом под именем. */
+  description: string;
+  icon: string;
+};
+
+/** Порядок показа плиток в каталоге отчётов. */
+export const REPORT_THEMES: ReportThemeDefinition[] = [
+  {
+    id: 'engines',
+    title: 'Двигатели',
+    description: 'Ремонтный цикл: стадии, приход и отгрузка, комплектование, утиль',
+    icon: '🔧',
+  },
+  {
+    id: 'contracts',
+    title: 'Контракты',
+    description: 'Заказчики, суммы, сроки и реквизиты ГОЗ',
+    icon: '📄',
+  },
+  {
+    id: 'supply',
+    title: 'Снабжение',
+    description: 'Потребность в деталях, заявки, план закупок, приход',
+    icon: '🚚',
+  },
+  {
+    id: 'work_orders',
+    title: 'Наряды',
+    description: 'Выполнение нарядов, затраты, выработка цехов',
+    icon: '🛠',
+  },
+  {
+    id: 'payroll',
+    title: 'Зарплата',
+    description: 'Начисления по нарядам, своды по сотрудникам и подразделениям',
+    icon: '💰',
+  },
+  {
+    id: 'warehouse',
+    title: 'Склад',
+    description: 'Движения деталей, остатки, оборотка, ремфонд',
+    icon: '📦',
+  },
+  {
+    id: 'catalogs',
+    title: 'Справочники',
+    description: 'Детали, услуги, товары, контрагенты, кадры, инструмент',
+    icon: '📚',
+  },
+  {
+    id: 'audit',
+    title: 'Проверки',
+    description: 'Служебные сверки: где два учёта разъехались и что не сходится',
+    icon: '🔍',
+  },
+];
+
+/**
+ * Тематическая приписка шаблонов. Один отчёт живёт сразу в нескольких темах, если задевает обе —
+ * это норма, а не дубликат. Record по ReportPresetId: новый пресет без темы не соберётся.
+ */
+export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeId, ...ReportThemeId[]]> = {
+  parts_demand: ['supply', 'warehouse'],
+  engine_stages: ['engines', 'contracts'],
+  contracts_finance: ['contracts'],
+  contracts_deadlines: ['contracts'],
+  contracts_requisites: ['contracts'],
+  supply_fulfillment: ['supply'],
+  work_order_costs: ['work_orders'],
+  work_order_payroll: ['payroll', 'work_orders'],
+  work_order_payroll_summary: ['payroll', 'work_orders'],
+  work_orders_report: ['work_orders'],
+  employees_roster: ['catalogs', 'payroll'],
+  tools_inventory: ['catalogs'],
+  services_pricelist: ['catalogs', 'supply'],
+  products_catalog: ['catalogs', 'supply'],
+  parts_compatibility: ['catalogs', 'engines'],
+  counterparties_summary: ['contracts', 'catalogs'],
+  engine_movements: ['engines'],
+  engines_list: ['engines', 'contracts'],
+  engines_contracts_overview: ['engines', 'contracts'],
+  warehouse_stock_path_audit: ['audit', 'warehouse'],
+  assembly_forecast_7d: ['engines', 'supply'],
+  part_movement_journal: ['warehouse'],
+  stock_turnover: ['warehouse'],
+  workshop_throughput: ['work_orders', 'warehouse'],
+  engine_readiness_to_assemble: ['engines', 'warehouse'],
+  defect_returns_summary: ['work_orders', 'warehouse'],
+  movement_integrity_audit: ['audit'],
+  scrap_register: ['engines', 'warehouse'],
+  engine_kitting: ['engines', 'warehouse'],
+  supply_receipt_gap: ['supply', 'audit'],
+  norms_purchase_plan: ['supply', 'warehouse'],
+  repair_fund_reconciliation: ['warehouse', 'audit'],
+};
+
+export function reportPresetThemes(presetId: ReportPresetId): readonly ReportThemeId[] {
+  return REPORT_PRESET_THEMES[presetId] ?? [];
+}
+
+export function reportPresetsByTheme(
+  themeId: ReportThemeId,
+  presets: ReportPresetDefinition[] = REPORT_PRESET_DEFINITIONS,
+): ReportPresetDefinition[] {
+  return presets.filter((preset) => reportPresetThemes(preset.id).includes(themeId));
+}
+
+export function reportThemeCounts(
+  presets: ReportPresetDefinition[] = REPORT_PRESET_DEFINITIONS,
+): Record<ReportThemeId, number> {
+  const counts = Object.fromEntries(REPORT_THEMES.map((theme) => [theme.id, 0])) as Record<ReportThemeId, number>;
+  for (const preset of presets) {
+    for (const themeId of reportPresetThemes(preset.id)) {
+      if (themeId in counts) counts[themeId] += 1;
+    }
+  }
+  return counts;
+}
+
 export type ReportCellValue = string | number | boolean | null;
 export type ReportRow = Record<string, ReportCellValue>;
 export type ReportTotals = Record<string, number>;
@@ -1056,7 +1189,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {
     id: 'assembly_forecast_7d',
     title: 'Прогноз сборки двигателей',
-    description: '',
+    description: 'Что успеваем собрать по маркам на горизонте недели и каких деталей не хватит.',
     filters: [
       {
         type: 'select',

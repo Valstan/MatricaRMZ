@@ -725,6 +725,76 @@ export async function updateWorkOrder(
   }
 }
 
+export const MAX_WORK_ORDER_NUMBER = 999999;
+
+/**
+ * Смена номера наряда — только для суперадмина (право проверяется в IPC-слое) и только этим путём:
+ * `updateWorkOrder` номер по-прежнему не пускает (фикс «№ новый навсегда»). Нужна, чтобы чинить
+ * номера, потерянные старым багом. Статус наряда намеренно НЕ трогаем — иначе закрытый наряд
+ * «раскрылся» бы и разъехался со своим складским документом.
+ */
+export async function setWorkOrderNumber(
+  db: BetterSQLite3Database,
+  args: { id: string; workOrderNumber: number; actor: string },
+): Promise<{ ok: true; workOrderNumber: number } | { ok: false; error: string }> {
+  try {
+    const next = Number(args.workOrderNumber);
+    if (!Number.isInteger(next) || next <= 0 || next > MAX_WORK_ORDER_NUMBER) {
+      return { ok: false as const, error: `Номер должен быть целым числом от 1 до ${MAX_WORK_ORDER_NUMBER}` };
+    }
+
+    const current = await getWorkOrder(db, args.id);
+    if (!current.ok) return current;
+    const previous = Number(current.payload.workOrderNumber ?? 0);
+    if (previous === next) return { ok: true as const, workOrderNumber: next };
+
+    const rows = await db
+      .select({ id: operations.id, metaJson: operations.metaJson })
+      .from(operations)
+      .where(
+        and(
+          eq(operations.operationType, WORK_ORDERS_OPERATION_TYPE),
+          isNull(operations.deletedAt),
+        ),
+      );
+    for (const row of rows) {
+      if (String(row.id) === args.id) continue;
+      const parsed = row.metaJson ? (safeJsonParse(String(row.metaJson)) as any) : null;
+      if (!parsed || parsed.kind !== 'work_order') continue;
+      if (Number(parsed.workOrderNumber ?? 0) === next) {
+        return { ok: false as const, error: `Номер ${next} уже занят другим нарядом — освободите его или выберите другой` };
+      }
+    }
+
+    const ts = nowMs();
+    const payload = recalcPayload({
+      ...current.payload,
+      workOrderNumber: next,
+      // note читает серверный backstop (workOrderNumberGuard): это маркер осознанной смены.
+      auditTrail: [...(current.payload.auditTrail ?? []), { at: ts, by: args.actor, action: 'number_change', note: `№${next}` }],
+    });
+    await db
+      .update(operations)
+      .set({
+        note: `Наряд №${next}`,
+        metaJson: JSON.stringify(payload),
+        updatedAt: ts,
+        syncStatus: 'pending',
+      })
+      .where(
+        and(
+          eq(operations.id, args.id),
+          eq(operations.operationType, WORK_ORDERS_OPERATION_TYPE),
+          isNull(operations.deletedAt),
+        ),
+      );
+    await audit(db, args.actor, 'work_order.number_change', { operationId: args.id, from: previous, to: next });
+    return { ok: true as const, workOrderNumber: next };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function deleteWorkOrder(
   db: BetterSQLite3Database,
   args: { id: string; actor: string },
