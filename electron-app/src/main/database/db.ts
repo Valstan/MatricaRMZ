@@ -1,6 +1,6 @@
 // Runtime client DB uses better-sqlite3-multiple-ciphers (same 12.11.1 API as
 // better-sqlite3, ChaCha20-Poly1305 at rest) so the local cache is encrypted with a
-// per-machine key (docs/plans/sqlcipher-client-db-2026-07.md). Unit tests keep using
+// per-machine key (docs/plans/_archive/sqlcipher-client-db-2026-07.md). Unit tests keep using
 // plain better-sqlite3 ':memory:' — the type stays the better-sqlite3 one.
 import Database from 'better-sqlite3-multiple-ciphers';
 import type BetterSqlite3 from 'better-sqlite3';

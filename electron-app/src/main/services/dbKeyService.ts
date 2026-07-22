@@ -3,7 +3,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-// Encryption key for the local SQLite (docs/plans/sqlcipher-client-db-2026-07.md).
+// Encryption key for the local SQLite (docs/plans/_archive/sqlcipher-client-db-2026-07.md).
 // Same on-disk pattern as the E2E ledger key (#607): {enc,data} wrapper, safeStorage
 // (DPAPI on Windows) when available. The DB is a server cache — if this key is ever
 // lost the existing self-heal path recreates the DB and re-pulls, so unlike the

@@ -117,7 +117,6 @@ export default defineConfig({
                 normalized.includes('/ToolPropertyDetailsPage.') ||
                 normalized.includes('/EmployeesPage.') ||
                 normalized.includes('/EmployeeDetailsPage.') ||
-                normalized.includes('/ProductsPage.') ||
                 normalized.includes('/ServicesPage.') ||
                 normalized.includes('/SimpleMasterdataDetailsPage.')
               ) {
@@ -137,7 +136,6 @@ export default defineConfig({
               }
               if (
                 normalized.includes('/ChangesPage.') ||
-                normalized.includes('/ReportsPage.') ||
                 normalized.includes('/SuperadminAuditPage.')
               ) {
                 return 'pages-analytics';

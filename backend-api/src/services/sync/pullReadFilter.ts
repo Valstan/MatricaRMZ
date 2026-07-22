@@ -21,7 +21,7 @@
  *    a coordinated renderer fix. delete_requested_* — handle with the same step.
  *
  * Table-level: audit_log is admin-only on pull (no live operator page reads the
- * synced audit_log — see docs/plans/h1-table-read-authz-2026-06.md §12). Use
+ * synced audit_log — see docs/plans/_archive/h1-table-read-authz-2026-06.md §12). Use
  * isPullTableAllowedForRole at the surface level to skip fetching it entirely.
  *
  * Resolution is cheap: an employee attribute's attribute_def_id encodes both the

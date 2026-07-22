@@ -1,6 +1,6 @@
 # «Статистика цехов» — probe + план захвата цех-измерения
 
-> Якорь нитки. Директива brain `2026-06-08-shop-accounting-consolidation-directive` (compliance: recommend — *whether* = да, *how* делегировано целиком). Рамка = pool [#031 slice-dimension](../../../brain_matrica/cross-project-ideas/ideas/031-slice-dimension-capture-at-source.md): **цех стампится один раз у источника и протягивается по цепочке; захват нельзя добэкфиллить → первый deliverable не дашборд, а «где/как фиксируем цех».** Надстройка над `parts-chain-audit` + `warehouse-analytics-2026-06`.
+> Якорь нитки. Директива brain `2026-06-08-shop-accounting-consolidation-directive` (compliance: recommend — *whether* = да, *how* делегировано целиком). Рамка = pool [#031 slice-dimension](../../../../brain_matrica/cross-project-ideas/ideas/031-slice-dimension-capture-at-source.md): **цех стампится один раз у источника и протягивается по цепочке; захват нельзя добэкфиллить → первый deliverable не дашборд, а «где/как фиксируем цех».** Надстройка над `parts-chain-audit` + `warehouse-analytics-2026-06`.
 
 **Status:** **Фаза 0 ПОСТРОЕНА и /verify PASS (2026-06-09).** Экран «Статистика цехов» (группа «Контроль и аналитика»): per-цех труд + прохождение двигателей из нарядов + маршруты, honest-баннер охвата. Backend `workshopStatsService` + route `GET /workshops/stats` + IPC + страница. CDP /verify: Цех №1 — 12 этапов / 1 двигатель / 56 370 ₽ / бригада 7; drill-in отдаёт маршруты. Дальше — Фаза 1 (adoption: чтобы наряды писал каждый цех).
 

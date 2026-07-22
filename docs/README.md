@@ -28,10 +28,10 @@
 ## Профильные документы
 - Безопасность и секреты: [`SECURITY.md`](SECURITY.md)
 - UI-стандарты renderer: [`UI_VISUAL_STANDARDS.md`](UI_VISUAL_STANDARDS.md)
-- UI-паспорта окон и модулей клиента: [`UI_PASSPORTS/README.md`](UI_PASSPORTS/README.md)
+- UI-паспорта окон и модулей клиента: [`UI_PASSPORTS/README.md`](_archive/UI_PASSPORTS/README.md)
 - Складской модуль: [`WAREHOUSE.md`](WAREHOUSE.md)
-- Прогнозирование сборки двигателей (идея и контекст задачи): [`TASK_ENGINE_FORECAST.md`](TASK_ENGINE_FORECAST.md)
-- AI/Ollama профили: [`AI_PERFORMANCE_PROFILES.md`](AI_PERFORMANCE_PROFILES.md)
+- Прогнозирование сборки двигателей (идея и контекст задачи): [`TASK_ENGINE_FORECAST.md`](_archive/TASK_ENGINE_FORECAST.md)
+- AI/Ollama профили: [`AI_PERFORMANCE_PROFILES.md`](_archive/AI_PERFORMANCE_PROFILES.md)
 
 ## Правило поддержки актуальности docs
 - Обязательная политика обновления документации при изменениях в коде: [`DOCUMENTATION_POLICY.md`](DOCUMENTATION_POLICY.md)

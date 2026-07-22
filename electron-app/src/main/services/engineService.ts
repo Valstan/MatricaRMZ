@@ -492,7 +492,7 @@ export async function createEngine(_db: BetterSQLite3Database, _actor?: string):
   // Deferred create (no auto-empty cards, Phase 2): allocate the id but DO NOT insert a row.
   // The entity is materialized on the first setEngineAttribute, so an opened-then-abandoned
   // empty engine card never persists and never syncs. getEngineDetails synthesizes an empty
-  // card for an id with no row yet. See docs/plans/drafts-no-empty-cards-recovery-2026-06.md.
+  // card for an id with no row yet. See docs/plans/_archive/drafts-no-empty-cards-recovery-2026-06.md.
   return { id: randomUUID() };
 }
 

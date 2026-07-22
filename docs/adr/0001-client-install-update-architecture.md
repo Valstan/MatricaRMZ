@@ -3,7 +3,7 @@
 - **Статус:** Proposed (аудит готов; реализация — отдельными релизами по плану ниже)
 - **Дата:** 2026-05-30
 - **Контекст-источник:** директива brain `2026-05-28-install-update-architecture-audit.md` (compliance=recommend, normal)
-- **Связанные:** план [`refactor-updater-2026-05.md`](../plans/refactor-updater-2026-05.md), [ADR-0002 brain (PR-only flow)](../../../brain_matrica/adr/0002-pr-only-flow-no-direct-push.md)
+- **Связанные:** план [`refactor-updater-2026-05.md`](../plans/_archive/refactor-updater-2026-05.md), [ADR-0002 brain (PR-only flow)](../../../brain_matrica/adr/0002-pr-only-flow-no-direct-push.md)
 
 ## Контекст
 
@@ -117,7 +117,7 @@ scripts      → (нет workspace-deps; ledger подключается не ч
 
 1. **Этап 0 (этот ADR).** Зафиксировать находки и направление. Без кода.
 2. **Этап 1 — Блок 1 live-аудит.** На машине оператора задокументировать реальную раскладку/мусор/ротацию логов. → пункты в PENDING. (Зависимость: установленный клиент.)
-3. **Этап 2 — delta-обновления (Путь B), отдельный релиз.** Blockmap-diff внутри кастомного загрузчика: парс `.blockmap`, diff против установленной версии, Range-загрузка изменившихся блоков (сервер+LAN, затем torrent-pieces). Слить с веткой работ плана [`refactor-updater-2026-05.md`](../plans/refactor-updater-2026-05.md) — не параллельный переписыватель. Метрика: «было ~85 МиБ → стало X МиБ» на типовом релизе.
+3. **Этап 2 — delta-обновления (Путь B), отдельный релиз.** Blockmap-diff внутри кастомного загрузчика: парс `.blockmap`, diff против установленной версии, Range-загрузка изменившихся блоков (сервер+LAN, затем torrent-pieces). Слить с веткой работ плана [`refactor-updater-2026-05.md`](../plans/_archive/refactor-updater-2026-05.md) — не параллельный переписыватель. Метрика: «было ~85 МиБ → стало X МиБ» на типовом релизе.
 4. **Этап 3 — апгрейд Electron, отдельный релиз.** Поднять Electron до поддерживаемого major + `electron-builder` 26.x; **rebuild `better-sqlite3`** под новый ABI; smoke-тест клиента (SQLite-миграции, IPC, печать, автоапдейт). Не смешивать с delta.
 5. **Этап 4 — Turborepo (опц.), при росте CI.** `turbo.json` + affected-CI; снять метрику времени сборки.
 

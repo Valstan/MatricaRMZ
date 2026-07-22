@@ -1,5 +1,5 @@
 /**
- * Operator-built custom reports («Мои отчёты», docs/plans/ui-mockup-constructor.md ветка Б).
+ * Operator-built custom reports («Мои отчёты», docs/plans/_archive/ui-mockup-constructor.md ветка Б).
  *
  * A custom report is a saved recipe over an existing report preset: the preset
  * (built locally from the SQLite replica, permissions/redaction included) is

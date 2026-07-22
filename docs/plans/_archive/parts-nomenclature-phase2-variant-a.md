@@ -1,6 +1,6 @@
 # Phase 2: parts → nomenclature, Variant A (расширить directory_parts)
 
-Исполнительный план финального слияния legacy-деталей в единый источник истины и **удаления зеркала** parts↔nomenclature. Заменяет устаревшую часть [`MIGRATION_PARTS_TO_NOMENCLATURE.md`](../MIGRATION_PARTS_TO_NOMENCLATURE.md) (там — мотивация, аудит, re-audit 2026-05-31). Выбран **Вариант А** (решение пользователя 2026-05-31): part-spec хранится в расширенной `directory_parts`.
+Исполнительный план финального слияния legacy-деталей в единый источник истины и **удаления зеркала** parts↔nomenclature. Заменяет устаревшую часть [`MIGRATION_PARTS_TO_NOMENCLATURE.md`](../../_archive/MIGRATION_PARTS_TO_NOMENCLATURE.md) (там — мотивация, аудит, re-audit 2026-05-31). Выбран **Вариант А** (решение пользователя 2026-05-31): part-spec хранится в расширенной `directory_parts`.
 
 ## Принципы
 - Каждый Stage — **отдельный релиз** + `/verify`. Не смешивать.

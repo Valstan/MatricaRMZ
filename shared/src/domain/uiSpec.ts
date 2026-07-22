@@ -1,5 +1,5 @@
 /**
- * Operator-drawn UI mockups (эскизник модулей, docs/plans/ui-mockup-constructor.md).
+ * Operator-drawn UI mockups (эскизник модулей, docs/plans/_archive/ui-mockup-constructor.md).
  *
  * A screen is a JSON spec: a free canvas of mock blocks (button / input /
  * table / panel / ... placeholders) plus typed links between them. Blocks are
