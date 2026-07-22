@@ -50,6 +50,10 @@ export const SettingsKey = {
   UiDefaultsVersionApplied: 'ui.defaultsVersionApplied',
   ReleaseWelcomeSeenVersion: 'ui.releaseWelcomeSeenVersion',
 
+  // Advisory-резерв двигателя: очередь СНЯТИЙ, не сделанных из-за отсутствия сети
+  // (жест «закончил → вернул» происходит у станка, а не у Wi-Fi).
+  EngineReservationPendingRelease: 'engines.reservation.pendingRelease',
+
   // Remote admin controls
   UpdatesEnabled: 'updates.enabled',
   UpdatesDownloadDir: 'updates.downloadDir',

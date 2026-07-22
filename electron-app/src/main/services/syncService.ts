@@ -13,6 +13,7 @@ import {
   cardDraftRowSchema,
   aiChatRequestRowSchema,
   operationRowSchema,
+  parseEngineReservationSkipReason,
   userPresenceRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
@@ -2955,6 +2956,11 @@ export async function runSync(
       let upserts = await collectPending(db);
       let pushed = 0;
       let pushError: string | null = null;
+      // Ф2: строки, отбитые чужим резервом двигателя. Причина ВРЕМЕННАЯ — строка
+      // остаётся pending и уедет сама, когда замок снимут или он истечёт; нового
+      // sync_status не заводим (режим отказа «строки не уедут никогда»).
+      let reservedSkippedCount = 0;
+      const reservedSkippedHolders = new Set<string>();
 
       if (upserts.length > 0) {
         try {
@@ -3179,6 +3185,12 @@ export async function runSync(
               .map((row: NonNullable<LedgerPushSubmitResponse['skipped']>[number]) => `${row.table}:${row.row_id}:${row.reason}`)
               .join(', ');
             logSync(`push skipped rows count=${json.skipped.length} sample=${sample}`);
+            for (const row of json.skipped) {
+              const reserved = parseEngineReservationSkipReason(String(row?.reason ?? ''));
+              if (!reserved) continue;
+              reservedSkippedCount += 1;
+              if (reserved.holderLogin) reservedSkippedHolders.add(reserved.holderLogin);
+            }
           }
 
           const appliedRows = Array.isArray(json.applied_rows) ? json.applied_rows : null;
@@ -3311,12 +3323,32 @@ export async function runSync(
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});
       }
       const serverLastSeq = Number((pullJson as any).server_last_seq ?? pullJson.server_cursor ?? 0);
+      // exactOptionalPropertyTypes: присваивать undefined опциональному полю нельзя — условный спред.
+      const reservedSkippedField =
+        reservedSkippedCount > 0
+          ? { reservedSkipped: { count: reservedSkippedCount, holders: [...reservedSkippedHolders] } }
+          : {};
       emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled }, etaMs: 0 });
       logSync(`sync.run.done id=${syncRunId} ok=${finalError ? 0 : 1} pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
       if (finalError) {
-        return { ok: false, pushed, pulled, serverCursor: pullJson.server_cursor, serverLastSeq, error: finalError };
+        return {
+          ok: false,
+          pushed,
+          pulled,
+          serverCursor: pullJson.server_cursor,
+          serverLastSeq,
+          error: finalError,
+          ...reservedSkippedField,
+        };
       }
-      return { ok: true, pushed, pulled, serverCursor: pullJson.server_cursor, serverLastSeq };
+      return {
+        ok: true,
+        pushed,
+        pulled,
+        serverCursor: pullJson.server_cursor,
+        serverLastSeq,
+        ...reservedSkippedField,
+      };
     } catch (e) {
       const err = formatError(e);
       const offline = isOfflineSyncError(e);

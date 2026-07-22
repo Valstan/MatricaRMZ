@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { parseContractSections, buildContractSectionOptions, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { parseContractSections, buildContractSectionOptions, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -338,6 +338,8 @@ export function EngineDetailsPage(props: {
   onReload: () => Promise<void>;
   onEngineUpdated: () => Promise<void>;
   canEditEngines: boolean;
+  currentUserId: string;
+  currentUserRole: string;
   canViewOperations: boolean;
   canEditOperations: boolean;
   canPrintEngineCard: boolean;
@@ -366,6 +368,49 @@ export function EngineDetailsPage(props: {
   initialTab?: EngineCardTab;
 }) {
   const [dismantleOpen, setDismantleOpen] = useState(false);
+  // Ф2 advisory-резерв. Истечение зависит от ЧАСОВ, а не от прихода данных, поэтому
+  // отдельный минутный тик: useLiveDataRefresh (12 с) обновляет только данные.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const [overrideUnlock, setOverrideUnlock] = useState(false);
+  const [reservationBusy, setReservationBusy] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    setOverrideUnlock(false);
+  }, [props.engine.id]);
+  const reservation = parseEngineReservation(props.engine.attributes?.[ENGINE_RESERVATION_CODE]);
+  const reservationState = engineReservationState(reservation, {
+    nowMs: nowTick,
+    viewerUserId: props.currentUserId,
+  });
+  const reservedByOther = reservationState === 'other' && !overrideUnlock;
+  const canEditEnginesEff = props.canEditEngines && !reservedByOther;
+  const canEditOperationsEff = props.canEditOperations && !reservedByOther;
+  const isAdminViewer = props.currentUserRole === 'admin' || props.currentUserRole === 'superadmin';
+  const runReservation = async (action: 'acquire' | 'release', pendingText: string) => {
+    if (reservationBusy) return;
+    setReservationBusy(true);
+    setSaveStatus(pendingText);
+    try {
+      const r =
+        action === 'acquire'
+          ? await window.matrica.engines.reservation.acquire(props.engineId)
+          : await window.matrica.engines.reservation.release(props.engineId);
+      if (!r.ok) {
+        setSaveStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      setSaveStatus(r.queued ? 'Нет связи — двигатель освободится при синхронизации' : '');
+      setNowTick(Date.now());
+      await props.onReload();
+    } catch (e) {
+      setSaveStatus(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setReservationBusy(false);
+    }
+  };
   const [returnOpen, setReturnOpen] = useState(false);
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [dupMatches, setDupMatches] = useState<EngineDuplicateMatches>({ exact: [], similar: [] });
@@ -520,7 +565,7 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveDraftNow(s: EngineDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
-    if (!props.canEditEngines) return false;
+    if (!canEditEnginesEff) return false;
     try {
       const r = await window.matrica.drafts.save({
         cardType: DRAFT_CARD_TYPE,
@@ -690,6 +735,8 @@ export function EngineDetailsPage(props: {
     }
     // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
     // Один раз на маунт (draftRestoredRef) — «Сброс» перезагружает committed.
+    // Гейт по ПРАВУ, а не по эффективному: чужой замок не должен прятать уже
+    // набранное оператором — иначе черновик удалится, ни разу не показавшись.
     if (props.canEditEngines && !draftRestoredRef.current) {
       void (async () => {
         try {
@@ -708,7 +755,7 @@ export function EngineDetailsPage(props: {
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
   useEffect(() => {
-    if (!props.canEditEngines || !sessionHadChanges.current) return;
+    if (!canEditEnginesEff || !sessionHadChanges.current) return;
     const snapshot = currentDraftSnapshot();
     const timer = window.setTimeout(() => {
       void saveDraftNow(snapshot);
@@ -718,7 +765,7 @@ export function EngineDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.canEditEngines]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
 
   useEffect(() => {
     if (!engineBrandId || engineBrand) return;
@@ -789,7 +836,7 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveAttr(code: string, value: unknown) {
-    if (!props.canEditEngines) return;
+    if (!canEditEnginesEff) return;
     try {
       setSaveStatus('Сохраняю...');
       await window.matrica.engines.setAttr(props.engineId, code, value);
@@ -821,7 +868,7 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
-    if (props.canEditEngines) {
+    if (canEditEnginesEff) {
       const attrs = props.engine.attributes ?? {};
       const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
       const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
@@ -930,10 +977,15 @@ export function EngineDetailsPage(props: {
       await clearDraft();
     }
     setSessionChanged(false);
+    // Продление резерва — СОБЫТИЙНОЕ (при сохранении) и не чаще половины TTL.
+    // Продление по таймеру = heartbeat в durable-ledger, это прод-инцидент M28.
+    if (shouldRenewEngineReservation(reservation, { nowMs: Date.now(), viewerUserId: props.currentUserId })) {
+      void window.matrica.engines.reservation.acquire(props.engineId).catch(() => undefined);
+    }
   }
 
   async function handleDelete() {
-    if (!props.canEditEngines) return;
+    if (!canEditEnginesEff) return;
     try {
       setSaveStatus('Удаление…');
       const r = await window.matrica.engines.delete(props.engineId);
@@ -1005,7 +1057,7 @@ export function EngineDetailsPage(props: {
       },
       keepDraft: async () => {
         cancelPendingDraftSave();
-        if (props.canEditEngines) await saveDraftNow(currentDraftSnapshot());
+        if (canEditEnginesEff) await saveDraftNow(currentDraftSnapshot());
         setSessionChanged(false);
       },
       copyToNew: async () => {
@@ -1197,7 +1249,7 @@ export function EngineDetailsPage(props: {
         <>
           <Input
             value={engineNumber}
-            disabled={!props.canEditEngines}
+            disabled={!canEditEnginesEff}
             // Fill the value column like the sibling fields (Марка/Контрагент). data-autogrow="off"
             // opts this input OUT of the global auto-grow hook (useAutoGrowInputs), which otherwise
             // shrinks every text input to its content width and collapses this field to ~86px,
@@ -1245,7 +1297,7 @@ export function EngineDetailsPage(props: {
             matches={dupMatches}
             showSimilar={isNewEngine}
             bypassFlagSet={repeatArrivalFlag || numberCollisionFlag}
-            canChoosePath={isNewEngine && props.canEditEngines}
+            canChoosePath={isNewEngine && canEditEnginesEff}
             {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
             {...(props.onOpenEngineReclamation ? { onChooseReclamation: props.onOpenEngineReclamation } : {})}
             onChooseRepeatArrival={(previousEngineId) => {
@@ -1274,7 +1326,7 @@ export function EngineDetailsPage(props: {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Input
               value={internalNumber}
-              disabled={!props.canEditEngines}
+              disabled={!canEditEnginesEff}
               data-autogrow="off"
               placeholder="41"
               title="Номер из журнала дефектовки — тот, что набивается на детали этого двигателя"
@@ -1293,7 +1345,7 @@ export function EngineDetailsPage(props: {
             <span style={{ color: 'var(--subtle)' }}>/</span>
             <Input
               value={internalNumberYear}
-              disabled={!props.canEditEngines}
+              disabled={!canEditEnginesEff}
               data-autogrow="off"
               placeholder="год"
               title="Год присвоения номера. Подставляется текущий — нумерация в журнале каждый год начинается заново."
@@ -1340,7 +1392,7 @@ export function EngineDetailsPage(props: {
           <SearchSelectWithCreate
             value={engineBrandId || null}
             options={engineBrandOptions}
-            disabled={!props.canEditEngines}
+            disabled={!canEditEnginesEff}
             canCreate={props.canEditMasterData}
             createLabel="Новая марка двигателя"
             onChange={(next) => {
@@ -1379,7 +1431,7 @@ export function EngineDetailsPage(props: {
         <Input
           type="date"
           value={arrivalDate}
-          disabled={!props.canEditEngines}
+          disabled={!canEditEnginesEff}
           style={elasticFieldStyle}
           onChange={(e) => {
             setSessionChanged(true);
@@ -1400,7 +1452,7 @@ export function EngineDetailsPage(props: {
               <SearchSelectWithCreate
                 value={customerId || null}
                 options={linkLists.customer_id ?? []}
-                disabled={!props.canEditEngines}
+                disabled={!canEditEnginesEff}
                 canCreate={props.canEditMasterData}
                 createLabel="Контрагент"
                 onChange={(next) => {
@@ -1444,7 +1496,7 @@ export function EngineDetailsPage(props: {
                 options={(linkLists.contract_id ?? []).filter(
                   (o) => !customerId || (o.searchText ?? '').includes(customerId),
                 )}
-                disabled={!props.canEditEngines}
+                disabled={!canEditEnginesEff}
                 canCreate={props.canEditMasterData}
                 createLabel="Номер контракта"
                 onChange={(next) => {
@@ -1491,7 +1543,7 @@ export function EngineDetailsPage(props: {
                 : contractSectionOptions
               ).map((o) => ({ id: o.id, label: o.label }))}
               placeholder={contractId ? 'Выберите ДС' : 'Сначала выберите контракт'}
-              disabled={!props.canEditEngines || !contractId || contractSectionOptions.length === 0}
+              disabled={!canEditEnginesEff || !contractId || contractSectionOptions.length === 0}
               showAllWhenEmpty
               onChange={(next) => {
                 setSessionChanged(true);
@@ -1512,7 +1564,7 @@ export function EngineDetailsPage(props: {
               value={workshopId || null}
               options={workshopOptions}
               placeholder="Выберите цех"
-              disabled={!props.canEditEngines || workshopOptions.length === 0}
+              disabled={!canEditEnginesEff || workshopOptions.length === 0}
               showAllWhenEmpty
               onChange={(next) => {
                 setSessionChanged(true);
@@ -1535,7 +1587,7 @@ export function EngineDetailsPage(props: {
               <input
                 type="checkbox"
                 checked={!!statusFlags[code]}
-                disabled={!props.canEditEngines}
+                disabled={!canEditEnginesEff}
                 onChange={(e) => {
                   applyStatusCheckboxChange(code, e.target.checked);
                 }}
@@ -1545,7 +1597,7 @@ export function EngineDetailsPage(props: {
             <Input
               type="date"
               value={dateValue}
-              disabled={!props.canEditEngines}
+              disabled={!canEditEnginesEff}
               style={{ width: 168, minWidth: 168 }}
               onChange={(e) => {
                 setSessionChanged(true);
@@ -1556,7 +1608,7 @@ export function EngineDetailsPage(props: {
               <Input
                 type="text"
                 value={scrapReason}
-                disabled={!props.canEditEngines}
+                disabled={!canEditEnginesEff}
                 placeholder="почему утиль?"
                 title="Причина отправки двигателя в утиль — видна в печати карточки и отчётах"
                 style={{
@@ -1634,7 +1686,26 @@ export function EngineDetailsPage(props: {
       className="entity-card-shell--full-width"
       cardActions={
         <CardActionBar
-          canEdit={props.canEditEngines}
+          canEdit={canEditEnginesEff}
+          extraActionsLeft={
+            reservationState === 'mine' ? (
+              <Button
+                variant="outline"
+                disabled={reservationBusy}
+                onClick={() => void runReservation('release', 'Возвращаю двигатель…')}
+              >
+                Вернуть
+              </Button>
+            ) : reservationState === 'other' ? null : (
+              <Button
+                variant="outline"
+                disabled={reservationBusy || !props.canEditEngines}
+                onClick={() => void runReservation('acquire', 'Беру двигатель в работу…')}
+              >
+                Взять в работу
+              </Button>
+            )
+          }
           onCopyToNew={() => {
             void (async () => {
               const r = await window.matrica.engines.create();
@@ -1703,6 +1774,61 @@ export function EngineDetailsPage(props: {
             );
           })}
         </div>
+
+        {reservation && reservationState !== 'free' ? (
+          <div
+            className="entity-card-span-full"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '8px 10px',
+              marginTop: 8,
+              borderRadius: 8,
+              border: `1px solid ${reservationState === 'other' ? '#fde68a' : 'rgba(37, 99, 235, 0.35)'}`,
+              background: reservationState === 'other' ? '#fffbeb' : 'rgba(37, 99, 235, 0.08)',
+              color: reservationState === 'other' ? '#b45309' : '#1d4ed8',
+              fontSize: 'var(--ui-muted-size, 12px)',
+            }}
+          >
+            <span>
+              {reservationState === 'other'
+                ? `🔒 Редактирует ${formatEngineReservationHolder(reservation)} — ${formatEngineReservationUntil(reservation.expiresAt)}`
+                : reservationState === 'mine'
+                  ? `🔒 Двигатель за вами — ${formatEngineReservationUntil(reservation.expiresAt)}`
+                  : `Резерв ${formatEngineReservationHolder(reservation)} истёк`}
+            </span>
+            {reservationState === 'other' ? (
+              <>
+                {overrideUnlock ? (
+                  <span>Правки применятся, только если двигатель освободится и держатель не изменил те же поля.</span>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const ok = window.confirm(
+                        'Двигатель занят. Ваши изменения применятся, только если двигатель освободится и держатель не изменит те же поля. Продолжить?',
+                      );
+                      if (ok) setOverrideUnlock(true);
+                    }}
+                  >
+                    Всё равно редактировать
+                  </Button>
+                )}
+                {isAdminViewer ? (
+                  <Button
+                    variant="outline"
+                    disabled={reservationBusy}
+                    onClick={() => void runReservation('release', 'Снимаю резерв…')}
+                  >
+                    Снять резерв (админ)
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Поля + действия — центрированная читаемая колонка (а не прижатая влево
             с пустотой справа): span-full тянется на всю grid-ширину, но внутренний
@@ -1776,7 +1902,7 @@ export function EngineDetailsPage(props: {
             Отменить
           </Button>
           <div style={{ flex: 1 }} />
-          {props.canEditEngines && (
+          {canEditEnginesEff && (
             <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
               Изменения сохраняются одним действием при закрытии карточки.
             </div>
@@ -1835,7 +1961,7 @@ export function EngineDetailsPage(props: {
           <RepairChecklistPanel
             engineId={props.engineId}
             stage="engine_inventory"
-            canEdit={props.canEditOperations}
+            canEdit={canEditOperationsEff}
             canEditMasterData={props.canEditMasterData}
             canPrint={props.canPrintEngineCard}
             canExport={props.canExportReports === true}
@@ -1852,10 +1978,10 @@ export function EngineDetailsPage(props: {
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
             currentUserProfile={props.currentUserProfile ?? null}
-            {...(props.canCreateSupplyRequest && props.onOpenSupplyRequest
+            {...(props.canCreateSupplyRequest && props.onOpenSupplyRequest && !reservedByOther
               ? { onCreateSupplyRequestFromDefects: handleCreateSupplyRequestFromDefects }
               : {})}
-            {...(props.canCreateWorkOrder ? { canCreateWorkOrder: true } : {})}
+            {...(props.canCreateWorkOrder && !reservedByOther ? { canCreateWorkOrder: true } : {})}
             {...(props.onOpenWorkOrder ? { onOpenWorkOrder: props.onOpenWorkOrder } : {})}
           />
         </div>
@@ -1875,7 +2001,7 @@ export function EngineDetailsPage(props: {
         <EnginePhotoGallery
           value={props.engine.attributes?.attachments}
           canView={props.canViewFiles}
-          canDelete={props.canUploadFiles && props.canEditEngines}
+          canDelete={props.canUploadFiles && canEditEnginesEff}
           engineLabel={[engineBrand, engineNumber].filter(Boolean).join(' ')}
           onChange={saveAttachments}
         />
@@ -1883,7 +2009,7 @@ export function EngineDetailsPage(props: {
           title="Вложения к двигателю"
           value={props.engine.attributes?.attachments}
           canView={props.canViewFiles}
-          canUpload={props.canUploadFiles && props.canEditEngines}
+          canUpload={props.canUploadFiles && canEditEnginesEff}
           onChange={saveAttachments}
         />
       </div>
@@ -1895,7 +2021,7 @@ export function EngineDetailsPage(props: {
               <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
                 Двигатель не принят по рекламации.
               </div>
-              {props.canEditEngines && (
+              {canEditEnginesEff && (
                 <Button
                   onClick={() => {
                     setSessionChanged(true);
@@ -1922,7 +2048,7 @@ export function EngineDetailsPage(props: {
                   <Input
                     type="date"
                     value={value}
-                    disabled={!props.canEditEngines}
+                    disabled={!canEditEnginesEff}
                     style={{ maxWidth: '22ch' }}
                     title={title}
                     onChange={(e) => {
@@ -1934,7 +2060,7 @@ export function EngineDetailsPage(props: {
                 const selectInput = (value: string, set: (v: string) => void, labels: Record<string, string>, emptyLabel: string) => (
                   <select
                     value={value}
-                    disabled={!props.canEditEngines}
+                    disabled={!canEditEnginesEff}
                     style={{ maxWidth: '48ch' }}
                     onChange={(e) => {
                       setSessionChanged(true);
@@ -1952,7 +2078,7 @@ export function EngineDetailsPage(props: {
                 const textArea = (value: string, set: (v: string) => void, placeholder: string, rows: number) => (
                   <textarea
                     value={value}
-                    disabled={!props.canEditEngines}
+                    disabled={!canEditEnginesEff}
                     placeholder={placeholder}
                     rows={rows}
                     style={{ width: '100%', maxWidth: '64ch', resize: 'vertical' }}
@@ -1971,7 +2097,7 @@ export function EngineDetailsPage(props: {
                     {row('Статус ремонта', selectInput(reclRepairStatus, setReclRepairStatus, RECLAMATION_REPAIR_STATUS_LABELS, '— не задан —'))}
                     {row('Дата отправки заказчику', dateInput(reclShippedDate, setReclShippedDate, 'Когда двигатель отправлен заказчику после рекламации'))}
                     {row('Комментарий', textArea(reclComment, setReclComment, 'Что было и чем всё закончилось', 5))}
-                    {props.canEditEngines && (
+                    {canEditEnginesEff && (
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         <Button
                           variant="ghost"

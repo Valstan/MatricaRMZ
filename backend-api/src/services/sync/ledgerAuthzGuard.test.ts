@@ -15,6 +15,7 @@ vi.mock('../../database/db.js', () => {
           return chain;
         }),
         where: vi.fn(() => chain),
+        limit: vi.fn(() => chain),
         then: (resolve: (v: any[]) => any, reject?: (e: any) => any) => {
           const queue = state.selectByTable.get(currentTable);
           const result = queue && queue.length > 0 ? queue.shift()! : [];
@@ -30,6 +31,22 @@ vi.mock('../../database/db.js', () => {
 // Engineer effective perms (real preset). actorId === 'emp-self'.
 vi.mock('../../auth/permissions.js', () => ({
   getEffectivePermissionsForUser: vi.fn(async () => operatorRolePermissions('engineer')!),
+}));
+
+// Advisory engine reservations: the guard's own db reads are covered by its own
+// tests; here we drive the gate directly.
+const reservationState = vi.hoisted(() => ({ live: new Map<string, unknown>() }));
+vi.mock('../engineReservationGuard.js', () => ({
+  getLiveEngineReservations: vi.fn(async (ids: string[]) => {
+    const out = new Map<string, unknown>();
+    for (const id of ids) {
+      const r = reservationState.live.get(id);
+      if (r) out.set(id, r);
+    }
+    return out;
+  }),
+  invalidateEngineReservationCache: vi.fn(),
+  readEngineReservations: vi.fn(async () => new Map()),
 }));
 
 const { attributeDefs, entities, entityTypes } = await import('../../database/schema.js');
@@ -55,6 +72,8 @@ const ENGINEER = { id: 'emp-self', username: 'eng', role: 'engineer' };
 
 beforeEach(() => {
   state.selectByTable.clear();
+  reservationState.live.clear();
+  delete process.env.MATRICA_ENGINE_RESERVATION_GATE;
 });
 
 describe('partitionLedgerInputsByAuthz', () => {
@@ -244,5 +263,136 @@ describe('section viewer write-gate (Ф3)', () => {
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
     expect(allowed).toHaveLength(1);
     expect(denied).toHaveLength(0);
+  });
+});
+
+describe('advisory engine reservation gate (Ф2)', () => {
+  const NOW = Date.now();
+  const OTHER_HOLDER = {
+    v: 1,
+    holderUserId: 'emp-other',
+    holderLogin: 'ivanov',
+    holderFullName: 'Иванов Иван',
+    startedAt: NOW - 60 * 60 * 1000,
+    expiresAt: NOW + 6 * 60 * 60 * 1000,
+    releasedAt: null,
+    releasedBy: null,
+  };
+
+  it('чужой замок режет свежие правки двигателя, но не чужую сущность в том же батче', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-num', code: 'engine_number' }]);
+    reservationState.live.set('eng-1', OTHER_HOLDER);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-num', updated_at: NOW }, row_id: 'a1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'eng-2', entity_type_id: 't-engine', updated_at: NOW }, row_id: 'eng-2' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(allowed.map((i) => i.row_id)).toEqual(['eng-2']);
+    expect(denied.map((d) => d.row_id)).toEqual(['a1']);
+    expect(denied[0]?.reason).toBe(`reserved:ivanov:${OTHER_HOLDER.expiresAt}`);
+  });
+
+  it('оффлайн-правка, сделанная ДО взятия замка, проходит (pre-lock grace)', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-num', code: 'engine_number' }]);
+    reservationState.live.set('eng-1', OTHER_HOLDER);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-num', updated_at: OTHER_HOLDER.startedAt - 7 * 24 * 60 * 60 * 1000 }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(allowed.map((i) => i.row_id)).toEqual(['a1']);
+    expect(denied).toHaveLength(0);
+  });
+
+  it('держателя собственный замок не режет', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-num', code: 'engine_number' }]);
+    reservationState.live.set('eng-1', { ...OTHER_HOLDER, holderUserId: 'emp-self' });
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-num', updated_at: NOW }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+    expect(allowed.map((i) => i.row_id)).toEqual(['a1']);
+    expect(denied).toHaveLength(0);
+  });
+
+  it('гейтятся только операции карточки двигателя: наряд мастера проходит, дефектовка режется', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    reservationState.live.set('eng-1', OTHER_HOLDER);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'operations', row: { id: 'op-wo', operation_type: 'work_order', engine_entity_id: 'eng-1', updated_at: NOW }, row_id: 'op-wo' },
+      { type: 'upsert' as const, table: 'operations', row: { id: 'op-def', operation_type: 'defect', engine_entity_id: 'eng-1', updated_at: NOW }, row_id: 'op-def' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(allowed.map((i) => i.row_id)).toEqual(['op-wo']);
+    expect(denied.map((d) => d.row_id)).toEqual(['op-def']);
+  });
+
+  it('админ проходит замок, а kill-switch выключает гейт целиком', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-num', code: 'engine_number' }]);
+    reservationState.live.set('eng-1', OTHER_HOLDER);
+    const row = { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-num', updated_at: NOW };
+
+    const asAdmin = await partitionLedgerInputsByAuthz(
+      [{ type: 'upsert' as const, table: 'attribute_values', row, row_id: 'a1' }] as any,
+      { id: 'adm', username: 'adm', role: 'admin' },
+    );
+    expect(asAdmin.allowed.map((i) => i.row_id)).toEqual(['a1']);
+
+    state.selectByTable.clear();
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-num', code: 'engine_number' }]);
+    process.env.MATRICA_ENGINE_RESERVATION_GATE = 'off';
+    const off = await partitionLedgerInputsByAuthz(
+      [{ type: 'upsert' as const, table: 'attribute_values', row, row_id: 'a1' }] as any,
+      ENGINEER,
+    );
+    expect(off.allowed.map((i) => i.row_id)).toEqual(['a1']);
+    expect(off.denied).toHaveLength(0);
+  });
+
+  it('backstop не обходится подложным attribute_def из ТОГО ЖЕ батча', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([]); // подложного def'а в БД ещё нет — он приехал этим же батчем
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_defs', row: { id: 'def-fake', code: 'engine_reservation', entity_type_id: 't-engine' }, row_id: 'def-fake' },
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-fake', updated_at: NOW }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(denied.map((d) => d.row_id)).toContain('a1');
+    expect(denied.find((d) => d.row_id === 'a1')?.reason).toBe('forbidden:server_managed_attr:engine_reservation');
+    expect(allowed.map((i) => i.row_id)).not.toContain('a1');
+  });
+
+  it('сам атрибут резерва не пишется клиентом ни при какой роли (server-managed backstop)', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-res', code: 'engine_reservation' }]);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-res', updated_at: NOW }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'adm', username: 'adm', role: 'superadmin' });
+
+    expect(allowed).toHaveLength(0);
+    expect(denied[0]?.reason).toBe('forbidden:server_managed_attr:engine_reservation');
   });
 });

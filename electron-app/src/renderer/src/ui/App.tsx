@@ -24,6 +24,7 @@ import {
   ACCESS_SECTION_CATALOG,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  ENGINE_RESERVATION_CODE,
   formatEngineInternalNumber,
   WorkOrderKind,
   DEFAULT_UI_CONTROL_SETTINGS,
@@ -1158,7 +1159,12 @@ export function App() {
       Number(a.updatedAt ?? 0) === Number(b.updatedAt ?? 0) &&
       Number(a.createdAt ?? 0) === Number(b.createdAt ?? 0) &&
       Number(a.deletedAt ?? 0) === Number(b.deletedAt ?? 0) &&
-      String(a.syncStatus ?? '') === String(b.syncStatus ?? '')
+      String(a.syncStatus ?? '') === String(b.syncStatus ?? '') &&
+      // Ф2: резерв живёт в attribute_values и НЕ трогает entities.updated_at, поэтому
+      // по одним только полям сущности смена замка выглядит как «ничего не изменилось»
+      // и открытая карточка никогда не узнала бы, что двигатель заняли.
+      JSON.stringify(a.attributes?.[ENGINE_RESERVATION_CODE] ?? null) ===
+        JSON.stringify(b.attributes?.[ENGINE_RESERVATION_CODE] ?? null)
     );
   }
 
@@ -4190,6 +4196,8 @@ export function App() {
             onReload={() => loadSecondaryEngine(id)}
             onEngineUpdated={async () => { await refreshEngines(); await loadSecondaryEngine(id); }}
             canEditEngines={caps.canEditEngines}
+            currentUserId={String(authStatus.user?.id ?? '')}
+            currentUserRole={userRole}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}
             canPrintEngineCard={caps.canPrintReports}
@@ -4458,6 +4466,8 @@ export function App() {
               await reloadEngine();
             }}
             canEditEngines={caps.canEditEngines}
+            currentUserId={String(authStatus.user?.id ?? '')}
+            currentUserRole={userRole}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}
             canPrintEngineCard={caps.canPrintReports}
@@ -5369,6 +5379,22 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
+          {/* Ф2: часть правок не уехала — двигатель занят. Отдельным блоком, а НЕ через
+              postLoginSyncMsg: тот рисуется только при матче регекспа на текст ошибки. */}
+          {syncStatus?.lastResult?.reservedSkipped ? (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 12,
+                border: '1px solid #fde68a',
+                background: '#fffbeb',
+                color: '#b45309',
+              }}
+            >
+              {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(', ') || 'другой сотрудник'}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
+            </div>
+          ) : null}
           {isV2 ? (
             <V2Shell
               prefs={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2}

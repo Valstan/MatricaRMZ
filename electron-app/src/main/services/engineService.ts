@@ -6,7 +6,11 @@ import {
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
+  ENGINE_RESERVATION_CODE,
   EntityTypeCode,
+  formatEngineReservationHolder,
+  isEngineReservationLive,
+  parseEngineReservation,
   STATUS_CODES,
   applyStatusFlagChange,
   engineInternalNumberDuplicateMessage,
@@ -251,6 +255,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const reclamationFlagDefId = defs['reclamation_flag'];
   const repeatArrivalDefId = defs['repeat_arrival_flag'];
   const numberCollisionDefId = defs['number_collision_flag'];
+  const reservationDefId = defs[ENGINE_RESERVATION_CODE];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
@@ -273,6 +278,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     reclamationFlagDefId,
     repeatArrivalDefId,
     numberCollisionDefId,
+    reservationDefId,
   ].filter(Boolean) as string[];
   const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds, ...statusDateDefIds])];
 
@@ -320,6 +326,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   }
 
   const result: EngineListItem[] = [];
+  const listNow = nowMs();
   for (const e of engines) {
     const rowValues = valuesByEntity.get(e.id) ?? new Map<string, string | null>();
     let engineNumber: string | undefined;
@@ -435,6 +442,10 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const customerName = customerId ? customerNameById.get(customerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
     const contractSignedAt = contractId ? contractSignedAtById.get(contractId) : undefined;
+    // Ф2: бейдж «занят» в списке — стартовом экране планшетного режима. Без него
+    // оператор узнаёт о замке, только открыв карточку и дойдя до неё по цеху.
+    const reservation = reservationDefId ? parseEngineReservation(rowValues.get(reservationDefId)) : null;
+    const liveReservation = isEngineReservationLive(reservation, listNow) ? (reservation as NonNullable<typeof reservation>) : null;
     result.push({
       id: e.id,
       engineNumber: engineNumber ?? '',
@@ -459,6 +470,13 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),
+      ...(liveReservation
+        ? {
+            reservedByLabel: formatEngineReservationHolder(liveReservation),
+            reservedByUserId: liveReservation.holderUserId,
+            reservedUntil: liveReservation.expiresAt,
+          }
+        : {}),
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       syncStatus: e.syncStatus,
@@ -783,6 +801,12 @@ export async function setEngineAttribute(
   const defs = await getEngineAttrDefs(db);
   const defId = defs[code];
   if (!defId) throw new Error(`Неизвестный атрибут двигателя: ${code}`);
+
+  // Резерв — server-managed (Ф2): его пишет только сервер, с серверными часами.
+  // Правка через карточку сломала бы монотонность updated_at и была бы отбита backstop'ом.
+  if (code === ENGINE_RESERVATION_CODE) {
+    throw new Error('Резерв меняется кнопками «Взять в работу» / «Вернуть», а не правкой карточки');
+  }
 
   if (code === 'engine_number') {
     const dup = await findEngineDuplicateByNumber(db, String(value ?? ''), engineId);

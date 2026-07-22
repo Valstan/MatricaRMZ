@@ -2,6 +2,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
 
+import { flushPendingEngineReservationReleases } from './engineReservationClient.js';
 import { runSync } from './syncService.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { computeNextSyncDelayMs } from './sync/syncScheduling.js';
@@ -99,6 +100,12 @@ export class SyncManager {
       const offline = !r.ok && isOfflineSyncError(r.error ?? '');
       this.lastResult = r;
       if (r.ok) this.lastSyncAt = nowMs();
+      // Ф2: досылаем снятия резерва, сделанные оффлайн у станка. Сеть только что
+      // была — момент лучший. БЕЗ await: флеш ходит по сети, а мы ещё под inFlight,
+      // и его ретраи задержали бы следующий синк на всё время недоступности сервера.
+      if (r.ok) {
+        void flushPendingEngineReservationReleases(this.db, this.db, this.apiBaseUrl).catch(() => 0);
+      }
       this.state = r.ok || offline ? 'idle' : 'error';
       this.lastError = !r.ok && !offline ? (r.error ?? 'unknown') : null;
       return r;

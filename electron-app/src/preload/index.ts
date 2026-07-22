@@ -76,6 +76,11 @@ const matricaApi = {
       internalNumberYear: number;
       excludeEngineId?: string;
     }) => ipcRenderer.invoke('engine:findInternalNumberDuplicate', args),
+    reservation: {
+      get: async (engineId: string) => ipcRenderer.invoke('engine:reservation:get', engineId),
+      acquire: async (engineId: string) => ipcRenderer.invoke('engine:reservation:acquire', engineId),
+      release: async (engineId: string) => ipcRenderer.invoke('engine:reservation:release', engineId),
+    },
     dedupeAnalyze: async () => ipcRenderer.invoke('engine:dedupe:analyze'),
     dedupeMerge: async (args: { survivorId: string; loserIds: string[] }) => ipcRenderer.invoke('engine:dedupe:merge', args),
   },

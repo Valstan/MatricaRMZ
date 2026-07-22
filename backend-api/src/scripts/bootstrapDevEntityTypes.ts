@@ -5,6 +5,7 @@ import {
   AttributeDataType,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  ENGINE_RESERVATION_CODE,
   EntityTypeCode,
 } from '@matricarmz/shared';
 
@@ -57,6 +58,7 @@ async function main() {
   await ensureAttr(engineId, 'engine_number', 'Engine number', AttributeDataType.Text, 10);
   await ensureAttr(engineId, ENGINE_INTERNAL_NUMBER_CODE, 'Внутренний номер', AttributeDataType.Text, 15);
   await ensureAttr(engineId, ENGINE_INTERNAL_NUMBER_YEAR_CODE, 'Год внутреннего номера', AttributeDataType.Number, 16);
+  await ensureAttr(engineId, ENGINE_RESERVATION_CODE, 'Engine reservation', AttributeDataType.Json, 95);
   await ensureAttr(engineId, 'engine_brand', 'Engine brand', AttributeDataType.Text, 20);
   await ensureAttr(
     engineId,
