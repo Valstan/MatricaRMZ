@@ -11,6 +11,7 @@ import {
   normalizeWorkOrderPayloadV3Fields,
   resolveAssemblyEngineId,
   workOrderWithdrawnAt,
+  type WorkOrderAuditTrailItem,
   type WorkOrderPayload,
 } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
@@ -636,6 +637,28 @@ export async function createWorkOrder(
   }
 }
 
+/**
+ * След аудита — история, а не поле карточки: базой берём то, что уже лежит в строке, и добавляем
+ * то, чего в ней нет. Открытая карточка держит снимок payload'а, сделанный при загрузке, и её
+ * сохранение затирало след — вместе с маркером `number_change`, по которому серверный backstop
+ * (`workOrderNumberGuard`) отличает осознанную смену номера от чужой. Симптом был ровно такой:
+ * номер меняется, а ближайший push прилетает без маркера, сервер лечит его назад, и через полминуты
+ * pull возвращает старый номер.
+ */
+function mergeAuditTrail(stored: unknown, incoming: unknown): WorkOrderAuditTrailItem[] {
+  const seen = new Set<string>();
+  const merged: WorkOrderAuditTrailItem[] = [];
+  for (const raw of [...(Array.isArray(stored) ? stored : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as WorkOrderAuditTrailItem;
+    const key = `${Number(item.at) || 0}|${String(item.by ?? '')}|${String(item.action ?? '')}|${String(item.note ?? '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+}
+
 export async function updateWorkOrder(
   db: BetterSQLite3Database,
   args: { id: string; payload: WorkOrderPayload; actor: string },
@@ -697,7 +720,10 @@ export async function updateWorkOrder(
       ...args.payload,
       operationId: args.id,
       workOrderNumber,
-      auditTrail: [...(args.payload.auditTrail ?? []), { at: ts, by: args.actor, action: 'update' }],
+      auditTrail: [
+        ...mergeAuditTrail(existingParsed?.auditTrail, args.payload.auditTrail),
+        { at: ts, by: args.actor, action: 'update' },
+      ],
     });
 
     await db

@@ -70,20 +70,26 @@ async function isNumberTaken(rowId: string, workOrderNumber: number): Promise<bo
 
 /**
  * Осознанная смена номера помечена в самом payload: `setWorkOrderNumber` (и скрипт починки) кладут
- * в auditTrail запись `{ action: 'number_change', note: '№<новый номер>' }`. Ищем её по всему
- * следу, а не только в конце: между сменой и push'ом карточку могли ещё раз отредактировать.
- * Без маркера отличающийся номер даже от суперадмина — побочный эффект обычного сохранения, и
- * лечится как чужой.
+ * в auditTrail запись `{ action: 'number_change', note: '№<новый номер>' }`. Берём **последнюю**
+ * такую запись, а не любую: след аудита append-only и переживает сохранения карточки, поэтому
+ * старый маркер живёт в payload вечно — по «любой подходящей» записи устаревший клиент откатил бы
+ * номер к прошлому значению своим обычным push'ем.
  */
-function carriesNumberChangeMarker(payload: Record<string, unknown>, workOrderNumber: number): boolean {
-  const trail = payload.auditTrail;
-  if (!Array.isArray(trail)) return false;
-  return trail.some((item) => {
-    const entry = item as { action?: unknown; note?: unknown } | null;
-    if (String(entry?.action ?? '') !== 'number_change') return false;
+function latestNumberChangeMarker(payload: Record<string, unknown> | null): { at: number; number: number } | null {
+  const trail = payload?.auditTrail;
+  if (!Array.isArray(trail)) return null;
+  let latest: { at: number; number: number } | null = null;
+  for (const item of trail) {
+    const entry = item as { at?: unknown; action?: unknown; note?: unknown } | null;
+    if (String(entry?.action ?? '') !== 'number_change') continue;
     const match = /№(\d+)/.exec(String(entry?.note ?? ''));
-    return match ? Number(match[1]) === workOrderNumber : false;
-  });
+    if (!match) continue;
+    const at = Number(entry?.at ?? 0);
+    const number = Number(match[1]);
+    if (!Number.isFinite(at) || !Number.isFinite(number)) continue;
+    if (!latest || at > latest.at) latest = { at, number };
+  }
+  return latest;
 }
 
 export async function enforceWorkOrderNumberImmutability(
@@ -119,10 +125,17 @@ export async function enforceWorkOrderNumberImmutability(
       .limit(1);
     // Строки ещё нет — первая материализация, номер присвоил клиент. Не наше дело.
     if (storedRows.length === 0) continue;
-    const stored = numberOf(parseJson(storedRows[0]?.metaJson));
+    const storedPayload = parseJson(storedRows[0]?.metaJson);
+    const stored = numberOf(storedPayload);
     if (stored <= 0 || incoming === stored) continue;
 
-    if (isSuperadmin && incoming > 0 && carriesNumberChangeMarker(incomingPayload, incoming)) {
+    // Маркер должен быть НОВЕЕ того, что уже лежит в строке: иначе push с копией старого следа
+    // (устаревшая карточка, догон оффлайн-очереди) откатил бы номер к предыдущей смене.
+    const marker = latestNumberChangeMarker(incomingPayload);
+    const storedMarkerAt = latestNumberChangeMarker(storedPayload)?.at ?? 0;
+    const marked = Boolean(marker && marker.number === incoming && marker.at > storedMarkerAt);
+
+    if (isSuperadmin && incoming > 0 && marked) {
       if (!(await isNumberTaken(rowId, incoming))) {
         heals.push({ rowId, stored, incoming, action: 'allowed' });
         continue;

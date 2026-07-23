@@ -142,6 +142,47 @@ describe('enforceWorkOrderNumberImmutability', () => {
     expect(heals[0]?.action).toBe('allowed');
   });
 
+  // След аудита append-only и переживает сохранения карточки, поэтому старый маркер живёт в payload
+  // вечно: пускать по нему — значит разрешить устаревшему клиенту откатить номер к прошлой смене.
+  it('heals a replay of an older marker when the row already carries a newer renumber', async () => {
+    state.selectQueue.push([
+      {
+        metaJson: metaJson(90, {
+          auditTrail: [
+            { at: 10, by: 'root', action: 'number_change', note: '№86' },
+            { at: 20, by: 'root', action: 'number_change', note: '№90' },
+          ],
+        }),
+      },
+    ]);
+    const incoming = input('wo-1', 86, {
+      auditTrail: [{ at: 10, by: 'root', action: 'number_change', note: '№86' }],
+    });
+
+    const heals = await enforceWorkOrderNumberImmutability([incoming], SUPERADMIN);
+
+    expect(heals[0]?.action).toBe('healed');
+    expect(storedNumber(incoming.row)).toBe(90);
+  });
+
+  it('accepts a fresh renumber over a row that already has an older marker', async () => {
+    state.selectQueue.push([
+      { metaJson: metaJson(86, { auditTrail: [{ at: 10, by: 'root', action: 'number_change', note: '№86' }] }) },
+    ]);
+    state.selectQueue.push([]);
+    const incoming = input('wo-1', 90, {
+      auditTrail: [
+        { at: 10, by: 'root', action: 'number_change', note: '№86' },
+        { at: 30, by: 'root', action: 'number_change', note: '№90' },
+      ],
+    });
+
+    const heals = await enforceWorkOrderNumberImmutability([incoming], SUPERADMIN);
+
+    expect(heals[0]?.action).toBe('allowed');
+    expect(storedNumber(incoming.row)).toBe(90);
+  });
+
   it('does not accept a marker written for a different number', async () => {
     state.selectQueue.push([{ metaJson: metaJson(103) }]);
     const incoming = input('wo-1', 8, numberChangeMarker(86));
