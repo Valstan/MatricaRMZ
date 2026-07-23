@@ -544,6 +544,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       shippingDate = legacyShippingDate;
     }
     const statusRejected = statusFlags.status_rejected === true;
+    // «Признан утильным» / «Утиль — отправлен заказчику» — те же две метки, по которым утиль
+    // определяет shared `isScrapEngine` (отчёты, гейт выдачи Assembly-наряда). Список их не читал:
+    // подсветка и колонка «Утиль» видели только «Забракован» и картер в утиле, из-за чего двигатель,
+    // помеченный «Признан утильным», в списке выглядел обычным, а в отчётах числился утилем.
+    const statusScrapMarked = isScrapEngine(statusFlags);
     // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
     const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
@@ -574,7 +579,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // Прямой legacy-атрибут is_scrap (замороженный февральский импорт, карточкой не правится)
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
-      isScrap: statusRejected || crankcaseScrapped,
+      isScrap: statusRejected || statusScrapMarked || crankcaseScrapped,
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
