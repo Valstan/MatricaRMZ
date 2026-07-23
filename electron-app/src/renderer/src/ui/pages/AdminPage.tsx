@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { IncomingLinkInfo } from '@matricarmz/shared';
+import type { EntityReferenceTarget, IncomingLinkInfo } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
@@ -1951,7 +1952,9 @@ function FieldEditor(props: {
   if (dt === 'link') {
     const current = typeof props.value === 'string' ? props.value : null;
     return (
-      <SearchSelect
+      <EntityReferenceField
+        target={(linkTargetTypeCode || 'nomenclature') as EntityReferenceTarget}
+        targetLabel={props.def.name}
         value={current}
         disabled={!props.canEdit}
         options={props.linkOptions}
@@ -1962,6 +1965,7 @@ function FieldEditor(props: {
         }}
         {...(props.canEdit && linkTargetTypeCode
           ? {
+              canCreate: true,
               onCreate: async (label: string) => {
                 const id = await createLinkedEntity(label);
                 if (!id) return null;

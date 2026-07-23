@@ -11,7 +11,7 @@ import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EnginePhotoGallery } from '../components/EnginePhotoGallery.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -20,6 +20,7 @@ import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type Attribu
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 
@@ -1389,7 +1390,9 @@ export function EngineDetailsPage(props: {
       value: engineBrand,
       render: (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-          <SearchSelectWithCreate
+          <EntityReferenceField
+            target="engine_brand"
+            targetLabel="Марка двигателя"
             value={engineBrandId || null}
             options={engineBrandOptions}
             disabled={!canEditEnginesEff}
@@ -1410,12 +1413,13 @@ export function EngineDetailsPage(props: {
               setEngineBrand(label);
               return id;
             }}
+            onQuickCreate={async (request) => {
+              const result = await quickCreateEntity(request);
+              if (result) await loadLinkLists();
+              return result;
+            }}
+            {...(props.onOpenEngineBrand ? { onOpen: props.onOpenEngineBrand } : {})}
           />
-          {engineBrandId && props.onOpenEngineBrand ? (
-            <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEngineBrand?.(engineBrandId)}>
-              Открыть
-            </Button>
-          ) : null}
           {(linkLists.engine_brand ?? []).length === 0 && (
             <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Справочник марок пуст — выберите или создайте значение.</span>
           )}
@@ -1449,7 +1453,9 @@ export function EngineDetailsPage(props: {
           render: (
             // C-#8: контрагент выбирается первым и фильтрует список контрактов ниже.
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(30ch, 48ch) auto', gap: 8, alignItems: 'start' }}>
-              <SearchSelectWithCreate
+              <EntityReferenceField
+                target="customer"
+                targetLabel="Контрагент"
                 value={customerId || null}
                 options={linkLists.customer_id ?? []}
                 disabled={!canEditEnginesEff}
@@ -1470,12 +1476,13 @@ export function EngineDetailsPage(props: {
                   }
                 }}
                 onCreate={async (label) => createMasterDataItem('customer', label)}
+                onQuickCreate={async (request) => {
+                  const result = await quickCreateEntity(request);
+                  if (result) await loadLinkLists();
+                  return result;
+                }}
+                {...(props.onOpenCounterparty ? { onOpen: props.onOpenCounterparty } : {})}
               />
-              {customerId && props.onOpenCounterparty ? (
-                <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenCounterparty?.(customerId)}>
-                  Открыть
-                </Button>
-              ) : null}
             </div>
           ),
         }
@@ -1488,7 +1495,9 @@ export function EngineDetailsPage(props: {
           value: linkLabel('contract_id', contractId),
           render: (
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(30ch, 48ch) auto', gap: 8, alignItems: 'start' }}>
-              <SearchSelectWithCreate
+              <EntityReferenceField
+                target="contract"
+                targetLabel="Контракт"
                 value={contractId || null}
                 // C-#8: показываем только контракты выбранного контрагента (его UUID есть в
                 // searchText опции — он склеен из всех значений атрибутов, включая customer_id и
@@ -1514,17 +1523,8 @@ export function EngineDetailsPage(props: {
                   }
                   return id;
                 }}
+                {...(props.onOpenContract ? { onOpen: props.onOpenContract } : {})}
               />
-              {contractId && props.onOpenContract ? (
-                <Button
-                  variant="outline"
-                  tone="neutral"
-                  size="sm"
-                  onClick={() => props.onOpenContract?.(contractId)}
-                >
-                  Открыть
-                </Button>
-              ) : null}
             </div>
           ),
         }
@@ -1560,7 +1560,9 @@ export function EngineDetailsPage(props: {
           label: 'Цех',
           value: workshopOptions.find((o) => o.id === workshopId)?.label ?? '',
           render: (
-            <SearchSelect
+            <EntityReferenceField
+              target="workshop"
+              targetLabel="Цех"
               value={workshopId || null}
               options={workshopOptions}
               placeholder="Выберите цех"

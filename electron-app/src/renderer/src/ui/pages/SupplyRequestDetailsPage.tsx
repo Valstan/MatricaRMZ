@@ -4,6 +4,7 @@ import { canActByPosition, canSignAsDepartmentHead } from '@matricarmz/shared';
 import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -1000,7 +1001,9 @@ export function SupplyRequestDetailsPage(props: {
         label: 'Подразделение',
         value: departmentLabel || payload.departmentId || '',
         render: props.canViewMasterData ? (
-          <SearchSelectWithCreate
+          <EntityReferenceField
+            target="department"
+            targetLabel="Подразделение"
             value={payload.departmentId || null}
             options={linkLists.departmentId ?? []}
             disabled={!props.canEdit}
@@ -1335,7 +1338,17 @@ export function SupplyRequestDetailsPage(props: {
                       <td data-col-kind="num">{idx + 1}</td>
                       <td data-col-kind="name">
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
-                          <SearchSelectWithCreate
+                          <EntityReferenceField
+                            target={
+                              linkedProduct?.refKind === 'part'
+                                ? 'part'
+                                : linkedProduct?.refKind === 'legacy_service_entity'
+                                  ? 'service'
+                                  : linkedProduct?.refKind === 'legacy_product_entity'
+                                    ? 'product'
+                                    : 'nomenclature'
+                            }
+                            targetLabel="Позиция заявки"
                             value={it.productId ?? ''}
                             options={productOptions}
                             disabled={!props.canEdit}
@@ -1346,8 +1359,8 @@ export function SupplyRequestDetailsPage(props: {
                               updateRequestItem(idx, (current) => ({
                                 ...current,
                                 productId: next || null,
-                                name: selected?.name ?? current.name ?? '',
-                                unit: selected?.unit ?? current.unit ?? '',
+                                name: selected?.name ?? '',
+                                unit: selected?.unit ?? '',
                               }));
                               if (next) {
                                 void (async () => {
@@ -1361,6 +1374,7 @@ export function SupplyRequestDetailsPage(props: {
                                 })();
                               }
                             }}
+                            {...(onOpenItem ? { onOpen: onOpenItem } : {})}
                             onCreate={async (label) => {
                               const name = label.trim();
                               if (!name) return null;
@@ -1409,16 +1423,6 @@ export function SupplyRequestDetailsPage(props: {
                               return id;
                             }}
                           />
-                          {it.productId && onOpenItem ? (
-                            <Button
-                              variant="outline"
-                              tone="neutral"
-                              size="sm"
-                              onClick={() => onOpenItem?.(it.productId as string)}
-                            >
-                              Открыть
-                            </Button>
-                          ) : null}
                           {!it.productId && it.name?.trim() && (
                             <span style={{ color: 'var(--danger)', fontSize: 12 }}>Нет совпадения: {it.name}</span>
                           )}

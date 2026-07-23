@@ -5,7 +5,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { SupplyRequestPayload, SupplyRequestStatus, SupplyRequestTransitionAction } from '@matricarmz/shared';
 import { canActByPosition, canSignAsDepartmentHead, SystemIds } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, auditLog, entityTypes, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, auditLog, entities, entityTypes, erpNomenclature, operations } from '../database/schema.js';
 
 // Важно: engine_entity_id в sync контракте — UUID. Для заявок используем фиксированный UUID “контейнера”.
 const SUPPLY_REQUESTS_CONTAINER_ID = SystemIds.SupplyRequestsContainerEntityId;
@@ -56,6 +56,77 @@ function normalizeRole(role: string | null | undefined) {
 function canViewAllDepartments(role: string) {
   const r = normalizeRole(role);
   return r === 'admin' || r === 'superadmin';
+}
+
+async function validateSupplyRequestReferences(
+  db: BetterSQLite3Database,
+  payload: SupplyRequestPayload,
+  previous: SupplyRequestPayload | null,
+): Promise<string | null> {
+  const entityReferences = [
+    { path: 'departmentId', id: String(payload.departmentId ?? '').trim(), type: 'department' },
+    { path: 'workshopId', id: String(payload.workshopId ?? '').trim(), type: 'workshop' },
+    { path: 'sectionId', id: String(payload.sectionId ?? '').trim(), type: 'section' },
+  ].filter((reference) => reference.id);
+  const previousEntityIds = new Map([
+    ['departmentId', String(previous?.departmentId ?? '').trim()],
+    ['workshopId', String(previous?.workshopId ?? '').trim()],
+    ['sectionId', String(previous?.sectionId ?? '').trim()],
+  ]);
+  const changedEntityReferences = entityReferences.filter(
+    (reference) => previousEntityIds.get(reference.path) !== reference.id,
+  );
+
+  if (changedEntityReferences.length > 0) {
+    const ids = [...new Set(changedEntityReferences.map((reference) => reference.id))];
+    const rows = await db
+      .select({ id: entities.id, typeCode: entityTypes.code })
+      .from(entities)
+      .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+      .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
+    const typeById = new Map(rows.map((row) => [String(row.id), String(row.typeCode)]));
+    for (const reference of changedEntityReferences) {
+      const actualType = typeById.get(reference.id);
+      if (!actualType) return `${reference.path}: элемент ${reference.id} не найден`;
+      if (actualType !== reference.type) return `${reference.path}: ожидался тип ${reference.type}, получен ${actualType}`;
+    }
+  }
+
+  const previousItems = previous?.items ?? [];
+  const changedProductIds: Array<{ path: string; id: string }> = [];
+  for (const [index, item] of payload.items.entries()) {
+    const id = String(item.productId ?? '').trim();
+    const name = String(item.name ?? '').trim();
+    const previousItem = previousItems[index];
+    if (!id && name) {
+      const unchangedLegacy =
+        !String(previousItem?.productId ?? '').trim() && String(previousItem?.name ?? '').trim() === name;
+      if (!unchangedLegacy) return `items[${index}].productId: выберите позицию из базы данных`;
+    }
+    if (id && id !== String(previousItem?.productId ?? '').trim()) {
+      changedProductIds.push({ path: `items[${index}].productId`, id });
+    }
+  }
+  if (changedProductIds.length === 0) return null;
+
+  const productIds = [...new Set(changedProductIds.map((reference) => reference.id))];
+  const [nomenclatureRows, entityRows] = await Promise.all([
+    db
+      .select({ id: erpNomenclature.id })
+      .from(erpNomenclature)
+      .where(and(inArray(erpNomenclature.id, productIds), isNull(erpNomenclature.deletedAt))),
+    db
+      .select({ id: entities.id, typeCode: entityTypes.code })
+      .from(entities)
+      .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+      .where(and(inArray(entities.id, productIds), isNull(entities.deletedAt), isNull(entityTypes.deletedAt))),
+  ]);
+  const validIds = new Set(nomenclatureRows.map((row) => String(row.id)));
+  for (const row of entityRows) {
+    if (['nomenclature', 'part', 'product', 'service'].includes(String(row.typeCode))) validIds.add(String(row.id));
+  }
+  const missingProduct = changedProductIds.find((reference) => !validIds.has(reference.id));
+  return missingProduct ? `${missingProduct.path}: элемент ${missingProduct.id} не найден или имеет недопустимый тип` : null;
 }
 
 function canEditAllDepartments(role: string) {
@@ -484,6 +555,9 @@ export async function updateSupplyRequest(
     }
 
     const ts = nowMs();
+
+    const referenceError = await validateSupplyRequestReferences(db, args.payload, cur.ok ? cur.payload : null);
+    if (referenceError) return { ok: false as const, error: referenceError };
 
     if (missing) {
       const requestNumber = await nextRequestNumber(db, ts);

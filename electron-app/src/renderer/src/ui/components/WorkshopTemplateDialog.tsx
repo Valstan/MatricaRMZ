@@ -3,8 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorkshopRepairTemplateDto, WorkshopRepairTemplateSummary } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
-import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
+import type { SearchSelectOption } from './SearchSelect.js';
 
 type EditorLine = {
   /** local-only id for React keys / remove. */
@@ -509,9 +510,12 @@ export function WorkshopTemplateDialog(props: {
                           <tr key={line.id} style={isDup ? { background: 'rgba(220, 38, 38, 0.08)' } : undefined}>
                             <td>{idx + 1}</td>
                             <td>
-                              <SearchSelect
+                              <EntityReferenceField
+                                target="nomenclature"
+                                targetLabel="Номенклатура"
                                 value={line.nomenclatureId || null}
                                 options={nomen}
+                                optionsReady={!nomenLoading}
                                 placeholder={nomenLoading ? 'Загрузка…' : 'Выберите деталь'}
                                 disabled={!props.canEdit || submitting}
                                 showAllWhenEmpty
@@ -541,9 +545,12 @@ export function WorkshopTemplateDialog(props: {
                               />
                             </td>
                             <td>
-                              <SearchSelect
+                              <EntityReferenceField
+                                target="service"
+                                targetLabel="Услуга"
                                 value={line.serviceId || null}
                                 options={services}
+                                optionsReady={!servicesLoading}
                                 placeholder={servicesLoading ? 'Загрузка услуг…' : 'Не задан'}
                                 disabled={!props.canEdit || submitting}
                                 showAllWhenEmpty

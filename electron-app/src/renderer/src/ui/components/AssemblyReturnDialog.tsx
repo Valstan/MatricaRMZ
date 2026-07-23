@@ -3,9 +3,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AssemblyReturnMode, ASSEMBLY_RETURN_MODE_LABELS } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { EntityReferenceField } from './EntityReferenceField.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
-import { SearchSelect, SearchSelectOption } from './SearchSelect.js';
+import type { SearchSelectOption } from './SearchSelect.js';
 import { openPrintPreview, escapeHtml } from '../utils/printPreview.js';
 
 type Line = {
@@ -341,16 +342,6 @@ export function AssemblyReturnDialog(props: {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    padding: '4px 6px',
-    border: '1px solid var(--input-border)',
-    borderRadius: 'var(--ui-radius-sm)',
-    background: 'var(--input-bg)',
-    color: 'var(--text)',
-    minHeight: 'var(--ui-input-height, 28px)',
-    fontSize: 'var(--ui-input-font-size, 13px)',
-  };
-
   return (
     <div
       style={{
@@ -414,7 +405,7 @@ export function AssemblyReturnDialog(props: {
         <div style={{ display: 'flex', gap: 14, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--subtle)' }}>
             Дата возврата:
-            <input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} style={inputStyle} />
+            <Input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} style={{ width: 140 }} />
           </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 280 }}>
             <span style={{ fontSize: 12, color: 'var(--subtle)', flexShrink: 0 }}>Причина:</span>
@@ -465,9 +456,12 @@ export function AssemblyReturnDialog(props: {
               return (
                 <tr key={line.id}>
                   <td style={{ minWidth: 250 }}>
-                    <SearchSelect
+                    <EntityReferenceField
+                      target="nomenclature"
+                      targetLabel="Деталь"
                       value={line.nomenclatureId || null}
                       options={effectiveOptions}
+                      optionsReady={!brandLoading && !allLoading}
                       placeholder={
                         brandLoading || allLoading ? 'Загрузка…' : usingAll ? 'начните вводить деталь…' : 'деталь марки / из сборки…'
                       }

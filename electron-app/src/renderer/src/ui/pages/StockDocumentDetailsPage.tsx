@@ -3,6 +3,7 @@ import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocum
 import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
@@ -105,6 +106,11 @@ export function StockDocumentDetailsPage(props: {
   canEdit: boolean;
   /** Быстрое создание детали (шаблон подставится автоматически по имени, как в Производстве) */
   canCreateParts?: boolean;
+  onOpenCounterparty?: (id: string) => void;
+  onOpenEngine?: (id: string) => void;
+  onOpenWorkOrder?: (id: string) => void;
+  onOpenNomenclature?: (id: string) => void;
+  onOpenWarehouse?: (id: string) => void;
   onClose: () => void;
 }) {
   const { confirm, promptText } = useConfirm();
@@ -708,7 +714,9 @@ export function StockDocumentDetailsPage(props: {
           <div>Дата</div>
           <Input type="date" value={docDate} disabled={!canEditDocument} onChange={(e) => setDocDate(e.target.value)} />
           <div>Склад по умолчанию</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="warehouse"
+            targetLabel="Склад"
             value={warehouseId}
             disabled={!canEditDocument}
             options={warehouseOptions}
@@ -719,6 +727,7 @@ export function StockDocumentDetailsPage(props: {
               setWarehouseId(next);
               pushRecent('warehouseId', next);
             }}
+            {...(props.onOpenWarehouse ? { onOpen: props.onOpenWarehouse } : {})}
           />
           {isIncoming ? <div>Ожидаемая дата</div> : null}
           {isIncoming ? <Input type="date" value={expectedDate} disabled={!canEditDocument} onChange={(e) => setExpectedDate(e.target.value)} /> : null}
@@ -756,7 +765,9 @@ export function StockDocumentDetailsPage(props: {
             </select>
           ) : null}
           <div>Контрагент</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="customer"
+            targetLabel="Контрагент"
             value={counterpartyId}
             disabled={!canEditDocument}
             options={counterpartyOptions}
@@ -767,6 +778,7 @@ export function StockDocumentDetailsPage(props: {
               setCounterpartyId(next);
               pushRecent('counterpartyId', next);
             }}
+            {...(props.onOpenCounterparty ? { onOpen: props.onOpenCounterparty } : {})}
           />
           <div>Основание / причина</div>
           {isWriteoff ? (
@@ -787,7 +799,9 @@ export function StockDocumentDetailsPage(props: {
           )}
           {isAddressable ? <div>Двигатель (адресно)</div> : null}
           {isAddressable ? (
-            <SearchSelect
+            <EntityReferenceField
+              target="engine"
+              targetLabel="Двигатель"
               value={engineId}
               disabled={!canEditDocument}
               options={engineOptions}
@@ -795,11 +809,14 @@ export function StockDocumentDetailsPage(props: {
               showAllWhenEmpty
               emptyQueryLimit={15}
               onChange={(next) => setEngineId(next)}
+              {...(props.onOpenEngine ? { onOpen: props.onOpenEngine } : {})}
             />
           ) : null}
           {isAddressable ? <div>Наряд (адресно)</div> : null}
           {isAddressable ? (
-            <SearchSelect
+            <EntityReferenceField
+              target="work_order"
+              targetLabel="Наряд"
               value={workOrderId}
               disabled={!canEditDocument}
               options={workOrderOptions}
@@ -810,6 +827,7 @@ export function StockDocumentDetailsPage(props: {
                 setWorkOrderId(next);
                 setWorkOrderNo(next ? workOrderOptions.find((o) => o.id === next)?.number ?? '' : '');
               }}
+              {...(props.onOpenWorkOrder ? { onOpen: props.onOpenWorkOrder } : {})}
             />
           ) : null}
           <div>Статус</div>
@@ -872,7 +890,9 @@ export function StockDocumentDetailsPage(props: {
                   <tr key={line.id || idx}>
                     <td data-col-kind="num">{idx + 1}</td>
                     <td data-col-kind="name" style={{ minWidth: 280 }}>
-                      <SearchSelect
+                      <EntityReferenceField
+                        target="nomenclature"
+                        targetLabel="Номенклатура"
                         value={line.nomenclatureId}
                         disabled={!canEditDocument}
                         options={nomenclatureOptions}
@@ -912,13 +932,16 @@ export function StockDocumentDetailsPage(props: {
                           pushRecent('nomenclatureId', value);
                           updateLine(idx, { nomenclatureId: value });
                         }}
+                        {...(props.onOpenNomenclature ? { onOpen: props.onOpenNomenclature } : {})}
                       />
                     </td>
                     <td data-col-kind="name" style={{ color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
                       {nomenclatureCodeById.get(line.nomenclatureId ?? '') || '—'}
                     </td>
                     <td data-col-kind="name" style={{ minWidth: 220 }}>
-                      <SearchSelect
+                      <EntityReferenceField
+                        target="warehouse"
+                        targetLabel="Склад"
                         value={isTransfer ? line.fromWarehouseId || warehouseId : line.warehouseId || warehouseId}
                         disabled={!canEditDocument}
                         options={warehouseOptions}
@@ -929,11 +952,14 @@ export function StockDocumentDetailsPage(props: {
                           pushRecent('warehouseId', value);
                           updateLine(idx, isTransfer ? { fromWarehouseId: value } : { warehouseId: value });
                         }}
+                        {...(props.onOpenWarehouse ? { onOpen: props.onOpenWarehouse } : {})}
                       />
                     </td>
                     {isTransfer ? (
                       <td data-col-kind="name" style={{ minWidth: 220 }}>
-                        <SearchSelect
+                        <EntityReferenceField
+                          target="warehouse"
+                          targetLabel="Склад назначения"
                           value={line.toWarehouseId}
                           disabled={!canEditDocument}
                           options={warehouseOptions}
@@ -944,6 +970,7 @@ export function StockDocumentDetailsPage(props: {
                             pushRecent('warehouseId', value);
                             updateLine(idx, { toWarehouseId: value });
                           }}
+                          {...(props.onOpenWarehouse ? { onOpen: props.onOpenWarehouse } : {})}
                         />
                       </td>
                     ) : null}

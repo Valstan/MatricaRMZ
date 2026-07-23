@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -14,7 +15,6 @@ import { SectionCard } from '../components/SectionCard.js';
 import { DataTable } from '../components/DataTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import {
   parseContractSections,
   parseContractExecutionParts,
@@ -34,15 +34,18 @@ import {
   type ContractPartRow,
   type ContractExecutionPartRow,
   type EngineListItem,
+  type QuickCreateRequest,
+  type QuickCreateResult,
 } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime, formatRuMoney, formatRuNumber } from '../utils/dateUtils.js';
+import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartSpecsCache, listAllPartSpecs } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
-import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 
 type AttributeDef = {
@@ -305,6 +308,7 @@ function SectionBlock(props: {
   canEdit: boolean;
   canEditMasterData: boolean;
   createMasterDataItem: (typeCode: string, label: string) => Promise<string | null>;
+  quickCreateMasterDataItem: (request: QuickCreateRequest) => Promise<QuickCreateResult | null>;
   onOpenCounterparty?: (counterpartyId: string) => void;
   onOpenPart?: (partId: string) => void;
   onOpenEngineBrand?: (engineBrandId: string) => void;
@@ -327,6 +331,7 @@ function SectionBlock(props: {
     canEdit,
     canEditMasterData,
     createMasterDataItem,
+    quickCreateMasterDataItem,
     onOpenCounterparty,
     onOpenPart,
     onOpenEngineBrand,
@@ -489,7 +494,9 @@ function SectionBlock(props: {
               </FormField>
               <FormField label="Контрагент" fullWidth>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-                  <SearchSelectWithCreate
+                  <EntityReferenceField
+                    target="customer"
+                    targetLabel="Контрагент"
                     value={primarySection.customerId ?? null}
                     options={customerOptions}
                     disabled={!canEdit}
@@ -501,17 +508,9 @@ function SectionBlock(props: {
                       if (id) update({ customerId: id });
                       return id;
                     }}
+                    onQuickCreate={quickCreateMasterDataItem}
+                    {...(onOpenCounterparty ? { onOpen: onOpenCounterparty } : {})}
                   />
-                  {primarySection.customerId && onOpenCounterparty ? (
-                    <Button
-                      variant="outline"
-                      tone="neutral"
-                      size="sm"
-                      onClick={() => onOpenCounterparty(primarySection.customerId ?? '')}
-                    >
-                      Открыть реквизиты контрагента
-                    </Button>
-                  ) : null}
                 </div>
               </FormField>
             </>
@@ -599,7 +598,9 @@ function SectionBlock(props: {
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           {canEdit ? (
-                            <SearchSelectWithCreate
+                            <EntityReferenceField
+                              target="engine_brand"
+                              targetLabel="Марка двигателя"
                               value={row.engineBrandId || null}
                               options={engineBrandOptions}
                               disabled={!canEdit}
@@ -611,15 +612,12 @@ function SectionBlock(props: {
                                 if (id) updateEngineBrand(idx, { engineBrandId: id });
                                 return id;
                               }}
+                              onQuickCreate={quickCreateMasterDataItem}
+                              {...(onOpenEngineBrand ? { onOpen: onOpenEngineBrand } : {})}
                             />
                           ) : (
                             <span>{label}</span>
                           )}
-                          {row.engineBrandId && onOpenEngineBrand ? (
-                            <Button variant="outline" tone="neutral" size="sm" onClick={() => onOpenEngineBrand(row.engineBrandId)}>
-                              Открыть
-                            </Button>
-                          ) : null}
                         </div>
                       </td>
                       <td className="num" data-col-kind="num">
@@ -701,7 +699,9 @@ function SectionBlock(props: {
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           {canEdit ? (
-                            <SearchSelectWithCreate
+                            <EntityReferenceField
+                              target="part"
+                              targetLabel="Деталь"
                               value={row.partId || null}
                               options={partOptions}
                               disabled={!canEdit}
@@ -713,15 +713,12 @@ function SectionBlock(props: {
                                 if (id) updatePart(idx, { partId: id });
                                 return id;
                               }}
+                              onQuickCreate={quickCreateMasterDataItem}
+                              {...(onOpenPart ? { onOpen: onOpenPart } : {})}
                             />
                           ) : (
                             <span>{label}</span>
                           )}
-                          {row.partId && onOpenPart ? (
-                            <Button variant="outline" tone="neutral" size="sm" onClick={() => onOpenPart(row.partId)}>
-                              Открыть
-                            </Button>
-                          ) : null}
                         </div>
                       </td>
                       <td className="num" data-col-kind="num">
@@ -818,7 +815,9 @@ function SectionBlock(props: {
             )}
             {canEdit && addEngineOpen && (
               <div style={{ display: 'grid', gap: 8, marginTop: hasEngines ? 8 : 0 }}>
-                <SearchSelect
+                <EntityReferenceField
+                  target="engine"
+                  targetLabel="Двигатель"
                   value={null}
                   options={engineOptionsForSection}
                   placeholder="Найти двигатель по номеру или марке"
@@ -1189,6 +1188,26 @@ export function ContractDetailsPage(props: {
     await loadEngineBrands();
     await loadCustomers();
     return created.id;
+  }
+
+  async function quickCreateMasterDataItem(request: QuickCreateRequest): Promise<QuickCreateResult | null> {
+    if (request.target === 'part') {
+      const article = request.fields?.article == null ? '' : String(request.fields.article).trim();
+      const created = await window.matrica.warehouse.nomenclatureDirectoryPartCreate({
+        name: request.label,
+        code: article || null,
+      });
+      if (!created?.ok || !created.part?.id) throw new Error(!created?.ok && created ? created.error : 'Не удалось создать деталь');
+      invalidateListAllPartSpecsCache();
+      await loadParts();
+      return { id: created.part.id, label: request.label, existing: false };
+    }
+    const result = await quickCreateEntity(request);
+    if (result) {
+      await loadEngineBrands();
+      await loadCustomers();
+    }
+    return result;
   }
 
   async function saveSections() {
@@ -1597,6 +1616,7 @@ export function ContractDetailsPage(props: {
             canEdit={props.canEdit}
             canEditMasterData={props.canEditMasterData}
             createMasterDataItem={createMasterDataItem}
+            quickCreateMasterDataItem={quickCreateMasterDataItem}
           />
 
           {sections.addons.map((addon, idx) => (
@@ -1623,6 +1643,7 @@ export function ContractDetailsPage(props: {
               canEdit={props.canEdit}
               canEditMasterData={props.canEditMasterData}
               createMasterDataItem={createMasterDataItem}
+              quickCreateMasterDataItem={quickCreateMasterDataItem}
             />
           ))}
 
@@ -1701,7 +1722,9 @@ export function ContractDetailsPage(props: {
                 {props.canEdit && (
                   addEngineOpen ? (
                     <div style={{ display: 'grid', gap: 8 }}>
-                      <SearchSelectWithCreate
+                      <EntityReferenceField
+                        target="engine"
+                        targetLabel="Двигатель"
                         value={null}
                         options={availableEngineOptions}
                         createLabel="Новый двигатель"
@@ -1838,7 +1861,9 @@ export function ContractDetailsPage(props: {
                 {props.canEdit && (
                   addPartOpen ? (
                     <div style={{ display: 'grid', gap: 8 }}>
-                      <SearchSelectWithCreate
+                      <EntityReferenceField
+                        target="part"
+                        targetLabel="Деталь"
                         value={null}
                         options={availablePartOptions}
                         createLabel="Новая деталь"
@@ -1849,6 +1874,7 @@ export function ContractDetailsPage(props: {
                           addExecutionPartRow(id);
                         }}
                         onCreate={(label) => createMasterDataItem('part', label)}
+                        onQuickCreate={quickCreateMasterDataItem}
                       />
                       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <Button variant="ghost" tone="neutral" size="sm" onClick={() => setAddPartOpen(false)}>

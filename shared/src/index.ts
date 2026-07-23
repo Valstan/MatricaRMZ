@@ -4,6 +4,7 @@ export * from './sync/registry.js';
 export * from './sync/erpTables.js';
 export * from './sync/erpDto.js';
 export * from './domain/enums.js';
+export * from './domain/entityReference.js';
 export * from './domain/lookupNormalize.js';
 export * from './domain/tieredSearch.js';
 export * from './domain/partsDedup.js';

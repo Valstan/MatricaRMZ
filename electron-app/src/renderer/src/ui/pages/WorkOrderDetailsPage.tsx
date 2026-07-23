@@ -33,17 +33,19 @@ import {
   type WorkOrderTemplateSummary,
   type WorkOrderWorkGroup,
   type WorkOrderWorkLine,
+  type QuickCreateRequest,
+  type QuickCreateResult,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { useConfirm } from '../components/ConfirmContext.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
+import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -57,6 +59,7 @@ import {
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import { formatMoscowDate, formatMoscowDayMonthName } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
+import { normalizeLookupText } from '../utils/searchMatching.js';
 import { buildWorkOrderA4PreviewHtml, escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
@@ -298,6 +301,7 @@ export function WorkOrderDetailsPage(props: {
   /** Смена номера наряда — только суперадмин (чинить номера, потерянные старым багом). */
   canChangeWorkOrderNumber?: boolean;
   onOpenPart?: (partId: string) => void;
+  onOpenEngine?: (engineId: string) => void;
   onOpenService?: (serviceId: string) => void;
   onOpenEmployee?: (employeeId: string) => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
@@ -350,7 +354,7 @@ export function WorkOrderDetailsPage(props: {
   // upsert resurrects the cleared draft (deletedAt: null) and the card pops up on next start
   // as an «unsaved» ghost — with a pre-materialize number-0 snapshot inside.
   const draftWriteRef = useRef<Promise<unknown> | null>(null);
-  const { confirm } = useConfirm();
+  const { confirm, pickChoice } = useConfirm();
 
   function buildDraftTitle(p: WorkOrderPayload): string {
     const num = Number(p.workOrderNumber ?? 0);
@@ -1335,12 +1339,6 @@ export function WorkOrderDetailsPage(props: {
     return exact;
   }
 
-  function findExistingEmployeeByLabel(label: string): EmployeeInfo | null {
-    const key = normalizeLookupValue(label);
-    if (!key) return null;
-    return employees.find((employee) => normalizeLookupValue(employee.displayName) === key) ?? null;
-  }
-
   function applyServiceSnapshotToLines(lines: WorkOrderWorkLine[], idx: number, serviceId: string | null): WorkOrderWorkLine[] {
     if (!serviceId) {
       return lines.map((line, lineIdx) =>
@@ -1402,31 +1400,39 @@ export function WorkOrderDetailsPage(props: {
     return created.id;
   }
 
-  async function createEmployeeFromWorkOrder(label: string): Promise<string | null> {
-    if (props.canCreateEmployees !== true) return null;
-    const clean = label.trim();
-    if (!clean) return null;
-    const existing = findExistingEmployeeByLabel(clean);
-    if (existing?.id) {
-      setStatus(`Использован существующий сотрудник: ${existing.displayName}`);
-      return existing.id;
+  async function quickCreateServiceFromWorkOrder(
+    request: QuickCreateRequest,
+    engineBrandId: string | null,
+  ): Promise<QuickCreateResult | null> {
+    const clean = request.label.trim();
+    const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
+    const serviceType = (types as any[]).find((entry) => String(entry.code) === 'service');
+    if (!serviceType?.id) throw new Error('Справочник услуг не найден');
+    const duplicates = await window.matrica.admin.entities.findDuplicates({
+      entityTypeId: String(serviceType.id),
+      query: { name: clean },
+    });
+    const exactDuplicates = (duplicates ?? []).filter(
+      (candidate) => normalizeLookupText(String(candidate.displayName ?? '')) === normalizeLookupText(clean),
+    );
+    if (exactDuplicates.length > 0) {
+      const choice = await pickChoice({
+        title: 'Такая услуга уже существует',
+        detail: 'Выберите существующую запись. Дубликат создан не будет.',
+        choices: exactDuplicates.slice(0, 5).map((candidate) => ({ id: candidate.id, label: candidate.displayName })),
+      });
+      const selected = exactDuplicates.find((candidate) => candidate.id === choice);
+      return selected ? { id: selected.id, label: selected.displayName, existing: true } : null;
     }
-    const created = await window.matrica.employees.create();
-    if (!created?.ok || !created?.id) {
-      const err = !created?.ok && created && 'error' in created ? (created as { error: string }).error : 'unknown';
-      setStatus(`Ошибка создания сотрудника: ${err}`);
-      return null;
-    }
-    const parts = clean.split(/\s+/).filter(Boolean);
-    const lastName = parts[0] ?? clean;
-    const firstName = parts[1] ?? '';
-    const middleName = parts.slice(2).join(' ');
-    await window.matrica.employees.setAttr(created.id, 'last_name', lastName);
-    if (firstName) await window.matrica.employees.setAttr(created.id, 'first_name', firstName);
-    if (middleName) await window.matrica.employees.setAttr(created.id, 'middle_name', middleName);
-    await window.matrica.employees.setAttr(created.id, 'full_name', clean);
-    setEmployees((prev) => [...prev, { id: created.id, displayName: clean }].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ru')));
-    return created.id;
+
+    const id = await createServiceFromWorkOrder(clean, null, { engineBrandId });
+    if (!id) return null;
+    const unit = String(request.fields?.unit ?? 'шт').trim() || 'шт';
+    const price = Math.max(0, Number(request.fields?.price ?? 0) || 0);
+    await window.matrica.admin.entities.setAttr(id, 'unit', unit);
+    await window.matrica.admin.entities.setAttr(id, 'price', price);
+    await loadRefs();
+    return { id, label: clean, existing: false };
   }
 
   function moveCrewMember(from: number, to: number) {
@@ -1862,12 +1868,14 @@ export function WorkOrderDetailsPage(props: {
               <tr key={`crew-${idx}-${member.employeeId}`}>
                 <td data-col-kind="name">
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
-                    <SearchSelectWithCreate
+                    <EntityReferenceField
+                      target="employee"
+                      targetLabel="Сотрудник"
                       value={member.employeeId || null}
                       options={employeeOptions}
                       disabled={!canEditNow}
-                      canCreate={props.canCreateEmployees === true}
-                      createLabel="Новый сотрудник"
+                      optionsReady={!loading}
+                      {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
                       onChange={(next) => {
                         const employee = employees.find((x) => x.id === next);
                         const crew = payload.crew.map((c, i) =>
@@ -1875,24 +1883,8 @@ export function WorkOrderDetailsPage(props: {
                         );
                         patch({ ...payload, crew });
                       }}
-                      onCreate={async (label) => {
-                        const createdId = await createEmployeeFromWorkOrder(label);
-                        if (!createdId) return null;
-                        const employee = employees.find((x) => x.id === createdId);
-                        const nextName = employee?.displayName || label.trim();
-                        const crew = payload.crew.map((c, i) =>
-                          i === idx ? { ...c, employeeId: createdId, employeeName: nextName } : c,
-                        );
-                        patch({ ...payload, crew });
-                        return createdId;
-                      }}
                       placeholder="Выберите сотрудника"
                     />
-                    {member.employeeId && props.onOpenEmployee ? (
-                      <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(member.employeeId as string)}>
-                        Открыть
-                      </Button>
-                    ) : null}
                   </div>
                 </td>
                 <td data-col-kind="num" style={rightCellStyle}>
@@ -2061,10 +2053,14 @@ export function WorkOrderDetailsPage(props: {
                         onChange={(e) => setSlot(idx, 'caption', e.target.value)}
                         onBlur={(e) => persistSignatureCaption(e.target.value)}
                       />
-                      <SearchSelect
+                      <EntityReferenceField
+                        target="employee"
+                        targetLabel="Сотрудник"
                         value={slot.employeeId || null}
                         options={signatureEmployeeOptions}
                         disabled={!canEditNow}
+                        optionsReady={!loading}
+                        {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
                         onChange={(next) => {
                           setSlot(idx, 'employeeId', next || '');
                           if (next) rememberSignatureEmployee(next);
@@ -2325,10 +2321,14 @@ export function WorkOrderDetailsPage(props: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-2, 4px)' }}>
             <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Двигатель</span>
             <div style={{ minWidth: 220 }}>
-              <SearchSelect
+              <EntityReferenceField
+                target="engine"
+                targetLabel="Двигатель"
                 value={resolveAssemblyEngineId(payload)}
                 options={engineOptions}
                 disabled={!canEditNow}
+                optionsReady={!loading}
+                {...(props.onOpenEngine ? { onOpen: props.onOpenEngine } : {})}
                 placeholder="Выберите двигатель сборки"
                 onChange={(next) => {
                   // Единый двигатель сборочного наряда: выбор в шапке проставляется во все строки
@@ -2996,10 +2996,14 @@ export function WorkOrderDetailsPage(props: {
                 <tr key={`free-work-line-${idx}`}>
                   {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
-                      <SearchSelect
+                      <EntityReferenceField
+                        target="engine"
+                        targetLabel="Двигатель"
                         value={line.engineId || null}
                         options={engineOptionsForLine}
                         disabled={!canEditNow}
+                        optionsReady={!loading}
+                        {...(props.onOpenEngine ? { onOpen: props.onOpenEngine } : {})}
                         placeholder="Выберите двигатель"
                         onChange={(next) => {
                           const eng = next ? engines.find((e) => e.id === next) : null;
@@ -3034,12 +3038,16 @@ export function WorkOrderDetailsPage(props: {
                   {!appliedHiddenFields.has('serviceName') ? (
                   <td data-col-kind="name">
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6, alignItems: 'start' }}>
-                      <SearchSelectWithCreate
+                      <EntityReferenceField
+                        target="service"
+                        targetLabel="Услуга"
                         value={line.serviceId}
                         options={serviceOptionsForLine}
                         disabled={!canEditNow}
+                        optionsReady={!loading}
                         canCreate={props.canEditMasterData}
                         createLabel="Новая услуга"
+                        {...(props.onOpenService ? { onOpen: props.onOpenService } : {})}
                         onChange={(next) =>
                           patch({
                             ...payload,
@@ -3057,21 +3065,21 @@ export function WorkOrderDetailsPage(props: {
                           });
                           return createdId;
                         }}
+                        onQuickCreate={(request) => quickCreateServiceFromWorkOrder(request, brandForLine)}
                         placeholder="Выберите вид работ"
                       />
-                      {line.serviceId && props.onOpenService ? (
-                        <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenService?.(line.serviceId as string)}>
-                          Открыть
-                        </Button>
-                      ) : null}
                     </div>
                   </td>
                   ) : null}
                   <td data-col-kind="name">
-                    <SearchSelect
+                    <EntityReferenceField
+                      target="part"
+                      targetLabel="Деталь"
                       value={line.partId || null}
                       options={partOptions}
                       disabled={!canEditNow}
+                      optionsReady={!loading}
+                      {...(props.onOpenPart ? { onOpen: props.onOpenPart } : {})}
                       placeholder="Выберите изделие"
                       onChange={(next) => {
                         const part = next ? parts.find((p) => p.id === next) : null;
@@ -3136,7 +3144,9 @@ export function WorkOrderDetailsPage(props: {
                   </td>
                   {payload.workOrderKind === WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
-                      <SearchSelect
+                      <EntityReferenceField
+                        target="warehouse"
+                        targetLabel="Склад"
                         value={(() => {
                           // Phase 2.4 PR 1: legacy строки в payload могут содержать 'workshop_<code>'
                           // или 'default' и т.п. Резолвим в uuid через warehouse_locations.code,

@@ -4,6 +4,7 @@ import type { EngineActApprover, EngineActTemplateSummary, EngineActType, Engine
 import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairFundIntakeFromInventory, buildScrapIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { EntityReferenceField } from './EntityReferenceField.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { OverflowTooltipInput } from './OverflowTooltipInput.js';
@@ -2215,7 +2216,9 @@ export function RepairChecklistPanel(props: {
                     return (
                       <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <div style={{ flex: 1, maxWidth: 360 }}>
-                          <SearchSelect
+                          <EntityReferenceField
+                            target="employee"
+                            targetLabel="Сотрудник"
                             value={emp.employeeId || null}
                             options={options}
                             disabled={!props.canEdit}
@@ -2309,7 +2312,9 @@ export function RepairChecklistPanel(props: {
                     onChange={(e) => props.canEdit && writeGrif({ ...grif, positionOverride: e.target.value })}
                     onBlur={() => void save(answers)}
                   />
-                  <SearchSelect
+                  <EntityReferenceField
+                    target="employee"
+                    targetLabel="Утверждающий"
                     value={empValue}
                     options={employeeOptions}
                     disabled={!props.canEdit}
@@ -2620,13 +2625,15 @@ export function RepairChecklistPanel(props: {
                                     null;
                                   const valueId = match?.id ?? null;
                                   return (
-                                    <SearchSelect
+                                    <EntityReferenceField
+                                      target="part"
+                                      targetLabel="Деталь или узел"
                                       value={valueId}
                                       options={defectOptions}
                                       disabled={!props.canEdit}
                                       placeholder="Выберите деталь или узел"
                                       createLabel="Добавить"
-                                      {...(props.canEdit ? { onCreate: createDefectItem } : {})}
+                                      {...(props.canEdit ? { onCreate: createDefectItem, canCreate: true } : {})}
                                       onChange={(next) => {
                                         const selected = defectOptions.find((o) => o.id === next) ?? null;
                                         const label = selected?.label ?? '';
@@ -2666,13 +2673,15 @@ export function RepairChecklistPanel(props: {
                                     null;
                                   const valueId = match?.id ?? null;
                                   return (
-                                    <SearchSelect
+                                    <EntityReferenceField
+                                      target="part"
+                                      targetLabel="Деталь"
                                       value={valueId}
                                       options={completenessOptions}
                                       disabled={!props.canEdit}
                                       placeholder="Выберите деталь"
                                       createLabel="Добавить"
-                                      {...(props.canEdit ? { onCreate: createCompletenessItem } : {})}
+                                      {...(props.canEdit ? { onCreate: createCompletenessItem, canCreate: true } : {})}
                                       onChange={(next) => {
                                         const selected = completenessOptions.find((o) => o.id === next) ?? null;
                                         const label = selected?.label ?? '';
@@ -2728,13 +2737,15 @@ export function RepairChecklistPanel(props: {
                                     null;
                                   const valueId = match?.id ?? null;
                                   return (
-                                    <SearchSelect
+                                    <EntityReferenceField
+                                      target="part"
+                                      targetLabel="Деталь"
                                       value={valueId}
                                       options={inventoryOptions}
                                       disabled={!props.canEdit}
                                       placeholder="Выберите деталь"
                                       createLabel="Добавить"
-                                      {...(props.canEdit ? { onCreate: createInventoryItem } : {})}
+                                      {...(props.canEdit ? { onCreate: createInventoryItem, canCreate: true } : {})}
                                       onChange={(next) => {
                                         const selected = inventoryOptions.find((o) => o.id === next) ?? null;
                                         const label = selected?.label ?? '';

@@ -169,7 +169,7 @@ export function registerAdminIpc(ctx: IpcContext) {
   });
   ipcMain.handle(
     'admin:entities:findDuplicates',
-    async (_e, args: { entityTypeId: string; query: { name?: string; article?: string; price?: number }; excludeEntityId?: string }) => {
+    async (_e, args: { entityTypeId: string; query: { name?: string; article?: string; inn?: string; price?: number }; excludeEntityId?: string }) => {
       const gate = await requirePermOrResult(ctx, 'masterdata.view');
       if (!gate.ok) return [];
       return findDuplicateEntities(ctx.dataDb(), args.entityTypeId, args.query, args.excludeEntityId);

@@ -10,8 +10,8 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
-import { SearchSelect } from './SearchSelect.js';
 import {
   deleteWoPrintTemplate,
   loadWoPrintDefault,
@@ -333,7 +333,9 @@ export function WorkOrderPrintDialog(props: {
                     title="Своя должность утверждающего — печатается вместо пресета"
                     style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid var(--input-border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: 12 }}
                   />
-                  <SearchSelect
+                  <EntityReferenceField
+                    target="employee"
+                    targetLabel="Утверждающий"
                     value={draft.approverEmployeeId ?? null}
                     options={emp.map((x) => ({ id: x.id, label: x.label, ...(x.hintText ? { hintText: x.hintText } : {}) }))}
                     placeholder={`Сотрудник для ФИО (по умолчанию: ${preset.name})`}

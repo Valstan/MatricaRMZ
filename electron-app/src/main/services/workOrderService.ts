@@ -6,6 +6,8 @@ import {
   WORK_ORDER_PAYLOAD_VERSION,
   WorkOrderKind,
   canViewWorkOrder,
+  collectWorkOrderEntityReferences,
+  collectWorkOrderUnresolvedTextIssues,
   findWorkOrderSignatureSlots,
   normalizeWorkOrderLine,
   normalizeWorkOrderPayloadV3Fields,
@@ -18,7 +20,7 @@ import { SystemIds } from '@matricarmz/shared';
 import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
 import { resolveEngineLabels, type EngineLabel } from './engineService.js';
 
-import { auditLog, operations } from '../database/schema.js';
+import { auditLog, entities, entityTypes, operations } from '../database/schema.js';
 
 const WORK_ORDERS_CONTAINER_ID = SystemIds.WorkOrdersContainerEntityId;
 const WORK_ORDERS_OPERATION_TYPE = 'work_order';
@@ -767,6 +769,42 @@ function mergeAuditTrail(stored: unknown, incoming: unknown): WorkOrderAuditTrai
   return merged.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
 }
 
+async function validateChangedWorkOrderReferences(
+  db: BetterSQLite3Database,
+  payload: WorkOrderPayload,
+  previous: WorkOrderPayload | null,
+): Promise<string | null> {
+  const unresolved = collectWorkOrderUnresolvedTextIssues(payload, previous);
+  if (unresolved[0]) {
+    return `${unresolved[0].path}: выберите услугу из базы данных`;
+  }
+
+  const previousByPath = new Map(
+    collectWorkOrderEntityReferences(previous ?? {}).map((candidate) => [candidate.path, candidate]),
+  );
+  const changed = collectWorkOrderEntityReferences(payload).filter((candidate) => {
+    const before = previousByPath.get(candidate.path);
+    return !before || before.referenceId !== candidate.referenceId || before.expectedType !== candidate.expectedType;
+  });
+  if (changed.length === 0) return null;
+
+  const ids = [...new Set(changed.map((candidate) => candidate.referenceId))];
+  const rows = await db
+    .select({ id: entities.id, typeCode: entityTypes.code })
+    .from(entities)
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
+  const typeById = new Map(rows.map((row) => [String(row.id), String(row.typeCode)]));
+  for (const candidate of changed) {
+    const actualType = typeById.get(candidate.referenceId);
+    if (!actualType) return `${candidate.path}: элемент ${candidate.referenceId} не найден`;
+    if (actualType !== candidate.expectedType) {
+      return `${candidate.path}: ожидался тип ${candidate.expectedType}, получен ${actualType}`;
+    }
+  }
+  return null;
+}
+
 export async function updateWorkOrder(
   db: BetterSQLite3Database,
   args: { id: string; payload: WorkOrderPayload; actor: string },
@@ -789,6 +827,8 @@ export async function updateWorkOrder(
     // assigns the number (max+1) now. Any number carried in the payload (0 sentinel, or a source
     // order's number on copy) is ignored on insert — a new order always gets a fresh number.
     if (existing.length === 0) {
+      const referenceError = await validateChangedWorkOrderReferences(db, args.payload, null);
+      if (referenceError) return { ok: false as const, error: referenceError };
       const workOrderNumber = await nextWorkOrderNumber(db);
       const payload = recalcPayload({
         ...args.payload,
@@ -819,6 +859,12 @@ export async function updateWorkOrder(
     // stored number (the «№ новый навсегда» loss). Row's number wins; if the row itself is
     // broken (0, from a past incident), heal it: keep a valid payload number or assign a fresh one.
     const existingParsed = existing[0]?.metaJson ? (safeJsonParse(String(existing[0].metaJson)) as any) : null;
+    const referenceError = await validateChangedWorkOrderReferences(
+      db,
+      args.payload,
+      existingParsed?.kind === 'work_order' ? (existingParsed as WorkOrderPayload) : null,
+    );
+    if (referenceError) return { ok: false as const, error: referenceError };
     const existingNumber = Number(existingParsed?.workOrderNumber ?? 0);
     const payloadNumber = Number(args.payload.workOrderNumber ?? 0);
     const workOrderNumber =

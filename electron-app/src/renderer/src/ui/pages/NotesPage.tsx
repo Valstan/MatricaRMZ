@@ -5,6 +5,7 @@ import type { NoteBlock, NoteItem, NoteShareItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
+import { Input } from '../components/Input.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { theme } from '../theme.js';
@@ -43,6 +44,13 @@ function formatDate(ms: number | null) {
   const hh = String(dt.getHours()).padStart(2, '0');
   const mm = String(dt.getMinutes()).padStart(2, '0');
   return `${day} ${month} ${year}, ${hh}:${mm}`;
+}
+
+function formatLocalDateTimeInput(ms: number | null): string {
+  if (!ms) return '';
+  const value = new Date(ms);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
 }
 
 function normalizeRecipientUsers(rawUsers: ChatUserItem[], meUserId: string) {
@@ -731,9 +739,9 @@ export function NotesPage(props: {
             />
             <span style={{ fontSize: 12 }}>Напоминание</span>
           </label>
-          <input
+          <Input
             type="datetime-local"
-            value={draft.dueAt ? new Date(draft.dueAt).toISOString().slice(0, 16) : ''}
+            value={formatLocalDateTimeInput(draft.dueAt)}
             disabled={!props.canEdit || !draft.dueAt}
             onChange={(e) => updateDraft(note.id, { dueAt: e.target.value ? new Date(e.target.value).getTime() : null })}
             style={{

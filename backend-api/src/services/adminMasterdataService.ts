@@ -215,6 +215,29 @@ async function getDefsByType(entityTypeId: string) {
   return { defs, byCode };
 }
 
+async function validateLinkValue(def: typeof attributeDefs.$inferSelect, value: unknown): Promise<string | null> {
+  if (String(def.dataType) !== 'link') return null;
+  const ids = (Array.isArray(value) ? value : [value]).map((item) => String(item ?? '').trim()).filter(Boolean);
+  if (ids.length === 0) return null;
+  const meta = def.metaJson ? safeJsonParse(String(def.metaJson)) : null;
+  const expectedType =
+    meta && typeof meta === 'object' && !Array.isArray(meta)
+      ? String((meta as Record<string, unknown>).linkTargetTypeCode ?? '').trim()
+      : '';
+  const rows = await db
+    .select({ id: entities.id, typeCode: entityTypes.code })
+    .from(entities)
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(and(inArray(entities.id, [...new Set(ids)] as any), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
+  const typeById = new Map(rows.map((row) => [String(row.id), String(row.typeCode)]));
+  for (const id of ids) {
+    const actualType = typeById.get(id);
+    if (!actualType) return `${def.code}: связанный элемент ${id} не найден`;
+    if (expectedType && actualType !== expectedType) return `${def.code}: ожидался тип ${expectedType}, получен ${actualType}`;
+  }
+  return null;
+}
+
 function safeJsonParse(s: string): unknown {
   try {
     return JSON.parse(s);
@@ -1030,7 +1053,7 @@ export async function setEntityAttribute(
   const e = await db.select().from(entities).where(eq(entities.id, entityId as any)).limit(1);
   if (!e[0]) return { ok: false as const, error: 'Сущность не найдена' };
 
-  const { byCode } = await getDefsByType(String(e[0].typeId));
+  const { defs, byCode } = await getDefsByType(String(e[0].typeId));
   const defId = byCode[code];
   if (!defId) return { ok: false as const, error: `Неизвестный атрибут: ${code}` };
 
@@ -1043,6 +1066,13 @@ export async function setEntityAttribute(
   const ts = existingAttrUpdatedAt == null || !Number.isFinite(existingAttrUpdatedAt) ? nowMs() : Math.max(nowMs(), existingAttrUpdatedAt + 1);
 
   const payloadJson = toValueJson(value);
+  if (String(existing[0]?.valueJson ?? '') !== payloadJson) {
+    const def = defs.find((candidate) => String(candidate.id) === defId);
+    if (def) {
+      const referenceError = await validateLinkValue(def, value);
+      if (referenceError) return { ok: false as const, error: referenceError };
+    }
+  }
   const duplicateId = await findDuplicateEntityId({
     entityId,
     entityTypeId: String(e[0].typeId),

@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ToolMovementItem, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -319,7 +319,9 @@ export function SupplyToolMovementsPage(props: {
         {!editingMovementId && (
           <div className="card-row" style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : '160px 1fr', gap: 8, padding: '6px 6px' }}>
             <div>Позиция (номенклатура)</div>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="nomenclature"
+              targetLabel="Номенклатура"
               value={subjectEntityId}
               options={subjectOptions}
               placeholder="Инструмент или товар из номенклатуры"
@@ -328,6 +330,7 @@ export function SupplyToolMovementsPage(props: {
               createLabel=""
               onChange={(next) => setSubjectEntityId(next ?? '')}
               onCreate={async () => null}
+              onOpen={props.onOpenNomenclature}
             />
           </div>
         )}
@@ -353,7 +356,9 @@ export function SupplyToolMovementsPage(props: {
             <option value="returned">Вернул</option>
           </select>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="employee"
+              targetLabel="Сотрудник"
               value={newMoveEmployeeId}
               options={employeeOptions}
               placeholder="Сотрудник"
@@ -362,12 +367,8 @@ export function SupplyToolMovementsPage(props: {
               createLabel="Новый сотрудник"
               onChange={(next) => setNewMoveEmployeeId(next ?? '')}
               onCreate={createEmployeeOption}
+              onOpen={props.onOpenEmployee}
             />
-            {newMoveEmployeeId ? (
-              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee(newMoveEmployeeId)}>
-                Открыть
-              </Button>
-            ) : null}
           </div>
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementSecondaryGridTemplate, gap: 8, padding: '4px 6px' }}>
@@ -376,7 +377,9 @@ export function SupplyToolMovementsPage(props: {
             Подтверждено
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="employee"
+              targetLabel="Заведующий"
               value={newMoveConfirmedById}
               options={employeeOptions}
               placeholder="Заведующий"
@@ -385,12 +388,8 @@ export function SupplyToolMovementsPage(props: {
               createLabel="Новый сотрудник"
               onChange={(next) => setNewMoveConfirmedById(next ?? '')}
               onCreate={createEmployeeOption}
+              onOpen={props.onOpenEmployee}
             />
-            {newMoveConfirmedById ? (
-              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee(newMoveConfirmedById)}>
-                Открыть
-              </Button>
-            ) : null}
           </div>
           <Input
             value={newMoveComment}

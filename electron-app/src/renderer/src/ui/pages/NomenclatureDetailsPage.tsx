@@ -18,6 +18,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
 import { Input } from '../components/Input.js';
@@ -647,7 +648,9 @@ export function NomenclatureDetailsPage(props: {
             ))}
           </select>
           <div title="Тип компонента в спецификации сборки двигателя (BOM). Определяет, в какой группе появится номенклатура при выборе в строке BOM.">Тип компонента BOM</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="bom_component_type"
+            targetLabel="Тип компонента BOM"
             value={componentTypeId}
             disabled={!canEditNomenclatureFields}
             options={bomComponentTypeOptions}
@@ -659,7 +662,9 @@ export function NomenclatureDetailsPage(props: {
           <div>Шаблон</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-              <SearchSelect
+              <EntityReferenceField
+                target="nomenclature_template"
+                targetLabel="Шаблон номенклатуры"
                 value={templateId}
                 disabled={!canEditNomenclatureFields}
                 options={templateOptions}
@@ -700,7 +705,9 @@ export function NomenclatureDetailsPage(props: {
             ) : null}
           </div>
           <div>Группа</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="nomenclature_group"
+            targetLabel="Группа номенклатуры"
             value={groupId}
             disabled={!canEditNomenclatureFields}
             options={groupOptions}
@@ -728,7 +735,9 @@ export function NomenclatureDetailsPage(props: {
               : {})}
           />
           <div>Единица измерения</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="unit"
+            targetLabel="Единица измерения"
             value={unitId}
             disabled={!canEditNomenclatureFields}
             options={unitOptions}
@@ -766,7 +775,9 @@ export function NomenclatureDetailsPage(props: {
             </>
           )}
           <div>Марка по умолчанию</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="engine_brand"
+            targetLabel="Марка двигателя"
             value={defaultBrandId}
             disabled={!canEditNomenclatureFields}
             options={brandOptions}
@@ -777,6 +788,7 @@ export function NomenclatureDetailsPage(props: {
               setDefaultBrandId(next);
               pushRecent('defaultBrandId', next);
             }}
+            {...(props.onOpenEngineBrand ? { onOpen: props.onOpenEngineBrand } : {})}
             {...(canEditNomenclatureFields
               ? {
                   createLabel: 'Новая марка',
@@ -805,7 +817,9 @@ export function NomenclatureDetailsPage(props: {
           {itemType !== 'service' && (
             <>
               <div>Склад по умолчанию</div>
-              <SearchSelect
+              <EntityReferenceField
+                target="warehouse"
+                targetLabel="Склад"
                 value={defaultWarehouseId}
                 disabled={!canEditNomenclatureFields}
                 options={warehouseOptions}
@@ -1178,7 +1192,9 @@ export function NomenclatureDetailsPage(props: {
                   return (
                     <div key={link.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) 1fr 120px auto', gap: 8, alignItems: 'center' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <SearchSelect
+                        <EntityReferenceField
+                          target="engine_brand"
+                          targetLabel="Марка двигателя"
                           value={link.engineBrandId}
                           disabled={!canEditNomenclatureFields || derived}
                           options={specEngineBrandOptions}
@@ -1186,6 +1202,7 @@ export function NomenclatureDetailsPage(props: {
                           showAllWhenEmpty
                           emptyQueryLimit={15}
                           onChange={(next) => setSpecBrandLinks((prev) => prev.map((b, i) => (i === index ? { ...b, engineBrandId: next } : b)))}
+                          {...(props.onOpenEngineBrand ? { onOpen: props.onOpenEngineBrand } : {})}
                         />
                         {derived ? (
                           <span style={{ fontSize: 11, color: 'var(--subtle)' }} title="Марка добавлена живой привязкой к группе; управляется составом группы">
@@ -1259,7 +1276,9 @@ export function NomenclatureDetailsPage(props: {
         {canEditNomenclatureFields ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr) auto', gap: 8, marginBottom: 10 }}>
             <Input value={instanceSerial} onChange={(e) => setInstanceSerial(e.target.value)} placeholder="Серийный номер" />
-            <SearchSelect
+            <EntityReferenceField
+              target="contract"
+              targetLabel="Контракт"
               value={instanceContractId}
               options={contractOptions}
               placeholder="Контракт (опционально)"
@@ -1269,6 +1288,7 @@ export function NomenclatureDetailsPage(props: {
                 setInstanceContractId(next);
                 pushRecent('instanceContractId', next);
               }}
+              {...(props.onOpenContract ? { onOpen: props.onOpenContract } : {})}
             />
             <SearchSelect
               value={instanceContractSectionNumber}
@@ -1278,7 +1298,9 @@ export function NomenclatureDetailsPage(props: {
               disabled={!instanceContractId}
               onChange={setInstanceContractSectionNumber}
             />
-            <SearchSelect
+            <EntityReferenceField
+              target="warehouse"
+              targetLabel="Склад"
               value={instanceWarehouseId}
               options={instanceWarehouseOptions}
               placeholder="Склад"
