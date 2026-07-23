@@ -99,6 +99,11 @@ export const operations = sqliteTable(
   },
   (t) => ({
     syncStatusIdx: index('operations_sync_status_idx').on(t.syncStatus),
+    // Все операции лежат в одной таблице, а тяжесть её — акты дефектовки (на проде 2026-07:
+    // 79 МБ из 96 МБ meta_json). Без этих индексов выборка «наряды» или «акты этого двигателя»
+    // full-scan'ила таблицу, поднимая чужие блобы.
+    typeUpdatedIdx: index('operations_type_deleted_updated_idx').on(t.operationType, t.deletedAt, t.updatedAt),
+    engineTypeIdx: index('operations_engine_type_idx').on(t.engineEntityId, t.operationType),
   }),
 );
 

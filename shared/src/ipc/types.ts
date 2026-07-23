@@ -1035,6 +1035,10 @@ export type MatricaApi = {
     };
     entities: {
       listByEntityType: (entityTypeId: string) => Promise<EntityListItem[]>;
+      /** Список типа сразу с атрибутами (ключ — код): один вызов вместо «список + get на строку». */
+      listByEntityTypeWithAttrs: (
+        entityTypeId: string,
+      ) => Promise<Array<{ id: string; updatedAt: number; attributes: Record<string, unknown> }>>;
       create: (entityTypeId: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       // fallbackTypeId (deferred-create): a not-yet-saved card has no row — passing the type
       // synthesizes an empty card on get and materializes the row on the first setAttr.
@@ -1329,6 +1333,11 @@ export type MatricaApi = {
     >;
     get: (id: string) => Promise<
       | { ok: true; payload: WorkOrderPayload; status: string; updatedAt: number }
+      | { ok: false; error: string }
+    >;
+    /** Наряды, где задействована деталь — для панели «Где используется» карточки детали. */
+    usageByPart: (partId: string) => Promise<
+      | { ok: true; rows: Array<{ id: string; workOrderNumber: number }> }
       | { ok: false; error: string }
     >;
     activeAssemblyVariant: (engineId: string) => Promise<

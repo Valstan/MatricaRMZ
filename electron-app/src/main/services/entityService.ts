@@ -136,6 +136,65 @@ export async function createEntity(db: BetterSQLite3Database, entityTypeId: stri
   return { ok: true as const, id };
 }
 
+/**
+ * Все сущности типа сразу вместе с атрибутами (ключ — код атрибута).
+ *
+ * Замена циклу «список + `getEntityDetails` на каждую строку»: тот делает по одному IPC-вызову
+ * и ~1+N запросов на КАЖДУЮ сущность (на проде 368 услуг → 368 round-trip'ов при открытии каждой
+ * карточки наряда, main-процесс синхронный и на это время встаёт). Здесь — два запроса на всё.
+ */
+export async function listEntitiesByTypeWithAttrs(
+  db: BetterSQLite3Database,
+  entityTypeId: string,
+): Promise<Array<{ id: string; updatedAt: number; attributes: Record<string, unknown> }>> {
+  const rows = await db
+    .select({ id: entities.id, updatedAt: entities.updatedAt })
+    .from(entities)
+    .where(and(eq(entities.typeId, entityTypeId), isNull(entities.deletedAt)))
+    .limit(5000);
+  if (rows.length === 0) return [];
+
+  const { defs } = await getDefsByType(db, entityTypeId);
+  const codeByDefId = new Map(defs.map((d) => [String(d.id), String(d.code)]));
+  const entityIds = rows.map((row) => String(row.id));
+
+  const valueRows =
+    codeByDefId.size > 0
+      ? await db
+          .select({
+            entityId: attributeValues.entityId,
+            attributeDefId: attributeValues.attributeDefId,
+            valueJson: attributeValues.valueJson,
+          })
+          .from(attributeValues)
+          .where(
+            and(
+              inArray(attributeValues.entityId, entityIds),
+              inArray(attributeValues.attributeDefId, [...codeByDefId.keys()]),
+              isNull(attributeValues.deletedAt),
+            ),
+          )
+          // Oldest→newest so the per-(entity,def) map keeps the NEWEST value if stray
+          // duplicate rows exist (defensive; setEntityAttribute now collapses them).
+          .orderBy(asc(attributeValues.updatedAt))
+          .limit(200_000)
+      : [];
+
+  const byId = new Map(
+    rows.map((row) => [
+      String(row.id),
+      { id: String(row.id), updatedAt: Number(row.updatedAt), attributes: {} as Record<string, unknown> },
+    ]),
+  );
+  for (const value of valueRows) {
+    const target = byId.get(String(value.entityId));
+    const code = codeByDefId.get(String(value.attributeDefId));
+    if (!target || !code || !value.valueJson) continue;
+    target.attributes[code] = safeJsonParse(String(value.valueJson));
+  }
+  return [...byId.values()];
+}
+
 export async function getEntityDetails(db: BetterSQLite3Database, id: string, fallbackTypeId?: string): Promise<EntityDetails> {
   const e = await db.select().from(entities).where(eq(entities.id, id)).limit(1);
   if (!e[0]) {

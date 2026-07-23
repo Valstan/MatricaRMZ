@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -16,7 +16,7 @@ import {
 } from '@matricarmz/shared';
 import { SystemIds } from '@matricarmz/shared';
 import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
-import { listEngines } from './engineService.js';
+import { resolveEngineLabels, type EngineLabel } from './engineService.js';
 
 import { auditLog, operations } from '../database/schema.js';
 
@@ -364,92 +364,242 @@ async function audit(db: BetterSQLite3Database, actor: string, action: string, p
   });
 }
 
+export type WorkOrderListRow = {
+  id: string;
+  workOrderNumber: number;
+  orderDate: number;
+  startDate: number | null;
+  workType: string;
+  crewCount: number;
+  performerSurnames: string;
+  totalAmountRub: number;
+  updatedAt: number;
+  status: string;
+  linkedDocumentId: string | null;
+  dueDate: number | null;
+  completedAt: number | null;
+  completedDate: number | null;
+  engineBrand: string;
+  engineNumber: string;
+  engineInternalNumber: string;
+  acceptedByEmployeeId: string | null;
+  workOrderKind: string;
+  withdrawnAt: number | null;
+};
+
+/**
+ * Разобранная карточка списка, ключ — id наряда, версия — `updated_at` строки.
+ *
+ * Разбор одной строки стоит JSON.parse + `recalcPayload` (нормализация всех строк работ,
+ * пересчёт КТУ) + сборку haystack'а поиска. Раньше это делалось для всех нарядов на КАЖДЫЙ
+ * вызов списка, а вызывается он на каждую букву в поиске, каждые 15 с и на каждый sync-пульс.
+ * Содержимое строки меняется только вместе с её `updated_at`, поэтому разбор переиспользуется.
+ */
+type WorkOrderSummary = {
+  updatedAt: number;
+  row: WorkOrderListRow;
+  ownerLogin: string;
+  monthKey: string;
+  /** Готовый нормализованный стог для поиска: строится один раз на версию строки. */
+  haystack: string;
+  /** Двигатель, чьи номер/марка нужны сборочному наряду, если в payload их не нашлось. */
+  pendingEngineId: string | null;
+  /** Детали, задействованные в наряде — для ответа «где используется эта деталь». */
+  partIds: string[];
+};
+
+// Кэш привязан к экземпляру БД: в режиме просмотра бэкапа `dataDb()` — другая база,
+// и разбор её строк не должен смешиваться с рабочей.
+const summaryCacheByDb = new WeakMap<object, Map<string, WorkOrderSummary>>();
+
+function summaryCacheFor(db: BetterSQLite3Database): Map<string, WorkOrderSummary> {
+  let cache = summaryCacheByDb.get(db as unknown as object);
+  if (!cache) {
+    cache = new Map<string, WorkOrderSummary>();
+    summaryCacheByDb.set(db as unknown as object, cache);
+  }
+  return cache;
+}
+
+function buildWorkOrderSummary(row: {
+  id: unknown;
+  status: unknown;
+  note: unknown;
+  performedBy: unknown;
+  metaJson: unknown;
+  createdAt: unknown;
+  updatedAt: unknown;
+}): WorkOrderSummary | null {
+  const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
+  if (!payload) return null;
+
+  const partName = getWorkOrderPartNames(payload).join(', ');
+  const workType = getWorkOrderPrimaryWorkType(payload);
+  const performerSurnames = getCrewSurnames(payload);
+  const engineInfo = getWorkOrderEngineInfo(payload);
+  // Сборочный наряд после #133 несёт двигатель в шапке (payload.assemblyEngineId), а построчные
+  // штампы могли быть стрижены normalizeWorkOrderLine — тогда номер/марку дотягиваем из карточки
+  // двигателя. Нужные id копим и резолвим одной выборкой; каталог двигателей для этого не строим.
+  const needsEngine = !engineInfo.engineBrand || !engineInfo.engineNumber || !engineInfo.engineInternalNumber;
+  const pendingEngineId = needsEngine ? (resolveAssemblyEngineId(payload) || null) : null;
+
+  const isClosedRow = String(row.status ?? 'open') === 'closed';
+  const orderDate = Number(payload.orderDate ?? row.createdAt);
+
+  const listRow: WorkOrderListRow = {
+      id: String(row.id),
+      workOrderNumber: Number(payload.workOrderNumber ?? 0),
+      orderDate,
+      startDate: payload.startDate != null && payload.startDate > 0 ? Number(payload.startDate) : null,
+      workType,
+      crewCount: Array.isArray(payload.crew) ? payload.crew.length : 0,
+      performerSurnames,
+      totalAmountRub: Number(payload.totalAmountRub ?? 0),
+      updatedAt: Number(row.updatedAt),
+      status: String(row.status ?? 'open'),
+      linkedDocumentId: payload.linkedDocumentId ? String(payload.linkedDocumentId) : null,
+      dueDate: payload.dueDate != null && payload.dueDate > 0 ? Number(payload.dueDate) : null,
+      completedAt: isClosedRow
+        ? payload.completedDate != null && Number(payload.completedDate) > 0
+          ? Number(payload.completedDate)
+          : Number(row.updatedAt)
+        : null,
+      // Оператор-заданная дата выполнения — surface для ВСЕХ нарядов (в т.ч. открытых): по ней
+      // статус деривится как «выполнен», иначе открытый наряд с датой в срок красился overdue.
+      completedDate:
+        payload.completedDate != null && Number(payload.completedDate) > 0 ? Number(payload.completedDate) : null,
+      engineBrand: engineInfo.engineBrand,
+      engineNumber: engineInfo.engineNumber,
+      engineInternalNumber: engineInfo.engineInternalNumber,
+    acceptedByEmployeeId: getWorkOrderAcceptedByEmployeeId(payload),
+    workOrderKind: String(payload.workOrderKind ?? WorkOrderKind.Regular),
+    withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),
+  };
+
+  const partIds = new Set<string>();
+  for (const group of Array.isArray(payload.workGroups) ? payload.workGroups : []) {
+    const partId = String(group?.partId ?? '').trim();
+    if (partId) partIds.add(partId);
+  }
+  const legacyPartId = String((payload as { partId?: unknown }).partId ?? '').trim();
+  if (legacyPartId) partIds.add(legacyPartId);
+
+  return {
+    updatedAt: Number(row.updatedAt),
+    ownerLogin: String(row.performedBy ?? ''),
+    monthKey: monthKeyFromMs(orderDate),
+    pendingEngineId,
+    partIds: [...partIds],
+    row: listRow,
+    // Номер/марка двигателя лежат в стоге явно: они выводятся из шапки и в JSON payload'а
+    // могут отсутствовать в таком виде (иначе поиск по № двигателя слеп).
+    haystack: normalizeSearch(
+      [
+        payload.workOrderNumber,
+        workType,
+        performerSurnames,
+        partName,
+        listRow.engineNumber,
+        listRow.engineInternalNumber,
+        listRow.engineBrand,
+        row.note ?? '',
+        JSON.stringify(payload),
+      ].join(' '),
+    ),
+  };
+}
+
+/** Свежие разборы всех живых нарядов, новые первыми. Читает и парсит только изменившиеся строки. */
+async function loadWorkOrderSummaries(db: BetterSQLite3Database): Promise<WorkOrderSummary[]> {
+  const cache = summaryCacheFor(db);
+  // Шаг 1 — «головы» без meta_json: по ним видно, какие строки изменились с прошлого вызова.
+  const heads = await db
+    .select({ id: operations.id, updatedAt: operations.updatedAt })
+    .from(operations)
+    .where(and(eq(operations.operationType, WORK_ORDERS_OPERATION_TYPE), isNull(operations.deletedAt)))
+    .orderBy(desc(operations.updatedAt))
+    .limit(5000);
+
+  const staleIds = heads
+    .filter((head) => cache.get(String(head.id))?.updatedAt !== Number(head.updatedAt))
+    .map((head) => String(head.id));
+
+  // Шаг 2 — тяжёлый payload читаем и разбираем только у изменившихся строк.
+  if (staleIds.length > 0) {
+    const bodies = await db
+      .select({
+        id: operations.id,
+        status: operations.status,
+        note: operations.note,
+        performedBy: operations.performedBy,
+        metaJson: operations.metaJson,
+        createdAt: operations.createdAt,
+        updatedAt: operations.updatedAt,
+      })
+      .from(operations)
+      .where(inArray(operations.id, staleIds));
+    for (const body of bodies) {
+      const summary = buildWorkOrderSummary(body);
+      if (summary) cache.set(String(body.id), summary);
+      else cache.delete(String(body.id));
+    }
+  }
+
+  const live = new Set(heads.map((head) => String(head.id)));
+  for (const id of cache.keys()) {
+    if (!live.has(id)) cache.delete(id);
+  }
+
+  return heads.map((head) => cache.get(String(head.id))).filter((s): s is WorkOrderSummary => Boolean(s));
+}
+
+/**
+ * Наряды, где задействована деталь — для панели «Где используется» карточки детали.
+ *
+ * Раньше карточка детали тянула список нарядов и открывала КАЖДЫЙ отдельным IPC-вызовом
+ * (`workOrders.get` × 81 на проде), чтобы посмотреть его строки. Разбор уже есть в кэше списка.
+ */
+export async function listWorkOrdersUsingPart(
+  db: BetterSQLite3Database,
+  partId: string,
+): Promise<{ ok: true; rows: Array<{ id: string; workOrderNumber: number }> } | { ok: false; error: string }> {
+  try {
+    const needle = String(partId ?? '').trim();
+    if (!needle) return { ok: true as const, rows: [] };
+    const summaries = await loadWorkOrderSummaries(db);
+    return {
+      ok: true as const,
+      rows: summaries
+        .filter((summary) => summary.partIds.includes(needle))
+        .map((summary) => ({ id: summary.row.id, workOrderNumber: summary.row.workOrderNumber })),
+    };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function listWorkOrders(
   db: BetterSQLite3Database,
   args?: { q?: string; month?: string; viewer?: { login: string; role: string } },
-): Promise<
-  | {
-      ok: true;
-      rows: Array<{
-        id: string;
-        workOrderNumber: number;
-        orderDate: number;
-        startDate: number | null;
-        workType: string;
-        crewCount: number;
-        performerSurnames: string;
-        totalAmountRub: number;
-        updatedAt: number;
-        status: string;
-        linkedDocumentId: string | null;
-        dueDate: number | null;
-        completedAt: number | null;
-        completedDate: number | null;
-        engineBrand: string;
-        engineNumber: string;
-        engineInternalNumber: string;
-        acceptedByEmployeeId: string | null;
-        workOrderKind: string;
-        withdrawnAt: number | null;
-      }>;
-    }
-  | { ok: false; error: string }
-> {
+): Promise<{ ok: true; rows: WorkOrderListRow[] } | { ok: false; error: string }> {
   try {
-    const rows = await db
-      .select()
-      .from(operations)
-      .where(
-        and(
-          eq(operations.operationType, WORK_ORDERS_OPERATION_TYPE),
-          isNull(operations.deletedAt),
-        ),
-      )
-      .orderBy(desc(operations.updatedAt))
-      .limit(5000);
+    const summaries = await loadWorkOrderSummaries(db);
+
+    const engineLabels = await resolveEngineLabels(
+      db,
+      summaries.map((s) => s.pendingEngineId).filter((id): id is string => Boolean(id)),
+    ).catch(() => new Map<string, EngineLabel>());
 
     const qNorm = args?.q ? normalizeSearch(args.q) : '';
     const month = args?.month ? String(args.month).trim() : '';
     const viewer = args?.viewer;
-    // Сборочный наряд после #133 несёт двигатель в шапке (payload.assemblyEngineId), а
-    // построчные штампы могут быть стрижены normalizeWorkOrderLine — резолвим номер/марку
-    // по карте двигателей. Карта грузится ОДИН раз на вызов и только если в выборке
-    // вообще есть сборочные наряды (без N+1 на 5000 строк).
-    const mayNeedEngineMap = rows.some((r) => String(r.metaJson ?? '').includes('"workOrderKind":"assembly"'));
-    const engineById = mayNeedEngineMap
-      ? new Map((await listEngines(db).catch(() => [])).map((e) => [String(e.id), e]))
-      : null;
     // Configurable restricted-orders lists (Ф3); undefined → shared legacy hardcode.
     const restrictedPolicy = viewer
       ? ((await getRestrictedWorkOrderPolicyLocal(db).catch(() => null)) ?? undefined)
       : undefined;
 
-    const out: Array<{
-      id: string;
-      workOrderNumber: number;
-      orderDate: number;
-      startDate: number | null;
-      workType: string;
-      crewCount: number;
-      performerSurnames: string;
-      totalAmountRub: number;
-      updatedAt: number;
-      status: string;
-      linkedDocumentId: string | null;
-      dueDate: number | null;
-      completedAt: number | null;
-      completedDate: number | null;
-      engineBrand: string;
-      engineNumber: string;
-      engineInternalNumber: string;
-      acceptedByEmployeeId: string | null;
-      workOrderKind: string;
-      withdrawnAt: number | null;
-    }> = [];
-
-    for (const row of rows) {
-      const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
-      if (!payload) continue;
+    const out: WorkOrderListRow[] = [];
+    for (const summary of summaries) {
       // Display-time isolation: hide work orders the signed-in user may not see
       // (owner = performed_by). Full DB stays local; this filters the list only.
       if (
@@ -457,78 +607,36 @@ export async function listWorkOrders(
         !canViewWorkOrder({
           viewerLogin: viewer.login,
           viewerRole: viewer.role,
-          ownerLogin: String(row.performedBy ?? ''),
+          ownerLogin: summary.ownerLogin,
           ...(restrictedPolicy ? { policy: restrictedPolicy } : {}),
         })
       ) {
         continue;
       }
-      const partName = getWorkOrderPartNames(payload).join(', ');
-      const workType = getWorkOrderPrimaryWorkType(payload);
-      const performerSurnames = getCrewSurnames(payload);
-      const engineInfo = getWorkOrderEngineInfo(payload);
-      if ((!engineInfo.engineBrand || !engineInfo.engineNumber || !engineInfo.engineInternalNumber) && engineById) {
-        const engineId = resolveAssemblyEngineId(payload);
-        const engine = engineId ? engineById.get(engineId) : undefined;
-        if (engine) {
-          if (!engineInfo.engineBrand) engineInfo.engineBrand = String(engine.engineBrand ?? '').trim();
-          if (!engineInfo.engineNumber) engineInfo.engineNumber = String(engine.engineNumber ?? '').trim();
-          // Наряды, выписанные до внутренних номеров, снимка не имеют — дотягиваем из
-          // карточки двигателя, иначе колонка была бы вечно пустой на старых нарядах.
-          if (!engineInfo.engineInternalNumber) {
-            engineInfo.engineInternalNumber = String(engine.internalNumberFull ?? '').trim();
+      if (month && summary.monthKey !== month) continue;
+
+      const row = summary.row;
+      const label = summary.pendingEngineId ? engineLabels.get(summary.pendingEngineId) : undefined;
+      const resolved = label
+        ? {
+            ...row,
+            engineBrand: row.engineBrand || label.engineBrand,
+            engineNumber: row.engineNumber || label.engineNumber,
+            // Наряды, выписанные до внутренних номеров, снимка не имеют — дотягиваем из
+            // карточки двигателя, иначе колонка была бы вечно пустой на старых нарядах.
+            engineInternalNumber: row.engineInternalNumber || label.internalNumberFull,
           }
-        }
-      }
-      const isClosedRow = String(row.status ?? 'open') === 'closed';
-      const mKey = monthKeyFromMs(Number(payload.orderDate ?? row.createdAt));
-      if (month && mKey !== month) continue;
+        : row;
+
       if (qNorm) {
-        // Номер/марка двигателя явно в haystack: у сборочных нарядов они резолвятся из
-        // шапки и в JSON payload'а могут отсутствовать (иначе поиск по № двигателя слеп).
-        const hay = normalizeSearch(
-          [
-            payload.workOrderNumber,
-            workType,
-            performerSurnames,
-            partName,
-            engineInfo.engineNumber,
-            engineInfo.engineInternalNumber,
-            engineInfo.engineBrand,
-            row.note ?? '',
-            JSON.stringify(payload),
-          ].join(' '),
-        );
+        const hay = resolved === row
+          ? summary.haystack
+          : normalizeSearch(
+              [summary.haystack, resolved.engineNumber, resolved.engineInternalNumber, resolved.engineBrand].join(' '),
+            );
         if (!hay.includes(qNorm)) continue;
       }
-      out.push({
-        id: String(row.id),
-        workOrderNumber: Number(payload.workOrderNumber ?? 0),
-        orderDate: Number(payload.orderDate ?? row.createdAt),
-        startDate: payload.startDate != null && payload.startDate > 0 ? Number(payload.startDate) : null,
-        workType,
-        crewCount: Array.isArray(payload.crew) ? payload.crew.length : 0,
-        performerSurnames,
-        totalAmountRub: Number(payload.totalAmountRub ?? 0),
-        updatedAt: Number(row.updatedAt),
-        status: String(row.status ?? 'open'),
-        linkedDocumentId: payload.linkedDocumentId ? String(payload.linkedDocumentId) : null,
-        dueDate: payload.dueDate != null && payload.dueDate > 0 ? Number(payload.dueDate) : null,
-        completedAt: isClosedRow
-          ? payload.completedDate != null && Number(payload.completedDate) > 0
-            ? Number(payload.completedDate)
-            : Number(row.updatedAt)
-          : null,
-        // Оператор-заданная дата выполнения — surface для ВСЕХ нарядов (в т.ч. открытых): по ней
-        // статус деривится как «выполнен», иначе открытый наряд с датой в срок красился overdue.
-        completedDate: payload.completedDate != null && Number(payload.completedDate) > 0 ? Number(payload.completedDate) : null,
-        engineBrand: engineInfo.engineBrand,
-        engineNumber: engineInfo.engineNumber,
-        engineInternalNumber: engineInfo.engineInternalNumber,
-        acceptedByEmployeeId: getWorkOrderAcceptedByEmployeeId(payload),
-        workOrderKind: String(payload.workOrderKind ?? WorkOrderKind.Regular),
-        withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),
-      });
+      out.push(resolved);
     }
 
     return { ok: true as const, rows: out };
