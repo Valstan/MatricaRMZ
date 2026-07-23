@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -14,7 +14,7 @@ import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, missingSectionDependencies, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
-import type { AccessSection, SectionMembership } from '@matricarmz/shared';
+import type { AccessSection, EntityReferenceTarget, QuickCreateRequest, QuickCreateResult, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -23,6 +23,7 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 
 type EmployeeAccount = {
   id: string;
@@ -39,6 +40,18 @@ type Employee = {
 
 type Option = SearchSelectOption;
 type TextLookupMeta = { targetTypeCode: string; storeAs: 'id' | 'label' };
+const COMPACT_QUICK_CREATE_TARGETS = new Set([
+  'nomenclature',
+  'part',
+  'product',
+  'service',
+  'customer',
+  'engine_brand',
+  'unit',
+  'department',
+  'section',
+  'workshop',
+]);
 
 type AttrDef = {
   id: string;
@@ -843,6 +856,12 @@ export function EmployeeDetailsPage(props: {
     return created.id;
   }
 
+  async function quickCreateLinkedEntity(def: AttrDef, request: QuickCreateRequest): Promise<QuickCreateResult | null> {
+    const result = await quickCreateEntity(request);
+    if (result) await ensureLinkOptions(def);
+    return result;
+  }
+
   async function createTextLookupEntity(def: AttrDef, label: string): Promise<string | null> {
     const knownTypeCodes = new Set(entityTypes.map((t) => t.code));
     const config = textLookupMetaByDefId[def.id] ?? getTextLookupConfig(def, knownTypeCodes);
@@ -989,7 +1008,7 @@ export function EmployeeDetailsPage(props: {
       const openByTarget =
         targetCode && !['department', 'unit'].includes(targetCode) ? props.onOpenByCode?.[targetCode] : undefined;
       const createHandler =
-        props.canEdit && targetCode
+        props.canEdit && targetCode && COMPACT_QUICK_CREATE_TARGETS.has(targetCode)
           ? async (label: string) => {
               const id = await createLinkedEntity(def, label);
               if (!id) return null;
@@ -1001,23 +1020,25 @@ export function EmployeeDetailsPage(props: {
           : null;
       return (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-          <SearchSelect
+          <EntityReferenceField
+            target={(targetCode || 'nomenclature') as EntityReferenceTarget}
+            targetLabel={def.name}
             value={current}
             disabled={!props.canEdit}
             options={options}
+            optionsReady={!loading}
             placeholder={loading ? 'Загрузка…' : '(не выбрано)'}
             onChange={(next) => {
               if (!props.canEdit) return;
               dirtyRef.current = true;
               setCustomDraftValues((prev) => ({ ...prev, [def.code]: next || null }));
             }}
-            {...(createHandler ? { onCreate: createHandler, createLabel: `Новая запись (${targetCode})` } : {})}
+            {...(createHandler ? { onCreate: createHandler, createLabel: `Новая запись (${targetCode})`, canCreate: true } : {})}
+            {...(createHandler && targetCode && COMPACT_QUICK_CREATE_TARGETS.has(targetCode)
+              ? { onQuickCreate: (request: QuickCreateRequest) => quickCreateLinkedEntity(def, request) }
+              : {})}
+            {...(openByTarget ? { onOpen: openByTarget } : {})}
           />
-          {current && openByTarget ? (
-            <Button variant="outline" tone="neutral" size="sm" onClick={() => openByTarget?.(current)}>
-              Открыть
-            </Button>
-          ) : null}
         </div>
       );
     }
@@ -1409,7 +1430,9 @@ export function EmployeeDetailsPage(props: {
         label: 'Подразделение',
         value: departmentLabel || '',
         render: (
-          <SearchSelectWithCreate
+          <EntityReferenceField
+            target="department"
+            targetLabel="Подразделение"
             value={departmentId}
             options={departmentOptions}
             disabled={!props.canEdit}
@@ -1427,6 +1450,11 @@ export function EmployeeDetailsPage(props: {
               setDepartmentId(id);
               return id;
             }}
+            onQuickCreate={async (request) => {
+              const result = await quickCreateEntity(request);
+              if (result) await loadDepartments();
+              return result;
+            }}
           />
         ),
       },
@@ -1436,7 +1464,9 @@ export function EmployeeDetailsPage(props: {
         label: 'Цех',
         value: workshopLabel || '',
         render: (
-          <SearchSelectWithCreate
+          <EntityReferenceField
+            target="workshop"
+            targetLabel="Цех"
             value={workshopId}
             options={workshopOptions}
             disabled={!props.canEdit}

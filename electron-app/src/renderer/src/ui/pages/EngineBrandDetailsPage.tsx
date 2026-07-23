@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -1267,7 +1267,9 @@ export function EngineBrandDetailsPage(props: {
 
         {showAddPart && props.canViewParts && props.canEditParts && (
           <div style={{ marginBottom: 10 }}>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="part"
+              targetLabel="Деталь"
               value={addPartId}
               options={partsOptions}
               disabled={!props.canEdit || !props.canEditParts}
@@ -1278,6 +1280,7 @@ export function EngineBrandDetailsPage(props: {
                 if (next) void addPart(next);
               }}
               onCreate={async (label) => await createAndAddPart(label)}
+              onOpen={props.onOpenPart}
             />
           </div>
         )}

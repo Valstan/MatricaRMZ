@@ -23,6 +23,33 @@ async function getDefsByType(db: BetterSQLite3Database, entityTypeId: string) {
   return { defs, byCode };
 }
 
+async function validateLinkValue(
+  db: BetterSQLite3Database,
+  def: (typeof attributeDefs.$inferSelect),
+  value: unknown,
+): Promise<string | null> {
+  if (String(def.dataType) !== 'link') return null;
+  const ids = (Array.isArray(value) ? value : [value]).map((item) => String(item ?? '').trim()).filter(Boolean);
+  if (ids.length === 0) return null;
+  const meta = def.metaJson ? safeJsonParse(String(def.metaJson)) : null;
+  const expectedType =
+    meta && typeof meta === 'object' && !Array.isArray(meta)
+      ? String((meta as Record<string, unknown>).linkTargetTypeCode ?? '').trim()
+      : '';
+  const rows = await db
+    .select({ id: entities.id, typeCode: entityTypes.code })
+    .from(entities)
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(and(inArray(entities.id, [...new Set(ids)]), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
+  const typeById = new Map(rows.map((row) => [String(row.id), String(row.typeCode)]));
+  for (const id of ids) {
+    const actualType = typeById.get(id);
+    if (!actualType) return `${def.code}: связанный элемент ${id} не найден`;
+    if (expectedType && actualType !== expectedType) return `${def.code}: ожидался тип ${expectedType}, получен ${actualType}`;
+  }
+  return null;
+}
+
 function safeJsonParse(s: string): unknown {
   try {
     return JSON.parse(s);
@@ -264,9 +291,30 @@ export async function setEntityAttribute(
       typeId = e[0].typeId;
     }
 
-    const { byCode } = await getDefsByType(db, typeId);
+    const { defs, byCode } = await getDefsByType(db, typeId);
     const defId = byCode[code];
     if (!defId) return { ok: false as const, error: `Неизвестный атрибут: ${code}` };
+
+    const currentValue = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .where(
+        and(
+          eq(attributeValues.entityId, entityId),
+          eq(attributeValues.attributeDefId, defId),
+          isNull(attributeValues.deletedAt),
+        ),
+      )
+      .orderBy(desc(attributeValues.updatedAt))
+      .limit(1);
+    const nextValueJson = JSON.stringify(value ?? null);
+    if (String(currentValue[0]?.valueJson ?? '') !== nextValueJson) {
+      const def = defs.find((candidate) => String(candidate.id) === defId);
+      if (def) {
+        const referenceError = await validateLinkValue(db, def, value);
+        if (referenceError) return { ok: false as const, error: referenceError };
+      }
+    }
 
     // Pick the NEWEST non-deleted row for this (entity, attr). The old code matched by
     // (entity, attr) without a deletedAt filter or ordering and took limit(1) — with
@@ -466,24 +514,26 @@ export type DuplicateCandidate = {
 export async function findDuplicateEntities(
   db: BetterSQLite3Database,
   entityTypeId: string,
-  query: { name?: string; article?: string; price?: number },
+  query: { name?: string; article?: string; inn?: string; price?: number },
   excludeEntityId?: string,
 ): Promise<DuplicateCandidate[]> {
   const name = (query.name ?? '').trim();
   const article = (query.article ?? '').trim();
+  const inn = (query.inn ?? '').trim();
   const price = query.price;
 
-  if (!name && !article) return [];
+  if (!name && !article && !inn) return [];
 
   const { byCode } = await getDefsByType(db, entityTypeId);
   const nameDefId = byCode['name'] ?? null;
   const articleDefId = byCode['article'] ?? null;
+  const innDefId = byCode['inn'] ?? null;
   const priceDefId = byCode['price'] ?? null;
 
   const labelKeys = ['name', 'number', 'engine_number', 'full_name'];
   const labelDefId = labelKeys.map((k) => byCode[k]).find(Boolean) ?? null;
 
-  const relevantDefIds = [nameDefId, articleDefId, priceDefId].filter(Boolean) as string[];
+  const relevantDefIds = [nameDefId, articleDefId, innDefId, priceDefId].filter(Boolean) as string[];
   if (relevantDefIds.length === 0) return [];
 
   const allEntities = await db
@@ -523,6 +573,7 @@ export async function findDuplicateEntities(
 
   const normalizedQueryName = normalizeLookupText(name);
   const normalizedQueryArticle = normalizeLookupText(article);
+  const normalizedQueryInn = normalizeLookupText(inn);
 
   const candidates: DuplicateCandidate[] = [];
 
@@ -549,6 +600,12 @@ export async function findDuplicateEntities(
       else if (score > 0) score = Math.round(score * 0.85);
     }
 
+    if (innDefId && inn && entityValues[innDefId] != null) {
+      const existingInn = normalizeLookupText(String(entityValues[innDefId]));
+      if (existingInn === normalizedQueryInn) score = 1000;
+      else if (score > 0) score = Math.round(score * 0.85);
+    }
+
     if (priceDefId && price != null && entityValues[priceDefId] != null) {
       const existingPrice = Number(entityValues[priceDefId]);
       if (Number.isFinite(existingPrice) && Math.abs(existingPrice - price) < 0.01 && score > 0) {
@@ -560,6 +617,7 @@ export async function findDuplicateEntities(
       const attrs: Record<string, unknown> = {};
       if (nameDefId && entityValues[nameDefId] != null) attrs.name = entityValues[nameDefId];
       if (articleDefId && entityValues[articleDefId] != null) attrs.article = entityValues[articleDefId];
+      if (innDefId && entityValues[innDefId] != null) attrs.inn = entityValues[innDefId];
       if (priceDefId && entityValues[priceDefId] != null) attrs.price = entityValues[priceDefId];
 
       candidates.push({ id: entityId, displayName, score, attributes: attrs });

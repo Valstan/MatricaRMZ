@@ -2613,6 +2613,7 @@ export function App() {
   }
 
   const openByCode = {
+    engine: openEngine,
     customer: openCounterparty,
     counterparty: openCounterparty,
     contract: openContract,
@@ -2625,7 +2626,16 @@ export function App() {
     product: openProduct,
     nomenclature: openNomenclature,
     employee: openEmployee,
+    tool: (id: string) => openTool(id),
     tool_property: openToolProperty,
+    stock_document: openStockDocument,
+    supply_request: openRequest,
+    warehouse: () => setTab('warehouse_locations'),
+    store: () => setTab('warehouse_locations'),
+    workshop: () => setTab('workshops'),
+    department: () => setTab('masterdata'),
+    section: () => setTab('masterdata'),
+    unit: () => setTab('masterdata'),
   };
 
   // ── Фаза 3: вкладки открытых карточек (v2) ──────────────────────────────────────
@@ -4240,7 +4250,7 @@ export function App() {
         );
       case 'work_order':
         return (
-          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
+          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenEngine={openEngine} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
         );
       case 'contract':
         return (
@@ -4277,7 +4287,7 @@ export function App() {
       case 'engine_assembly_bom_item':
         return <EngineAssemblyBomDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} onClose={close} />;
       case 'stock_document':
-        return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditOperations} canCreateParts={caps.canCreateParts} onClose={close} />;
+        return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditOperations} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
       case 'report_preset':
         return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
       default:
@@ -4582,6 +4592,7 @@ export function App() {
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenPart={openPart}
+            onOpenEngine={openEngine}
             onOpenService={openService}
             onOpenEmployee={openEmployee}
             onClose={() => {
@@ -4922,6 +4933,11 @@ export function App() {
             id={selectedStockDocumentId}
             canEdit={caps.canEditOperations}
             canCreateParts={caps.canCreateParts}
+            onOpenCounterparty={openCounterparty}
+            onOpenEngine={openEngine}
+            onOpenWorkOrder={openWorkOrder}
+            onOpenNomenclature={openNomenclature}
+            onOpenWarehouse={() => setTab('warehouse_locations')}
             onClose={() => {
               setSelectedStockDocumentId(null);
               setTabState(stockDocumentParentTab);

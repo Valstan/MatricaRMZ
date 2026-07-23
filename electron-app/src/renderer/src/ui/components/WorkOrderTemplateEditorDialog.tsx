@@ -18,6 +18,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
 import { RowReorderButtons } from './RowReorderButtons.js';
 import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
@@ -610,7 +611,9 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 12, color: 'var(--subtle)' }}>Цех (где взять деталь)</label>
               <div style={{ maxWidth: 'calc(50% - 6px)' }}>
-                <SearchSelect
+                <EntityReferenceField
+                  target="workshop"
+                  targetLabel="Цех"
                   value={editor.workshopId || null}
                   options={workshops}
                   placeholder="Не задан"
@@ -667,7 +670,9 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                           placeholder="Роль"
                           onChange={(e) => setSlot(idx, 'caption', e.target.value)}
                         />
-                        <SearchSelect
+                        <EntityReferenceField
+                          target="employee"
+                          targetLabel="Сотрудник"
                           value={slot.employeeId || null}
                           options={employees}
                           placeholder="Сотрудник (необязательно)"
@@ -771,9 +776,12 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                       <tr key={line.id} style={isDup ? { background: 'rgba(220, 38, 38, 0.08)' } : undefined}>
                         <td>{idx + 1}</td>
                         <td>
-                          <SearchSelect
+                          <EntityReferenceField
+                            target="nomenclature"
+                            targetLabel="Номенклатура"
                             value={line.nomenclatureId || null}
                             options={nomen}
+                            optionsReady={!nomenLoading}
                             placeholder={nomenLoading ? 'Загрузка…' : 'Не задана'}
                             disabled={!props.canEdit || submitting}
                             showAllWhenEmpty
@@ -782,9 +790,12 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                           />
                         </td>
                         <td>
-                          <SearchSelect
+                          <EntityReferenceField
+                            target="service"
+                            targetLabel="Услуга"
                             value={line.serviceId || null}
                             options={services}
+                            optionsReady={!servicesLoading}
                             placeholder={servicesLoading ? 'Загрузка…' : 'Не задана'}
                             disabled={!props.canEdit || submitting}
                             showAllWhenEmpty

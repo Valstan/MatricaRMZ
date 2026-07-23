@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -19,6 +19,7 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { listPartSpecBrandLinks } from '../utils/partsPagination.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import {
   buildPartCoreFieldDefs,
   fromInputDate,
@@ -918,7 +919,9 @@ export function PartDetailsPage(props: {
         value: supplier || '',
         render: (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="customer"
+              targetLabel="Поставщик"
               value={supplierId}
               options={customerOptions}
               placeholder="Выберите поставщика"
@@ -940,17 +943,13 @@ export function PartDetailsPage(props: {
                 setSupplier(clean);
                 return id;
               }}
+              onQuickCreate={async (request) => {
+                const result = await quickCreateEntity(request);
+                if (result) await loadCustomers();
+                return result;
+              }}
+              {...(props.onOpenCustomer ? { onOpen: props.onOpenCustomer } : {})}
             />
-            {supplierId && props.onOpenCustomer ? (
-              <Button
-                variant="outline"
-                tone="neutral"
-                size="sm"
-                onClick={() => props.onOpenCustomer?.(supplierId)}
-              >
-                Открыть
-              </Button>
-            ) : null}
             {customerStatus && (
               <span style={{ color: customerStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{customerStatus}</span>
             )}

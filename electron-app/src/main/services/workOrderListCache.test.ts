@@ -40,6 +40,34 @@ function makeDb() {
       deleted_at integer,
       sync_status text NOT NULL DEFAULT 'synced'
     );
+    CREATE TABLE entity_types (
+      id text PRIMARY KEY NOT NULL,
+      code text NOT NULL,
+      name text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE TABLE entities (
+      id text PRIMARY KEY NOT NULL,
+      type_id text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    INSERT INTO entity_types (id, code, name, created_at, updated_at) VALUES
+      ('type-engine', 'engine', 'Двигатель', 1, 1),
+      ('type-part', 'part', 'Деталь', 1, 1),
+      ('type-service', 'service', 'Услуга', 1, 1);
+    INSERT INTO entities (id, type_id, created_at, updated_at) VALUES
+      ('eng-1', 'type-engine', 1, 1),
+      ('part-1', 'type-part', 1, 1),
+      ('part-2', 'type-part', 1, 1),
+      ('service-1', 'type-service', 1, 1);
   `);
   return { sqlite, db: drizzle(sqlite) as any };
 }
@@ -65,7 +93,7 @@ describe('listWorkOrders (кэш разбора)', () => {
   it('видит правку наряда, сделанную после первого запроса списка', async () => {
     const { sqlite, db } = makeDb();
     try {
-      const id = await addOrder(db, { freeWorks: [{ lineNo: 1, serviceId: null, serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 10, amountRub: 10 }] } as Partial<WorkOrderPayload>);
+      const id = await addOrder(db, { freeWorks: [{ lineNo: 1, serviceId: 'service-1', serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 10, amountRub: 10 }] } as Partial<WorkOrderPayload>);
       expect(rowsOf(await listWorkOrders(db))[0]?.workType).toBe('Расточка');
 
       const current = rowsOf(await listWorkOrders(db))[0];
@@ -74,7 +102,7 @@ describe('listWorkOrders (кэш разбора)', () => {
         id,
         payload: {
           ...(JSON.parse(String((sqlite.prepare(`SELECT meta_json FROM operations WHERE id=?`).get(id) as any).meta_json)) as WorkOrderPayload),
-          freeWorks: [{ lineNo: 1, serviceId: null, serviceName: 'Шлифовка', unit: 'шт', qty: 1, priceRub: 10, amountRub: 10 }],
+          freeWorks: [{ lineNo: 1, serviceId: 'service-1', serviceName: 'Шлифовка', unit: 'шт', qty: 1, priceRub: 10, amountRub: 10 }],
         },
         actor: 'tester',
       });
@@ -108,7 +136,7 @@ describe('listWorkOrders (кэш разбора)', () => {
         orderDate: Date.UTC(2026, 2, 15),
         freeWorks: [
           // Номер двигателя нормализация строки сохраняет только вместе с engineId.
-          { lineNo: 1, serviceId: null, serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1, engineId: 'eng-1', engineNumber: '77777' },
+          { lineNo: 1, serviceId: 'service-1', serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1, engineId: 'eng-1', engineNumber: '77777' },
         ],
       } as Partial<WorkOrderPayload>);
       await addOrder(db, { orderDate: Date.UTC(2026, 5, 15) } as Partial<WorkOrderPayload>);
@@ -129,7 +157,7 @@ describe('listWorkOrders (кэш разбора)', () => {
     const { sqlite, db } = makeDb();
     try {
       const id = await addOrder(db, {
-        freeWorks: [{ lineNo: 1, serviceId: null, serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1 }],
+        freeWorks: [{ lineNo: 1, serviceId: 'service-1', serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1 }],
       } as Partial<WorkOrderPayload>);
       expect(rowsOf(await listWorkOrders(db, { q: 'расточка' }))).toHaveLength(1);
 
@@ -140,7 +168,7 @@ describe('listWorkOrders (кэш разбора)', () => {
         id,
         payload: {
           ...stored,
-          freeWorks: [{ lineNo: 1, serviceId: null, serviceName: 'Шлифовка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1 }],
+          freeWorks: [{ lineNo: 1, serviceId: 'service-1', serviceName: 'Шлифовка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1 }],
         },
         actor: 'tester',
       });

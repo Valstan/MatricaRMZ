@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
-import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
+import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -572,7 +573,9 @@ export function ToolDetailsPage(props: {
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Наименование</div>
-          <SearchSelectWithCreate
+          <EntityReferenceField
+            target="tool_catalog"
+            targetLabel="Инструмент"
             value={toolCatalogId || null}
             options={toolCatalogOptions}
             disabled={!props.canEdit}
@@ -617,7 +620,9 @@ export function ToolDetailsPage(props: {
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: baseRowGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Подразделение</div>
-          <SearchSelectWithCreate
+          <EntityReferenceField
+            target="department"
+            targetLabel="Подразделение"
             value={departmentId}
             options={departmentOptions}
             placeholder="Выберите подразделение"
@@ -634,6 +639,17 @@ export function ToolDetailsPage(props: {
               dirtyRef.current = true;
               setDepartmentId(id);
               return id;
+            }}
+            onQuickCreate={async (request) => {
+              const result = await quickCreateEntity(request);
+              if (result) {
+                setDepartmentOptions((previous) =>
+                  [...previous.filter((option) => option.id !== result.id), { id: result.id, label: result.label }].sort((a, b) =>
+                    a.label.localeCompare(b.label, 'ru'),
+                  ),
+                );
+              }
+              return result;
             }}
           />
         </div>
@@ -688,7 +704,9 @@ export function ToolDetailsPage(props: {
             <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: propertyRowGridTemplate, gap: 8, padding: '4px 6px' }}>
               <div>Свойство</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-                <SearchSelectWithCreate
+                <EntityReferenceField
+                  target="tool_property"
+                  targetLabel="Свойство инструмента"
                   value={row.propertyId}
                   options={propertyOptions}
                   disabled={!props.canEdit}
@@ -710,12 +728,8 @@ export function ToolDetailsPage(props: {
                     setPropertyOptions((prev) => [...prev, { id, label }]);
                     return id;
                   }}
+                  {...(props.onOpenToolProperty ? { onOpen: props.onOpenToolProperty } : {})}
                 />
-                {row.propertyId && props.onOpenToolProperty ? (
-                  <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenToolProperty?.(row.propertyId as string)}>
-                    Открыть
-                  </Button>
-                ) : null}
               </div>
               <div style={{ minWidth: 0 }}>
                 <SuggestInput
@@ -778,7 +792,9 @@ export function ToolDetailsPage(props: {
             <option value="returned">Вернул</option>
           </select>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="employee"
+              targetLabel="Сотрудник"
               value={newMoveEmployeeId}
               options={employeeOptions}
               placeholder="Сотрудник"
@@ -792,12 +808,8 @@ export function ToolDetailsPage(props: {
                 setNewMoveEmployeeId(id);
                 return id;
               }}
+              {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
             />
-            {newMoveEmployeeId && props.onOpenEmployee ? (
-              <Button variant="outline" tone="neutral" size="sm" onClick={() => props.onOpenEmployee?.(newMoveEmployeeId)}>
-                Открыть
-              </Button>
-            ) : null}
           </div>
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementSecondaryGridTemplate, gap: 8, padding: '4px 6px' }}>
@@ -806,7 +818,9 @@ export function ToolDetailsPage(props: {
             Подтверждено
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
-            <SearchSelectWithCreate
+            <EntityReferenceField
+              target="employee"
+              targetLabel="Заведующий"
               value={newMoveConfirmedById}
               options={employeeOptions}
               placeholder="Заведующий"
@@ -820,17 +834,8 @@ export function ToolDetailsPage(props: {
                 setNewMoveConfirmedById(id);
                 return id;
               }}
+              {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
             />
-            {newMoveConfirmedById && props.onOpenEmployee ? (
-              <Button
-                variant="outline"
-                tone="neutral"
-                size="sm"
-                onClick={() => props.onOpenEmployee?.(newMoveConfirmedById)}
-              >
-                Открыть
-              </Button>
-            ) : null}
           </div>
           <Input
             value={newMoveComment}

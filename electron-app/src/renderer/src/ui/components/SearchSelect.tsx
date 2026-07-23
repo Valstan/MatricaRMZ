@@ -49,6 +49,8 @@ export function SearchSelect(props: {
   emptyQueryLimit?: number;
   query?: string;
   onQueryChange?: (next: string) => void;
+  onInputBlur?: (query: string) => void;
+  inputRef?: React.Ref<HTMLInputElement>;
   onChange: (next: string | null) => void;
   onCreate?: (label: string) => Promise<string | null>;
   createLabel?: string;
@@ -59,6 +61,13 @@ export function SearchSelect(props: {
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  function assignInputRef(node: HTMLInputElement | null) {
+    searchInputRef.current = node;
+    const forwarded = props.inputRef;
+    if (typeof forwarded === 'function') forwarded(node);
+    else if (forwarded) (forwarded as React.MutableRefObject<HTMLInputElement | null>).current = node;
+  }
 
   const openDropdown = useCallback(() => {
     if (disabled || hints.suppressed) return;
@@ -139,6 +148,10 @@ export function SearchSelect(props: {
   }, [dropdown.open, selected]);
 
   useEffect(() => {
+    if (props.query !== undefined) {
+      if (dropdown.query !== props.query) dropdown.setQuery(props.query);
+      return;
+    }
     if (!dropdown.open) {
       // Inactivity auto-hide must keep the user's typed text in place — only an
       // explicit close (pick / click-away / Escape) reverts to the selected label.
@@ -147,8 +160,7 @@ export function SearchSelect(props: {
       if (dropdown.query !== next) dropdown.setQuery(next);
       return;
     }
-    const next =
-      props.query !== undefined ? props.query : String(dropdown.query ?? '').trim() ? dropdown.query : (selected?.label ?? '');
+    const next = String(dropdown.query ?? '').trim() ? dropdown.query : (selected?.label ?? '');
     if (dropdown.query !== next) dropdown.setQuery(next);
   }, [dropdown.open, dropdown.autoHidden, dropdown.query, props.query, selected?.label]);
 
@@ -222,7 +234,7 @@ export function SearchSelect(props: {
     <div ref={dropdown.rootRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', minWidth: 0 }}>
         <input
-          ref={searchInputRef}
+          ref={assignInputRef}
           data-input-assist="component-suggestions"
           value={dropdown.query}
           placeholder={props.placeholder ?? '(не выбрано)'}
@@ -234,6 +246,7 @@ export function SearchSelect(props: {
           onBlur={() => {
             if (disabled) return;
             hints.onBlur();
+            props.onInputBlur?.(dropdown.query);
           }}
           onClick={() => {
             if (disabled) return;
@@ -266,6 +279,7 @@ export function SearchSelect(props: {
         {!disabled && (
           <button
             type="button"
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => { props.onChange(null); props.onQueryChange?.(''); close(''); }}
             style={{
               flexShrink: 0,
@@ -309,7 +323,10 @@ export function SearchSelect(props: {
         ? createPortal(
             <div
               ref={dropdown.popupRef}
-              onMouseDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               style={{
                 position: 'fixed',
                 left: dropdown.popupRect.left,

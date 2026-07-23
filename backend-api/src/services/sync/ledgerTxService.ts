@@ -8,6 +8,7 @@ import type { LedgerTableName } from '@matricarmz/ledger';
 
 import { recordLedgerAuthzDenial } from '../authzDenialLog.js';
 import { partitionLedgerInputsByAuthz } from './ledgerAuthzGuard.js';
+import { enforceEntityReferenceIntegrity } from './entityReferenceGuard.js';
 import { enforceWorkOrderNumberImmutability, reportWorkOrderNumberHeals } from './workOrderNumberGuard.js';
 import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor } from './syncWriteService.js';
 
@@ -58,6 +59,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
   // иначе ledger и PG разъедутся, и replay вернул бы неправильный номер.
   const numberHeals = await enforceWorkOrderNumberImmutability(allowed, writeActor);
   reportWorkOrderNumberHeals(writeActor, numberHeals);
+  if (actor.username !== 'ledger-replay') await enforceEntityReferenceIntegrity(allowed);
 
   const result = await writeSyncChanges(allowed, writeActor);
 

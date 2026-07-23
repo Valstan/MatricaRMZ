@@ -1,8 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
-import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -174,7 +174,9 @@ export function StockInventoryPage(props: {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, alignItems: 'center' }}>
           <div>Склад</div>
-          <SearchSelect
+          <EntityReferenceField
+            target="warehouse"
+            targetLabel="Склад"
             value={warehouseId}
             options={warehouseOptions}
             placeholder="Склад"
