@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import type { PartMetadata } from '@matricarmz/shared';
+import { SYNTHETIC_NOMENCLATURE_CODE_REJECT, isSyntheticNomenclatureCode } from '@matricarmz/shared';
 
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
@@ -266,8 +267,9 @@ warehouseRouter.post('/nomenclature', requirePermission(PermissionCode.ErpDictio
     id: z.string().uuid().optional(),
     // Конвенция «нет артикула = пустая строка» (её уже держат партиал-уникальные
     // индексы PG 0075 / клиент 0016). С min(1) карточку без артикула нельзя сохранить
-    // вообще — 400 на каждой правке спецификации.
-    code: z.string(),
+    // вообще — 400 на каждой правке спецификации. Стоп-кран: заглушку не принимаем
+    // ни от какого клиента — иначе синтетика набежит снова и Ф2 придётся гнать вечно.
+    code: z.string().refine((v) => !isSyntheticNomenclatureCode(v), SYNTHETIC_NOMENCLATURE_CODE_REJECT),
     sku: z.string().nullable().optional(),
     name: z.string().min(1),
     itemType: z.string().optional(),
@@ -356,7 +358,14 @@ warehouseRouter.post('/parts-dedupe/merge', requirePermission(PermissionCode.Erp
 });
 
 warehouseRouter.post('/directory-parts', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
-  const schema = z.object({ name: z.string().min(1), code: z.string().nullable().optional() });
+  const schema = z.object({
+    name: z.string().min(1),
+    code: z
+      .string()
+      .nullable()
+      .optional()
+      .refine((v) => !isSyntheticNomenclatureCode(v), SYNTHETIC_NOMENCLATURE_CODE_REJECT),
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await createDirectoryPart({
@@ -400,7 +409,11 @@ warehouseRouter.put('/nomenclature/:id/part-spec', requirePermission(PermissionC
     })
     .optional();
   const schema = z.object({
-    code: z.string().nullable().optional(),
+    code: z
+      .string()
+      .nullable()
+      .optional()
+      .refine((v) => !isSyntheticNomenclatureCode(v), SYNTHETIC_NOMENCLATURE_CODE_REJECT),
     dimensions: z
       .array(z.object({ id: z.string(), name: z.string(), value: z.string() }))
       .optional(),

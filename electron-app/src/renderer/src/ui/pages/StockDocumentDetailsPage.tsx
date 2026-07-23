@@ -8,7 +8,7 @@ import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
-import { buildNomenclatureCode } from '../utils/nomenclatureCode.js';
+import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -107,7 +107,7 @@ export function StockDocumentDetailsPage(props: {
   canCreateParts?: boolean;
   onClose: () => void;
 }) {
-  const { confirm } = useConfirm();
+  const { confirm, promptText } = useConfirm();
   const { lookups, nomenclature, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData({ loadNomenclature: true });
   const { pushRecent, withRecents } = useRecentSelectOptions(`matrica:stock-doc-recents:${props.id}`, 8);
   const [status, setStatus] = useState('');
@@ -885,9 +885,11 @@ export function StockDocumentDetailsPage(props: {
                               onCreate: async (label: string) => {
                                 const trimmed = label.trim();
                                 if (!trimmed) return null;
+                                const article = await promptNomenclatureArticle(promptText, trimmed);
+                                if (article === null) return null;
                                 const r = await window.matrica.warehouse.nomenclatureDirectoryPartCreate({
                                   name: trimmed,
-                                  code: buildNomenclatureCode('DET'),
+                                  code: article || null,
                                 });
                                 if (!r?.ok || !r.part?.id) {
                                   throw new Error(String((r as { error?: string })?.error ?? 'Не удалось создать деталь'));

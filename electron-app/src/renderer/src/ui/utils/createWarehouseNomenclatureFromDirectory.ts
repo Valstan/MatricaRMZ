@@ -1,7 +1,6 @@
 import type { NomenclatureItemType, WarehouseLookupOption } from '@matricarmz/shared';
 
 import type { NomenclatureCreateConfig } from '../pages/nomenclatureDirectoryPresets.js';
-import { buildNomenclatureCode } from './nomenclatureCode.js';
 
 export async function createSourceEntityForDirectoryKind(kind: string, label: string): Promise<string | null> {
   const normalizedKind = String(kind ?? '').trim().toLowerCase();
@@ -130,6 +129,8 @@ export async function createNomenclatureRowForSource(args: {
   createConfig: NomenclatureCreateConfig;
   displayName: string;
   sourceId: string | null;
+  /** Артикул от оператора; пустая строка — осознанное «без артикула». Заглушки больше не штампуем. */
+  article: string;
 }): Promise<{ ok: true; nomenclatureId: string } | { ok: false; error: string }> {
   const directoryKind = String(args.directoryKind ?? '').trim().toLowerCase();
   const displayName = String(args.displayName ?? '').trim();
@@ -174,7 +175,7 @@ export async function createNomenclatureRowForSource(args: {
   }
 
   const created = await window.matrica.warehouse.nomenclatureUpsert({
-    code: buildNomenclatureCode(createConfig.codePrefix),
+    code: String(args.article ?? '').trim(),
     name: nameForRow,
     itemType: createConfig.itemType,
     category: createConfig.category,
@@ -201,6 +202,8 @@ export async function createNomenclatureLineFromPreset(args: {
   directoryKind: string;
   createConfig: NomenclatureCreateConfig;
   displayName: string;
+  /** Артикул от оператора; пустая строка — осознанное «без артикула». Заглушки больше не штампуем. */
+  article: string;
 }): Promise<CreateNomenclatureLineFromPresetResult> {
   const directoryKind = String(args.directoryKind ?? '').trim().toLowerCase();
   const displayName = String(args.displayName ?? '').trim();
@@ -214,18 +217,17 @@ export async function createNomenclatureLineFromPreset(args: {
 
   let sourceId: string | null = null;
   if (directoryKind === 'part') {
-    let createdPart: any | null = null;
-    let rawErr = 'не удалось создать деталь';
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      createdPart = await window.matrica.warehouse.nomenclatureDirectoryPartCreate({
-        name: nameForRow,
-        code: buildNomenclatureCode(createConfig.codePrefix),
-      });
-      if (createdPart?.ok && createdPart.part?.id) {
-        rawErr = '';
-        break;
-      }
-      rawErr = createdPart && 'error' in createdPart ? String(createdPart.error ?? '') : rawErr;
+    // Попытка ровно одна: раньше вторая имела смысл, потому что каждый заход штамповал
+    // НОВЫЙ синтетический код и тем самым новый ключ дедупа. Теперь ключ — имя+артикул
+    // от оператора, повтор дал бы ровно тот же отказ.
+    const createdPart = await window.matrica.warehouse.nomenclatureDirectoryPartCreate({
+      name: nameForRow,
+      code: String(args.article ?? '').trim() || null,
+    });
+    if (createdPart?.ok && createdPart.part?.id) {
+      sourceId = String(createdPart.part.id);
+    } else {
+      const rawErr = createdPart && 'error' in createdPart ? String(createdPart.error ?? '') : 'не удалось создать деталь';
       const duplicateMatch = rawErr.match(/duplicate part exists:\s*([0-9a-f-]{36})/i);
       if (!duplicateMatch?.[1]) {
         return { ok: false, error: rawErr };
@@ -241,13 +243,6 @@ export async function createNomenclatureLineFromPreset(args: {
       // неуспешной попытки). Используем uuid дубликата как sourceId и продолжаем — после
       // v1.20.3 backend сам зеркалит запись из entities в directory_parts если надо.
       sourceId = dupPartId;
-      break;
-    }
-    if (!sourceId) {
-      if (!createdPart?.ok || !createdPart?.part?.id) {
-        return { ok: false, error: rawErr || 'не удалось создать деталь' };
-      }
-      sourceId = String(createdPart.part.id);
     }
   } else if (KINDS_WITH_DIRECTORY_SOURCE.has(directoryKind)) {
     sourceId = await createSourceEntityForDirectoryKind(directoryKind, nameForRow);
@@ -263,5 +258,6 @@ export async function createNomenclatureLineFromPreset(args: {
     createConfig,
     displayName: nameForRow,
     sourceId,
+    article: String(args.article ?? '').trim(),
   });
 }

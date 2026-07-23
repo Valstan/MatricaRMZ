@@ -11,6 +11,8 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import { useConfirm } from '../components/ConfirmContext.js';
+import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
@@ -44,6 +46,7 @@ export function NomenclatureDirectoryPage(props: {
   onCreateDeferred?: () => void;
 }) {
   const [rows, setRows] = useState<WarehouseNomenclatureListItem[]>([]);
+  const { promptText } = useConfirm();
   const [servicePrices, setServicePrices] = useState<Record<string, number | null>>({});
   const [serviceBrandIds, setServiceBrandIds] = useState<Record<string, string[]>>({});
   const [serviceUnits, setServiceUnits] = useState<Record<string, string>>({});
@@ -574,10 +577,13 @@ export function NomenclatureDirectoryPage(props: {
         ) : props.canCreate ? (
           <Button
             onClick={async () => {
+              const article = await promptNomenclatureArticle(promptText, props.createConfig.name);
+              if (article === null) return;
               const r = await createNomenclatureLineFromPreset({
                 directoryKind: props.directoryKind,
                 createConfig: props.createConfig,
                 displayName: props.createConfig.name,
+                article,
               });
               if (!r.ok) {
                 if ('duplicateNomenclatureId' in r) {

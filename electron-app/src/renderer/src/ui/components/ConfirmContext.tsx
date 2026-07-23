@@ -29,9 +29,26 @@ type PickChoiceRequest = PickChoiceOptions & {
   resolve: (value: string | null) => void;
 };
 
+export type PromptTextOptions = {
+  title: string;
+  detail?: string;
+  placeholder?: string;
+  confirmLabel?: string;
+  /** Подпись второй кнопки, отдающей пустую строку. Без неё пустой ввод запрещён. */
+  emptyLabel?: string;
+  /** Отказ по введённому значению; непустая строка показывается как ошибка. */
+  validate?: (value: string) => string | null;
+};
+
+type PromptTextRequest = PromptTextOptions & {
+  resolve: (value: string | null) => void;
+};
+
 type ConfirmContextValue = {
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   pickChoice: (opts: PickChoiceOptions) => Promise<string | null>;
+  /** Ввод строки. `null` — оператор отменил; `''` — осознанно выбрал «пусто». */
+  promptText: (opts: PromptTextOptions) => Promise<string | null>;
 };
 
 const ConfirmContext = createContext<ConfirmContextValue | null>(null);
@@ -54,6 +71,10 @@ export function ConfirmProvider(props: { children: React.ReactNode }) {
   const requestRef = useRef<ConfirmRequest | null>(null);
   const [choiceRequest, setChoiceRequest] = useState<PickChoiceRequest | null>(null);
   const choiceRequestRef = useRef<PickChoiceRequest | null>(null);
+  const [promptRequest, setPromptRequest] = useState<PromptTextRequest | null>(null);
+  const promptRequestRef = useRef<PromptTextRequest | null>(null);
+  const [promptValue, setPromptValue] = useState('');
+  const [promptError, setPromptError] = useState<string | null>(null);
 
   const close = useCallback((result: boolean) => {
     const r = requestRef.current;
@@ -68,6 +89,32 @@ export function ConfirmProvider(props: { children: React.ReactNode }) {
     setChoiceRequest(null);
     r?.resolve(result);
   }, []);
+
+  const closePrompt = useCallback((result: string | null) => {
+    const r = promptRequestRef.current;
+    promptRequestRef.current = null;
+    setPromptRequest(null);
+    setPromptValue('');
+    setPromptError(null);
+    r?.resolve(result);
+  }, []);
+
+  /** Submit прогоняет validate: сюда приходит и стоп-кран синтетических артикулов. */
+  const submitPrompt = useCallback(() => {
+    const r = promptRequestRef.current;
+    if (!r) return;
+    const trimmed = promptValue.trim();
+    if (!trimmed) {
+      setPromptError('Введите значение или выберите вариант ниже.');
+      return;
+    }
+    const err = r.validate?.(trimmed) ?? null;
+    if (err) {
+      setPromptError(err);
+      return;
+    }
+    closePrompt(trimmed);
+  }, [closePrompt, promptValue]);
 
   const confirm = useCallback((opts: ConfirmOptions) => {
     return new Promise<boolean>((resolve) => {
@@ -97,7 +144,25 @@ export function ConfirmProvider(props: { children: React.ReactNode }) {
     });
   }, []);
 
-  const value = useMemo(() => ({ confirm, pickChoice }), [confirm, pickChoice]);
+  const promptText = useCallback((opts: PromptTextOptions) => {
+    return new Promise<string | null>((resolve) => {
+      const next: PromptTextRequest = {
+        title: opts.title,
+        resolve,
+        ...(opts.detail !== undefined ? { detail: opts.detail } : {}),
+        ...(opts.placeholder !== undefined ? { placeholder: opts.placeholder } : {}),
+        ...(opts.confirmLabel !== undefined ? { confirmLabel: opts.confirmLabel } : {}),
+        ...(opts.emptyLabel !== undefined ? { emptyLabel: opts.emptyLabel } : {}),
+        ...(opts.validate !== undefined ? { validate: opts.validate } : {}),
+      };
+      promptRequestRef.current = next;
+      setPromptError(null);
+      setPromptValue('');
+      setPromptRequest(next);
+    });
+  }, []);
+
+  const value = useMemo(() => ({ confirm, pickChoice, promptText }), [confirm, pickChoice, promptText]);
 
   return (
     <ConfirmContext.Provider value={value}>
@@ -202,6 +267,84 @@ export function ConfirmProvider(props: { children: React.ReactNode }) {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <Button variant="ghost" onClick={() => closeChoice(null)}>
                 Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {promptRequest ? (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 4002,
+            padding: 16,
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closePrompt(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="prompt-text-title"
+            style={{
+              width: 'min(520px, 100%)',
+              borderRadius: 12,
+              background: '#fff',
+              padding: 18,
+              boxShadow: '0 24px 64px rgba(2, 6, 23, 0.35)',
+              border: '1px solid #e5e7eb',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div id="prompt-text-title" style={{ fontWeight: 800, fontSize: 17, color: '#111827', marginBottom: 10 }}>
+              {promptRequest.title}
+            </div>
+            {promptRequest.detail ? (
+              <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.45, marginBottom: 12 }}>
+                {promptRequest.detail}
+              </div>
+            ) : null}
+            <input
+              autoFocus
+              value={promptValue}
+              placeholder={promptRequest.placeholder ?? ''}
+              onChange={(e) => {
+                setPromptValue(e.target.value);
+                if (promptError) setPromptError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitPrompt();
+                if (e.key === 'Escape') closePrompt(null);
+              }}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '10px 12px',
+                fontSize: 15,
+                borderRadius: 8,
+                border: `1px solid ${promptError ? '#dc2626' : '#d1d5db'}`,
+              }}
+            />
+            {promptError ? (
+              <div style={{ color: '#dc2626', fontSize: 13, marginTop: 8, lineHeight: 1.4 }}>{promptError}</div>
+            ) : null}
+            <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <Button variant="ghost" onClick={() => closePrompt(null)}>
+                Отмена
+              </Button>
+              {promptRequest.emptyLabel ? (
+                <Button variant="ghost" onClick={() => closePrompt('')}>
+                  {promptRequest.emptyLabel}
+                </Button>
+              ) : null}
+              <Button variant="primary" tone="info" onClick={submitPrompt}>
+                {promptRequest.confirmLabel ?? 'ОК'}
               </Button>
             </div>
           </div>
