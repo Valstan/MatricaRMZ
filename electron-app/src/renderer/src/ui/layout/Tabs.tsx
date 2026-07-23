@@ -266,6 +266,28 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   control: ['reports', 'custom_reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
+/**
+ * Планшетное операторское меню (Ф-later #2, решение владельца 2026-07-23):
+ * «двигатели и всё, что с ними связано». В цеху оператору нужны объект работы
+ * (двигатель), задание (наряд), справочники для дефектовки, наличие на складе и
+ * возможность заказать недостающее — бухгалтерия, кадры и админка только мешают
+ * на маленьком экране.
+ *
+ * Это НЕ права доступа: пресет сужает меню, пока машина в режиме «Планшет», и
+ * снимается кнопкой «Комп» на той же машине. Сохранённая раскладка меню при этом
+ * не трогается — иначе возврат в режим «Комп» приходил бы с урезанным меню.
+ */
+export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
+  'engines',
+  'work_orders',
+  'parts',
+  'engine_brands',
+  'engine_assembly_bom',
+  'stock_balances',
+  'requests',
+  'repair_fund_audit',
+];
+
 type GroupVisualMeta = { icon: string; subtitle: string; gradient: string };
 const GROUP_VISUALS: Record<MenuGroupId, GroupVisualMeta> = {
   history: {

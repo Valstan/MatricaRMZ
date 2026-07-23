@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { and, eq, gte, isNull, isNotNull, like, ne, or, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
+import { SYNTHETIC_NOMENCLATURE_CODE_PREFIXES, isSyntheticNomenclatureCode } from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
 import { clientSettings, directoryParts, erpNomenclature } from '../database/schema.js';
@@ -24,8 +25,10 @@ import { signAndAppendDetailed } from '../ledger/ledgerService.js';
  *     пара «имя+артикул», ср. «Картер верхний»/«Картер нижний» 3301-15-30).
  *     Пропускаем целиком: слияние — ручное решение владельца.
  *  4. SUSPICIOUS — код похож на синтетику префиксом, но НЕ имеет генерируемой формы
- *     `PREFIX-<11 цифр>` (`buildNomenclatureCode`). Скорее всего живой вендорский
- *     артикул («NM-1050») → не трогаем вообще, печатаем списком.
+ *     (см. `isSyntheticNomenclatureCode`). Скорее всего живой вендорский артикул
+ *     («NM-1050», «SRV-001») → не трогаем вообще, печатаем списком. Непустая корзина
+ *     ОСТАНАВЛИВАЕТ `--apply`: это симптом того, что маска не знает очередной формы,
+ *     а частичный прогон рапортует успехом (GOTCHAS M41).
  *  5. GHOSTS — живой directory_parts при soft-deleted зеркале ретайрится.
  *
  * ⚠️ ПОЧЕМУ НЕ `recordSyncChanges` (грабля, стоившая прошлой версии скрипта
@@ -52,12 +55,15 @@ import { signAndAppendDetailed } from '../ledger/ledgerService.js';
  *     0016 / schema-version 11). На старом клиенте пустой код ломает применение pull'а;
  *   • ledger-replay должен переживать пустой код — `normalizeRow` отбрасывал строки
  *     falsy-проверкой (починено вместе с этим скриптом);
- *   • роут POST /warehouse/nomenclature требует `code: z.string().min(1)` → после
- *     обнуления карточку нельзя сохранить. Ослабление роута выкатывается ТЕМ ЖЕ
- *     релизом, что и прогон. Скрипт это не проверяет — держать в рантбуке.
+ *   • ✅ роут POST /warehouse/nomenclature больше НЕ требует `code: z.string().min(1)`
+ *     (ослаблен 2026-07-23 вместе с парной `erpNomenclatureRowSchema`) — карточка без
+ *     артикула сохраняется. Стоп-кран той же волны запрещает СОЗДАВАТЬ синтетику:
+ *     форма спрашивает артикул, роуты отклоняют генерируемую форму. Без него прогон
+ *     не идемпотентен — заглушки набегают снова.
  *
  * Dry-run by default; `--apply` мутирует. pg_dump обеих таблиц заранее.
  * `--allow-ghosts=N` — подтвердить ретайр N «духов» (защита от массового удаления).
+ * `--allow-suspicious=N` — подтвердить осознанный остаток нераспознанных кодов.
  */
 const APPLY = process.argv.includes('--apply');
 const ALLOW_GHOSTS = (() => {
@@ -76,16 +82,13 @@ const ALLOW_SUSPICIOUS = (() => {
 })();
 
 /**
- * Генерируемых форм ДВЕ, и это выяснилось только прод-замером 2026-07-23:
- *  • текущая `buildNomenclatureCode` — PREFIX + 8 цифр времени + 3 случайные;
- *  • легаси — PREFIX + 8 hex-символов (генератора в коде уже нет, строки исторические).
- * Маска на одну текущую форму давала SUSPICIOUS=141 при BLANK=4, то есть прогон
- * молча пропускал 97% цели и выглядел успешным. Разделение hex/цифры не нужно:
- * обе формы синтетические. Вендорские коды вроде `NM-1050` под маску не попадают —
- * ровно для них и остаётся корзина SUSPICIOUS.
+ * Маска синтетики — ОДНА на скрипт, стоп-кран клиента и серверные роуты
+ * (`shared/src/domain/nomenclatureCode.ts`). Прежняя жила здесь, знала только текущую
+ * форму генератора и один префикс из десяти: прод-замер 2026-07-23 дал SUSPICIOUS=141
+ * при BLANK=4 — прогон молча пропускал 97% цели и выглядел успешным (GOTCHAS M41).
  */
-const SYNTHETIC_STRICT = /^(DET|NM)-(\d{11}|[0-9A-F]{8})$/;
-const SYNTHETIC_PREFIX = /^(DET|NM)-/;
+const isSyntheticStrict = (code: string): boolean => isSyntheticNomenclatureCode(code);
+const SYNTHETIC_PREFIX = new RegExp(`^(${SYNTHETIC_NOMENCLATURE_CODE_PREFIXES.join('|')})-`, 'i');
 const MIN_CLIENT_VERSION = '2026.712.1818';
 const CLIENT_ALIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -270,7 +273,7 @@ async function main() {
     .where(
       and(
         isNull(erpNomenclature.deletedAt),
-        or(like(erpNomenclature.code, 'DET-%'), like(erpNomenclature.code, 'NM-%')),
+        or(...SYNTHETIC_NOMENCLATURE_CODE_PREFIXES.map((prefix) => like(erpNomenclature.code, `${prefix}-%`))),
       ),
     );
 
@@ -284,8 +287,8 @@ async function main() {
   }));
 
   // Похоже на синтетику, но не сгенерированной формы → живой вендорский артикул.
-  const suspicious = all.filter((c) => !SYNTHETIC_STRICT.test(c.nCode));
-  const candidates = all.filter((c) => SYNTHETIC_STRICT.test(c.nCode));
+  const suspicious = all.filter((c) => !isSyntheticStrict(c.nCode));
+  const candidates = all.filter((c) => isSyntheticStrict(c.nCode));
 
   // PROMOTE vs COLLISION: сначала дубли внутри батча, потом занятость живой строкой.
   const byCode = new Map<string, Candidate[]>();
@@ -321,11 +324,11 @@ async function main() {
     .where(
       and(
         isNull(directoryParts.deletedAt),
-        or(like(directoryParts.code, 'DET-%'), like(directoryParts.code, 'NM-%')),
+        or(...SYNTHETIC_NOMENCLATURE_CODE_PREFIXES.map((prefix) => like(directoryParts.code, `${prefix}-%`))),
       ),
     );
-  const dpCatchUp = dpRows.filter((r) => !handled.has(String(r.id)) && SYNTHETIC_STRICT.test(norm(r.code)));
-  const dpSuspicious = dpRows.filter((r) => !SYNTHETIC_STRICT.test(norm(r.code)));
+  const dpCatchUp = dpRows.filter((r) => !handled.has(String(r.id)) && isSyntheticStrict(norm(r.code)));
+  const dpSuspicious = dpRows.filter((r) => !isSyntheticStrict(norm(r.code)));
 
   const ghosts = await db
     .select({ id: directoryParts.id, name: directoryParts.name })
@@ -360,7 +363,7 @@ async function main() {
     throw new Error(
       `SUSPICIOUS ${suspiciousTotal} при пороге ${ALLOW_SUSPICIOUS} — маска не знает их формы, ` +
         `прогон обнулит только ${blank.length + dpCatchUp.length} строк и отрапортует успех. ` +
-        `Разобрать список выше: если это синтетика — расширить SYNTHETIC_STRICT, ` +
+        `Разобрать список выше: если это синтетика — расширить маску в shared/domain/nomenclatureCode.ts, ` +
         `если живые вендорские артикулы — повторить с --allow-suspicious=${suspiciousTotal}`,
     );
   }
@@ -428,7 +431,7 @@ async function main() {
     .where(
       and(
         isNull(erpNomenclature.deletedAt),
-        or(like(erpNomenclature.code, 'DET-%'), like(erpNomenclature.code, 'NM-%')),
+        or(...SYNTHETIC_NOMENCLATURE_CODE_PREFIXES.map((prefix) => like(erpNomenclature.code, `${prefix}-%`))),
       ),
     );
   const leftDir = await db
@@ -437,11 +440,11 @@ async function main() {
     .where(
       and(
         isNull(directoryParts.deletedAt),
-        or(like(directoryParts.code, 'DET-%'), like(directoryParts.code, 'NM-%')),
+        or(...SYNTHETIC_NOMENCLATURE_CODE_PREFIXES.map((prefix) => like(directoryParts.code, `${prefix}-%`))),
       ),
     );
-  const nomLeft = leftNom.filter((r) => SYNTHETIC_STRICT.test(norm(r.code))).length;
-  const dirLeft = leftDir.filter((r) => SYNTHETIC_STRICT.test(norm(r.code))).length;
+  const nomLeft = leftNom.filter((r) => isSyntheticStrict(norm(r.code))).length;
+  const dirLeft = leftDir.filter((r) => isSyntheticStrict(norm(r.code))).length;
 
   console.log(
     `[blank-synth] APPLIED: promoted=${promoted} blanked=${blanked} cards-blanked=${cardsBlanked} ` +

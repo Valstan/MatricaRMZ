@@ -14,6 +14,8 @@ import type { LabelTarget } from '../utils/qrLabels.js';
 import { useRegisterSearchScope } from '../context/globalSearchScope.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import { useConfirm } from '../components/ConfirmContext.js';
+import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import { fetchWarehouseNomenclatureAllPages } from '../utils/warehousePagedFetch.js';
 import {
   ALL_NOMENCLATURE_CREATE_PRESETS,
@@ -111,6 +113,7 @@ export function NomenclaturePage(props: {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [creatingKind, setCreatingKind] = useState<string | null>(null);
+  const { promptText } = useConfirm();
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [newTypeCode, setNewTypeCode] = useState('');
@@ -314,6 +317,8 @@ export function NomenclaturePage(props: {
 
   const runCreateWithPreset = useCallback(
     async (preset: NomenclatureDirectoryPreset) => {
+      const article = await promptNomenclatureArticle(promptText, preset.createConfig.name);
+      if (article === null) return;
       setCreatingKind(preset.directoryKind);
       setStatus(`Создание новой позиции (${preset.createConfig.name})...`);
       try {
@@ -321,6 +326,7 @@ export function NomenclaturePage(props: {
           directoryKind: preset.directoryKind,
           createConfig: preset.createConfig,
           displayName: preset.createConfig.name,
+          article,
         });
         if (!result.ok) {
           if ('duplicateNomenclatureId' in result) {
@@ -340,7 +346,7 @@ export function NomenclaturePage(props: {
         setCreatingKind(null);
       }
     },
-    [props.onOpen],
+    [props.onOpen, promptText],
   );
 
   return (

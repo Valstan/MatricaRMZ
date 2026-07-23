@@ -5,6 +5,7 @@ import {
   DEFAULT_GROUP_TABS,
   GROUP_LABELS,
   TAB_VISUALS,
+  TABLET_OPERATOR_TABS,
   groupForTab,
   type MenuGroupId,
   type MenuTabId,
@@ -83,8 +84,15 @@ export function buildV2Buttons(
   availableTabs: MenuTabId[],
   menuLabels: Partial<Record<MenuTabId, string>>,
   layout: V2ButtonLayout,
+  /** Режим «Планшет»: меню сужается до операторского пресета, раскладка не трогается. */
+  tabletOperatorMenu = false,
 ): V2Buttons {
-  const available = new Set(availableTabs);
+  // Сужаем именно ДОСТУПНЫЕ табы, а не `hidden`: иначе закреплённый бухгалтерский
+  // раздел пролез бы в pinned, а спрятанные всплыли бы в списке «восстановить».
+  const visibleTabs = tabletOperatorMenu
+    ? availableTabs.filter((id) => TABLET_OPERATOR_TABS.includes(id))
+    : availableTabs;
+  const available = new Set(visibleTabs);
   const hiddenSet = new Set(layout.hidden.filter((id) => available.has(id as MenuTabId)));
   const pinnedIds = layout.pinned.filter((id): id is MenuTabId => available.has(id as MenuTabId) && !hiddenSet.has(id));
   const pinnedSet = new Set(pinnedIds);
@@ -102,7 +110,7 @@ export function buildV2Buttons(
     else order.push(id);
   }
   // Доступные табы вне дефолтного каталога (на всякий случай) — в конец.
-  for (const id of availableTabs) if (!order.includes(id)) order.push(id);
+  for (const id of visibleTabs) if (!order.includes(id)) order.push(id);
 
   return {
     pinned: pinnedIds.map((id) => toDescriptor(id, menuLabels)),

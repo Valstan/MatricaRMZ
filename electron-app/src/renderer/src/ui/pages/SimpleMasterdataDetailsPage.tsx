@@ -645,6 +645,11 @@ export function SimpleMasterdataDetailsPage(props: {
         createConfig: preset.createConfig,
         displayName: name.trim(),
         sourceId: resolvedEntityIdRef.current,
+        // Зеркалящий deferred-create на сохранении карточки, а не «оператор заводит
+        // позицию»: спрашивать артикул модалкой посреди сохранения нельзя. Оставляем
+        // пусто по конвенции «нет артикула = пустая строка» — заполняется в карточке
+        // номенклатуры. Синтетику здесь не штампуем ни при каких условиях.
+        article: '',
       });
       if (created.ok) return;
       lastError = created.error;

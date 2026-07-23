@@ -21,6 +21,7 @@ import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch, mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import {
   labelForSupplyRequestCreateKind,
   SUPPLY_REQUEST_LINE_CREATE_PRESETS,
@@ -268,7 +269,7 @@ export function SupplyRequestDetailsPage(props: {
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
-  const { confirm: confirmModal, pickChoice } = useConfirm();
+  const { confirm: confirmModal, pickChoice, promptText } = useConfirm();
   const [payload, setPayload] = useState<SupplyRequestPayload | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('');
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
@@ -1374,10 +1375,13 @@ export function SupplyRequestDetailsPage(props: {
                               if (!choice) return null;
                               const preset = SUPPLY_REQUEST_LINE_CREATE_PRESETS.find((p) => p.directoryKind === choice);
                               if (!preset) return null;
+                              const article = await promptNomenclatureArticle(promptText, name);
+                              if (article === null) return null;
                               const r = await createNomenclatureLineFromPreset({
                                 directoryKind: preset.directoryKind,
                                 createConfig: preset.createConfig,
                                 displayName: name,
+                                article,
                               });
                               if (!r.ok) {
                                 if ('duplicateNomenclatureId' in r) {
