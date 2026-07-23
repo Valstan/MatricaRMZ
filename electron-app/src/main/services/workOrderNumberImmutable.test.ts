@@ -148,6 +148,56 @@ describe('setWorkOrderNumber (superadmin repair path)', () => {
     }
   });
 
+  // Сохранение открытой карточки не должно стирать маркер смены номера: по нему серверный backstop
+  // отличает осознанную смену от чужой, и без маркера номер прилетал бы вылеченным назад.
+  it('keeps the number_change marker through a save of a card snapshot taken before the change', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      // Снимок карточки сделан ДО смены номера — как у открытой в UI карточки.
+      const beforeChange: WorkOrderPayload = { ...order.payload };
+      const changed = await setWorkOrderNumber(db, { id: order.id, workOrderNumber: 85, actor: 'root' });
+      expect(changed.ok).toBe(true);
+
+      const saved = await updateWorkOrder(db, { id: order.id, payload: beforeChange, actor: 'root' });
+      expect(saved.ok).toBe(true);
+
+      const row = sqlite.prepare(`SELECT meta_json FROM operations WHERE id = ?`).get(order.id) as {
+        meta_json: string;
+      };
+      const trail = (JSON.parse(row.meta_json) as WorkOrderPayload).auditTrail ?? [];
+      const marker = trail.filter((item) => item.action === 'number_change');
+      expect(marker).toHaveLength(1);
+      expect(marker[0]?.note).toBe('№85');
+      expect(storedNumber(sqlite, order.id)).toBe(85);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('does not duplicate audit entries when the same snapshot is saved repeatedly', async () => {
+    const { sqlite, db } = makeDb();
+    try {
+      const order = await materialize(db);
+      for (const actor of ['first', 'second', 'third']) {
+        await updateWorkOrder(db, { id: order.id, payload: order.payload, actor });
+      }
+      const row = sqlite.prepare(`SELECT meta_json FROM operations WHERE id = ?`).get(order.id) as {
+        meta_json: string;
+      };
+      const trail = (JSON.parse(row.meta_json) as WorkOrderPayload).auditTrail ?? [];
+      const keys = trail.map((item) => `${item.at}|${item.by}|${item.action}|${item.note ?? ''}`);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(trail.filter((item) => item.action === 'update').map((item) => item.by)).toEqual([
+        'first',
+        'second',
+        'third',
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('repairs a zeroed number without touching the neighbour', async () => {
     const { sqlite, db } = makeDb();
     try {
