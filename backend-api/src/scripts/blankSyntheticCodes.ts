@@ -64,9 +64,27 @@ const ALLOW_GHOSTS = (() => {
   const arg = process.argv.find((a) => a.startsWith('--allow-ghosts='));
   return arg ? Number(arg.split('=')[1]) : 2;
 })();
+/**
+ * Непустой SUSPICIOUS останавливает прогон. Корзина «похоже на синтетику, но форма
+ * чужая» задумана как редкое исключение; когда она наполняется, это симптом того,
+ * что маска не знает очередной формы — и прогон отработает частично, отрапортовав
+ * успех (так и случилось с легаси hex-формой). Осознанный остаток подтверждается явно.
+ */
+const ALLOW_SUSPICIOUS = (() => {
+  const arg = process.argv.find((a) => a.startsWith('--allow-suspicious='));
+  return arg ? Number(arg.split('=')[1]) : 0;
+})();
 
-/** Форма из buildNomenclatureCode: PREFIX + 8 цифр времени + 3 случайные. */
-const SYNTHETIC_STRICT = /^(DET|NM)-\d{11}$/;
+/**
+ * Генерируемых форм ДВЕ, и это выяснилось только прод-замером 2026-07-23:
+ *  • текущая `buildNomenclatureCode` — PREFIX + 8 цифр времени + 3 случайные;
+ *  • легаси — PREFIX + 8 hex-символов (генератора в коде уже нет, строки исторические).
+ * Маска на одну текущую форму давала SUSPICIOUS=141 при BLANK=4, то есть прогон
+ * молча пропускал 97% цели и выглядел успешным. Разделение hex/цифры не нужно:
+ * обе формы синтетические. Вендорские коды вроде `NM-1050` под маску не попадают —
+ * ровно для них и остаётся корзина SUSPICIOUS.
+ */
+const SYNTHETIC_STRICT = /^(DET|NM)-(\d{11}|[0-9A-F]{8})$/;
 const SYNTHETIC_PREFIX = /^(DET|NM)-/;
 const MIN_CLIENT_VERSION = '2026.712.1818';
 const CLIENT_ALIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -337,6 +355,15 @@ async function main() {
   }
 
   await assertPreconditions();
+  const suspiciousTotal = suspicious.length + dpSuspicious.length;
+  if (suspiciousTotal > ALLOW_SUSPICIOUS) {
+    throw new Error(
+      `SUSPICIOUS ${suspiciousTotal} при пороге ${ALLOW_SUSPICIOUS} — маска не знает их формы, ` +
+        `прогон обнулит только ${blank.length + dpCatchUp.length} строк и отрапортует успех. ` +
+        `Разобрать список выше: если это синтетика — расширить SYNTHETIC_STRICT, ` +
+        `если живые вендорские артикулы — повторить с --allow-suspicious=${suspiciousTotal}`,
+    );
+  }
   if (ghosts.length > ALLOW_GHOSTS) {
     throw new Error(
       `«духов» ${ghosts.length} при пороге ${ALLOW_GHOSTS} — это мягкое удаление карточек деталей ` +

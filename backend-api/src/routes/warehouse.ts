@@ -264,7 +264,10 @@ warehouseRouter.get('/nomenclature', requirePermission(PermissionCode.ErpDiction
 warehouseRouter.post('/nomenclature', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
   const schema = z.object({
     id: z.string().uuid().optional(),
-    code: z.string().min(1),
+    // Конвенция «нет артикула = пустая строка» (её уже держат партиал-уникальные
+    // индексы PG 0075 / клиент 0016). С min(1) карточку без артикула нельзя сохранить
+    // вообще — 400 на каждой правке спецификации.
+    code: z.string(),
     sku: z.string().nullable().optional(),
     name: z.string().min(1),
     itemType: z.string().optional(),

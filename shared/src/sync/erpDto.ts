@@ -52,7 +52,9 @@ export const erpDocumentLineRowSchema = z.object({
 
 export const erpNomenclatureRowSchema = z.object({
   ...baseErpFields,
-  code: z.string().min(1),
+  // Та же конвенция, что в роуте: пустая строка — это «артикула нет», а не ошибка.
+  // С min(1) любой будущий путь записи отверг бы обнулённую строку как sync_invalid_row.
+  code: z.string(),
   sku: z.string().nullable().optional(),
   name: z.string().min(1),
   item_type: z.string().min(1),
