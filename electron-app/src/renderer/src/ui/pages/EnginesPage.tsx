@@ -22,7 +22,7 @@ import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
-import { formatMoscowDate } from '../utils/dateUtils.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
@@ -260,7 +260,8 @@ export type EnginesPageUiState = {
     | 'binding'
     | 'arrivalDate'
     | 'shippingDate'
-    | 'completenessAct';
+    | 'completenessAct'
+    | 'updatedAt';
   sortDir: 'asc' | 'desc';
   page: number;
   showPreviews: boolean;
@@ -591,6 +592,8 @@ export function EnginesPage(props: {
           return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
         case 'shippingDate':
           return byDate(a.shippingDate ?? null, b.shippingDate ?? null);
+        case 'updatedAt':
+          return byDate(a.updatedAt ?? null, b.updatedAt ?? null);
         case 'completenessAct': {
           const r = ((a.hasCompletenessAct ? 0 : 1) - (b.hasCompletenessAct ? 0 : 1)) * dir;
           return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
@@ -713,6 +716,14 @@ export function EnginesPage(props: {
       },
       { id: 'arrivalDate', label: 'Дата прихода', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
       { id: 'shippingDate', label: 'Дата отгрузки', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        sortable: true,
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (e) => (e.updatedAt ? formatMoscowDateTime(e.updatedAt) : '—'),
+      },
       {
         id: 'previews',
         label: 'Превью',

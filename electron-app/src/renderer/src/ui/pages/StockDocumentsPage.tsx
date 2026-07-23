@@ -49,7 +49,7 @@ function loadIncludedStatuses(): string[] {
   return order;
 }
 
-type SortKey = 'docNo' | 'docType' | 'docDate' | 'status' | 'warehouse' | 'counterparty' | 'reason' | 'lines' | 'qty';
+type SortKey = 'docNo' | 'docType' | 'docDate' | 'status' | 'warehouse' | 'counterparty' | 'reason' | 'lines' | 'qty' | 'updatedAt';
 
 export function StockDocumentsPage(props: {
   defaultDocType?: string;
@@ -144,6 +144,7 @@ export function StockDocumentsPage(props: {
       else if (sortKey === 'reason') cmp = String(a.reasonLabel ?? a.reason ?? '').localeCompare(String(b.reasonLabel ?? b.reason ?? ''), 'ru');
       else if (sortKey === 'lines') cmp = Number(a.linesCount ?? 0) - Number(b.linesCount ?? 0);
       else if (sortKey === 'qty') cmp = Number(a.totalQty ?? 0) - Number(b.totalQty ?? 0);
+      else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
       if (cmp === 0) cmp = String(a.docNo ?? '').localeCompare(String(b.docNo ?? ''), 'ru');
       return cmp * dir;
     });
@@ -179,6 +180,13 @@ export function StockDocumentsPage(props: {
       { id: 'reason', label: 'Основание', sortKey: 'reason', kind: 'text', render: (row) => row.reasonLabel || row.reason || '—' },
       { id: 'lines', label: 'Строк', sortKey: 'lines', kind: 'num', render: (row) => Number(row.linesCount ?? 0) },
       { id: 'qty', label: 'Кол-во', sortKey: 'qty', kind: 'num', render: (row) => Number(row.totalQty ?? 0) },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (row) => (row.updatedAt ? formatListDateTime(Number(row.updatedAt)) : '—'),
+      },
     ],
     [],
   );

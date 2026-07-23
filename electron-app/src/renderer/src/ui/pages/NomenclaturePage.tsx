@@ -19,6 +19,7 @@ import {
   ALL_NOMENCLATURE_CREATE_PRESETS,
   type NomenclatureDirectoryPreset,
 } from './nomenclatureDirectoryPresets.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { parseTemplatePropertiesJson } from '../utils/nomenclatureTemplateProperties.js';
 import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
 
@@ -69,7 +70,7 @@ function NomenclatureCollapsePanel(props: {
   );
 }
 
-type SortKey = 'name' | 'code' | 'itemType' | 'group' | 'unit';
+type SortKey = 'name' | 'code' | 'itemType' | 'group' | 'unit' | 'updatedAt';
 
 type PropertyGovernanceRow = {
   id: string;
@@ -266,6 +267,7 @@ export function NomenclaturePage(props: {
         else if (sortKey === 'itemType') cmp = String(a.itemType ?? '').localeCompare(String(b.itemType ?? ''), 'ru');
         else if (sortKey === 'group') cmp = String(a.groupName ?? '').localeCompare(String(b.groupName ?? ''), 'ru');
         else if (sortKey === 'unit') cmp = String(a.unitName ?? '').localeCompare(String(b.unitName ?? ''), 'ru');
+        else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
         if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
         return cmp * dir;
       });
@@ -715,6 +717,13 @@ export function NomenclaturePage(props: {
                               >
                                 {sortLabel('Ед.', 'unit')}
                               </th>
+                              <th
+                                data-col-kind="date"
+                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
+                                onClick={() => onSort('updatedAt')}
+                              >
+                                {sortLabel('Дата изменения', 'updatedAt')}
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -725,6 +734,7 @@ export function NomenclaturePage(props: {
                                 <td>{itemTypeLabel(row.itemType)}</td>
                                 <td>{row.groupName || '—'}</td>
                                 <td>{row.unitName || '—'}</td>
+                                <td data-col-kind="date" style={{ whiteSpace: 'nowrap' }}>{row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}</td>
                               </tr>
                             ))}
                           </tbody>

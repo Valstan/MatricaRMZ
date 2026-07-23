@@ -48,9 +48,16 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
     void refresh();
   }, [refresh]);
 
+  // Сортировка по дате изменения: по умолчанию свежие сверху — так шаблон, который только что
+  // правили, оказывается первым.
+  const [sortDesc, setSortDesc] = useState(true);
   const filteredRows = useMemo(
-    () => rows.filter((r) => matchesQueryInRecord(search, { name: r.name })),
-    [rows, search],
+    () =>
+      rows
+        .filter((r) => matchesQueryInRecord(search, { name: r.name }))
+        .slice()
+        .sort((a, b) => (Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0)) * (sortDesc ? -1 : 1)),
+    [rows, search, sortDesc],
   );
 
   async function handleDelete(template: WorkOrderTemplateSummary) {
@@ -139,7 +146,14 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
             <th data-col-kind="name" style={{ width: 200 }}>Тип</th>
             <th data-col-kind="name">Имя</th>
             <th data-col-kind="num" title="Строк" style={{ width: 100, textAlign: 'right' }}>Строк</th>
-            <th data-col-kind="date" title="Обновлён" style={{ width: 160 }}>Обновлён</th>
+            <th
+              data-col-kind="date"
+              title="Дата изменения"
+              style={{ width: 180, cursor: 'pointer' }}
+              onClick={() => setSortDesc((v) => !v)}
+            >
+              {`Дата изменения ${sortDesc ? '↓' : '↑'}`}
+            </th>
             <th style={{ width: 160 }}>Действия</th>
           </tr>
         </thead>

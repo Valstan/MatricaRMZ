@@ -115,18 +115,19 @@ export function CounterpartiesPage(props: {
       if (!silent) setStatus('Загрузка…');
       const list = await window.matrica.admin.entities.listByEntityType(typeId);
       const baseRows = list as any[];
-      const details = await Promise.all(
-        baseRows.map((r) => window.matrica.admin.entities.get(String(r.id)).catch(() => null)),
-      );
-      const enriched: Row[] = baseRows.map((r, idx) => {
-        const attrs = (details[idx] as any)?.attributes ?? {};
+      // Один вызов со всеми атрибутами вместо `get` на каждую строку: список контрагентов
+      // открывался тем же способом, что справочник услуг в наряде, — по запросу на строку.
+      const withAttrs = await window.matrica.admin.entities.listByEntityTypeWithAttrs(typeId).catch(() => []);
+      const attrsById = new Map(withAttrs.map((row) => [String(row.id), row.attributes ?? {}]));
+      const enriched: Row[] = baseRows.map((r) => {
+        const attrs = attrsById.get(String(r.id)) ?? {};
         const inn = typeof attrs.inn === 'string' ? attrs.inn : attrs.inn == null ? '' : String(attrs.inn);
         const attachmentPreviews = collectAttachmentPreviews(attrs);
         return {
           id: String(r.id),
           displayName: r.displayName ? String(r.displayName) : '',
           searchText: r.searchText ? String(r.searchText) : '',
-          inn: inn.trim() || undefined,
+          ...(inn.trim() ? { inn: inn.trim() } : {}),
           updatedAt: Number(r.updatedAt ?? 0),
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
         };
@@ -182,7 +183,7 @@ export function CounterpartiesPage(props: {
     () => [
       { title: 'Название', value: (row: Row) => row.displayName || '(без названия)' },
       { title: 'ИНН', value: (row: Row) => row.inn || '—' },
-      { title: 'Обновлено', value: (row: Row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
+      { title: 'Дата изменения', value: (row: Row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
     ],
     [],
   );
@@ -238,7 +239,7 @@ export function CounterpartiesPage(props: {
     () => [
       { id: 'displayName', label: 'Название', sortKey: 'displayName', kind: 'name', render: (row) => <span style={{ color: '#111827' }}>{row.displayName || '(без названия)'}</span> },
       { id: 'inn', label: 'ИНН', sortKey: 'inn', kind: 'name', render: (row) => row.inn || '—' },
-      { id: 'updatedAt', label: 'Обновлено', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
+      { id: 'updatedAt', label: 'Дата изменения', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
       { id: 'previews', label: 'Превью', cellAlign: 'right', kind: 'thumbs', requireShowPreviews: true, render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} /> },
     ],
     [],
