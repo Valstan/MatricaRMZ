@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { accessSectionMeta, type UiScreenListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -21,6 +21,12 @@ export function UserScreensPage(props: {
   onEdit: (id: string | null) => void;
 }) {
   const [rows, setRows] = useState<UiScreenListItem[]>([]);
+  // Свежеправленный экран — первым: список короткий, но искать в нём глазами всё равно приходится.
+  const [sortDesc, setSortDesc] = useState(true);
+  const sortedRows = useMemo(
+    () => rows.slice().sort((a, b) => (Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0)) * (sortDesc ? -1 : 1)),
+    [rows, sortDesc],
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -77,12 +83,14 @@ export function UserScreensPage(props: {
               <th style={th}>Название</th>
               <th style={th}>Раздел</th>
               <th style={th}>Автор</th>
-              <th style={th}>Обновлён</th>
+              <th style={{ ...th, cursor: 'pointer' }} onClick={() => setSortDesc((v) => !v)}>
+                {`Дата изменения ${sortDesc ? '↓' : '↑'}`}
+              </th>
               <th style={th} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.id}>
                 <td style={td}>
                   <button

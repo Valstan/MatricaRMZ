@@ -11,12 +11,13 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { countListedPartsByBrand } from '../utils/engineBrandSummary.js';
 
-type BrandRow = { id: string; name: string };
+type BrandRow = { id: string; name: string; updatedAt: number };
 
-type SortKey = 'name' | 'parts';
+type SortKey = 'name' | 'parts' | 'updatedAt';
 
 export function EngineBrandsPage(props: {
   onOpen: (id: string) => Promise<void>;
@@ -56,6 +57,7 @@ export function EngineBrandsPage(props: {
         id: string;
         displayName?: string;
         searchText?: string;
+        updatedAt?: number;
       }>;
       setRows(
         // Пустое/недоехавшее синком имя → человеческая пометка, НЕ голый UUID: оператор
@@ -63,6 +65,7 @@ export function EngineBrandsPage(props: {
         list.map((r) => ({
           id: String(r.id),
           name: String(r.displayName ?? '').trim() || `(имя не заполнено · ${String(r.id).slice(0, 8)})`,
+          updatedAt: Number(r.updatedAt ?? 0),
         })),
       );
       setStatus('');
@@ -153,6 +156,7 @@ export function EngineBrandsPage(props: {
     return [...filtered].sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'name') cmp = a.name.localeCompare(b.name, 'ru');
+      else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
       else cmp = (brandPartCounts[a.id] ?? 0) - (brandPartCounts[b.id] ?? 0);
       if (cmp === 0) cmp = a.name.localeCompare(b.name, 'ru');
       return cmp * dir;
@@ -209,6 +213,9 @@ export function EngineBrandsPage(props: {
         <th data-col-kind="num" title="Количество номенклатурных позиций деталей в списке марки" style={{ textAlign: 'right', cursor: 'pointer', width: 220 }} onClick={() => onSort('parts')}>
           {sortLabel('Списочное количество деталей', 'parts')}
         </th>
+        <th data-col-kind="date" style={{ textAlign: 'left', cursor: 'pointer', width: 180 }} onClick={() => onSort('updatedAt')}>
+          {sortLabel('Дата изменения', 'updatedAt')}
+        </th>
       </tr>
     </thead>
   );
@@ -218,6 +225,7 @@ export function EngineBrandsPage(props: {
       <>
         <td data-col-kind="name">{row.name}</td>
         <td data-col-kind="num" style={{ textAlign: 'right' }}>{brandPartCounts[row.id] ?? 0}</td>
+        <td data-col-kind="date">{row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}</td>
       </>
     );
   }

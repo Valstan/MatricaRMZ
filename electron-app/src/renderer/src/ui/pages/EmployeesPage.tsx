@@ -28,6 +28,7 @@ import {
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 
@@ -253,6 +254,13 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       { id: 'position', label: 'Должность', sortKey: 'position', kind: 'name', render: (row) => row.position || '—' },
       { id: 'departmentName', label: 'Подразделение', sortKey: 'departmentName', kind: 'name', render: (row) => row.departmentName || '—' },
       { id: 'employmentStatus', label: 'Статус', sortKey: 'employmentStatus', kind: 'flag', render: (row) => formatEmploymentStatusAttrForUi(row.employmentStatus) },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
+      },
       {
         id: 'access',
         label: 'Доступ',

@@ -12,6 +12,7 @@ import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
+import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
 type CreateConfig = {
   codePrefix: string;
@@ -20,7 +21,7 @@ type CreateConfig = {
   category: string;
 };
 
-type SortKey = 'code' | 'name' | 'sku' | 'parts' | 'price' | 'brands' | 'unit' | 'description' | 'attachments';
+type SortKey = 'code' | 'name' | 'sku' | 'parts' | 'price' | 'brands' | 'unit' | 'description' | 'attachments' | 'updatedAt';
 
 
 export function NomenclatureDirectoryPage(props: {
@@ -231,6 +232,7 @@ export function NomenclatureDirectoryPage(props: {
       else if (sortKey === 'unit') cmp = String(serviceUnits[String(a.id)] ?? '').localeCompare(String(serviceUnits[String(b.id)] ?? ''), 'ru');
       else if (sortKey === 'description') cmp = String(serviceDescriptions[String(a.id)] ?? '').localeCompare(String(serviceDescriptions[String(b.id)] ?? ''), 'ru');
       else if (sortKey === 'attachments') cmp = (serviceAttachmentsCount[String(a.id)] ?? 0) - (serviceAttachmentsCount[String(b.id)] ?? 0);
+      else if (sortKey === 'updatedAt') cmp = Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0);
       if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       return cmp * dir;
     });
@@ -313,6 +315,13 @@ export function NomenclatureDirectoryPage(props: {
           const n = serviceAttachmentsCount[String(row.id)] ?? 0;
           return n > 0 ? String(n) : '—';
         },
+      },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
       },
     ],
     [servicePrices, serviceBrandIds, engineBrandNames, serviceUnits, serviceDescriptions, serviceAttachmentsCount],
@@ -492,6 +501,9 @@ export function NomenclatureDirectoryPage(props: {
               {sortLabel('Прикреплено деталей', 'parts')}
             </th>
           ) : null}
+          <th data-col-kind="date" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
+            {sortLabel('Дата изменения', 'updatedAt')}
+          </th>
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       )}
@@ -517,6 +529,7 @@ export function NomenclatureDirectoryPage(props: {
         <td data-col-kind="name">{row.name || '—'}</td>
         <td data-col-kind="name">{row.sku || '—'}</td>
         {props.directoryKind === 'engine_brand' ? <td data-col-kind="num">{brandPartCounts[String(row.id)] ?? 0}</td> : null}
+        <td data-col-kind="date">{row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}</td>
         <td className="list-col-filler" aria-hidden="true" />
       </>
     );

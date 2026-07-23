@@ -536,7 +536,7 @@ export function ContractsPage(props: {
       },
       {
         id: 'updatedAt',
-        label: 'Дата обновления карточки контракта',
+        label: 'Дата изменения',
         sortable: true,
         sortKey: 'updatedAt',
         kind: 'date',

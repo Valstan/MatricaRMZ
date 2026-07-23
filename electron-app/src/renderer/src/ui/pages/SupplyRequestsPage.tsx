@@ -13,7 +13,7 @@ import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSorted
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
-import { formatMoscowDate } from '../utils/dateUtils.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 
 type Row = {
@@ -143,6 +143,13 @@ export function SupplyRequestsPage(props: {
       { id: 'sentAt', label: 'Дата отправки', sortKey: 'sentAt', kind: 'date', render: (r) => (r.sentAt ? formatMoscowDate(r.sentAt) : '-') },
       { id: 'arrivedAt', label: 'Дата поступления', sortKey: 'arrivedAt', kind: 'date', render: (r) => (r.arrivedAt ? formatMoscowDate(r.arrivedAt) : '-') },
       { id: 'status', label: 'Статус', sortKey: 'status', render: (r) => statusLabel(r.status) },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (r) => (r.updatedAt ? formatMoscowDateTime(r.updatedAt) : '—'),
+      },
       { id: 'previews', label: 'Превью', cellAlign: 'right', kind: 'thumbs', requireShowPreviews: true, render: (r) => <ListRowThumbs files={r.attachmentPreviews ?? []} /> },
     ],
     [],

@@ -26,7 +26,7 @@ import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSorted
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
-import { formatMoscowDate } from '../utils/dateUtils.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import {
   buildDeleteConfirmMessage,
   buildCopyRowsStatus,
@@ -240,6 +240,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   const contextColumns = useMemo(
     () => [
       { title: 'Дата создания', value: (row: Row) => (row.orderDate ? formatMoscowDate(row.orderDate) : '-') },
+      { title: 'Дата изменения', value: (row: Row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '-') },
       { title: 'Номер', value: (row: Row) => String(row.workOrderNumber) },
       { title: 'Начало работ', value: (row: Row) => (row.startDate ? formatMoscowDate(row.startDate) : '-') },
       { title: 'Срок', value: (row: Row) => (row.dueDate ? formatMoscowDate(row.dueDate) : '-') },
@@ -367,6 +368,13 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       },
       { id: 'total', label: 'Итог', sortKey: 'total', kind: 'num', render: (row) => rub(row.totalAmountRub) },
       { id: 'status', label: 'Статус', sortKey: 'status', width: 150, render: (row) => <StatusBadge code={rowStatusCode(row, Date.now())} /> },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
+      },
     ],
     [acceptedOrCrew],
   );
