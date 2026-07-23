@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  NOMENCLATURE_ITEM_TYPE_HAS_STOCK,
   NOMENCLATURE_ITEM_TYPE_LABELS,
   WORK_ORDER_KIND_DESCRIPTIONS,
   WORK_ORDER_KIND_LABELS,
@@ -25,7 +24,6 @@ import {
   isWorkOrderTemplateKind,
   normalizeWorkOrderLine,
   resolveAssemblyEngineId,
-  type NomenclatureItemType,
   type StatusCode,
   type WorkOrderPayload,
   type WorkOrderPrintSettings,
@@ -49,6 +47,13 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
+import {
+  getWorkOrderRefs,
+  type EmployeeInfo,
+  type EngineInfo,
+  type PartInfo,
+  type ServiceInfo,
+} from '../services/workOrderRefsCache.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import { formatMoscowDate, formatMoscowDayMonthName } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
@@ -56,21 +61,6 @@ import { buildWorkOrderA4PreviewHtml, escapeHtml, openPrintPreview, type PrintSe
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
-type ServiceInfo = { id: string; name: string; unit: string; priceRub: number; partIds: string[]; engineBrandIds: string[] };
-type EmployeeInfo = {
-  id: string;
-  displayName: string;
-  fullName?: string;
-  lastName?: string;
-  firstName?: string;
-  middleName?: string;
-  personnelNumber?: string | null;
-  departmentName?: string | null;
-  workshopId?: string | null;
-  position?: string | null;
-  employmentStatus?: string | null;
-};
-type EngineInfo = { id: string; engineNumber?: string; engineInternalNumber?: string; engineBrandId?: string | null; engineBrandName?: string; contractId?: string | null; customerId?: string | null };
 /** Резолвленные для печати реквизиты по двигателю: суффикс номера контракта (***NNN) + контрагент. */
 type EngineContractInfo = { contractSuffix: string; counterparty: string };
 
@@ -85,7 +75,6 @@ function contractNumberSuffix(mainNumber: string | null | undefined): string {
   const last3 = digits.slice(-3);
   return last3 ? `***${last3}` : '';
 }
-type PartInfo = { id: string; name: string; article?: string; sku?: string; itemType?: NomenclatureItemType };
 
 /**
  * Вариант детали внутри позиции спецификации марки (Phase 4b). Позиция = строки BOM с общим
@@ -162,22 +151,6 @@ function fromCents(value: number): number {
   return Math.round(value) / 100;
 }
 
-function normalizeStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map((x) => String(x || '').trim()).filter((x) => x.length > 0);
-    } catch {
-      // ignore invalid JSON
-    }
-  }
-  return [];
-}
 
 function normalizeLine(line: unknown, lineNo: number): WorkOrderWorkLine {
   return normalizeWorkOrderLine(line, lineNo);
@@ -818,101 +791,14 @@ export function WorkOrderDetailsPage(props: {
     [parts],
   );
 
+  // Справочники общие для всех карточек — тянем их из общего кэша (см. workOrderRefsCache):
+  // раньше каждое открытие карточки грузило их заново, а услуги вдобавок поштучно.
   async function loadRefs() {
-    try {
-      const emps = await window.matrica.employees.list().catch(() => [] as any[]);
-      setEmployees(
-        (emps as any[]).map((x): EmployeeInfo => ({
-          id: String(x.id),
-          displayName: String(x.displayName || x.fullName || x.id),
-          ...(x.fullName ? { fullName: String(x.fullName) } : {}),
-          ...(x.lastName ? { lastName: String(x.lastName) } : {}),
-          ...(x.firstName ? { firstName: String(x.firstName) } : {}),
-          ...(x.middleName ? { middleName: String(x.middleName) } : {}),
-          personnelNumber: x.personnelNumber ? String(x.personnelNumber) : null,
-          departmentName: x.departmentName ? String(x.departmentName) : null,
-          workshopId: x.workshopId ? String(x.workshopId) : null,
-          position: x.position ? String(x.position) : null,
-          employmentStatus: x.employmentStatus ? String(x.employmentStatus) : null,
-        })),
-      );
-
-      const et = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
-      const serviceType = (et as any[]).find((x) => String(x.code) === 'service');
-      if (!serviceType?.id) {
-        setServices([]);
-        return;
-      }
-      const list = await window.matrica.admin.entities.listByEntityType(String(serviceType.id)).catch(() => [] as any[]);
-      const details = await Promise.all(
-        (list as any[]).slice(0, 2000).map(async (row) => {
-          const d = await window.matrica.admin.entities.get(String(row.id)).catch(() => null);
-          const attrs = (d as any)?.attributes ?? {};
-          return {
-            id: String(row.id),
-            name: String(attrs.name || row.displayName || row.id),
-            unit: String(attrs.unit || 'шт'),
-            priceRub: Math.max(0, safeNum(attrs.price, 0)),
-            partIds: normalizeStringArray(attrs.part_ids),
-            engineBrandIds: normalizeStringArray(attrs.engine_brand_ids),
-          } as ServiceInfo;
-        }),
-      );
-      setServices(details.filter((x) => x.name.trim().length > 0));
-
-      // Загрузка двигателей
-      const engineList = await window.matrica.engines.list().catch(() => [] as any[]);
-      const engineInfo = (engineList as any[]).map((e) => ({
-        id: String(e.id),
-        engineNumber: String(e.engineNumber ?? ''),
-        engineInternalNumber: String(e.internalNumberFull ?? ''),
-        engineBrandId: e.engineBrandId ? String(e.engineBrandId) : null,
-        engineBrandName: String(e.engineBrand ?? ''),
-        contractId: e.contractId ? String(e.contractId) : null,
-        customerId: e.customerId ? String(e.customerId) : null,
-      } as EngineInfo));
-      setEngines(engineInfo);
-
-      // Загрузка изделий из складской номенклатуры — единый источник истины.
-      // Берём все позиции с остатками (HAS_STOCK), т.е. всё кроме service.
-      // Это видит и зеркала старых деталей (spec_json.source=part, тот же UUID),
-      // и позиции, забитые напрямую в номенклатуру (например, готовые узлы и продукты).
-      const nomResult = await window.matrica.warehouse.nomenclatureList({ limit: 5000 }).catch(() => null);
-      if (nomResult && nomResult.ok && Array.isArray(nomResult.rows)) {
-        const partInfo = nomResult.rows
-          .filter((row: Record<string, unknown>) => {
-            const itemType = String(row.itemType ?? '') as NomenclatureItemType;
-            return Boolean(NOMENCLATURE_ITEM_TYPE_HAS_STOCK[itemType]) && Boolean(row.isActive ?? true);
-          })
-          .map((row: Record<string, unknown>): PartInfo => {
-            const itemType = String(row.itemType ?? '') as NomenclatureItemType;
-            // Реальный человеческий артикул — `code` (напр. 411-00-35А). `sku` у мигрированных
-            // зеркал — авто-код вида DET-<id>, поэтому показываем/ищем по code, а sku оставляем
-            // только в поиске (чтобы старые DET-коды тоже находились). Иначе деталь индексируется
-            // под мусорным DET-кодом и не находится по своему настоящему артикулу.
-            const code = row.code ? String(row.code) : '';
-            const sku = row.sku ? String(row.sku) : '';
-            const article = code || sku;
-            return {
-              id: String(row.id),
-              name: String(row.name ?? '').trim() || String(row.id),
-              ...(article ? { article } : {}),
-              ...(sku && sku !== article ? { sku } : {}),
-              ...(itemType ? { itemType } : {}),
-            };
-          })
-          .filter((p) => p.name.trim().length > 0)
-          .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-        setParts(partInfo);
-      } else {
-        setParts([]);
-      }
-    } catch {
-      setServices([]);
-      setEmployees([]);
-      setEngines([]);
-      setParts([]);
-    }
+    const refs = await getWorkOrderRefs();
+    setEmployees(refs.employees);
+    setServices(refs.services);
+    setEngines(refs.engines);
+    setParts(refs.parts);
   }
 
   async function refresh() {
@@ -1247,7 +1133,17 @@ export function WorkOrderDetailsPage(props: {
       }
       const newLines = buildLinesFromWorkOrderTemplate(tmpl.lines);
       // Race guard: справочник parts может ещё не загрузиться к моменту применения —
-      // тогда partName/partArticle пустые (в печати «—»). Дозагружаем такие позиции по id.
+      // тогда partName/partArticle пустые (в печати «—»). Сначала берём из уже загруженного
+      // справочника (обычно он на месте), и лишь остаток дочитываем по id — по одному запросу
+      // на строку, поэтому список сюда должен доходить как можно короче.
+      const partsById = new Map(parts.map((p) => [p.id, p]));
+      for (const line of newLines) {
+        if (!line.partId || String(line.partName ?? '').trim()) continue;
+        const known = partsById.get(String(line.partId));
+        if (!known) continue;
+        line.partName = known.name;
+        if (known.article && !String(line.partArticle ?? '').trim()) line.partArticle = known.article;
+      }
       await Promise.all(
         newLines
           .filter((line) => line.partId && !String(line.partName ?? '').trim())

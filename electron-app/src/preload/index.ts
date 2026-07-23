@@ -225,6 +225,11 @@ const matricaApi = {
     },
     entities: {
       listByEntityType: async (entityTypeId: string) => ipcRenderer.invoke('admin:entities:listByEntityType', entityTypeId),
+      // Список типа сразу с атрибутами: один вызов вместо «список + get на каждую строку».
+      listByEntityTypeWithAttrs: async (entityTypeId: string) =>
+        ipcRenderer.invoke('admin:entities:listByEntityTypeWithAttrs', entityTypeId) as Promise<
+          Array<{ id: string; updatedAt: number; attributes: Record<string, unknown> }>
+        >,
       create: async (entityTypeId: string) => ipcRenderer.invoke('admin:entities:create', entityTypeId),
       get: async (id: string, fallbackTypeId?: string) => ipcRenderer.invoke('admin:entities:get', id, fallbackTypeId),
       setAttr: async (entityId: string, code: string, value: unknown, fallbackTypeId?: string) =>
@@ -353,6 +358,8 @@ const matricaApi = {
   workOrders: {
     list: async (args?: { q?: string; month?: string }) => ipcRenderer.invoke('workOrders:list', args),
     get: async (id: string) => ipcRenderer.invoke('workOrders:get', id),
+    // «Где используется деталь»: один вызов вместо открытия каждого наряда по очереди.
+    usageByPart: async (partId: string) => ipcRenderer.invoke('workOrders:usageByPart', partId),
     activeAssemblyVariant: async (engineId: string) => ipcRenderer.invoke('workOrders:activeAssemblyVariant', engineId),
     create: async () => ipcRenderer.invoke('workOrders:create'),
     update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('workOrders:update', args),

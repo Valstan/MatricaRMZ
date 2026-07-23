@@ -121,12 +121,22 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1600;
 
+  // Поиск бьёт в main-процесс, а тот синхронный — без паузы каждая буква ставила в очередь
+  // полный пересчёт списка, и ввод «залипал». Фильтры месяца/вида применяются сразу: они меняются
+  // щелчком, а не посимвольно.
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    if (debouncedQuery === query) return;
+    const timer = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(timer);
+  }, [query, debouncedQuery]);
+
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
     try {
       if (!silent) setStatus('Загрузка…');
       const r = await window.matrica.workOrders.list({
-        ...(query.trim() ? { q: query.trim() } : {}),
+        ...(debouncedQuery.trim() ? { q: debouncedQuery.trim() } : {}),
         ...(month ? { month } : {}),
       });
       if (!r.ok) {
@@ -138,7 +148,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     } catch (e) {
       if (!silent) setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [month, query]);
+  }, [month, debouncedQuery]);
 
   useEffect(() => {
     void refresh();

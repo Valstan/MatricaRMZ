@@ -203,12 +203,27 @@ function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
   return { crankcaseScrapped, actStarted };
 }
 
+/**
+ * Разобранные флаги последнего акта, ключ — id строки акта, версия — её `updated_at`.
+ *
+ * Акты дефектовки — самые тяжёлые записи в базе (на проде 2026-07: 2086 строк, 79 МБ `meta_json`
+ * при 96 МБ всей таблицы). Разбор всех актов занимает ~1.2 с синхронной работы, а карта строится
+ * на каждый вызов `listEngines` — в том числе из списка нарядов, то есть на каждую букву в поиске.
+ * Флаги зависят только от содержимого акта, поэтому разбор кэшируется до следующей правки строки.
+ */
+const inventoryFlagsCache = new Map<string, { updatedAt: number; flags: EngineInventoryFlags }>();
+
+/**
+ * Флаги строятся по ПОСЛЕДНЕМУ акту каждого двигателя, поэтому `meta_json` остальных читать не за чем.
+ * Сначала берём «головы» строк (id + updated_at, без blob), выбираем нужные, и только по ним лезем
+ * за содержимым — и то лишь если акт изменился с прошлого раза.
+ */
 async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: string[]): Promise<Map<string, EngineInventoryFlags>> {
   const result = new Map<string, EngineInventoryFlags>();
   if (engineIds.length === 0) return result;
 
-  const rows = await db
-    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+  const heads = await db
+    .select({ id: operations.id, engineEntityId: operations.engineEntityId, updatedAt: operations.updatedAt })
     .from(operations)
     .where(
       and(
@@ -220,16 +235,110 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
     .orderBy(desc(operations.updatedAt));
 
   const seen = new Set<string>();
-  for (const row of rows as any[]) {
-    const engineId = String(row?.engineEntityId ?? '').trim();
+  const stale: Array<{ id: string; engineId: string; updatedAt: number }> = [];
+  for (const head of heads) {
+    const engineId = String(head.engineEntityId ?? '').trim();
     if (!engineId || seen.has(engineId)) continue;
     seen.add(engineId);
-
-    const payload = row.metaJson ? safeJsonParse(String(row.metaJson)) : null;
-    result.set(engineId, computeEngineInventoryFlags(payload));
+    const id = String(head.id);
+    const updatedAt = Number(head.updatedAt ?? 0);
+    const hit = inventoryFlagsCache.get(id);
+    if (hit && hit.updatedAt === updatedAt) {
+      result.set(engineId, hit.flags);
+      continue;
+    }
+    stale.push({ id, engineId, updatedAt });
   }
 
+  if (stale.length > 0) {
+    const bodies = await db
+      .select({ id: operations.id, metaJson: operations.metaJson })
+      .from(operations)
+      .where(inArray(operations.id, stale.map((s) => s.id)));
+    const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
+    for (const item of stale) {
+      const flags = computeEngineInventoryFlags(safeJsonParse(metaById.get(item.id) ?? ''));
+      inventoryFlagsCache.set(item.id, { updatedAt: item.updatedAt, flags });
+      result.set(item.engineId, flags);
+    }
+  }
+
+  // Кэш живёт весь сеанс: подрезаем, когда актов стало заметно больше, чем двигателей в выборке —
+  // иначе удалённые/пересозданные акты копились бы вечно.
+  if (inventoryFlagsCache.size > heads.length + 512) inventoryFlagsCache.clear();
+
   return result;
+}
+
+export type EngineLabel = { engineNumber: string; engineBrand: string; internalNumberFull: string };
+
+/**
+ * Номер / марка / внутренний номер по горстке двигателей — без построения каталога.
+ *
+ * Списку нарядов эти три поля нужны только для сборочных нарядов, где построчные штампы
+ * могли быть стрижены нормализацией. Раньше он звал за ними `listEngines`, а тот тянет всех
+ * двигателей со всеми атрибутами и картой флагов дефектовки (79 МБ актов) — ради двух строк.
+ */
+export async function resolveEngineLabels(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+): Promise<Map<string, EngineLabel>> {
+  const out = new Map<string, EngineLabel>();
+  const ids = [...new Set(engineIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+
+  const defs = await getEngineAttrDefs(db);
+  const defIdByCode = new Map<string, string>();
+  for (const code of ['engine_number', 'engine_brand', ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE]) {
+    const defId = defs[code];
+    if (defId) defIdByCode.set(defId, code);
+  }
+  if (defIdByCode.size === 0) return out;
+
+  const rows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, ids),
+        inArray(attributeValues.attributeDefId, [...defIdByCode.keys()]),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .orderBy(asc(attributeValues.updatedAt));
+
+  const byEntity = new Map<string, Record<string, string | undefined>>();
+  for (const row of rows) {
+    const code = defIdByCode.get(String(row.attributeDefId));
+    if (!code) continue;
+    const entityId = String(row.entityId);
+    let bag = byEntity.get(entityId);
+    if (!bag) {
+      bag = {};
+      byEntity.set(entityId, bag);
+    }
+    bag[code] = row.valueJson == null ? undefined : safeStringFromJson(String(row.valueJson));
+  }
+
+  for (const [entityId, bag] of byEntity) {
+    // Год читается ровно как в listEngines: невалидный отбрасывается, иначе номер напечатался бы «41/NaN».
+    const yearRaw = bag[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
+    const year = yearRaw != null ? Number(yearRaw) : Number.NaN;
+    out.set(entityId, {
+      engineNumber: (bag['engine_number'] ?? '').trim(),
+      engineBrand: (bag['engine_brand'] ?? '').trim(),
+      internalNumberFull: formatEngineInternalNumber(
+        bag[ENGINE_INTERNAL_NUMBER_CODE] ?? '',
+        isValidEngineInternalNumberYear(year) ? year : undefined,
+      ),
+    });
+  }
+
+  return out;
 }
 
 export async function listEngines(db: BetterSQLite3Database): Promise<EngineListItem[]> {

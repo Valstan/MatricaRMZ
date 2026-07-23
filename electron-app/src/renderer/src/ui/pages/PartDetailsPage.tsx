@@ -11,7 +11,6 @@ import {
   parseContractExecutionParts,
   parseContractSections,
   PART_TEMPLATE_ID_ATTR_CODE,
-  type WorkOrderPayload,
 } from '@matricarmz/shared';
 import { STATUS_CODES, STATUS_LABELS, statusDateCode, type StatusCode } from '@matricarmz/shared';
 import type { FileRef, PartMetadata } from '@matricarmz/shared';
@@ -479,42 +478,37 @@ export function PartDetailsPage(props: {
 
       const serviceType = entityTypes.find((row) => row.code === 'service');
       if (serviceType?.id) {
-        const services = await window.matrica.admin.entities.listByEntityType(serviceType.id);
-        for (const row of services as any[]) {
+        // Один вызов со всеми атрибутами вместо `get` на каждую услугу (368 штук на проде).
+        const services = await window.matrica.admin.entities.listByEntityTypeWithAttrs(serviceType.id).catch(() => []);
+        for (const row of services) {
           const id = String(row.id ?? '').trim();
           if (!id) continue;
-          const details = await window.matrica.admin.entities.get(id);
-          const partIds = Array.isArray(details?.attributes?.part_ids) ? details.attributes.part_ids.map((value: unknown) => String(value || '').trim()) : [];
+          const rawPartIds = row.attributes?.part_ids;
+          const partIds = Array.isArray(rawPartIds) ? rawPartIds.map((value: unknown) => String(value || '').trim()) : [];
           if (!partIds.includes(currentPart.id)) continue;
           addItem({
             key: `service:${id}`,
             kind: 'service',
             entityId: id,
-            label: String(row.displayName ?? id),
+            label: String(row.attributes?.name ?? id),
             description: 'Деталь включена в услугу',
             targetTypeCode: 'service',
           });
         }
       }
 
-      const workOrders = await window.matrica.workOrders.list().catch(() => ({ ok: false as const, rows: [] as unknown[] }));
+      // Один вызов на весь раздел: раньше карточка открывала каждый наряд отдельно, чтобы
+      // заглянуть в его строки, — 81 IPC-вызов на прод-данных при каждом открытии детали.
+      const workOrders = await window.matrica.workOrders
+        .usageByPart(currentPart.id)
+        .catch(() => ({ ok: false as const, error: 'unavailable' }));
       if (workOrders.ok) {
-        for (const row of workOrders.rows as any[]) {
-          const id = String(row?.id ?? '').trim();
-          if (!id) continue;
-          const details = await window.matrica.workOrders.get(id).catch(() => null);
-          if (!details?.ok || !details.payload) continue;
-          const payload = details.payload as WorkOrderPayload;
-          const groups = Array.isArray(payload.workGroups) ? payload.workGroups : [];
-          const hasPart =
-            groups.some((group) => String(group?.partId ?? '') === currentPart.id) ||
-            String(payload.partId ?? '') === currentPart.id;
-          if (!hasPart) continue;
+        for (const row of workOrders.rows) {
           addItem({
-            key: `work_order:${id}`,
+            key: `work_order:${row.id}`,
             kind: 'work_order',
-            entityId: id,
-            label: `Наряд №${String(payload.workOrderNumber ?? id)}`,
+            entityId: row.id,
+            label: `Наряд №${String(row.workOrderNumber || row.id)}`,
             description: 'Деталь используется в наряде',
             targetTypeCode: 'work_order',
           });

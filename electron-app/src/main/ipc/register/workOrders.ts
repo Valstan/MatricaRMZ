@@ -10,6 +10,7 @@ import {
   getActiveAssemblyVariant,
   getWorkOrder,
   listWorkOrders,
+  listWorkOrdersUsingPart,
   setWorkOrderNumber,
   updateWorkOrder,
 } from '../../services/workOrderService.js';
@@ -23,6 +24,12 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'work_orders.view');
     if (!gate.ok) return gate as any;
     return listWorkOrders(ctx.dataDb(), { ...(args ?? {}), viewer: await ctx.currentViewer() });
+  });
+
+  ipcMain.handle('workOrders:usageByPart', async (_e, partId: string) => {
+    const gate = await requirePermOrResult(ctx, 'work_orders.view');
+    if (!gate.ok) return gate as any;
+    return listWorkOrdersUsingPart(ctx.dataDb(), String(partId ?? ''));
   });
 
   ipcMain.handle('workOrders:get', async (_e, id: string) => {

@@ -21,6 +21,7 @@ import {
   getEntityDetails,
   getIncomingLinksForEntity,
   listEntitiesByType,
+  listEntitiesByTypeWithAttrs,
   setEntityAttribute,
   softDeleteEntity,
 } from '../../services/entityService.js';
@@ -143,6 +144,11 @@ export function registerAdminIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'masterdata.view');
     if (!gate.ok) return [];
     return listEntitiesByType(ctx.dataDb(), entityTypeId);
+  });
+  ipcMain.handle('admin:entities:listByEntityTypeWithAttrs', async (_e, entityTypeId: string) => {
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return [];
+    return listEntitiesByTypeWithAttrs(ctx.dataDb(), entityTypeId);
   });
   ipcMain.handle('admin:entities:create', async (_e, entityTypeId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
