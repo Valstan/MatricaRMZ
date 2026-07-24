@@ -5433,6 +5433,7 @@ export function App() {
               prefs={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2}
               onPrefsChange={updateV2Prefs}
               availableTabs={sectionGatedTabs}
+              tabletOperatorMenu={tabletActive && userRole !== 'superadmin'}
               menuLabels={menuLabels}
               tab={tab}
               activeListTab={v2ActiveListTab}

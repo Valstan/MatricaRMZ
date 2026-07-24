@@ -53,6 +53,10 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     () => (props.value ? props.options.find((option) => option.id === props.value) ?? null : null),
     [props.options, props.value],
   );
+  // Висячая ссылка: значение задано, но не резолвится в живую опцию (сущность удалена).
+  // Гейтим на загруженность опций (length>0 и optionsReady!==false), чтобы не показывать
+  // предупреждение, пока справочник ещё грузится — иначе мигало бы на каждом старте карточки.
+  const dangling = props.value != null && !selected && props.options.length > 0 && props.optionsReady !== false;
   const [query, setQuery] = useState(selected?.label ?? '');
   const [quickCreateLabel, setQuickCreateLabel] = useState<string | null>(null);
   const quickCreateResolveRef = useRef<((result: QuickCreateResult | null) => void) | null>(null);
@@ -162,6 +166,20 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
 
   return (
     <div ref={rootRef} style={{ display: 'grid', gridTemplateColumns: props.onOpen ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)', gap: 6 }}>
+      {dangling && (
+        <div
+          style={{
+            gridColumn: '1 / -1',
+            fontSize: 12,
+            color: 'var(--danger, #b91c1c)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          ⚠ {props.targetLabel}: выбранное значение удалено — выберите заново
+        </div>
+      )}
       <SearchSelect
         value={props.value}
         options={props.options}
