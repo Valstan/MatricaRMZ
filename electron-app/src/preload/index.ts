@@ -368,6 +368,13 @@ const matricaApi = {
     close: async (args: { operationId: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('workOrders:close', args),
     saveAssemblyDraft: async (args: { operationId: string; expectedUpdatedAt?: number }) =>
       ipcRenderer.invoke('workOrders:saveAssemblyDraft', args),
+    issueAssembly: async (args: { operationId: string }) => ipcRenderer.invoke('workOrders:issueAssembly', args),
+    setIssuedState: async (args: { operationId: string; issued: boolean; reason?: string }) =>
+      ipcRenderer.invoke('workOrders:setIssuedState', args),
+    requestAssemblyShortageApproval: async (args: { operationId: string; reason: string }) =>
+      ipcRenderer.invoke('workOrders:requestAssemblyShortageApproval', args),
+    decideAssemblyShortageApproval: async (args: { approvalId: string; approve: boolean; reason: string }) =>
+      ipcRenderer.invoke('workOrders:decideAssemblyShortageApproval', args),
     postAssembly: async (args: { operationId: string; expectedUpdatedAt?: number }) =>
       ipcRenderer.invoke('workOrders:postAssembly', args),
     deleteAssemblyDraft: async (args: { operationId: string; expectedUpdatedAt?: number }) =>

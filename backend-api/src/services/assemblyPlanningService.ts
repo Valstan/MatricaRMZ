@@ -25,6 +25,17 @@ function parseJsonString(value: string | null): string {
   }
 }
 
+export function computeAssemblyMaterialHash(args: {
+  engineId: string;
+  engineBrandId: string;
+  bomId: string;
+  version: number;
+  variantKey: string | null;
+  materials: Array<{ nomenclatureId: string; qty: number; sourceWarehouseId: string }>;
+}): string {
+  return createHash('sha256').update(JSON.stringify(args)).digest('hex');
+}
+
 async function resolveEngineBrandId(engineId: string): Promise<{ exists: boolean; brandId: string }> {
   const rows = await db
     .select({ attrCode: attributeDefs.code, valueJson: attributeValues.valueJson })
@@ -145,7 +156,7 @@ export async function resolveAssemblyPlan(args: { engineId: string; bomId?: stri
       engineBrandId: engine.brandId,
       partId: null,
     }));
-    const hashPayload = JSON.stringify({
+    const materialHash = computeAssemblyMaterialHash({
       engineId,
       engineBrandId: engine.brandId,
       bomId: selected.bomId,
@@ -157,7 +168,6 @@ export async function resolveAssemblyPlan(args: { engineId: string; bomId?: stri
         sourceWarehouseId: line.sourceWarehouseId,
       })),
     });
-    const materialHash = createHash('sha256').update(hashPayload).digest('hex');
     return {
       ok: true,
       engineId,

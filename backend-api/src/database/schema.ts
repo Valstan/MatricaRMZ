@@ -1510,6 +1510,54 @@ export const erpRegStockBalance = pgTable(
   }),
 );
 
+export const erpStockReservations = pgTable(
+  'erp_stock_reservations',
+  {
+    id: uuid('id').primaryKey(),
+    documentHeaderId: uuid('document_header_id').notNull().references(() => erpDocumentHeaders.id),
+    documentLineId: uuid('document_line_id').notNull().references(() => erpDocumentLines.id),
+    nomenclatureId: uuid('nomenclature_id').notNull().references(() => erpNomenclature.id),
+    warehouseLocationId: uuid('warehouse_location_id').notNull().references(() => warehouseLocations.id),
+    qty: integer('qty').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    releasedAt: bigint('released_at', { mode: 'number' }),
+    consumedAt: bigint('consumed_at', { mode: 'number' }),
+  },
+  (t) => ({
+    activeDocumentLineUq: uniqueIndex('erp_stock_reservations_active_doc_line_uq')
+      .on(t.documentHeaderId, t.documentLineId)
+      .where(sql`${t.status} = 'active'`),
+    documentIdx: index('erp_stock_reservations_document_idx').on(t.documentHeaderId),
+    balanceKeyIdx: index('erp_stock_reservations_balance_key_idx').on(t.nomenclatureId, t.warehouseLocationId),
+  }),
+);
+
+export const assemblyShortageApprovals = pgTable(
+  'assembly_shortage_approvals',
+  {
+    id: uuid('id').primaryKey(),
+    operationId: uuid('operation_id').notNull().references(() => operations.id),
+    materialHash: text('material_hash').notNull(),
+    shortageJson: text('shortage_json').notNull(),
+    status: text('status').notNull().default('requested'),
+    requestReason: text('request_reason').notNull(),
+    requestedBy: uuid('requested_by').notNull(),
+    requestedAt: bigint('requested_at', { mode: 'number' }).notNull(),
+    decidedBy: uuid('decided_by'),
+    decidedAt: bigint('decided_at', { mode: 'number' }),
+    decisionReason: text('decision_reason'),
+    invalidatedAt: bigint('invalidated_at', { mode: 'number' }),
+  },
+  (t) => ({
+    operationIdx: index('assembly_shortage_approvals_operation_idx').on(t.operationId, t.requestedAt),
+    activeOperationUq: uniqueIndex('assembly_shortage_approvals_active_operation_uq')
+      .on(t.operationId)
+      .where(sql`${t.status} in ('requested', 'approved')`),
+  }),
+);
+
 export const erpRegStockMovements = pgTable(
   'erp_reg_stock_movements',
   {

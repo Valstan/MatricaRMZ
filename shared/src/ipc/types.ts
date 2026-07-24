@@ -1361,6 +1361,22 @@ export type MatricaApi = {
       | { ok: true; operationId: string; documentId: string; reserved: boolean; updatedAt: number }
       | { ok: false; error: string }
     >;
+    issueAssembly: (args: { operationId: string }) => Promise<
+      | { ok: true; operationId: string; state: 'issued' | 'issued_with_shortage'; documentId: string | null; payload: WorkOrderPayload }
+      | { ok: false; code?: string; error: string; shortages?: import('../domain/workOrder.js').AssemblyShortageItem[]; materialHash?: string }
+    >;
+    setIssuedState: (args: { operationId: string; issued: boolean; reason?: string }) => Promise<
+      | { ok: true; operationId: string; payload: WorkOrderPayload }
+      | { ok: false; code?: string; error: string; shortages?: import('../domain/workOrder.js').AssemblyShortageItem[]; materialHash?: string }
+    >;
+    requestAssemblyShortageApproval: (args: { operationId: string; reason: string }) => Promise<
+      | { ok: true; id: string; materialHash: string; shortages: import('../domain/workOrder.js').AssemblyShortageItem[] }
+      | { ok: false; error: string }
+    >;
+    decideAssemblyShortageApproval: (args: { approvalId: string; approve: boolean; reason: string }) => Promise<
+      | { ok: true; id: string; status: 'approved' | 'rejected' }
+      | { ok: false; error: string }
+    >;
     postAssembly: (args: { operationId: string; expectedUpdatedAt?: number }) => Promise<
       | { ok: true; operationId: string; documentId: string; posted: boolean; updatedAt: number }
       | { ok: false; error: string }

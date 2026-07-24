@@ -9,8 +9,6 @@ import {
   WORK_ORDER_SIGNATURE_CAPTION_SUGGESTIONS,
   WORK_ORDER_STATUS_LABELS,
   WorkOrderKind,
-  applyWorkOrderIssue,
-  applyWorkOrderWithdrawal,
   deriveWorkOrderStatusCode,
   ENGINE_INVENTORY_STAGE,
   listScrapPartNames,
@@ -352,7 +350,7 @@ export function WorkOrderDetailsPage(props: {
   // upsert resurrects the cleared draft (deletedAt: null) and the card pops up on next start
   // as an «unsaved» ghost — with a pre-materialize number-0 snapshot inside.
   const draftWriteRef = useRef<Promise<unknown> | null>(null);
-  const { confirm, pickChoice } = useConfirm();
+  const { confirm, pickChoice, promptText } = useConfirm();
 
   function buildDraftTitle(p: WorkOrderPayload): string {
     const num = Number(p.workOrderNumber ?? 0);
@@ -978,16 +976,6 @@ export function WorkOrderDetailsPage(props: {
     };
   }, [assemblyEngineIdForScrap]);
 
-  async function currentActorLogin(): Promise<string> {
-    try {
-      const st = await window.matrica.auth.status();
-      const u = (st as { user?: { username?: string } | null })?.user;
-      return u?.username?.trim() || 'local';
-    } catch {
-      return 'local';
-    }
-  }
-
   /**
    * Наряд «выдан в работу» ⇄ «отозван». Только выданные ремнаряды учитываются прогнозом
    * сборки как будущий приход (нитка «выдан в работу»). Сохраняется сразу (metaJson).
@@ -995,34 +983,57 @@ export function WorkOrderDetailsPage(props: {
    */
   async function issueToWork() {
     if (!payload || !canEditNow) return;
-    const next = recalcLocally(applyWorkOrderIssue(payload, { at: Date.now(), by: await currentActorLogin() }));
-    setPayload(next);
-    await flushSave(next);
-    // Ф2: выдача СБОРОЧНОГО наряда в работу → двигателю статус «Начат ремонт» (только вперёд;
-    // отзыв статус не откатывает). Статус двигателя — побочный эффект, не роняет сохранение наряда.
-    if (next.workOrderKind === WorkOrderKind.Assembly) {
-      const engineId = resolveAssemblyEngineId(next);
-      if (engineId) {
-        try {
-          await window.matrica.engines.advanceStatus({ engineId, target: 'status_repair_started', dateMs: Date.now() });
-        } catch (e) {
-          setStatus(`Наряд выдан, но статус двигателя не обновился: ${String(e)}`);
+    if (payload.workOrderKind === WorkOrderKind.Assembly) {
+      setStatus('Проверяю наличие и резервирую комплектовку...');
+      if (dirtyRef.current) await flushSave(payload);
+      try {
+        await window.matrica.sync.run();
+      } catch {
+        // REST-команда ниже вернёт точную ошибку, если сервер ещё не получил наряд.
+      }
+      const issued = await window.matrica.workOrders.issueAssembly({ operationId: props.id });
+      if (!issued.ok) {
+        if (issued.code === 'shortage' && issued.shortages?.length) {
+          const detail = issued.shortages
+            .map((line) => `${line.nomenclatureName}: нужно ${line.requiredQty}, доступно ${line.availableQty} (${line.warehouseName})`)
+            .join('\n');
+          const reason = await promptText({
+            title: 'Дефицит комплектовки',
+            detail: `${detail}\n\nМожно пополнить склад и повторить проверку либо отправить запрос на согласование начала работ без резерва.`,
+            placeholder: 'Причина и план закрытия дефицита',
+            confirmLabel: 'Запросить согласование',
+            validate: (value) => value.trim() ? null : 'Укажите причину запроса.',
+          });
+          if (reason != null) {
+            const requested = await window.matrica.workOrders.requestAssemblyShortageApproval({ operationId: props.id, reason });
+            setStatus(requested.ok ? `Запрос согласования создан: ${requested.id.slice(0, 8)}…` : `Ошибка запроса: ${requested.error}`);
+          } else {
+            setStatus('Выдача отменена: комплектовка не зарезервирована.');
+          }
           return;
         }
+        setStatus(`Ошибка выдачи: ${issued.error}`);
+        return;
       }
-      setStatus('Наряд выдан в работу — двигателю проставлен статус «Начат ремонт»');
+      setPayload(recalcLocally(issued.payload));
+      setStatus(issued.state === 'issued_with_shortage'
+        ? 'Наряд выдан с согласованным дефицитом; резерв и списание не созданы.'
+        : 'Наряд выдан, комплектовка полностью зарезервирована.');
       return;
     }
+    if (dirtyRef.current) await flushSave(payload);
+    try { await window.matrica.sync.run(); } catch { /* сервер вернёт точную ошибку */ }
+    const result = await window.matrica.workOrders.setIssuedState({ operationId: props.id, issued: true });
+    if (!result.ok) return void setStatus(`Ошибка выдачи: ${result.error}`);
+    setPayload(recalcLocally(result.payload));
     setStatus('Наряд выдан в работу — детали учтены в прогнозе сборки');
   }
 
   async function withdrawFromWork(reason: string) {
     if (!payload || !canEditNow) return;
-    const next = recalcLocally(
-      applyWorkOrderWithdrawal(payload, { at: Date.now(), by: await currentActorLogin(), reason }),
-    );
-    setPayload(next);
-    await flushSave(next);
+    const result = await window.matrica.workOrders.setIssuedState({ operationId: props.id, issued: false, reason });
+    if (!result.ok) return void setStatus(`Ошибка отзыва: ${result.error}`);
+    setPayload(recalcLocally(result.payload));
     setStatus('Наряд отозван из работы');
   }
 
@@ -2594,22 +2605,8 @@ export function WorkOrderDetailsPage(props: {
                     return;
                   }
                   setClosing(true);
-                  setStatus('Сохраняю черновик…');
                   try {
-                    if (canEditNow && dirtyRef.current) await flushSave(payload);
-                    try {
-                      await window.matrica.sync.run();
-                    } catch (syncErr) {
-                      console.warn('[assembly save] sync.run() failed (continuing):', syncErr);
-                    }
-                    const r = await window.matrica.workOrders.saveAssemblyDraft({ operationId: props.id });
-                    if (!r.ok) {
-                      setStatus(`Ошибка сохранения: ${r.error}`);
-                      return;
-                    }
-                    const docId = r.documentId;
-                    setPayload((prev) => (prev ? recalcLocally({ ...prev, linkedDocumentId: docId }) : prev));
-                    setStatus(`Черновик сохранён, детали зарезервированы. Документ ${docId.slice(0, 8)}…`);
+                    await issueToWork();
                   } catch (e) {
                     setStatus(`Ошибка: ${String(e)}`);
                   } finally {
@@ -2617,7 +2614,7 @@ export function WorkOrderDetailsPage(props: {
                   }
                 }}
               >
-                {closing ? 'Работаю…' : 'Сохранить как черновик'}
+                {closing ? 'Работаю…' : payload.assemblyIssueState === 'issued_with_shortage' ? 'Проверить и зарезервировать' : 'Выдать и зарезервировать'}
               </Button>
             );
           })()

@@ -30,6 +30,7 @@ export const PermissionCode = {
   WorkOrdersPrint: 'work_orders.print',
   WorkOrdersClose: 'work_orders.close',
   WorkOrdersRevert: 'work_orders.revert',
+  WorkOrdersAssemblyShortageApprove: 'work_orders.assembly_shortage_approve',
 
   // engines & operations
   EnginesView: 'engines.view',
@@ -178,6 +179,12 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     group: 'Наряды',
     titleRu: 'Сторнирование закрытого наряда',
     descriptionRu: 'Создаёт зеркальную сторнирующую запись для движений, проведённых при закрытии наряда.',
+  },
+  {
+    code: PermissionCode.WorkOrdersAssemblyShortageApprove,
+    group: 'Наряды',
+    titleRu: 'Согласование выдачи сборочного наряда при дефиците',
+    descriptionRu: 'Разрешает начать работу без резерва; отрицательные остатки и проведение без полного наличия по-прежнему запрещены.',
   },
 
   {

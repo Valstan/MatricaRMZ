@@ -9,7 +9,7 @@ import {
 } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, erpNomenclature, operations } from '../../database/schema.js';
+import { assemblyShortageApprovals, attributeDefs, attributeValues, entities, entityTypes, erpNomenclature, operations } from '../../database/schema.js';
 import type { SyncWriteInput } from './syncWriteService.js';
 
 function parsePayload(raw: unknown): Record<string, unknown> | null {
@@ -20,6 +20,20 @@ function parsePayload(raw: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+const SERVER_MANAGED_WORK_ORDER_FIELDS = [
+  'repairIssued',
+  'withdrawnAt',
+  'withdrawnReason',
+  'withdrawnAuto',
+  'assemblyIssueState',
+  'assemblyShortageApproval',
+  'linkedDocumentId',
+] as const;
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
 export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]): Promise<void> {
@@ -45,6 +59,24 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
       ? await db.select({ metaJson: operations.metaJson }).from(operations).where(eq(operations.id, rowId)).limit(1)
       : [];
     const previous = parsePayload(storedRows[0]?.metaJson);
+    if (previous) {
+      const changedServerField = SERVER_MANAGED_WORK_ORDER_FIELDS.find((field) => !sameJsonValue(incoming[field], previous[field]));
+      if (changedServerField) throw new Error(`server_managed_field: ${changedServerField}`);
+      if (previous.repairIssued === true && !sameJsonValue(incoming.assemblyMaterialHash, previous.assemblyMaterialHash)) {
+        throw new Error('server_managed_field: assemblyMaterialHash');
+      }
+      if (!sameJsonValue(incoming.assemblyMaterialHash, previous.assemblyMaterialHash)) {
+        await db
+          .update(assemblyShortageApprovals)
+          .set({ status: 'invalidated', invalidatedAt: Date.now() })
+          .where(
+            and(
+              eq(assemblyShortageApprovals.operationId, rowId),
+              inArray(assemblyShortageApprovals.status, ['requested', 'approved']),
+            ),
+          );
+      }
+    }
     issues.push(...collectWorkOrderUnresolvedTextIssues(incoming, previous));
     const previousByPath = new Map(
       collectWorkOrderEntityReferences(previous ?? {}).map((reference) => [reference.path, reference]),

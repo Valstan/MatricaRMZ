@@ -540,6 +540,13 @@
       "when": 1784862000000,
       "tag": "0077_repair_norms_and_assembly_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1784865600000,
+      "tag": "0078_assembly_reservations_and_shortage",
+      "breakpoints": true
     }
   ]
 }

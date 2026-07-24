@@ -41,6 +41,7 @@ import {
   erpPlannedIncoming,
   erpRegStockBalance,
   erpRegStockMovements,
+  erpStockReservations,
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 import { EnginePhase, setEnginePhase } from './enginePhaseService.js';
@@ -3189,6 +3190,7 @@ export async function reserveAssemblyDraftReservation(args: {
     // либо uuid (новый формат), либо legacy text-код ('default', 'workshop_3') — резолвим обе формы.
     type ReserveKey = { nomenclatureId: string; locationId: string };
     const grouped = new Map<string, ReserveKey & { qty: number; rawWarehouseId: string }>();
+    const reservationLines: Array<{ documentLineId: string; nomenclatureId: string; locationId: string; qty: number }> = [];
     for (const line of lines) {
       const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
       if (qty <= 0) continue;
@@ -3202,6 +3204,7 @@ export async function reserveAssemblyDraftReservation(args: {
         return { ok: false, error: `В строке ${line.lineNo} склад-источник не найден: ${sourceWarehouseId}` };
       }
       const key = `${nomenclatureId}::${locationId}`;
+      reservationLines.push({ documentLineId: String(line.id), nomenclatureId, locationId, qty });
       const prev = grouped.get(key);
       if (prev) prev.qty += qty;
       else grouped.set(key, { nomenclatureId, locationId, qty, rawWarehouseId: sourceWarehouseId });
@@ -3248,28 +3251,38 @@ export async function reserveAssemblyDraftReservation(args: {
       current.reservedQty += group.qty;
     }
 
-    for (const [, current] of balanceByKey) {
-      if (current.isNew) {
-        // Резерв на пустом балансе невозможен (available=0), но на всякий случай — пропускаем.
-        continue;
-      }
-      await db
-        .update(erpRegStockBalance)
-        .set({ qty: current.qty, reservedQty: current.reservedQty, updatedAt: ts })
-        .where(eq(erpRegStockBalance.id, current.id));
-    }
-
     const nextPayload = { ...headerPayload, reservedAt: ts };
-    await db
-      .update(erpDocumentHeaders)
-      .set({ payloadJson: JSON.stringify(nextPayload), updatedAt: ts })
-      .where(eq(erpDocumentHeaders.id, args.documentId));
-    await db.insert(erpJournalDocuments).values({
-      id: randomUUID(),
-      documentHeaderId: args.documentId,
-      eventType: 'reserved',
-      eventPayloadJson: JSON.stringify({ by: args.actor.username, groups: grouped.size }),
-      eventAt: ts,
+    await db.transaction(async (tx) => {
+      const balanceIds = [...balanceByKey.values()].filter((value) => !value.isNew).map((value) => value.id);
+      const lockedBalances = await tx
+        .select()
+        .from(erpRegStockBalance)
+        .where(inArray(erpRegStockBalance.id, balanceIds as any))
+        .for('update');
+      const lockedByKey = new Map(lockedBalances.map((row) => [`${row.nomenclatureId}::${row.warehouseLocationId}`, row]));
+      for (const group of grouped.values()) {
+        const key = `${group.nomenclatureId}::${group.locationId}`;
+        const current = lockedByKey.get(key);
+        if (!current || Number(current.qty) - Number(current.reservedQty) < group.qty) {
+          throw new Error(`Остаток изменился во время резервирования: ${group.nomenclatureId}`);
+        }
+        await tx
+          .update(erpRegStockBalance)
+          .set({ reservedQty: Number(current.reservedQty) + group.qty, updatedAt: ts })
+          .where(eq(erpRegStockBalance.id, current.id));
+      }
+      await tx.insert(erpStockReservations).values(
+        reservationLines.map((line) => ({
+          id: randomUUID(), documentHeaderId: args.documentId, documentLineId: line.documentLineId,
+          nomenclatureId: line.nomenclatureId, warehouseLocationId: line.locationId, qty: line.qty,
+          status: 'active', createdAt: ts, updatedAt: ts,
+        })),
+      );
+      await tx.update(erpDocumentHeaders).set({ payloadJson: JSON.stringify(nextPayload), updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
+      await tx.insert(erpJournalDocuments).values({
+        id: randomUUID(), documentHeaderId: args.documentId, eventType: 'reserved',
+        eventPayloadJson: JSON.stringify({ by: args.actor.username, groups: grouped.size }), eventAt: ts,
+      });
     });
 
     return { ok: true, id: args.documentId, reserved: true, alreadyReserved: false };
@@ -3287,6 +3300,7 @@ export async function reserveAssemblyDraftReservation(args: {
 export async function releaseAssemblyDraftReservation(args: {
   documentId: string;
   actor: Actor;
+  outcome?: 'released' | 'consumed';
 }): Promise<Result<{ id: string; released: boolean }>> {
   try {
     const ts = nowMs();
@@ -3305,6 +3319,10 @@ export async function releaseAssemblyDraftReservation(args: {
       return { ok: true, id: args.documentId, released: false };
     }
 
+    const activeReservations = await db
+      .select()
+      .from(erpStockReservations)
+      .where(and(eq(erpStockReservations.documentHeaderId, args.documentId), eq(erpStockReservations.status, 'active')));
     const lines = await db
       .select(documentLineSelectFields())
       .from(erpDocumentLines)
@@ -3314,7 +3332,14 @@ export async function releaseAssemblyDraftReservation(args: {
     const headerWorkshopWarehouseId = strField(headerPayload, 'workshopWarehouseId') ?? null;
     // Phase 2.4 PR 1: симметрично reserve — резолвим payload-значение в warehouse_location_id (uuid).
     const grouped = new Map<string, { nomenclatureId: string; locationId: string; qty: number }>();
-    for (const line of lines) {
+    if (activeReservations.length > 0) {
+      for (const reservation of activeReservations) {
+        const key = `${reservation.nomenclatureId}::${reservation.warehouseLocationId}`;
+        const prev = grouped.get(key);
+        if (prev) prev.qty += Number(reservation.qty);
+        else grouped.set(key, { nomenclatureId: String(reservation.nomenclatureId), locationId: String(reservation.warehouseLocationId), qty: Number(reservation.qty) });
+      }
+    } else for (const line of lines) {
       const qty = Math.max(0, Math.trunc(Number(line.qty ?? 0)));
       if (qty <= 0) continue;
       const linePayload = parseJsonObject(line.payloadJson ?? null);
@@ -3330,34 +3355,33 @@ export async function releaseAssemblyDraftReservation(args: {
       else grouped.set(key, { nomenclatureId, locationId, qty });
     }
 
-    for (const group of grouped.values()) {
-      const rows = await db
-        .select()
-        .from(erpRegStockBalance)
-        .where(and(eq(erpRegStockBalance.nomenclatureId, group.nomenclatureId), eq(erpRegStockBalance.warehouseLocationId, group.locationId)))
-        .limit(1);
-      const balance = rows[0];
-      if (!balance) continue;
-      const currentReserved = Number(balance.reservedQty ?? 0);
-      const nextReserved = Math.max(0, currentReserved - group.qty);
-      await db
-        .update(erpRegStockBalance)
-        .set({ reservedQty: nextReserved, updatedAt: ts })
-        .where(eq(erpRegStockBalance.id, balance.id));
-    }
-
     const nextPayload = { ...headerPayload };
     delete nextPayload['reservedAt'];
-    await db
-      .update(erpDocumentHeaders)
-      .set({ payloadJson: JSON.stringify(nextPayload), updatedAt: ts })
-      .where(eq(erpDocumentHeaders.id, args.documentId));
-    await db.insert(erpJournalDocuments).values({
-      id: randomUUID(),
-      documentHeaderId: args.documentId,
-      eventType: 'released',
-      eventPayloadJson: JSON.stringify({ by: args.actor.username, groups: grouped.size }),
-      eventAt: ts,
+    await db.transaction(async (tx) => {
+      for (const group of grouped.values()) {
+        const rows = await tx
+          .select()
+          .from(erpRegStockBalance)
+          .where(and(eq(erpRegStockBalance.nomenclatureId, group.nomenclatureId), eq(erpRegStockBalance.warehouseLocationId, group.locationId)))
+          .for('update')
+          .limit(1);
+        const balance = rows[0];
+        if (!balance) continue;
+        const nextReserved = Math.max(0, Number(balance.reservedQty ?? 0) - group.qty);
+        await tx.update(erpRegStockBalance).set({ reservedQty: nextReserved, updatedAt: ts }).where(eq(erpRegStockBalance.id, balance.id));
+      }
+      await tx.update(erpDocumentHeaders).set({ payloadJson: JSON.stringify(nextPayload), updatedAt: ts }).where(eq(erpDocumentHeaders.id, args.documentId));
+      if (activeReservations.length > 0) {
+        const outcome = args.outcome ?? 'released';
+        await tx.update(erpStockReservations).set({
+          status: outcome, updatedAt: ts,
+          ...(outcome === 'consumed' ? { consumedAt: ts } : { releasedAt: ts }),
+        }).where(inArray(erpStockReservations.id, activeReservations.map((reservation) => reservation.id) as any));
+      }
+      await tx.insert(erpJournalDocuments).values({
+        id: randomUUID(), documentHeaderId: args.documentId, eventType: args.outcome === 'consumed' ? 'reservation_consumed' : 'released',
+        eventPayloadJson: JSON.stringify({ by: args.actor.username, groups: grouped.size }), eventAt: ts,
+      });
     });
 
     return { ok: true, id: args.documentId, released: true };

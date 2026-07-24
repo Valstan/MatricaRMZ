@@ -195,7 +195,7 @@ export async function resolvePartIdToNomenclatureMap(rawIds: string[]): Promise<
  * до полного fullPull. Best-effort: сбой эмита не валит закрытие (warn), состояние
  * не хуже прежнего поведения.
  */
-async function emitOperationSyncChange(operationId: string, actor: Actor): Promise<void> {
+export async function emitOperationSyncChange(operationId: string, actor: Actor): Promise<void> {
   try {
     const rows = await db.select().from(operations).where(eq(operations.id, operationId)).limit(1);
     const op = rows[0];
@@ -935,7 +935,7 @@ export async function postAssemblyWorkOrder(args: {
     } else if (String(docRow.status) !== 'draft') {
       return { ok: false, error: `Документ в статусе ${String(docRow.status)} — провести нельзя` };
     } else {
-      const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor });
+      const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor, outcome: 'consumed' });
       if (!released.ok) return { ok: false, error: `Не удалось снять резерв перед проведением: ${released.error}` };
 
       const posted = await postWarehouseDocument({ documentId, actor: args.actor });
