@@ -305,7 +305,7 @@ describe('createWorkOrderTemplate', () => {
     enqueueReturning([
       {
         id: TEMPLATE_ID,
-        workOrderKind: 'assembly',
+        workOrderKind: 'repair',
         name: 'X',
         payloadOverridesJson: JSON.stringify({ workshopId: WORKSHOP_ID, foo: 42 }),
         hiddenFieldsJson: '[]',
@@ -315,11 +315,21 @@ describe('createWorkOrderTemplate', () => {
       },
     ]);
     const result = await createWorkOrderTemplate({
-      workOrderKind: 'assembly',
+      workOrderKind: 'repair',
       name: 'X',
       payloadOverrides: { workshopId: WORKSHOP_ID, foo: 42 },
     });
     expect(result.ok).toBe(true);
+  });
+
+  it('rejects creating an assembly template because assembly orders use BOM profiles', async () => {
+    const result = await createWorkOrderTemplate({
+      workOrderKind: 'assembly',
+      name: 'Legacy assembly template',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/BOM/i);
   });
 });
 

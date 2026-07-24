@@ -533,6 +533,34 @@
       "when": 1784500000000,
       "tag": "0076_ai_chat_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1784862000000,
+      "tag": "0077_repair_norms_and_assembly_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1784865600000,
+      "tag": "0078_assembly_reservations_and_shortage",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1784870000000,
+      "tag": "0079_defect_conducted_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1784876400000,
+      "tag": "0080_defect_instance_reservations",
+      "breakpoints": true
     }
   ]
 }

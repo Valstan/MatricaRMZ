@@ -69,6 +69,7 @@ const OPERATION_DESCRIPTORS: Record<string, OperationDescriptor> = {
   completeness_act: { label: 'Акт комплектности', icon: '✅', phase: 'acceptance' },
   defect: { label: 'Дефектовка', icon: '🔍', phase: 'defect' },
   defect_act: { label: 'Акт дефектовки', icon: '🔍', phase: 'defect' },
+  defect_conducted: { label: 'Дефектовка проведена', icon: '✅', phase: 'defect' },
   engine_inventory: { label: 'Ведомость деталей', icon: '📋', phase: 'defect' },
   claim_act: { label: 'Акт рекламации', icon: '⚠️', phase: 'defect' },
   disassembly: { label: 'Разборка', icon: '🔧', phase: 'disassembly' },

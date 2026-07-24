@@ -9,7 +9,16 @@ import {
 } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, erpNomenclature, operations } from '../../database/schema.js';
+import {
+  assemblyShortageApprovals,
+  attributeDefs,
+  attributeValues,
+  defectConductedVersions,
+  entities,
+  entityTypes,
+  erpNomenclature,
+  operations,
+} from '../../database/schema.js';
 import type { SyncWriteInput } from './syncWriteService.js';
 
 function parsePayload(raw: unknown): Record<string, unknown> | null {
@@ -19,6 +28,97 @@ function parsePayload(raw: unknown): Record<string, unknown> | null {
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
+  }
+}
+
+const SERVER_MANAGED_WORK_ORDER_FIELDS = [
+  'repairIssued',
+  'withdrawnAt',
+  'withdrawnReason',
+  'withdrawnAuto',
+  'assemblyIssueState',
+  'assemblyShortageApproval',
+  'linkedDocumentId',
+] as const;
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+type DefectOriginCandidate = {
+  path: string;
+  engineId: string;
+  conductedVersionId: string;
+  sourceLineIds: string[];
+};
+
+function readDefectOrigin(value: unknown, path: string): DefectOriginCandidate | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const engineId = String(raw.engineId ?? '').trim();
+  const conductedVersionId = String(raw.conductedVersionId ?? '').trim();
+  const sourceLineIds = Array.isArray(raw.sourceLineIds)
+    ? [...new Set(raw.sourceLineIds.map((entry) => String(entry ?? '').trim()).filter(Boolean))]
+    : [];
+  if (!engineId && !conductedVersionId && sourceLineIds.length === 0) return null;
+  return { path, engineId, conductedVersionId, sourceLineIds };
+}
+
+function changedDefectOrigins(
+  incomingItems: unknown[],
+  previousItems: unknown[],
+  collectionPath: string,
+): DefectOriginCandidate[] {
+  const result: DefectOriginCandidate[] = [];
+  for (const [index, rawItem] of incomingItems.entries()) {
+    const item = rawItem && typeof rawItem === 'object' ? (rawItem as Record<string, unknown>) : {};
+    const previousRaw = previousItems[index];
+    const previousItem = previousRaw && typeof previousRaw === 'object' ? (previousRaw as Record<string, unknown>) : {};
+    if (sameJsonValue(item.defectOrigin, previousItem.defectOrigin)) continue;
+    const origin = readDefectOrigin(item.defectOrigin, `${collectionPath}[${index}].defectOrigin`);
+    if (origin) result.push(origin);
+  }
+  return result;
+}
+
+async function validateDefectOrigins(origins: DefectOriginCandidate[]): Promise<void> {
+  if (origins.length === 0) return;
+  const malformed = origins.find(
+    (origin) => !origin.engineId || !origin.conductedVersionId || origin.sourceLineIds.length === 0,
+  );
+  if (malformed) throw new Error(`invalid_defect_origin: ${malformed.path}: обязательны engineId, conductedVersionId и sourceLineIds`);
+
+  const versionIds = [...new Set(origins.map((origin) => origin.conductedVersionId))];
+  const rows = await db
+    .select({
+      id: defectConductedVersions.id,
+      engineId: defectConductedVersions.engineId,
+      status: defectConductedVersions.status,
+      snapshotJson: defectConductedVersions.snapshotJson,
+    })
+    .from(defectConductedVersions)
+    .where(inArray(defectConductedVersions.id, versionIds));
+  const byId = new Map(rows.map((row) => [String(row.id), row]));
+  for (const origin of origins) {
+    const version = byId.get(origin.conductedVersionId);
+    if (!version) throw new Error(`invalid_defect_origin: ${origin.path}.conductedVersionId: версия дефектовки не найдена`);
+    if (String(version.engineId) !== origin.engineId) {
+      throw new Error(`invalid_defect_origin: ${origin.path}.engineId: двигатель не соответствует версии дефектовки`);
+    }
+    if (String(version.status) !== 'active') {
+      throw new Error(`invalid_defect_origin: ${origin.path}.conductedVersionId: версия дефектовки уже заменена`);
+    }
+    const snapshot = parsePayload(version.snapshotJson);
+    const lines = Array.isArray(snapshot?.lines) ? snapshot.lines : [];
+    const sourceIds = new Set(
+      lines
+        .map((line) => (line && typeof line === 'object' ? String((line as Record<string, unknown>).sourceLineId ?? '').trim() : ''))
+        .filter(Boolean),
+    );
+    const missingSource = origin.sourceLineIds.find((sourceLineId) => !sourceIds.has(sourceLineId));
+    if (missingSource) {
+      throw new Error(`invalid_defect_origin: ${origin.path}.sourceLineIds: строка ${missingSource} отсутствует в проведённой версии`);
+    }
   }
 }
 
@@ -36,6 +136,7 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
 
   const issues: InvalidReferenceIssue[] = [];
   const changedReferences: ReturnType<typeof collectWorkOrderEntityReferences> = [];
+  const defectOrigins: DefectOriginCandidate[] = [];
   for (const input of workOrderCandidates) {
     const row = input.row as Record<string, unknown>;
     const rowId = String(row.id ?? input.row_id ?? '');
@@ -45,7 +146,32 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
       ? await db.select({ metaJson: operations.metaJson }).from(operations).where(eq(operations.id, rowId)).limit(1)
       : [];
     const previous = parsePayload(storedRows[0]?.metaJson);
+    if (previous) {
+      const changedServerField = SERVER_MANAGED_WORK_ORDER_FIELDS.find((field) => !sameJsonValue(incoming[field], previous[field]));
+      if (changedServerField) throw new Error(`server_managed_field: ${changedServerField}`);
+      if (previous.repairIssued === true && !sameJsonValue(incoming.assemblyMaterialHash, previous.assemblyMaterialHash)) {
+        throw new Error('server_managed_field: assemblyMaterialHash');
+      }
+      if (!sameJsonValue(incoming.assemblyMaterialHash, previous.assemblyMaterialHash)) {
+        await db
+          .update(assemblyShortageApprovals)
+          .set({ status: 'invalidated', invalidatedAt: Date.now() })
+          .where(
+            and(
+              eq(assemblyShortageApprovals.operationId, rowId),
+              inArray(assemblyShortageApprovals.status, ['requested', 'approved']),
+            ),
+          );
+      }
+    }
     issues.push(...collectWorkOrderUnresolvedTextIssues(incoming, previous));
+    defectOrigins.push(
+      ...changedDefectOrigins(
+        Array.isArray(incoming.freeWorks) ? incoming.freeWorks : [],
+        Array.isArray(previous?.freeWorks) ? previous.freeWorks : [],
+        'freeWorks',
+      ),
+    );
     const previousByPath = new Map(
       collectWorkOrderEntityReferences(previous ?? {}).map((reference) => [reference.path, reference]),
     );
@@ -70,6 +196,7 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
 
     const incomingItems = Array.isArray(incoming.items) ? incoming.items : [];
     const previousItems = Array.isArray(previous?.items) ? previous.items : [];
+    defectOrigins.push(...changedDefectOrigins(incomingItems, previousItems, 'items'));
     const changedProductIds: Array<{ path: string; id: string }> = [];
     for (const [index, rawItem] of incomingItems.entries()) {
       const item = rawItem && typeof rawItem === 'object' ? (rawItem as Record<string, unknown>) : {};
@@ -223,6 +350,8 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
       }
     }
   }
+
+  await validateDefectOrigins(defectOrigins);
 
   if (issues.length > 0) throw new Error(`invalid_reference: ${JSON.stringify(issues)}`);
 }

@@ -9,11 +9,8 @@ import {
   WORK_ORDER_SIGNATURE_CAPTION_SUGGESTIONS,
   WORK_ORDER_STATUS_LABELS,
   WorkOrderKind,
-  applyWorkOrderIssue,
-  applyWorkOrderWithdrawal,
   deriveWorkOrderStatusCode,
   ENGINE_INVENTORY_STAGE,
-  isScrapEngine,
   listScrapPartNames,
   workOrderWithdrawnAt,
   formatEmployeeInitialsSurname,
@@ -24,7 +21,6 @@ import {
   isWorkOrderTemplateKind,
   normalizeWorkOrderLine,
   resolveAssemblyEngineId,
-  type StatusCode,
   type WorkOrderPayload,
   type WorkOrderPrintSettings,
   type WorkOrderSignatureBlockSelection,
@@ -35,6 +31,8 @@ import {
   type WorkOrderWorkLine,
   type QuickCreateRequest,
   type QuickCreateResult,
+  type AssemblyPlanCandidate,
+  type DefectPartInstanceSummary,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -296,6 +294,7 @@ export function WorkOrderDetailsPage(props: {
   canCreateParts?: boolean;
   canCreateEmployees?: boolean;
   canCloseWorkOrders?: boolean;
+  canApproveAssemblyShortage?: boolean;
   canEditWorkshopRepairTemplates?: boolean;
   canEditWorkOrderTemplates?: boolean;
   /** Смена номера наряда — только суперадмин (чинить номера, потерянные старым багом). */
@@ -320,8 +319,9 @@ export function WorkOrderDetailsPage(props: {
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
   const [assemblyFillBusy, setAssemblyFillBusy] = useState(false);
-  // Тема D+E: авто-подстановка спецификации при открытии наряда, созданного из ПКМ списка
-  // двигателей (сид несёт assemblyEngineId, но onChange не срабатывает) — один раз на маунт.
+  const [assemblyBomCandidates, setAssemblyBomCandidates] = useState<AssemblyPlanCandidate[]>([]);
+  const [assemblyPendingEngineId, setAssemblyPendingEngineId] = useState<string | null>(null);
+  const assemblyInitialAutoFillRef = useRef('');
   // Phase 4b: карта id номенклатуры → взаимозаменяемые варианты его позиции спецификации.
   // Каждый вариант позиции ссылается на общий список, поэтому смена варианта на строке
   // (partId меняется на id другого варианта) сохраняет переключатель. Только позиции с ≥2 вариантами.
@@ -331,11 +331,18 @@ export function WorkOrderDetailsPage(props: {
   const [warehouseLocations, setWarehouseLocations] = useState<
     Array<{ id: string; type: 'system' | 'workshop' | 'regular'; code: string; name: string; workshopId: string | null; isActive: boolean }>
   >([]);
+  const [assemblyInstances, setAssemblyInstances] = useState<DefectPartInstanceSummary[]>([]);
   const [closing, setClosing] = useState(false);
-  // Связка «утиль ⇄ наряд на сборку»: утильные детали дефектовки двигателя блокируют выдачу.
+  const [shortageApproval, setShortageApproval] = useState<null | {
+    id: string;
+    status: 'requested' | 'approved' | 'rejected' | 'invalidated';
+    reason: string;
+    shortages: Array<{ nomenclatureName: string; shortageQty: number; warehouseName: string }>;
+    decisionReason?: string;
+  }>(null);
+  const [shortageDecisionBusy, setShortageDecisionBusy] = useState(false);
+  // Утильные детали дефектовки показываются как контекст и не блокируют сборку.
   const [scrapParts, setScrapParts] = useState<string[]>([]);
-  /** Двигатель наряда признан утильным / отправлен как утиль — блок по утилю не применяется. */
-  const [scrapEngine, setScrapEngine] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
   const [withdrawReason, setWithdrawReason] = useState('');
   const [closedLocally, setClosedLocally] = useState(false);
@@ -354,7 +361,7 @@ export function WorkOrderDetailsPage(props: {
   // upsert resurrects the cleared draft (deletedAt: null) and the card pops up on next start
   // as an «unsaved» ghost — with a pre-materialize number-0 snapshot inside.
   const draftWriteRef = useRef<Promise<unknown> | null>(null);
-  const { confirm, pickChoice } = useConfirm();
+  const { confirm, pickChoice, promptText } = useConfirm();
 
   function buildDraftTitle(p: WorkOrderPayload): string {
     const num = Number(p.workOrderNumber ?? 0);
@@ -474,6 +481,27 @@ export function WorkOrderDetailsPage(props: {
     [warehouseLocations],
   );
 
+  const assemblyNomenclatureKey = useMemo(() => {
+    if (payload?.workOrderKind !== WorkOrderKind.Assembly) return '';
+    return [...new Set((payload.consumedLines ?? []).map((line) => line.nomenclatureId).filter(Boolean))].sort().join(',');
+  }, [payload?.workOrderKind, payload?.consumedLines]);
+
+  useEffect(() => {
+    if (!assemblyNomenclatureKey) {
+      setAssemblyInstances([]);
+      return;
+    }
+    let cancelled = false;
+    void window.matrica.warehouse.defectAvailableInstances(assemblyNomenclatureKey.split(',')).then((result) => {
+      if (!cancelled && result.ok) setAssemblyInstances(result.instances);
+    }).catch(() => {
+      if (!cancelled) setAssemblyInstances([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [assemblyNomenclatureKey]);
+
   const primaryAssemblyEngineBrandId = useMemo(() => {
     if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return null;
     for (const line of payload.freeWorks) {
@@ -482,18 +510,6 @@ export function WorkOrderDetailsPage(props: {
     }
     return null;
   }, [payload]);
-
-  // Марка из двигателя ШАПКИ (payload.assemblyEngineId) — fallback, когда строк ещё нет
-  // (тема E: снимает граблю «кнопка “Заполнить из спецификации” задизейблена у пустого наряда»).
-  const headerAssemblyEngineBrandId = useMemo(() => {
-    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return null;
-    const engineId = resolveAssemblyEngineId(payload);
-    if (!engineId) return null;
-    return String(engines.find((e) => e.id === engineId)?.engineBrandId ?? '').trim() || null;
-  }, [payload, engines]);
-
-  // Автоподстановка BOM при выборе/сидировании двигателя убрана по решению владельца (2026-07-13):
-  // строки наряда заполняются только вручную, через «Заполнить из спецификации» или через Шаблон.
 
   useEffect(() => {
     if (!primaryAssemblyEngineBrandId) {
@@ -969,33 +985,22 @@ export function WorkOrderDetailsPage(props: {
     setPayload(normalized);
   }
 
-  // Связка «утиль ⇄ наряд на сборку»: у Assembly-наряда читаем дефектовку двигателя;
-  // утильные строки (scrap_qty>0) блокируют кнопку «Выдать в работу». Исключение —
-  // утильный сам двигатель (`isScrapEngine`): его собирают обратно из чего есть, чтобы
-  // вернуть заказчику, поэтому утиль в его дефектовке блоком не считается.
+  // Утильные строки дефектовки показываем в наряде как контекст истории ремонта.
   const assemblyEngineIdForScrap =
     payload && payload.workOrderKind === WorkOrderKind.Assembly ? resolveAssemblyEngineId(payload) : null;
   useEffect(() => {
     if (!assemblyEngineIdForScrap) {
       setScrapParts([]);
-      setScrapEngine(false);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const [checklist, engine] = await Promise.all([
-          window.matrica.checklists.engineGet({ engineId: assemblyEngineIdForScrap, stage: ENGINE_INVENTORY_STAGE }),
-          window.matrica.engines.get(assemblyEngineIdForScrap).catch(() => null),
-        ]);
+        const checklist = await window.matrica.checklists.engineGet({ engineId: assemblyEngineIdForScrap, stage: ENGINE_INVENTORY_STAGE });
         if (cancelled) return;
         setScrapParts(checklist?.ok && checklist.payload ? listScrapPartNames(checklist.payload) : []);
-        setScrapEngine(isScrapEngine((engine?.attributes ?? {}) as Partial<Record<StatusCode, boolean>>));
       } catch {
-        if (!cancelled) {
-          setScrapParts([]);
-          setScrapEngine(false);
-        }
+        if (!cancelled) setScrapParts([]);
       }
     })();
     return () => {
@@ -1003,16 +1008,45 @@ export function WorkOrderDetailsPage(props: {
     };
   }, [assemblyEngineIdForScrap]);
 
-  /** Утиль блокирует выдачу только у обычного двигателя; у утильного сборка — штатный путь. */
-  const scrapBlocksIssue = scrapParts.length > 0 && !scrapEngine;
+  async function loadShortageApproval() {
+    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly || operationUpdatedAt <= 0) {
+      setShortageApproval(null);
+      return;
+    }
+    const result = await window.matrica.workOrders.getAssemblyShortageApproval({ operationId: props.id });
+    setShortageApproval(result.ok ? result.approval : null);
+  }
 
-  async function currentActorLogin(): Promise<string> {
+  useEffect(() => {
+    void loadShortageApproval();
+  }, [props.id, payload?.workOrderKind, operationUpdatedAt]);
+
+  async function decideShortageApproval(approve: boolean) {
+    if (!shortageApproval || shortageDecisionBusy) return;
+    const reason = await promptText({
+      title: approve ? 'Согласовать начало работ с дефицитом' : 'Отклонить запрос',
+      detail: approve
+        ? 'Укажите основание решения. Согласование разрешает начать работу, но не создаёт отрицательный остаток и не позволяет закрыть наряд без реальных деталей.'
+        : 'Укажите причину отказа.',
+      placeholder: 'Основание решения',
+      confirmLabel: approve ? 'Согласовать' : 'Отклонить',
+      validate: (value) => value.trim() ? null : 'Укажите основание решения.',
+    });
+    if (reason == null) return;
+    setShortageDecisionBusy(true);
     try {
-      const st = await window.matrica.auth.status();
-      const u = (st as { user?: { username?: string } | null })?.user;
-      return u?.username?.trim() || 'local';
-    } catch {
-      return 'local';
+      const result = await window.matrica.workOrders.decideAssemblyShortageApproval({
+        approvalId: shortageApproval.id,
+        approve,
+        reason,
+      });
+      if (!result.ok) return void setStatus(`Ошибка согласования: ${result.error}`);
+      setStatus(approve
+        ? 'Дефицит согласован. Нажмите «Выдать и зарезервировать»: наряд будет выдан без резерва.'
+        : 'Запрос на выдачу с дефицитом отклонён.');
+      await loadShortageApproval();
+    } finally {
+      setShortageDecisionBusy(false);
     }
   }
 
@@ -1023,34 +1057,58 @@ export function WorkOrderDetailsPage(props: {
    */
   async function issueToWork() {
     if (!payload || !canEditNow) return;
-    const next = recalcLocally(applyWorkOrderIssue(payload, { at: Date.now(), by: await currentActorLogin() }));
-    setPayload(next);
-    await flushSave(next);
-    // Ф2: выдача СБОРОЧНОГО наряда в работу → двигателю статус «Начат ремонт» (только вперёд;
-    // отзыв статус не откатывает). Статус двигателя — побочный эффект, не роняет сохранение наряда.
-    if (next.workOrderKind === WorkOrderKind.Assembly) {
-      const engineId = resolveAssemblyEngineId(next);
-      if (engineId) {
-        try {
-          await window.matrica.engines.advanceStatus({ engineId, target: 'status_repair_started', dateMs: Date.now() });
-        } catch (e) {
-          setStatus(`Наряд выдан, но статус двигателя не обновился: ${String(e)}`);
+    if (payload.workOrderKind === WorkOrderKind.Assembly) {
+      setStatus('Проверяю наличие и резервирую комплектовку...');
+      if (dirtyRef.current) await flushSave(payload);
+      try {
+        await window.matrica.sync.run();
+      } catch {
+        // REST-команда ниже вернёт точную ошибку, если сервер ещё не получил наряд.
+      }
+      const issued = await window.matrica.workOrders.issueAssembly({ operationId: props.id });
+      if (!issued.ok) {
+        if (issued.code === 'shortage' && issued.shortages?.length) {
+          const detail = issued.shortages
+            .map((line) => `${line.nomenclatureName}: нужно ${line.requiredQty}, доступно ${line.availableQty} (${line.warehouseName})`)
+            .join('\n');
+          const reason = await promptText({
+            title: 'Дефицит комплектовки',
+            detail: `${detail}\n\nМожно пополнить склад и повторить проверку либо отправить запрос на согласование начала работ без резерва.`,
+            placeholder: 'Причина и план закрытия дефицита',
+            confirmLabel: 'Запросить согласование',
+            validate: (value) => value.trim() ? null : 'Укажите причину запроса.',
+          });
+          if (reason != null) {
+            const requested = await window.matrica.workOrders.requestAssemblyShortageApproval({ operationId: props.id, reason });
+            setStatus(requested.ok ? `Запрос согласования создан: ${requested.id.slice(0, 8)}…` : `Ошибка запроса: ${requested.error}`);
+            if (requested.ok) await loadShortageApproval();
+          } else {
+            setStatus('Выдача отменена: комплектовка не зарезервирована.');
+          }
           return;
         }
+        setStatus(`Ошибка выдачи: ${issued.error}`);
+        return;
       }
-      setStatus('Наряд выдан в работу — двигателю проставлен статус «Начат ремонт»');
+      setPayload(recalcLocally(issued.payload));
+      setStatus(issued.state === 'issued_with_shortage'
+        ? 'Наряд выдан с согласованным дефицитом; резерв и списание не созданы.'
+        : 'Наряд выдан, комплектовка полностью зарезервирована.');
       return;
     }
+    if (dirtyRef.current) await flushSave(payload);
+    try { await window.matrica.sync.run(); } catch { /* сервер вернёт точную ошибку */ }
+    const result = await window.matrica.workOrders.setIssuedState({ operationId: props.id, issued: true });
+    if (!result.ok) return void setStatus(`Ошибка выдачи: ${result.error}`);
+    setPayload(recalcLocally(result.payload));
     setStatus('Наряд выдан в работу — детали учтены в прогнозе сборки');
   }
 
   async function withdrawFromWork(reason: string) {
     if (!payload || !canEditNow) return;
-    const next = recalcLocally(
-      applyWorkOrderWithdrawal(payload, { at: Date.now(), by: await currentActorLogin(), reason }),
-    );
-    setPayload(next);
-    await flushSave(next);
+    const result = await window.matrica.workOrders.setIssuedState({ operationId: props.id, issued: false, reason });
+    if (!result.ok) return void setStatus(`Ошибка отзыва: ${result.error}`);
+    setPayload(recalcLocally(result.payload));
     setStatus('Наряд отозван из работы');
   }
 
@@ -1186,148 +1244,131 @@ export function WorkOrderDetailsPage(props: {
     }
   }
 
-  /**
-   * Заполнить строки сборочного наряда деталями из активной спецификации марки:
-   * берём основной вариант (isDefaultOption) каждой позиции — по одной детали на позицию.
-   * BOM-строка `componentNomenclatureId` кладётся прямо в `partId` (id-пространство совпадает;
-   * close-конвейер резолвит через directory_ref). Марка берётся из существующей строки наряда.
-   */
-  async function fillAssemblyFromBrandSpec(): Promise<void> {
-    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
-    // Марка — из строк наряда (если оператор уже добавил), иначе из двигателя шапки
-    // (тема E: у пустого наряда строк ещё нет, но двигатель в шапке уже выбран).
-    const brandId = primaryAssemblyEngineBrandId ?? headerAssemblyEngineBrandId;
-    if (!brandId) {
-      setStatus('Укажите двигатель или марку в наряде, чтобы заполнить детали из спецификации.');
-      return;
-    }
-    const brandName =
-      payload.freeWorks.find((l) => String(l.engineBrandId ?? '').trim() === brandId)?.engineBrandName ??
-      (() => {
-        const headerEngineId = resolveAssemblyEngineId(payload);
-        return headerEngineId ? engines.find((e) => e.id === headerEngineId)?.engineBrandName ?? '' : '';
-      })();
-    await fillAssemblyFromBrandSpecFor(payload, brandId, brandName, { confirmReplace: true });
-  }
-
-  /**
-   * Тема E: заполнение строк наряда из BOM-спецификации марки для явных brandId/basePayload
-   * (а не из state-derived, который после patch() в том же тике ещё старый). Из кнопки —
-   * с confirm при наличии строк; из авто-подстановки при выборе двигателя — молча, только
-   * когда строк с деталями нет.
-   */
-  async function fillAssemblyFromBrandSpecFor(
+  async function applyAssemblyPlan(
     basePayload: WorkOrderPayload,
-    brandId: string,
-    brandName: string,
-    opts: { confirmReplace: boolean; silent?: boolean },
+    engineId: string,
+    options: { bomId?: string; forceReplace?: boolean } = {},
   ): Promise<void> {
     if (assemblyFillBusy) return;
     setAssemblyFillBusy(true);
     try {
-      const listRes = await window.matrica.warehouse.assemblyBomList({ engineBrandId: brandId, status: 'active' });
-      if (!listRes?.ok) {
-        if (!opts.silent) setStatus(`Не удалось загрузить спецификации марки: ${listRes?.error ?? 'unknown'}`);
+      const result = await window.matrica.warehouse.assemblyPlanResolve({
+        engineId,
+        ...(options.bomId ? { bomId: options.bomId } : {}),
+      });
+      if (!result.ok) {
+        setAssemblyBomCandidates(result.candidates ?? []);
+        setAssemblyPendingEngineId(engineId);
+        setStatus(result.error);
         return;
       }
-      const list = (listRes.rows ?? []) as Array<Record<string, unknown>>;
-      const primary = list.find((row) => Boolean(row.isDefault)) ?? list[0];
-      if (!primary) {
-        if (!opts.silent) setStatus('У марки нет активной спецификации BOM.');
+      setAssemblyBomCandidates([]);
+      setAssemblyPendingEngineId(null);
+      const previousEngineId = resolveAssemblyEngineId(basePayload);
+      if (
+        previousEngineId === engineId &&
+        basePayload.assemblyBomSnapshot?.bomId === result.snapshot.bomId &&
+        basePayload.assemblyBomSnapshot?.bomVersion === result.snapshot.bomVersion
+      ) {
         return;
       }
-      const detailsRes = await window.matrica.warehouse.assemblyBomGet(String(primary.id));
-      if (!detailsRes?.ok) {
-        if (!opts.silent) setStatus(`Не удалось загрузить спецификацию: ${(detailsRes as { error?: string })?.error ?? 'unknown'}`);
-        return;
-      }
-      type BomLineLite = {
-        componentNomenclatureId?: string;
-        componentNomenclatureName?: string | null;
-        componentNomenclatureCode?: string | null;
-        qtyPerUnit?: number;
-        positionKey?: string | null;
-        isDefaultOption?: boolean;
-      };
-      const bomLines = Array.isArray((detailsRes as { bom?: { lines?: unknown } }).bom?.lines)
-        ? ((detailsRes as { bom: { lines: BomLineLite[] } }).bom.lines)
-        : [];
-      // Коллапс позиций к основному варианту — одна деталь на позицию (как в прогнозе).
-      const chosen: BomLineLite[] = [];
-      const idxByKey = new Map<string, number>();
-      for (const line of bomLines) {
-        if (!String(line.componentNomenclatureId ?? '').trim()) continue;
-        const key = String(line.positionKey ?? '').trim();
-        if (!key) {
-          chosen.push(line);
-          continue;
-        }
-        const existing = idxByKey.get(key);
-        if (existing === undefined) {
-          idxByKey.set(key, chosen.length);
-          chosen.push(line);
-        } else if (line.isDefaultOption !== false && chosen[existing]!.isDefaultOption === false) {
-          chosen[existing] = line;
-        }
-      }
-      if (chosen.length === 0) {
-        if (!opts.silent) setStatus('В спецификации марки нет строк с деталями.');
-        return;
-      }
-      const hasPartLines = basePayload.freeWorks.some((l) => String(l.partId ?? '').trim());
-      // Авто-подстановка (тема E) не трогает уже заполненный наряд — только пустой.
-      if (hasPartLines && opts.silent) return;
-      if (hasPartLines && opts.confirmReplace) {
-        const ok = await confirm({
-          title: 'Заполнить из спецификации?',
-          detail: `Строки наряда будут заменены деталями спецификации марки (${chosen.length}). Продолжить?`,
-          confirmLabel: 'Заполнить',
-          cancelLabel: 'Отмена',
+      const hasRows = basePayload.freeWorks.length > 0 || (basePayload.consumedLines?.length ?? 0) > 0;
+      let replace = options.forceReplace === true || !hasRows;
+      if (hasRows && !options.forceReplace) {
+        replace = await confirm({
+          title: 'Заменить работы и комплектовку?',
+          detail: `Для выбранного двигателя настроена BOM «${result.snapshot.bomName}». Текущие строки будут заменены снимком версии ${result.snapshot.bomVersion}.`,
+          confirmLabel: 'Заменить',
+          cancelLabel: 'Другой вариант',
           confirmTone: 'warn',
         });
-        if (!ok) return;
+        if (!replace) {
+          const keep = await confirm({
+            title: 'Оставить текущие строки?',
+            detail: 'Двигатель изменится, но работы и комплектовка останутся прежними. В наряде будет зафиксировано ручное отклонение от BOM.',
+            confirmLabel: 'Оставить строки',
+            cancelLabel: 'Отмена',
+            confirmTone: 'warn',
+          });
+          if (!keep) return;
+          const engine = engines.find((item) => item.id === engineId);
+          const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
+            ...line,
+            engineId,
+            engineNumber: engine?.engineNumber ?? '',
+            engineInternalNumber: engine?.engineInternalNumber ?? '',
+            engineBrandId: result.engineBrandId,
+            engineBrandName: engine?.engineBrandName ?? '',
+          });
+          const kept: WorkOrderPayload = {
+            ...basePayload,
+            assemblyEngineId: engineId,
+            freeWorks: basePayload.freeWorks.map(stamp),
+            assemblyManualDeviation: true,
+          };
+          delete kept.assemblyBomSnapshot;
+          delete kept.assemblyMaterialHash;
+          patch(kept);
+          setStatus('Двигатель изменён; текущее содержимое сохранено как ручное отклонение от BOM.');
+          return;
+        }
       }
-      // Штамп двигателя шапки в строки: без engineId normalizeWorkOrderLine стрипает
-      // марку при первом же recalc/save — номер/марка пропадали из списка и печати (B1).
-      const headerEngineId = resolveAssemblyEngineId(basePayload);
-      const headerEngine = headerEngineId ? engines.find((e) => e.id === headerEngineId) ?? null : null;
-      const newLines: WorkOrderWorkLine[] = chosen.map((line, idx) => {
-        const wl: WorkOrderWorkLine = {
-          lineNo: idx + 1,
-          serviceId: null,
-          serviceName: '',
-          unit: 'шт',
-          qty: Math.max(1, Math.trunc(Number(line.qtyPerUnit ?? 1))),
-          priceRub: 0,
-          amountRub: 0,
-          engineBrandId: brandId,
-          engineBrandName: brandName,
-          partId: String(line.componentNomenclatureId),
-          ...(headerEngine ? { engineId: headerEngine.id, engineNumber: String(headerEngine.engineNumber ?? ''), engineInternalNumber: String(headerEngine.engineInternalNumber ?? '') } : {}),
-        };
-        const nm = String(line.componentNomenclatureName ?? '').trim();
-        if (nm) wl.partName = nm;
-        const code = String(line.componentNomenclatureCode ?? '').trim();
-        if (code) wl.partArticle = code;
-        return wl;
-      });
-      // Склад-источник строк — склад цеха наряда (как при применении шаблона).
-      const workshopId = String(basePayload.workshopId ?? '').trim();
-      if (workshopId) {
-        const workshop = workshops.find((w) => w.id === workshopId);
-        const location = warehouseLocations.find(
-          (w) =>
-            (w.workshopId && w.workshopId === workshopId) ||
-            (workshop != null && w.type === 'workshop' && w.code === `workshop_${workshop.code}`),
-        );
-        if (location) for (const line of newLines) line.sourceWarehouseId = location.id;
-      }
-      patch({ ...basePayload, freeWorks: newLines });
-      setStatus(`Заполнено из спецификации марки${brandName ? ` «${brandName}»` : ''}: ${newLines.length} деталей (основной вариант каждой позиции). Проверьте количества и склад-источник.`);
+      const engine = engines.find((item) => item.id === engineId);
+      const works = result.snapshot.works.map((line) => ({
+        ...line,
+        engineId,
+        engineNumber: engine?.engineNumber ?? '',
+        engineInternalNumber: engine?.engineInternalNumber ?? '',
+        engineBrandId: result.engineBrandId,
+        engineBrandName: engine?.engineBrandName ?? '',
+      }));
+      const next: WorkOrderPayload = {
+        ...basePayload,
+        assemblyEngineId: engineId,
+        assemblyVariantGroup: result.snapshot.variantKey,
+        assemblyBomSnapshot: result.snapshot,
+        assemblyMaterialHash: result.materialHash,
+        assemblyPayloadRevision: (basePayload.assemblyPayloadRevision ?? 0) + 1,
+        freeWorks: works,
+        consumedLines: result.snapshot.materials.map((line) => ({
+          lineNo: line.lineNo,
+          nomenclatureId: line.nomenclatureId,
+          qty: line.qty,
+          sourceWarehouseId: line.sourceWarehouseId,
+        })),
+      };
+      delete next.assemblyManualDeviation;
+      const profile = result.snapshot.executionProfile;
+      if (profile?.workshopId) next.workshopId = profile.workshopId;
+      if (profile?.signatureBlocks) next.signatureBlocks = profile.signatureBlocks;
+      if (profile?.printSettings) next.printSettings = profile.printSettings as WorkOrderPrintSettings;
+      patch(next);
+      setAppliedHiddenFields(new Set(profile?.hiddenFields ?? []));
+      setStatus(`Применена BOM «${result.snapshot.bomName}» v${result.snapshot.bomVersion}: материалов ${result.snapshot.materials.length}, работ ${works.length}.`);
     } finally {
       setAssemblyFillBusy(false);
     }
   }
+
+  async function fillAssemblyFromBrandSpec(): Promise<void> {
+    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
+    const engineId = resolveAssemblyEngineId(payload);
+    if (!engineId) {
+      setStatus('Сначала выберите двигатель сборки.');
+      return;
+    }
+    await applyAssemblyPlan(payload, engineId, { forceReplace: true });
+  }
+
+  useEffect(() => {
+    if (!props.initialPayload || !payload || payload.workOrderKind !== WorkOrderKind.Assembly) return;
+    const engineId = resolveAssemblyEngineId(payload);
+    if (!engineId || payload.assemblyBomSnapshot || payload.freeWorks.length > 0 || (payload.consumedLines?.length ?? 0) > 0) return;
+    const key = `${props.id}:${engineId}`;
+    if (assemblyInitialAutoFillRef.current === key) return;
+    assemblyInitialAutoFillRef.current = key;
+    void applyAssemblyPlan(payload, engineId);
+  }, [payload, props.id, props.initialPayload]);
 
   function findExistingServiceByLabel(label: string, partId: string | null): ServiceInfo | null {
     const key = normalizeLookupValue(label);
@@ -2331,32 +2372,38 @@ export function WorkOrderDetailsPage(props: {
                 {...(props.onOpenEngine ? { onOpen: props.onOpenEngine } : {})}
                 placeholder="Выберите двигатель сборки"
                 onChange={(next) => {
-                  // Единый двигатель сборочного наряда: выбор в шапке проставляется во все строки
-                  // (freeWorks + legacy workGroups), новые строки его наследуют (addFreeWorkLine).
-                  const eng = next ? engines.find((e) => e.id === next) : null;
-                  const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
-                    ...line,
-                    engineId: next || null,
-                    engineNumber: eng?.engineNumber || '',
-                    engineInternalNumber: eng?.engineInternalNumber || '',
-                    engineBrandId: eng?.engineBrandId ?? line.engineBrandId ?? null,
-                    engineBrandName: eng?.engineBrandName ?? line.engineBrandName ?? '',
-                  });
-                  const nextPayload: WorkOrderPayload = {
-                    ...payload,
-                    assemblyEngineId: next || null,
-                    freeWorks: payload.freeWorks.map(stamp),
-                  };
-                  if (Array.isArray(payload.workGroups) && payload.workGroups.length > 0) {
-                    nextPayload.workGroups = payload.workGroups.map((g) => ({
-                      ...g,
-                      lines: Array.isArray(g.lines) ? g.lines.map(stamp) : g.lines,
-                    }));
+                  if (next) {
+                    void applyAssemblyPlan(payload, next);
+                    return;
                   }
-                  patch(nextPayload);
+                  setAssemblyBomCandidates([]);
+                  setAssemblyPendingEngineId(null);
+                  const cleared: WorkOrderPayload = { ...payload, assemblyEngineId: null };
+                  delete cleared.assemblyBomSnapshot;
+                  delete cleared.assemblyMaterialHash;
+                  patch(cleared);
                 }}
               />
             </div>
+            {assemblyBomCandidates.length > 0 ? (
+              <select
+                defaultValue=""
+                disabled={assemblyFillBusy}
+                onChange={(event) => {
+                  const bomId = event.target.value;
+                  const engineId = assemblyPendingEngineId ?? resolveAssemblyEngineId(payload);
+                  if (bomId && engineId) void applyAssemblyPlan(payload, engineId, { bomId });
+                }}
+                title="Для совмещённой группы основной BOM выбирается вручную"
+              >
+                <option value="">— выберите BOM —</option>
+                {assemblyBomCandidates.map((candidate) => (
+                  <option key={candidate.bomId} value={candidate.bomId}>
+                    {candidate.bomName} · v{candidate.version}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
         ) : null}
         {payload.workOrderKind === WorkOrderKind.WorkshopTemplate ? (
@@ -2428,15 +2475,15 @@ export function WorkOrderDetailsPage(props: {
         {payload.workOrderKind === WorkOrderKind.Assembly ? (
           <Button
             variant="ghost"
-            disabled={!canEditNow || assemblyFillBusy || !(primaryAssemblyEngineBrandId ?? headerAssemblyEngineBrandId)}
+            disabled={!canEditNow || assemblyFillBusy || !resolveAssemblyEngineId(payload)}
             title={
-              !primaryAssemblyEngineBrandId
-                ? 'Добавьте строку и укажите марку двигателя — тогда можно заполнить детали из спецификации марки.'
-                : 'Заполнить строки деталями из активной спецификации марки (основной вариант каждой позиции).'
+              !resolveAssemblyEngineId(payload)
+                ? 'Сначала выберите двигатель сборки.'
+                : 'Повторно получить с сервера основной BOM марки и заменить комплектовку и работы.'
             }
             onClick={() => void fillAssemblyFromBrandSpec()}
           >
-            Заполнить из спецификации
+            Применить BOM марки
           </Button>
         ) : null}
         {payload.workOrderKind === WorkOrderKind.Assembly && assemblyVariantGroups.length >= 2 ? (
@@ -2444,8 +2491,8 @@ export function WorkOrderDetailsPage(props: {
             <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Вариант сборки</span>
             <select
               value={payload.assemblyVariantGroup ?? ''}
-              disabled={!canEditNow}
-              title="Вариант сборки BOM для собираемого двигателя — фильтрует список деталей в карточке двигателя"
+              disabled={!canEditNow || Boolean(payload.assemblyBomSnapshot)}
+              title={payload.assemblyBomSnapshot ? 'Вариант зафиксирован в снимке BOM этого наряда.' : 'Вариант сборки BOM для собираемого двигателя'}
               onChange={(e) => {
                 const v = e.target.value;
                 const next: WorkOrderPayload = { ...payload };
@@ -2633,22 +2680,8 @@ export function WorkOrderDetailsPage(props: {
                     return;
                   }
                   setClosing(true);
-                  setStatus('Сохраняю черновик…');
                   try {
-                    if (canEditNow && dirtyRef.current) await flushSave(payload);
-                    try {
-                      await window.matrica.sync.run();
-                    } catch (syncErr) {
-                      console.warn('[assembly save] sync.run() failed (continuing):', syncErr);
-                    }
-                    const r = await window.matrica.workOrders.saveAssemblyDraft({ operationId: props.id });
-                    if (!r.ok) {
-                      setStatus(`Ошибка сохранения: ${r.error}`);
-                      return;
-                    }
-                    const docId = r.documentId;
-                    setPayload((prev) => (prev ? recalcLocally({ ...prev, linkedDocumentId: docId }) : prev));
-                    setStatus(`Черновик сохранён, детали зарезервированы. Документ ${docId.slice(0, 8)}…`);
+                    await issueToWork();
                   } catch (e) {
                     setStatus(`Ошибка: ${String(e)}`);
                   } finally {
@@ -2656,7 +2689,7 @@ export function WorkOrderDetailsPage(props: {
                   }
                 }}
               >
-                {closing ? 'Работаю…' : 'Сохранить как черновик'}
+                {closing ? 'Работаю…' : payload.assemblyIssueState === 'issued_with_shortage' ? 'Проверить и зарезервировать' : 'Выдать и зарезервировать'}
               </Button>
             );
           })()
@@ -2797,11 +2830,8 @@ export function WorkOrderDetailsPage(props: {
             <Button
               variant={payload.repairIssued ? 'ghost' : 'primary'}
               size="sm"
-              disabled={!payload.repairIssued && scrapBlocksIssue}
               title={
-                !payload.repairIssued && scrapBlocksIssue
-                  ? `Выдача заблокирована: утильные детали в дефектовке двигателя — ${scrapParts.join(', ')}`
-                  : payload.workOrderKind === WorkOrderKind.Assembly
+                payload.workOrderKind === WorkOrderKind.Assembly
                     ? payload.repairIssued
                       ? 'Отозвать наряд из работы (с указанием причины). Статус двигателя при этом НЕ откатывается.'
                       : 'Выдать наряд в работу: двигателю сборки проставится статус «Начат ремонт».'
@@ -2823,19 +2853,35 @@ export function WorkOrderDetailsPage(props: {
           ) : null}
         </div>
       ) : null}
-      {(payload.workOrderKind === WorkOrderKind.Repair || payload.workOrderKind === WorkOrderKind.Assembly) &&
-      !isClosed &&
-      !payload.repairIssued &&
-      scrapBlocksIssue ? (
-        <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>
-          ⛔ Выдача в работу заблокирована: утильные детали в дефектовке двигателя — {scrapParts.join(', ')}. Кнопка
-          станет доступна, когда утиль будет снят (деталь заменена/восстановлена).
+      {payload.workOrderKind === WorkOrderKind.Assembly && !isClosed && scrapParts.length > 0 ? (
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+          ℹ️ В дефектовке отмечен утиль: {scrapParts.join(', ')}. Это сохраняется в истории ремонта и не блокирует сборочный наряд.
         </div>
       ) : null}
-      {payload.workOrderKind === WorkOrderKind.Assembly && !isClosed && scrapEngine && scrapParts.length > 0 ? (
-        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
-          ♻️ Двигатель признан утильным — сборка для возврата заказчику. Утиль в дефектовке ({scrapParts.join(', ')})
-          выдачу не блокирует, детали можно брать с любого склада, включая «Утиль».
+      {payload.workOrderKind === WorkOrderKind.Assembly && !isClosed && shortageApproval ? (
+        <div style={{ marginBottom: 8, padding: '10px 12px', border: '1px solid #f59e0b', borderRadius: 8, background: '#fffbeb', color: '#78350f' }}>
+          <div style={{ fontWeight: 700 }}>
+            {shortageApproval.status === 'requested'
+              ? 'Запрошено согласование дефицита'
+              : shortageApproval.status === 'approved'
+                ? 'Дефицит согласован — резерв ещё не создан'
+                : shortageApproval.status === 'rejected'
+                  ? 'Согласование дефицита отклонено'
+                  : 'Согласование аннулировано изменением комплектовки'}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12 }}>Причина: {shortageApproval.reason}</div>
+          {shortageApproval.shortages.length > 0 ? (
+            <div style={{ marginTop: 4, fontSize: 12 }}>
+              {shortageApproval.shortages.map((line) => `${line.nomenclatureName}: −${line.shortageQty} (${line.warehouseName})`).join('; ')}
+            </div>
+          ) : null}
+          {shortageApproval.decisionReason ? <div style={{ marginTop: 4, fontSize: 12 }}>Решение: {shortageApproval.decisionReason}</div> : null}
+          {shortageApproval.status === 'requested' && props.canApproveAssemblyShortage ? (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <Button size="sm" disabled={shortageDecisionBusy} onClick={() => void decideShortageApproval(true)}>Согласовать</Button>
+              <Button size="sm" variant="outline" disabled={shortageDecisionBusy} onClick={() => void decideShortageApproval(false)}>Отклонить</Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {!isClosed && workOrderWithdrawnAt(payload as unknown as Record<string, unknown>) ? (
@@ -2914,6 +2960,135 @@ export function WorkOrderDetailsPage(props: {
       {crewSection}
     </EntityCardShell>
       </div>
+
+      {payload.workOrderKind === WorkOrderKind.Assembly && (payload.consumedLines?.length ?? 0) > 0 ? (
+        <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>
+          <SectionCard className="entity-card-span-full">
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>
+              Комплектовка · {payload.assemblyBomSnapshot?.bomName ?? 'ручной состав'}
+              {payload.assemblyBomSnapshot ? ` v${payload.assemblyBomSnapshot.bomVersion}` : ''}
+            </div>
+            <div className="list-table-wrap list-table-wrap--single">
+              <table className="list-table list-table--single-mode">
+                <thead>
+                  <tr>
+                    <th>Деталь</th>
+                    <th>Артикул</th>
+                    <th style={{ width: 90 }}>Количество</th>
+                    <th style={{ width: 220 }}>Склад</th>
+                    <th style={{ width: 300 }}>Номерные экземпляры</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(payload.consumedLines ?? []).map((line, index) => {
+                    const snapshotLine = payload.assemblyBomSnapshot?.materials.find(
+                      (item) => item.nomenclatureId === line.nomenclatureId && item.lineNo === line.lineNo,
+                    );
+                    const part = parts.find((item) => item.id === line.nomenclatureId);
+                    const sourceLocation = warehouseLocations.find(
+                      (location) => location.id === line.sourceWarehouseId || location.code === line.sourceWarehouseId,
+                    );
+                    const selectedInstanceIds = line.instanceIds ?? [];
+                    const availableInstances = assemblyInstances.filter(
+                      (instance) =>
+                        instance.nomenclatureId === line.nomenclatureId &&
+                        (!sourceLocation || instance.currentLocationId === sourceLocation.id || selectedInstanceIds.includes(instance.id)),
+                    );
+                    return (
+                      <tr key={`${line.lineNo}:${line.nomenclatureId}`}>
+                        <td>{snapshotLine?.nomenclatureName || part?.name || line.nomenclatureId}</td>
+                        <td>{snapshotLine?.nomenclatureCode || part?.article || part?.sku || '—'}</td>
+                        <td>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={line.qty}
+                            disabled={!canEditNow}
+                            onChange={(event) => {
+                              const consumedLines = (payload.consumedLines ?? []).map((item, rowIndex) =>
+                                rowIndex === index ? { ...item, qty: Math.max(1, safeNum(event.target.value, 1)) } : item,
+                              );
+                              const next = { ...payload, consumedLines, assemblyManualDeviation: true };
+                              delete next.assemblyMaterialHash;
+                              patch(next);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            value={line.sourceWarehouseId}
+                            disabled={!canEditNow}
+                            onChange={(event) => {
+                              const consumedLines = (payload.consumedLines ?? []).map((item, rowIndex) =>
+                                rowIndex === index ? { ...item, sourceWarehouseId: event.target.value } : item,
+                              );
+                              const next = { ...payload, consumedLines, assemblyManualDeviation: true };
+                              delete next.assemblyMaterialHash;
+                              patch(next);
+                            }}
+                          >
+                            <option value="default">— склад не определён —</option>
+                            {warehouseLocations.filter((location) => location.isActive).map((location) => (
+                              <option key={location.id} value={location.id}>{location.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          {availableInstances.length > 0 || selectedInstanceIds.length > 0 ? (
+                            <details>
+                              <summary style={{ cursor: 'pointer' }}>
+                                Выбрано {selectedInstanceIds.length} из {Math.max(0, Math.trunc(line.qty))}
+                              </summary>
+                              <div style={{ display: 'grid', gap: 4, marginTop: 6, maxHeight: 140, overflow: 'auto' }}>
+                                {availableInstances.map((instance) => {
+                                  const checked = selectedInstanceIds.includes(instance.id);
+                                  const reservedByOther = Boolean(
+                                    instance.reservedDocumentId && instance.reservedDocumentId !== payload.linkedDocumentId,
+                                  );
+                                  return (
+                                    <label key={instance.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={
+                                          !canEditNow ||
+                                          reservedByOther ||
+                                          (!checked && selectedInstanceIds.length >= Math.max(0, Math.trunc(line.qty)))
+                                        }
+                                        onChange={() => {
+                                          const nextIds = checked
+                                            ? selectedInstanceIds.filter((id) => id !== instance.id)
+                                            : [...selectedInstanceIds, instance.id];
+                                          const consumedLines = (payload.consumedLines ?? []).map((item, rowIndex) =>
+                                            rowIndex === index ? { ...item, ...(nextIds.length > 0 ? { instanceIds: nextIds } : { instanceIds: [] }) } : item,
+                                          );
+                                          const next = { ...payload, consumedLines, assemblyManualDeviation: true };
+                                          delete next.assemblyMaterialHash;
+                                          patch(next);
+                                        }}
+                                      />
+                                      <span>{instance.serialDisplay}</span>
+                                      <span style={{ color: 'var(--subtle)', fontSize: 11 }}>
+                                        {reservedByOther ? 'зарезервирован другим нарядом' : instance.currentStatus}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </details>
+                          ) : (
+                            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Количественный учёт</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        </div>
+      ) : null}
 
       {/* Виды работ — отдельный широкий блок */}
       <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>

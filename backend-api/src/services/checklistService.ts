@@ -1,17 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
-import type { RepairChecklistPayload, RepairChecklistTemplate, WorkOrderPayload } from '@matricarmz/shared';
+import type { RepairChecklistPayload, RepairChecklistTemplate } from '@matricarmz/shared';
 import {
-  applyWorkOrderWithdrawal,
-  buildAutoWithdrawReason,
   ENGINE_INVENTORY_STAGE,
-  isScrapEngine,
-  listScrapPartNames,
-  resolveAssemblyEngineId,
-  type StatusCode,
   SyncTableName,
-  WorkOrderKind,
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
@@ -285,65 +278,6 @@ export async function getRepairChecklistForEngine(
   }
 }
 
-/**
- * Связка «утиль ⇄ наряд на сборку» (web-admin путь; клиентские правки дефектовки
- * отрабатывает такой же хук в electron main): после сохранения дефектовки с утильными
- * строками отзывает из работы выданные Assembly-наряды двигателя. Изменение уезжает
- * клиентам через recordSyncChanges. Идемпотентен: не-выданные наряды пропускает.
- */
-async function autoWithdrawIssuedAssemblyWorkOrders(args: {
-  engineId: string;
-  checklistPayload: RepairChecklistPayload;
-  actor: Actor;
-  allowSyncConflicts?: boolean;
-}): Promise<void> {
-  const scrapParts = listScrapPartNames(args.checklistPayload);
-  if (scrapParts.length === 0) return;
-  // Утильный двигатель: его наряд на сборку — штатный путь возврата заказчику, утиль в
-  // дефектовке для него ожидаем. Не отзываем (иначе метка утиля отзывала бы свой же наряд).
-  const engine = await getEntityDetails(args.engineId).catch(() => null);
-  if (isScrapEngine((engine?.attributes ?? {}) as Partial<Record<StatusCode, boolean>>)) return;
-  // Без фильтра по engine_entity_id: у старых Assembly-нарядов колонка может быть пустой,
-  // двигатель резолвится из payload (resolveAssemblyEngineId) ниже.
-  const rows = await db
-    .select()
-    .from(operations)
-    .where(and(eq(operations.operationType, 'work_order'), isNull(operations.deletedAt)));
-  const ts = nowMs();
-  const reason = buildAutoWithdrawReason(scrapParts);
-  const syncOptions = args.allowSyncConflicts ? { allowSyncConflicts: true } : {};
-  for (const r of rows as any[]) {
-    if (String(r.status) === 'closed') continue;
-    const parsed = safeJsonParse(r.metaJson ? String(r.metaJson) : '') as WorkOrderPayload | null;
-    if (!parsed || typeof parsed !== 'object' || parsed.kind !== 'work_order') continue;
-    if (parsed.workOrderKind !== WorkOrderKind.Assembly) continue;
-    if (parsed.repairIssued !== true) continue;
-    if (resolveAssemblyEngineId(parsed) !== args.engineId) continue;
-    const nextMetaJson = JSON.stringify(
-      applyWorkOrderWithdrawal(parsed, { at: ts, by: args.actor.username || 'backend', reason, auto: true }),
-    );
-    await db
-      .update(operations)
-      .set({ metaJson: nextMetaJson, updatedAt: ts, syncStatus: 'synced' })
-      .where(and(eq(operations.id, r.id), isNull(operations.deletedAt)));
-    const payload = operationPayload({
-      id: String(r.id),
-      engineEntityId: String(r.engineEntityId),
-      operationType: String(r.operationType),
-      status: String(r.status),
-      note: r.note ?? null,
-      performedAt: r.performedAt == null ? null : Number(r.performedAt),
-      performedBy: r.performedBy == null ? null : String(r.performedBy),
-      metaJson: nextMetaJson,
-      createdAt: Number(r.createdAt),
-      updatedAt: ts,
-      deletedAt: null,
-      syncStatus: 'synced',
-    });
-    await insertChangeLog(String(r.id), payload, args.actor, syncOptions);
-  }
-}
-
 export async function saveRepairChecklistForEngine(args: {
   engineId: string;
   stage: string;
@@ -380,18 +314,6 @@ export async function saveRepairChecklistForEngine(args: {
       });
     const syncOptions = args.allowSyncConflicts ? { allowSyncConflicts: true } : {};
     await insertChangeLog(opId, payload, args.actor, syncOptions);
-      if (args.stage === ENGINE_INVENTORY_STAGE) {
-        try {
-          await autoWithdrawIssuedAssemblyWorkOrders({
-            engineId: args.engineId,
-            checklistPayload: args.payload,
-            actor: args.actor,
-            ...(args.allowSyncConflicts ? { allowSyncConflicts: true } : {}),
-          });
-        } catch {
-          // best-effort: не роняем сохранение чеклиста
-        }
-      }
       return { ok: true as const, operationId: opId };
     }
 
@@ -435,18 +357,6 @@ export async function saveRepairChecklistForEngine(args: {
     const syncOptions = args.allowSyncConflicts ? { allowSyncConflicts: true } : {};
     await insertChangeLog(newId, payload, args.actor, syncOptions);
     await ensureOwner(SyncTableName.Operations, newId, args.actor);
-    if (args.stage === ENGINE_INVENTORY_STAGE) {
-      try {
-        await autoWithdrawIssuedAssemblyWorkOrders({
-            engineId: args.engineId,
-            checklistPayload: args.payload,
-            actor: args.actor,
-            ...(args.allowSyncConflicts ? { allowSyncConflicts: true } : {}),
-          });
-      } catch {
-        // best-effort: не роняем сохранение чеклиста
-      }
-    }
     return { ok: true as const, operationId: newId };
   } catch (e) {
     return { ok: false as const, error: String(e) };

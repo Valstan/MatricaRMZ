@@ -10,6 +10,7 @@ export * from './domain/tieredSearch.js';
 export * from './domain/partsDedup.js';
 export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
+export * from './domain/repairNorm.js';
 export * from './domain/engineActSnapshot.js';
 export * from './domain/engineInternalNumber.js';
 export * from './domain/engineReservation.js';
@@ -59,6 +60,7 @@ export * from './domain/watchdog.js';
 export * from './domain/globalSearch.js';
 export * from './domain/reclamation.js';
 export * from './domain/repeatArrival.js';
+export * from './domain/defectLifecycle.js';
 export * from './ipc/types.js';
 // keep exports sorted manually
 

@@ -1017,10 +1017,13 @@ export const workOrderTemplates = pgTable(
     linesJson: text('lines').notNull().default('[]'),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     updatedBy: text('updated_by'),
+    archivedAt: bigint('archived_at', { mode: 'number' }),
   },
   (t) => ({
     kindIdx: index('work_order_templates_kind_idx').on(t.workOrderKind),
-    kindNameUq: uniqueIndex('work_order_templates_kind_name_uq').on(t.workOrderKind, t.name),
+    kindNameUq: uniqueIndex('work_order_templates_kind_name_uq')
+      .on(t.workOrderKind, t.name)
+      .where(sql`${t.archivedAt} is null`),
   }),
 );
 
@@ -1301,6 +1304,8 @@ export const erpEngineAssemblyBom = pgTable(
     version: integer('version').notNull().default(1),
     status: text('status').notNull().default('draft'),
     isDefault: boolean('is_default').notNull().default(false),
+    defaultVariantKey: text('default_variant_key'),
+    executionProfileJson: text('execution_profile_json'),
     notes: text('notes'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
@@ -1325,6 +1330,7 @@ export const erpEngineAssemblyBomBrandLinks = pgTable(
       .notNull()
       .references(() => entities.id),
     isPrimary: boolean('is_primary').notNull().default(false),
+    isDefaultForBrand: boolean('is_default_for_brand').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -1335,6 +1341,9 @@ export const erpEngineAssemblyBomBrandLinks = pgTable(
     bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
       .on(t.bomId, t.engineBrandId)
       .where(sql`${t.deletedAt} is null`),
+    defaultBrandUq: uniqueIndex('erp_eabbl_default_brand_uq')
+      .on(t.engineBrandId)
+      .where(sql`${t.isDefaultForBrand} = true and ${t.deletedAt} is null`),
     bomIdx: index('erp_eabbl_bom_idx').on(t.bomId),
     brandIdx: index('erp_eabbl_brand_idx').on(t.engineBrandId),
   }),
@@ -1374,6 +1383,80 @@ export const erpEngineAssemblyBomLines = pgTable(
     bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq')
       .on(t.bomId, t.variantGroup, t.componentNomenclatureId, t.componentType)
       .where(sql`${t.deletedAt} is null`),
+  }),
+);
+
+export const repairNormSets = pgTable(
+  'repair_norm_sets',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('draft'),
+    sourceKind: text('source_kind'),
+    sourceKey: text('source_key'),
+    sourceImportedAt: bigint('source_imported_at', { mode: 'number' }),
+    sourceContentHash: text('source_content_hash'),
+    notes: text('notes'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    statusIdx: index('repair_norm_sets_status_idx').on(t.status),
+    sourceKeyIdx: index('repair_norm_sets_source_key_idx').on(t.sourceKey),
+  }),
+);
+
+export const repairNormSetBrandLinks = pgTable(
+  'repair_norm_set_brand_links',
+  {
+    id: uuid('id').primaryKey(),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => repairNormSets.id),
+    engineBrandId: uuid('engine_brand_id')
+      .notNull()
+      .references(() => entities.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    setBrandUq: uniqueIndex('repair_norm_set_brand_uq')
+      .on(t.normSetId, t.engineBrandId)
+      .where(sql`${t.deletedAt} is null`),
+    setIdx: index('repair_norm_set_brand_set_idx').on(t.normSetId),
+    brandIdx: index('repair_norm_set_brand_brand_idx').on(t.engineBrandId),
+  }),
+);
+
+export const repairNormLines = pgTable(
+  'repair_norm_lines',
+  {
+    id: uuid('id').primaryKey(),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => repairNormSets.id),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    qtyPerEngine: numeric('qty_per_engine', { precision: 14, scale: 4 }).notNull(),
+    replacementPercent: numeric('replacement_percent', { precision: 7, scale: 4 }).notNull(),
+    groupName: text('group_name'),
+    sourceRowKey: text('source_row_key'),
+    sourceMetaJson: text('source_meta_json'),
+    position: integer('position').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    setIdx: index('repair_norm_lines_set_idx').on(t.normSetId),
+    nomenclatureIdx: index('repair_norm_lines_nomenclature_idx').on(t.nomenclatureId),
+    setSourceRowUq: uniqueIndex('repair_norm_lines_set_source_row_uq')
+      .on(t.normSetId, t.sourceRowKey)
+      .where(sql`${t.deletedAt} is null and ${t.sourceRowKey} is not null`),
   }),
 );
 
@@ -1424,6 +1507,126 @@ export const erpRegStockBalance = pgTable(
       .on(t.nomenclatureId, t.warehouseLocationId)
       .where(sql`${t.nomenclatureId} is not null`),
     warehouseLocationIdx: index('erp_reg_stock_balance_warehouse_location_idx').on(t.warehouseLocationId),
+  }),
+);
+
+export const erpStockReservations = pgTable(
+  'erp_stock_reservations',
+  {
+    id: uuid('id').primaryKey(),
+    documentHeaderId: uuid('document_header_id').notNull().references(() => erpDocumentHeaders.id),
+    documentLineId: uuid('document_line_id').notNull().references(() => erpDocumentLines.id),
+    nomenclatureId: uuid('nomenclature_id').notNull().references(() => erpNomenclature.id),
+    warehouseLocationId: uuid('warehouse_location_id').notNull().references(() => warehouseLocations.id),
+    qty: integer('qty').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    releasedAt: bigint('released_at', { mode: 'number' }),
+    consumedAt: bigint('consumed_at', { mode: 'number' }),
+  },
+  (t) => ({
+    activeDocumentLineUq: uniqueIndex('erp_stock_reservations_active_doc_line_uq')
+      .on(t.documentHeaderId, t.documentLineId)
+      .where(sql`${t.status} = 'active'`),
+    documentIdx: index('erp_stock_reservations_document_idx').on(t.documentHeaderId),
+    balanceKeyIdx: index('erp_stock_reservations_balance_key_idx').on(t.nomenclatureId, t.warehouseLocationId),
+  }),
+);
+
+export const assemblyShortageApprovals = pgTable(
+  'assembly_shortage_approvals',
+  {
+    id: uuid('id').primaryKey(),
+    operationId: uuid('operation_id').notNull().references(() => operations.id),
+    materialHash: text('material_hash').notNull(),
+    shortageJson: text('shortage_json').notNull(),
+    status: text('status').notNull().default('requested'),
+    requestReason: text('request_reason').notNull(),
+    requestedBy: uuid('requested_by').notNull(),
+    requestedAt: bigint('requested_at', { mode: 'number' }).notNull(),
+    decidedBy: uuid('decided_by'),
+    decidedAt: bigint('decided_at', { mode: 'number' }),
+    decisionReason: text('decision_reason'),
+    invalidatedAt: bigint('invalidated_at', { mode: 'number' }),
+  },
+  (t) => ({
+    operationIdx: index('assembly_shortage_approvals_operation_idx').on(t.operationId, t.requestedAt),
+    activeOperationUq: uniqueIndex('assembly_shortage_approvals_active_operation_uq')
+      .on(t.operationId)
+      .where(sql`${t.status} in ('requested', 'approved')`),
+  }),
+);
+
+export const defectConductedVersions = pgTable(
+  'defect_conducted_versions',
+  {
+    id: uuid('id').primaryKey(),
+    engineId: uuid('engine_id').notNull().references(() => entities.id),
+    version: integer('version').notNull(),
+    operationId: uuid('operation_id').notNull(),
+    draftRevision: text('draft_revision').notNull(),
+    snapshotHash: text('snapshot_hash').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    documentHeaderId: uuid('document_header_id').references(() => erpDocumentHeaders.id),
+    status: text('status').notNull().default('active'),
+    replacesVersionId: uuid('replaces_version_id'),
+    conductedBy: uuid('conducted_by').notNull(),
+    conductedAt: bigint('conducted_at', { mode: 'number' }).notNull(),
+    reversedAt: bigint('reversed_at', { mode: 'number' }),
+  },
+  (t) => ({
+    operationUq: uniqueIndex('defect_conducted_versions_operation_uq').on(t.operationId),
+    engineVersionUq: uniqueIndex('defect_conducted_versions_engine_version_uq').on(t.engineId, t.version),
+    activeEngineUq: uniqueIndex('defect_conducted_versions_active_engine_uq').on(t.engineId).where(sql`${t.status} = 'active'`),
+  }),
+);
+
+export const defectPartInstances = pgTable(
+  'defect_part_instances',
+  {
+    id: uuid('id').primaryKey(),
+    nomenclatureId: uuid('nomenclature_id').notNull().references(() => erpNomenclature.id),
+    serialNormalized: text('serial_normalized').notNull(),
+    serialDisplay: text('serial_display').notNull(),
+    sourceEngineId: uuid('source_engine_id').notNull().references(() => entities.id),
+    currentLocationId: uuid('current_location_id').references(() => warehouseLocations.id),
+    currentStatus: text('current_status').notNull(),
+    currentVersionId: uuid('current_version_id').notNull().references(() => defectConductedVersions.id),
+    reservedDocumentId: uuid('reserved_document_id').references(() => erpDocumentHeaders.id),
+    reservedAt: bigint('reserved_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    nomenclatureSerialUq: uniqueIndex('defect_part_instances_nom_serial_uq').on(t.nomenclatureId, t.serialNormalized),
+    engineIdx: index('defect_part_instances_engine_idx').on(t.sourceEngineId),
+    locationIdx: index('defect_part_instances_location_idx').on(t.currentLocationId),
+    reservedDocumentIdx: index('defect_part_instances_reserved_document_idx')
+      .on(t.reservedDocumentId)
+      .where(sql`${t.reservedDocumentId} is not null`),
+  }),
+);
+
+export const defectPartEvents = pgTable(
+  'defect_part_events',
+  {
+    id: uuid('id').primaryKey(),
+    engineId: uuid('engine_id').notNull().references(() => entities.id),
+    conductedVersionId: uuid('conducted_version_id').notNull().references(() => defectConductedVersions.id),
+    sourceLineId: text('source_line_id').notNull(),
+    nomenclatureId: uuid('nomenclature_id').notNull().references(() => erpNomenclature.id),
+    instanceId: uuid('instance_id').references(() => defectPartInstances.id),
+    eventType: text('event_type').notNull(),
+    qty: integer('qty').notNull(),
+    payloadJson: text('payload_json'),
+    occurredAt: bigint('occurred_at', { mode: 'number' }).notNull(),
+    occurredBy: uuid('occurred_by').notNull(),
+  },
+  (t) => ({
+    engineTimeIdx: index('defect_part_events_engine_time_idx').on(t.engineId, t.occurredAt),
+    versionIdx: index('defect_part_events_version_idx').on(t.conductedVersionId),
+    instanceIdx: index('defect_part_events_instance_idx').on(t.instanceId).where(sql`${t.instanceId} is not null`),
   }),
 );
 

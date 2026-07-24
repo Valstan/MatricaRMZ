@@ -368,6 +368,15 @@ const matricaApi = {
     close: async (args: { operationId: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('workOrders:close', args),
     saveAssemblyDraft: async (args: { operationId: string; expectedUpdatedAt?: number }) =>
       ipcRenderer.invoke('workOrders:saveAssemblyDraft', args),
+    issueAssembly: async (args: { operationId: string }) => ipcRenderer.invoke('workOrders:issueAssembly', args),
+    setIssuedState: async (args: { operationId: string; issued: boolean; reason?: string }) =>
+      ipcRenderer.invoke('workOrders:setIssuedState', args),
+    requestAssemblyShortageApproval: async (args: { operationId: string; reason: string }) =>
+      ipcRenderer.invoke('workOrders:requestAssemblyShortageApproval', args),
+    getAssemblyShortageApproval: async (args: { operationId: string }) =>
+      ipcRenderer.invoke('workOrders:getAssemblyShortageApproval', args),
+    decideAssemblyShortageApproval: async (args: { approvalId: string; approve: boolean; reason: string }) =>
+      ipcRenderer.invoke('workOrders:decideAssemblyShortageApproval', args),
     postAssembly: async (args: { operationId: string; expectedUpdatedAt?: number }) =>
       ipcRenderer.invoke('workOrders:postAssembly', args),
     deleteAssemblyDraft: async (args: { operationId: string; expectedUpdatedAt?: number }) =>
@@ -668,6 +677,13 @@ const matricaApi = {
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
     repairFundIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intake', args),
+    defectConduct: async (args: import('@matricarmz/shared').DefectConductRequest) =>
+      ipcRenderer.invoke('warehouse:defects:conduct', args),
+    defectVersions: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:versions', engineId),
+    defectHistory: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:history', engineId),
+    defectAvailableInstances: async (nomenclatureIds: string[]) =>
+      ipcRenderer.invoke('warehouse:defects:availableInstances', nomenclatureIds),
+    defectIssuedInstances: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:issuedInstances', engineId),
     repairFundIntakePreview: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intakePreview', args),
     scrapIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
@@ -684,6 +700,12 @@ const matricaApi = {
     documentReverse: async (arg: string | { id: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('warehouse:documents:reverse', arg),
     assemblyBomList: async (args?: { engineBrandId?: string; engineBrandIds?: string[]; engineNomenclatureId?: string; status?: string }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:list', args),
+    repairNormList: async (args?: { engineBrandId?: string; status?: string }) =>
+      ipcRenderer.invoke('warehouse:repairNorm:list', args),
+    repairNormGet: async (id: string) => ipcRenderer.invoke('warehouse:repairNorm:get', id),
+    repairNormUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:repairNorm:upsert', args),
+    assemblyPlanResolve: async (args: { engineId: string; bomId?: string }) =>
+      ipcRenderer.invoke('warehouse:assemblyPlan:resolve', args),
     assemblyBomSchemaGet: async () => ipcRenderer.invoke('warehouse:assemblyBom:schema:get'),
     assemblyBomSchemaSet: async (args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:schema:set', args),

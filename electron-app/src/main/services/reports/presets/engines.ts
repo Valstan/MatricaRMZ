@@ -1292,10 +1292,75 @@ export async function buildEngineKittingReport(
 }
 
 
+type RepairNormReportLine = {
+  nomenclatureId: string;
+  name: string;
+  code: string;
+  qtyPerEngine: number;
+  replacementPercent: number;
+  groupName: string;
+};
+
+async function loadRepairNormSetForBrand(
+  ctx: ReportBuildContext | undefined,
+  brandId: string,
+): Promise<{ setName: string; setVersion: number; lines: RepairNormReportLine[] }> {
+  const apiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  if (!ctx?.sysDb || !apiBase) return { setName: '', setVersion: 0, lines: [] };
+  try {
+    const listRes = await httpAuthed(
+      ctx.sysDb,
+      apiBase,
+      `/warehouse/repair-norms?engineBrandId=${encodeURIComponent(brandId)}&status=active`,
+      { method: 'GET' },
+      { timeoutMs: 15_000 },
+    );
+    const listJson = listRes.ok && listRes.json && typeof listRes.json === 'object'
+      ? (listRes.json as Record<string, unknown>)
+      : null;
+    const sets = listJson?.ok === true && Array.isArray(listJson.rows)
+      ? (listJson.rows as Array<Record<string, unknown>>)
+      : [];
+    const selected = [...sets].sort(
+      (a, b) => Number(b.version ?? 0) - Number(a.version ?? 0) || Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0),
+    )[0];
+    if (!selected?.id) return { setName: '', setVersion: 0, lines: [] };
+    const detailsRes = await httpAuthed(
+      ctx.sysDb,
+      apiBase,
+      `/warehouse/repair-norms/${encodeURIComponent(String(selected.id))}`,
+      { method: 'GET' },
+      { timeoutMs: 15_000 },
+    );
+    const detailsJson = detailsRes.ok && detailsRes.json && typeof detailsRes.json === 'object'
+      ? (detailsRes.json as Record<string, unknown>)
+      : null;
+    const normSet = detailsJson?.ok === true && detailsJson.normSet && typeof detailsJson.normSet === 'object'
+      ? (detailsJson.normSet as Record<string, unknown>)
+      : null;
+    const lines = Array.isArray(normSet?.lines) ? (normSet.lines as Array<Record<string, unknown>>) : [];
+    return {
+      setName: normalizeText(normSet?.name, normalizeText(selected.name, '')),
+      setVersion: Math.max(1, Math.trunc(Number(normSet?.version ?? selected.version ?? 1))),
+      lines: lines
+        .map((line) => ({
+          nomenclatureId: String(line.nomenclatureId ?? ''),
+          name: normalizeText(line.nomenclatureName, ''),
+          code: normalizeText(line.nomenclatureCode, ''),
+          qtyPerEngine: Math.max(0, Number(line.qtyPerEngine ?? 0)),
+          replacementPercent: Math.max(0, Math.min(100, Number(line.replacementPercent ?? 0))),
+          groupName: normalizeText(line.groupName, ''),
+        }))
+        .filter((line) => line.nomenclatureId && line.qtyPerEngine > 0),
+    };
+  } catch {
+    return { setName: '', setVersion: 0, lines: [] };
+  }
+}
+
 /**
- * «План закупок по нормам» (G8): BOM марки × норма расхода (%) × кол-во двигателей = план;
- * минус свободные остатки (без техлокаций) = к закупке. Норма без типизированного процента
- * считается как 100% (полная замена) — помечается в примечании.
+ * «План закупок по нормам»: отдельный реестр норм ремонта × количество двигателей;
+ * BOM здесь намеренно не используется — он описывает комплект сборки, а не статистику замены.
  */
 export async function buildNormsPurchasePlanReport(
   db: BetterSQLite3Database,
@@ -1319,9 +1384,9 @@ export async function buildNormsPurchasePlanReport(
 
   const snapshot = await loadSnapshot(db);
   const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
-  const { bomName, kitLines } = await loadBomKitForBrand(db, ctx, brandId);
-  if (kitLines.length === 0) {
-    return empty(`Марка «${brandLabel}»: BOM не найден (нет связи с сервером или BOM не заведён)`);
+  const { setName, setVersion, lines: normLines } = await loadRepairNormSetForBrand(ctx, brandId);
+  if (normLines.length === 0) {
+    return empty(`Марка «${brandLabel}»: активный набор норм ремонта не найден или сервер недоступен`);
   }
 
   // Свободные остатки (qty − reserved) без технических локаций; ремфонд — отдельной колонкой.
@@ -1344,43 +1409,27 @@ export async function buildNormsPurchasePlanReport(
     if (avail > 0) availableByNom.set(nomId, (availableByNom.get(nomId) ?? 0) + avail);
   }
 
-  const slots = collapseBomKitSlots(kitLines);
   const rows: Array<Record<string, ReportCellValue>> = [];
   let totalPlanQty = 0;
   let totalToPurchaseQty = 0;
-  let positionsWithoutNorm = 0;
-  for (const slot of slots) {
-    const qtyPerUnit = slot.primary.qty;
-    if (qtyPerUnit <= 0) continue;
-    const normPercent = slot.primary.normPercent;
-    if (normPercent == null) positionsWithoutNorm += 1;
-    const effectivePct = normPercent ?? 100;
-    const planQty = Math.ceil((qtyPerUnit * enginesCount * effectivePct) / 100);
-    const uniqNomIds = Array.from(
-      new Set([slot.primary, ...slot.alternatives].map((l) => l.nomenclatureId).filter(Boolean)),
-    );
-    const sum = (m: Map<string, number>) => uniqNomIds.reduce((acc, id) => acc + (m.get(id) ?? 0), 0);
-    const availableQty = sum(availableByNom);
-    const repairFundQty = sum(repairFundByNom);
+  for (const line of normLines) {
+    const planQty = Math.ceil((line.qtyPerEngine * enginesCount * line.replacementPercent) / 100);
+    const availableQty = availableByNom.get(line.nomenclatureId) ?? 0;
+    const repairFundQty = repairFundByNom.get(line.nomenclatureId) ?? 0;
     const toPurchaseQty = Math.max(0, planQty - availableQty);
     totalPlanQty += planQty;
     totalToPurchaseQty += toPurchaseQty;
     if (onlyToPurchase && toPurchaseQty <= 0) continue;
-    const noteParts = [
-      normPercent == null ? 'норма не задана — 100%' : '',
-      slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
-      slot.isRequired ? '' : 'опционально',
-    ].filter(Boolean);
     rows.push({
-      componentName: slot.primary.name || slot.primary.nomenclatureId.slice(0, 8),
-      componentCode: slot.primary.code,
-      qtyPerUnit,
-      normPercentLabel: normPercent == null ? '—' : String(normPercent),
+      componentName: line.name || line.nomenclatureId.slice(0, 8),
+      componentCode: line.code,
+      qtyPerUnit: line.qtyPerEngine,
+      normPercentLabel: String(line.replacementPercent),
       planQty,
       availableQty,
       repairFundQty,
       toPurchaseQty,
-      variantNote: noteParts.join(' · '),
+      variantNote: line.groupName,
     });
   }
   rows.sort(
@@ -1393,13 +1442,10 @@ export async function buildNormsPurchasePlanReport(
     ok: true,
     presetId: 'norms_purchase_plan',
     title: preset.title,
-    subtitle: `${brandLabel} · BOM «${bomName}» · двигателей: ${enginesCount}`,
+    subtitle: `${brandLabel} · нормы «${setName}» v${setVersion} · двигателей: ${enginesCount}`,
     columns: preset.columns,
     rows,
-    totals: { totalPlanQty, totalToPurchaseQty, positionsWithoutNorm },
-    ...(positionsWithoutNorm > 0
-      ? { footerNotes: [`Позиций без типизированной нормы: ${positionsWithoutNorm} — посчитаны как 100% замены.`] }
-      : {}),
+    totals: { totalPlanQty, totalToPurchaseQty, positionsWithoutNorm: 0 },
     generatedAt: Date.now(),
   };
 }

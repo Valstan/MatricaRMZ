@@ -25,6 +25,7 @@ export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'tools',
   'tool_properties',
   'engine_assembly_bom',
+  'repair_norms',
   'requests',
   'work_orders',
   'services',

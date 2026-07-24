@@ -30,12 +30,21 @@ import {
   warehouseAssemblyBomSchemaSet,
   warehouseAssemblyBomHistory,
   warehouseAssemblyBomList,
+  warehouseAssemblyPlanResolve,
   warehouseAssemblyBomPrint,
   warehouseAssemblyBomUpsert,
+  warehouseRepairNormGet,
+  warehouseRepairNormList,
+  warehouseRepairNormUpsert,
   warehouseContractSectionsGet,
   warehouseDocumentPost,
   warehouseRepairFundIntake,
   warehouseRepairFundIntakePreview,
+  warehouseDefectConduct,
+  warehouseDefectVersions,
+  warehouseDefectHistory,
+  warehouseDefectAvailableInstances,
+  warehouseDefectIssuedInstances,
   warehouseScrapIntake,
   warehouseScrapIntakePreview,
   warehouseRepairFundCaptureInstances,
@@ -551,6 +560,65 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
     return warehouseAssemblyBomList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:defects:conduct', async (_e, args: import('@matricarmz/shared').DefectConductRequest) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: defect conduct is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectConduct(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:defects:versions', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectVersions(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:defects:history', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:defects:availableInstances', async (_e, nomenclatureIds: string[]) => {
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectAvailableInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), nomenclatureIds);
+  });
+
+  ipcMain.handle('warehouse:defects:issuedInstances', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectIssuedInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:repairNorm:list', async (_e, args?: { engineBrandId?: string; status?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair norms are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairNormList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:repairNorm:get', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair norms are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairNormGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:repairNorm:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair norms are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairNormUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyPlan:resolve', async (_e, args: { engineId: string; bomId?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, code: 'bom_missing' as const, error: 'view mode: assembly plan is not available' };
+    const gate = await requirePermOrResult(ctx, 'work_orders.edit');
+    if (!gate.ok) return { ...gate, code: 'bom_missing' as const };
+    return warehouseAssemblyPlanResolve(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
   });
 
   ipcMain.handle('warehouse:assemblyBom:schema:get', async () => {

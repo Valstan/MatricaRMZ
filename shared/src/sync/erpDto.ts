@@ -95,6 +95,8 @@ export const erpEngineAssemblyBomRowSchema = z.object({
   version: z.number().int().min(1),
   status: z.enum(['draft', 'active', 'archived']),
   is_default: z.boolean(),
+  default_variant_key: z.string().nullable().optional(),
+  execution_profile_json: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
   last_server_seq: z.number().int().nullable().optional(),
@@ -106,6 +108,7 @@ export const erpEngineAssemblyBomBrandLinkRowSchema = z.object({
   bom_id: z.string().uuid(),
   engine_brand_id: z.string().uuid(),
   is_primary: z.boolean(),
+  is_default_for_brand: z.boolean().optional(),
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
   last_server_seq: z.number().int().nullable().optional(),
 });
@@ -123,6 +126,9 @@ export const erpEngineAssemblyBomLineRowSchema = z.object({
   is_required: z.boolean(),
   priority: z.number().int(),
   notes: z.string().nullable().optional(),
+  position_key: z.string().nullable().optional(),
+  position_label: z.string().nullable().optional(),
+  is_default_option: z.boolean().optional(),
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
   last_server_seq: z.number().int().nullable().optional(),
 });

@@ -76,7 +76,6 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
       return base;
     case SyncTableName.ErpEngineAssemblyBom:
       if (!(base as any).name) return null;
-      if (!(base as any).engine_brand_id && !(base as any).engine_nomenclature_id) return null;
       if ((base as any).version == null) (base as any).version = 1;
       if (!(base as any).status) (base as any).status = 'draft';
       if ((base as any).is_default == null) (base as any).is_default = false;
@@ -87,6 +86,12 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
       if ((base as any).qty_per_unit == null) (base as any).qty_per_unit = 1;
       if ((base as any).is_required == null) (base as any).is_required = true;
       if ((base as any).priority == null) (base as any).priority = 100;
+      if ((base as any).is_default_option == null) (base as any).is_default_option = true;
+      return base;
+    case SyncTableName.ErpEngineAssemblyBomBrandLinks:
+      if (!(base as any).bom_id || !(base as any).engine_brand_id) return null;
+      if ((base as any).is_primary == null) (base as any).is_primary = false;
+      if ((base as any).is_default_for_brand == null) (base as any).is_default_for_brand = false;
       return base;
     case SyncTableName.ErpEngineInstances:
       if (!(base as any).nomenclature_id || !(base as any).serial_number) return null;

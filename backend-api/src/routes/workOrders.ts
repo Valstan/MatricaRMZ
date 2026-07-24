@@ -11,6 +11,13 @@ import {
   saveAssemblyWorkOrderDraft,
 } from '../services/workOrderClosingService.js';
 import { getEngineAssemblyInProgress } from '../services/warehouseService.js';
+import {
+  decideAssemblyShortageApproval,
+  getAssemblyShortageApproval,
+  issueAssemblyWorkOrder,
+  requestAssemblyShortageApproval,
+  setWorkOrderIssued,
+} from '../services/assemblyIssueService.js';
 
 export const workOrdersRouter = Router();
 workOrdersRouter.use(requireAuth);
@@ -57,6 +64,47 @@ function assemblyActorFromReq(req: unknown) {
 
 const assemblyActionBodySchema = z.object({
   expectedUpdatedAt: z.coerce.number().int().optional(),
+});
+
+workOrdersRouter.post('/:operationId/issue-assembly', requirePermission(PermissionCode.WorkOrdersEdit), async (req, res) => {
+  const operationId = String(req.params.operationId || '').trim();
+  if (!operationId) return res.status(400).json({ ok: false, error: 'operationId обязателен' });
+  const result = await issueAssemblyWorkOrder({ operationId, actor: assemblyActorFromReq(req) });
+  if (!result.ok) return res.status(result.code === 'shortage' ? 409 : 400).json(result);
+  return res.json(result);
+});
+
+workOrdersRouter.post('/:operationId/issued-state', requirePermission(PermissionCode.WorkOrdersEdit), async (req, res) => {
+  const operationId = String(req.params.operationId || '').trim();
+  const parsed = z.object({ issued: z.boolean(), reason: z.string().trim().optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await setWorkOrderIssued({ operationId, issued: parsed.data.issued, ...(parsed.data.reason ? { reason: parsed.data.reason } : {}), actor: assemblyActorFromReq(req) });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+workOrdersRouter.post('/:operationId/shortage-request', requirePermission(PermissionCode.WorkOrdersEdit), async (req, res) => {
+  const operationId = String(req.params.operationId || '').trim();
+  const parsed = z.object({ reason: z.string().trim().min(1) }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await requestAssemblyShortageApproval({ operationId, reason: parsed.data.reason, actor: assemblyActorFromReq(req) });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+workOrdersRouter.get('/:operationId/shortage-approval', requirePermission(PermissionCode.WorkOrdersView), async (req, res) => {
+  const operationId = String(req.params.operationId || '').trim();
+  if (!operationId) return res.status(400).json({ ok: false, error: 'operationId обязателен' });
+  return res.json(await getAssemblyShortageApproval(operationId));
+});
+
+workOrdersRouter.post('/shortage-approvals/:approvalId/decision', requirePermission(PermissionCode.WorkOrdersAssemblyShortageApprove), async (req, res) => {
+  const approvalId = String(req.params.approvalId || '').trim();
+  const parsed = z.object({ approve: z.boolean(), reason: z.string().trim().default('') }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await decideAssemblyShortageApproval({ approvalId, approve: parsed.data.approve, reason: parsed.data.reason, actor: assemblyActorFromReq(req) });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
 });
 
 workOrdersRouter.post('/:operationId/save-assembly-draft', requirePermission(PermissionCode.WorkOrdersClose), async (req, res) => {
@@ -112,6 +160,7 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
           nomenclatureId: z.string().uuid(),
           qty: z.number().int().positive(),
           mode: z.enum(['rework', 'scrap']),
+          instanceIds: z.array(z.string().uuid()).optional(),
         }),
       )
       .min(1),
@@ -124,7 +173,12 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
     engineId: parsed.data.engineId,
     ...(parsed.data.reason !== undefined ? { reason: parsed.data.reason } : {}),
     ...(parsed.data.docDate !== undefined ? { docDate: parsed.data.docDate } : {}),
-    lines: parsed.data.lines,
+    lines: parsed.data.lines.map((line) => ({
+      nomenclatureId: line.nomenclatureId,
+      qty: line.qty,
+      mode: line.mode,
+      ...(line.instanceIds !== undefined ? { instanceIds: line.instanceIds } : {}),
+    })),
     actor: {
       id: String(user.id ?? ''),
       username: String(user.username ?? 'unknown'),

@@ -19,6 +19,12 @@ export type SupplyRequestDelivery = {
   note?: string | null;
 };
 
+export type DefectOrigin = {
+  engineId: string;
+  conductedVersionId: string;
+  sourceLineIds: string[];
+};
+
 export type SupplyRequestItem = {
   lineNo?: number;
   productId?: string | null;
@@ -27,6 +33,7 @@ export type SupplyRequestItem = {
   unit?: string;
   note?: string | null;
   deliveries?: SupplyRequestDelivery[];
+  defectOrigin?: DefectOrigin;
 };
 
 export type SupplyRequestSignature = {

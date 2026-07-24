@@ -249,6 +249,54 @@ export function registerWorkshopsIpc(ctx: IpcContext) {
     return toResult(r);
   });
 
+  ipcMain.handle('workOrders:issueAssembly', async (_e, args: { operationId: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_orders.edit');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(ctx.sysDb, ctx.mgr.getApiBaseUrl(), `/work-orders/${encodeURIComponent(args.operationId)}/issue-assembly`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    return toResult(r);
+  });
+
+  ipcMain.handle('workOrders:setIssuedState', async (_e, args: { operationId: string; issued: boolean; reason?: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_orders.edit');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(ctx.sysDb, ctx.mgr.getApiBaseUrl(), `/work-orders/${encodeURIComponent(args.operationId)}/issued-state`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ issued: args.issued, ...(args.reason ? { reason: args.reason } : {}) }),
+    });
+    return toResult(r);
+  });
+
+  ipcMain.handle('workOrders:requestAssemblyShortageApproval', async (_e, args: { operationId: string; reason: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_orders.edit');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(ctx.sysDb, ctx.mgr.getApiBaseUrl(), `/work-orders/${encodeURIComponent(args.operationId)}/shortage-request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: args.reason }),
+    });
+    return toResult(r);
+  });
+
+  ipcMain.handle('workOrders:getAssemblyShortageApproval', async (_e, args: { operationId: string }) => {
+    const gate = await requirePermOrResult(ctx, 'work_orders.view');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(ctx.sysDb, ctx.mgr.getApiBaseUrl(), `/work-orders/${encodeURIComponent(args.operationId)}/shortage-approval`, { method: 'GET' });
+    return toResult(r);
+  });
+
+  ipcMain.handle('workOrders:decideAssemblyShortageApproval', async (_e, args: { approvalId: string; approve: boolean; reason: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_orders.assembly_shortage_approve');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(ctx.sysDb, ctx.mgr.getApiBaseUrl(), `/work-orders/shortage-approvals/${encodeURIComponent(args.approvalId)}/decision`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approve: args.approve, reason: args.reason }),
+    });
+    return toResult(r);
+  });
+
   ipcMain.handle('workOrders:postAssembly', async (_e, args: { operationId: string; expectedUpdatedAt?: number }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'work_orders.close');
@@ -281,7 +329,7 @@ export function registerWorkshopsIpc(ctx: IpcContext) {
     engineId: string;
     reason?: string | null;
     docDate?: number;
-    lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+    lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap'; instanceIds?: string[] }>;
   }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'warehouse.assembly_return');

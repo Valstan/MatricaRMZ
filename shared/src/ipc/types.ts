@@ -669,8 +669,10 @@ import type {
   AiAgentLogResponse,
   AiAgentStreamEvent,
 } from '../domain/aiAgent.js';
+import type { RepairNormSetDetails, RepairNormSetInput, RepairNormSetSummary } from '../domain/repairNorm.js';
 import type {
   EngineAssemblyBomDetails,
+  AssemblyPlanResolution,
   WarehouseBomRelationTypeUsage,
   WarehouseBomRelationSchema,
   EngineAssemblyBomExpandedRow,
@@ -1359,6 +1361,41 @@ export type MatricaApi = {
       | { ok: true; operationId: string; documentId: string; reserved: boolean; updatedAt: number }
       | { ok: false; error: string }
     >;
+    issueAssembly: (args: { operationId: string }) => Promise<
+      | { ok: true; operationId: string; state: 'issued' | 'issued_with_shortage'; documentId: string | null; payload: WorkOrderPayload }
+      | { ok: false; code?: string; error: string; shortages?: import('../domain/workOrder.js').AssemblyShortageItem[]; materialHash?: string }
+    >;
+    setIssuedState: (args: { operationId: string; issued: boolean; reason?: string }) => Promise<
+      | { ok: true; operationId: string; payload: WorkOrderPayload }
+      | { ok: false; code?: string; error: string; shortages?: import('../domain/workOrder.js').AssemblyShortageItem[]; materialHash?: string }
+    >;
+    requestAssemblyShortageApproval: (args: { operationId: string; reason: string }) => Promise<
+      | { ok: true; id: string; materialHash: string; shortages: import('../domain/workOrder.js').AssemblyShortageItem[] }
+      | { ok: false; error: string }
+    >;
+    getAssemblyShortageApproval: (args: { operationId: string }) => Promise<
+      | {
+          ok: true;
+          approval: null | {
+            id: string;
+            operationId: string;
+            materialHash: string;
+            status: 'requested' | 'approved' | 'rejected' | 'invalidated';
+            reason: string;
+            requestedBy: string;
+            requestedAt: number;
+            shortages: import('../domain/workOrder.js').AssemblyShortageItem[];
+            decidedBy?: string;
+            decidedAt?: number;
+            decisionReason?: string;
+          };
+        }
+      | { ok: false; error: string }
+    >;
+    decideAssemblyShortageApproval: (args: { approvalId: string; approve: boolean; reason: string }) => Promise<
+      | { ok: true; id: string; status: 'approved' | 'rejected' }
+      | { ok: false; error: string }
+    >;
     postAssembly: (args: { operationId: string; expectedUpdatedAt?: number }) => Promise<
       | { ok: true; operationId: string; documentId: string; posted: boolean; updatedAt: number }
       | { ok: false; error: string }
@@ -1387,7 +1424,7 @@ export type MatricaApi = {
       reason?: string | null;
       /** Операционная дата документа (учёт «задним числом»); по умолчанию — сейчас. */
       docDate?: number;
-      lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+      lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap'; instanceIds?: string[] }>;
     }) => Promise<
       { ok: true; documentId: string; posted: boolean; docNo?: string; docDate?: number } | { ok: false; error: string }
     >;
@@ -1404,7 +1441,7 @@ export type MatricaApi = {
       engineNumber?: string;
       engineBrandId?: string;
       engineBrandName?: string;
-      items: Array<{ partId: string; qty: number; partLabel: string }>;
+      items: Array<{ partId: string; qty: number; partLabel: string; defectOrigin?: import('../domain/supplyRequest.js').DefectOrigin }>;
     }) => Promise<
       | { ok: true; id: string; workOrderNumber: number }
       | { ok: false; error: string }
@@ -1902,6 +1939,32 @@ export type MatricaApi = {
       engineNomenclatureId?: string;
       status?: string;
     }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
+    repairNormList: (args?: { engineBrandId?: string; status?: string }) => Promise<
+      { ok: true; rows: RepairNormSetSummary[] } | { ok: false; error: string }
+    >;
+    defectConduct: (args: import('../domain/defectLifecycle.js').DefectConductRequest) => Promise<
+      | { ok: true; unchanged: boolean; version: import('../domain/defectLifecycle.js').DefectConductedVersionSummary }
+      | { ok: false; error: string }
+    >;
+    defectVersions: (engineId: string) => Promise<
+      | { ok: true; versions: import('../domain/defectLifecycle.js').DefectConductedVersionSummary[] }
+      | { ok: false; error: string }
+    >;
+    defectHistory: (engineId: string) => Promise<
+      | { ok: true; events: import('../domain/defectLifecycle.js').DefectPartHistoryEvent[] }
+      | { ok: false; error: string }
+    >;
+    defectAvailableInstances: (nomenclatureIds: string[]) => Promise<
+      | { ok: true; instances: import('../domain/defectLifecycle.js').DefectPartInstanceSummary[] }
+      | { ok: false; error: string }
+    >;
+    defectIssuedInstances: (engineId: string) => Promise<
+      | { ok: true; instances: import('../domain/defectLifecycle.js').DefectPartInstanceSummary[] }
+      | { ok: false; error: string }
+    >;
+    repairNormGet: (id: string) => Promise<{ ok: true; normSet: RepairNormSetDetails } | { ok: false; error: string }>;
+    repairNormUpsert: (args: RepairNormSetInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    assemblyPlanResolve: (args: { engineId: string; bomId?: string }) => Promise<AssemblyPlanResolution>;
     assemblyBomSchemaGet: () => Promise<{ ok: true; schema: WarehouseBomRelationSchema; updatedAt: number } | { ok: false; error: string }>;
     assemblyBomSchemaSet: (args: {
       schema: WarehouseBomRelationSchema;
