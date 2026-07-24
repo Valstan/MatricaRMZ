@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
+
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -78,6 +80,7 @@ export function CounterpartiesPage(props: {
 }) {
   const { confirm } = useConfirm();
   const [rows, setRows] = useState<Row[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string } | null>(null);
   const [status, setStatus] = useState<string>('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const { state: listState, patchState } = useListUiState('list:counterparties', {
@@ -204,6 +207,12 @@ export function CounterpartiesPage(props: {
 
   async function deleteRows(ids: string[]) {
     if (!props.canDelete || ids.length === 0) return;
+    // Одиночное удаление уводим в диалог намерения (показывает связанные объекты + 4 действия).
+    if (ids.length === 1) {
+      const id = ids[0]!;
+      setPendingDelete({ id, label: rowById.get(id)?.displayName || 'контрагент' });
+      return;
+    }
     const message = buildDeleteConfirmMessage({
       selectedCount: ids.length,
       selectedManyLabel: 'выделенных контрагентов',
@@ -409,6 +418,22 @@ export function CounterpartiesPage(props: {
             onClearSelection: selection.clearSelection,
           })}
           onClose={() => setMenu(null)}
+        />
+      ) : null}
+      {pendingDelete ? (
+        <DeletionIntentDialog
+          entityId={pendingDelete.id}
+          entityLabel={pendingDelete.label}
+          targetLabelGenitive="контрагента"
+          replaceTarget="customer"
+          replaceOptions={rows.filter((r) => r.id !== pendingDelete.id).map((r) => ({ id: r.id, label: r.displayName || '(без названия)' }))}
+          onClose={(didDelete) => {
+            setPendingDelete(null);
+            if (didDelete) {
+              selection.clearSelection();
+              void refresh();
+            }
+          }}
         />
       ) : null}
     </div>
