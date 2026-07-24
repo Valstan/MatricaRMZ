@@ -247,6 +247,7 @@ export const WarehouseIncomingSourceType = {
   ProductionRelease: 'production_release',
   RepairRecovery: 'repair_recovery',
   EngineDismantling: 'engine_dismantling',
+  CustomerSupplied: 'customer_supplied',
 } as const;
 
 export type WarehouseIncomingSourceType = (typeof WarehouseIncomingSourceType)[keyof typeof WarehouseIncomingSourceType];
@@ -285,6 +286,7 @@ export const WarehouseDocumentType = {
   ProductionRelease: 'production_release',
   RepairRecovery: 'repair_recovery',
   EngineDismantling: 'engine_dismantling',
+  CustomerSupplied: 'customer_supplied',
   AssemblyConsumption: 'assembly_consumption',
   AssemblyReturn: 'assembly_return',
   StockIssue: 'stock_issue',
@@ -302,6 +304,7 @@ export const WarehouseDocumentTypeLabels: Record<WarehouseDocumentType, string> 
   [WarehouseDocumentType.ProductionRelease]: 'Выпуск производства',
   [WarehouseDocumentType.RepairRecovery]: 'Восстановление после ремонта',
   [WarehouseDocumentType.EngineDismantling]: 'Разборка двигателя-донора',
+  [WarehouseDocumentType.CustomerSupplied]: 'Давальческий приход',
   [WarehouseDocumentType.AssemblyConsumption]: 'Списание в сборку',
   [WarehouseDocumentType.AssemblyReturn]: 'Возврат из сборки',
   [WarehouseDocumentType.StockIssue]: 'Расход',

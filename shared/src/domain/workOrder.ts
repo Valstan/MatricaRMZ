@@ -38,6 +38,7 @@ export type WorkOrderWorkLine = {
   // Склад-источник для списания детали (только Assembly). Может быть UUID warehouse_ref
   // либо workshop_<code>. Если не задан — backend подставит склад цеха по умолчанию.
   sourceWarehouseId?: string | null;
+  defectOrigin?: import('./supplyRequest.js').DefectOrigin;
 };
 
 export type WorkOrderAuditTrailItem = {
@@ -92,6 +93,18 @@ export function normalizeWorkOrderLine(line: unknown, lineNo: number): WorkOrder
 
   const sourceWarehouseId = raw.sourceWarehouseId ? String(raw.sourceWarehouseId).trim() : '';
   if (sourceWarehouseId) result.sourceWarehouseId = sourceWarehouseId;
+
+  if (raw.defectOrigin && typeof raw.defectOrigin === 'object' && !Array.isArray(raw.defectOrigin)) {
+    const origin = raw.defectOrigin as Record<string, unknown>;
+    const originEngineId = String(origin.engineId ?? '').trim();
+    const conductedVersionId = String(origin.conductedVersionId ?? '').trim();
+    const sourceLineIds = Array.isArray(origin.sourceLineIds)
+      ? origin.sourceLineIds.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+    if (originEngineId && conductedVersionId && sourceLineIds.length > 0) {
+      result.defectOrigin = { engineId: originEngineId, conductedVersionId, sourceLineIds };
+    }
+  }
 
   const engineId = raw.engineId ? String(raw.engineId).trim() : '';
   if (engineId) {

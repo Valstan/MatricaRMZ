@@ -47,6 +47,7 @@ const INCOMING_DOC_TYPES: WarehouseDocumentType[] = [
   'production_release',
   'repair_recovery',
   'engine_dismantling',
+  'customer_supplied',
 ];
 
 const INCOMING_SOURCE_OPTIONS: Array<{ id: WarehouseIncomingSourceType; label: string }> = [
@@ -55,6 +56,7 @@ const INCOMING_SOURCE_OPTIONS: Array<{ id: WarehouseIncomingSourceType; label: s
   { id: 'production_release', label: 'Выпуск производства' },
   { id: 'repair_recovery', label: 'Восстановление после ремонта' },
   { id: 'engine_dismantling', label: 'Разборка двигателя' },
+  { id: 'customer_supplied', label: 'Давальческий приход' },
 ];
 
 function toEditableLine(line: WarehouseDocumentLineDto, index: number): EditableLine {

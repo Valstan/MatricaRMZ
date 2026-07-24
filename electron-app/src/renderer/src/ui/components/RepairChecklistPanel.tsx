@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairFundIntakeFromInventory, buildScrapIntakeFromInventory, buildStampedInstancesFromInventory, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import type { DefectConductedVersionSummary, DefectPartHistoryEvent, EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
@@ -49,6 +49,37 @@ function safeJsonStringify(v: unknown) {
   } catch {
     return '';
   }
+}
+
+function localSnapshotRevision(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a-${(hash >>> 0).toString(16)}`;
+}
+
+function defectEventLabel(type: string): string {
+  const labels: Record<string, string> = {
+    classified_repairable: 'Признана ремонтопригодной',
+    classified_scrap: 'Признана утильной',
+    replacement_required: 'Требуется замена',
+    sent_to_repair: 'Выдана в свой ремонт',
+    repaired: 'Отремонтирована',
+    purchase_requested: 'Запрошена закупка',
+    purchased: 'Получена закупкой',
+    customer_requested: 'Запрошена у заказчика',
+    customer_supplied: 'Получена как давальческая',
+    issued_to_assembly: 'Выдана на сборку',
+    returned_from_assembly: 'Возвращена со сборки',
+    written_off_again: 'Повторно списана',
+  };
+  return labels[type] ?? type;
+}
+
+function inventorySourceLineId(raw: Record<string, unknown>, index: number, partId: string): string {
+  return String(raw.__row_id ?? '').trim() || `${partId || 'unlinked'}-${index + 1}`;
 }
 
 function escapeHtml(s: string) {
@@ -381,16 +412,17 @@ export function RepairChecklistPanel(props: {
   const [status, setStatus] = useState<string>('');
   const [supplyRequestBusy, setSupplyRequestBusy] = useState(false);
   const [repairOrderBusy, setRepairOrderBusy] = useState(false);
-  const [repairFundBusy, setRepairFundBusy] = useState(false);
-  // Ф6 (G6): списание утиля дефектовки в scrap-локацию.
-  const [scrapIntakeBusy, setScrapIntakeBusy] = useState(false);
+  const [conductBusy, setConductBusy] = useState(false);
+  const conductOperationIdRef = useRef<string | null>(null);
+  const [conductedVersions, setConductedVersions] = useState<DefectConductedVersionSummary[]>([]);
+  const [defectPartHistory, setDefectPartHistory] = useState<DefectPartHistoryEvent[]>([]);
+  const [defectHistoryOpen, setDefectHistoryOpen] = useState(false);
   // Ф5 (GAP-4): производные статусы «в ремонте/готова к сборке» per partId.
   const [repairPartStates, setRepairPartStates] = useState<Record<string, EngineRepairPartState>>({});
   // Ф5 (GAP-6): история статусов деталей (события part_status_event, новые сверху).
   const [partStatusEvents, setPartStatusEvents] = useState<Array<PartStatusEventPayload & { operationId: string; at: number; by: string }>>([]);
   const [partStatusHistoryOpen, setPartStatusHistoryOpen] = useState(false);
   // Ремфонд Ф3: номерные экземпляры деталей двигателя (личные набитые номера).
-  const [stampedBusy, setStampedBusy] = useState(false);
   const [instanceBusyId, setInstanceBusyId] = useState<string | null>(null);
   const [stampedInstances, setStampedInstances] = useState<Array<RepairFundInstancePayload & { operationId: string; at?: number }>>([]);
   const [stampedOpen, setStampedOpen] = useState(false);
@@ -462,71 +494,6 @@ export function RepairChecklistPanel(props: {
     const raw = a && a.kind === 'table' && Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]) : [];
     return buildRepairOrderItemsFromInventory(raw);
   }, [answers]);
-  // Ремфонд Ф1: годные к ремонту детали (present && repairable_qty>0) для заноса в ремонтный фонд.
-  const repairFundDraft = useMemo(() => {
-    const a = (answers as Record<string, unknown>).engine_inventory_items as { kind?: string; rows?: unknown } | undefined;
-    const raw = a && a.kind === 'table' && Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]) : [];
-    return buildRepairFundIntakeFromInventory(raw);
-  }, [answers]);
-  // Ф6 (G6): утиль дефектовки (scrap_qty>0) для списания в scrap-локацию.
-  const scrapIntakeDraft = useMemo(() => {
-    const a = (answers as Record<string, unknown>).engine_inventory_items as { kind?: string; rows?: unknown } | undefined;
-    const raw = a && a.kind === 'table' && Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]) : [];
-    return buildScrapIntakeFromInventory(raw);
-  }, [answers]);
-  // Ремфонд Ф3: строки с личным набитым номером (stamped_number) для поэкземплярного захвата.
-  const stampedDraft = useMemo(() => buildStampedInstancesFromInventory(inventoryRawRows(answers)), [answers]);
-  // Ф3 forecast-remfond-aware: бейдж «дефектовка не занесена в ремфонд» — read-only превью дельты
-  // (сравнение текущих годных-к-ремонту с high-water-mark прошлого заноса), дебаунс 600мс.
-  const [intakePending, setIntakePending] = useState<{ qty: number; positions: number } | null>(null);
-  useEffect(() => {
-    if (!isInventoryStage || !props.engineId || repairFundDraft.items.length === 0) {
-      setIntakePending(null);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const r = await window.matrica.warehouse.repairFundIntakePreview({
-          engineId: props.engineId,
-          items: repairFundDraft.items,
-        });
-        if (cancelled) return;
-        setIntakePending(r.ok && Number(r.pendingQty) > 0 ? { qty: Number(r.pendingQty), positions: Number(r.pendingPositions) } : null);
-      } catch {
-        if (!cancelled) setIntakePending(null);
-      }
-    }, 600);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [isInventoryStage, props.engineId, repairFundDraft, repairFundBusy]);
-  // Ф6 (G6): бейдж «утиль не списан в утиль-локацию» — превью дельты, дебаунс как у ремфонда.
-  const [scrapIntakePending, setScrapIntakePending] = useState<{ qty: number; positions: number } | null>(null);
-  useEffect(() => {
-    if (!isInventoryStage || !props.engineId || scrapIntakeDraft.items.length === 0) {
-      setScrapIntakePending(null);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const r = await window.matrica.warehouse.scrapIntakePreview({
-          engineId: props.engineId,
-          items: scrapIntakeDraft.items,
-        });
-        if (cancelled) return;
-        setScrapIntakePending(r.ok && Number(r.pendingQty) > 0 ? { qty: Number(r.pendingQty), positions: Number(r.pendingPositions) } : null);
-      } catch {
-        if (!cancelled) setScrapIntakePending(null);
-      }
-    }, 600);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [isInventoryStage, props.engineId, scrapIntakeDraft, scrapIntakeBusy]);
   const variantFilterActive =
     isInventoryStage && variantFilterOn && !!assemblyVariant && !!variantMembership && variantMembership.size > 0;
   const panelTitle = isInventoryStage
@@ -577,16 +544,20 @@ export function RepairChecklistPanel(props: {
   // Ф5: производные статусы ремонта per-деталь + история событий part_status_event + Ф3-экземпляры + Ф4-версии требования.
   async function loadRepairPartData() {
     if (!isInventoryStage || !props.engineId) return;
-    const [states, events, stamped, requirement] = await Promise.all([
+    const [states, events, stamped, requirement, versions, history] = await Promise.all([
       window.matrica.workOrders.engineRepairPartStates(props.engineId),
       window.matrica.checklists.enginePartStatusEvents({ engineId: props.engineId }),
       window.matrica.checklists.engineStampedInstances({ engineId: props.engineId }),
       window.matrica.checklists.requirementVersions({ engineId: props.engineId }),
+      window.matrica.warehouse.defectVersions(props.engineId),
+      window.matrica.warehouse.defectHistory(props.engineId),
     ]);
     setRepairPartStates(states.ok ? states.states : {});
     setPartStatusEvents(events.ok ? events.events : []);
     setStampedInstances(stamped.ok ? stamped.instances : []);
     setRequirementVersions(requirement.ok ? requirement.versions : []);
+    setConductedVersions(versions.ok ? versions.versions : []);
+    setDefectPartHistory(history.ok ? history.events : []);
   }
   useEffect(() => {
     void loadRepairPartData();
@@ -594,6 +565,23 @@ export function RepairChecklistPanel(props: {
 
   async function createRepairOrderFromDefects() {
     if (repairOrderBusy || repairOrderDraft.items.length === 0) return;
+    const rawRows = inventoryRawRows(answers);
+    const activeVersion = conductedVersions.find((version) => version.status === 'active');
+    if (!activeVersion || activeVersion.draftRevision !== localSnapshotRevision(safeJsonStringify(rawRows))) {
+      setStatus('Сначала проведите текущую версию дефектовки — ремонтный наряд должен ссылаться на зафиксированные строки.');
+      return;
+    }
+    const linkedItems = repairOrderDraft.items.map((item) => ({
+      ...item,
+      defectOrigin: {
+        engineId: props.engineId,
+        conductedVersionId: activeVersion.id,
+        sourceLineIds: rawRows.flatMap((raw, index) => {
+          const partId = String(raw[BRAND_ROW_PART_ID_KEY] ?? raw[ROW_PART_ID_KEY] ?? '').trim();
+          return partId === item.partId ? [inventorySourceLineId(raw, index, partId)] : [];
+        }),
+      },
+    }));
     setRepairOrderBusy(true);
     try {
       const r = await window.matrica.workOrders.createRepairFromDefects({
@@ -601,7 +589,7 @@ export function RepairChecklistPanel(props: {
         ...(props.engineNumber ? { engineNumber: String(props.engineNumber) } : {}),
         ...(props.engineBrandId ? { engineBrandId: String(props.engineBrandId) } : {}),
         ...(props.engineBrand ? { engineBrandName: String(props.engineBrand) } : {}),
-        items: repairOrderDraft.items,
+        items: linkedItems,
       });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
@@ -615,85 +603,66 @@ export function RepairChecklistPanel(props: {
     }
   }
 
-  async function intakeRepairFundFromDefects() {
-    if (repairFundBusy || repairFundDraft.items.length === 0) return;
-    setRepairFundBusy(true);
-    try {
-      const r = await window.matrica.warehouse.repairFundIntake({
-        engineId: props.engineId,
-        items: repairFundDraft.items,
-      });
-      if (!r.ok) {
-        setStatus(`Ошибка: ${r.error}`);
-        return;
-      }
-      setStatus(
-        r.unchanged
-          ? 'Ремфонд уже актуален по этой дефектовке — новых деталей нет.'
-          : `В ремфонд занесено ${r.addedQty} шт (${r.posted} поз.).${r.skippedNoNom ? ` Пропущено без номенклатуры: ${r.skippedNoNom}.` : ''}`,
-      );
-    } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
-    } finally {
-      setRepairFundBusy(false);
+  async function conductDefect() {
+    if (conductBusy) return;
+    const rawRows = inventoryRawRows(answers);
+    const lines = rawRows.flatMap((raw, index) => {
+      const normalized = normalizeEngineInventoryRows([raw]).rows[0];
+      if (!normalized) return [];
+      const partId = String(raw[BRAND_ROW_PART_ID_KEY] ?? raw[ROW_PART_ID_KEY] ?? '').trim();
+      const total = normalized.repairable_qty + normalized.scrap_qty + normalized.replace_qty;
+      if (total <= 0) return [];
+      return [{
+        sourceLineId: inventorySourceLineId(raw, index, partId),
+        partId,
+        partLabel: normalized.part_name || normalized.part_number || 'Деталь',
+        ...(normalized.stamped_number?.trim() ? { stampedNumber: normalized.stamped_number.trim() } : {}),
+        repairableQty: normalized.repairable_qty,
+        scrapQty: normalized.scrap_qty,
+        replaceQty: normalized.replace_qty,
+        ...(normalized.replenishment_branch === 'repair'
+          ? { replenishmentMethod: 'own_repair' as const }
+          : normalized.replenishment_branch
+            ? { replenishmentMethod: normalized.replenishment_branch }
+            : {}),
+        ...(normalized.scrap_reason?.trim() ? { defectDescription: normalized.scrap_reason.trim() } : {}),
+      }];
+    });
+    const unlinked = lines.filter((line) => !line.partId);
+    if (unlinked.length > 0) {
+      setStatus(`Ошибка: привяжите к справочнику строки перед проведением: ${unlinked.map((line) => line.partLabel).join(', ')}`);
+      return;
     }
-  }
-
-  // Ф6 (G6): списание утиля дефектовки в scrap-локацию (только прирост, идемпотентно).
-  async function intakeScrapFromDefects() {
-    if (scrapIntakeBusy || scrapIntakeDraft.items.length === 0) return;
-    setScrapIntakeBusy(true);
-    try {
-      const r = await window.matrica.warehouse.scrapIntake({
-        engineId: props.engineId,
-        items: scrapIntakeDraft.items,
-      });
-      if (!r.ok) {
-        setStatus(`Ошибка: ${r.error}`);
-        return;
-      }
-      setStatus(
-        r.unchanged
-          ? 'Склад утиля уже актуален по этой дефектовке — нового утиля нет.'
-          : `В утиль-локацию списано ${r.addedQty} шт (${r.posted} поз.).${r.skippedNoNom ? ` Пропущено без номенклатуры: ${r.skippedNoNom}.` : ''}`,
-      );
-    } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
-    } finally {
-      setScrapIntakeBusy(false);
+    if (lines.length === 0) {
+      setStatus('Ошибка: в дефектовке нет распределённых деталей для проведения.');
+      return;
     }
-  }
-
-  // Ремфонд Ф3: захват номерных экземпляров деталей (личные набитые номера) с дефектовки.
-  async function captureStampedInstances() {
-    if (stampedBusy || stampedDraft.items.length === 0) return;
-    setStampedBusy(true);
+    const rawSnapshot = safeJsonStringify(rawRows);
+    const operationIdForConduct = conductOperationIdRef.current ?? crypto.randomUUID();
+    conductOperationIdRef.current = operationIdForConduct;
+    setConductBusy(true);
     try {
-      const r = await window.matrica.warehouse.repairFundCaptureInstances({
+      const result = await window.matrica.warehouse.defectConduct({
+        operationId: operationIdForConduct,
         engineId: props.engineId,
-        instances: stampedDraft.items.map((i) => ({
-          partId: i.partId,
-          partLabel: i.partLabel,
-          stampedNumber: i.stampedNumber,
-          classification: i.classification,
-        })),
+        draftRevision: localSnapshotRevision(rawSnapshot),
+        lines,
       });
-      if (!r.ok) {
-        setStatus(`Ошибка: ${r.error}`);
+      if (!result.ok) {
+        setStatus(`Ошибка проведения: ${result.error}`);
         return;
       }
-      setStampedInstances(r.instances);
-      setStampedOpen(true);
-      const changed = r.added + r.updated;
-      setStatus(
-        changed === 0
-          ? `Личные номера уже зафиксированы (${r.total} экз.).`
-          : `Зафиксировано экземпляров: ${changed} (новых ${r.added}, обновлено ${r.updated}).${r.skippedNoNom ? ` Пропущено без номенклатуры: ${r.skippedNoNom}.` : ''}`,
-      );
-    } catch (e) {
-      setStatus(`Ошибка: ${String(e)}`);
+      conductOperationIdRef.current = null;
+      setStatus(result.unchanged
+        ? `Дефектовка уже проведена без изменений (версия ${result.version.version}).`
+        : `Дефектовка проведена атомарно, версия ${result.version.version}. Ремфонд, утиль и личные номера обновлены.`);
+      await window.matrica.sync.run().catch(() => undefined);
+      await loadRepairPartData();
+      setDefectHistoryOpen(true);
+    } catch (error) {
+      setStatus(`Ошибка проведения: ${String(error)}`);
     } finally {
-      setStampedBusy(false);
+      setConductBusy(false);
     }
   }
 
@@ -3019,9 +2988,30 @@ export function RepairChecklistPanel(props: {
             title="Собрать детали, помеченные «заказать новую», в черновик заявки в снабжение"
             onClick={async () => {
               if (defectSupplyItems.length === 0 || supplyRequestBusy) return;
+              const rawRows = inventoryRawRows(answers);
+              const activeVersion = conductedVersions.find((version) => version.status === 'active');
+              if (!activeVersion || activeVersion.draftRevision !== localSnapshotRevision(safeJsonStringify(rawRows))) {
+                setStatus('Сначала проведите текущую версию дефектовки — заявка должна ссылаться на зафиксированные строки.');
+                return;
+              }
+              const linkedItems = defectSupplyItems.map((item) => {
+                const sourceLineIds = rawRows.flatMap((raw, index) => {
+                  const row = normalizeEngineInventoryRows([raw]).rows[0];
+                  if (!row) return [];
+                  const partId = String(raw[BRAND_ROW_PART_ID_KEY] ?? raw[ROW_PART_ID_KEY] ?? '').trim();
+                  const matches = item.productId
+                    ? partId === item.productId
+                    : String(item.name ?? '').trim().toLocaleLowerCase('ru-RU') === row.part_name.trim().toLocaleLowerCase('ru-RU');
+                  return matches ? [inventorySourceLineId(raw, index, partId)] : [];
+                });
+                return {
+                  ...item,
+                  defectOrigin: { engineId: props.engineId, conductedVersionId: activeVersion.id, sourceLineIds },
+                };
+              });
               setSupplyRequestBusy(true);
               try {
-                await props.onCreateSupplyRequestFromDefects?.(defectSupplyItems, defectSupplyPhotos);
+                await props.onCreateSupplyRequestFromDefects?.(linkedItems, defectSupplyPhotos);
               } finally {
                 setSupplyRequestBusy(false);
               }
@@ -3070,107 +3060,56 @@ export function RepairChecklistPanel(props: {
         </div>
       )}
 
-      {/* Ремфонд Ф1: годные к ремонту детали (present && не утиль) → приход в ремонтный фонд. */}
       {!collapsed && isInventoryStage && props.canCreateWorkOrder && (
-        <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={repairFundDraft.items.length === 0 || repairFundBusy}
-            title="Занести годные к ремонту детали (присутствуют и не утиль) в «Ремонтный фонд». Повторное нажатие не двоит приход — заносится только прирост."
-            onClick={() => void intakeRepairFundFromDefects()}
-          >
-            {repairFundBusy ? 'Заносим…' : `🛠️ В ремфонд (${repairFundDraft.items.length})`}
-          </Button>
-          {intakePending && (
-            <span
-              style={{ color: '#b45309', fontSize: 12, fontWeight: 600 }}
-              title="По текущей дефектовке есть годные к ремонту детали, которые ещё не занесены в ремонтный фонд. Нажмите «В ремфонд» — занесётся только прирост."
-            >
-              ⚠ Не занесено в ремфонд: {intakePending.qty} шт. ({intakePending.positions} поз.)
-            </span>
-          )}
-          {repairFundDraft.items.length === 0 && (
-            <span style={{ color: '#64748b', fontSize: 12 }}>Нет деталей «присутствует и ремонтопригодна».</span>
-          )}
-          {repairFundDraft.skippedNoPartId > 0 && (
-            <span style={{ color: '#b45309', fontSize: 12 }}>
-              Пропущено {repairFundDraft.skippedNoPartId} строк без привязки к справочнику.
-            </span>
-          )}
-          <span style={{ color: '#64748b', fontSize: 12, flexBasis: '100%' }}>
-            Годные к ремонту детали приходуются в «Ремонтный фонд» (ожидают ремонта). Ревизия/правка — «Склад → Ревизия ремфонда».
-          </span>
-        </div>
-      )}
-
-      {/* Ф6 (G6): утиль дефектовки (scrap_qty>0) → списание в scrap-локацию склада. */}
-      {!collapsed && isInventoryStage && props.canCreateWorkOrder && (
-        <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={scrapIntakeDraft.items.length === 0 || scrapIntakeBusy}
-            title="Списать утиль дефектовки в локацию «Утиль» — физическая куча утиля появится в складском учёте и инвентаризации. Повторное нажатие не двоит — списывается только прирост."
-            onClick={() => void intakeScrapFromDefects()}
-          >
-            {scrapIntakeBusy ? 'Списываем…' : `🗑 Утиль → склад утиля (${scrapIntakeDraft.items.length})`}
-          </Button>
-          {scrapIntakePending && (
-            <span
-              style={{ color: '#b45309', fontSize: 12, fontWeight: 600 }}
-              title="По текущей дефектовке есть утиль, ещё не отражённый в scrap-локации склада. Нажмите кнопку — спишется только прирост."
-            >
-              ⚠ Не списано в утиль-локацию: {scrapIntakePending.qty} шт. ({scrapIntakePending.positions} поз.)
-            </span>
-          )}
-          {scrapIntakeDraft.items.length === 0 && (
-            <span style={{ color: '#64748b', fontSize: 12 }}>Нет строк с утилём (scrap_qty &gt; 0).</span>
-          )}
-          {scrapIntakeDraft.skippedNoPartId > 0 && (
-            <span style={{ color: '#b45309', fontSize: 12 }}>
-              Пропущено {scrapIntakeDraft.skippedNoPartId} строк без привязки к справочнику.
-            </span>
-          )}
-          <span style={{ color: '#64748b', fontSize: 12, flexBasis: '100%' }}>
-            Утиль приходуется в локацию «Утиль»: физическая куча совпадает с данными, инвентаризация утиля становится возможной.
-          </span>
-        </div>
-      )}
-
-      {/* Ремфонд Ф3: захват номерных экземпляров деталей (личные набитые номера) с провенансом. */}
-      {!collapsed && isInventoryStage && props.canCreateWorkOrder && (
-        <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={stampedDraft.items.length === 0 || stampedBusy}
-            title="Зафиксировать детали с личным (набитым) номером в поэкземплярный реестр: номер ↔ этот двигатель ↔ классификация. Идемпотентно — повтор не двоит."
-            onClick={() => void captureStampedInstances()}
-          >
-            {stampedBusy ? 'Фиксируем…' : `📌 Зафиксировать личные № (${stampedDraft.items.length})`}
-          </Button>
-          {props.canPrint && requirementInstances.length > 0 && (
+        <div style={{ marginTop: 10, padding: 10, border: '1px solid #6366f1', borderRadius: 8, background: '#eef2ff' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button
-              size="sm"
-              variant="outline"
-              title="Печать «Требования к заказчику»: детали этого двигателя в утиль/замену (обоснование роста цены ремонта). Печать фиксирует версию-снимок."
-              onClick={() => void printRequirement()}
+              disabled={conductBusy}
+              title="Фиксирует неизменяемую версию дефектовки и одной серверной транзакцией отражает разборку, ремфонд, утиль, личные номера и историю деталей."
+              onClick={() => void conductDefect()}
             >
-              {`🧾 Печать требования (${requirementInstances.length})`}
+              {conductBusy ? 'Проводим…' : 'Провести дефектовку'}
             </Button>
-          )}
-          {stampedDraft.items.length === 0 && (
-            <span style={{ color: '#64748b', fontSize: 12 }}>Нет строк с личным номером (поле «№ набитый»).</span>
-          )}
-          {stampedDraft.skippedNoPartId > 0 && (
-            <span style={{ color: '#b45309', fontSize: 12 }}>
-              Пропущено {stampedDraft.skippedNoPartId} строк с номером, но без привязки к справочнику.
-            </span>
-          )}
-          <span style={{ color: '#64748b', fontSize: 12, flexBasis: '100%' }}>
-            Деталь с личным номером учитывается поштучно с привязкой к двигателю-источнику — для требования к заказчику по конкретному двигателю.
-          </span>
+            {props.canPrint && requirementInstances.length > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                title="Печать требования по конкретным номерным деталям, признанным утильными или требующим замены."
+                onClick={() => void printRequirement()}
+              >
+                {`Печать требования (${requirementInstances.length})`}
+              </Button>
+            ) : null}
+            {conductedVersions[0] ? (
+              <span style={{ color: '#4338ca', fontSize: 12, fontWeight: 600 }}>
+                Последняя версия: {conductedVersions[0].version} · {conductedVersions[0].status === 'active' ? 'действует' : 'сторнирована'}
+              </span>
+            ) : (
+              <span style={{ color: '#64748b', fontSize: 12 }}>Складские остатки не меняются, пока черновик не проведён.</span>
+            )}
+          </div>
+          <div style={{ color: '#64748b', fontSize: 12, marginTop: 6 }}>
+            Детали с личным номером учитываются поэкземплярно; остальные — количеством. Автоматические видимые номера не создаются.
+          </div>
+        </div>
+      )}
+
+      {!collapsed && isInventoryStage && defectPartHistory.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <Button variant="ghost" onClick={() => setDefectHistoryOpen((value) => !value)}>
+            {`История деталей (${defectPartHistory.length}) ${defectHistoryOpen ? '▲' : '▼'}`}
+          </Button>
+          {defectHistoryOpen ? (
+            <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+              {defectPartHistory.map((event) => (
+                <div key={event.id} style={{ padding: '7px 9px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}>
+                  <strong>{defectEventLabel(event.eventType)}</strong> · {event.qty} шт · {formatMoscowDateTime(event.occurredAt)}
+                  {event.payload?.partLabel ? ` · ${String(event.payload.partLabel)}` : ''}
+                  {event.payload?.stampedNumber ? ` · № ${String(event.payload.stampedNumber)}` : ''}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
 

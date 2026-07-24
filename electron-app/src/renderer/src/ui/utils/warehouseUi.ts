@@ -44,6 +44,7 @@ export const WAREHOUSE_DOC_TYPE_OPTIONS: Array<{ id: WarehouseDocumentType | '';
   { id: WarehouseDocumentType.ProductionRelease, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.ProductionRelease] },
   { id: WarehouseDocumentType.RepairRecovery, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.RepairRecovery] },
   { id: WarehouseDocumentType.EngineDismantling, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.EngineDismantling] },
+  { id: WarehouseDocumentType.CustomerSupplied, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.CustomerSupplied] },
   { id: WarehouseDocumentType.StockIssue, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockIssue] },
   { id: WarehouseDocumentType.StockTransfer, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockTransfer] },
   { id: WarehouseDocumentType.StockWriteoff, label: WarehouseDocumentTypeLabels[WarehouseDocumentType.StockWriteoff] },

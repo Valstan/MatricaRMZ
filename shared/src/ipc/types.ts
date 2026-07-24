@@ -1441,7 +1441,7 @@ export type MatricaApi = {
       engineNumber?: string;
       engineBrandId?: string;
       engineBrandName?: string;
-      items: Array<{ partId: string; qty: number; partLabel: string }>;
+      items: Array<{ partId: string; qty: number; partLabel: string; defectOrigin?: import('../domain/supplyRequest.js').DefectOrigin }>;
     }) => Promise<
       | { ok: true; id: string; workOrderNumber: number }
       | { ok: false; error: string }
@@ -1941,6 +1941,18 @@ export type MatricaApi = {
     }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
     repairNormList: (args?: { engineBrandId?: string; status?: string }) => Promise<
       { ok: true; rows: RepairNormSetSummary[] } | { ok: false; error: string }
+    >;
+    defectConduct: (args: import('../domain/defectLifecycle.js').DefectConductRequest) => Promise<
+      | { ok: true; unchanged: boolean; version: import('../domain/defectLifecycle.js').DefectConductedVersionSummary }
+      | { ok: false; error: string }
+    >;
+    defectVersions: (engineId: string) => Promise<
+      | { ok: true; versions: import('../domain/defectLifecycle.js').DefectConductedVersionSummary[] }
+      | { ok: false; error: string }
+    >;
+    defectHistory: (engineId: string) => Promise<
+      | { ok: true; events: import('../domain/defectLifecycle.js').DefectPartHistoryEvent[] }
+      | { ok: false; error: string }
     >;
     repairNormGet: (id: string) => Promise<{ ok: true; normSet: RepairNormSetDetails } | { ok: false; error: string }>;
     repairNormUpsert: (args: RepairNormSetInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;

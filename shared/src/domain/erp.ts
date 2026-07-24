@@ -31,6 +31,7 @@ export const ErpDocumentType = {
   ProductionRelease: 'production_release',
   RepairRecovery: 'repair_recovery',
   EngineDismantling: 'engine_dismantling',
+  CustomerSupplied: 'customer_supplied',
   StockIssue: 'stock_issue',
   StockTransfer: 'stock_transfer',
   StockWriteoff: 'stock_writeoff',

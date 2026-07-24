@@ -1653,6 +1653,50 @@ export async function warehouseAssemblyBomList(
   }
 }
 
+export async function warehouseDefectConduct(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: import('@matricarmz/shared').DefectConductRequest,
+) {
+  const path = '/warehouse/defects/conduct';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDefectVersions(db: BetterSQLite3Database, apiBaseUrl: string, engineId: string) {
+  const path = `/warehouse/defects/${encodeURIComponent(engineId)}/versions`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDefectHistory(db: BetterSQLite3Database, apiBaseUrl: string, engineId: string) {
+  const path = `/warehouse/defects/${encodeURIComponent(engineId)}/history`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseRepairNormList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

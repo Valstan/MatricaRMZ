@@ -677,6 +677,10 @@ const matricaApi = {
     documentPost: async (id: string) => ipcRenderer.invoke('warehouse:documents:post', id),
     repairFundIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intake', args),
+    defectConduct: async (args: import('@matricarmz/shared').DefectConductRequest) =>
+      ipcRenderer.invoke('warehouse:defects:conduct', args),
+    defectVersions: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:versions', engineId),
+    defectHistory: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:history', engineId),
     repairFundIntakePreview: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intakePreview', args),
     scrapIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>

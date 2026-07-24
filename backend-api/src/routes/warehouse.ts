@@ -7,6 +7,7 @@ import { SYNTHETIC_NOMENCLATURE_CODE_REJECT, isSyntheticNomenclatureCode } from 
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { intakeRepairFundFromEngine, intakeScrapFromEngine, previewRepairFundIntakeFromEngine, previewScrapIntakeFromEngine } from '../services/repairFundService.js';
+import { conductDefect, listDefectConductedVersions, listDefectPartHistory } from '../services/defectConductService.js';
 import { captureStampedInstancesFromEngine, setStampedInstanceRepaired } from '../services/repairFundInstanceService.js';
 import {
   cancelWarehouseDocument,
@@ -1133,6 +1134,59 @@ warehouseRouter.post('/repair-fund/intake-from-engine', requirePermission(Permis
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
+});
+
+warehouseRouter.post('/defects/conduct', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const schema = z.object({
+    operationId: z.string().uuid(),
+    engineId: z.string().uuid(),
+    draftRevision: z.string().trim().min(1),
+    lines: z.array(z.object({
+      sourceLineId: z.string().trim().min(1),
+      partId: z.string().trim().min(1),
+      partLabel: z.string().default(''),
+      stampedNumber: z.string().optional(),
+      repairableQty: z.coerce.number().int().min(0),
+      scrapQty: z.coerce.number().int().min(0),
+      replaceQty: z.coerce.number().int().min(0),
+      replenishmentMethod: z.enum(['purchase', 'own_repair', 'customer']).optional(),
+      defectDescription: z.string().optional(),
+    })).min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const user = (req as any).user as { id?: string; username?: string; role?: string } | undefined;
+  const result = await conductDefect({
+    operationId: parsed.data.operationId,
+    engineId: parsed.data.engineId,
+    draftRevision: parsed.data.draftRevision,
+    lines: parsed.data.lines.map((line) => ({
+      sourceLineId: line.sourceLineId,
+      partId: line.partId,
+      partLabel: line.partLabel,
+      repairableQty: line.repairableQty,
+      scrapQty: line.scrapQty,
+      replaceQty: line.replaceQty,
+      ...(line.stampedNumber !== undefined ? { stampedNumber: line.stampedNumber } : {}),
+      ...(line.replenishmentMethod !== undefined ? { replenishmentMethod: line.replenishmentMethod } : {}),
+      ...(line.defectDescription !== undefined ? { defectDescription: line.defectDescription } : {}),
+    })),
+    actor: { id: String(user?.id ?? ''), username: String(user?.username ?? 'unknown'), role: String(user?.role ?? 'user') },
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/defects/:engineId/versions', requirePermission(PermissionCode.ErpDocumentsView), async (req, res) => {
+  const engineId = String(req.params.engineId || '').trim();
+  if (!engineId) return res.status(400).json({ ok: false, error: 'engineId обязателен' });
+  return res.json(await listDefectConductedVersions(engineId));
+});
+
+warehouseRouter.get('/defects/:engineId/history', requirePermission(PermissionCode.ErpDocumentsView), async (req, res) => {
+  const engineId = String(req.params.engineId || '').trim();
+  if (!engineId) return res.status(400).json({ ok: false, error: 'engineId обязателен' });
+  return res.json(await listDefectPartHistory(engineId));
 });
 
 // Ф3 forecast-remfond-aware: read-only превью дельты заноса (бейдж «дефектовка не занесена»).

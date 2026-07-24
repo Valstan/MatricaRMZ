@@ -547,6 +547,13 @@
       "when": 1784865600000,
       "tag": "0078_assembly_reservations_and_shortage",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1784870000000,
+      "tag": "0079_defect_conducted_lifecycle",
+      "breakpoints": true
     }
   ]
 }

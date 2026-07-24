@@ -435,7 +435,7 @@ export async function closeWorkOrderAndPostDocument(args: {
               : 'Для ремонтного наряда нужно указать «Наименование изделия» и количество хотя бы в одной строке работ';
         return { ok: false, error: message };
       }
-      docType = 'production_release';
+      docType = v3.workOrderKind === WorkOrderKind.Repair ? 'repair_recovery' : 'production_release';
       docNoPrefix =
         v3.workOrderKind === WorkOrderKind.WorkshopTemplate
           ? 'WSR'
@@ -521,14 +521,11 @@ export async function closeWorkOrderAndPostDocument(args: {
       workOrderNumber,
     };
     if (engineIdForMovements) headerPayloadObj.engineId = engineIdForMovements;
-    // Для production_release generic-incoming-ветка warehouseService использует header.warehouseId
-    // и header.expectedDate для buildPlannedIncomingRows. Repair/Workshop/Manufacturing —
-    // все три идут через production_release (см. switch выше).
-    if (
-      v3.workOrderKind === WorkOrderKind.Manufacturing ||
-      v3.workOrderKind === WorkOrderKind.Repair ||
-      v3.workOrderKind === WorkOrderKind.WorkshopTemplate
-    ) {
+    if (v3.workOrderKind === WorkOrderKind.Repair) {
+      headerPayloadObj.warehouseId = workshopWh;
+      headerPayloadObj.expectedDate = ts;
+      headerPayloadObj.sourceType = 'repair_recovery';
+    } else if (v3.workOrderKind === WorkOrderKind.Manufacturing || v3.workOrderKind === WorkOrderKind.WorkshopTemplate) {
       headerPayloadObj.warehouseId = workshopWh;
       headerPayloadObj.expectedDate = ts;
       headerPayloadObj.sourceType = 'production_release';
@@ -602,15 +599,21 @@ export async function closeWorkOrderAndPostDocument(args: {
       } catch (e) {
         console.warn('[workOrderClosingService] part_status_event skipped:', e);
       }
-      // Ф2 ремфонда: отремонтированные детали покидают ремонтный фонд (best-effort,
-      // clamp по остатку; динамический import — repairFundService импортит отсюда
-      // resolvePartIdToNomenclatureMap, избегаем циклической инициализации).
       try {
-        const { releaseRepairFundForWorkOrder } = await import('./repairFundService.js');
-        const released = await releaseRepairFundForWorkOrder({ workLines, actor: args.actor });
-        if (!released.ok) console.warn('[workOrderClosingService] repair_fund release skipped:', released.error);
+        const repairEngineId = engineIdForMovements ?? workLines.find((line) => line.defectOrigin)?.defectOrigin?.engineId ?? null;
+        if (repairEngineId) {
+          const { recordDefectRepairReturn } = await import('./defectHistoryService.js');
+          const recorded = await recordDefectRepairReturn({
+            engineId: repairEngineId,
+            workOrderOperationId: args.operationId,
+            documentId,
+            lines: workLines,
+            actor: args.actor,
+          });
+          if (!recorded.ok) console.warn('[workOrderClosingService] defect repair history skipped:', recorded.error);
+        }
       } catch (e) {
-        console.warn('[workOrderClosingService] repair_fund release skipped:', e);
+        console.warn('[workOrderClosingService] defect repair history skipped:', e);
       }
     }
 

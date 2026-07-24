@@ -65,7 +65,7 @@ async function resolveLocationIdFromPayloadValue(value: string | null | undefine
   return resolveWarehouseLocationIdByCode(trimmed);
 }
 
-const INCOMING_DOC_TYPES = ['inventory_opening', 'purchase_receipt', 'production_release', 'repair_recovery', 'engine_dismantling'] as const;
+const INCOMING_DOC_TYPES = ['inventory_opening', 'purchase_receipt', 'production_release', 'repair_recovery', 'engine_dismantling', 'customer_supplied'] as const;
 const STOCK_DOC_TYPES = [
   ...INCOMING_DOC_TYPES,
   'stock_receipt',

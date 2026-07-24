@@ -1558,6 +1558,73 @@ export const assemblyShortageApprovals = pgTable(
   }),
 );
 
+export const defectConductedVersions = pgTable(
+  'defect_conducted_versions',
+  {
+    id: uuid('id').primaryKey(),
+    engineId: uuid('engine_id').notNull().references(() => entities.id),
+    version: integer('version').notNull(),
+    operationId: uuid('operation_id').notNull(),
+    draftRevision: text('draft_revision').notNull(),
+    snapshotHash: text('snapshot_hash').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    documentHeaderId: uuid('document_header_id').references(() => erpDocumentHeaders.id),
+    status: text('status').notNull().default('active'),
+    replacesVersionId: uuid('replaces_version_id'),
+    conductedBy: uuid('conducted_by').notNull(),
+    conductedAt: bigint('conducted_at', { mode: 'number' }).notNull(),
+    reversedAt: bigint('reversed_at', { mode: 'number' }),
+  },
+  (t) => ({
+    operationUq: uniqueIndex('defect_conducted_versions_operation_uq').on(t.operationId),
+    engineVersionUq: uniqueIndex('defect_conducted_versions_engine_version_uq').on(t.engineId, t.version),
+    activeEngineUq: uniqueIndex('defect_conducted_versions_active_engine_uq').on(t.engineId).where(sql`${t.status} = 'active'`),
+  }),
+);
+
+export const defectPartInstances = pgTable(
+  'defect_part_instances',
+  {
+    id: uuid('id').primaryKey(),
+    nomenclatureId: uuid('nomenclature_id').notNull().references(() => erpNomenclature.id),
+    serialNormalized: text('serial_normalized').notNull(),
+    serialDisplay: text('serial_display').notNull(),
+    sourceEngineId: uuid('source_engine_id').notNull().references(() => entities.id),
+    currentLocationId: uuid('current_location_id').references(() => warehouseLocations.id),
+    currentStatus: text('current_status').notNull(),
+    currentVersionId: uuid('current_version_id').notNull().references(() => defectConductedVersions.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    nomenclatureSerialUq: uniqueIndex('defect_part_instances_nom_serial_uq').on(t.nomenclatureId, t.serialNormalized),
+    engineIdx: index('defect_part_instances_engine_idx').on(t.sourceEngineId),
+    locationIdx: index('defect_part_instances_location_idx').on(t.currentLocationId),
+  }),
+);
+
+export const defectPartEvents = pgTable(
+  'defect_part_events',
+  {
+    id: uuid('id').primaryKey(),
+    engineId: uuid('engine_id').notNull().references(() => entities.id),
+    conductedVersionId: uuid('conducted_version_id').notNull().references(() => defectConductedVersions.id),
+    sourceLineId: text('source_line_id').notNull(),
+    nomenclatureId: uuid('nomenclature_id').notNull().references(() => erpNomenclature.id),
+    instanceId: uuid('instance_id').references(() => defectPartInstances.id),
+    eventType: text('event_type').notNull(),
+    qty: integer('qty').notNull(),
+    payloadJson: text('payload_json'),
+    occurredAt: bigint('occurred_at', { mode: 'number' }).notNull(),
+    occurredBy: uuid('occurred_by').notNull(),
+  },
+  (t) => ({
+    engineTimeIdx: index('defect_part_events_engine_time_idx').on(t.engineId, t.occurredAt),
+    versionIdx: index('defect_part_events_version_idx').on(t.conductedVersionId),
+    instanceIdx: index('defect_part_events_instance_idx').on(t.instanceId).where(sql`${t.instanceId} is not null`),
+  }),
+);
+
 export const erpRegStockMovements = pgTable(
   'erp_reg_stock_movements',
   {

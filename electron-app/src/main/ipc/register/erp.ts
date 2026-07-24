@@ -40,6 +40,9 @@ import {
   warehouseDocumentPost,
   warehouseRepairFundIntake,
   warehouseRepairFundIntakePreview,
+  warehouseDefectConduct,
+  warehouseDefectVersions,
+  warehouseDefectHistory,
   warehouseScrapIntake,
   warehouseScrapIntakePreview,
   warehouseRepairFundCaptureInstances,
@@ -555,6 +558,25 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
     return warehouseAssemblyBomList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:defects:conduct', async (_e, args: import('@matricarmz/shared').DefectConductRequest) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: defect conduct is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectConduct(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:defects:versions', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectVersions(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:defects:history', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
   });
 
   ipcMain.handle('warehouse:repairNorm:list', async (_e, args?: { engineBrandId?: string; status?: string }) => {
