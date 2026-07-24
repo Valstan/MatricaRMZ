@@ -1052,6 +1052,10 @@ export type MatricaApi = {
       incomingReferences: (
         entityId: string,
       ) => Promise<{ ok: true; groups: IncomingReferenceGroup[] } | { ok: false; error: string }>;
+      resolveAndDelete: (
+        entityId: string,
+        opts: { mode: 'remove' | 'replace' | 'leave'; replacementId?: string },
+      ) => Promise<{ ok: true; touched: number } | { ok: false; error: string }>;
       detachLinksAndDelete: (entityId: string) => Promise<EntityDetachLinksAndDeleteResult>;
       softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
     };

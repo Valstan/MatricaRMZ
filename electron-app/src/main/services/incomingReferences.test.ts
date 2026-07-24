@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { findAllIncomingReferences } from './entityService.js';
+import { findAllIncomingReferences, resolveIncomingReferencesAndSoftDelete } from './entityService.js';
 
 // Реверс-индекс входящих ссылок (Ф1): проверяем, что сканер видит ссылки в ВСЕХ хранилищах,
 // а не только в одиночных EAV-линках, — массивный EAV-линк, contract_sections JSON, BOM-junction.
@@ -79,5 +79,58 @@ describe('findAllIncomingReferences', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.groups).toEqual([]);
+  });
+});
+
+describe('resolveIncomingReferencesAndSoftDelete', () => {
+  function seedRefs(sqlite: any, t: number, target: string) {
+    sqlite.prepare(`INSERT INTO entities (id,type_id,created_at,updated_at) VALUES (?,?,?,?)`).run(target, 'et-svc', t, t);
+    sqlite.prepare(`INSERT INTO attribute_values (id,entity_id,attribute_def_id,value_json,created_at,updated_at) VALUES (?,?,?,?,?,?)`)
+      .run('av-1', 'svc-1', 'ad-brands', JSON.stringify(['brand-Y', target]), t, t);
+    sqlite.prepare(`INSERT INTO attribute_values (id,entity_id,attribute_def_id,value_json,created_at,updated_at) VALUES (?,?,?,?,?,?)`)
+      .run('av-2', 'con-1', 'ad-sections', JSON.stringify({ primary: { engineBrands: [{ engineBrandId: target, qty: 2 }, { engineBrandId: 'brand-Y' }], parts: [] }, addons: [] }), t, t);
+    sqlite.prepare(`INSERT INTO erp_engine_assembly_bom_brand_links (id,bom_id,engine_brand_id,created_at,updated_at) VALUES (?,?,?,?,?)`)
+      .run('bl-1', 'bom-1', target, t, t);
+  }
+
+  it('remove: prunes array EAV, drops contract row, soft-deletes BOM link and the target', async () => {
+    const { db, sqlite, t } = makeDb();
+    const target = 'brand-X';
+    seedRefs(sqlite, t, target);
+    const res = await resolveIncomingReferencesAndSoftDelete(db, target, { mode: 'remove' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.touched).toBe(3);
+    expect(JSON.parse((sqlite.prepare(`SELECT value_json AS v FROM attribute_values WHERE id='av-1'`).get() as any).v)).toEqual(['brand-Y']);
+    const sec = JSON.parse((sqlite.prepare(`SELECT value_json AS v FROM attribute_values WHERE id='av-2'`).get() as any).v);
+    expect(sec.primary.engineBrands.map((x: any) => x.engineBrandId)).toEqual(['brand-Y']);
+    expect((sqlite.prepare(`SELECT deleted_at AS d FROM erp_engine_assembly_bom_brand_links WHERE id='bl-1'`).get() as any).d).not.toBeNull();
+    expect((sqlite.prepare(`SELECT deleted_at AS d FROM entities WHERE id=?`).get(target) as any).d).not.toBeNull();
+  });
+
+  it('replace: repoints every reference to the replacement id', async () => {
+    const { db, sqlite, t } = makeDb();
+    const target = 'brand-X';
+    seedRefs(sqlite, t, target);
+    const res = await resolveIncomingReferencesAndSoftDelete(db, target, { mode: 'replace', replacementId: 'brand-Z' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(JSON.parse((sqlite.prepare(`SELECT value_json AS v FROM attribute_values WHERE id='av-1'`).get() as any).v)).toEqual(['brand-Y', 'brand-Z']);
+    const sec = JSON.parse((sqlite.prepare(`SELECT value_json AS v FROM attribute_values WHERE id='av-2'`).get() as any).v);
+    expect(sec.primary.engineBrands.map((x: any) => x.engineBrandId)).toEqual(['brand-Z', 'brand-Y']);
+    expect((sqlite.prepare(`SELECT engine_brand_id AS b FROM erp_engine_assembly_bom_brand_links WHERE id='bl-1'`).get() as any).b).toBe('brand-Z');
+    expect((sqlite.prepare(`SELECT deleted_at AS d FROM entities WHERE id=?`).get(target) as any).d).not.toBeNull();
+  });
+
+  it('leave: soft-deletes the target but keeps all references intact', async () => {
+    const { db, sqlite, t } = makeDb();
+    const target = 'brand-X';
+    seedRefs(sqlite, t, target);
+    const res = await resolveIncomingReferencesAndSoftDelete(db, target, { mode: 'leave' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.touched).toBe(0);
+    expect(JSON.parse((sqlite.prepare(`SELECT value_json AS v FROM attribute_values WHERE id='av-1'`).get() as any).v)).toEqual(['brand-Y', 'brand-X']);
+    expect((sqlite.prepare(`SELECT deleted_at AS d FROM entities WHERE id=?`).get(target) as any).d).not.toBeNull();
   });
 });

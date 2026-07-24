@@ -18,6 +18,8 @@ import {
   createEntity,
   detachIncomingLinksAndSoftDeleteEntity,
   findAllIncomingReferences,
+  resolveIncomingReferencesAndSoftDelete,
+  type ReferenceResolutionMode,
   findDuplicateEntities,
   getEntityDetails,
   getIncomingLinksForEntity,
@@ -186,6 +188,12 @@ export function registerAdminIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'masterdata.view');
     if (!gate.ok) return gate as any;
     return findAllIncomingReferences(ctx.dataDb(), entityId);
+  });
+  ipcMain.handle('admin:entities:resolveAndDelete', async (_e, entityId: string, opts: { mode: ReferenceResolutionMode; replacementId?: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+    if (!gate.ok) return gate as any;
+    return resolveIncomingReferencesAndSoftDelete(ctx.dataDb(), entityId, opts);
   });
   ipcMain.handle('admin:entities:detachLinksAndDelete', async (_e, entityId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;
