@@ -1017,10 +1017,13 @@ export const workOrderTemplates = pgTable(
     linesJson: text('lines').notNull().default('[]'),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     updatedBy: text('updated_by'),
+    archivedAt: bigint('archived_at', { mode: 'number' }),
   },
   (t) => ({
     kindIdx: index('work_order_templates_kind_idx').on(t.workOrderKind),
-    kindNameUq: uniqueIndex('work_order_templates_kind_name_uq').on(t.workOrderKind, t.name),
+    kindNameUq: uniqueIndex('work_order_templates_kind_name_uq')
+      .on(t.workOrderKind, t.name)
+      .where(sql`${t.archivedAt} is null`),
   }),
 );
 
@@ -1301,6 +1304,8 @@ export const erpEngineAssemblyBom = pgTable(
     version: integer('version').notNull().default(1),
     status: text('status').notNull().default('draft'),
     isDefault: boolean('is_default').notNull().default(false),
+    defaultVariantKey: text('default_variant_key'),
+    executionProfileJson: text('execution_profile_json'),
     notes: text('notes'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
@@ -1325,6 +1330,7 @@ export const erpEngineAssemblyBomBrandLinks = pgTable(
       .notNull()
       .references(() => entities.id),
     isPrimary: boolean('is_primary').notNull().default(false),
+    isDefaultForBrand: boolean('is_default_for_brand').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -1335,6 +1341,9 @@ export const erpEngineAssemblyBomBrandLinks = pgTable(
     bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
       .on(t.bomId, t.engineBrandId)
       .where(sql`${t.deletedAt} is null`),
+    defaultBrandUq: uniqueIndex('erp_eabbl_default_brand_uq')
+      .on(t.engineBrandId)
+      .where(sql`${t.isDefaultForBrand} = true and ${t.deletedAt} is null`),
     bomIdx: index('erp_eabbl_bom_idx').on(t.bomId),
     brandIdx: index('erp_eabbl_brand_idx').on(t.engineBrandId),
   }),
@@ -1374,6 +1383,80 @@ export const erpEngineAssemblyBomLines = pgTable(
     bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq')
       .on(t.bomId, t.variantGroup, t.componentNomenclatureId, t.componentType)
       .where(sql`${t.deletedAt} is null`),
+  }),
+);
+
+export const repairNormSets = pgTable(
+  'repair_norm_sets',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('draft'),
+    sourceKind: text('source_kind'),
+    sourceKey: text('source_key'),
+    sourceImportedAt: bigint('source_imported_at', { mode: 'number' }),
+    sourceContentHash: text('source_content_hash'),
+    notes: text('notes'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    statusIdx: index('repair_norm_sets_status_idx').on(t.status),
+    sourceKeyIdx: index('repair_norm_sets_source_key_idx').on(t.sourceKey),
+  }),
+);
+
+export const repairNormSetBrandLinks = pgTable(
+  'repair_norm_set_brand_links',
+  {
+    id: uuid('id').primaryKey(),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => repairNormSets.id),
+    engineBrandId: uuid('engine_brand_id')
+      .notNull()
+      .references(() => entities.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    setBrandUq: uniqueIndex('repair_norm_set_brand_uq')
+      .on(t.normSetId, t.engineBrandId)
+      .where(sql`${t.deletedAt} is null`),
+    setIdx: index('repair_norm_set_brand_set_idx').on(t.normSetId),
+    brandIdx: index('repair_norm_set_brand_brand_idx').on(t.engineBrandId),
+  }),
+);
+
+export const repairNormLines = pgTable(
+  'repair_norm_lines',
+  {
+    id: uuid('id').primaryKey(),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => repairNormSets.id),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    qtyPerEngine: numeric('qty_per_engine', { precision: 14, scale: 4 }).notNull(),
+    replacementPercent: numeric('replacement_percent', { precision: 7, scale: 4 }).notNull(),
+    groupName: text('group_name'),
+    sourceRowKey: text('source_row_key'),
+    sourceMetaJson: text('source_meta_json'),
+    position: integer('position').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    setIdx: index('repair_norm_lines_set_idx').on(t.normSetId),
+    nomenclatureIdx: index('repair_norm_lines_nomenclature_idx').on(t.nomenclatureId),
+    setSourceRowUq: uniqueIndex('repair_norm_lines_set_source_row_uq')
+      .on(t.normSetId, t.sourceRowKey)
+      .where(sql`${t.deletedAt} is null and ${t.sourceRowKey} is not null`),
   }),
 );
 

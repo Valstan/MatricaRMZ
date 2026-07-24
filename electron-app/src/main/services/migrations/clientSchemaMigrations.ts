@@ -44,7 +44,7 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
-export const CURRENT_CLIENT_SCHEMA_VERSION = 11;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 12;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -445,6 +445,37 @@ const MIGRATIONS: Migration[] = [
           ON erp_nomenclature(code)
           WHERE code <> '' AND deleted_at IS NULL;
       `);
+    },
+  },
+  {
+    from: 11,
+    to: 12,
+    name: 'assembly BOM profile and explicit default per brand',
+    up: async (_db, sqlite) => {
+      const bomColumns = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom')`).all() as Array<{ name: string }>;
+      if (!bomColumns.some((column) => column.name === 'default_variant_key')) {
+        sqlite.exec(`ALTER TABLE erp_engine_assembly_bom ADD COLUMN default_variant_key text;`);
+      }
+      if (!bomColumns.some((column) => column.name === 'execution_profile_json')) {
+        sqlite.exec(`ALTER TABLE erp_engine_assembly_bom ADD COLUMN execution_profile_json text;`);
+      }
+      const linkColumns = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom_brand_links')`).all() as Array<{ name: string }>;
+      if (!linkColumns.some((column) => column.name === 'is_default_for_brand')) {
+        sqlite.exec(`ALTER TABLE erp_engine_assembly_bom_brand_links ADD COLUMN is_default_for_brand integer NOT NULL DEFAULT 0;`);
+      }
+      sqlite.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS erp_eabbl_default_brand_uq ON erp_engine_assembly_bom_brand_links(engine_brand_id) WHERE is_default_for_brand = 1 AND deleted_at IS NULL;`,
+      );
+      const lineColumns = sqlite.prepare(`PRAGMA table_info('erp_engine_assembly_bom_lines')`).all() as Array<{ name: string }>;
+      if (!lineColumns.some((column) => column.name === 'position_key')) {
+        sqlite.exec(`ALTER TABLE erp_engine_assembly_bom_lines ADD COLUMN position_key text;`);
+      }
+      if (!lineColumns.some((column) => column.name === 'position_label')) {
+        sqlite.exec(`ALTER TABLE erp_engine_assembly_bom_lines ADD COLUMN position_label text;`);
+      }
+      if (!lineColumns.some((column) => column.name === 'is_default_option')) {
+        sqlite.exec(`ALTER TABLE erp_engine_assembly_bom_lines ADD COLUMN is_default_option integer NOT NULL DEFAULT 1;`);
+      }
     },
   },
 ];

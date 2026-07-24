@@ -669,8 +669,10 @@ import type {
   AiAgentLogResponse,
   AiAgentStreamEvent,
 } from '../domain/aiAgent.js';
+import type { RepairNormSetDetails, RepairNormSetInput, RepairNormSetSummary } from '../domain/repairNorm.js';
 import type {
   EngineAssemblyBomDetails,
+  AssemblyPlanResolution,
   WarehouseBomRelationTypeUsage,
   WarehouseBomRelationSchema,
   EngineAssemblyBomExpandedRow,
@@ -1902,6 +1904,12 @@ export type MatricaApi = {
       engineNomenclatureId?: string;
       status?: string;
     }) => Promise<{ ok: true; rows: EngineAssemblyBomListItem[] } | { ok: false; error: string }>;
+    repairNormList: (args?: { engineBrandId?: string; status?: string }) => Promise<
+      { ok: true; rows: RepairNormSetSummary[] } | { ok: false; error: string }
+    >;
+    repairNormGet: (id: string) => Promise<{ ok: true; normSet: RepairNormSetDetails } | { ok: false; error: string }>;
+    repairNormUpsert: (args: RepairNormSetInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    assemblyPlanResolve: (args: { engineId: string; bomId?: string }) => Promise<AssemblyPlanResolution>;
     assemblyBomSchemaGet: () => Promise<{ ok: true; schema: WarehouseBomRelationSchema; updatedAt: number } | { ok: false; error: string }>;
     assemblyBomSchemaSet: (args: {
       schema: WarehouseBomRelationSchema;

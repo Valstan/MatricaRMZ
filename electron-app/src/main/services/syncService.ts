@@ -34,6 +34,9 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
+  erpEngineAssemblyBomLines,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -1803,6 +1806,68 @@ async function applyPulledChanges(
           });
         }
         break;
+      case SyncTableName.ErpEngineAssemblyBom:
+        {
+          const payload = payloadRaw;
+          groups[SyncTableName.ErpEngineAssemblyBom].push({
+            id: payload.id,
+            name: payload.name,
+            engineNomenclatureId: payload.engine_nomenclature_id ?? null,
+            version: Number(payload.version ?? 1),
+            status: payload.status ?? 'draft',
+            isDefault: payload.is_default === true,
+            defaultVariantKey: payload.default_variant_key ?? null,
+            executionProfileJson: payload.execution_profile_json ?? null,
+            notes: payload.notes ?? null,
+            createdAt: Number(payload.created_at ?? ts),
+            updatedAt: Number(payload.updated_at ?? ts),
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+            lastServerSeq: payload.last_server_seq ?? null,
+          });
+        }
+        break;
+      case SyncTableName.ErpEngineAssemblyBomLines:
+        {
+          const payload = payloadRaw;
+          groups[SyncTableName.ErpEngineAssemblyBomLines].push({
+            id: payload.id,
+            bomId: payload.bom_id,
+            componentNomenclatureId: payload.component_nomenclature_id,
+            componentType: payload.component_type ?? 'other',
+            qtyPerUnit: Number(payload.qty_per_unit ?? 1),
+            variantGroup: payload.variant_group ?? null,
+            isRequired: payload.is_required !== false,
+            priority: Number(payload.priority ?? 100),
+            notes: payload.notes ?? null,
+            positionKey: payload.position_key ?? null,
+            positionLabel: payload.position_label ?? null,
+            isDefaultOption: payload.is_default_option !== false,
+            createdAt: Number(payload.created_at ?? ts),
+            updatedAt: Number(payload.updated_at ?? ts),
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+            lastServerSeq: payload.last_server_seq ?? null,
+          });
+        }
+        break;
+      case SyncTableName.ErpEngineAssemblyBomBrandLinks:
+        {
+          const payload = payloadRaw;
+          groups[SyncTableName.ErpEngineAssemblyBomBrandLinks].push({
+            id: payload.id,
+            bomId: payload.bom_id,
+            engineBrandId: payload.engine_brand_id,
+            isPrimary: payload.is_primary === true,
+            isDefaultForBrand: payload.is_default_for_brand === true,
+            createdAt: Number(payload.created_at ?? ts),
+            updatedAt: Number(payload.updated_at ?? ts),
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+            lastServerSeq: payload.last_server_seq ?? null,
+          });
+        }
+        break;
       case SyncTableName.ErpRegStockBalance:
         {
           const payload = payloadRaw;
@@ -1884,6 +1949,11 @@ async function applyPulledChanges(
   groups.notes = dedupById(groups.notes);
   groups.note_shares = dedupById(groups.note_shares);
   groups.user_presence = dedupById(groups.user_presence);
+  groups[SyncTableName.ErpEngineAssemblyBom] = dedupById(groups[SyncTableName.ErpEngineAssemblyBom]);
+  groups[SyncTableName.ErpEngineAssemblyBomLines] = dedupById(groups[SyncTableName.ErpEngineAssemblyBomLines]);
+  groups[SyncTableName.ErpEngineAssemblyBomBrandLinks] = dedupById(
+    groups[SyncTableName.ErpEngineAssemblyBomBrandLinks],
+  );
   const dedupWarehouseNomenclature = dedupById(warehouseNomenclatureRows);
   const dedupWarehouseBalances = dedupById(warehouseBalanceRows);
   const dedupWarehouseMovements = dedupById(warehouseMovementRows);
@@ -2419,6 +2489,71 @@ async function applyPulledChanges(
       deletedAt: sql`excluded.deleted_at`,
     });
     await maybeYieldAfterBatch(dedupWarehouseNomenclature.length);
+  }
+
+  const bomRows = groups[SyncTableName.ErpEngineAssemblyBom];
+  if (bomRows.length > 0) {
+    emitApplyRaw(SyncTableName.ErpEngineAssemblyBom, bomRows.length);
+    await upsertPulledRowsInChunks(db, erpEngineAssemblyBom, bomRows, erpEngineAssemblyBom.id, {
+      name: sql`excluded.name`,
+      engineNomenclatureId: sql`excluded.engine_nomenclature_id`,
+      version: sql`excluded.version`,
+      status: sql`excluded.status`,
+      isDefault: sql`excluded.is_default`,
+      defaultVariantKey: sql`excluded.default_variant_key`,
+      executionProfileJson: sql`excluded.execution_profile_json`,
+      notes: sql`excluded.notes`,
+      updatedAt: sql`excluded.updated_at`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+      lastServerSeq: sql`excluded.last_server_seq`,
+    });
+    await maybeYieldAfterBatch(bomRows.length);
+  }
+
+  const bomLineRows = groups[SyncTableName.ErpEngineAssemblyBomLines];
+  if (bomLineRows.length > 0) {
+    emitApplyRaw(SyncTableName.ErpEngineAssemblyBomLines, bomLineRows.length);
+    await upsertPulledRowsInChunks(db, erpEngineAssemblyBomLines, bomLineRows, erpEngineAssemblyBomLines.id, {
+      bomId: sql`excluded.bom_id`,
+      componentNomenclatureId: sql`excluded.component_nomenclature_id`,
+      componentType: sql`excluded.component_type`,
+      qtyPerUnit: sql`excluded.qty_per_unit`,
+      variantGroup: sql`excluded.variant_group`,
+      isRequired: sql`excluded.is_required`,
+      priority: sql`excluded.priority`,
+      notes: sql`excluded.notes`,
+      positionKey: sql`excluded.position_key`,
+      positionLabel: sql`excluded.position_label`,
+      isDefaultOption: sql`excluded.is_default_option`,
+      updatedAt: sql`excluded.updated_at`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+      lastServerSeq: sql`excluded.last_server_seq`,
+    });
+    await maybeYieldAfterBatch(bomLineRows.length);
+  }
+
+  const bomBrandLinkRows = groups[SyncTableName.ErpEngineAssemblyBomBrandLinks];
+  if (bomBrandLinkRows.length > 0) {
+    emitApplyRaw(SyncTableName.ErpEngineAssemblyBomBrandLinks, bomBrandLinkRows.length);
+    await upsertPulledRowsInChunks(
+      db,
+      erpEngineAssemblyBomBrandLinks,
+      bomBrandLinkRows,
+      erpEngineAssemblyBomBrandLinks.id,
+      {
+        bomId: sql`excluded.bom_id`,
+        engineBrandId: sql`excluded.engine_brand_id`,
+        isPrimary: sql`excluded.is_primary`,
+        isDefaultForBrand: sql`excluded.is_default_for_brand`,
+        updatedAt: sql`excluded.updated_at`,
+        deletedAt: sql`excluded.deleted_at`,
+        syncStatus: 'synced',
+        lastServerSeq: sql`excluded.last_server_seq`,
+      },
+    );
+    await maybeYieldAfterBatch(bomBrandLinkRows.length);
   }
 
   if (dedupWarehouseBalances.length > 0) {

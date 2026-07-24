@@ -38,6 +38,7 @@ export type TabId =
   | 'workshop_stats'
   | 'custom_reports'
   | 'engine_assembly_bom'
+  | 'repair_norms'
   | 'engine_assembly_bom_item'
   | 'contracts'
   | 'contract'
@@ -162,6 +163,7 @@ const menuTabSet = new Set<MenuTabId>([
   'warehouse_analytics',
   'workshop_stats',
   'engine_assembly_bom',
+  'repair_norms',
   'employees',
   'timesheets',
   'access_sections',
@@ -229,6 +231,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   nomenclature: 'Номенклатура',
   parts_dedupe: 'Дубли номенклатуры',
   engine_assembly_bom: 'BOM двигателей',
+  repair_norms: 'Нормы ремонта',
   stock_balances: 'Остатки',
   stock_documents: 'Документы',
   stock_receipts: 'Приход',
@@ -258,7 +261,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
 export const DEFAULT_GROUP_ORDER: MenuGroupId[] =['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
 export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history', 'user_screens'],
-  production: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'tools'],
+  production: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   business: ['contracts', 'counterparties'],
@@ -283,6 +286,7 @@ export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'parts',
   'engine_brands',
   'engine_assembly_bom',
+  'repair_norms',
   'stock_balances',
   'requests',
   'repair_fund_audit',
@@ -345,6 +349,7 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   services_by_brand: { icon: '🧩', subtitle: 'Спецификация услуг по марке двигателя', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
   nomenclature: { icon: '🗃️', subtitle: 'Единый каталог ТМЦ', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
   engine_assembly_bom: { icon: '🧮', subtitle: 'Матрица комплектования двигателей', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
+  repair_norms: { icon: '📐', subtitle: 'Нормативы замены деталей при ремонте', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' },
   stock_balances: { icon: '📊', subtitle: 'Остатки по складам', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
   stock_documents: { icon: '📄', subtitle: 'Все типы складских документов', gradient: 'linear-gradient(135deg, #0369a1 0%, #22d3ee 100%)' },
   stock_receipts: { icon: '📥', subtitle: 'Документы поступления', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%)' },

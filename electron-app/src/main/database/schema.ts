@@ -520,6 +520,8 @@ export const erpEngineAssemblyBom = sqliteTable(
     version: integer('version').notNull().default(1),
     status: text('status').notNull().default('draft'),
     isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    defaultVariantKey: text('default_variant_key'),
+    executionProfileJson: text('execution_profile_json'),
     notes: text('notes'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -540,6 +542,7 @@ export const erpEngineAssemblyBomBrandLinks = sqliteTable(
     bomId: text('bom_id').notNull(),
     engineBrandId: text('engine_brand_id').notNull(),
     isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+    isDefaultForBrand: integer('is_default_for_brand', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     deletedAt: integer('deleted_at'),
@@ -550,6 +553,9 @@ export const erpEngineAssemblyBomBrandLinks = sqliteTable(
     bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
       .on(t.bomId, t.engineBrandId)
       .where(sql`${t.deletedAt} is null`),
+    defaultBrandUq: uniqueIndex('erp_eabbl_default_brand_uq')
+      .on(t.engineBrandId)
+      .where(sql`${t.isDefaultForBrand} = 1 AND ${t.deletedAt} IS NULL`),
     bomIdx: index('erp_eabbl_bom_idx').on(t.bomId),
     brandIdx: index('erp_eabbl_brand_idx').on(t.engineBrandId),
   }),
@@ -567,6 +573,9 @@ export const erpEngineAssemblyBomLines = sqliteTable(
     isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(true),
     priority: integer('priority').notNull().default(100),
     notes: text('notes'),
+    positionKey: text('position_key'),
+    positionLabel: text('position_label'),
+    isDefaultOption: integer('is_default_option', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     deletedAt: integer('deleted_at'),

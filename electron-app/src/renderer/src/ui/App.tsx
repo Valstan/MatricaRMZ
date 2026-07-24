@@ -173,6 +173,7 @@ const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopSta
 const CustomReportsPage = lazyPage('./pages/CustomReportsPage.tsx', 'CustomReportsPage');
 const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
 const EngineAssemblyBomPage = lazyPage('./pages/EngineAssemblyBomPage.tsx', 'EngineAssemblyBomPage');
+const RepairNormsPage = lazyPage('./pages/RepairNormsPage.tsx', 'RepairNormsPage');
 const EngineAssemblyBomDetailsPage = lazyPage('./pages/EngineAssemblyBomDetailsPage.tsx', 'EngineAssemblyBomDetailsPage');
 const SimpleMasterdataDetailsPage = lazyPage('./pages/SimpleMasterdataDetailsPage.tsx', 'SimpleMasterdataDetailsPage');
 const SettingsPage = lazyPage('./pages/SettingsPage.tsx', 'SettingsPage');
@@ -458,6 +459,7 @@ function appTabTitle(tab: string): string {
     empty_cards: 'Пустые карточки',
     drafts: 'Черновики',
     engine_assembly_bom: 'BOM двигателей',
+    repair_norms: 'Нормы ремонта',
     engine_assembly_bom_item: 'Карточка BOM двигателя',
     nomenclature_item: 'Карточка номенклатуры',
     stock_balances: 'Остатки',
@@ -1905,7 +1907,7 @@ export function App() {
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewTimesheets ? (['timesheets'] as const) : []),
     ...(caps.canViewMasterData
-      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom'] as const)
+      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms'] as const)
       : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
@@ -1972,6 +1974,7 @@ export function App() {
     empty_cards: 'Пустые карточки',
     drafts: 'Черновики',
     engine_assembly_bom: 'BOM двигателей',
+    repair_norms: 'Нормы ремонта',
     stock_balances: 'Остатки',
     stock_documents: 'Документы',
     stock_receipts: 'Приход',
@@ -3003,6 +3006,7 @@ export function App() {
       service: 'Карточка услуги',
       nomenclature: 'Номенклатура',
       engine_assembly_bom: 'BOM двигателей',
+      repair_norms: 'Нормы ремонта',
       engine_assembly_bom_item: 'Карточка BOM двигателя',
       nomenclature_item: 'Карточка номенклатуры',
       stock_balances: 'Остатки',
@@ -3462,6 +3466,8 @@ export function App() {
                     ? 'Матрица РМЗ — Карточка номенклатуры'
                     : tab === 'engine_assembly_bom'
                       ? 'Матрица РМЗ — BOM двигателей'
+                    : tab === 'repair_norms'
+                      ? 'Матрица РМЗ — Нормы ремонта'
                       : tab === 'engine_assembly_bom_item'
                         ? 'Матрица РМЗ — Карточка BOM двигателя'
                     : tab === 'stock_balances'
@@ -4705,6 +4711,8 @@ export function App() {
             onOpen={openEngineAssemblyBom}
           />
         )}
+
+        {t === 'repair_norms' && <RepairNormsPage canEdit={caps.canEditMasterData} />}
 
         {(t === 'stock_receipts' || t === 'stock_issues' || t === 'stock_transfers' || t === 'stock_documents') && (
           <StockDocumentsPage

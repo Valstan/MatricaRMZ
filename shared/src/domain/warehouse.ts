@@ -673,6 +673,23 @@ export const EngineAssemblyBomStatus = {
 
 export type EngineAssemblyBomStatus = (typeof EngineAssemblyBomStatus)[keyof typeof EngineAssemblyBomStatus];
 
+export type AssemblyExecutionProfile = {
+  version: number;
+  workshopId?: string;
+  hiddenFields: string[];
+  signatureBlocks?: Array<{ blockId: string; slots: Array<{ caption?: string; employeeId?: string }> }>;
+  printSettings?: Record<string, unknown>;
+  works: Array<{
+    serviceId: string;
+    serviceName: string;
+    unit: string;
+    qty: number;
+    priceRub: number;
+  }>;
+  sourceTemplateId?: string;
+  sourceTemplateName?: string;
+};
+
 export const EngineAssemblyBomComponentType = {
   Sleeve: 'sleeve',
   Piston: 'piston',
@@ -715,11 +732,17 @@ export type EngineAssemblyBom = {
   name: string;
   /** Марки двигателей из справочника (entities) — M:N. Одна BOM может покрывать несколько марок. */
   engineBrandIds: string[];
+  /** Марки, для которых эта BOM выбрана основным источником сборки. */
+  defaultForBrandIds?: string[];
   /** Устарело: привязка к номенклатуре; не используется в новых спецификациях. */
   engineNomenclatureId?: string | null;
   version: number;
   status: EngineAssemblyBomStatus | string;
   isDefault: boolean;
+  /** Явный основной вариант комплекта. null = базовые строки без variantGroup. */
+  defaultVariantKey?: string | null;
+  /** Профиль выполнения сборки, версионируемый вместе с BOM. */
+  executionProfile?: AssemblyExecutionProfile | null;
   notes: string | null;
   createdAt: number;
   updatedAt: number;
@@ -737,6 +760,29 @@ export type EngineAssemblyBomDetails = {
   header: EngineAssemblyBomListItem;
   lines: EngineAssemblyBomLine[];
 };
+
+export type AssemblyPlanCandidate = {
+  bomId: string;
+  bomName: string;
+  version: number;
+  defaultVariantKey: string | null;
+};
+
+export type AssemblyPlanResolution =
+  | {
+      ok: true;
+      engineId: string;
+      engineBrandId: string;
+      snapshot: import('./workOrder.js').AssemblyBomSnapshot;
+      materialHash: string;
+    }
+  | {
+      ok: false;
+      code: 'engine_not_found' | 'engine_brand_missing' | 'bom_missing' | 'bom_conflict' | 'variant_missing' | 'profile_missing';
+      error: string;
+      engineBrandId?: string;
+      candidates?: AssemblyPlanCandidate[];
+    };
 
 export type EngineAssemblyBomLineInput = {
   id?: string;
@@ -790,6 +836,7 @@ export type EngineAssemblyBomUpsertInput = {
   name: string;
   /** Список марок двигателей, к которым применима эта спецификация (минимум одна). */
   engineBrandIds: string[];
+  defaultForBrandIds?: string[];
   /**
    * Номенклатура «двигатель» для марки (колонка legacy). Сервер может вывести сам;
    * поле нужно для совместимости со старым API, где оно было обязательным в теле POST.
@@ -798,6 +845,8 @@ export type EngineAssemblyBomUpsertInput = {
   version?: number;
   status?: EngineAssemblyBomStatus | string;
   isDefault?: boolean;
+  defaultVariantKey?: string | null;
+  executionProfile?: AssemblyExecutionProfile | null;
   notes?: string | null;
   lines: EngineAssemblyBomLineInput[];
 };

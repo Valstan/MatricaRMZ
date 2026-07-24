@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import {
   WorkOrderKind,
@@ -200,10 +200,14 @@ export async function listWorkOrderTemplates(
       rows = await db
         .select()
         .from(workOrderTemplates)
-        .where(eq(workOrderTemplates.workOrderKind, kindResult.kind))
+        .where(and(eq(workOrderTemplates.workOrderKind, kindResult.kind), isNull(workOrderTemplates.archivedAt)))
         .orderBy(asc(workOrderTemplates.name));
     } else {
-      rows = await db.select().from(workOrderTemplates).orderBy(asc(workOrderTemplates.workOrderKind), asc(workOrderTemplates.name));
+      rows = await db
+        .select()
+        .from(workOrderTemplates)
+        .where(isNull(workOrderTemplates.archivedAt))
+        .orderBy(asc(workOrderTemplates.workOrderKind), asc(workOrderTemplates.name));
     }
     const templates = rows.map((row): WorkOrderTemplateSummary => ({
       id: String(row.id),
@@ -248,6 +252,9 @@ export async function createWorkOrderTemplate(args: {
   try {
     const kindResult = normalizeKind(args.workOrderKind);
     if (!kindResult.ok) return kindResult;
+    if (kindResult.kind === WorkOrderKind.Assembly) {
+      return { ok: false, error: 'Сборочные шаблоны заменены вариантами BOM и больше не создаются' };
+    }
     const nameResult = normalizeName(args.name);
     if (!nameResult.ok) return nameResult;
     const hiddenResult = normalizeHiddenFields(args.hiddenFields, kindResult.kind);
@@ -264,6 +271,7 @@ export async function createWorkOrderTemplate(args: {
         and(
           eq(workOrderTemplates.workOrderKind, kindResult.kind),
           eq(workOrderTemplates.name, nameResult.name),
+          isNull(workOrderTemplates.archivedAt),
         ),
       )
       .limit(1);
@@ -314,6 +322,9 @@ export async function updateWorkOrderTemplate(args: {
     if (!current) return { ok: false, error: 'Шаблон не найден' };
 
     const kind = String(current.workOrderKind) as WorkOrderKind;
+    if (kind === WorkOrderKind.Assembly) {
+      return { ok: false, error: 'Сборочный шаблон архивирован: изменяйте состав и настройки в BOM' };
+    }
     const patch: Record<string, unknown> = {};
 
     if (args.name !== undefined) {
@@ -327,6 +338,7 @@ export async function updateWorkOrderTemplate(args: {
             and(
               eq(workOrderTemplates.workOrderKind, kind),
               eq(workOrderTemplates.name, nameResult.name),
+              isNull(workOrderTemplates.archivedAt),
             ),
           )
           .limit(1);

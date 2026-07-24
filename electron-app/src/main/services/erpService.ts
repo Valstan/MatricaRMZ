@@ -1653,6 +1653,74 @@ export async function warehouseAssemblyBomList(
   }
 }
 
+export async function warehouseRepairNormList(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { engineBrandId?: string; status?: string },
+) {
+  try {
+    const qp = new URLSearchParams();
+    if (args?.engineBrandId) qp.set('engineBrandId', args.engineBrandId);
+    if (args?.status) qp.set('status', args.status);
+    const path = `/warehouse/repair-norms${qp.toString() ? `?${qp.toString()}` : ''}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json;
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseRepairNormGet(db: BetterSQLite3Database, apiBaseUrl: string, id: string) {
+  const path = `/warehouse/repair-norms/${encodeURIComponent(id)}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return r.json;
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseRepairNormUpsert(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: Record<string, unknown>,
+) {
+  const path = '/warehouse/repair-norms';
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, id: String(r.json.id) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseAssemblyPlanResolve(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { engineId: string; bomId?: string },
+) {
+  try {
+    const qp = new URLSearchParams({ engineId: args.engineId });
+    if (args.bomId) qp.set('bomId', args.bomId);
+    const path = `/warehouse/assembly-plan?${qp.toString()}`;
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (r.json && typeof r.json === 'object') return r.json;
+    return { ok: false as const, code: 'bom_missing' as const, error: formatHttpError(r, path) };
+  } catch (e) {
+    return { ok: false as const, code: 'bom_missing' as const, error: String(e) };
+  }
+}
+
 export async function warehouseAssemblyBomSchemaGet(db: BetterSQLite3Database, apiBaseUrl: string) {
   const path = '/warehouse/assembly-bom/schema';
   try {

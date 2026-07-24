@@ -54,7 +54,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   {
     id: AccessSection.Production,
     titleRu: 'Производство',
-    menuTabs: ['engines', 'assembly_forecast', 'engine_brands', 'parts', 'engine_assembly_bom', 'tools'],
+    menuTabs: ['engines', 'assembly_forecast', 'engine_brands', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   },
   {
     id: AccessSection.WorkOrders,

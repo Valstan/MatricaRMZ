@@ -59,6 +59,8 @@ import { getIdempotentCommandResult, saveIdempotentCommandResult } from '../serv
 import { getContractSections } from '../services/erpService.js';
 import { getStockBalanceForWorkshop } from '../services/stockBalanceForWorkshopService.js';
 import { getEngineOutputAnalytics } from '../services/analyticsService.js';
+import { getRepairNormSet, listRepairNormSets, upsertRepairNormSet } from '../services/repairNormService.js';
+import { resolveAssemblyPlan } from '../services/assemblyPlanningService.js';
 
 export const warehouseRouter = Router();
 warehouseRouter.use(requireAuth);
@@ -576,6 +578,92 @@ warehouseRouter.delete('/engine-instances/:id', requirePermission(PermissionCode
   return res.json(result);
 });
 
+warehouseRouter.get('/repair-norms', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const schema = z.object({
+    engineBrandId: z.string().uuid().optional(),
+    status: z.enum(['draft', 'active', 'archived']).optional(),
+  });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listRepairNormSets({
+    ...(parsed.data.engineBrandId ? { engineBrandId: parsed.data.engineBrandId } : {}),
+    ...(parsed.data.status ? { status: parsed.data.status } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.get('/repair-norms/:id', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getRepairNormSet(id);
+  if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+warehouseRouter.post('/repair-norms', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const schema = z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().trim().min(1),
+    version: z.coerce.number().int().min(1).optional(),
+    status: z.enum(['draft', 'active', 'archived']).optional(),
+    sourceKind: z.string().trim().min(1).nullable().optional(),
+    sourceKey: z.string().trim().min(1).nullable().optional(),
+    sourceImportedAt: z.coerce.number().int().nullable().optional(),
+    sourceContentHash: z.string().trim().min(1).nullable().optional(),
+    notes: z.string().nullable().optional(),
+    engineBrandIds: z.array(z.string().uuid()).min(1),
+    lines: z.array(z.object({
+      id: z.string().uuid().optional(),
+      nomenclatureId: z.string().uuid(),
+      qtyPerEngine: z.coerce.number().positive(),
+      replacementPercent: z.coerce.number().min(0).max(100),
+      groupName: z.string().nullable().optional(),
+      sourceRowKey: z.string().nullable().optional(),
+      sourceMeta: z.record(z.unknown()).nullable().optional(),
+      position: z.coerce.number().int().min(0).optional(),
+    })).min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await upsertRepairNormSet({
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    name: parsed.data.name,
+    ...(parsed.data.version !== undefined ? { version: parsed.data.version } : {}),
+    ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+    ...(parsed.data.sourceKind !== undefined ? { sourceKind: parsed.data.sourceKind } : {}),
+    ...(parsed.data.sourceKey !== undefined ? { sourceKey: parsed.data.sourceKey } : {}),
+    ...(parsed.data.sourceImportedAt !== undefined ? { sourceImportedAt: parsed.data.sourceImportedAt } : {}),
+    ...(parsed.data.sourceContentHash !== undefined ? { sourceContentHash: parsed.data.sourceContentHash } : {}),
+    ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
+    engineBrandIds: parsed.data.engineBrandIds,
+    lines: parsed.data.lines.map((line) => ({
+      ...(line.id ? { id: line.id } : {}),
+      nomenclatureId: line.nomenclatureId,
+      qtyPerEngine: line.qtyPerEngine,
+      replacementPercent: line.replacementPercent,
+      ...(line.groupName !== undefined ? { groupName: line.groupName } : {}),
+      ...(line.sourceRowKey !== undefined ? { sourceRowKey: line.sourceRowKey } : {}),
+      ...(line.sourceMeta !== undefined ? { sourceMeta: line.sourceMeta } : {}),
+      ...(line.position !== undefined ? { position: line.position } : {}),
+    })),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json({ ok: true, id: result.normSet.id });
+});
+
+warehouseRouter.get('/assembly-plan', requirePermission(PermissionCode.WorkOrdersEdit), async (req, res) => {
+  const schema = z.object({ engineId: z.string().uuid(), bomId: z.string().uuid().optional() });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await resolveAssemblyPlan({
+    engineId: parsed.data.engineId,
+    ...(parsed.data.bomId ? { bomId: parsed.data.bomId } : {}),
+  });
+  if (!result.ok) return res.status(result.code === 'engine_not_found' ? 404 : 409).json(result);
+  return res.json(result);
+});
+
 warehouseRouter.get('/assembly-bom', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const schema = z.object({
     engineBrandId: z.string().uuid().optional(),
@@ -678,10 +766,31 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
     id: z.string().uuid().optional(),
     name: z.string().min(1),
     engineBrandIds: z.array(z.string().uuid()).min(1),
+    defaultForBrandIds: z.array(z.string().uuid()).optional(),
     engineNomenclatureId: z.string().uuid().optional().nullable(),
     version: z.coerce.number().int().min(1).optional(),
     status: z.enum(['draft', 'active', 'archived']).optional(),
     isDefault: z.boolean().optional(),
+    defaultVariantKey: z.string().nullable().optional(),
+    executionProfile: z.object({
+      version: z.coerce.number().int().min(1),
+      workshopId: z.string().uuid().optional(),
+      hiddenFields: z.array(z.string()),
+      signatureBlocks: z.array(z.object({
+        blockId: z.string().min(1),
+        slots: z.array(z.object({ caption: z.string().optional(), employeeId: z.string().uuid().optional() })),
+      })).optional(),
+      printSettings: z.record(z.unknown()).optional(),
+      works: z.array(z.object({
+        serviceId: z.string().uuid(),
+        serviceName: z.string(),
+        unit: z.string(),
+        qty: z.coerce.number().positive(),
+        priceRub: z.coerce.number().min(0),
+      })),
+      sourceTemplateId: z.string().uuid().optional(),
+      sourceTemplateName: z.string().optional(),
+    }).nullable().optional(),
     notes: z.string().nullable().optional(),
     lines: z
       .array(
@@ -714,10 +823,38 @@ warehouseRouter.post('/assembly-bom', requirePermission(PermissionCode.ErpDictio
     ...(parsed.data.id ? { id: parsed.data.id } : {}),
     name: parsed.data.name,
     engineBrandIds: parsed.data.engineBrandIds,
+    ...(parsed.data.defaultForBrandIds !== undefined ? { defaultForBrandIds: parsed.data.defaultForBrandIds } : {}),
     ...(parsed.data.engineNomenclatureId !== undefined ? { engineNomenclatureId: parsed.data.engineNomenclatureId } : {}),
     ...(parsed.data.version !== undefined ? { version: parsed.data.version } : {}),
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
     ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
+    ...(parsed.data.defaultVariantKey !== undefined ? { defaultVariantKey: parsed.data.defaultVariantKey } : {}),
+    ...(parsed.data.executionProfile !== undefined
+      ? {
+          executionProfile: parsed.data.executionProfile === null
+            ? null
+            : {
+                version: parsed.data.executionProfile.version,
+                hiddenFields: parsed.data.executionProfile.hiddenFields,
+                works: parsed.data.executionProfile.works,
+                ...(parsed.data.executionProfile.workshopId ? { workshopId: parsed.data.executionProfile.workshopId } : {}),
+                ...(parsed.data.executionProfile.signatureBlocks
+                  ? {
+                      signatureBlocks: parsed.data.executionProfile.signatureBlocks.map((block) => ({
+                        blockId: block.blockId,
+                        slots: block.slots.map((slot) => ({
+                          ...(slot.caption !== undefined ? { caption: slot.caption } : {}),
+                          ...(slot.employeeId !== undefined ? { employeeId: slot.employeeId } : {}),
+                        })),
+                      })),
+                    }
+                  : {}),
+                ...(parsed.data.executionProfile.printSettings ? { printSettings: parsed.data.executionProfile.printSettings } : {}),
+                ...(parsed.data.executionProfile.sourceTemplateId ? { sourceTemplateId: parsed.data.executionProfile.sourceTemplateId } : {}),
+                ...(parsed.data.executionProfile.sourceTemplateName ? { sourceTemplateName: parsed.data.executionProfile.sourceTemplateName } : {}),
+              },
+        }
+      : {}),
     ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
     lines: parsed.data.lines.map((line) => ({
       ...(line.id ? { id: line.id } : {}),

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { LedgerTableName } from '@matricarmz/ledger';
 import {
   normalizeBomRelationKey,
   resolveNomenclatureComponentTypeId,
+  type AssemblyExecutionProfile,
 } from '@matricarmz/shared';
 
 import type { AuthUser } from '../auth/jwt.js';
@@ -31,6 +32,18 @@ function normalizeStatus(raw: string | undefined): 'draft' | 'active' | 'archive
   const value = String(raw ?? 'draft').trim().toLowerCase();
   if (value === 'active' || value === 'archived') return value;
   return 'draft';
+}
+
+function parseExecutionProfile(raw: string | null): AssemblyExecutionProfile | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as AssemblyExecutionProfile)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -113,6 +126,29 @@ async function loadBrandIdsForBoms(bomIds: string[]): Promise<Map<string, string
   return result;
 }
 
+async function loadDefaultBrandIdsForBoms(bomIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (bomIds.length === 0) return result;
+  const links = await db
+    .select({
+      bomId: erpEngineAssemblyBomBrandLinks.bomId,
+      engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId,
+    })
+    .from(erpEngineAssemblyBomBrandLinks)
+    .where(
+      and(
+        inArray(erpEngineAssemblyBomBrandLinks.bomId, bomIds as any),
+        eq(erpEngineAssemblyBomBrandLinks.isDefaultForBrand, true),
+        isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+      ),
+    );
+  for (const link of links) {
+    const key = String(link.bomId);
+    result.set(key, [...(result.get(key) ?? []), String(link.engineBrandId)]);
+  }
+  return result;
+}
+
 export async function listWarehouseAssemblyBoms(args?: {
   engineBrandId?: string;
   engineBrandIds?: string[];
@@ -160,6 +196,8 @@ export async function listWarehouseAssemblyBoms(args?: {
         version: erpEngineAssemblyBom.version,
         status: erpEngineAssemblyBom.status,
         isDefault: erpEngineAssemblyBom.isDefault,
+        defaultVariantKey: erpEngineAssemblyBom.defaultVariantKey,
+        executionProfileJson: erpEngineAssemblyBom.executionProfileJson,
         notes: erpEngineAssemblyBom.notes,
         createdAt: erpEngineAssemblyBom.createdAt,
         updatedAt: erpEngineAssemblyBom.updatedAt,
@@ -190,6 +228,7 @@ export async function listWarehouseAssemblyBoms(args?: {
       }
     }
     const brandIdsMap = await loadBrandIdsForBoms(bomIds);
+    const defaultBrandIdsMap = await loadDefaultBrandIdsForBoms(bomIds);
 
     return {
       ok: true,
@@ -197,12 +236,15 @@ export async function listWarehouseAssemblyBoms(args?: {
         id: String(row.id),
         name: String(row.name),
         engineBrandIds: brandIdsMap.get(String(row.id)) ?? [],
+        defaultForBrandIds: defaultBrandIdsMap.get(String(row.id)) ?? [],
         engineNomenclatureId: row.engineNomenclatureId ? String(row.engineNomenclatureId) : null,
         engineNomenclatureCode: row.engineCode ? String(row.engineCode) : null,
         engineNomenclatureName: row.engineName ? String(row.engineName) : null,
         version: Number(row.version ?? 1),
         status: String(row.status),
         isDefault: Boolean(row.isDefault),
+        defaultVariantKey: row.defaultVariantKey ?? null,
+        executionProfile: parseExecutionProfile(row.executionProfileJson),
         notes: row.notes ?? null,
         createdAt: Number(row.createdAt),
         updatedAt: Number(row.updatedAt),
@@ -225,6 +267,8 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
       version: erpEngineAssemblyBom.version,
       status: erpEngineAssemblyBom.status,
       isDefault: erpEngineAssemblyBom.isDefault,
+      defaultVariantKey: erpEngineAssemblyBom.defaultVariantKey,
+      executionProfileJson: erpEngineAssemblyBom.executionProfileJson,
       notes: erpEngineAssemblyBom.notes,
       createdAt: erpEngineAssemblyBom.createdAt,
       updatedAt: erpEngineAssemblyBom.updatedAt,
@@ -240,16 +284,20 @@ async function loadBomDetailsById(id: string): Promise<Result<{ bom: { header: R
   const hr = headerRows[0];
   if (!hr) return { ok: false, error: 'BOM не найден' };
   const brandIdsMap = await loadBrandIdsForBoms([bomId]);
+  const defaultBrandIdsMap = await loadDefaultBrandIdsForBoms([bomId]);
   const header: Record<string, unknown> = {
     id: String(hr.id),
     name: String(hr.name),
     engineBrandIds: brandIdsMap.get(bomId) ?? [],
+    defaultForBrandIds: defaultBrandIdsMap.get(bomId) ?? [],
     engineNomenclatureId: hr.engineNomenclatureId ? String(hr.engineNomenclatureId) : null,
     engineNomenclatureCode: hr.engineCode ? String(hr.engineCode) : null,
     engineNomenclatureName: hr.engineName ? String(hr.engineName) : null,
     version: Number(hr.version ?? 1),
     status: String(hr.status),
     isDefault: Boolean(hr.isDefault),
+    defaultVariantKey: hr.defaultVariantKey ?? null,
+    executionProfile: parseExecutionProfile(hr.executionProfileJson),
     notes: hr.notes ?? null,
     createdAt: Number(hr.createdAt),
     updatedAt: Number(hr.updatedAt),
@@ -353,11 +401,14 @@ export async function upsertWarehouseAssemblyBom(args: {
   name: string;
   /** Список марок двигателей, к которым применима спецификация (минимум одна). */
   engineBrandIds: string[];
+  defaultForBrandIds?: string[];
   /** Опционально: legacy-колонка — номенклатура типа engine для марки; иначе null. Черновые строки используют отдельный resolve. */
   engineNomenclatureId?: string | null;
   version?: number;
   status?: string;
   isDefault?: boolean;
+  defaultVariantKey?: string | null;
+  executionProfile?: AssemblyExecutionProfile | null;
   notes?: string | null;
   lines: BomLineInput[];
   actor: Actor;
@@ -371,6 +422,12 @@ export async function upsertWarehouseAssemblyBom(args: {
           .filter(Boolean),
       ),
     );
+    const requestedDefaultBrandIds = args.defaultForBrandIds === undefined
+      ? null
+      : new Set(args.defaultForBrandIds.map(String).map((value) => value.trim()).filter(Boolean));
+    if (requestedDefaultBrandIds && [...requestedDefaultBrandIds].some((brandId) => !requestedBrandIds.includes(brandId))) {
+      return { ok: false, error: 'defaultForBrandIds должен быть подмножеством engineBrandIds' };
+    }
     if (requestedBrandIds.length === 0) {
       return { ok: false, error: 'Не указана ни одна марка двигателя (engineBrandIds)' };
     }
@@ -388,6 +445,8 @@ export async function upsertWarehouseAssemblyBom(args: {
       version,
       status,
       isDefault: true,
+      defaultVariantKey: args.defaultVariantKey == null ? null : String(args.defaultVariantKey).trim() || null,
+      executionProfileJson: args.executionProfile ? JSON.stringify(args.executionProfile) : null,
       notes: args.notes == null ? null : String(args.notes),
       updatedAt: ts,
       deletedAt: null,
@@ -674,11 +733,32 @@ export async function upsertWarehouseAssemblyBom(args: {
       );
     }
 
+    const clearedDefaultLinks = requestedDefaultBrandIds && requestedDefaultBrandIds.size > 0
+      ? await db
+          .select()
+          .from(erpEngineAssemblyBomBrandLinks)
+          .where(
+            and(
+              inArray(erpEngineAssemblyBomBrandLinks.engineBrandId, [...requestedDefaultBrandIds] as any),
+              eq(erpEngineAssemblyBomBrandLinks.isDefaultForBrand, true),
+              ne(erpEngineAssemblyBomBrandLinks.bomId, id as any),
+              isNull(erpEngineAssemblyBomBrandLinks.deletedAt),
+            ),
+          )
+      : [];
+    if (clearedDefaultLinks.length > 0) {
+      await db
+        .update(erpEngineAssemblyBomBrandLinks)
+        .set({ isDefaultForBrand: false, updatedAt: ts, syncStatus: 'synced' })
+        .where(inArray(erpEngineAssemblyBomBrandLinks.id, clearedDefaultLinks.map((link) => link.id) as any));
+    }
+
     // Синхронизируем junction-таблицу марок: софт-удаляем те, что больше не указаны, апсертим новые/обновлённые.
     const existingLinks = await db
       .select({
         id: erpEngineAssemblyBomBrandLinks.id,
         engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId,
+        isDefaultForBrand: erpEngineAssemblyBomBrandLinks.isDefaultForBrand,
       })
       .from(erpEngineAssemblyBomBrandLinks)
       .where(and(eq(erpEngineAssemblyBomBrandLinks.bomId, id), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)));
@@ -692,24 +772,30 @@ export async function upsertWarehouseAssemblyBom(args: {
       bomId: string;
       engineBrandId: string;
       isPrimary: boolean;
+      isDefaultForBrand: boolean;
       createdAt: number;
       updatedAt: number;
       deletedAt: number | null;
       syncStatus: 'synced';
       lastServerSeq: null;
     }> = [];
-    const linksToUpdate: Array<{ id: string; engineBrandId: string; isPrimary: boolean }> = [];
+    const linksToUpdate: Array<{ id: string; engineBrandId: string; isPrimary: boolean; isDefaultForBrand: boolean }> = [];
     for (const [idx, brandId] of requestedBrandIds.entries()) {
       const isPrimary = idx === 0;
       const existingLinkId = existingByBrand.get(brandId);
+      const existingLink = existingLinks.find((link) => String(link.engineBrandId) === brandId);
+      const isDefaultForBrand = requestedDefaultBrandIds
+        ? requestedDefaultBrandIds.has(brandId)
+        : Boolean(existingLink?.isDefaultForBrand);
       if (existingLinkId) {
-        linksToUpdate.push({ id: existingLinkId, engineBrandId: brandId, isPrimary });
+        linksToUpdate.push({ id: existingLinkId, engineBrandId: brandId, isPrimary, isDefaultForBrand });
       } else {
         linksToInsert.push({
           id: randomUUID(),
           bomId: id,
           engineBrandId: brandId,
           isPrimary,
+          isDefaultForBrand,
           createdAt: ts,
           updatedAt: ts,
           deletedAt: null,
@@ -725,7 +811,7 @@ export async function upsertWarehouseAssemblyBom(args: {
     for (const update of linksToUpdate) {
       await db
         .update(erpEngineAssemblyBomBrandLinks)
-        .set({ isPrimary: update.isPrimary, updatedAt: ts, syncStatus: 'synced' })
+        .set({ isPrimary: update.isPrimary, isDefaultForBrand: update.isDefaultForBrand, updatedAt: ts, syncStatus: 'synced' })
         .where(eq(erpEngineAssemblyBomBrandLinks.id, update.id));
     }
     if (linksToDelete.length > 0) {
@@ -755,6 +841,8 @@ export async function upsertWarehouseAssemblyBom(args: {
             version: Number(row.version),
             status: String(row.status),
             is_default: Boolean(row.isDefault),
+            default_variant_key: row.defaultVariantKey ?? null,
+            execution_profile_json: row.executionProfileJson ?? null,
             notes: row.notes ?? null,
             created_at: Number(row.createdAt),
             updated_at: Number(row.updatedAt),
@@ -785,10 +873,35 @@ export async function upsertWarehouseAssemblyBom(args: {
             bom_id: String(link.bomId),
             engine_brand_id: String(link.engineBrandId),
             is_primary: Boolean(link.isPrimary),
+            is_default_for_brand: Boolean(link.isDefaultForBrand),
             created_at: Number(link.createdAt),
             updated_at: Number(link.updatedAt),
             deleted_at: link.deletedAt == null ? null : Number(link.deletedAt),
             sync_status: String(link.syncStatus ?? 'synced'),
+            last_server_seq: link.lastServerSeq == null ? null : Number(link.lastServerSeq),
+          },
+          actor: actorPayload,
+          ts,
+        })),
+      );
+    }
+    if (clearedDefaultLinks.length > 0) {
+      const actorPayload = { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' };
+      signAndAppendDetailed(
+        clearedDefaultLinks.map((link) => ({
+          type: 'upsert' as const,
+          table: LedgerTableName.ErpEngineAssemblyBomBrandLinks,
+          row_id: String(link.id),
+          row: {
+            id: String(link.id),
+            bom_id: String(link.bomId),
+            engine_brand_id: String(link.engineBrandId),
+            is_primary: Boolean(link.isPrimary),
+            is_default_for_brand: false,
+            created_at: Number(link.createdAt),
+            updated_at: ts,
+            deleted_at: null,
+            sync_status: 'synced',
             last_server_seq: link.lastServerSeq == null ? null : Number(link.lastServerSeq),
           },
           actor: actorPayload,
@@ -817,6 +930,9 @@ export async function upsertWarehouseAssemblyBom(args: {
             is_required: Boolean(line.isRequired),
             priority: Number(line.priority),
             notes: line.notes ?? null,
+            position_key: line.positionKey ?? null,
+            position_label: line.positionLabel ?? null,
+            is_default_option: Boolean(line.isDefaultOption),
             created_at: Number(line.createdAt),
             updated_at: Number(line.updatedAt),
             deleted_at: line.deletedAt == null ? null : Number(line.deletedAt),
@@ -907,6 +1023,9 @@ export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Acto
         is_required: Boolean(line.isRequired),
         priority: Number(line.priority),
         notes: line.notes ?? null,
+        position_key: line.positionKey ?? null,
+        position_label: line.positionLabel ?? null,
+        is_default_option: Boolean(line.isDefaultOption),
         created_at: Number(line.createdAt),
         updated_at: ts,
         deleted_at: ts,
@@ -925,6 +1044,7 @@ export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Acto
         bom_id: String(link.bomId),
         engine_brand_id: String(link.engineBrandId),
         is_primary: Boolean(link.isPrimary),
+        is_default_for_brand: Boolean(link.isDefaultForBrand),
         created_at: Number(link.createdAt),
         updated_at: ts,
         deleted_at: ts,
@@ -1036,6 +1156,8 @@ export async function archiveWarehouseAssemblyBom(args: { id: string; actor: Act
             version: Number(row.version),
             status: String(row.status),
             is_default: Boolean(row.isDefault),
+            default_variant_key: row.defaultVariantKey ?? null,
+            execution_profile_json: row.executionProfileJson ?? null,
             notes: row.notes ?? null,
             created_at: Number(row.createdAt),
             updated_at: Number(row.updatedAt),
@@ -1161,6 +1283,9 @@ export async function renameWarehouseBomComponentTypes(args: {
             is_required: Boolean(line.isRequired),
             priority: Number(line.priority),
             notes: line.notes ?? null,
+            position_key: line.positionKey ?? null,
+            position_label: line.positionLabel ?? null,
+            is_default_option: Boolean(line.isDefaultOption),
             created_at: Number(line.createdAt),
             updated_at: Number(line.updatedAt),
             deleted_at: line.deletedAt == null ? null : Number(line.deletedAt),

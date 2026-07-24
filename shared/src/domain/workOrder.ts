@@ -162,6 +162,27 @@ export type WorkOrderConsumedLine = {
   nomenclatureId: string;
   qty: number;
   sourceWarehouseId: string;
+  instanceIds?: string[];
+};
+
+export type AssemblyBomSnapshot = {
+  bomId: string;
+  bomName: string;
+  bomVersion: number;
+  variantKey: string | null;
+  profileVersion: number;
+  capturedAt: number;
+  operationId: string;
+  materials: Array<{
+    lineNo: number;
+    nomenclatureId: string;
+    nomenclatureName: string;
+    nomenclatureCode: string;
+    qty: number;
+    sourceWarehouseId: string;
+  }>;
+  works: WorkOrderWorkLine[];
+  executionProfile: import('./warehouse.js').AssemblyExecutionProfile | null;
 };
 
 /** Строка планируемого выпуска отремонтированных деталей на ремонтном наряде. */
@@ -332,6 +353,14 @@ export type WorkOrderPayload = {
    * с fallback на `primaryAssemblyEngineId`. `null`/отсутствует — двигатель не выбран.
    */
   assemblyEngineId?: string | null;
+  /** Неизменяемый состав и настройки BOM на момент заполнения сборочного наряда. */
+  assemblyBomSnapshot?: AssemblyBomSnapshot;
+  /** Хеш материалов снимка; используется сервером для защиты выдачи и согласований. */
+  assemblyMaterialHash?: string;
+  /** Ревизия операции автозаполнения — защита от повторного применения и гонок. */
+  assemblyPayloadRevision?: number;
+  /** Оператор сохранил строки при смене двигателя вопреки рекомендуемому BOM. */
+  assemblyManualDeviation?: boolean;
   /**
    * Stage 4 нитки assembly-work-order-from-forecast: stable identifier варианта сборки
    * из отчёта «Прогноз сборки двигателей» (формула `buildAssemblyForecastVariantKey`).
@@ -378,7 +407,10 @@ function normalizeConsumedLine(raw: unknown, lineNo: number): WorkOrderConsumedL
   const qty = Math.max(0, workOrderSafeNum(rec.qty, 0));
   if (qty <= 0) return null;
   const sourceWarehouseId = String(rec.sourceWarehouseId ?? '').trim() || 'default';
-  return { lineNo, nomenclatureId, qty, sourceWarehouseId };
+  const instanceIds = Array.isArray(rec.instanceIds)
+    ? [...new Set(rec.instanceIds.map((value) => String(value ?? '').trim()).filter(Boolean))]
+    : [];
+  return { lineNo, nomenclatureId, qty, sourceWarehouseId, ...(instanceIds.length > 0 ? { instanceIds } : {}) };
 }
 
 function normalizeProducedLine(raw: unknown, lineNo: number): WorkOrderProducedLine | null {
@@ -438,11 +470,11 @@ function isWorkOrderKind(value: unknown): value is WorkOrderKind {
  * Принимает payload любой версии (v1/v2/v3) и возвращает нормализованные v3-поля.
  * Не модифицирует исходный объект; ничего не теряет — старые поля сохраняются.
  */
-export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
+export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
   if (!raw || typeof raw !== 'object') return {};
   const rec = raw as Record<string, unknown>;
 
-  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
+  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
 
   const workshopId = typeof rec.workshopId === 'string' ? rec.workshopId.trim() : '';
   if (workshopId) result.workshopId = workshopId;
@@ -479,6 +511,17 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
     const trimmed = rec.assemblyEngineId.trim();
     if (trimmed) result.assemblyEngineId = trimmed;
   }
+
+  if (rec.assemblyBomSnapshot && typeof rec.assemblyBomSnapshot === 'object' && !Array.isArray(rec.assemblyBomSnapshot)) {
+    result.assemblyBomSnapshot = rec.assemblyBomSnapshot as AssemblyBomSnapshot;
+  }
+  const assemblyMaterialHash = typeof rec.assemblyMaterialHash === 'string' ? rec.assemblyMaterialHash.trim() : '';
+  if (assemblyMaterialHash) result.assemblyMaterialHash = assemblyMaterialHash;
+  const assemblyPayloadRevision = Number(rec.assemblyPayloadRevision);
+  if (Number.isInteger(assemblyPayloadRevision) && assemblyPayloadRevision >= 0) {
+    result.assemblyPayloadRevision = assemblyPayloadRevision;
+  }
+  if (rec.assemblyManualDeviation === true) result.assemblyManualDeviation = true;
 
   if (rec.repairIssued === true) result.repairIssued = true;
 

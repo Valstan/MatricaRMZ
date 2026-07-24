@@ -31,6 +31,7 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['parts:', 'production'],
   ['checklists:', 'production'],
   ['warehouse:assemblyBom:', 'production'],
+  ['warehouse:repairNorm:', 'production'],
   ['warehouse:engineInstances:', 'production'],
   ['workOrders:', 'work_orders'],
   ['workOrderTemplates:', 'work_orders'],
@@ -96,6 +97,7 @@ const WRITE_CHANNELS = new Set([
   'warehouse:assemblyBom:archive',
   'warehouse:assemblyBom:activateDefault',
   'warehouse:assemblyBom:schema:set',
+  'warehouse:repairNorm:upsert',
   'warehouse:engineInstances:upsert',
   'warehouse:engineInstances:delete',
   // work_orders

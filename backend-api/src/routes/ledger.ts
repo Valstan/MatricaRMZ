@@ -32,6 +32,7 @@ import {
   chatMessages,
   chatReads,
   erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
   erpNomenclature,
   erpRegStockBalance,
@@ -352,6 +353,10 @@ const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Reco
   [LedgerTableName.ErpEngineAssemblyBomLines]: {
     drizzle: erpEngineAssemblyBomLines,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomLines, r),
+  },
+  [LedgerTableName.ErpEngineAssemblyBomBrandLinks]: {
+    drizzle: erpEngineAssemblyBomBrandLinks,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomBrandLinks, r),
   },
   [LedgerTableName.ErpRegStockBalance]: {
     drizzle: erpRegStockBalance,

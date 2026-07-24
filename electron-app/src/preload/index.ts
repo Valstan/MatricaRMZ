@@ -684,6 +684,12 @@ const matricaApi = {
     documentReverse: async (arg: string | { id: string; expectedUpdatedAt?: number }) => ipcRenderer.invoke('warehouse:documents:reverse', arg),
     assemblyBomList: async (args?: { engineBrandId?: string; engineBrandIds?: string[]; engineNomenclatureId?: string; status?: string }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:list', args),
+    repairNormList: async (args?: { engineBrandId?: string; status?: string }) =>
+      ipcRenderer.invoke('warehouse:repairNorm:list', args),
+    repairNormGet: async (id: string) => ipcRenderer.invoke('warehouse:repairNorm:get', id),
+    repairNormUpsert: async (args: Record<string, unknown>) => ipcRenderer.invoke('warehouse:repairNorm:upsert', args),
+    assemblyPlanResolve: async (args: { engineId: string; bomId?: string }) =>
+      ipcRenderer.invoke('warehouse:assemblyPlan:resolve', args),
     assemblyBomSchemaGet: async () => ipcRenderer.invoke('warehouse:assemblyBom:schema:get'),
     assemblyBomSchemaSet: async (args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) =>
       ipcRenderer.invoke('warehouse:assemblyBom:schema:set', args),
