@@ -32,7 +32,7 @@ function parsePayload(raw: string | null): WorkOrderPayload | null {
 function snapshotHash(payload: WorkOrderPayload): string | null {
   const snapshot = payload.assemblyBomSnapshot;
   const engineId = resolveAssemblyEngineId(payload);
-  const engineBrandId = String(snapshot?.works[0]?.engineBrandId ?? payload.freeWorks[0]?.engineBrandId ?? '').trim();
+  const engineBrandId = String(snapshot?.engineBrandId ?? snapshot?.works[0]?.engineBrandId ?? payload.freeWorks[0]?.engineBrandId ?? '').trim();
   if (!snapshot || !engineId || !engineBrandId) return null;
   return computeAssemblyMaterialHash({
     engineId,
@@ -68,11 +68,18 @@ export async function checkAssemblyAvailability(operationId: string): Promise<
   }
   const materials = payload.assemblyBomSnapshot?.materials ?? [];
   const locationKeys = [...new Set(materials.map((line) => line.sourceWarehouseId))];
+  const uuidKeys = locationKeys.filter((key) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key));
+  const codeKeys = locationKeys.filter((key) => !uuidKeys.includes(key));
+  const locationFilter = uuidKeys.length && codeKeys.length
+    ? or(inArray(warehouseLocations.id, uuidKeys as any), inArray(warehouseLocations.code, codeKeys))
+    : uuidKeys.length
+      ? inArray(warehouseLocations.id, uuidKeys as any)
+      : inArray(warehouseLocations.code, codeKeys);
   const locations = locationKeys.length
     ? await db
         .select({ id: warehouseLocations.id, code: warehouseLocations.code, name: warehouseLocations.name })
         .from(warehouseLocations)
-        .where(and(or(inArray(warehouseLocations.id, locationKeys as any), inArray(warehouseLocations.code, locationKeys)), isNull(warehouseLocations.deletedAt)))
+        .where(and(locationFilter, isNull(warehouseLocations.deletedAt)))
     : [];
   const locationByKey = new Map<string, { id: string; name: string }>();
   for (const location of locations) {
@@ -188,16 +195,52 @@ export async function requestAssemblyShortageApproval(args: { operationId: strin
   if (!availability.ok) return { ok: false as const, error: availability.error };
   if (availability.shortages.length === 0) return { ok: false as const, error: 'Дефицита больше нет — выполните обычную выдачу' };
   const now = Date.now();
-  await db.update(assemblyShortageApprovals).set({ status: 'invalidated', invalidatedAt: now }).where(
-    and(eq(assemblyShortageApprovals.operationId, args.operationId), inArray(assemblyShortageApprovals.status, ['requested', 'approved'])),
-  );
   const id = randomUUID();
-  await db.insert(assemblyShortageApprovals).values({
-    id, operationId: args.operationId, materialHash: availability.materialHash,
-    shortageJson: JSON.stringify(availability.shortages), status: 'requested', requestReason: args.reason,
-    requestedBy: args.actor.id, requestedAt: now,
+  await db.transaction(async (tx) => {
+    await tx.update(assemblyShortageApprovals).set({ status: 'invalidated', invalidatedAt: now }).where(
+      and(eq(assemblyShortageApprovals.operationId, args.operationId), inArray(assemblyShortageApprovals.status, ['requested', 'approved'])),
+    );
+    await tx.insert(assemblyShortageApprovals).values({
+      id, operationId: args.operationId, materialHash: availability.materialHash,
+      shortageJson: JSON.stringify(availability.shortages), status: 'requested', requestReason: args.reason,
+      requestedBy: args.actor.id, requestedAt: now,
+    });
   });
   return { ok: true as const, id, materialHash: availability.materialHash, shortages: availability.shortages };
+}
+
+export async function getAssemblyShortageApproval(operationId: string) {
+  const rows = await db
+    .select()
+    .from(assemblyShortageApprovals)
+    .where(eq(assemblyShortageApprovals.operationId, operationId))
+    .orderBy(desc(assemblyShortageApprovals.requestedAt))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return { ok: true as const, approval: null };
+  let shortages: AssemblyShortageItem[] = [];
+  try {
+    const parsed = JSON.parse(row.shortageJson) as unknown;
+    if (Array.isArray(parsed)) shortages = parsed as AssemblyShortageItem[];
+  } catch {
+    shortages = [];
+  }
+  return {
+    ok: true as const,
+    approval: {
+      id: String(row.id),
+      operationId: String(row.operationId),
+      materialHash: row.materialHash,
+      status: String(row.status) as 'requested' | 'approved' | 'rejected' | 'invalidated',
+      reason: row.requestReason,
+      requestedBy: String(row.requestedBy),
+      requestedAt: Number(row.requestedAt),
+      shortages,
+      ...(row.decidedBy ? { decidedBy: String(row.decidedBy) } : {}),
+      ...(row.decidedAt != null ? { decidedAt: Number(row.decidedAt) } : {}),
+      ...(row.decisionReason ? { decisionReason: row.decisionReason } : {}),
+    },
+  };
 }
 
 export async function decideAssemblyShortageApproval(args: { approvalId: string; approve: boolean; reason: string; actor: Actor }) {
@@ -212,9 +255,10 @@ export async function decideAssemblyShortageApproval(args: { approvalId: string;
   if (String(approval.requestedBy) === args.actor.id && !args.reason.trim()) {
     return { ok: false as const, error: 'Для самосогласования обязательна причина' };
   }
-  await db.update(assemblyShortageApprovals).set({
+  const decided = await db.update(assemblyShortageApprovals).set({
     status: args.approve ? 'approved' : 'rejected', decidedBy: args.actor.id, decidedAt: Date.now(), decisionReason: args.reason.trim() || null,
-  }).where(eq(assemblyShortageApprovals.id, approval.id));
+  }).where(and(eq(assemblyShortageApprovals.id, approval.id), eq(assemblyShortageApprovals.status, 'requested'))).returning({ id: assemblyShortageApprovals.id });
+  if (decided.length === 0) return { ok: false as const, error: 'Запрос уже рассмотрен другим пользователем' };
   if (args.approve && String(approval.requestedBy) === args.actor.id) {
     ingestServerCriticalEvent({
       eventCode: 'assembly.shortage.self_approved',

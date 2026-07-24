@@ -3623,6 +3623,20 @@ export async function postWarehouseDocument(args: {
       locationIdByWarehouseId.set(movement.warehouseId, locationId);
     }
 
+    const ownReservationRows = await db
+      .select({
+        nomenclatureId: erpStockReservations.nomenclatureId,
+        warehouseLocationId: erpStockReservations.warehouseLocationId,
+        qty: erpStockReservations.qty,
+      })
+      .from(erpStockReservations)
+      .where(and(eq(erpStockReservations.documentHeaderId, args.documentId), eq(erpStockReservations.status, 'active')));
+    const ownReservationByKey = new Map<string, number>();
+    for (const reservation of ownReservationRows) {
+      const key = `${String(reservation.nomenclatureId)}::${String(reservation.warehouseLocationId)}`;
+      ownReservationByKey.set(key, (ownReservationByKey.get(key) ?? 0) + Number(reservation.qty));
+    }
+
     const balanceByKey = new Map<string, { id: string; qty: number; reservedQty: number; locationId: string }>();
     for (const movement of planned) {
       const locationId = locationIdByWarehouseId.get(movement.warehouseId)!;
@@ -3649,6 +3663,10 @@ export async function postWarehouseDocument(args: {
       if (!current) return { ok: false, error: 'Ошибка подготовки баланса' };
       const nextQty = current.qty + movement.delta;
       if (nextQty < 0) return { ok: false, error: `Недостаточно остатка для ${movement.nomenclatureId} на складе ${movement.warehouseId}` };
+      const reservedByOthers = Math.max(0, current.reservedQty - (ownReservationByKey.get(key) ?? 0));
+      if (nextQty < reservedByOthers) {
+        return { ok: false, error: `Остаток ${movement.nomenclatureId} на складе ${movement.warehouseId} зарезервирован другим документом` };
+      }
       current.qty = nextQty;
     }
 

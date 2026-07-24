@@ -1373,6 +1373,25 @@ export type MatricaApi = {
       | { ok: true; id: string; materialHash: string; shortages: import('../domain/workOrder.js').AssemblyShortageItem[] }
       | { ok: false; error: string }
     >;
+    getAssemblyShortageApproval: (args: { operationId: string }) => Promise<
+      | {
+          ok: true;
+          approval: null | {
+            id: string;
+            operationId: string;
+            materialHash: string;
+            status: 'requested' | 'approved' | 'rejected' | 'invalidated';
+            reason: string;
+            requestedBy: string;
+            requestedAt: number;
+            shortages: import('../domain/workOrder.js').AssemblyShortageItem[];
+            decidedBy?: string;
+            decidedAt?: number;
+            decisionReason?: string;
+          };
+        }
+      | { ok: false; error: string }
+    >;
     decideAssemblyShortageApproval: (args: { approvalId: string; approve: boolean; reason: string }) => Promise<
       | { ok: true; id: string; status: 'approved' | 'rejected' }
       | { ok: false; error: string }

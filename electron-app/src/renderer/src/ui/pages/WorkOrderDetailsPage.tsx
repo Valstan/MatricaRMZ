@@ -293,6 +293,7 @@ export function WorkOrderDetailsPage(props: {
   canCreateParts?: boolean;
   canCreateEmployees?: boolean;
   canCloseWorkOrders?: boolean;
+  canApproveAssemblyShortage?: boolean;
   canEditWorkshopRepairTemplates?: boolean;
   canEditWorkOrderTemplates?: boolean;
   /** Смена номера наряда — только суперадмин (чинить номера, потерянные старым багом). */
@@ -330,6 +331,14 @@ export function WorkOrderDetailsPage(props: {
     Array<{ id: string; type: 'system' | 'workshop' | 'regular'; code: string; name: string; workshopId: string | null; isActive: boolean }>
   >([]);
   const [closing, setClosing] = useState(false);
+  const [shortageApproval, setShortageApproval] = useState<null | {
+    id: string;
+    status: 'requested' | 'approved' | 'rejected' | 'invalidated';
+    reason: string;
+    shortages: Array<{ nomenclatureName: string; shortageQty: number; warehouseName: string }>;
+    decisionReason?: string;
+  }>(null);
+  const [shortageDecisionBusy, setShortageDecisionBusy] = useState(false);
   // Утильные детали дефектовки показываются как контекст и не блокируют сборку.
   const [scrapParts, setScrapParts] = useState<string[]>([]);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
@@ -976,6 +985,48 @@ export function WorkOrderDetailsPage(props: {
     };
   }, [assemblyEngineIdForScrap]);
 
+  async function loadShortageApproval() {
+    if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly || operationUpdatedAt <= 0) {
+      setShortageApproval(null);
+      return;
+    }
+    const result = await window.matrica.workOrders.getAssemblyShortageApproval({ operationId: props.id });
+    setShortageApproval(result.ok ? result.approval : null);
+  }
+
+  useEffect(() => {
+    void loadShortageApproval();
+  }, [props.id, payload?.workOrderKind, operationUpdatedAt]);
+
+  async function decideShortageApproval(approve: boolean) {
+    if (!shortageApproval || shortageDecisionBusy) return;
+    const reason = await promptText({
+      title: approve ? 'Согласовать начало работ с дефицитом' : 'Отклонить запрос',
+      detail: approve
+        ? 'Укажите основание решения. Согласование разрешает начать работу, но не создаёт отрицательный остаток и не позволяет закрыть наряд без реальных деталей.'
+        : 'Укажите причину отказа.',
+      placeholder: 'Основание решения',
+      confirmLabel: approve ? 'Согласовать' : 'Отклонить',
+      validate: (value) => value.trim() ? null : 'Укажите основание решения.',
+    });
+    if (reason == null) return;
+    setShortageDecisionBusy(true);
+    try {
+      const result = await window.matrica.workOrders.decideAssemblyShortageApproval({
+        approvalId: shortageApproval.id,
+        approve,
+        reason,
+      });
+      if (!result.ok) return void setStatus(`Ошибка согласования: ${result.error}`);
+      setStatus(approve
+        ? 'Дефицит согласован. Нажмите «Выдать и зарезервировать»: наряд будет выдан без резерва.'
+        : 'Запрос на выдачу с дефицитом отклонён.');
+      await loadShortageApproval();
+    } finally {
+      setShortageDecisionBusy(false);
+    }
+  }
+
   /**
    * Наряд «выдан в работу» ⇄ «отозван». Только выданные ремнаряды учитываются прогнозом
    * сборки как будущий приход (нитка «выдан в работу»). Сохраняется сразу (metaJson).
@@ -1007,6 +1058,7 @@ export function WorkOrderDetailsPage(props: {
           if (reason != null) {
             const requested = await window.matrica.workOrders.requestAssemblyShortageApproval({ operationId: props.id, reason });
             setStatus(requested.ok ? `Запрос согласования создан: ${requested.id.slice(0, 8)}…` : `Ошибка запроса: ${requested.error}`);
+            if (requested.ok) await loadShortageApproval();
           } else {
             setStatus('Выдача отменена: комплектовка не зарезервирована.');
           }
@@ -2781,6 +2833,32 @@ export function WorkOrderDetailsPage(props: {
       {payload.workOrderKind === WorkOrderKind.Assembly && !isClosed && scrapParts.length > 0 ? (
         <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
           ℹ️ В дефектовке отмечен утиль: {scrapParts.join(', ')}. Это сохраняется в истории ремонта и не блокирует сборочный наряд.
+        </div>
+      ) : null}
+      {payload.workOrderKind === WorkOrderKind.Assembly && !isClosed && shortageApproval ? (
+        <div style={{ marginBottom: 8, padding: '10px 12px', border: '1px solid #f59e0b', borderRadius: 8, background: '#fffbeb', color: '#78350f' }}>
+          <div style={{ fontWeight: 700 }}>
+            {shortageApproval.status === 'requested'
+              ? 'Запрошено согласование дефицита'
+              : shortageApproval.status === 'approved'
+                ? 'Дефицит согласован — резерв ещё не создан'
+                : shortageApproval.status === 'rejected'
+                  ? 'Согласование дефицита отклонено'
+                  : 'Согласование аннулировано изменением комплектовки'}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12 }}>Причина: {shortageApproval.reason}</div>
+          {shortageApproval.shortages.length > 0 ? (
+            <div style={{ marginTop: 4, fontSize: 12 }}>
+              {shortageApproval.shortages.map((line) => `${line.nomenclatureName}: −${line.shortageQty} (${line.warehouseName})`).join('; ')}
+            </div>
+          ) : null}
+          {shortageApproval.decisionReason ? <div style={{ marginTop: 4, fontSize: 12 }}>Решение: {shortageApproval.decisionReason}</div> : null}
+          {shortageApproval.status === 'requested' && props.canApproveAssemblyShortage ? (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <Button size="sm" disabled={shortageDecisionBusy} onClick={() => void decideShortageApproval(true)}>Согласовать</Button>
+              <Button size="sm" variant="outline" disabled={shortageDecisionBusy} onClick={() => void decideShortageApproval(false)}>Отклонить</Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {!isClosed && workOrderWithdrawnAt(payload as unknown as Record<string, unknown>) ? (

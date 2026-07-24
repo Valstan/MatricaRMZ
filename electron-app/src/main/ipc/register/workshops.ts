@@ -280,6 +280,13 @@ export function registerWorkshopsIpc(ctx: IpcContext) {
     return toResult(r);
   });
 
+  ipcMain.handle('workOrders:getAssemblyShortageApproval', async (_e, args: { operationId: string }) => {
+    const gate = await requirePermOrResult(ctx, 'work_orders.view');
+    if (!gate.ok) return gate as Err;
+    const r = await httpAuthed(ctx.sysDb, ctx.mgr.getApiBaseUrl(), `/work-orders/${encodeURIComponent(args.operationId)}/shortage-approval`, { method: 'GET' });
+    return toResult(r);
+  });
+
   ipcMain.handle('workOrders:decideAssemblyShortageApproval', async (_e, args: { approvalId: string; approve: boolean; reason: string }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'work_orders.assembly_shortage_approve');

@@ -13,6 +13,7 @@ import {
 import { getEngineAssemblyInProgress } from '../services/warehouseService.js';
 import {
   decideAssemblyShortageApproval,
+  getAssemblyShortageApproval,
   issueAssemblyWorkOrder,
   requestAssemblyShortageApproval,
   setWorkOrderIssued,
@@ -89,6 +90,12 @@ workOrdersRouter.post('/:operationId/shortage-request', requirePermission(Permis
   const result = await requestAssemblyShortageApproval({ operationId, reason: parsed.data.reason, actor: assemblyActorFromReq(req) });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
+});
+
+workOrdersRouter.get('/:operationId/shortage-approval', requirePermission(PermissionCode.WorkOrdersView), async (req, res) => {
+  const operationId = String(req.params.operationId || '').trim();
+  if (!operationId) return res.status(400).json({ ok: false, error: 'operationId обязателен' });
+  return res.json(await getAssemblyShortageApproval(operationId));
 });
 
 workOrdersRouter.post('/shortage-approvals/:approvalId/decision', requirePermission(PermissionCode.WorkOrdersAssemblyShortageApprove), async (req, res) => {

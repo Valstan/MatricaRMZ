@@ -166,6 +166,7 @@ export type WorkOrderConsumedLine = {
 };
 
 export type AssemblyBomSnapshot = {
+  engineBrandId: string;
   bomId: string;
   bomName: string;
   bomVersion: number;

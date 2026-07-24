@@ -50,6 +50,7 @@ export type UiCaps = {
   canViewWarehouseLocations: boolean;
   canManageWarehouseLocations: boolean;
   canCloseWorkOrders: boolean;
+  canApproveAssemblyShortage: boolean;
   canRevertWorkOrders: boolean;
   canConfirmEngineDisassemble: boolean;
   canAssemblyReturn: boolean;
@@ -111,6 +112,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canViewWarehouseLocations = has(perms, 'warehouse_locations.view');
   const canManageWarehouseLocations = has(perms, 'warehouse_locations.manage');
   const canCloseWorkOrders = has(perms, 'work_orders.close');
+  const canApproveAssemblyShortage = has(perms, 'work_orders.assembly_shortage_approve');
   const canRevertWorkOrders = has(perms, 'work_orders.revert');
   const canConfirmEngineDisassemble = has(perms, 'engines.disassemble_confirm');
   const canAssemblyReturn = has(perms, 'warehouse.assembly_return');
@@ -162,6 +164,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canViewWarehouseLocations,
     canManageWarehouseLocations,
     canCloseWorkOrders,
+    canApproveAssemblyShortage,
     canRevertWorkOrders,
     canConfirmEngineDisassemble,
     canAssemblyReturn,

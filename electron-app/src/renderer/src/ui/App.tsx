@@ -1881,6 +1881,7 @@ export function App() {
         canViewWarehouseLocations: false,
         canManageWarehouseLocations: false,
         canCloseWorkOrders: false,
+        canApproveAssemblyShortage: false,
         canRevertWorkOrders: false,
         canConfirmEngineDisassemble: false,
         canAssemblyReturn: false,
@@ -4256,7 +4257,7 @@ export function App() {
         );
       case 'work_order':
         return (
-          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenEngine={openEngine} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
+          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canApproveAssemblyShortage={caps.canApproveAssemblyShortage} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenEngine={openEngine} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
         );
       case 'contract':
         return (
@@ -4592,6 +4593,7 @@ export function App() {
             canCreateParts={caps.canCreateParts}
             canCreateEmployees={caps.canManageEmployees}
             canCloseWorkOrders={caps.canCloseWorkOrders}
+            canApproveAssemblyShortage={caps.canApproveAssemblyShortage}
             canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates}
             canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates}
             canChangeWorkOrderNumber={userRole === 'superadmin'}

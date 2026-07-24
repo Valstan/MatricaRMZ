@@ -174,6 +174,7 @@ export async function resolveAssemblyPlan(args: { engineId: string; bomId?: stri
       engineBrandId: engine.brandId,
       materialHash,
       snapshot: {
+        engineBrandId: engine.brandId,
         bomId: selected.bomId,
         bomName: selected.bomName,
         bomVersion: selected.version,
