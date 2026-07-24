@@ -14,6 +14,7 @@ import {
   attributeDefs,
   attributeValues,
   defectConductedVersions,
+  directoryParts,
   entities,
   entityTypes,
   erpNomenclature,
@@ -325,13 +326,30 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
 
   if (changedReferences.length > 0) {
     const ids = [...new Set(changedReferences.map((reference) => reference.referenceId))];
-    const rows = await db
-      .select({ id: entities.id, typeCode: entityTypes.code })
-      .from(entities)
-      .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-      .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
-    const typeById = new Map(rows.map((row) => [String(row.id), String(row.typeCode)]));
+    // Каталожные ссылки (деталь/номенклатура/изделие/услуга) резолвятся в erp_nomenclature /
+    // directory_parts, а НЕ в entities: детали мигрировали из EAV в directory_parts. Раньше гард
+    // искал ВСЕ ссылки только в entities → любой partId в наряде падал 'not_found' (регресс #319,
+    // блокировал сохранение сборочных нарядов). Заявки уже резолвили productId так же (см. выше).
+    const [entityRows, nomenRows, partRows] = await Promise.all([
+      db
+        .select({ id: entities.id, typeCode: entityTypes.code })
+        .from(entities)
+        .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+        .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt))),
+      db.select({ id: erpNomenclature.id }).from(erpNomenclature).where(and(inArray(erpNomenclature.id, ids), isNull(erpNomenclature.deletedAt))),
+      db.select({ id: directoryParts.id }).from(directoryParts).where(and(inArray(directoryParts.id, ids), isNull(directoryParts.deletedAt))),
+    ]);
+    const typeById = new Map(entityRows.map((row) => [String(row.id), String(row.typeCode)]));
+    const CATALOG_TYPES = new Set<EntityReferenceTarget>(['part', 'nomenclature', 'product', 'service']);
+    const catalogIds = new Set<string>([...nomenRows, ...partRows].map((r) => String(r.id)));
+    for (const entry of entityRows) if (CATALOG_TYPES.has(String(entry.typeCode) as EntityReferenceTarget)) catalogIds.add(String(entry.id));
     for (const reference of changedReferences) {
+      if (CATALOG_TYPES.has(reference.expectedType)) {
+        if (!catalogIds.has(reference.referenceId)) {
+          issues.push({ path: reference.path, expectedType: reference.expectedType, referenceId: reference.referenceId, reason: 'not_found' });
+        }
+        continue;
+      }
       const actualType = typeById.get(reference.referenceId);
       if (!actualType) {
         issues.push({
