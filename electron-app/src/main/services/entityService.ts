@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { ENGINE_RESERVATION_CODE } from '@matricarmz/shared';
+import {
+  ENGINE_RESERVATION_CODE,
+  collectContractEntityReferences,
+  collectSupplyRequestEntityReferences,
+  collectWorkOrderEntityReferences,
+} from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
-import type { EntityDetails, EntityListItem } from '@matricarmz/shared';
+import { attributeDefs, attributeValues, entities, entityTypes, operations, erpEngineAssemblyBomBrandLinks } from '../database/schema.js';
+import type { EntityDetails, EntityListItem, IncomingReferenceGroup } from '@matricarmz/shared';
 
 function nowMs() {
   return Date.now();
@@ -474,6 +479,161 @@ export async function getIncomingLinksForEntity(db: BetterSQLite3Database, entit
     });
 
     return { ok: true, links: cleaned };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function shortId(id: string): string {
+  return `#${String(id).slice(0, 8)}`;
+}
+
+/**
+ * Полный реверс-индекс входящих ссылок на сущность — по ВСЕМ хранилищам, а не только
+ * link-типизированным EAV (что видит findIncomingLinkRows). Закрывает дыры: массивные
+ * EAV-линки, contract_sections JSON, meta_json нарядов/заявок, junction BOM. Основа Ф1
+ * диалога намерения при удалении. Только чтение локальной реплики.
+ */
+export async function findAllIncomingReferences(
+  db: BetterSQLite3Database,
+  entityId: string,
+): Promise<{ ok: true; groups: IncomingReferenceGroup[] } | { ok: false; error: string }> {
+  try {
+    const groups: IncomingReferenceGroup[] = [];
+    const jsonId = JSON.stringify(entityId);
+
+    // 1. EAV-линки: одиночные (value_json === "id") и массивные (value_json содержит "id").
+    const linkRows = await db
+      .select({
+        fromEntityId: attributeValues.entityId,
+        valueJson: attributeValues.valueJson,
+        attributeName: attributeDefs.name,
+        fromEntityTypeId: entities.typeId,
+        fromEntityTypeName: entityTypes.name,
+      })
+      .from(attributeValues)
+      .innerJoin(attributeDefs, eq(attributeValues.attributeDefId, attributeDefs.id))
+      .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+      .innerJoin(entityTypes, eq(entities.typeId, entityTypes.id))
+      .where(
+        and(
+          isNull(attributeValues.deletedAt),
+          eq(attributeDefs.dataType, 'link'),
+          isNull(attributeDefs.deletedAt),
+          isNull(entities.deletedAt),
+          isNull(entityTypes.deletedAt),
+          or(eq(attributeValues.valueJson, jsonId), like(attributeValues.valueJson, `%${jsonId}%`)),
+        ),
+      )
+      .limit(10_000);
+    const linkByEntity = new Map<string, { typeId: string; typeName: string; paths: string[] }>();
+    for (const r of linkRows) {
+      const parsed = r.valueJson ? safeJsonParse(String(r.valueJson)) : null;
+      const hit = Array.isArray(parsed) ? parsed.map(String).includes(entityId) : String(parsed ?? '') === entityId;
+      if (!hit) continue; // LIKE мог зацепить подстроку — сверяем разбором
+      const key = String(r.fromEntityId);
+      const entry = linkByEntity.get(key) ?? { typeId: String(r.fromEntityTypeId), typeName: String(r.fromEntityTypeName), paths: [] };
+      entry.paths.push(String(r.attributeName));
+      linkByEntity.set(key, entry);
+    }
+    for (const [fromEntityId, entry] of linkByEntity) {
+      const display = await getEntityDisplayName(db, fromEntityId, entry.typeId);
+      groups.push({
+        sourceKind: 'eav_link',
+        sourceId: fromEntityId,
+        sourceLabel: display ?? shortId(fromEntityId),
+        sourceTypeLabel: entry.typeName,
+        paths: entry.paths,
+      });
+    }
+
+    // 2. Контракты (contract_sections JSON).
+    const contractDefs = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.code, 'contract_sections'), isNull(attributeDefs.deletedAt)));
+    const contractDefIds = contractDefs.map((d) => String(d.id));
+    if (contractDefIds.length > 0) {
+      const contractRows = await db
+        .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+        .from(attributeValues)
+        .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+        .where(
+          and(
+            inArray(attributeValues.attributeDefId, contractDefIds),
+            isNull(attributeValues.deletedAt),
+            isNull(entities.deletedAt),
+            like(attributeValues.valueJson, `%${jsonId}%`),
+          ),
+        )
+        .limit(10_000);
+      for (const r of contractRows) {
+        const sections = r.valueJson ? (safeJsonParse(String(r.valueJson)) as Record<string, any> | null) : null;
+        if (!sections) continue;
+        const paths = collectContractEntityReferences(sections)
+          .filter((c) => c.referenceId === entityId)
+          .map((c) => c.path);
+        if (paths.length === 0) continue;
+        const num = String(sections.primary?.internalNumber ?? sections.primary?.number ?? '').trim();
+        groups.push({
+          sourceKind: 'contract',
+          sourceId: String(r.entityId),
+          sourceLabel: num || shortId(String(r.entityId)),
+          sourceTypeLabel: 'Контракт',
+          paths,
+        });
+      }
+    }
+
+    // 3. Наряды + заявки (operations.meta_json). Ограничиваемся этими типами — акты
+    //    дефектовки (тяжёлые блобы) сюда не попадают.
+    const opRows = await db
+      .select({ id: operations.id, operationType: operations.operationType, metaJson: operations.metaJson })
+      .from(operations)
+      .where(
+        and(
+          inArray(operations.operationType, ['work_order', 'supply_request']),
+          isNull(operations.deletedAt),
+          like(operations.metaJson, `%${jsonId}%`),
+        ),
+      )
+      .limit(10_000);
+    for (const r of opRows) {
+      const meta = r.metaJson ? (safeJsonParse(String(r.metaJson)) as Record<string, any> | null) : null;
+      if (!meta) continue;
+      const isWorkOrder = String(r.operationType) === 'work_order';
+      const paths = (isWorkOrder ? collectWorkOrderEntityReferences(meta) : collectSupplyRequestEntityReferences(meta))
+        .filter((c) => c.referenceId === entityId)
+        .map((c) => c.path);
+      if (paths.length === 0) continue;
+      const num = String(meta.number ?? meta.orderNumber ?? meta.requestNumber ?? '').trim();
+      groups.push({
+        sourceKind: isWorkOrder ? 'work_order' : 'supply_request',
+        sourceId: String(r.id),
+        sourceLabel: num || shortId(String(r.id)),
+        sourceTypeLabel: isWorkOrder ? 'Наряд' : 'Заявка снабжения',
+        paths,
+      });
+    }
+
+    // 4. BOM: junction erp_engine_assembly_bom_brand_links.engine_brand_id.
+    const bomRows = await db
+      .select({ id: erpEngineAssemblyBomBrandLinks.id, bomId: erpEngineAssemblyBomBrandLinks.bomId })
+      .from(erpEngineAssemblyBomBrandLinks)
+      .where(and(eq(erpEngineAssemblyBomBrandLinks.engineBrandId, entityId), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)))
+      .limit(10_000);
+    for (const r of bomRows) {
+      groups.push({
+        sourceKind: 'bom',
+        sourceId: String(r.id),
+        sourceLabel: shortId(String(r.bomId)),
+        sourceTypeLabel: 'Спецификация BOM',
+        paths: ['engine_brand_id'],
+      });
+    }
+
+    groups.sort((a, b) => a.sourceTypeLabel.localeCompare(b.sourceTypeLabel, 'ru') || a.sourceLabel.localeCompare(b.sourceLabel, 'ru'));
+    return { ok: true, groups };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

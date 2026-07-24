@@ -605,6 +605,7 @@ import type {
 import type { FileRef } from '../domain/fileStorage.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
+import type { IncomingReferenceGroup } from '../domain/entityReference.js';
 import type { UiControlSettings } from '../domain/uiControl.js';
 import type { ReleaseWelcomeContent } from '../domain/releaseWelcome.js';
 import type { AnalyticsBucket, EngineOutputMetric, EngineOutputResult } from '../domain/analytics.js';
@@ -1048,6 +1049,9 @@ export type MatricaApi = {
       setAttr: (entityId: string, code: string, value: unknown, fallbackTypeId?: string) => Promise<{ ok: boolean; error?: string }>;
       findDuplicates: (args: { entityTypeId: string; query: { name?: string; article?: string; price?: number }; excludeEntityId?: string }) => Promise<DuplicateCandidate[]>;
       deleteInfo: (entityId: string) => Promise<EntityDeleteInfoResult>;
+      incomingReferences: (
+        entityId: string,
+      ) => Promise<{ ok: true; groups: IncomingReferenceGroup[] } | { ok: false; error: string }>;
       detachLinksAndDelete: (entityId: string) => Promise<EntityDetachLinksAndDeleteResult>;
       softDelete: (entityId: string) => Promise<{ ok: boolean; error?: string }>;
     };

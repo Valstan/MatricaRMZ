@@ -56,6 +56,26 @@ export type EntityReferenceCandidate = {
   referenceId: string;
 };
 
+/** Откуда пришла входящая ссылка на удаляемую сущность (реверс-индекс, Ф1). */
+export type IncomingReferenceSourceKind =
+  | 'eav_link'
+  | 'contract'
+  | 'work_order'
+  | 'supply_request'
+  | 'bom';
+
+export type IncomingReferenceGroup = {
+  sourceKind: IncomingReferenceSourceKind;
+  /** id записи-владельца ссылки (сущность / операция / BOM-строка). */
+  sourceId: string;
+  /** Человеческая метка записи (номер контракта, наряда, …). */
+  sourceLabel: string;
+  /** Метка типа записи для UI («Контракт», «Наряд», …). */
+  sourceTypeLabel: string;
+  /** Пути внутри записи, где стоит ссылка. */
+  paths: string[];
+};
+
 type WorkOrderReferencePayload = {
   version?: number;
   assemblyEngineId?: string | null;
@@ -104,6 +124,60 @@ export function collectWorkOrderEntityReferences(payload: WorkOrderReferencePayl
     for (const [slotIndex, slot] of (block.slots ?? []).entries()) {
       addCandidate(result, `signatureBlocks[${blockIndex}].slots[${slotIndex}].employeeId`, 'employee', slot.employeeId);
     }
+  }
+  return result;
+}
+
+type ContractSectionReferencePayload = {
+  primary?: {
+    customerId?: string | null;
+    engineBrands?: Array<{ engineBrandId?: string | null }>;
+    parts?: Array<{ partId?: string | null }>;
+  } | null;
+  addons?: Array<{
+    engineBrands?: Array<{ engineBrandId?: string | null }>;
+    parts?: Array<{ partId?: string | null }>;
+  }>;
+};
+
+/** Исходящие ссылки контракта (contract_sections JSON). Зеркало парса в contract.ts. */
+export function collectContractEntityReferences(sections: ContractSectionReferencePayload): EntityReferenceCandidate[] {
+  const result: EntityReferenceCandidate[] = [];
+  const primary = sections.primary ?? {};
+  addCandidate(result, 'primary.customerId', 'customer', primary.customerId);
+  for (const [index, row] of (primary.engineBrands ?? []).entries()) {
+    addCandidate(result, `primary.engineBrands[${index}].engineBrandId`, 'engine_brand', row.engineBrandId);
+  }
+  for (const [index, row] of (primary.parts ?? []).entries()) {
+    addCandidate(result, `primary.parts[${index}].partId`, 'part', row.partId);
+  }
+  for (const [addonIndex, addon] of (sections.addons ?? []).entries()) {
+    for (const [index, row] of (addon.engineBrands ?? []).entries()) {
+      addCandidate(result, `addons[${addonIndex}].engineBrands[${index}].engineBrandId`, 'engine_brand', row.engineBrandId);
+    }
+    for (const [index, row] of (addon.parts ?? []).entries()) {
+      addCandidate(result, `addons[${addonIndex}].parts[${index}].partId`, 'part', row.partId);
+    }
+  }
+  return result;
+}
+
+type SupplyRequestReferencePayload = {
+  departmentId?: string | null;
+  workshopId?: string | null;
+  sectionId?: string | null;
+  items?: Array<{ productId?: string | null }>;
+};
+
+/** Исходящие ссылки заявки снабжения (operations.meta_json). Зеркало entityReferenceGuard. */
+export function collectSupplyRequestEntityReferences(payload: SupplyRequestReferencePayload): EntityReferenceCandidate[] {
+  const result: EntityReferenceCandidate[] = [];
+  addCandidate(result, 'departmentId', 'department', payload.departmentId);
+  addCandidate(result, 'workshopId', 'workshop', payload.workshopId);
+  addCandidate(result, 'sectionId', 'section', payload.sectionId);
+  for (const [index, item] of (payload.items ?? []).entries()) {
+    // productId полиморфен (nomenclature/part/product/service) — реверс-индекс матчит по id.
+    addCandidate(result, `items[${index}].productId`, 'nomenclature', item.productId);
   }
   return result;
 }
