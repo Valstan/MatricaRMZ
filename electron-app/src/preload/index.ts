@@ -237,6 +237,7 @@ const matricaApi = {
       findDuplicates: async (args: { entityTypeId: string; query: { name?: string; article?: string; inn?: string; price?: number }; excludeEntityId?: string }) =>
         ipcRenderer.invoke('admin:entities:findDuplicates', args),
       deleteInfo: async (entityId: string) => ipcRenderer.invoke('admin:entities:deleteInfo', entityId),
+      incomingReferences: async (entityId: string) => ipcRenderer.invoke('admin:entities:incomingReferences', entityId),
       detachLinksAndDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:detachLinksAndDelete', entityId),
       softDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:softDelete', entityId),
     },

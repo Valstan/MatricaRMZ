@@ -17,6 +17,7 @@ import {
 import {
   createEntity,
   detachIncomingLinksAndSoftDeleteEntity,
+  findAllIncomingReferences,
   findDuplicateEntities,
   getEntityDetails,
   getIncomingLinksForEntity,
@@ -180,6 +181,11 @@ export function registerAdminIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'masterdata.edit');
     if (!gate.ok) return gate as any;
     return getIncomingLinksForEntity(ctx.dataDb(), entityId);
+  });
+  ipcMain.handle('admin:entities:incomingReferences', async (_e, entityId: string) => {
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as any;
+    return findAllIncomingReferences(ctx.dataDb(), entityId);
   });
   ipcMain.handle('admin:entities:detachLinksAndDelete', async (_e, entityId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;

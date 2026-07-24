@@ -169,6 +169,7 @@ const ENTITY_ARG_CHANNELS = new Set([
   'admin:entities:setAttr',
   'admin:entities:softDelete',
   'admin:entities:deleteInfo',
+  'admin:entities:incomingReferences',
   'admin:entities:detachLinksAndDelete',
 ]);
 // Мутирующее подмножество generic admin:* каналов (Ф3 — требуют editor).
