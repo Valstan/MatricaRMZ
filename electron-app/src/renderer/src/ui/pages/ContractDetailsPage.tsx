@@ -569,7 +569,7 @@ function SectionBlock(props: {
             <label className="ui-muted">Марки двигателей</label>
             {canEdit && (
               <Button variant="ghost" size="sm" onClick={addEngineBrand}>
-                + Строка
+                + Добавить марку двигателя
               </Button>
             )}
           </div>
@@ -592,7 +592,9 @@ function SectionBlock(props: {
               </thead>
               <tbody>
                 {section.engineBrands.map((row, idx) => {
-                  const label = engineBrandOptions.find((o) => o.id === row.engineBrandId)?.label ?? (row.engineBrandId || '—');
+                  const resolved = engineBrandOptions.find((o) => o.id === row.engineBrandId)?.label ?? null;
+                  const dangling = !resolved && Boolean(row.engineBrandId) && engineBrandOptions.length > 0;
+                  const label = resolved ?? (row.engineBrandId ? '⚠ марка удалена' : '—');
                   return (
                     <tr key={idx}>
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
@@ -616,7 +618,7 @@ function SectionBlock(props: {
                               {...(onOpenEngineBrand ? { onOpen: onOpenEngineBrand } : {})}
                             />
                           ) : (
-                            <span>{label}</span>
+                            <span style={dangling ? { color: 'var(--danger, #b91c1c)' } : undefined}>{label}</span>
                           )}
                         </div>
                       </td>

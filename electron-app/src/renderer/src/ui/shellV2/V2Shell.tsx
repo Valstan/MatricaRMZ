@@ -2,7 +2,6 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator, type Layout } from 'react-resizable-panels';
 import { V2_COLUMN_IDS, type V2ColumnId, type V2Prefs } from '@matricarmz/shared';
 
-import { useUiMode } from '../hooks/useUiMode.js';
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { ButtonPanel } from './ButtonPanel.js';
 import { V2_LIST_TABS, buildV2Buttons } from './v2ButtonCatalog.js';
@@ -27,6 +26,8 @@ export function V2Shell(props: {
   prefs: V2Prefs;
   onPrefsChange: (next: V2Prefs) => void;
   availableTabs: MenuTabId[];
+  /** Сузить меню до операторского пресета: только на реальном планшете и не для суперадмина. */
+  tabletOperatorMenu: boolean;
   menuLabels: Partial<Record<MenuTabId, string>>;
   tab: TabId;
   activeListTab: TabId | null;
@@ -55,10 +56,9 @@ export function V2Shell(props: {
   const [dragCol, setDragCol] = useState<V2ColumnId | null>(null);
   const [dropHint, setDropHint] = useState<{ target: V2ColumnId; side: 'before' | 'after' } | null>(null);
 
-  const { isTabletUi } = useUiMode();
   const buttons = useMemo(
-    () => buildV2Buttons(props.availableTabs, props.menuLabels, prefs.buttonLayout, isTabletUi),
-    [props.availableTabs, props.menuLabels, prefs.buttonLayout, isTabletUi],
+    () => buildV2Buttons(props.availableTabs, props.menuLabels, prefs.buttonLayout, props.tabletOperatorMenu),
+    [props.availableTabs, props.menuLabels, prefs.buttonLayout, props.tabletOperatorMenu],
   );
 
   // Рабочая область показывает карточку/страницу; если фокус на списке — заглушку.
