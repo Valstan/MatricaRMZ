@@ -266,7 +266,13 @@ export async function conductDefect(args: DefectConductRequest & { actor: Actor 
 
       const removedInstanceOperationIds: string[] = [];
       if (active) {
-        const priorInstances = await tx.select({ id: defectPartInstances.id }).from(defectPartInstances).where(eq(defectPartInstances.currentVersionId, active.id));
+        const priorInstances = await tx
+          .select({ id: defectPartInstances.id, reservedDocumentId: defectPartInstances.reservedDocumentId })
+          .from(defectPartInstances)
+          .where(eq(defectPartInstances.currentVersionId, active.id));
+        if (priorInstances.some((item) => item.reservedDocumentId)) {
+          throw new Error('Перепроведение заблокировано: номерной экземпляр уже зарезервирован сборочным нарядом');
+        }
         removedInstanceOperationIds.push(...priorInstances.map((item) => String(item.id)));
         await tx.update(defectConductedVersions).set({ status: 'reversed', reversedAt: now }).where(eq(defectConductedVersions.id, active.id));
         await tx.update(defectPartInstances).set({ currentStatus: 'reversed', currentLocationId: null, updatedAt: now }).where(eq(defectPartInstances.currentVersionId, active.id));
@@ -328,6 +334,9 @@ export async function conductDefect(args: DefectConductRequest & { actor: Actor 
           const existing = existingRows[0];
           if (existing && String(existing.sourceEngineId) !== engineId) {
             throw new Error(`Личный номер «${line.stampedNumber}» уже принадлежит другой детали этой номенклатуры`);
+          }
+          if (existing?.reservedDocumentId) {
+            throw new Error(`Личный номер «${line.stampedNumber}» уже зарезервирован сборочным нарядом`);
           }
           const state = initialStatus(line);
           instanceId = existing ? String(existing.id) : randomUUID();
@@ -422,4 +431,55 @@ export async function listDefectPartHistory(engineId: string) {
       eventType: String(row.eventType), qty: Number(row.qty), payload, occurredAt: Number(row.occurredAt), occurredBy: String(row.occurredBy),
     };
   }) };
+}
+
+export async function listAvailableDefectPartInstances(args: { nomenclatureIds: string[] }) {
+  const nomenclatureIds = [...new Set(args.nomenclatureIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (nomenclatureIds.length === 0) return { ok: true as const, instances: [] };
+  const rows = await db
+    .select()
+    .from(defectPartInstances)
+    .where(
+      and(
+        inArray(defectPartInstances.nomenclatureId, nomenclatureIds),
+        inArray(defectPartInstances.currentStatus, ['in_fund', 'repaired', 'returned_from_assembly']),
+      ),
+    )
+    .orderBy(defectPartInstances.serialDisplay);
+  return {
+    ok: true as const,
+    instances: rows.map((row) => ({
+      id: String(row.id),
+      nomenclatureId: String(row.nomenclatureId),
+      serialDisplay: row.serialDisplay,
+      sourceEngineId: String(row.sourceEngineId),
+      currentLocationId: row.currentLocationId ? String(row.currentLocationId) : null,
+      currentStatus: row.currentStatus,
+      currentVersionId: String(row.currentVersionId),
+      reservedDocumentId: row.reservedDocumentId ? String(row.reservedDocumentId) : null,
+    })),
+  };
+}
+
+export async function listIssuedDefectPartInstances(engineId: string) {
+  const issuedEvents = await db
+    .select({ instanceId: defectPartEvents.instanceId })
+    .from(defectPartEvents)
+    .where(and(eq(defectPartEvents.engineId, engineId), eq(defectPartEvents.eventType, 'issued_to_assembly')));
+  const ids = [...new Set(issuedEvents.map((event) => String(event.instanceId ?? '')).filter(Boolean))];
+  if (ids.length === 0) return { ok: true as const, instances: [] };
+  const rows = await db
+    .select()
+    .from(defectPartInstances)
+    .where(and(inArray(defectPartInstances.id, ids), eq(defectPartInstances.currentStatus, 'issued_to_assembly')))
+    .orderBy(defectPartInstances.serialDisplay);
+  return {
+    ok: true as const,
+    instances: rows.map((row) => ({
+      id: String(row.id), nomenclatureId: String(row.nomenclatureId), serialDisplay: row.serialDisplay,
+      sourceEngineId: String(row.sourceEngineId), currentLocationId: row.currentLocationId ? String(row.currentLocationId) : null,
+      currentStatus: row.currentStatus, currentVersionId: String(row.currentVersionId),
+      reservedDocumentId: row.reservedDocumentId ? String(row.reservedDocumentId) : null,
+    })),
+  };
 }

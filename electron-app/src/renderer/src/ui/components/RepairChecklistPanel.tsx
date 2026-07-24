@@ -713,6 +713,45 @@ export function RepairChecklistPanel(props: {
     openEngineInventoryPrintWindow(buildEngineRequirementHtml({ ...header, instances: requirementInstances }));
   }
 
+  function printDefectHistoryAttachment() {
+    const materialEvents = defectPartHistory.filter((event) =>
+      ['classified_scrap', 'replacement_required', 'repaired', 'purchased', 'customer_supplied', 'issued_to_assembly', 'returned_from_assembly', 'written_off_again']
+        .includes(event.eventType),
+    );
+    if (materialEvents.length === 0) return;
+    const bySource = new Map<string, DefectPartHistoryEvent[]>();
+    for (const event of defectPartHistory) {
+      const rows = bySource.get(event.sourceLineId) ?? [];
+      rows.push(event);
+      bySource.set(event.sourceLineId, rows);
+    }
+    const rows = [...bySource.values()]
+      .filter((events) => events.some((event) => materialEvents.some((material) => material.id === event.id)))
+      .map((events) => {
+        const ordered = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
+        const source = ordered.find((event) => event.payload?.partLabel || event.payload?.stampedNumber) ?? ordered[0]!;
+        const documents = [...new Set(ordered.flatMap((event) => [
+          String(event.payload?.documentId ?? '').trim(),
+          String(event.payload?.workOrderOperationId ?? event.payload?.workOrderId ?? '').trim(),
+        ]).filter(Boolean))];
+        const installed = [...ordered].reverse().find((event) => event.eventType === 'issued_to_assembly');
+        return `<tr>
+          <td>${escapeHtml(String(source.payload?.partLabel ?? source.nomenclatureId))}${source.payload?.stampedNumber ? `<br>№ ${escapeHtml(String(source.payload.stampedNumber))}` : ''}</td>
+          <td>${escapeHtml(String(source.payload?.defectDescription ?? '—'))}</td>
+          <td>${escapeHtml(ordered.map((event) => defectEventLabel(event.eventType)).join(' → '))}</td>
+          <td>${documents.length > 0 ? documents.map(escapeHtml).join('<br>') : '—'}</td>
+          <td>${installed ? escapeHtml(String(installed.payload?.partLabel ?? source.payload?.partLabel ?? source.nomenclatureId)) : '—'}</td>
+        </tr>`;
+      })
+      .join('');
+    openEngineInventoryPrintWindow(`<!doctype html><html><head><meta charset="utf-8"><title>История деталей</title>
+      <style>body{font-family:Arial,sans-serif;padding:18mm;font-size:12px}h1{font-size:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:6px;vertical-align:top}th{background:#eee}@media print{button{display:none}}</style>
+      </head><body><button onclick="window.print()">Печать</button><h1>Приложение: история ремонта деталей</h1>
+      <p><b>Двигатель:</b> ${escapeHtml(String(props.engineBrand ?? ''))} ${escapeHtml(String(props.engineNumber ?? ''))}</p>
+      <table><thead><tr><th>Исходная деталь</th><th>Дефект / утиль</th><th>Восстановление или замена</th><th>Документы-основания</th><th>Установленная деталь</th></tr></thead><tbody>${rows}</tbody></table>
+      </body></html>`);
+  }
+
   function printRequirementVersion(v: RepairFundRequirementVersionRecord) {
     openEngineInventoryPrintWindow(buildEngineRequirementHtml({ ...v.header, instances: v.instances, printedAt: v.printedAt }));
   }
@@ -3099,6 +3138,11 @@ export function RepairChecklistPanel(props: {
           <Button variant="ghost" onClick={() => setDefectHistoryOpen((value) => !value)}>
             {`История деталей (${defectPartHistory.length}) ${defectHistoryOpen ? '▲' : '▼'}`}
           </Button>
+          {props.canPrint && defectPartHistory.some((event) =>
+            ['classified_scrap', 'replacement_required', 'repaired', 'purchased', 'customer_supplied', 'issued_to_assembly', 'returned_from_assembly', 'written_off_again'].includes(event.eventType),
+          ) ? (
+            <Button size="sm" variant="outline" onClick={printDefectHistoryAttachment}>Печать приложения</Button>
+          ) : null}
           {defectHistoryOpen ? (
             <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
               {defectPartHistory.map((event) => (

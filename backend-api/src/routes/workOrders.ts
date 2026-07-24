@@ -160,6 +160,7 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
           nomenclatureId: z.string().uuid(),
           qty: z.number().int().positive(),
           mode: z.enum(['rework', 'scrap']),
+          instanceIds: z.array(z.string().uuid()).optional(),
         }),
       )
       .min(1),
@@ -172,7 +173,12 @@ workOrdersRouter.post('/assembly-return', requirePermission(PermissionCode.Wareh
     engineId: parsed.data.engineId,
     ...(parsed.data.reason !== undefined ? { reason: parsed.data.reason } : {}),
     ...(parsed.data.docDate !== undefined ? { docDate: parsed.data.docDate } : {}),
-    lines: parsed.data.lines,
+    lines: parsed.data.lines.map((line) => ({
+      nomenclatureId: line.nomenclatureId,
+      qty: line.qty,
+      mode: line.mode,
+      ...(line.instanceIds !== undefined ? { instanceIds: line.instanceIds } : {}),
+    })),
     actor: {
       id: String(user.id ?? ''),
       username: String(user.username ?? 'unknown'),

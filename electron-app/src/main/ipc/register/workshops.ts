@@ -329,7 +329,7 @@ export function registerWorkshopsIpc(ctx: IpcContext) {
     engineId: string;
     reason?: string | null;
     docDate?: number;
-    lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+    lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap'; instanceIds?: string[] }>;
   }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'warehouse.assembly_return');

@@ -7,7 +7,13 @@ import { SYNTHETIC_NOMENCLATURE_CODE_REJECT, isSyntheticNomenclatureCode } from 
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { intakeRepairFundFromEngine, intakeScrapFromEngine, previewRepairFundIntakeFromEngine, previewScrapIntakeFromEngine } from '../services/repairFundService.js';
-import { conductDefect, listDefectConductedVersions, listDefectPartHistory } from '../services/defectConductService.js';
+import {
+  conductDefect,
+  listAvailableDefectPartInstances,
+  listIssuedDefectPartInstances,
+  listDefectConductedVersions,
+  listDefectPartHistory,
+} from '../services/defectConductService.js';
 import { captureStampedInstancesFromEngine, setStampedInstanceRepaired } from '../services/repairFundInstanceService.js';
 import {
   cancelWarehouseDocument,
@@ -1187,6 +1193,21 @@ warehouseRouter.get('/defects/:engineId/history', requirePermission(PermissionCo
   const engineId = String(req.params.engineId || '').trim();
   if (!engineId) return res.status(400).json({ ok: false, error: 'engineId обязателен' });
   return res.json(await listDefectPartHistory(engineId));
+});
+
+warehouseRouter.get('/defects/instances/available', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const parsed = z.object({ nomenclatureIds: z.string().default('') }).safeParse(req.query ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listAvailableDefectPartInstances({
+    nomenclatureIds: parsed.data.nomenclatureIds.split(',').map((id) => id.trim()).filter(Boolean),
+  });
+  return res.json(result);
+});
+
+warehouseRouter.get('/defects/:engineId/issued-instances', requirePermission(PermissionCode.ErpRegistersView), async (req, res) => {
+  const engineId = String(req.params.engineId ?? '').trim();
+  if (!engineId) return res.status(400).json({ ok: false, error: 'engineId обязателен' });
+  return res.json(await listIssuedDefectPartInstances(engineId));
 });
 
 // Ф3 forecast-remfond-aware: read-only превью дельты заноса (бейдж «дефектовка не занесена»).

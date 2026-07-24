@@ -1424,7 +1424,7 @@ export type MatricaApi = {
       reason?: string | null;
       /** Операционная дата документа (учёт «задним числом»); по умолчанию — сейчас. */
       docDate?: number;
-      lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+      lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap'; instanceIds?: string[] }>;
     }) => Promise<
       { ok: true; documentId: string; posted: boolean; docNo?: string; docDate?: number } | { ok: false; error: string }
     >;
@@ -1952,6 +1952,14 @@ export type MatricaApi = {
     >;
     defectHistory: (engineId: string) => Promise<
       | { ok: true; events: import('../domain/defectLifecycle.js').DefectPartHistoryEvent[] }
+      | { ok: false; error: string }
+    >;
+    defectAvailableInstances: (nomenclatureIds: string[]) => Promise<
+      | { ok: true; instances: import('../domain/defectLifecycle.js').DefectPartInstanceSummary[] }
+      | { ok: false; error: string }
+    >;
+    defectIssuedInstances: (engineId: string) => Promise<
+      | { ok: true; instances: import('../domain/defectLifecycle.js').DefectPartInstanceSummary[] }
       | { ok: false; error: string }
     >;
     repairNormGet: (id: string) => Promise<{ ok: true; normSet: RepairNormSetDetails } | { ok: false; error: string }>;

@@ -1697,6 +1697,39 @@ export async function warehouseDefectHistory(db: BetterSQLite3Database, apiBaseU
   }
 }
 
+export async function warehouseDefectAvailableInstances(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  nomenclatureIds: string[],
+) {
+  const qp = new URLSearchParams({ nomenclatureIds: nomenclatureIds.join(',') });
+  const path = `/warehouse/defects/instances/available?${qp.toString()}`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export async function warehouseDefectIssuedInstances(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  engineId: string,
+) {
+  const path = `/warehouse/defects/${encodeURIComponent(engineId)}/issued-instances`;
+  try {
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
+    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    return { ok: true as const, ...(r.json as Record<string, unknown>) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
 export async function warehouseRepairNormList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

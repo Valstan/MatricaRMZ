@@ -43,6 +43,8 @@ import {
   warehouseDefectConduct,
   warehouseDefectVersions,
   warehouseDefectHistory,
+  warehouseDefectAvailableInstances,
+  warehouseDefectIssuedInstances,
   warehouseScrapIntake,
   warehouseScrapIntakePreview,
   warehouseRepairFundCaptureInstances,
@@ -577,6 +579,18 @@ export function registerErpIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.documents.view');
     if (!gate.ok) return gate as any;
     return warehouseDefectHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:defects:availableInstances', async (_e, nomenclatureIds: string[]) => {
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectAvailableInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), nomenclatureIds);
+  });
+
+  ipcMain.handle('warehouse:defects:issuedInstances', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectIssuedInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
   });
 
   ipcMain.handle('warehouse:repairNorm:list', async (_e, args?: { engineBrandId?: string; status?: string }) => {

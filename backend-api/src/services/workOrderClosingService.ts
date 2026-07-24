@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, eq, isNull, inArray } from 'drizzle-orm';
+import { and, desc, eq, isNull, inArray } from 'drizzle-orm';
 
 import {
   AssemblyReturnMode,
@@ -22,7 +22,14 @@ import {
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { directoryWorkshops, erpDocumentHeaders, erpNomenclature, operations } from '../database/schema.js';
+import {
+  defectPartEvents,
+  defectPartInstances,
+  directoryWorkshops,
+  erpDocumentHeaders,
+  erpNomenclature,
+  operations,
+} from '../database/schema.js';
 import { EnginePhase, setEnginePhase } from './enginePhaseService.js';
 import {
   cancelWarehouseDocument,
@@ -31,6 +38,7 @@ import {
   postWarehouseDocument,
   releaseAssemblyDraftReservation,
   reserveAssemblyDraftReservation,
+  resolveLocationIdFromPayloadValue,
 } from './warehouseService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
@@ -640,7 +648,7 @@ export async function postAssemblyReturn(args: {
    * performedAt), и back-dating физического движения сломал бы цепочку целостности.
    */
   docDate?: number;
-  lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap' }>;
+  lines: Array<{ nomenclatureId: string; qty: number; mode: 'rework' | 'scrap'; instanceIds?: string[] }>;
 }): Promise<Result<{ documentId: string; posted: boolean; docNo: string; docDate: number }>> {
   try {
     if (!args.engineId) return { ok: false, error: 'engineId обязателен' };
@@ -651,6 +659,9 @@ export async function postAssemblyReturn(args: {
         return { ok: false, error: `Некорректный режим возврата: ${line.mode}` };
       }
     }
+    const { validateAssemblyReturnInstances } = await import('./defectHistoryService.js');
+    const instanceValidation = await validateAssemblyReturnInstances({ engineId: args.engineId, lines });
+    if (!instanceValidation.ok) return instanceValidation;
 
     const ts = nowMs();
     const docDate = args.docDate && Number.isFinite(args.docDate) && args.docDate > 0 ? Math.trunc(args.docDate) : ts;
@@ -675,6 +686,7 @@ export async function postAssemblyReturn(args: {
           engineId: args.engineId,
           returnMode: line.mode,
           targetLocation: line.mode === AssemblyReturnMode.Rework ? WAREHOUSE_LOCATION_REPAIR_FUND : 'scrap',
+          ...(line.instanceIds && line.instanceIds.length > 0 ? { instanceIds: line.instanceIds } : {}),
         }),
       })),
       actor: args.actor,
@@ -684,6 +696,14 @@ export async function postAssemblyReturn(args: {
 
     const posted = await postWarehouseDocument({ documentId, actor: args.actor });
     if (!posted.ok) return { ok: false, error: `Не удалось провести возврат: ${posted.error}` };
+    const { recordAssemblyReturnInstances } = await import('./defectHistoryService.js');
+    const history = await recordAssemblyReturnInstances({
+      engineId: args.engineId,
+      documentId,
+      lines,
+      actor: args.actor,
+    });
+    if (!history.ok) return { ok: false, error: `Документ проведён, но история экземпляров не обновлена: ${history.error}` };
 
     return { ok: true, documentId, posted: true, docNo, docDate };
   } catch (e) {
@@ -739,13 +759,23 @@ async function loadAssemblyOperation(args: { operationId: string; expectedUpdate
   return { ok: true, op, rawPayload, v3, engineId };
 }
 
+type AssemblyDocLine = {
+  qty: number;
+  nomenclatureId: string;
+  sourceWarehouseId: string;
+  instanceIds: string[];
+  payloadJson: string;
+};
+
 /** Собирает cleanLines (qty>0, nomenclatureId) для assembly_consumption. */
 function buildAssemblyDocLines(args: {
   v3: ReturnType<typeof normalizeWorkOrderPayloadV3Fields>;
   rawPayload: Record<string, unknown>;
   workshopWh: string;
   engineId: string;
-}): Result<{ lines: Array<{ qty: number; nomenclatureId: string; payloadJson: string }> }> {
+}): Result<{
+  lines: AssemblyDocLine[];
+}> {
   const workLines = collectWorkLines(args.rawPayload);
   const consumed =
     args.v3.consumedLines && args.v3.consumedLines.length > 0
@@ -764,13 +794,17 @@ function buildAssemblyDocLines(args: {
   const lineInputs = consumed.map((line) => {
     const trimmed = String(line.sourceWarehouseId ?? '').trim();
     const sourceWarehouseId = trimmed.length > 0 ? trimmed : args.workshopWh;
+    const instanceIds = [...new Set((line.instanceIds ?? []).map((id) => String(id).trim()).filter(Boolean))];
     return {
       qty: Math.max(0, Math.trunc(line.qty)),
       nomenclatureId: line.nomenclatureId,
+      sourceWarehouseId,
+      instanceIds,
       payloadJson: JSON.stringify({
         nomenclatureId: line.nomenclatureId,
         sourceWarehouseId,
         engineId: args.engineId,
+        ...(instanceIds.length > 0 ? { instanceIds } : {}),
       }),
     };
   });
@@ -778,7 +812,132 @@ function buildAssemblyDocLines(args: {
   if (cleanLines.length === 0) {
     return { ok: false, error: 'Все строки наряда нулевой или пустые — нечего сохранять' };
   }
+  const duplicateInstanceIds = cleanLines
+    .flatMap((line) => line.instanceIds)
+    .filter((instanceId, index, all) => all.indexOf(instanceId) !== index);
+  if (duplicateInstanceIds.length > 0) {
+    return { ok: false, error: `Один номерной экземпляр выбран в нескольких строках: ${duplicateInstanceIds[0]}` };
+  }
+  const overfilled = cleanLines.find((line) => line.instanceIds.length > line.qty);
+  if (overfilled) {
+    return { ok: false, error: 'Количество выбранных номерных экземпляров превышает количество в строке' };
+  }
   return { ok: true, lines: cleanLines };
+}
+
+async function releaseDefectInstanceReservations(documentId: string): Promise<void> {
+  await db
+    .update(defectPartInstances)
+    .set({ reservedDocumentId: null, reservedAt: null, updatedAt: nowMs() })
+    .where(eq(defectPartInstances.reservedDocumentId, documentId));
+}
+
+async function reserveDefectInstances(args: { documentId: string; lines: AssemblyDocLine[] }): Promise<Result<{}>> {
+  const selections = args.lines.flatMap((line) => line.instanceIds.map((id) => ({ id, line })));
+  if (selections.length === 0) return { ok: true };
+  const locationIds = new Map<string, string>();
+  for (const { line } of selections) {
+    if (locationIds.has(line.sourceWarehouseId)) continue;
+    const locationId = await resolveLocationIdFromPayloadValue(line.sourceWarehouseId);
+    if (!locationId) return { ok: false, error: `Склад строки не найден: ${line.sourceWarehouseId}` };
+    locationIds.set(line.sourceWarehouseId, locationId);
+  }
+  try {
+    await db.transaction(async (tx) => {
+      const ids = selections.map((selection) => selection.id);
+      const rows = await tx
+        .select()
+        .from(defectPartInstances)
+        .where(inArray(defectPartInstances.id, ids))
+        .for('update');
+      const byId = new Map(rows.map((row) => [String(row.id), row]));
+      for (const { id, line } of selections) {
+        const instance = byId.get(id);
+        if (!instance) throw new Error(`Номерной экземпляр не найден: ${id}`);
+        if (String(instance.nomenclatureId) !== line.nomenclatureId) {
+          throw new Error(`Номерной экземпляр ${instance.serialDisplay} относится к другой номенклатуре`);
+        }
+        if (!['in_fund', 'repaired', 'returned_from_assembly'].includes(String(instance.currentStatus))) {
+          throw new Error(`Экземпляр ${instance.serialDisplay} недоступен: статус ${instance.currentStatus}`);
+        }
+        if (String(instance.currentLocationId ?? '') !== locationIds.get(line.sourceWarehouseId)) {
+          throw new Error(`Экземпляр ${instance.serialDisplay} находится на другом складе`);
+        }
+        if (instance.reservedDocumentId && String(instance.reservedDocumentId) !== args.documentId) {
+          throw new Error(`Экземпляр ${instance.serialDisplay} уже зарезервирован другим нарядом`);
+        }
+      }
+      await tx
+        .update(defectPartInstances)
+        .set({ reservedDocumentId: args.documentId, reservedAt: nowMs(), updatedAt: nowMs() })
+        .where(inArray(defectPartInstances.id, ids));
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function consumeDefectInstances(args: {
+  documentId: string;
+  operationId: string;
+  engineId: string;
+  lines: AssemblyDocLine[];
+  actor: Actor;
+}): Promise<Result<{}>> {
+  const ids = [...new Set(args.lines.flatMap((line) => line.instanceIds))];
+  if (ids.length === 0) return { ok: true };
+  try {
+    await db.transaction(async (tx) => {
+      const rows = await tx.select().from(defectPartInstances).where(inArray(defectPartInstances.id, ids)).for('update');
+      const byId = new Map(rows.map((row) => [String(row.id), row]));
+      for (const id of ids) {
+        const instance = byId.get(id);
+        if (!instance) throw new Error(`Номерной экземпляр не найден: ${id}`);
+        const latestEvents = await tx
+          .select()
+          .from(defectPartEvents)
+          .where(eq(defectPartEvents.instanceId, id))
+          .orderBy(desc(defectPartEvents.occurredAt))
+          .limit(1);
+        const latest = latestEvents[0];
+        if (String(instance.currentStatus) === 'issued_to_assembly' && !instance.reservedDocumentId) {
+          let latestDocumentId = '';
+          try {
+            latestDocumentId = String(latest?.payloadJson ? (JSON.parse(latest.payloadJson) as Record<string, unknown>).documentId ?? '' : '');
+          } catch {
+            latestDocumentId = '';
+          }
+          if (latestDocumentId === args.documentId) continue;
+          throw new Error(`Экземпляр ${instance.serialDisplay} уже выдан в другую сборку`);
+        }
+        if (String(instance.reservedDocumentId ?? '') !== args.documentId) {
+          throw new Error(`Резерв экземпляра ${instance.serialDisplay} не принадлежит этому наряду`);
+        }
+        if (!latest) throw new Error(`Для экземпляра ${instance.serialDisplay} отсутствует исходная история дефектовки`);
+        await tx.insert(defectPartEvents).values({
+          id: randomUUID(),
+          engineId: args.engineId,
+          conductedVersionId: instance.currentVersionId,
+          sourceLineId: latest.sourceLineId,
+          nomenclatureId: instance.nomenclatureId,
+          instanceId: instance.id,
+          eventType: 'issued_to_assembly',
+          qty: 1,
+          payloadJson: JSON.stringify({ documentId: args.documentId, workOrderId: args.operationId, sourceEngineId: instance.sourceEngineId }),
+          occurredAt: nowMs(),
+          occurredBy: args.actor.id,
+        });
+        await tx
+          .update(defectPartInstances)
+          .set({ currentStatus: 'issued_to_assembly', currentLocationId: null, reservedDocumentId: null, reservedAt: null, updatedAt: nowMs() })
+          .where(eq(defectPartInstances.id, instance.id));
+      }
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /**
@@ -834,10 +993,12 @@ export async function saveAssemblyWorkOrderDraft(args: {
       } else if (String(docRow.status) === 'posted') {
         return { ok: false, error: 'Связанный складской документ уже проведён — сохранение недоступно' };
       } else if (String(docRow.status) === 'cancelled') {
+        await releaseDefectInstanceReservations(documentId);
         documentId = null;
       } else {
         const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor });
         if (!released.ok) return { ok: false, error: `Не удалось снять старый резерв: ${released.error}` };
+        await releaseDefectInstanceReservations(documentId);
       }
     }
 
@@ -873,6 +1034,11 @@ export async function saveAssemblyWorkOrderDraft(args: {
 
     const reserved = await reserveAssemblyDraftReservation({ documentId, actor: args.actor });
     if (!reserved.ok) return { ok: false, error: `Не удалось зарезервировать детали: ${reserved.error}` };
+    const instanceReserved = await reserveDefectInstances({ documentId, lines: cleanLines });
+    if (!instanceReserved.ok) {
+      await releaseAssemblyDraftReservation({ documentId, actor: args.actor });
+      return { ok: false, error: `Не удалось зарезервировать номерные экземпляры: ${instanceReserved.error}` };
+    }
 
     const updatedPayload: Record<string, unknown> = {
       ...rawPayload,
@@ -921,6 +1087,11 @@ export async function postAssemblyWorkOrder(args: {
       return { ok: false, error: 'Сначала сохраните наряд как черновик (saveAssemblyWorkOrderDraft)' };
     }
     const documentId = v3.linkedDocumentId;
+    if (!engineId || !v3.workshopId) return { ok: false, error: 'У сборочного наряда не заданы двигатель или цех' };
+    const workshopWh = await resolveWorkshopWarehouseId(v3.workshopId);
+    if (!workshopWh) return { ok: false, error: 'Указанный цех не найден или не активен' };
+    const linesResult = buildAssemblyDocLines({ v3, rawPayload, workshopWh, engineId });
+    if (!linesResult.ok) return linesResult;
 
     if (String(op.status) === 'closed') {
       return { ok: true, operationId: args.operationId, documentId, posted: true, updatedAt: Number(op.updatedAt) || nowMs() };
@@ -933,18 +1104,25 @@ export async function postAssemblyWorkOrder(args: {
       .limit(1);
     const docRow = docRows[0];
     if (!docRow) return { ok: false, error: 'Связанный документ не найден' };
-    if (String(docRow.status) === 'posted') {
-      const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor, outcome: 'consumed' });
-      if (!released.ok) return { ok: false, error: `Документ проведён, но не удалось закрыть его резерв: ${released.error}` };
-    } else if (String(docRow.status) !== 'draft') {
+    if (String(docRow.status) !== 'posted' && String(docRow.status) !== 'draft') {
       return { ok: false, error: `Документ в статусе ${String(docRow.status)} — провести нельзя` };
-    } else {
+    }
+    if (String(docRow.status) === 'draft') {
       const posted = await postWarehouseDocument({ documentId, actor: args.actor });
       if (!posted.ok) return { ok: false, error: `Не удалось провести документ: ${posted.error}` };
-
-      const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor, outcome: 'consumed' });
-      if (!released.ok) return { ok: false, error: `Документ проведён, но не удалось закрыть его резерв: ${released.error}` };
     }
+    const instancesConsumed = await consumeDefectInstances({
+      documentId,
+      operationId: args.operationId,
+      engineId,
+      lines: linesResult.lines,
+      actor: args.actor,
+    });
+    if (!instancesConsumed.ok) {
+      return { ok: false, error: `Документ проведён, но не удалось выдать номерные экземпляры: ${instancesConsumed.error}` };
+    }
+    const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor, outcome: 'consumed' });
+    if (!released.ok) return { ok: false, error: `Документ проведён, но не удалось закрыть его резерв: ${released.error}` };
 
     const updatedPayload: Record<string, unknown> = {
       ...rawPayload,
@@ -1020,10 +1198,12 @@ export async function deleteAssemblyWorkOrderDraft(args: {
     if (docRow && String(docRow.status) === 'draft') {
       const released = await releaseAssemblyDraftReservation({ documentId, actor: args.actor });
       if (!released.ok) return { ok: false, error: `Не удалось снять резерв: ${released.error}` };
+      await releaseDefectInstanceReservations(documentId);
       const cancelled = await cancelWarehouseDocument({ documentId, actor: args.actor });
       if (!cancelled.ok) return { ok: false, error: `Не удалось отменить документ: ${cancelled.error}` };
     } else if (docRow && String(docRow.status) === 'cancelled') {
       // Уже cancelled — продолжаем убирать ссылку из наряда.
+      await releaseDefectInstanceReservations(documentId);
     } else if (docRow && String(docRow.status) === 'posted') {
       return { ok: false, error: 'Связанный документ уже проведён — удаление черновика невозможно' };
     }

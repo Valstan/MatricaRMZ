@@ -59,3 +59,14 @@ export type DefectConductedVersionSummary = {
   conductedAt: number;
   reversedAt: number | null;
 };
+
+export type DefectPartInstanceSummary = {
+  id: string;
+  nomenclatureId: string;
+  serialDisplay: string;
+  sourceEngineId: string;
+  currentLocationId: string | null;
+  currentStatus: string;
+  currentVersionId: string;
+  reservedDocumentId: string | null;
+};

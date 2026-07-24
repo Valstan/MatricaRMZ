@@ -32,6 +32,7 @@ import {
   type QuickCreateRequest,
   type QuickCreateResult,
   type AssemblyPlanCandidate,
+  type DefectPartInstanceSummary,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -330,6 +331,7 @@ export function WorkOrderDetailsPage(props: {
   const [warehouseLocations, setWarehouseLocations] = useState<
     Array<{ id: string; type: 'system' | 'workshop' | 'regular'; code: string; name: string; workshopId: string | null; isActive: boolean }>
   >([]);
+  const [assemblyInstances, setAssemblyInstances] = useState<DefectPartInstanceSummary[]>([]);
   const [closing, setClosing] = useState(false);
   const [shortageApproval, setShortageApproval] = useState<null | {
     id: string;
@@ -478,6 +480,27 @@ export function WorkOrderDetailsPage(props: {
         .map((w) => ({ id: w.id, label: w.name })),
     [warehouseLocations],
   );
+
+  const assemblyNomenclatureKey = useMemo(() => {
+    if (payload?.workOrderKind !== WorkOrderKind.Assembly) return '';
+    return [...new Set((payload.consumedLines ?? []).map((line) => line.nomenclatureId).filter(Boolean))].sort().join(',');
+  }, [payload?.workOrderKind, payload?.consumedLines]);
+
+  useEffect(() => {
+    if (!assemblyNomenclatureKey) {
+      setAssemblyInstances([]);
+      return;
+    }
+    let cancelled = false;
+    void window.matrica.warehouse.defectAvailableInstances(assemblyNomenclatureKey.split(',')).then((result) => {
+      if (!cancelled && result.ok) setAssemblyInstances(result.instances);
+    }).catch(() => {
+      if (!cancelled) setAssemblyInstances([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [assemblyNomenclatureKey]);
 
   const primaryAssemblyEngineBrandId = useMemo(() => {
     if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) return null;
@@ -2953,6 +2976,7 @@ export function WorkOrderDetailsPage(props: {
                     <th>Артикул</th>
                     <th style={{ width: 90 }}>Количество</th>
                     <th style={{ width: 220 }}>Склад</th>
+                    <th style={{ width: 300 }}>Номерные экземпляры</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2961,6 +2985,15 @@ export function WorkOrderDetailsPage(props: {
                       (item) => item.nomenclatureId === line.nomenclatureId && item.lineNo === line.lineNo,
                     );
                     const part = parts.find((item) => item.id === line.nomenclatureId);
+                    const sourceLocation = warehouseLocations.find(
+                      (location) => location.id === line.sourceWarehouseId || location.code === line.sourceWarehouseId,
+                    );
+                    const selectedInstanceIds = line.instanceIds ?? [];
+                    const availableInstances = assemblyInstances.filter(
+                      (instance) =>
+                        instance.nomenclatureId === line.nomenclatureId &&
+                        (!sourceLocation || instance.currentLocationId === sourceLocation.id || selectedInstanceIds.includes(instance.id)),
+                    );
                     return (
                       <tr key={`${line.lineNo}:${line.nomenclatureId}`}>
                         <td>{snapshotLine?.nomenclatureName || part?.name || line.nomenclatureId}</td>
@@ -2999,6 +3032,53 @@ export function WorkOrderDetailsPage(props: {
                               <option key={location.id} value={location.id}>{location.name}</option>
                             ))}
                           </select>
+                        </td>
+                        <td>
+                          {availableInstances.length > 0 || selectedInstanceIds.length > 0 ? (
+                            <details>
+                              <summary style={{ cursor: 'pointer' }}>
+                                Выбрано {selectedInstanceIds.length} из {Math.max(0, Math.trunc(line.qty))}
+                              </summary>
+                              <div style={{ display: 'grid', gap: 4, marginTop: 6, maxHeight: 140, overflow: 'auto' }}>
+                                {availableInstances.map((instance) => {
+                                  const checked = selectedInstanceIds.includes(instance.id);
+                                  const reservedByOther = Boolean(
+                                    instance.reservedDocumentId && instance.reservedDocumentId !== payload.linkedDocumentId,
+                                  );
+                                  return (
+                                    <label key={instance.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={
+                                          !canEditNow ||
+                                          reservedByOther ||
+                                          (!checked && selectedInstanceIds.length >= Math.max(0, Math.trunc(line.qty)))
+                                        }
+                                        onChange={() => {
+                                          const nextIds = checked
+                                            ? selectedInstanceIds.filter((id) => id !== instance.id)
+                                            : [...selectedInstanceIds, instance.id];
+                                          const consumedLines = (payload.consumedLines ?? []).map((item, rowIndex) =>
+                                            rowIndex === index ? { ...item, ...(nextIds.length > 0 ? { instanceIds: nextIds } : { instanceIds: [] }) } : item,
+                                          );
+                                          const next = { ...payload, consumedLines, assemblyManualDeviation: true };
+                                          delete next.assemblyMaterialHash;
+                                          patch(next);
+                                        }}
+                                      />
+                                      <span>{instance.serialDisplay}</span>
+                                      <span style={{ color: 'var(--subtle)', fontSize: 11 }}>
+                                        {reservedByOther ? 'зарезервирован другим нарядом' : instance.currentStatus}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </details>
+                          ) : (
+                            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Количественный учёт</span>
+                          )}
                         </td>
                       </tr>
                     );

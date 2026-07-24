@@ -681,6 +681,9 @@ const matricaApi = {
       ipcRenderer.invoke('warehouse:defects:conduct', args),
     defectVersions: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:versions', engineId),
     defectHistory: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:history', engineId),
+    defectAvailableInstances: async (nomenclatureIds: string[]) =>
+      ipcRenderer.invoke('warehouse:defects:availableInstances', nomenclatureIds),
+    defectIssuedInstances: async (engineId: string) => ipcRenderer.invoke('warehouse:defects:issuedInstances', engineId),
     repairFundIntakePreview: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>
       ipcRenderer.invoke('warehouse:repairFund:intakePreview', args),
     scrapIntake: async (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) =>

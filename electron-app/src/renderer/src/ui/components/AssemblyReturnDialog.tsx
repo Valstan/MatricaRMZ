@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { AssemblyReturnMode, ASSEMBLY_RETURN_MODE_LABELS } from '@matricarmz/shared';
+import { AssemblyReturnMode, ASSEMBLY_RETURN_MODE_LABELS, type DefectPartInstanceSummary } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
@@ -14,12 +14,13 @@ type Line = {
   nomenclatureId: string;
   qty: number;
   mode: 'rework' | 'scrap';
+  instanceIds: string[];
 };
 
 type AssemblyRow = { nomenclatureId: string; name: string | null; code: string | null; qty: number };
 
 function freshLine(): Line {
-  return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, nomenclatureId: '', qty: 1, mode: AssemblyReturnMode.Rework };
+  return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, nomenclatureId: '', qty: 1, mode: AssemblyReturnMode.Rework, instanceIds: [] };
 }
 
 function toOption(id: string, name: string, code: string): SearchSelectOption {
@@ -64,6 +65,7 @@ export function AssemblyReturnDialog(props: {
   const [brandLoading, setBrandLoading] = useState(false);
   // Что сейчас числится «в сборке» по этому двигателю (нетто по номенклатуре).
   const [assemblyRows, setAssemblyRows] = useState<AssemblyRow[]>([]);
+  const [issuedInstances, setIssuedInstances] = useState<DefectPartInstanceSummary[]>([]);
   const [assemblyLoading, setAssemblyLoading] = useState(false);
   // Полная номенклатура — грузится лениво (тумблер «все детали» или когда у марки нет спеки).
   const [allOptions, setAllOptions] = useState<SearchSelectOption[] | null>(null);
@@ -84,8 +86,12 @@ export function AssemblyReturnDialog(props: {
     setBrandQtyMap(new Map());
     setBomName('');
     setAssemblyRows([]);
+    setIssuedInstances([]);
     if (props.engineBrandId) void loadBrandParts(props.engineBrandId);
     void loadAssemblyInProgress(props.engineId);
+    void window.matrica.warehouse.defectIssuedInstances(props.engineId).then((result) => {
+      if (result.ok) setIssuedInstances(result.instances);
+    }).catch(() => setIssuedInstances([]));
   }, [props.open, props.engineId, props.engineBrandId]);
 
   async function loadBrandParts(engineBrandId: string) {
@@ -253,6 +259,7 @@ export function AssemblyReturnDialog(props: {
         nomenclatureId: r.nomenclatureId,
         qty: r.qty,
         mode: AssemblyReturnMode.Rework,
+        instanceIds: [],
       })),
     );
   }
@@ -301,7 +308,12 @@ export function AssemblyReturnDialog(props: {
     setStatus('');
     const ready = lines
       .filter((l) => l.nomenclatureId && l.qty > 0)
-      .map((l) => ({ nomenclatureId: l.nomenclatureId, qty: Math.trunc(l.qty), mode: l.mode }));
+      .map((l) => ({
+        nomenclatureId: l.nomenclatureId,
+        qty: Math.trunc(l.qty),
+        mode: l.mode,
+        ...(l.instanceIds.length > 0 ? { instanceIds: l.instanceIds } : {}),
+      }));
     if (ready.length === 0) {
       setStatus('Заполните хотя бы одну строку (деталь + кол-во > 0)');
       return;
@@ -445,6 +457,7 @@ export function AssemblyReturnDialog(props: {
               <th style={{ width: 92, textAlign: 'right' }} title="Сколько сейчас числится в сборке по этому двигателю">В сборке</th>
               <th style={{ width: 88 }}>Кол-во</th>
               <th style={{ width: 160 }}>Куда</th>
+              <th style={{ width: 240 }}>Номерные экземпляры</th>
               <th style={{ width: 44 }}></th>
             </tr>
           </thead>
@@ -466,7 +479,7 @@ export function AssemblyReturnDialog(props: {
                         brandLoading || allLoading ? 'Загрузка…' : usingAll ? 'начните вводить деталь…' : 'деталь марки / из сборки…'
                       }
                       emptyQueryLimit={200}
-                      onChange={(next) => patchLine(line.id, { nomenclatureId: next ?? '' })}
+                      onChange={(next) => patchLine(line.id, { nomenclatureId: next ?? '', instanceIds: [] })}
                     />
                     {isOver ? (
                       <div style={{ color: 'var(--danger)', fontSize: 11, marginTop: 2 }}>
@@ -501,6 +514,33 @@ export function AssemblyReturnDialog(props: {
                       <option value={AssemblyReturnMode.Scrap}>{ASSEMBLY_RETURN_MODE_LABELS[AssemblyReturnMode.Scrap]} (в утиль)</option>
                     </select>
                   </td>
+                  <td>
+                    {issuedInstances.some((instance) => instance.nomenclatureId === line.nomenclatureId) ? (
+                      <details>
+                        <summary style={{ cursor: 'pointer' }}>Выбрано {line.instanceIds.length}</summary>
+                        <div style={{ display: 'grid', gap: 4, marginTop: 4 }}>
+                          {issuedInstances.filter((instance) => instance.nomenclatureId === line.nomenclatureId).map((instance) => {
+                            const checked = line.instanceIds.includes(instance.id);
+                            return (
+                              <label key={instance.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={!checked && line.instanceIds.length >= Math.max(0, Math.trunc(line.qty))}
+                                  onChange={() => patchLine(line.id, {
+                                    instanceIds: checked
+                                      ? line.instanceIds.filter((id) => id !== instance.id)
+                                      : [...line.instanceIds, instance.id],
+                                  })}
+                                />
+                                {instance.serialDisplay}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    ) : <span style={{ color: 'var(--subtle)', fontSize: 12 }}>Количественно</span>}
+                  </td>
                   <td style={{ textAlign: 'center' }}>
                     <Button variant="ghost" onClick={() => removeLine(line.id)} disabled={lines.length <= 1} title="Удалить строку">
                       ✕
@@ -519,7 +559,7 @@ export function AssemblyReturnDialog(props: {
               <td style={{ textAlign: 'right' }} title="Всего к возврату">
                 <strong>{sums.total}</strong>
               </td>
-              <td colSpan={2}></td>
+              <td colSpan={3}></td>
             </tr>
           </tfoot>
         </table>

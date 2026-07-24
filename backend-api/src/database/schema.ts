@@ -1593,6 +1593,8 @@ export const defectPartInstances = pgTable(
     currentLocationId: uuid('current_location_id').references(() => warehouseLocations.id),
     currentStatus: text('current_status').notNull(),
     currentVersionId: uuid('current_version_id').notNull().references(() => defectConductedVersions.id),
+    reservedDocumentId: uuid('reserved_document_id').references(() => erpDocumentHeaders.id),
+    reservedAt: bigint('reserved_at', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
   },
@@ -1600,6 +1602,9 @@ export const defectPartInstances = pgTable(
     nomenclatureSerialUq: uniqueIndex('defect_part_instances_nom_serial_uq').on(t.nomenclatureId, t.serialNormalized),
     engineIdx: index('defect_part_instances_engine_idx').on(t.sourceEngineId),
     locationIdx: index('defect_part_instances_location_idx').on(t.currentLocationId),
+    reservedDocumentIdx: index('defect_part_instances_reserved_document_idx')
+      .on(t.reservedDocumentId)
+      .where(sql`${t.reservedDocumentId} is not null`),
   }),
 );
 

@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WarehouseDocumentDetails, WarehouseDocumentLineDto, WarehouseDocumentType, WarehouseIncomingSourceType } from '@matricarmz/shared';
+import type {
+  DefectConductedVersionSummary,
+  DefectOrigin,
+  DefectPartHistoryEvent,
+  WarehouseDocumentDetails,
+  WarehouseDocumentLineDto,
+  WarehouseDocumentType,
+  WarehouseIncomingSourceType,
+} from '@matricarmz/shared';
 import { tryParseWarehousePartNomenclatureMirror } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -39,6 +47,7 @@ type EditableLine = {
   actualQty: string;
   adjustmentQty: string;
   reason: string;
+  defectOrigin: DefectOrigin | null;
 };
 
 const INCOMING_DOC_TYPES: WarehouseDocumentType[] = [
@@ -60,6 +69,22 @@ const INCOMING_SOURCE_OPTIONS: Array<{ id: WarehouseIncomingSourceType; label: s
 ];
 
 function toEditableLine(line: WarehouseDocumentLineDto, index: number): EditableLine {
+  let defectOrigin: DefectOrigin | null = null;
+  try {
+    const payload = line.payloadJson ? JSON.parse(line.payloadJson) as Record<string, unknown> : null;
+    const raw = payload?.defectOrigin;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const value = raw as Record<string, unknown>;
+      const engineId = String(value.engineId ?? '').trim();
+      const conductedVersionId = String(value.conductedVersionId ?? '').trim();
+      const sourceLineIds = Array.isArray(value.sourceLineIds)
+        ? value.sourceLineIds.map((entry) => String(entry ?? '').trim()).filter(Boolean)
+        : [];
+      if (engineId && conductedVersionId && sourceLineIds.length > 0) defectOrigin = { engineId, conductedVersionId, sourceLineIds };
+    }
+  } catch {
+    defectOrigin = null;
+  }
   return {
     id: String(line.id ?? `line-${index + 1}`),
     lineNo: Number(line.lineNo ?? index + 1),
@@ -76,6 +101,7 @@ function toEditableLine(line: WarehouseDocumentLineDto, index: number): Editable
     actualQty: line.actualQty == null ? '' : String(line.actualQty),
     adjustmentQty: line.adjustmentQty == null ? '' : String(line.adjustmentQty),
     reason: line.reason ?? '',
+    defectOrigin,
   };
 }
 
@@ -96,6 +122,7 @@ function createEmptyLine(index: number): EditableLine {
     actualQty: '',
     adjustmentQty: '',
     reason: '',
+    defectOrigin: null,
   };
 }
 
@@ -135,11 +162,15 @@ export function StockDocumentDetailsPage(props: {
   const [workOrderNo, setWorkOrderNo] = useState('');
   const [engineOptions, setEngineOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [workOrderOptions, setWorkOrderOptions] = useState<Array<{ id: string; label: string; number: string }>>([]);
+  const [defectVersions, setDefectVersions] = useState<DefectConductedVersionSummary[]>([]);
+  const [defectHistory, setDefectHistory] = useState<DefectPartHistoryEvent[]>([]);
   const [lines, setLines] = useState<EditableLine[]>([]);
   const [incomingSaveStatus, setIncomingSaveStatus] = useState<'draft' | 'planned'>('draft');
   const isIncoming = INCOMING_DOC_TYPES.includes(docType);
   // Ф3 (G3): адресная выдача/списание — привязка к двигателю/наряду (опциональная, анти-бюрократия).
   const isAddressable = docType === 'stock_issue' || docType === 'stock_writeoff';
+  const isDefectLinkedIncoming = docType === 'purchase_receipt' || docType === 'customer_supplied';
+  const needsEngineReference = isAddressable || isDefectLinkedIncoming;
 
   // Несохранённые изменения: «Провести» не пересохраняет шапку/строки, поэтому перед
   // проведением предупреждаем оператора. baseline снимается сразу после load().
@@ -225,11 +256,11 @@ export function StockDocumentDetailsPage(props: {
     if (!['draft', 'planned'].includes(incomingSaveStatus)) setIncomingSaveStatus('draft');
   }, [docType, incomingSaveStatus, isIncoming, sourceType]);
 
-  // Ф3 (G3): справочники двигателей/нарядов подгружаются лениво и только для адресных типов.
+  // Ф3 (G3): справочники двигателей/нарядов подгружаются лениво для адресных и связанных с дефектовкой типов.
   // Нет прав на разделы — селекты остаются пустыми, привязка просто недоступна (не ошибка).
   const addressableRefsLoaded = useRef(false);
   useEffect(() => {
-    if (!isAddressable || addressableRefsLoaded.current) return;
+    if (!needsEngineReference || addressableRefsLoaded.current) return;
     addressableRefsLoaded.current = true;
     void (async () => {
       try {
@@ -263,7 +294,32 @@ export function StockDocumentDetailsPage(props: {
         // work_orders.view отсутствует — селект остаётся пустым
       }
     })();
-  }, [isAddressable]);
+  }, [needsEngineReference]);
+
+  useEffect(() => {
+    if (!isDefectLinkedIncoming || !engineId) {
+      setDefectVersions([]);
+      setDefectHistory([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      window.matrica.warehouse.defectVersions(engineId),
+      window.matrica.warehouse.defectHistory(engineId),
+    ]).then(([versions, history]) => {
+      if (cancelled) return;
+      setDefectVersions(versions.ok ? versions.versions : []);
+      setDefectHistory(history.ok ? history.events : []);
+    }).catch(() => {
+      if (!cancelled) {
+        setDefectVersions([]);
+        setDefectHistory([]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [engineId, isDefectLinkedIncoming]);
 
   const canEditDocument = props.canEdit && document?.header.status === 'draft';
   const isTransfer = docType === 'stock_transfer';
@@ -322,6 +378,7 @@ export function StockDocumentDetailsPage(props: {
         actualQty: String(Number(row.qty ?? 0)),
         adjustmentQty: '',
         reason: '',
+        defectOrigin: null,
       }));
     setLines(nextLines);
     setStatus(nextLines.length ? 'Остатки загружены. Укажите фактическое количество.' : 'На выбранном складе нет остатков.');
@@ -338,6 +395,7 @@ export function StockDocumentDetailsPage(props: {
       }
     }
     if (lines.length === 0) return 'Добавьте хотя бы одну строку документа.';
+    if (docType === 'customer_supplied' && !engineId) return 'Для давальческого прихода выберите двигатель.';
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
       if (!line) continue;
@@ -355,12 +413,34 @@ export function StockDocumentDetailsPage(props: {
         if (!line.warehouseId && !warehouseId) return `В строке ${index + 1} не указан склад инвентаризации.`;
         if (!hasAdjustment && (!hasBook || !hasActual)) return `В строке ${index + 1} заполните учет, факт или корректировку.`;
       }
+      if (docType === 'customer_supplied' && !line.defectOrigin) {
+        return `В строке ${index + 1} выберите исходную строку проведённой дефектовки.`;
+      }
     }
     return null;
   }
 
   function moveLine(from: number, to: number) {
     setLines((prev) => normalizeLineOrder(moveArrayItem(prev, from, to)));
+  }
+
+  function toDocumentLineInput(line: EditableLine) {
+    return {
+      qty: Number(line.qty || 0),
+      ...(line.price.trim() ? { price: Number(line.price), cost: Number(line.price) } : {}),
+      ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
+      ...(line.unit.trim() ? { unit: line.unit.trim() } : {}),
+      ...(line.batch.trim() ? { batch: line.batch.trim() } : {}),
+      ...(line.note.trim() ? { note: line.note.trim() } : {}),
+      ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
+      ...(line.fromWarehouseId ? { fromWarehouseId: line.fromWarehouseId } : {}),
+      ...(line.toWarehouseId ? { toWarehouseId: line.toWarehouseId } : {}),
+      ...(line.bookQty.trim() ? { bookQty: Number(line.bookQty) } : {}),
+      ...(line.actualQty.trim() ? { actualQty: Number(line.actualQty) } : {}),
+      ...(line.adjustmentQty.trim() ? { adjustmentQty: Number(line.adjustmentQty) } : {}),
+      ...(line.reason.trim() ? { reason: line.reason.trim() } : {}),
+      ...(line.defectOrigin ? { payloadJson: JSON.stringify({ defectOrigin: line.defectOrigin }) } : {}),
+    };
   }
 
   async function saveDocument(): Promise<boolean> {
@@ -383,30 +463,14 @@ export function StockDocumentDetailsPage(props: {
         ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
         reason: reason.trim() || null,
         counterpartyId,
-        ...(isAddressable
+        ...(needsEngineReference
           ? {
               engineId: engineId ?? null,
-              workOrderId: workOrderId ?? null,
-              workOrderNo: workOrderNo.trim() || null,
+              ...(isAddressable ? { workOrderId: workOrderId ?? null, workOrderNo: workOrderNo.trim() || null } : {}),
             }
           : {}),
       },
-      lines: lines.map((line) => ({
-        qty: Number(line.qty || 0),
-        ...(line.price.trim() ? { price: Number(line.price) } : {}),
-        ...(line.price.trim() ? { cost: Number(line.price) } : {}),
-        ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
-        ...(line.unit.trim() ? { unit: line.unit.trim() } : {}),
-        ...(line.batch.trim() ? { batch: line.batch.trim() } : {}),
-        ...(line.note.trim() ? { note: line.note.trim() } : {}),
-        ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
-        ...(line.fromWarehouseId ? { fromWarehouseId: line.fromWarehouseId } : {}),
-        ...(line.toWarehouseId ? { toWarehouseId: line.toWarehouseId } : {}),
-        ...(line.bookQty.trim() ? { bookQty: Number(line.bookQty) } : {}),
-        ...(line.actualQty.trim() ? { actualQty: Number(line.actualQty) } : {}),
-        ...(line.adjustmentQty.trim() ? { adjustmentQty: Number(line.adjustmentQty) } : {}),
-        ...(line.reason.trim() ? { reason: line.reason.trim() } : {}),
-      })),
+      lines: lines.map(toDocumentLineInput),
     });
     if (!result?.ok) {
       setStatus(`Ошибка: ${String(result?.error ?? 'не удалось сохранить документ')}`);
@@ -484,30 +548,14 @@ export function StockDocumentDetailsPage(props: {
         ...(isIncoming && contractId.trim() ? { contractId: contractId.trim() } : {}),
         reason: reason.trim() || null,
         counterpartyId,
-        ...(isAddressable
+        ...(needsEngineReference
           ? {
               engineId: engineId ?? null,
-              workOrderId: workOrderId ?? null,
-              workOrderNo: workOrderNo.trim() || null,
+              ...(isAddressable ? { workOrderId: workOrderId ?? null, workOrderNo: workOrderNo.trim() || null } : {}),
             }
           : {}),
       },
-      lines: lines.map((line) => ({
-        qty: Number(line.qty || 0),
-        ...(line.price.trim() ? { price: Number(line.price) } : {}),
-        ...(line.price.trim() ? { cost: Number(line.price) } : {}),
-        ...(line.nomenclatureId ? { nomenclatureId: line.nomenclatureId } : {}),
-        ...(line.unit.trim() ? { unit: line.unit.trim() } : {}),
-        ...(line.batch.trim() ? { batch: line.batch.trim() } : {}),
-        ...(line.note.trim() ? { note: line.note.trim() } : {}),
-        ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
-        ...(line.fromWarehouseId ? { fromWarehouseId: line.fromWarehouseId } : {}),
-        ...(line.toWarehouseId ? { toWarehouseId: line.toWarehouseId } : {}),
-        ...(line.bookQty.trim() ? { bookQty: Number(line.bookQty) } : {}),
-        ...(line.actualQty.trim() ? { actualQty: Number(line.actualQty) } : {}),
-        ...(line.adjustmentQty.trim() ? { adjustmentQty: Number(line.adjustmentQty) } : {}),
-        ...(line.reason.trim() ? { reason: line.reason.trim() } : {}),
-      })),
+      lines: lines.map(toDocumentLineInput),
     });
     if (!saveResult?.ok) {
       setStatus(`Ошибка: ${String(saveResult?.error ?? 'не удалось сохранить документ перед планированием')}`);
@@ -799,18 +847,21 @@ export function StockDocumentDetailsPage(props: {
           ) : (
             <Input value={reason} disabled={!canEditDocument} onChange={(e) => setReason(e.target.value)} placeholder="Основание документа" />
           )}
-          {isAddressable ? <div>Двигатель (адресно)</div> : null}
-          {isAddressable ? (
+          {needsEngineReference ? <div>{isDefectLinkedIncoming ? 'Двигатель дефектовки' : 'Двигатель (адресно)'}</div> : null}
+          {needsEngineReference ? (
             <EntityReferenceField
               target="engine"
               targetLabel="Двигатель"
               value={engineId}
               disabled={!canEditDocument}
               options={engineOptions}
-              placeholder="Двигатель — куда уходят детали (опц.)"
+              placeholder={isDefectLinkedIncoming ? 'Двигатель — основание дефектовки' : 'Двигатель — куда уходят детали (опц.)'}
               showAllWhenEmpty
               emptyQueryLimit={15}
-              onChange={(next) => setEngineId(next)}
+              onChange={(next) => {
+                setEngineId(next);
+                setLines((current) => current.map((line) => ({ ...line, defectOrigin: null })));
+              }}
               {...(props.onOpenEngine ? { onOpen: props.onOpenEngine } : {})}
             />
           ) : null}
@@ -861,6 +912,7 @@ export function StockDocumentDetailsPage(props: {
               <th style={{ textAlign: 'left' }} data-col-kind="num" title="№">№</th>
               <th style={{ textAlign: 'left' }} data-col-kind="name">Номенклатура</th>
               <th style={{ textAlign: 'left' }} data-col-kind="name" title="Артикул / код / сборочный номер">Артикул</th>
+              {isDefectLinkedIncoming ? <th style={{ textAlign: 'left' }}>Основание дефектовки</th> : null}
               {isTransfer ? <th style={{ textAlign: 'left' }} data-col-kind="name">Откуда</th> : <th style={{ textAlign: 'left' }} data-col-kind="name">Склад</th>}
               {isTransfer ? <th style={{ textAlign: 'left' }} data-col-kind="name">Куда</th> : null}
               {isInventory ? <th style={{ textAlign: 'left' }} data-col-kind="num" title="Учет">Учет</th> : null}
@@ -888,6 +940,15 @@ export function StockDocumentDetailsPage(props: {
                 const inventoryDelta =
                   Number(line.adjustmentQty || 0) ||
                   (line.bookQty.trim() || line.actualQty.trim() ? Number(line.actualQty || 0) - Number(line.bookQty || 0) : 0);
+                const activeVersion = defectVersions.find((version) => version.status === 'active');
+                const originOptions = activeVersion
+                  ? defectHistory.filter(
+                      (event) =>
+                        event.conductedVersionId === activeVersion.id &&
+                        event.nomenclatureId === line.nomenclatureId &&
+                        event.eventType === 'replacement_required',
+                    )
+                  : [];
                 return (
                   <tr key={line.id || idx}>
                     <td data-col-kind="num">{idx + 1}</td>
@@ -940,6 +1001,29 @@ export function StockDocumentDetailsPage(props: {
                     <td data-col-kind="name" style={{ color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
                       {nomenclatureCodeById.get(line.nomenclatureId ?? '') || '—'}
                     </td>
+                    {isDefectLinkedIncoming ? (
+                      <td style={{ minWidth: 250 }}>
+                        <select
+                          value={line.defectOrigin?.sourceLineIds[0] ?? ''}
+                          disabled={!canEditDocument || !engineId || !activeVersion}
+                          onChange={(event) => {
+                            const sourceLineId = event.target.value;
+                            updateLine(idx, {
+                              defectOrigin: sourceLineId && engineId && activeVersion
+                                ? { engineId, conductedVersionId: activeVersion.id, sourceLineIds: [sourceLineId] }
+                                : null,
+                            });
+                          }}
+                          style={{ width: '100%', padding: '7px 8px' }}
+                        >
+                          <option value="">— не связано —</option>
+                          {originOptions.map((event) => {
+                            const label = String(event.payload?.partLabel ?? event.sourceLineId);
+                            return <option key={event.sourceLineId} value={event.sourceLineId}>{label} · {event.qty} ед.</option>;
+                          })}
+                        </select>
+                      </td>
+                    ) : null}
                     <td data-col-kind="name" style={{ minWidth: 220 }}>
                       <EntityReferenceField
                         target="warehouse"

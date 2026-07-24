@@ -45,6 +45,7 @@ import {
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 import { EnginePhase, setEnginePhase } from './enginePhaseService.js';
+import { recordDefectIncomingReceipt } from './defectHistoryService.js';
 import {
   listWarehouseLocations,
   resolveWarehouseLocationIdByCode,
@@ -58,7 +59,7 @@ import {
  * during the migration window.
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-async function resolveLocationIdFromPayloadValue(value: string | null | undefined): Promise<string | null> {
+export async function resolveLocationIdFromPayloadValue(value: string | null | undefined): Promise<string | null> {
   const trimmed = String(value ?? '').trim();
   if (!trimmed) return null;
   if (UUID_RE.test(trimmed)) return trimmed;
@@ -3408,7 +3409,13 @@ export async function postWarehouseDocument(args: {
       return { ok: false, error: 'Конфликт обновления: документ был изменен другим пользователем. Обновите карточку и повторите.' };
     }
     if (!isStockDocType(String(header.docType))) return { ok: false, error: 'Документ не складского типа' };
-    if (String(header.status) === 'posted') return { ok: true, id: args.documentId, posted: true };
+    if (String(header.status) === 'posted') {
+      if (header.docType === 'purchase_receipt' || header.docType === 'customer_supplied') {
+        const history = await recordDefectIncomingReceipt({ documentId: args.documentId, docType: header.docType, actor: args.actor });
+        if (!history.ok) return { ok: false, error: `Документ проведён, но история дефектовки не обновлена: ${history.error}` };
+      }
+      return { ok: true, id: args.documentId, posted: true };
+    }
     if (isIncomingDocType(String(header.docType)) && String(header.status) !== 'planned') {
       return { ok: false, error: 'Документ прихода можно провести только из статуса planned' };
     }
@@ -3746,6 +3753,10 @@ export async function postWarehouseDocument(args: {
       eventPayloadJson: JSON.stringify({ by: args.actor.username }),
       eventAt: ts,
     });
+    if (headerDocType === 'purchase_receipt' || headerDocType === 'customer_supplied') {
+      const history = await recordDefectIncomingReceipt({ documentId: args.documentId, docType: headerDocType, actor: args.actor });
+      if (!history.ok) return { ok: false, error: `Документ проведён, но история дефектовки не обновлена: ${history.error}` };
+    }
     const ledgerPayloads: Array<{
       type: 'upsert';
       table: LedgerTableName;
