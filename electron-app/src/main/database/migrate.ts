@@ -138,6 +138,51 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     );
   }
 
+  // erp_engine_assembly_bom.engine_nomenclature_id — на сервере колонка nullable
+  // (BOM может быть привязан только к маркам через brand_links, без конкретной
+  // номенклатуры двигателя), но клиентский drizzle 0009 создал её NOT NULL.
+  // Живые серверные BOM с NULL валили pull у всех клиентов
+  // (SQLITE_CONSTRAINT_NOTNULL, critical-events 2026-07). ALTER не умеет снять
+  // NOT NULL → пересборка таблицы тем же составом колонок.
+  if (hasTable('erp_engine_assembly_bom')) {
+    const info = sqlite
+      .prepare(`PRAGMA table_info(erp_engine_assembly_bom)`)
+      .all() as Array<{ name: string; notnull: number }>;
+    const engineCol = info.find((c) => c.name === 'engine_nomenclature_id');
+    if (engineCol && engineCol.notnull === 1) {
+      const cols = info.map((c) => c.name).join(', ');
+      sqlite.exec(`
+        BEGIN;
+        CREATE TABLE erp_engine_assembly_bom_new (
+          id text PRIMARY KEY NOT NULL,
+          name text NOT NULL,
+          engine_nomenclature_id text,
+          version integer NOT NULL DEFAULT 1,
+          status text NOT NULL DEFAULT 'draft',
+          is_default integer NOT NULL DEFAULT 0,
+          notes text,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced',
+          last_server_seq integer,
+          default_variant_key text,
+          execution_profile_json text
+        );
+        INSERT INTO erp_engine_assembly_bom_new (${cols}) SELECT ${cols} FROM erp_engine_assembly_bom;
+        DROP TABLE erp_engine_assembly_bom;
+        ALTER TABLE erp_engine_assembly_bom_new RENAME TO erp_engine_assembly_bom;
+        CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_engine_version_uq
+          ON erp_engine_assembly_bom(engine_nomenclature_id, version);
+        CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_engine_idx
+          ON erp_engine_assembly_bom(engine_nomenclature_id);
+        CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx
+          ON erp_engine_assembly_bom(status);
+        COMMIT;
+      `);
+    }
+  }
+
   // erp_nomenclature.directory_kind / directory_ref_id — добавлены через clientSchemaMigrations 7->8.
   if (hasTable('erp_nomenclature')) {
     const cols = columnNames('erp_nomenclature');
