@@ -162,6 +162,8 @@ export function engineActSnapshotSignature(args: {
     r.part_name, r.assembly_unit_number, r.part_number, r.quantity,
     r.present ? 1 : 0, r.actual_qty, r.repairable_qty, r.scrap_qty, r.replace_qty,
     r.replenishment_branch ?? '',
+    // Правка причины утиля тоже версионирует акт (дефект аудита 2026-07-22).
+    r.scrap_reason ?? '',
   ].join(':'));
   return JSON.stringify({ t: args.actType, r: rowSig, a: args.answers });
 }

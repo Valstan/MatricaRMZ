@@ -550,8 +550,17 @@ export async function buildEnginesContractsOverviewReport(
       ? 'За всё время'
       : `${periodBasis === 'arrival' ? 'Приход' : 'Отгрузка'}: ${msToDate(period.startMs)} — ${msToDate(period.endMs)}`;
 
+  // Сводные заметки, общие для всех разрезов (раньше собирались только в contracts —
+  // brands/engines возвращали пустые footerNotes, дефект аудита 2026-07-22).
+  const sharedFooterNotes = (arrived: number, scrap: number, shipped: number) => [
+    `Средний срок ремонта (TAT, приход → отгрузка): ${globalTatCount > 0 ? Math.round(globalTatSum / globalTatCount) : '—'} дн. (по ${globalTatCount} отгруженным).`,
+    `Доля утиля: ${arrived > 0 ? ((scrap / arrived) * 100).toFixed(1) : '0.0'}% (${scrap} из ${arrived}).`,
+    `Отгружено всего: ${shipped} из ${arrived} приехавших.`,
+  ];
+
   if (groupBy === 'engines') {
     engineRows.sort((a, b) => toNumber(b.arrivalDate) - toNumber(a.arrivalDate));
+    const engShipped = engineRows.filter((r) => toNumber(r.shippingDate) > 0).length;
     return {
       ok: true,
       presetId: 'engines_contracts_overview',
@@ -560,6 +569,7 @@ export async function buildEnginesContractsOverviewReport(
       columns: selectEnginesContractsEngineColumns(columnKeys),
       rows: engineRows,
       totals: { engines: engineRows.length, onSiteQty: engOnSite, scrapQty: engScrap },
+      footerNotes: sharedFooterNotes(engineRows.length, engScrap, engShipped),
       generatedAt: now,
     };
   }
@@ -594,6 +604,7 @@ export async function buildEnginesContractsOverviewReport(
       columns: ENGINES_CONTRACTS_BRAND_COLUMNS,
       rows,
       totals,
+      footerNotes: sharedFooterNotes(totals.arrivedQty, totals.scrapQty, totals.shippedQty),
       generatedAt: now,
     };
   }
@@ -692,7 +703,8 @@ export async function buildScrapRegisterReport(
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
-  // Последняя дефектовка каждого двигателя (свежайшая операция стадии engine_inventory).
+  // ВСЕ дефектовки каждого двигателя (каждая операция engine_inventory — свой акт;
+  // «только последняя» занижала охват при повторных заездах — дефект аудита 2026-07-22).
   const opRows = await db
     .select({
       engineEntityId: operations.engineEntityId,
@@ -704,14 +716,16 @@ export async function buildScrapRegisterReport(
     .from(operations)
     .where(and(eq(operations.operationType, ENGINE_INVENTORY_STAGE), isNull(operations.deletedAt)))
     .orderBy(desc(operations.updatedAt));
-  const latestOpByEngine = new Map<string, { metaJson: string | null; ts: number }>();
+  const opsByEngine = new Map<string, Array<{ metaJson: string | null; ts: number }>>();
   for (const op of opRows as any[]) {
     const engineId = String(op?.engineEntityId ?? '').trim();
-    if (!engineId || latestOpByEngine.has(engineId)) continue;
-    latestOpByEngine.set(engineId, {
+    if (!engineId) continue;
+    const list = opsByEngine.get(engineId) ?? [];
+    list.push({
       metaJson: op.metaJson == null ? null : String(op.metaJson),
       ts: Number(op.performedAt ?? op.updatedAt ?? op.createdAt ?? 0),
     });
+    opsByEngine.set(engineId, list);
   }
 
   type EngineCtx = {
@@ -766,6 +780,9 @@ export async function buildScrapRegisterReport(
       const inPeriod =
         (period.startMs == null || statusDate <= 0 || statusDate >= period.startMs) && (statusDate <= 0 || statusDate <= period.endMs);
       if (inPeriod) {
+        // Строка-двигатель участвует в итоге «Утиль, шт.» наравне с деталями
+        // (раньше не инкрементила totalScrapQty — итог занижался).
+        totalScrapQty += 1;
         rows.push({
           rowKind: reworkSent ? 'Двигатель · отправлен заказчику' : 'Двигатель · признан утильным',
           ...ctx,
@@ -780,38 +797,39 @@ export async function buildScrapRegisterReport(
       }
     }
 
-    // Детали из последней дефектовки.
+    // Детали из всех дефектовок двигателя (каждый повторный заезд — свой акт).
     if (kindFilter === 'engines') continue;
-    const op = latestOpByEngine.get(id);
-    if (!op?.metaJson) continue;
-    let rawRows: Array<Record<string, unknown>> = [];
-    try {
-      const payload = JSON.parse(op.metaJson);
-      const table = payload?.answers?.engine_inventory_items;
-      rawRows = table?.kind === 'table' && Array.isArray(table.rows) ? table.rows : [];
-    } catch {
-      rawRows = [];
-    }
-    if (period.startMs != null && op.ts > 0 && op.ts < period.startMs) continue;
-    if (op.ts > 0 && op.ts > period.endMs) continue;
-    for (const raw of rawRows) {
-      const { row } = normalizeEngineInventoryRow(raw);
-      if (row.scrap_qty <= 0) continue;
-      const branchKey = row.replenishment_branch ?? 'none';
-      if (branchFilter !== 'all' && branchKey !== branchFilter) continue;
-      totalScrapQty += row.scrap_qty;
-      branchTotals[branchKey] = (branchTotals[branchKey] ?? 0) + row.scrap_qty;
-      rows.push({
-        rowKind: 'Деталь',
-        ...ctx,
-        partName: row.part_name,
-        partNumber: row.part_number,
-        stampedNumber: row.stamped_number ?? '',
-        scrapQty: row.scrap_qty,
-        scrapReason: row.scrap_reason ?? '',
-        replenishmentBranch: row.replenishment_branch ? (REPLENISHMENT_BRANCH_REPORT_LABELS[row.replenishment_branch] ?? row.replenishment_branch) : '',
-        scrapDate: op.ts > 0 ? op.ts : null,
-      });
+    for (const op of opsByEngine.get(id) ?? []) {
+      if (!op.metaJson) continue;
+      let rawRows: Array<Record<string, unknown>> = [];
+      try {
+        const payload = JSON.parse(op.metaJson);
+        const table = payload?.answers?.engine_inventory_items;
+        rawRows = table?.kind === 'table' && Array.isArray(table.rows) ? table.rows : [];
+      } catch {
+        rawRows = [];
+      }
+      if (period.startMs != null && op.ts > 0 && op.ts < period.startMs) continue;
+      if (op.ts > 0 && op.ts > period.endMs) continue;
+      for (const raw of rawRows) {
+        const { row } = normalizeEngineInventoryRow(raw);
+        if (row.scrap_qty <= 0) continue;
+        const branchKey = row.replenishment_branch ?? 'none';
+        if (branchFilter !== 'all' && branchKey !== branchFilter) continue;
+        totalScrapQty += row.scrap_qty;
+        branchTotals[branchKey] = (branchTotals[branchKey] ?? 0) + row.scrap_qty;
+        rows.push({
+          rowKind: 'Деталь',
+          ...ctx,
+          partName: row.part_name,
+          partNumber: row.part_number,
+          stampedNumber: row.stamped_number ?? '',
+          scrapQty: row.scrap_qty,
+          scrapReason: row.scrap_reason ?? '',
+          replenishmentBranch: row.replenishment_branch ? (REPLENISHMENT_BRANCH_REPORT_LABELS[row.replenishment_branch] ?? row.replenishment_branch) : '',
+          scrapDate: op.ts > 0 ? op.ts : null,
+        });
+      }
     }
   }
 
