@@ -107,9 +107,17 @@ func main() {
 	if present && !forced {
 		// Exe on disk, but a wiped install can leave the operator with no way to
 		// launch it (план §Логика п.1): missing shortcuts on a NOT-running app →
-		// reinstall (silent NSIS recreates them). A running app is never touched.
+		// recreate the .lnk files directly. A running app is never touched.
+		// NOT a reinstall: silent NSIS does not recreate deleted shortcuts (it
+		// respects "user deleted it") — see restoreShortcuts.
 		if !shortcuts && !running {
-			logf("app exe present but shortcuts missing and process not running — reinstalling to restore shortcuts")
+			logf("app exe present but shortcuts missing and process not running — restoring shortcuts directly")
+			if restoreShortcuts(hs.AppExePath) {
+				logf("shortcuts restored directly (no reinstall needed)")
+				report(hs, "recovered", "shortcuts restored directly (desktop + start menu)", 0)
+				return
+			}
+			logf("direct restore failed — falling back to reinstall")
 		} else {
 			logf("app present and no pending command — healthy, exiting (running=%v shortcuts=%v)", running, shortcuts)
 			return
@@ -160,6 +168,10 @@ func main() {
 
 	if appPresent(hs) {
 		logf("recovery succeeded (installer exit=%d)", exitCode)
+		// The installer skips shortcuts it considers user-deleted — top them up.
+		if !shortcutsPresent() && restoreShortcuts(hs.AppExePath) {
+			logf("shortcuts topped up after reinstall")
+		}
 		writeState(state{}) // success resets the failure counter
 		report(hs, "recovered", fmt.Sprintf("installer=%s source=%s exit=%d reason=%s", filepath.Base(installer), src, exitCode, reason), exitCode)
 		if forced {
@@ -235,12 +247,24 @@ func processRunning() bool {
 	return strings.Contains(string(out), "MatricaRMZ.exe")
 }
 
+// resolveDesktopDir returns the user's actual Desktop folder. %USERPROFILE%\Desktop
+// is wrong on redirected desktops (e.g. moved to another drive) — ask the shell.
+// Live acceptance 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
+func resolveDesktopDir() string {
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')").Output()
+	if err == nil {
+		if p := strings.TrimSpace(string(out)); p != "" {
+			return p
+		}
+	}
+	return filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
+}
+
 // shortcutsPresent checks the per-user launch points the NSIS installer creates.
 // Either one is enough for the operator to start the app.
 func shortcutsPresent() bool {
-	candidates := []string{}
-	if up := os.Getenv("USERPROFILE"); up != "" {
-		candidates = append(candidates, filepath.Join(up, "Desktop", "MatricaRMZ.lnk"))
+	candidates := []string{
+		filepath.Join(resolveDesktopDir(), "MatricaRMZ.lnk"),
 	}
 	if ad := os.Getenv("APPDATA"); ad != "" {
 		candidates = append(candidates, filepath.Join(ad, `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`))
@@ -251,6 +275,32 @@ func shortcutsPresent() bool {
 		}
 	}
 	return false
+}
+
+// restoreShortcuts recreates both .lnk files directly via WScript.Shell.
+// A silent NSIS reinstall does NOT bring deleted shortcuts back — electron-builder's
+// one-click updater treats a missing shortcut as "user deleted it on purpose" and
+// respects that (found on live acceptance 2026-07-25: reinstall exit=0, shortcuts
+// still gone → the old logic would reinstall 136 MB every 15 minutes forever).
+// Direct creation is also far cheaper than a reinstall.
+func restoreShortcuts(appExe string) bool {
+	desktop := filepath.Join(resolveDesktopDir(), "MatricaRMZ.lnk")
+	startMenu := filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`)
+	script := fmt.Sprintf(
+		`$ws = New-Object -ComObject WScript.Shell
+foreach ($p in @('%s','%s')) {
+  $lnk = $ws.CreateShortcut($p)
+  $lnk.TargetPath = '%s'
+  $lnk.WorkingDirectory = '%s'
+  $lnk.Save()
+}`,
+		desktop, startMenu, appExe, filepath.Dir(appExe),
+	)
+	if err := exec.Command("powershell", "-NoProfile", "-Command", script).Run(); err != nil {
+		logf("direct shortcut restore failed: %v", err)
+		return false
+	}
+	return shortcutsPresent()
 }
 
 // --- handshake -------------------------------------------------------------
