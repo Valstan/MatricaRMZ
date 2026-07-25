@@ -81,6 +81,7 @@
 
 ## Где сейчас активная работа
 
+- **Референс-целостность при удалении** (диалог намерения + серверный гейт) — ✅ закрыта целиком, см. `COMPLETED.md`. Сборщик ссылок: `electron-app/src/main/services/entityService.ts` (`findAllIncomingReferences`) + серверное зеркало `backend-api/src/services/adminMasterdataService.ts` (`countExtendedIncomingReferences`); диалог — `ui/components/DeletionIntentDialog.tsx`.
 - **Активной нитки сейчас нет.** Реорганизация памяти (раскол «открытое vs сделанное») ✅ завершена — план [`plans/_archive/memory-reorg-2026-06.md`](plans/_archive/memory-reorg-2026-06.md). Открытое — `PENDING_FOLLOWUPS.md`; сделанное — `COMPLETED.md`.
 - Нитка **parts EAV → directory_parts** (Phase 1/2/3 + 3.5/3.6/3.7) **полностью на проде** — см. [`COMPLETED.md`](COMPLETED.md) §Детали. `/parts/*` отвечает 410, `directory_parts` — единственный источник.
 - **🔴 Блокер:** Anthropic API geo-block — AI-фичи на проде выключены, ждёт VPS-forward-proxy. См. `PENDING_FOLLOWUPS.md`.
