@@ -31,6 +31,10 @@ Internal reasoning, code comments, commit messages, identifiers — in English (
 
 Перед предложением переносимой идеи (фишка из MatricaRMZ, которая может пригодиться в GONBA/setka, или наоборот) — глянь `<brain_matrica>/cross-project-ideas/INDEX.md`. Новые идеи добавляй **в brain_matrica отдельной сессией** (`cd ../brain_matrica && claude`), не из этого репо. При применении идеи у себя — отметь `✅ YYYY-MM-DD` в её таблице.
 
+**Consult-library рефлекс (pool #014, условный триггер):** перед вводом в проект **нового инструмента/библиотеки/паттерна** (не рутинная правка) — глянь `<brain_matrica>/REFERENCE.md` / tech-radar: возможно, экосистема уже выбрала решение или отвергла кандидата. Триггер условный — только на «вводим новое», не шаг каждой сессии.
+
+**ADR-0007 «тактика напрямую, знание через курацию»:** любой sibling-репо можно **читать read-only напрямую** (`../<project>/`, перед чтением `git pull --ff-only`) для тактических фактов — API-контракт, форматы, docs, handoff соседа. Писать/коммитить в чужой репо нельзя; прочитанное — не контракт (зависимость от чужого API = интеграция → письмо в мозг). Знание/директивы/переносимые уроки — по-прежнему через mailbox.
+
 **Mailbox-протокол ([ADR-0001](../brain_matrica/adr/0001-brain-projects-mailboxes.md), асимметричный с 2026-05-23):** каждая сторона пишет только в свой репо.
 
 - **brain → MatricaRMZ:** brain пишет в `../brain_matrica/mailboxes/MatricaRMZ/from-brain/*.md`. Мы только читаем (`git -C ../brain_matrica pull --ff-only`).
