@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntityReferenceTarget, IncomingLinkInfo } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -192,6 +193,8 @@ export function MasterdataPage(props: {
       }
     | { open: false }
   >({ open: false });
+
+  const [intentDelete, setIntentDelete] = useState<{ entityId: string; entityLabel: string } | null>(null);
 
   const [incomingLinks, setIncomingLinks] = useState<{ loading: boolean; error: string | null; links: IncomingLinkInfo[] }>({
     loading: false,
@@ -689,6 +692,12 @@ export function MasterdataPage(props: {
       entities.find((e) => e.id === entityId)?.displayName ??
       (entityId ? entityId.slice(0, 8) : '');
 
+    // Ф2b: админ получает диалог намерения (все хранилища ссылок + 4 действия).
+    // Не-админ остаётся на легаси-просмотре зависимостей («Перейти», без разрушения).
+    if (canForceDelete) {
+      setIntentDelete({ entityId, entityLabel: label });
+      return;
+    }
     setDeleteDialog({ open: true, entityId, entityLabel: label, loading: true, error: null, links: null });
     const r = await window.matrica.admin.entities.deleteInfo(entityId).catch((e) => ({ ok: false as const, error: String(e) }));
     if (!r.ok) {
@@ -709,23 +718,6 @@ export function MasterdataPage(props: {
       return;
     }
     setStatus('Удалено');
-    if (selectedTypeId) await refreshEntities(selectedTypeId);
-    setSelectedEntityId('');
-    setEntityAttrs({});
-    closeDeleteDialog();
-  }
-
-  async function doDetachAndDelete(entityId: string) {
-    setDeleteDialog((p) => (p.open ? { ...p, loading: true, error: null } : p));
-    setStatus('Удаление (отвязываем связи)...');
-    const r = await window.matrica.admin.entities.detachLinksAndDelete(entityId);
-    if (!r.ok) {
-      setDeleteDialog((p) => (p.open ? { ...p, error: r.error ?? 'unknown' } : p));
-      setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-      setDeleteDialog((p) => (p.open ? { ...p, loading: false } : p));
-      return;
-    }
-    setStatus(`Удалено (отвязано: ${r.detached ?? 0})`);
     if (selectedTypeId) await refreshEntities(selectedTypeId);
     setSelectedEntityId('');
     setEntityAttrs({});
@@ -1382,6 +1374,26 @@ export function MasterdataPage(props: {
         </div>
       )}
 
+      {intentDelete && (
+        <DeletionIntentDialog
+          entityId={intentDelete.entityId}
+          entityLabel={intentDelete.entityLabel}
+          targetLabelGenitive="запись"
+          replaceTarget={(selectedType?.code ?? 'customer') as EntityReferenceTarget}
+          replaceOptions={entities
+            .filter((e) => e.id !== intentDelete.entityId)
+            .map((e) => ({ id: e.id, label: e.displayName?.trim() ? e.displayName : e.id.slice(0, 8) }))}
+          onClose={(didDelete) => {
+            setIntentDelete(null);
+            if (didDelete) {
+              setStatus('Удалено');
+              if (selectedTypeId) void refreshEntities(selectedTypeId);
+              setSelectedEntityId('');
+              setEntityAttrs({});
+            }
+          }}
+        />
+      )}
       {deleteDialog.open && (
         <div onClick={() => { if (!deleteDialog.loading) closeDeleteDialog(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 9999 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 760, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 16, border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 24px 60px rgba(0,0,0,0.35)', padding: 16 }}>
@@ -1401,9 +1413,7 @@ export function MasterdataPage(props: {
                 {deleteDialog.links && deleteDialog.links.length > 0 ? (
                   <>
                     <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fff7ed', color: '#9a3412' }}>
-                      {canForceDelete
-                        ? <>Запись связана с другими ({deleteDialog.links.length}). Можно <strong>отвязать связи</strong> и удалить.</>
-                        : <>Запись связана с другими ({deleteDialog.links.length}). Удаление доступно только администратору. Вы можете перейти к зависимым записям и изменить их.</>}
+                      Запись связана с другими ({deleteDialog.links.length}). Удаление доступно только администратору. Вы можете перейти к зависимым записям и изменить их.
                     </div>
                     <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
                       <table className="list-table list-table--catalog">
@@ -1442,11 +1452,7 @@ export function MasterdataPage(props: {
                 {deleteDialog.error && <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: '#fee2e2', color: '#991b1b' }}>Ошибка: {deleteDialog.error}</div>}
                 <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <Button variant="ghost" onClick={closeDeleteDialog} disabled={deleteDialog.loading}>Отмена</Button>
-                  {deleteDialog.links && deleteDialog.links.length > 0 ? (
-                    canForceDelete ? (
-                      <Button onClick={() => void doDetachAndDelete(deleteDialog.entityId)} disabled={deleteDialog.loading} style={{ background: '#b91c1c', border: '1px solid #991b1b' }}>Отвязать и удалить</Button>
-                    ) : null
-                  ) : (
+                  {(!deleteDialog.links || deleteDialog.links.length === 0) && (
                     <Button onClick={() => void doSoftDelete(deleteDialog.entityId)} disabled={deleteDialog.loading} style={{ background: '#b91c1c', border: '1px solid #991b1b' }}>Удалить</Button>
                   )}
                 </div>
