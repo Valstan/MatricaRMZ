@@ -1,0 +1,140 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Ф4 (референс-целостность при удалении): серверный softDeleteEntity обязан видеть
+// ссылки не только в одиночных EAV-линках, но и в JSON/junction-хранилищах —
+// contract_sections, meta_json нарядов/заявок, массивные EAV-линки, BOM-junction.
+
+const state = vi.hoisted(() => ({ selectByTable: new Map<unknown, any[][]>() }));
+
+vi.mock('../database/db.js', () => {
+  const db = {
+    select: vi.fn(() => {
+      let currentTable: unknown;
+      const chain: any = {
+        from: vi.fn((table: unknown) => {
+          currentTable = table;
+          return chain;
+        }),
+        innerJoin: vi.fn(() => chain),
+        where: vi.fn(() => chain),
+        limit: vi.fn(() => chain),
+        orderBy: vi.fn(() => chain),
+        then: (resolve: (v: any[]) => any, reject?: (e: any) => any) => {
+          const queue = state.selectByTable.get(currentTable);
+          const result = queue && queue.length > 0 ? queue.shift()! : [];
+          return Promise.resolve(result).then(resolve, reject);
+        },
+      };
+      return chain;
+    }),
+    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
+    insert: vi.fn(() => ({ values: vi.fn(() => ({ onConflictDoNothing: vi.fn(async () => undefined) })) })),
+  };
+  return { db };
+});
+
+vi.mock('./sync/syncChangeService.js', () => ({
+  recordSyncChanges: vi.fn(async () => undefined),
+}));
+
+const { attributeDefs, attributeValues, entities, erpEngineAssemblyBomBrandLinks, operations } = await import(
+  '../database/schema.js'
+);
+const { softDeleteEntity } = await import('./adminMasterdataService.js');
+
+const ACTOR = { id: 'u1', username: 'test-admin', role: 'admin' };
+const TARGET = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+const TYPE_ID = 'bbbbbbbb-0000-0000-0000-000000000002';
+
+function seedTargetEntity() {
+  state.selectByTable.set(entities, [[{ id: TARGET, typeId: TYPE_ID, createdAt: 1, updatedAt: 1, deletedAt: null }]]);
+}
+
+beforeEach(() => {
+  state.selectByTable.clear();
+});
+
+describe('softDeleteEntity — Ф4 расширенный гейт входящих ссылок', () => {
+  it('отклоняет удаление при ссылке в contract_sections JSON', async () => {
+    seedTargetEntity();
+    // Порядок select'ов по attribute_values: findIncomingLinkRows → массивные EAV → contract_sections.
+    state.selectByTable.set(attributeValues, [
+      [], // findIncomingLinkRows: одиночных линков нет
+      [], // массивные EAV-линки: нет
+      [
+        {
+          valueJson: JSON.stringify({
+            primary: { customerId: TARGET, engineBrands: [], parts: [] },
+            addons: [],
+          }),
+        },
+      ],
+    ]);
+    state.selectByTable.set(attributeDefs, [[{ id: 'def-sections' }]]);
+    state.selectByTable.set(operations, [[]]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Контракты');
+  });
+
+  it('отклоняет удаление при ссылке в meta_json наряда', async () => {
+    seedTargetEntity();
+    state.selectByTable.set(attributeValues, [[], [], []]);
+    state.selectByTable.set(attributeDefs, [[{ id: 'def-sections' }]]);
+    state.selectByTable.set(operations, [
+      [
+        {
+          operationType: 'work_order',
+          metaJson: JSON.stringify({ crew: [{ employeeId: TARGET }] }),
+        },
+      ],
+    ]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Наряды');
+  });
+
+  it('отклоняет удаление при массивном EAV-линке', async () => {
+    seedTargetEntity();
+    state.selectByTable.set(attributeValues, [
+      [], // одиночные
+      [{ valueJson: JSON.stringify([TARGET, 'other-id']), fromEntityTypeName: 'Услуги' }],
+      [],
+    ]);
+    state.selectByTable.set(attributeDefs, [[]]);
+    state.selectByTable.set(operations, [[]]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Услуги');
+  });
+
+  it('отклоняет удаление марки при живой BOM-junction строке', async () => {
+    seedTargetEntity();
+    state.selectByTable.set(attributeValues, [[], [], []]);
+    state.selectByTable.set(attributeDefs, [[]]);
+    state.selectByTable.set(operations, [[]]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[{ id: 'bl1' }]]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Спецификации BOM');
+  });
+
+  it('пропускает удаление без входящих ссылок', async () => {
+    seedTargetEntity();
+    state.selectByTable.set(attributeValues, [[], [], []]);
+    state.selectByTable.set(attributeDefs, [[]]);
+    state.selectByTable.set(operations, [[]]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(true);
+  });
+});

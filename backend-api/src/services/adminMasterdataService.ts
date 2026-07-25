@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import {
@@ -9,13 +9,16 @@ import {
   SyncTableName,
   attributeDefRowSchema,
   attributeValueRowSchema,
+  collectContractEntityReferences,
+  collectSupplyRequestEntityReferences,
+  collectWorkOrderEntityReferences,
   engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
   type StatusCode,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, operations, rowOwners } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
 import {
   engineHasDuplicateBypassFlag,
   findEngineDuplicateByNumber,
@@ -493,6 +496,102 @@ async function findIncomingLinkRows(entityId: string): Promise<
     attributeCode: String(r.attributeCode),
     attributeName: String(r.attributeName),
   }));
+}
+
+/**
+ * Ф4 (референс-целостность): входящие ссылки по хранилищам, невидимым для
+ * findIncomingLinkRows, — массивные EAV-линки, contract_sections JSON,
+ * meta_json нарядов/заявок, junction BOM. Серверное зеркало клиентского
+ * findAllIncomingReferences (advisory-реплика может быть неполной — сервер
+ * авторитетен). Возвращает breakdown «тип источника → количество».
+ */
+async function countExtendedIncomingReferences(entityId: string): Promise<Map<string, number>> {
+  const byType = new Map<string, number>();
+  const bump = (label: string, n = 1) => byType.set(label, (byType.get(label) ?? 0) + n);
+  const jsonId = JSON.stringify(entityId);
+
+  // 1. Массивные EAV-линки (одиночные "id" покрывает findIncomingLinkRows — здесь только контейнеры).
+  const arrayLinkRows = await db
+    .select({ valueJson: attributeValues.valueJson, fromEntityTypeName: entityTypes.name })
+    .from(attributeValues)
+    .innerJoin(attributeDefs, eq(attributeValues.attributeDefId, attributeDefs.id))
+    .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+    .innerJoin(entityTypes, eq(entities.typeId, entityTypes.id))
+    .where(
+      and(
+        isNull(attributeValues.deletedAt),
+        eq(attributeDefs.dataType, 'link'),
+        isNull(attributeDefs.deletedAt),
+        isNull(entities.deletedAt),
+        isNull(entityTypes.deletedAt),
+        like(attributeValues.valueJson, `%${jsonId}%`),
+        or(like(attributeValues.valueJson, '[%'), like(attributeValues.valueJson, '{%')),
+      ),
+    )
+    .limit(10_000);
+  for (const r of arrayLinkRows) {
+    const parsed = r.valueJson ? safeJsonParse(String(r.valueJson)) : null;
+    if (Array.isArray(parsed) && parsed.map(String).includes(entityId)) bump(String(r.fromEntityTypeName));
+  }
+
+  // 2. Контракты (contract_sections JSON).
+  const contractDefs = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.code, 'contract_sections'), isNull(attributeDefs.deletedAt)));
+  const contractDefIds = contractDefs.map((d) => String(d.id));
+  if (contractDefIds.length > 0) {
+    const contractRows = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+      .where(
+        and(
+          inArray(attributeValues.attributeDefId, contractDefIds),
+          isNull(attributeValues.deletedAt),
+          isNull(entities.deletedAt),
+          like(attributeValues.valueJson, `%${jsonId}%`),
+        ),
+      )
+      .limit(10_000);
+    for (const r of contractRows) {
+      const sections = r.valueJson ? (safeJsonParse(String(r.valueJson)) as Record<string, unknown> | null) : null;
+      if (!sections) continue;
+      const hits = collectContractEntityReferences(sections as never).filter((c) => c.referenceId === entityId).length;
+      if (hits > 0) bump('Контракты');
+    }
+  }
+
+  // 3. Наряды + заявки (operations.meta_json).
+  const opRows = await db
+    .select({ operationType: operations.operationType, metaJson: operations.metaJson })
+    .from(operations)
+    .where(
+      and(
+        inArray(operations.operationType, ['work_order', 'supply_request']),
+        isNull(operations.deletedAt),
+        like(operations.metaJson, `%${jsonId}%`),
+      ),
+    )
+    .limit(10_000);
+  for (const r of opRows) {
+    const meta = r.metaJson ? (safeJsonParse(String(r.metaJson)) as Record<string, unknown> | null) : null;
+    if (!meta) continue;
+    const isWorkOrder = String(r.operationType) === 'work_order';
+    const hits = (isWorkOrder ? collectWorkOrderEntityReferences(meta) : collectSupplyRequestEntityReferences(meta as never))
+      .filter((c) => c.referenceId === entityId).length;
+    if (hits > 0) bump(isWorkOrder ? 'Наряды' : 'Заявки снабжения');
+  }
+
+  // 4. BOM-junction.
+  const bomRows = await db
+    .select({ id: erpEngineAssemblyBomBrandLinks.id })
+    .from(erpEngineAssemblyBomBrandLinks)
+    .where(and(eq(erpEngineAssemblyBomBrandLinks.engineBrandId, entityId), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)))
+    .limit(10_000);
+  if (bomRows.length > 0) bump('Спецификации BOM', bomRows.length);
+
+  return byType;
 }
 
 export async function listEntityTypes() {
@@ -1201,12 +1300,14 @@ export async function softDeleteEntity(actor: Actor, entityId: string, options: 
   if (!e[0]) return { ok: false as const, error: 'Сущность не найдена' };
 
   const incoming = await findIncomingLinkRows(entityId);
-  if (incoming.length > 0) {
-    const byType = new Map<string, number>();
-    for (const link of incoming) {
-      const key = link.fromEntityTypeName || link.fromEntityTypeCode || 'связанные записи';
-      byType.set(key, (byType.get(key) ?? 0) + 1);
-    }
+  // Ф4: гейт видит не только одиночные EAV-линки, но и JSON/junction-хранилища —
+  // удаление в обход клиентского диалога не должно молча плодить висячие ссылки.
+  const byType = await countExtendedIncomingReferences(entityId);
+  for (const link of incoming) {
+    const key = link.fromEntityTypeName || link.fromEntityTypeCode || 'связанные записи';
+    byType.set(key, (byType.get(key) ?? 0) + 1);
+  }
+  if (byType.size > 0) {
     const breakdown = [...byType.entries()]
       .map(([name, count]) => `${name}: ${count}`)
       .join(', ');
@@ -1262,6 +1363,18 @@ export async function getIncomingLinksForEntity(entityId: string) {
 export async function detachIncomingLinksAndSoftDeleteEntity(actor: Actor, entityId: string) {
   try {
     const ts = nowMs();
+    // Ф4: web-admin умеет отвязывать только EAV-линки; ссылки в JSON/junction-хранилищах
+    // разрешаются клиентским диалогом удаления — иначе получим висячие ссылки.
+    const extended = await countExtendedIncomingReferences(entityId);
+    if (extended.size > 0) {
+      const breakdown = [...extended.entries()].map(([name, count]) => `${name}: ${count}`).join(', ');
+      return {
+        ok: false as const,
+        error:
+          `Нельзя удалить: ссылки в документах (${breakdown}) отсюда не отвязываются. ` +
+          `Удалите объект из приложения — диалог удаления предложит снять или заменить связи.`,
+      };
+    }
     const rows = await findIncomingLinkRows(entityId);
     for (const r of rows) {
       const current = await db.select().from(attributeValues).where(eq(attributeValues.id, r.valueId as any)).limit(1);
