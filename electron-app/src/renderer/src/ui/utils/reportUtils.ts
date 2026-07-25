@@ -60,6 +60,11 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   shippedQty: 'Отгружено, шт.',
   overdueDays: 'Просрочка, дн.',
   avgTatDays: 'Средний TAT, дн.',
+  positions: 'Позиций, шт.',
+  customerQty: 'Ветка «заказчик», шт.',
+  repairQty: 'Ветка «ремонт», шт.',
+  purchaseQty: 'Ветка «закупка», шт.',
+  noBranchQty: 'Без ветки, шт.',
 };
 
 const REPORT_METRIC_NOTES: Record<string, string> = {
