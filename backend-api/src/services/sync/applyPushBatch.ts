@@ -94,8 +94,6 @@ export type SyncSkippedRow = {
 
 type ApplyPushOptions = {
   collectChanges?: AppliedSyncChange[];
-  /** @deprecated No longer used. Change log has been removed. Kept for API compat. */
-  skipChangeLog?: boolean;
   /** Recovery mode for server-side replay from canonical ledger state.
    * In this mode stale/older rows are dropped, but batch does not fail. */
   allowSyncConflicts?: boolean;

@@ -40,7 +40,6 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['warehouse:contracts:', 'contracts'],
   ['warehouse:', 'warehouse'],
   ['warehouseLocations:', 'warehouse'],
-  ['erp:', 'warehouse'],
   // employees:list/get/defs/departments — сквозные lookup'ы (наряды, чат, табель,
   // инструмент) — НЕ гейтим; закрываем только управление карточками/правами.
   ['employees:setAttr', 'people'],
@@ -140,7 +139,6 @@ const WRITE_CHANNELS = new Set([
   'warehouse:scrap:intake',
   'warehouseLocations:delete',
   'warehouseLocations:registerUsage',
-  'erp:documents:post',
   // people
   'employees:setAttr',
   'employees:create',

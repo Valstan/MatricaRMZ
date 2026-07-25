@@ -18,7 +18,7 @@ import { ingestServerCriticalEvent } from './criticalEventsService.js';
 type Actor = { id: string; username: string; role?: string };
 type IssueResult =
   | { ok: true; operationId: string; state: 'issued' | 'issued_with_shortage'; documentId: string | null; payload: WorkOrderPayload }
-  | { ok: false; code: 'invalid_order' | 'stale_materials' | 'shortage' | 'approval_required'; error: string; shortages?: AssemblyShortageItem[]; materialHash?: string };
+  | { ok: false; code: 'invalid_order' | 'stale_materials' | 'shortage'; error: string; shortages?: AssemblyShortageItem[]; materialHash?: string };
 
 function parsePayload(raw: string | null): WorkOrderPayload | null {
   try {

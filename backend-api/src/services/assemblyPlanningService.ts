@@ -133,6 +133,17 @@ export async function resolveAssemblyPlan(args: { engineId: string; bomId?: stri
           .where(and(eq(warehouseLocations.workshopId, profile.workshopId as any), isNull(warehouseLocations.deletedAt)))
           .limit(1)
       : [];
+    // Раньше при цехе без складской локации падали в sentinel 'default' — он молча
+    // просачивался в snapshot/materialHash и позже давал невнятную «Склад-источник
+    // не найден: default». Явная ошибка на входе честнее.
+    if (profile.workshopId && !workshopWarehouse[0]?.id) {
+      return {
+        ok: false,
+        code: 'profile_missing',
+        error: 'У цеха BOM-профиля нет складской локации — назначьте склад цеху в «Локациях»',
+        engineBrandId: engine.brandId,
+      };
+    }
     const sourceWarehouseId = workshopWarehouse[0]?.id ? String(workshopWarehouse[0].id) : 'default';
     const capturedAt = Date.now();
     const operationId = randomUUID();
