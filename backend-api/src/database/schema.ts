@@ -7,7 +7,6 @@ import {
   text,
   uniqueIndex,
   uuid,
-  bigserial,
   bigint,
   index,
 } from 'drizzle-orm/pg-core';
@@ -178,20 +177,6 @@ export const changeRequests = pgTable(
   }),
 );
 
-/**
- * @deprecated The change_log table is no longer used.
- * All sync data now flows through ledger -> ledgerTxIndex.
- * This definition is kept for backward compatibility with existing drizzle migrations.
- * The table will be dropped in a future migration.
- */
-export const changeLog = pgTable('change_log', {
-  serverSeq: bigserial('server_seq', { mode: 'number' }).primaryKey(),
-  tableName: text('table_name').notNull(),
-  rowId: uuid('row_id').notNull(),
-  op: text('op').notNull(), // upsert/delete
-  payloadJson: text('payload_json').notNull(),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-});
 
 // Индексная проекция ledger для быстрого pull без чтения block-файлов.
 export const ledgerTxIndex = pgTable(

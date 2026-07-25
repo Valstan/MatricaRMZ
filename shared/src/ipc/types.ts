@@ -659,17 +659,7 @@ export type CustomReportCsvResult =
 export type CustomReportTemplatesResult =
   | { ok: true; templates: CustomReportTemplate[] }
   | { ok: false; error: string };
-import type {
-  AiAgentAssistRequest,
-  AiAgentAssistResponse,
-  AiAgentConversationDeleteResponse,
-  AiAgentConversationMessagesResponse,
-  AiAgentConversationSearchResponse,
-  AiAgentConversationsListResponse,
-  AiAgentLogRequest,
-  AiAgentLogResponse,
-  AiAgentStreamEvent,
-} from '../domain/aiAgent.js';
+import type { AiAgentLogRequest, AiAgentLogResponse } from '../domain/aiAgent.js';
 import type { RepairNormSetDetails, RepairNormSetInput, RepairNormSetSummary } from '../domain/repairNorm.js';
 import type {
   EngineAssemblyBomDetails,
@@ -1765,40 +1755,6 @@ export type MatricaApi = {
     delete: (partId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     getFiles: (partId: string) => Promise<{ ok: true; files: unknown[] } | { ok: false; error: string }>;
   };
-  erp: {
-    dictionaryList: (moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees') => Promise<ErpDictionaryListResult>;
-    dictionaryUpsert: (args: {
-      moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
-      id?: string;
-      code: string;
-      name: string;
-      payloadJson?: string | null;
-    }) => Promise<ErpUpsertResult>;
-    cardsList: (moduleName: 'parts' | 'tools' | 'employees') => Promise<ErpCardListResult>;
-    cardsUpsert: (args: {
-      moduleName: 'parts' | 'tools' | 'employees';
-      id?: string;
-      templateId?: string | null;
-      serialNo?: string | null;
-      cardNo?: string | null;
-      status?: string | null;
-      payloadJson?: string | null;
-      fullName?: string | null;
-      personnelNo?: string | null;
-      roleCode?: string | null;
-    }) => Promise<ErpUpsertResult>;
-    documentsList: (args?: { status?: string; docType?: string }) => Promise<ErpDocumentListResult>;
-    documentsCreate: (args: {
-      docType: string;
-      docNo: string;
-      docDate?: number;
-      departmentId?: string | null;
-      authorId?: string | null;
-      payloadJson?: string | null;
-      lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
-    }) => Promise<ErpUpsertResult>;
-    documentsPost: (documentId: string) => Promise<ErpUpsertResult>;
-  };
   warehouse: {
     lookupsGet: () => Promise<{ ok: true; lookups: WarehouseLookups } | { ok: false; error: string }>;
     analyticsEngineOutput: (args?: {
@@ -2112,16 +2068,8 @@ export type MatricaApi = {
     meta: () => Promise<import('../domain/aiChatSchedule.js').AiChatMetaResult>;
   };
   aiAgent: {
-    assist: (args: AiAgentAssistRequest) => Promise<AiAgentAssistResponse>;
+    // Синхронный AI-контур снесён 2026-07-25; остался только event-лог.
     logEvent: (args: AiAgentLogRequest) => Promise<AiAgentLogResponse>;
-    conversationsList: (args: { limit?: number }) => Promise<AiAgentConversationsListResponse>;
-    conversationMessages: (args: { conversationId: string; limit?: number }) => Promise<AiAgentConversationMessagesResponse>;
-    conversationDelete: (args: { conversationId: string }) => Promise<AiAgentConversationDeleteResponse>;
-    conversationSearch: (args: { conversationId: string; query: string; limit?: number }) => Promise<AiAgentConversationSearchResponse>;
-    assistStream: (
-      args: AiAgentAssistRequest,
-      onEvent: (ev: AiAgentStreamEvent) => void,
-    ) => Promise<AiAgentAssistResponse>;
   };
 };
 

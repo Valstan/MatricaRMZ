@@ -579,41 +579,6 @@ const matricaApi = {
     delete: async (partId: string) => ipcRenderer.invoke('parts:delete', partId),
     getFiles: async (partId: string) => ipcRenderer.invoke('parts:getFiles', partId),
   },
-  erp: {
-    dictionaryList: async (moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees') =>
-      ipcRenderer.invoke('erp:dictionary:list', moduleName),
-    dictionaryUpsert: async (args: {
-      moduleName: 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
-      id?: string;
-      code: string;
-      name: string;
-      payloadJson?: string | null;
-    }) => ipcRenderer.invoke('erp:dictionary:upsert', args),
-    cardsList: async (moduleName: 'parts' | 'tools' | 'employees') => ipcRenderer.invoke('erp:cards:list', moduleName),
-    cardsUpsert: async (args: {
-      moduleName: 'parts' | 'tools' | 'employees';
-      id?: string;
-      templateId?: string | null;
-      serialNo?: string | null;
-      cardNo?: string | null;
-      status?: string | null;
-      payloadJson?: string | null;
-      fullName?: string | null;
-      personnelNo?: string | null;
-      roleCode?: string | null;
-    }) => ipcRenderer.invoke('erp:cards:upsert', args),
-    documentsList: async (args?: { status?: string; docType?: string }) => ipcRenderer.invoke('erp:documents:list', args),
-    documentsCreate: async (args: {
-      docType: string;
-      docNo: string;
-      docDate?: number;
-      departmentId?: string | null;
-      authorId?: string | null;
-      payloadJson?: string | null;
-      lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
-    }) => ipcRenderer.invoke('erp:documents:create', args),
-    documentsPost: async (documentId: string) => ipcRenderer.invoke('erp:documents:post', documentId),
-  },
   warehouse: {
     lookupsGet: async () => ipcRenderer.invoke('warehouse:lookups:get'),
     analyticsEngineOutput: async (args?: { metric?: string; bucket?: string; from?: string; to?: string; workshopId?: string }) =>
@@ -791,32 +756,9 @@ const matricaApi = {
     meta: async () => ipcRenderer.invoke('aiChat:meta'),
   },
   aiAgent: {
-    assist: async (args: unknown) => ipcRenderer.invoke('ai:assist', args),
+    // Синхронный AI-контур (ai:assist / ai:conversations:*) снесён 2026-07-25 —
+    // пользовательский чат работает через асинхронную очередь aiChat (v2026.719.1555).
     logEvent: async (args: unknown) => ipcRenderer.invoke('ai:log', args),
-    conversationsList: async (args?: { limit?: number }) =>
-      ipcRenderer.invoke('ai:conversations:list', args ?? {}),
-    conversationMessages: async (args: { conversationId: string; limit?: number }) =>
-      ipcRenderer.invoke('ai:conversations:get', args),
-    conversationDelete: async (args: { conversationId: string }) =>
-      ipcRenderer.invoke('ai:conversations:delete', args),
-    conversationSearch: async (args: { conversationId: string; query: string; limit?: number }) =>
-      ipcRenderer.invoke('ai:conversations:search', args),
-    assistStream: async (args: unknown, onEvent: (ev: unknown) => void) => {
-      const channelId = `ai:assist:stream:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
-      const listener = (_e: unknown, ev: unknown) => {
-        try {
-          onEvent(ev);
-        } catch {
-          // ignore listener errors so they don't kill the stream
-        }
-      };
-      ipcRenderer.on(channelId, listener);
-      try {
-        return await ipcRenderer.invoke('ai:assist:stream', { channelId, args });
-      } finally {
-        ipcRenderer.removeListener(channelId, listener);
-      }
-    },
   },
   logging: {
     getConfig: async () => ipcRenderer.invoke('logging:getConfig'),
