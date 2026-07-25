@@ -1080,10 +1080,15 @@ export function App() {
     const displayPrefs = uiControlToDisplayPrefs(safe);
     setUiPrefs((prev) => ({ ...prev, displayPrefs }));
     const root = document.documentElement;
-    root.style.setProperty('--ui-title-size', `${safe.global.titleFontSize}px`);
-    root.style.setProperty('--ui-section-size', `${safe.global.sectionFontSize}px`);
-    root.style.setProperty('--ui-body-size', `${safe.global.bodyFontSize}px`);
-    root.style.setProperty('--ui-muted-size', `${safe.global.mutedFontSize}px`);
+    // Инлайн-канал (style.setProperty) сильнее CSS-каскада → в планшетном режиме он
+    // молча перебивал токены :root[data-ui-mode='tablet'] из global.css, и хит-таргеты
+    // не росли (аудит 2026-07-22). Планшет задаёт МИНИМУМ: берём max(пользовательское,
+    // планшетный токен) — больший пользовательский размер по-прежнему уважается.
+    const tmin = (value: number, tabletMin: number) => (tabletActive ? Math.max(value, tabletMin) : value);
+    root.style.setProperty('--ui-title-size', `${tmin(safe.global.titleFontSize, 22)}px`);
+    root.style.setProperty('--ui-section-size', `${tmin(safe.global.sectionFontSize, 18)}px`);
+    root.style.setProperty('--ui-body-size', `${tmin(safe.global.bodyFontSize, 16)}px`);
+    root.style.setProperty('--ui-muted-size', `${tmin(safe.global.mutedFontSize, 14)}px`);
     root.style.setProperty('--ui-space-1', `${safe.global.space1}px`);
     root.style.setProperty('--ui-space-2', `${safe.global.space2}px`);
     root.style.setProperty('--ui-space-3', `${safe.global.space3}px`);
@@ -1095,28 +1100,29 @@ export function App() {
     root.style.setProperty('--ui-list-auto-columns-max', String(Math.max(1, Math.min(3, Math.round(safe.lists.autoColumnsMax)))));
     root.style.setProperty('--ui-list-auto-columns-gap-px', `${Math.max(0, Math.round(safe.lists.autoColumnsGapPx))}`);
     root.style.setProperty('--ui-card-font-size', `${safe.cards.fontSize}px`);
-    root.style.setProperty('--list-row-padding-y', `${safe.lists.rowPaddingY}px`);
-    root.style.setProperty('--list-row-padding-x', `${safe.lists.rowPaddingX}px`);
-    root.style.setProperty('--card-row-gap', `${safe.cards.rowGap}px`);
-    root.style.setProperty('--card-row-padding-y', `${safe.cards.rowPaddingY}px`);
-    root.style.setProperty('--card-row-padding-x', `${safe.cards.rowPaddingX}px`);
+    root.style.setProperty('--list-row-padding-y', `${tmin(safe.lists.rowPaddingY, 10)}px`);
+    root.style.setProperty('--list-row-padding-x', `${tmin(safe.lists.rowPaddingX, 10)}px`);
+    root.style.setProperty('--card-row-gap', `${tmin(safe.cards.rowGap, 8)}px`);
+    root.style.setProperty('--card-row-padding-y', `${tmin(safe.cards.rowPaddingY, 10)}px`);
+    root.style.setProperty('--card-row-padding-x', `${tmin(safe.cards.rowPaddingX, 10)}px`);
     const sectionAltStrength = Math.max(0, Math.min(30, Math.round(Number(safe.cards.sectionAltStrength ?? 0))));
     const sectionAltOdd = safe.cards.sectionAltBackgrounds ? Math.max(0, Math.floor(sectionAltStrength / 2)) : 0;
     const sectionAltEven = safe.cards.sectionAltBackgrounds ? sectionAltStrength : 0;
     root.style.setProperty('--ui-section-card-alt-odd', `${sectionAltOdd}%`);
     root.style.setProperty('--ui-section-card-alt-even', `${sectionAltEven}%`);
-    root.style.setProperty('--ui-table-size', `${safe.directories.tableFontSize}px`);
+    root.style.setProperty('--ui-table-size', `${tmin(safe.directories.tableFontSize, 16)}px`);
     root.style.setProperty('--entity-card-min-width', `${safe.directories.entityCardMinWidth}px`);
     root.style.setProperty('--ui-content-max-width', `${safe.layout.contentMaxWidth}px`);
     root.style.setProperty('--ui-content-block-min-width', `${safe.layout.blockMinWidth}px`);
     root.style.setProperty('--ui-content-block-max-width', `${safe.layout.blockMaxWidth}px`);
-    root.style.setProperty('--ui-datepicker-scale', String(safe.misc.datePickerScale));
-    root.style.setProperty('--ui-datepicker-font-size', `${safe.misc.datePickerFontSize}px`);
+    // Календарь: масштаб попапа (ячейки) и шрифт инпута тоже не ниже планшетного минимума.
+    root.style.setProperty('--ui-datepicker-scale', String(tmin(Number(safe.misc.datePickerScale) || 1, 2)));
+    root.style.setProperty('--ui-datepicker-font-size', `${tmin(safe.misc.datePickerFontSize, 16)}px`);
     root.style.setProperty('--ui-input-autogrow-min-ch', String(safe.inputs.autoGrowMinChars));
     root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
     root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
     root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
-  }, [effectiveUiControl]);
+  }, [effectiveUiControl, tabletActive]);
 
   // Signature over the row's DISPLAYED fields, not just the engine entity's own
   // updatedAt. Контрагент/контракт (customerName/contractName), dates, scrap flag
