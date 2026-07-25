@@ -34,7 +34,7 @@ Server endpoints used (all unauthenticated — the watchdog has no session):
 
 ```sh
 cd watchdog
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o matricarmz-watchdog.exe .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H=windowsgui" -o matricarmz-watchdog.exe .
 ```
 
 CI builds + vets it on every change under `watchdog/**`
