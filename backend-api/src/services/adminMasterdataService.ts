@@ -1294,15 +1294,21 @@ export async function setEntityAttribute(
   return { ok: true as const };
 }
 
-export async function softDeleteEntity(actor: Actor, entityId: string, options: { allowSyncConflicts?: boolean } = {}) {
+export async function softDeleteEntity(
+  actor: Actor,
+  entityId: string,
+  options: { allowSyncConflicts?: boolean; skipReferenceCheck?: boolean } = {},
+) {
   const ts = nowMs();
   const e = await db.select().from(entities).where(eq(entities.id, entityId as any)).limit(1);
   if (!e[0]) return { ok: false as const, error: 'Сущность не найдена' };
 
-  const incoming = await findIncomingLinkRows(entityId);
+  const incoming = options.skipReferenceCheck ? [] : await findIncomingLinkRows(entityId);
   // Ф4: гейт видит не только одиночные EAV-линки, но и JSON/junction-хранилища —
   // удаление в обход клиентского диалога не должно молча плодить висячие ссылки.
-  const byType = await countExtendedIncomingReferences(entityId);
+  // skipReferenceCheck — для осознанных merge-путей (engine dedupe): loser получает
+  // tombstone merged_into, оставшиеся ссылки резолвятся по нему.
+  const byType = options.skipReferenceCheck ? new Map<string, number>() : await countExtendedIncomingReferences(entityId);
   for (const link of incoming) {
     const key = link.fromEntityTypeName || link.fromEntityTypeCode || 'связанные записи';
     byType.set(key, (byType.get(key) ?? 0) + 1);

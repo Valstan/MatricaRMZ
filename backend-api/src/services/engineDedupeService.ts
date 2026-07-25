@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray, isNull, isNotNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpRegStockMovements, operations } from '../database/schema.js';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 import { setEntityAttribute, softDeleteEntity } from './adminMasterdataService.js';
 import { loadDedupeExemptEngineIds } from './engineNumberGuard.js';
@@ -378,10 +378,24 @@ export async function runEngineDedupePass(opts: {
         );
       }
 
+      // Складские движения тоже перевешиваются — иначе erp_reg_stock_movements.engine_id
+      // остаётся на съеденной сущности (аудит 2026-07-22). Движения не в sync-реестре
+      // клиентов — прямого UPDATE достаточно. Дефектовочные таблицы (defect_conducted_versions
+      // и пр.) НЕ перевешиваем: unique(engine_id, version) сталкивается при живой истории
+      // на обеих сторонах; их история резолвится по tombstone merged_into.
+      const movedRows = await db
+        .update(erpRegStockMovements)
+        .set({ engineId: survivor as never })
+        .where(eq(erpRegStockMovements.engineId, loser as never))
+        .returning({ id: erpRegStockMovements.id });
+      if (movedRows.length > 0) say(`  stock movements repointed: ${movedRows.length}`);
+
       const tomb = await setEntityAttribute(actor, loser, MERGED_INTO_CODE, survivor, { allowSyncConflicts: true });
       if (!tomb.ok) say(`  !! tombstone failed for ${loser}: ${tomb.error}`);
 
-      const del = await softDeleteEntity(actor, loser, { allowSyncConflicts: true });
+      // skipReferenceCheck: merge осознанный, loser несёт tombstone merged_into —
+      // Ф4-гейт ссылочной целостности здесь заблокировал бы склейку по meta_json-ссылкам.
+      const del = await softDeleteEntity(actor, loser, { allowSyncConflicts: true, skipReferenceCheck: true });
       if (!del.ok) {
         say(`  !! soft-delete failed for ${loser}: ${del.error}`);
         continue;
@@ -751,13 +765,21 @@ export async function mergeEngineGroup(args: {
         }
       }
 
+      // Складские движения loser'а — на survivor (см. авто-проход).
+      const movedRows = await db
+        .update(erpRegStockMovements)
+        .set({ engineId: survivorId as never })
+        .where(eq(erpRegStockMovements.engineId, loser as never))
+        .returning({ id: erpRegStockMovements.id });
+      if (movedRows.length > 0) logInfo('engine merge repointed stock movements', { loser, count: movedRows.length });
+
       const tomb = await setEntityAttribute(args.actor, loser, MERGED_INTO_CODE, survivorId, { allowSyncConflicts: true });
       if (!tomb.ok) {
         // No tombstone → stray reclaim is impossible; do NOT soft-delete this loser. Skip
         // it (ops are already repointed; a retry will finish it once the tombstone writes).
         continue;
       }
-      const del = await softDeleteEntity(args.actor, loser, { allowSyncConflicts: true });
+      const del = await softDeleteEntity(args.actor, loser, { allowSyncConflicts: true, skipReferenceCheck: true });
       if (!del.ok) continue; // one stuck loser must not block merging the rest of the group
       report.merged.push({ loserId: loser, opsRepointed: loserOps.length, attrsFilled });
     }
