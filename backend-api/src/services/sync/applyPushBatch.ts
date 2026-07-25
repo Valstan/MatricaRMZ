@@ -19,6 +19,7 @@ import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
+import { applyAiChatPushPolicy } from './aiChatPushPolicy.js';
 import { logInfo, logWarn } from '../../utils/logger.js';
 import { listEmployeesAuth } from '../employeeAuthService.js';
 import { formatTelegramMessage, sendTelegramMessage } from '../telegramBotService.js';
@@ -1595,64 +1596,16 @@ export async function applyPushBatch(
           .select({ n: sql<number>`count(*)` })
           .from(aiChatRequests)
           .where(and(eq(aiChatRequests.userId, actorId as any), gt(aiChatRequests.createdAt, hourAgo), isNull(aiChatRequests.deletedAt)));
-        let hourCount = Number((recentRows as any[])[0]?.n ?? 0);
+        const hourCount = Number((recentRows as any[])[0]?.n ?? 0);
 
-        const allowed: typeof rows = [];
-        for (const r of rows) {
-          if (trustedServerWrite) {
-            allowed.push(r);
-            continue;
-          }
-          const cur = existingMap.get(String(r.id));
-          if (!cur) {
-            hourCount += 1;
-            if (hourCount > 5 && !actorIsAdmin) throw new Error('sync_policy_denied: ai_chat_rate_limit');
-            // Новый вопрос: владелец всегда актор, статус всегда pending, серверные поля пусты.
-            allowed.push({
-              ...r,
-              user_id: actorId,
-              status: 'pending' as const,
-              answer_text: null,
-              answer_files_json: null,
-              answered_at: null,
-              escalation_note: null,
-              verdict_text: null,
-            });
-            continue;
-          }
-          const isOwner = String(cur.userId ?? '') === actorId;
-          if (!isOwner && !actorIsAdmin) throw new Error('sync_policy_denied: ai_chat_owner');
-          const curStatus = String(cur.status ?? 'pending');
-          if (actorIsSuperadmin && curStatus === 'escalated') {
-            // Суперадмин: только вердикт, остальное — из текущей строки.
-            allowed.push({
-              ...r,
-              user_id: String(cur.userId),
-              username: String(cur.username),
-              question_text: String(cur.questionText),
-              question_file_json: cur.questionFileJson ?? null,
-              status: curStatus as any,
-              answer_text: cur.answerText ?? null,
-              answer_files_json: cur.answerFilesJson ?? null,
-              answered_at: cur.answeredAt ?? null,
-              escalation_note: cur.escalationNote ?? null,
-              deleted_at: cur.deletedAt ?? null,
-            });
-            continue;
-          }
-          if (curStatus !== 'pending') throw new Error('sync_policy_denied: ai_chat_not_pending');
-          // Владелец правит/удаляет свой pending-вопрос; серверные поля не трогает.
-          allowed.push({
-            ...r,
-            user_id: String(cur.userId),
-            status: 'pending' as const,
-            answer_text: null,
-            answer_files_json: null,
-            answered_at: null,
-            escalation_note: null,
-            verdict_text: null,
-          });
-        }
+        // Политика вынесена в aiChatPushPolicy.ts (unit-тесты: aiChatPushPolicy.test.ts).
+        const allowed = applyAiChatPushPolicy(rows as any, existingMap, {
+          actorId,
+          trustedServerWrite,
+          actorIsAdmin,
+          actorIsSuperadmin,
+          initialHourCount: hourCount,
+        }) as typeof rows;
 
         if (allowed.length > 0) {
           await tx
