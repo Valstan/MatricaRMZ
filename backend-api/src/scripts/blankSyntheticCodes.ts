@@ -80,6 +80,14 @@ const ALLOW_SUSPICIOUS = (() => {
   const arg = process.argv.find((a) => a.startsWith('--allow-suspicious='));
   return arg ? Number(arg.split('=')[1]) : 0;
 })();
+/**
+ * Осознанный обход гейта версий клиентов (решение владельца 2026-07-25: не ждать
+ * раската, после прогона все клиентские базы обновляются полным пуллом, а машины
+ * ниже порога — переустановкой). Erp-изменения и так не едут инкрементальным
+ * пуллом, поэтому старый клиент ломается не в момент прогона, а при первом
+ * full pull — слать force_full_pull ТОЛЬКО клиентам ≥ MIN_CLIENT_VERSION.
+ */
+const SKIP_CLIENT_GATE = process.argv.includes('--skip-client-gate');
 
 /**
  * Маска синтетики — ОДНА на скрипт, стоп-кран клиента и серверные роуты
@@ -245,10 +253,17 @@ async function assertPreconditions(): Promise<void> {
         `   ${String(c.username ?? '—')} (${String(c.hostname ?? c.clientId)}) — ${String(c.version ?? 'версия неизвестна')}`,
       );
     }
-    throw new Error(
-      `клиентов ниже ${MIN_CLIENT_VERSION}: ${stale.length} — на них глобальный unique уронит применение pull'а ` +
-        'второй же строкой с пустым кодом. Обновить/переустановить и повторить.',
-    );
+    if (SKIP_CLIENT_GATE) {
+      console.warn(
+        `[blank-synth] ⚠️ ГЕЙТ ОБОЙДЁН (--skip-client-gate): клиентов ниже ${MIN_CLIENT_VERSION}: ${stale.length}. ` +
+          'Машинам из списка выше НЕ слать force_full_pull до обновления/переустановки — full pull с пустыми кодами уронит их локальную БД.',
+      );
+    } else {
+      throw new Error(
+        `клиентов ниже ${MIN_CLIENT_VERSION}: ${stale.length} — на них глобальный unique уронит применение pull'а ` +
+          'второй же строкой с пустым кодом. Обновить/переустановить и повторить (или осознанно --skip-client-gate).',
+      );
+    }
   }
   console.log(`[blank-synth] предусловия ok: живых клиентов ${clients.length}, все ≥ ${MIN_CLIENT_VERSION}`);
 }
