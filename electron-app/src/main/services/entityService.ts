@@ -808,4 +808,143 @@ export async function detachIncomingLinksAndSoftDeleteEntity(db: BetterSQLite3Da
   }
 }
 
+export type ReferenceResolutionMode = 'remove' | 'replace' | 'leave';
+
+// Известные поля-ссылки в JSON нарядов/заявок (whitelist — чтобы рекурсивная замена
+// не задевала нессылочные строки). Массивные поля обрабатываются отдельно.
+const META_REFERENCE_FIELDS = new Set([
+  'assemblyEngineId', 'employeeId', 'serviceId', 'partId', 'engineId', 'engineBrandId',
+  'productId', 'customerId', 'departmentId', 'workshopId', 'sectionId', 'conductedVersionId',
+]);
+
+/** Рекурсивно правит скалярные поля-ссылки === target в JSON-объекте (in place). */
+function rewriteMetaReferences(node: unknown, target: string, replacement: string | null): boolean {
+  let changed = false;
+  if (Array.isArray(node)) {
+    for (const item of node) if (rewriteMetaReferences(item, target, replacement)) changed = true;
+    return changed;
+  }
+  if (!node || typeof node !== 'object') return false;
+  const obj = node as Record<string, unknown>;
+  for (const [key, value] of Object.entries(obj)) {
+    if (META_REFERENCE_FIELDS.has(key) && String(value ?? '') === target) {
+      obj[key] = replacement ?? '';
+      changed = true;
+    } else if (value && typeof value === 'object') {
+      if (rewriteMetaReferences(value, target, replacement)) changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Ф2/Ф3: разрешает входящие ссылки на сущность и soft-delete'ит её.
+ *  • mode='leave'   — не трогаем ссылки (станут висячими, видны по EntityReferenceField).
+ *  • mode='remove'  — убираем ссылку из каждого источника (строки контракта/BOM удаляются,
+ *                     скалярные поля обнуляются, элементы массивов вырезаются).
+ *  • mode='replace' — перецепляем каждую ссылку на replacementId.
+ * Правки — стандартные клиентские (syncStatus:'pending' + updatedAt), sync разносит.
+ */
+export async function resolveIncomingReferencesAndSoftDelete(
+  db: BetterSQLite3Database,
+  entityId: string,
+  opts: { mode: ReferenceResolutionMode; replacementId?: string },
+): Promise<{ ok: true; touched: number } | { ok: false; error: string }> {
+  try {
+    const ts = nowMs();
+    let touched = 0;
+    if (opts.mode !== 'leave') {
+      const replacement = opts.mode === 'replace' ? String(opts.replacementId ?? '').trim() : null;
+      if (opts.mode === 'replace' && !replacement) return { ok: false, error: 'Не задан объект для замены' };
+      const jsonId = JSON.stringify(entityId);
+
+      // 1. EAV-линки (одиночные + массивные).
+      const linkRows = await db
+        .select({ id: attributeValues.id, entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+        .from(attributeValues)
+        .innerJoin(attributeDefs, eq(attributeValues.attributeDefId, attributeDefs.id))
+        .where(and(isNull(attributeValues.deletedAt), eq(attributeDefs.dataType, 'link'), isNull(attributeDefs.deletedAt), or(eq(attributeValues.valueJson, jsonId), like(attributeValues.valueJson, `%${jsonId}%`))))
+        .limit(10_000);
+      for (const r of linkRows) {
+        const parsed = r.valueJson ? safeJsonParse(String(r.valueJson)) : null;
+        let next: unknown;
+        if (Array.isArray(parsed)) {
+          if (!parsed.map(String).includes(entityId)) continue;
+          next = replacement ? parsed.map((x) => (String(x) === entityId ? replacement : x)) : parsed.filter((x) => String(x) !== entityId);
+        } else {
+          if (String(parsed ?? '') !== entityId) continue;
+          next = replacement;
+        }
+        await db.update(attributeValues).set({ valueJson: JSON.stringify(next ?? null), updatedAt: ts, syncStatus: 'pending' }).where(eq(attributeValues.id, r.id));
+        await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, r.entityId));
+        touched += 1;
+      }
+
+      // 2. Контракты (contract_sections JSON): строки марок/деталей — удаляются или перецепляются;
+      //    customerId — обнуляется или заменяется.
+      const contractDefs = await db.select({ id: attributeDefs.id }).from(attributeDefs).where(and(eq(attributeDefs.code, 'contract_sections'), isNull(attributeDefs.deletedAt)));
+      const contractDefIds = contractDefs.map((d) => String(d.id));
+      if (contractDefIds.length > 0) {
+        const rows = await db
+          .select({ id: attributeValues.id, entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .where(and(inArray(attributeValues.attributeDefId, contractDefIds), isNull(attributeValues.deletedAt), like(attributeValues.valueJson, `%${jsonId}%`)))
+          .limit(10_000);
+        for (const r of rows) {
+          const sections = r.valueJson ? (safeJsonParse(String(r.valueJson)) as any) : null;
+          if (!sections) continue;
+          const mutateSection = (sec: any) => {
+            if (!sec) return;
+            if (Array.isArray(sec.engineBrands)) sec.engineBrands = replacement
+              ? sec.engineBrands.map((x: any) => (String(x?.engineBrandId ?? '') === entityId ? { ...x, engineBrandId: replacement } : x))
+              : sec.engineBrands.filter((x: any) => String(x?.engineBrandId ?? '') !== entityId);
+            if (Array.isArray(sec.parts)) sec.parts = replacement
+              ? sec.parts.map((x: any) => (String(x?.partId ?? '') === entityId ? { ...x, partId: replacement } : x))
+              : sec.parts.filter((x: any) => String(x?.partId ?? '') !== entityId);
+            if (String(sec.customerId ?? '') === entityId) sec.customerId = replacement;
+          };
+          mutateSection(sections.primary);
+          for (const addon of sections.addons ?? []) mutateSection(addon);
+          await db.update(attributeValues).set({ valueJson: JSON.stringify(sections), updatedAt: ts, syncStatus: 'pending' }).where(eq(attributeValues.id, r.id));
+          await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, r.entityId));
+          touched += 1;
+        }
+      }
+
+      // 3. Наряды + заявки (operations.meta_json): скалярные поля-ссылки обнуляются/заменяются.
+      const opRows = await db
+        .select({ id: operations.id, metaJson: operations.metaJson })
+        .from(operations)
+        .where(and(inArray(operations.operationType, ['work_order', 'supply_request']), isNull(operations.deletedAt), like(operations.metaJson, `%${jsonId}%`)))
+        .limit(10_000);
+      for (const r of opRows) {
+        const meta = r.metaJson ? safeJsonParse(String(r.metaJson)) : null;
+        if (!meta || typeof meta !== 'object') continue;
+        if (!rewriteMetaReferences(meta, entityId, replacement)) continue;
+        await db.update(operations).set({ metaJson: JSON.stringify(meta), updatedAt: ts, syncStatus: 'pending' }).where(eq(operations.id, r.id));
+        touched += 1;
+      }
+
+      // 4. BOM-junction: строка удаляется (remove) или перецепляется (replace).
+      const bomRows = await db
+        .select({ id: erpEngineAssemblyBomBrandLinks.id })
+        .from(erpEngineAssemblyBomBrandLinks)
+        .where(and(eq(erpEngineAssemblyBomBrandLinks.engineBrandId, entityId), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)))
+        .limit(10_000);
+      for (const r of bomRows) {
+        await db.update(erpEngineAssemblyBomBrandLinks)
+          .set(replacement ? { engineBrandId: replacement, updatedAt: ts, syncStatus: 'pending' } : { deletedAt: ts, updatedAt: ts, syncStatus: 'pending' })
+          .where(eq(erpEngineAssemblyBomBrandLinks.id, r.id));
+        touched += 1;
+      }
+    }
+
+    const del = await softDeleteEntity(db, entityId);
+    if (!del.ok) return { ok: false, error: del.error ?? 'delete failed' };
+    return { ok: true, touched };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 

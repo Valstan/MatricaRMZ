@@ -238,6 +238,8 @@ const matricaApi = {
         ipcRenderer.invoke('admin:entities:findDuplicates', args),
       deleteInfo: async (entityId: string) => ipcRenderer.invoke('admin:entities:deleteInfo', entityId),
       incomingReferences: async (entityId: string) => ipcRenderer.invoke('admin:entities:incomingReferences', entityId),
+      resolveAndDelete: async (entityId: string, opts: { mode: 'remove' | 'replace' | 'leave'; replacementId?: string }) =>
+        ipcRenderer.invoke('admin:entities:resolveAndDelete', entityId, opts),
       detachLinksAndDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:detachLinksAndDelete', entityId),
       softDelete: async (entityId: string) => ipcRenderer.invoke('admin:entities:softDelete', entityId),
     },
