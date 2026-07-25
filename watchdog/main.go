@@ -36,6 +36,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -100,15 +101,39 @@ func main() {
 
 	forced, reqID := checkReinstallCommand(hs)
 	present := appPresent(hs)
+	running := processRunning()
+	shortcuts := shortcutsPresent()
 
 	if present && !forced {
-		logf("app present and no pending command — healthy, exiting")
-		return
+		// Exe on disk, but a wiped install can leave the operator with no way to
+		// launch it (план §Логика п.1): missing shortcuts on a NOT-running app →
+		// reinstall (silent NSIS recreates them). A running app is never touched.
+		if !shortcuts && !running {
+			logf("app exe present but shortcuts missing and process not running — reinstalling to restore shortcuts")
+		} else {
+			logf("app present and no pending command — healthy, exiting (running=%v shortcuts=%v)", running, shortcuts)
+			return
+		}
 	}
 
 	reason := "app missing"
 	if forced {
 		reason = "owner reinstall command"
+	} else if present {
+		reason = "shortcuts missing"
+	}
+
+	// Attempt counter + backoff (план §Логика п.6): after a failed pass, do not
+	// re-download ~116 MB every 15 minutes forever — wait out an exponential
+	// backoff (30m, 1h, 2h, ... capped at 24h). An owner command bypasses it.
+	st := readState()
+	if !forced && st.FailCount > 0 {
+		wait := backoffFor(st.FailCount)
+		since := time.Since(time.UnixMilli(st.LastFailMs))
+		if since < wait {
+			logf("backoff after %d failed attempts — next try in %s", st.FailCount, (wait - since).Round(time.Minute))
+			return
+		}
 	}
 	logf("recovery needed: %s (clientId=%s)", reason, hs.ClientID)
 
@@ -135,19 +160,97 @@ func main() {
 
 	if appPresent(hs) {
 		logf("recovery succeeded (installer exit=%d)", exitCode)
-		report(hs, "recovered", fmt.Sprintf("installer=%s source=%s exit=%d", filepath.Base(installer), src, exitCode), exitCode)
+		writeState(state{}) // success resets the failure counter
+		report(hs, "recovered", fmt.Sprintf("installer=%s source=%s exit=%d reason=%s", filepath.Base(installer), src, exitCode, reason), exitCode)
 		if forced {
 			ackCommand(hs, reqID, "ok", "")
 		}
 		return
 	}
 
-	detail := fmt.Sprintf("app still missing after install; exit=%d; runErr=%v; %s", exitCode, runErr, logTails(hs))
+	st.FailCount++
+	st.LastFailMs = time.Now().UnixMilli()
+	writeState(st)
+	detail := fmt.Sprintf("app still missing after install; attempt=%d; exit=%d; runErr=%v", st.FailCount, exitCode, runErr)
 	logf("recovery FAILED: %s", detail)
 	report(hs, "failed", detail, exitCode)
 	if forced {
 		ackCommand(hs, reqID, "error", "app still missing after install")
 	}
+}
+
+// --- pass state (attempt counter + backoff) --------------------------------
+
+type state struct {
+	FailCount  int   `json:"failCount"`
+	LastFailMs int64 `json:"lastFailMs"`
+}
+
+func statePath() string {
+	return filepath.Join(os.Getenv("APPDATA"), "MatricaRMZ", "watchdog-state.json")
+}
+
+func readState() state {
+	var st state
+	raw, err := os.ReadFile(statePath())
+	if err != nil {
+		return st
+	}
+	_ = json.Unmarshal(raw, &st)
+	if st.FailCount < 0 {
+		st.FailCount = 0
+	}
+	return st
+}
+
+func writeState(st state) {
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(statePath(), raw, 0o644)
+}
+
+// backoffFor: 30m after the first failure, doubling per failure, capped at 24h.
+func backoffFor(failCount int) time.Duration {
+	d := 30 * time.Minute
+	for i := 1; i < failCount && d < 24*time.Hour; i++ {
+		d *= 2
+	}
+	if d > 24*time.Hour {
+		d = 24 * time.Hour
+	}
+	return d
+}
+
+// --- liveness / shortcuts ---------------------------------------------------
+
+// processRunning reports whether the client process is currently running.
+// Diagnostics + a safety brake: the watchdog never reinstalls over a running app.
+func processRunning() bool {
+	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq MatricaRMZ.exe", "/NH", "/FO", "CSV").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "MatricaRMZ.exe")
+}
+
+// shortcutsPresent checks the per-user launch points the NSIS installer creates.
+// Either one is enough for the operator to start the app.
+func shortcutsPresent() bool {
+	candidates := []string{}
+	if up := os.Getenv("USERPROFILE"); up != "" {
+		candidates = append(candidates, filepath.Join(up, "Desktop", "MatricaRMZ.lnk"))
+	}
+	if ad := os.Getenv("APPDATA"); ad != "" {
+		candidates = append(candidates, filepath.Join(ad, `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`))
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 // --- handshake -------------------------------------------------------------
@@ -423,6 +526,14 @@ func checkReinstallCommand(hs *handshake) (forced bool, requestID string) {
 	if hs.Version != "" {
 		q.Set("version", hs.Version)
 	}
+	// Full attribution: without these the watchdog's GET used to blank the live
+	// client's hostname/platform/arch in the heartbeat row (аудит 2026-07-22).
+	// The app login (lastUsername) is unknown to the watchdog — deliberately not sent.
+	if hn, err := os.Hostname(); err == nil && hn != "" {
+		q.Set("hostname", hn)
+	}
+	q.Set("platform", runtime.GOOS)
+	q.Set("arch", runtime.GOARCH)
 	req, err := newGET(joinURL(hs.APIBaseURL, "/client/settings") + "?" + q.Encode())
 	if err != nil {
 		return false, ""
@@ -463,6 +574,13 @@ func report(hs *handshake, kind, detail string, exitCode int) {
 		"version":  hs.Version,
 		"detail":   truncate(detail, 4000),
 		"exitCode": exitCode,
+	}
+	// The server accepts logTail (≤16000 chars → aiDetails) so a failure report
+	// carries the likely crash cause; the Go side never sent it before.
+	if kind == "failed" {
+		if tail := logTails(hs); tail != "" {
+			body["logTail"] = truncate(tail, 16000)
+		}
 	}
 	postJSON(joinURL(hs.APIBaseURL, "/client/watchdog/report"), body)
 }
