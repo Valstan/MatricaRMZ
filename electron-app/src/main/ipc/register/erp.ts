@@ -1,0 +1,608 @@
+import { ipcMain } from 'electron';
+
+import type { PartMetadata } from '@matricarmz/shared';
+import type { IpcContext } from '../ipcContext.js';
+import { isViewMode, requirePermOrResult } from '../ipcContext.js';
+import { searchEntityCardContent, searchEnginesByStampedPartNumber } from '../../services/cardContentSearchService.js';
+import {
+  warehouseEngineInstanceDelete,
+  warehouseEngineInstancesList,
+  warehouseEngineInstanceUpsert,
+  warehouseDocumentCreate,
+  warehouseDocumentCancel,
+  warehouseDocumentReverse,
+  warehouseDocumentGet,
+  warehouseDocumentPlan,
+  warehouseLookupsGet,
+  warehouseAssemblyBomActivateDefault,
+  warehouseAssemblyBomArchive,
+  warehouseAssemblyBomDelete,
+  warehouseAssemblyBomGet,
+  warehouseAssemblyBomSchemaGet,
+  warehouseAssemblyBomSchemaUsageGet,
+  warehouseAssemblyBomSchemaSet,
+  warehouseAssemblyBomHistory,
+  warehouseAssemblyBomList,
+  warehouseAssemblyPlanResolve,
+  warehouseAssemblyBomPrint,
+  warehouseAssemblyBomUpsert,
+  warehouseRepairNormGet,
+  warehouseRepairNormList,
+  warehouseRepairNormUpsert,
+  warehouseContractSectionsGet,
+  warehouseDocumentPost,
+  warehouseRepairFundIntake,
+  warehouseRepairFundIntakePreview,
+  warehouseDefectConduct,
+  warehouseDefectVersions,
+  warehouseDefectHistory,
+  warehouseDefectAvailableInstances,
+  warehouseDefectIssuedInstances,
+  warehouseScrapIntake,
+  warehouseScrapIntakePreview,
+  warehouseRepairFundCaptureInstances,
+  warehouseRepairFundSetInstanceRepaired,
+  warehouseDocumentsList,
+  warehouseForecastBomGet,
+  warehouseForecastIncomingGet,
+  warehouseMovementsList,
+  warehouseNomenclatureItemTypesList,
+  warehouseNomenclatureItemTypeUpsert,
+  warehouseNomenclatureItemTypeDelete,
+  warehouseNomenclaturePropertiesList,
+  warehouseNomenclaturePropertyUpsert,
+  warehouseNomenclaturePropertyDelete,
+  warehouseNomenclatureTemplatesList,
+  warehouseNomenclatureTemplateUpsert,
+  warehouseNomenclatureTemplateDelete,
+  warehouseNomenclatureDelete,
+  warehouseNomenclaturePartSpecGet,
+  warehouseNomenclaturePartSpecUpdate,
+  warehouseNomenclaturePartSpecsList,
+  warehouseDirectoryPartCreate,
+  warehousePartsDedupeAnalyze,
+  warehousePartsDedupeMerge,
+  warehouseNomenclatureGroupCounts,
+  warehouseNomenclatureList,
+  warehouseNomenclatureUpsert,
+  globalSearchQuery,
+  warehouseStockList,
+  warehouseEngineOutputAnalytics,
+} from '../../services/erpService.js';
+
+// Despite the legacy filename, this file carries the live warehouse/search IPC
+// surface (nomenclature, documents, BOM, defects, repair fund, global search).
+// The dead erp:* handlers were removed 2026-07-25; the file itself was briefly
+// deleted whole in #333 which broke the whole warehouse UI (restored same day).
+export function registerErpIpc(ctx: IpcContext) {
+  ipcMain.handle(
+    'warehouse:nomenclature:list',
+    async (_e, args?: { id?: string; search?: string; itemType?: string; directoryKind?: string; directoryRefId?: string; groupId?: string; isActive?: boolean; limit?: number; offset?: number }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  // Bottom list filter tier-2: match query against live EAV values of the ids the
+  // page currently displays. Returns ids only (no attribute data crosses the bridge),
+  // so the section read-gate of the calling list is not widened.
+  ipcMain.handle('search:cardContent', async (_e, args?: { entityIds?: string[]; q?: string }) => {
+    if (isViewMode(ctx)) return { ok: true as const, ids: [] as string[] };
+    return searchEntityCardContent(ctx.dataDb(), {
+      entityIds: Array.isArray(args?.entityIds) ? args.entityIds.map(String) : [],
+      q: String(args?.q ?? ''),
+    });
+  });
+
+  ipcMain.handle('search:enginesByStampedNumber', async (_e, args?: { q?: string; limit?: number }) => {
+    if (isViewMode(ctx)) return { ok: true as const, hits: [] };
+    return searchEnginesByStampedPartNumber(ctx.dataDb(), {
+      q: String(args?.q ?? ''),
+      ...(args?.limit !== undefined ? { limit: Number(args.limit) } : {}),
+    });
+  });
+
+  ipcMain.handle('search:global', async (_e, args?: { q?: string; limit?: number }) => {
+    if (isViewMode(ctx)) return { query: '', hits: [], truncated: false };
+    return globalSearchQuery(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), {
+      q: String(args?.q ?? ''),
+      ...(args?.limit !== undefined ? { limit: Number(args.limit) } : {}),
+    });
+  });
+
+  ipcMain.handle(
+    'warehouse:nomenclature:groupCounts',
+    async (_e, args?: { search?: string; itemType?: string; directoryKind?: string }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+      if (!gate.ok) return gate as any;
+      return warehouseNomenclatureGroupCounts(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle('warehouse:lookups:get', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse lookups are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseLookupsGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:itemTypes:list', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureItemTypesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:itemTypes:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureItemTypeUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:itemTypes:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureItemTypeDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:properties:list', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePropertiesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:properties:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePropertyUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:properties:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePropertyDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:templates:list', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureTemplatesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:nomenclature:templates:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureTemplateUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:templates:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureTemplateDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:nomenclature:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclatureDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:partSpecs:list', async (_e, args?: { templateId?: string; engineBrandId?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePartSpecsList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args ?? {});
+  });
+
+  ipcMain.handle('warehouse:partsDedupe:analyze', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehousePartsDedupeAnalyze(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:partsDedupe:merge', async (_e, args: { survivorId: string; mergedIds: string[] }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehousePartsDedupeMerge(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      survivorId: String(args?.survivorId ?? ''),
+      mergedIds: Array.isArray(args?.mergedIds) ? args.mergedIds.map(String) : [],
+    });
+  });
+
+  ipcMain.handle('warehouse:directoryPart:create', async (_e, args: { name: string; code?: string | null }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseDirectoryPartCreate(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      name: String(args?.name ?? ''),
+      ...(args?.code !== undefined ? { code: args.code } : {}),
+    });
+  });
+
+  ipcMain.handle('warehouse:nomenclature:partSpec:get', async (_e, args: { nomenclatureId: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePartSpecGet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(args?.nomenclatureId || ''));
+  });
+
+  ipcMain.handle('warehouse:nomenclature:partSpec:update', async (_e, args: { nomenclatureId: string; spec: Record<string, unknown>; metadata?: PartMetadata }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseNomenclaturePartSpecUpdate(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(args?.nomenclatureId || ''), args?.spec ?? {}, args?.metadata);
+  });
+
+  ipcMain.handle(
+    'warehouse:stock:list',
+    async (_e, args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse stock is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+      if (!gate.ok) return gate as any;
+      return warehouseStockList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'warehouse:analytics:engineOutput',
+    async (_e, args?: { metric?: string; bucket?: string; from?: string; to?: string; workshopId?: string }) => {
+      const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+      if (!gate.ok) return gate as any;
+      return warehouseEngineOutputAnalytics(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'warehouse:documents:list',
+    async (
+      _e,
+      args?: {
+        status?: string;
+        docType?: string;
+        excludeCancelled?: boolean;
+        statusIn?: string[];
+        fromDate?: number;
+        toDate?: number;
+        search?: string;
+        warehouseId?: string;
+        limit?: number;
+        offset?: number;
+      },
+    ) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+      if (!gate.ok) return gate as any;
+      return warehouseDocumentsList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'warehouse:engineInstances:list',
+    async (
+      _e,
+      args?: { nomenclatureId?: string; contractId?: string; warehouseId?: string; status?: string; search?: string; limit?: number; offset?: number },
+    ) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse instances are not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+      if (!gate.ok) return gate as any;
+      return warehouseEngineInstancesList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle('warehouse:engineInstances:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse instances are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseEngineInstanceUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:engineInstances:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse instances are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseEngineInstanceDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:contracts:sections:get', async (_e, contractId: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse contracts are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseContractSectionsGet(ctx.mgr.getApiBaseUrl(), String(contractId || ''));
+  });
+
+  ipcMain.handle('warehouse:documents:get', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDocumentGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:documents:create', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseDocumentCreate(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:documents:post', async (_e, arg: string | { id: string; expectedUpdatedAt?: number }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    const id = typeof arg === 'string' ? arg : arg?.id;
+    const rawEv = typeof arg === 'object' && arg != null ? arg.expectedUpdatedAt : undefined;
+    const postArgs =
+      rawEv !== undefined && rawEv !== null && Number.isFinite(Number(rawEv))
+        ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
+        : undefined;
+    return warehouseDocumentPost(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), postArgs);
+  });
+
+  ipcMain.handle('warehouse:repairFund:intake', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair fund intake is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairFundIntake(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  // Ф3 forecast-remfond-aware: read-only превью дельты заноса — тот же раздел, view-права.
+  ipcMain.handle('warehouse:repairFund:intakePreview', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: true as const, pendingQty: 0, pendingPositions: 0, skippedNoNom: 0 };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairFundIntakePreview(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  // Ф6 (G6): списание утиля дефектовки в scrap-локацию — зеркало ремфонд-заноса.
+  ipcMain.handle('warehouse:scrap:intake', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: scrap intake is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    return warehouseScrapIntake(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:scrap:intakePreview', async (_e, args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => {
+    if (isViewMode(ctx)) return { ok: true as const, pendingQty: 0, pendingPositions: 0, skippedNoNom: 0 };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseScrapIntakePreview(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle(
+    'warehouse:repairFund:captureInstances',
+    async (_e, args: { engineId: string; instances: Array<{ partId: string; partLabel: string; stampedNumber: string; classification: string }> }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair fund capture is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+      if (!gate.ok) return gate as any;
+      return warehouseRepairFundCaptureInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle(
+    'warehouse:repairFund:setInstanceRepaired',
+    async (_e, args: { operationId: string; repaired: boolean }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair fund update is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+      if (!gate.ok) return gate as any;
+      return warehouseRepairFundSetInstanceRepaired(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle('warehouse:documents:plan', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseDocumentPlan(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:documents:cancel', async (_e, arg: string | { id: string; expectedUpdatedAt?: number }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.edit');
+    if (!gate.ok) return gate as any;
+    const id = typeof arg === 'string' ? arg : arg?.id;
+    const rawEv = typeof arg === 'object' && arg != null ? arg.expectedUpdatedAt : undefined;
+    const cancelArgs =
+      rawEv !== undefined && rawEv !== null && Number.isFinite(Number(rawEv))
+        ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
+        : undefined;
+    return warehouseDocumentCancel(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), cancelArgs);
+  });
+
+  // Ф4 (G5): сторно проведённого документа. Право movements.revert (admin-only) проверяет сервер;
+  // локальный гейт — по erp.documents.post, чтобы кнопка честно падала с серверным отказом прав.
+  ipcMain.handle('warehouse:documents:reverse', async (_e, arg: string | { id: string; expectedUpdatedAt?: number }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse documents are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    const id = typeof arg === 'string' ? arg : arg?.id;
+    const rawEv = typeof arg === 'object' && arg != null ? arg.expectedUpdatedAt : undefined;
+    const reverseArgs =
+      rawEv !== undefined && rawEv !== null && Number.isFinite(Number(rawEv))
+        ? { expectedUpdatedAt: Math.trunc(Number(rawEv)) }
+        : undefined;
+    return warehouseDocumentReverse(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''), reverseArgs);
+  });
+
+  ipcMain.handle(
+    'warehouse:movements:list',
+    async (_e, args?: { nomenclatureId?: string; warehouseId?: string; documentHeaderId?: string; fromDate?: number; toDate?: number; limit?: number }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse movements are not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+      if (!gate.ok) return gate as any;
+      return warehouseMovementsList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+
+  ipcMain.handle('warehouse:forecast:incoming:get', async (_e, args: { from: number; to: number; warehouseId?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseForecastIncomingGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:list', async (_e, args?: { engineBrandId?: string; engineNomenclatureId?: string; status?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:defects:conduct', async (_e, args: import('@matricarmz/shared').DefectConductRequest) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: defect conduct is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectConduct(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:defects:versions', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectVersions(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:defects:history', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.documents.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectHistory(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:defects:availableInstances', async (_e, nomenclatureIds: string[]) => {
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectAvailableInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), nomenclatureIds);
+  });
+
+  ipcMain.handle('warehouse:defects:issuedInstances', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+    if (!gate.ok) return gate as any;
+    return warehouseDefectIssuedInstances(ctx.sysDb, ctx.mgr.getApiBaseUrl(), engineId);
+  });
+
+  ipcMain.handle('warehouse:repairNorm:list', async (_e, args?: { engineBrandId?: string; status?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair norms are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairNormList(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:repairNorm:get', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair norms are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairNormGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:repairNorm:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: repair norms are not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseRepairNormUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyPlan:resolve', async (_e, args: { engineId: string; bomId?: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, code: 'bom_missing' as const, error: 'view mode: assembly plan is not available' };
+    const gate = await requirePermOrResult(ctx, 'work_orders.edit');
+    if (!gate.ok) return { ...gate, code: 'bom_missing' as const };
+    return warehouseAssemblyPlanResolve(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:schema:get', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomSchemaGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:schema:set', async (_e, args: { schema: unknown; renames?: Array<{ fromTypeId: string; toTypeId: string }> }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomSchemaSet(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:schema:usage:get', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomSchemaUsageGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:get', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:upsert', async (_e, args: Record<string, unknown>) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:activateDefault', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomActivateDefault(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:archive', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomArchive(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:history', async (_e, args: { engineBrandId: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomHistory(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(args?.engineBrandId || ''));
+  });
+
+  ipcMain.handle('warehouse:assemblyBom:print', async (_e, id: string) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse BOM is not available' };
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as any;
+    return warehouseAssemblyBomPrint(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), String(id || ''));
+  });
+
+  ipcMain.handle(
+    'warehouse:forecast:bom:get',
+    async (_e, args: { engineBrandId: string; targetEnginesPerDay?: number; horizonDays?: number; warehouseIds?: string[] }) => {
+      if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse forecast is not available' };
+      const gate = await requirePermOrResult(ctx, 'erp.registers.view');
+      if (!gate.ok) return gate as any;
+      return warehouseForecastBomGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    },
+  );
+}
