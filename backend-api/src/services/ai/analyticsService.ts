@@ -300,7 +300,7 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
     return { ok: true as const, replyText: AI_AGENT_DISABLED_MESSAGE, model, timeout: false };
   }
   if (!AI_ANALYTICS_ENABLED) {
-    return { ok: true as const, replyText: 'Аналитические возможности ИИ временно отключены. Доступен только чат.', model, timeout: false };
+    return { ok: true as const, replyText: 'Аналитические возможности Иваныча временно отключены. Доступен только чат.', model, timeout: false };
   }
   const perms = await getEffectivePermissionsForUser(args.actorId);
   const policy = buildAccessPolicy(perms);

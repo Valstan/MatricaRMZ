@@ -250,7 +250,7 @@ export async function routineEscalate(args: { id: string; reason: string }) {
   const sa = list.ok ? list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin') : null;
   if (sa?.id) {
     const msgId = randomUUID();
-    const text = `⚠️ AI-чат: эскалация вопроса от ${cur.username}:\n«${String(cur.questionText).slice(0, 500)}»\n\nПричина: ${reason || '(не указана)'}\n\nОткройте ИИ-помощник → блок «Эскалации» и дайте вердикт.`;
+    const text = `⚠️ Иваныч: эскалация вопроса от ${cur.username}:\n«${String(cur.questionText).slice(0, 500)}»\n\nПричина: ${reason || '(не указана)'}\n\nОткройте Иваныча → блок «Эскалации» и дайте вердикт.`;
     await recordSyncChanges(
       actor,
       [
