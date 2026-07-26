@@ -84,10 +84,10 @@ export const AI_AGENT_BUSY_MESSAGE =
   'Я не успеваю ответить, я еще учусь, но скоро начну быстро отвечать на ваши вопросы и помогать вам в работе!';
 
 export const AI_AGENT_MISCONFIGURED_MESSAGE =
-  'Иваныч пока не настроен (отсутствует ANTHROPIC_API_KEY). Обратитесь к администратору.';
+  'ИИваныч пока не настроен (отсутствует ANTHROPIC_API_KEY). Обратитесь к администратору.';
 
 export const AI_AGENT_DISABLED_MESSAGE =
-  'Иваныч временно отключён администратором. Программа работает в обычном режиме без его подсказок.';
+  'ИИваныч временно отключён администратором. Программа работает в обычном режиме без его подсказок.';
 
 export const AI_ENABLED = String(process.env.AI_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
 
