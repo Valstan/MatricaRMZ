@@ -268,9 +268,12 @@ const MIGRATIONS: Migration[] = [
       if (idx?.name) {
         sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_lines_variant_component_uq;`);
       }
+      // Партиальный с рождения (#086, drizzle 0020): иначе клиент ниже версии 6 после
+      // 0020 получил бы обратно полный (строже сервера) индекс из этого шага.
       sqlite.exec(`
         CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_lines_variant_component_uq
-          ON erp_engine_assembly_bom_lines(bom_id, variant_group, component_nomenclature_id, component_type);
+          ON erp_engine_assembly_bom_lines(bom_id, variant_group, component_nomenclature_id, component_type)
+          WHERE deleted_at IS NULL;
       `);
     },
   },
