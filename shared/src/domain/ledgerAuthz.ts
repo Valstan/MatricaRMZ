@@ -48,6 +48,22 @@ export function isServerOnlyEmployeeAttr(
   return SERVER_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
 }
 
+// Employee attrs that ONLY the superadmin may write from a client (owner decision
+// 2026-07-26: управление доступами — в одних руках). Not in the server-only list
+// because the superadmin's own client legitimately writes them (AccessSectionsPage /
+// employee card mirror) — but the own_employee rule alone would let ANY operator
+// grant their own record `section_access: {…: 'editor'}` (privilege escalation).
+export const SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES: ReadonlySet<string> = new Set(['section_access']);
+
+/** True if a write targets an employee attribute only the superadmin may set. */
+export function isSuperadminOnlyEmployeeAttr(
+  entityTypeCode: string | null | undefined,
+  attrCode: string | null | undefined,
+): boolean {
+  if ((entityTypeCode ?? '').trim() !== 'employee') return false;
+  return SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
+}
+
 // entity_type code -> requirement (entities / attribute_values rows).
 const ENTITY_TYPE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   engine: { kind: 'permission', code: PermissionCode.EnginesEdit },

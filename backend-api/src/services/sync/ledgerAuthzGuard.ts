@@ -29,6 +29,7 @@ import {
   isEngineReservationGatedOperationType,
   isOperatorRole,
   isServerOnlyEmployeeAttr,
+  isSuperadminOnlyEmployeeAttr,
   ledgerWriteRequirement,
   operatorMeetsRequirement,
   sectionForLedgerWrite,
@@ -201,6 +202,17 @@ export async function partitionLedgerInputsByAuthz(
           table: inp.table,
           row_id: inp.row_id,
           reason: `forbidden:employee_auth_attr:${attrCode}`,
+        });
+        continue;
+      }
+      // Управление доступами — только суперадмин (owner decision 2026-07-26).
+      // Без этого own_employee-правило позволяло бы оператору выдать СЕБЕ
+      // section_access editor'ом всех разделов крафтовой ledger-записью.
+      if (role !== 'superadmin' && isSuperadminOnlyEmployeeAttr(entityTypeCode, attrCode)) {
+        denied.push({
+          table: inp.table,
+          row_id: inp.row_id,
+          reason: `forbidden:superadmin_only_attr:${attrCode}`,
         });
         continue;
       }

@@ -5,7 +5,10 @@ import {
   AccessSection,
   canEditSection,
   canViewSection,
+  dependentsOfSection,
+  membershipIssues,
   missingSectionDependencies,
+  sectionEditorRoleWarning,
   parseSectionMembership,
   sectionForLedgerWrite,
   sectionLevelFor,
@@ -159,5 +162,68 @@ describe('missingSectionDependencies (theme H)', () => {
 
   it('section without deps (people) → empty', () => {
     expect(missingSectionDependencies({ people: 'editor' }, AccessSection.People)).toEqual([]);
+  });
+});
+
+describe('dependentsOfSection (обратная ниточка при снятии)', () => {
+  it('снятие contracts у имеющего production → предупреждение про production', () => {
+    const deps = dependentsOfSection({ production: 'editor', contracts: 'viewer' }, AccessSection.Contracts);
+    expect(deps.map((d) => d.section)).toEqual([AccessSection.Production]);
+  });
+
+  it('снятие contracts без production в membership → пусто', () => {
+    expect(dependentsOfSection({ contracts: 'viewer' }, AccessSection.Contracts)).toEqual([]);
+  });
+
+  it('снятие production предупреждает и про work_orders, и про contracts', () => {
+    const deps = dependentsOfSection(
+      { work_orders: 'editor', contracts: 'editor', production: 'viewer' },
+      AccessSection.Production,
+    );
+    expect(deps.map((d) => d.section).sort()).toEqual([AccessSection.Contracts, AccessSection.WorkOrders].sort());
+  });
+});
+
+describe('membershipIssues (связанность всего набора)', () => {
+  it('production без contracts → одна проблема', () => {
+    const issues = membershipIssues({ production: 'editor' });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.section).toBe(AccessSection.Production);
+    expect(issues[0]?.missing.section).toBe(AccessSection.Contracts);
+  });
+
+  it('полный связный набор → пусто', () => {
+    expect(
+      membershipIssues({ production: 'editor', contracts: 'viewer', work_orders: 'editor', supply: 'viewer', warehouse: 'viewer' }),
+    ).toEqual([]);
+  });
+});
+
+describe('sectionEditorRoleWarning (раздел ⇄ роль)', () => {
+  it('операторская роль без права записи в области → предупреждение', () => {
+    const warn = sectionEditorRoleWarning({
+      role: 'viewer',
+      sectionId: AccessSection.WorkOrders,
+      rolePermissions: { 'work_orders.view': true },
+    });
+    expect(warn).toContain('Роль этого пользователя');
+  });
+
+  it('роль с правом записи → null', () => {
+    expect(
+      sectionEditorRoleWarning({
+        role: 'master',
+        sectionId: AccessSection.WorkOrders,
+        rolePermissions: { 'work_orders.edit': true },
+      }),
+    ).toBeNull();
+  });
+
+  it('не-операторская роль (rolePermissions=null) → null', () => {
+    expect(sectionEditorRoleWarning({ role: 'admin', sectionId: AccessSection.WorkOrders, rolePermissions: null })).toBeNull();
+  });
+
+  it('view-центричный раздел (reports) не сверяется', () => {
+    expect(sectionEditorRoleWarning({ role: 'viewer', sectionId: AccessSection.Reports, rolePermissions: {} })).toBeNull();
   });
 });

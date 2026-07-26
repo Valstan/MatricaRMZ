@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { EmployeeListItem, SectionAccessLevel, SectionMembership } from '@matricarmz/shared';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, missingSectionDependencies, parseSectionMembership, serializeSectionMembership } from '@matricarmz/shared';
+import {
+  ACCESS_SECTION_CATALOG,
+  SECTION_ACCESS_ATTR,
+  accessSectionMeta,
+  dependentsOfSection,
+  membershipIssues,
+  missingSectionDependencies,
+  operatorRolePermissions,
+  parseSectionMembership,
+  sectionEditorRoleWarning,
+  serializeSectionMembership,
+} from '@matricarmz/shared';
 import type { AccessSection } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -73,6 +84,43 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
       });
       if (!ok) return;
     }
+    // При СНЯТИИ раздела — предупредить, каким выданным разделам он нужен (обратная ниточка).
+    if (!level) {
+      const dependents = dependentsOfSection(row.membership, sectionId as AccessSection);
+      if (dependents.length > 0) {
+        const list = dependents
+          .map((d) => `• «${accessSectionMeta(d.section)?.titleRu ?? d.section}» — ${d.reasonRu}`)
+          .join('\n');
+        const ok = await confirm({
+          title: `Снять «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}» у ${row.login}?`,
+          detail:
+            `Этот раздел нужен другим выданным разделам пользователя:\n\n${list}\n\n` +
+            'После снятия перечисленные разделы останутся, но поиск/подстановка этих данных в них перестанут работать. Снять всё равно?',
+          confirmLabel: 'Снять всё равно',
+          confirmTone: 'warn',
+        });
+        if (!ok) return;
+      }
+    }
+
+    // При выдаче editor — сверка с ролью: сервер проверяет и раздел, и права роли.
+    if (level === 'editor') {
+      const roleWarn = sectionEditorRoleWarning({
+        role: row.role,
+        sectionId: sectionId as AccessSection,
+        rolePermissions: operatorRolePermissions(row.role),
+      });
+      if (roleWarn) {
+        const ok = await confirm({
+          title: `Редактор «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}» для ${row.login}?`,
+          detail: roleWarn,
+          confirmLabel: 'Выдать всё равно',
+          confirmTone: 'warn',
+        });
+        if (!ok) return;
+      }
+    }
+
     const membership: SectionMembership = { ...row.membership };
     if (level) (membership as Record<string, SectionAccessLevel>)[sectionId] = level;
     else delete (membership as Record<string, SectionAccessLevel>)[sectionId];
@@ -295,6 +343,21 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
               >
                 <b>{row.login}</b>
                 {row.name ? <span style={{ color: 'var(--muted)', fontSize: 12 }}> {row.name}</span> : null}
+                {(() => {
+                  const issues = membershipIssues(row.membership);
+                  if (issues.length === 0) return null;
+                  const text = issues
+                    .map(
+                      (i) =>
+                        `«${accessSectionMeta(i.section)?.titleRu ?? i.section}» не хватает «${accessSectionMeta(i.missing.section)?.titleRu ?? i.missing.section}»: ${i.missing.reasonRu}`,
+                    )
+                    .join('\n');
+                  return (
+                    <span title={`Несвязный набор доступов:\n${text}`} style={{ marginLeft: 4, cursor: 'help' }}>
+                      ⚠️
+                    </span>
+                  );
+                })()}
               </td>
               {ACCESS_SECTION_CATALOG.map((section) => matrixCell(row, section.id))}
             </tr>
