@@ -43,6 +43,7 @@
 
 ## Что не сработало
 
+- **Наступили на M40 в третий раз** (v2026.726.1033): после рестарта `lastError: stale_manifest`, `/updates/file/*` → 404 (манифест собран по недокачанному `.exe`: 17.9 МБ из 136). Лечится повторным рестартом primary после дописи файла — сделано, проверено (`lastError: null`, blockmap 200). **Вывод:** граблю знали, но она жила только в GOTCHAS → внесена в `CLAUDE.md` §Release process **шагом 8b** (poll `latest.json.size` == размер `.exe` до ledger-publish/рестарта). Дальше её чинит процесс, а не память.
 - `gh workflow run watchdog-build.yml` — у воркфлоу нет `workflow_dispatch`, только `push`/`pull_request`. Сборку получать открытием PR (артефакт `matricarmz-watchdog-unsigned`), не dispatch'ем.
 - `gh run download` по TLS-таймауту с этой машины — повторный вызов проходит, не диагностировать как поломку gh.
 
