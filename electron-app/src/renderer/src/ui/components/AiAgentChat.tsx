@@ -13,6 +13,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { IvanychFigure } from './IvanychFigure.js';
 import { theme } from '../theme.js';
 import { formatMoscowTime } from '../utils/dateUtils.js';
 import { renderMarkdown } from '../utils/markdownLite.js';
@@ -434,7 +435,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         {item.status === 'answered' && item.answerText != null && (
           <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
             <div style={{ fontSize: 11, color: theme.colors.muted, marginBottom: 4 }}>
-              🤖 Ответ ИИ · {item.answeredAt ? formatMoscowTime(item.answeredAt) : ''}
+              🔧 Иваныч ответил · {item.answeredAt ? formatMoscowTime(item.answeredAt) : ''}
             </div>
             <div
               style={{ fontSize: 13, lineHeight: 1.45 }}
@@ -477,14 +478,14 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
               {item.escalationNote ? ` Причина: ${item.escalationNote}` : ''}
             </div>
             {item.verdictText && (
-              <div style={{ fontSize: 12, marginTop: 4 }}>Решение принято, ответ будет в следующий запуск ИИ.</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Решение принято, Иваныч ответит в следующий запуск.</div>
             )}
             {isSuperadmin && !item.verdictText && (
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <textarea
                   value={verdictDrafts[item.id] ?? ''}
                   onChange={(e) => setVerdictDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
-                  placeholder="Вердикт для ИИ: как отвечать на такие вопросы…"
+                  placeholder="Вердикт для Иваныча: как отвечать на такие вопросы…"
                   rows={2}
                   style={{
                     width: '100%',
@@ -509,7 +510,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         {item.status === 'rejected' && (
           <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
             <div style={{ fontSize: 12, color: theme.colors.muted }}>
-              ИИ не может ответить на этот вопрос.
+              Иваныч не может ответить на этот вопрос.
               {item.answerText ? ` ${item.answerText}` : ''}
             </div>
           </div>
@@ -535,7 +536,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           gap: 6,
         }}
       >
-        <div style={{ fontWeight: 900, flex: 1 }}>ИИ‑помощник</div>
+        <div style={{ fontWeight: 900, flex: 1 }}>Иваныч</div>
         <Button variant="ghost" onClick={() => void refresh()} title="Обновить">
           ⟳
         </Button>
@@ -545,6 +546,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         <Button variant="ghost" onClick={props.onClose} title="Закрыть">
           ✕
         </Button>
+        <IvanychFigure size={40} />
       </div>
 
       <div
@@ -560,11 +562,11 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       >
         {routineLive ? (
           <span title="Рутина сейчас разбирает очередь и перечитывает её каждые 2–3 минуты">
-            🟢 ИИ на связи: <b>ответит за несколько минут</b>
+            🟢 Иваныч на связи: <b>ответит за несколько минут</b>
           </span>
         ) : (
-          <span title="ИИ включается раз в час (Пн–Пт с 8:00 до 17:00 МСК) и затем около часа держит очередь разобранной">
-            Следующий ответ ИИ: <b>{formatMoscowTime(nextRunAt)}</b>
+          <span title="Иваныч включается раз в час (Пн–Пт с 8:00 до 17:00 МСК) и затем около часа держит очередь разобранной">
+            Следующий ответ Иваныча: <b>{formatMoscowTime(nextRunAt)}</b>
           </span>
         )}
         {lastRunAt != null && <span>Последний запуск: {formatMoscowTime(lastRunAt)}</span>}
@@ -573,7 +575,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       <div ref={scrollRef} style={{ padding: 10, overflowY: 'auto', flex: '1 1 auto' }}>
         {myItems.length === 0 && foreignEscalated.length === 0 && (
           <div style={{ color: theme.colors.muted, fontSize: 13 }}>
-            Задайте вопрос по данным программы — остатки, двигатели, контракты, отчёты. ИИ проанализирует базу данных и
+            Задайте вопрос по данным программы — остатки, двигатели, контракты, отчёты. Иваныч проанализирует базу данных и
             ответит в ближайший запуск (раз в час в рабочее время), а пока он на связи — за несколько минут.
           </div>
         )}
@@ -620,7 +622,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
               fontSize: 12,
               borderRadius: 6,
             }}
-            title="Готовые запросы: ваши шаблоны и часто повторяемые вопросы, на которые ИИ уже отвечал"
+            title="Готовые запросы: ваши шаблоны и часто повторяемые вопросы, на которые Иваныч уже отвечал"
           >
             <option value="">Шаблоны и частые запросы…</option>
             {templates.length > 0 && (
