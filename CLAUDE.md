@@ -126,9 +126,14 @@ New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterd
    gh release download vX.Y.Z --pattern "*.blockmap" -D /opt/matricarmz/updates --clobber   # separate call — multi-pattern drops it
    ```
    > ⚠️ **Verify all three landed** (`ls /opt/matricarmz/updates/ | grep <version>` → `.exe`, `.exe.blockmap`, `latest.yml`; `latest.yml` has no version in its name). A missing blockmap makes `/updates/file/<exe>.blockmap` return 404 → clients lose delta and full-download the installer (~116 МБ vs ~10 МБ). Confirm after restart: `curl -fsSk -o /dev/null -w '%{http_code}' https://127.0.0.1/updates/file/<exe>.blockmap` → `200`.
-8. `corepack pnpm release:ledger-publish X.Y.Z` — writes `latest.json` / `latest.torrent` into the updates dir. Still **before** restart.
-9. Restart services: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`. Verify with `curl -fsk https://127.0.0.1/health` (should report new version).
-10. Verify clients will see the update: `curl -fsSk https://127.0.0.1/updates/status` must report `latest: { version: "X.Y.Z", ... }` (not `null` and not the previous version).
+8. **Wait for `latest.json` to agree with the `.exe` on disk BEFORE anything else** (GOTCHAS **M40**, hit three times: 2026-07-23 ×2, 2026-07-26). The running `updateTorrentService` rescans the updates dir every 60 s and seeds the manifest from whatever it finds — `gh release download` writes the `.exe` in place, so a rescan mid-download persists a manifest with a **partial size**. That poisoned manifest survives the restart: `version/fileName/size` mismatch nulls the state and `/updates/file/:name` 404s **both** installer and blockmap — clients see no update at all. Poll until they match, don't eyeball it:
+   ```bash
+   until [ "$(stat -c%s /opt/matricarmz/updates/MatricaRMZ-Setup-X.Y.Z.exe)" = "$(python3 -c "import json,sys;print(json.load(open('/opt/matricarmz/updates/latest.json'))['size'])")" ]; do sleep 10; done
+   ```
+   If you already restarted and see `lastError: "stale_manifest"` → just restart the primary again once the file is complete (the fresh scan re-seeds correctly).
+9. `corepack pnpm release:ledger-publish X.Y.Z` — publishes the release into the ledger. Still **before** restart. Note it does **not** rewrite `latest.json` itself — that is the rescan's job (see step 8).
+10. Restart services: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`. Verify with `curl -fsk https://127.0.0.1/health` (should report new version).
+11. Verify clients will see the update: `curl -fsSk https://127.0.0.1/updates/status` must report `latest: { version: "X.Y.Z", ... }` (not `null` and not the previous version), `lastError: null`, and `/updates/file/<exe>.blockmap` → `200`.
 
 > **Why download + ledger-publish go before restart** (learned v1.34.2): `updateTorrentService` reads the updates dir into in-memory state **at process startup** and only re-scans on a long interval. If you restart while the dir still holds the previous installer, `/updates/status` reports the old version until the next scan (or a second restart). Preparing all artifacts first means the post-restart scan reads the final `latest.yml` / `latest.json` immediately. The DB-touching steps (5, 6) still run between `build` and `restart`.
 
