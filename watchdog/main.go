@@ -39,8 +39,24 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
+
+// hiddenCmd builds an exec.Cmd that never flashes a console window. The
+// watchdog binary itself is GUI-subsystem (-H=windowsgui), but console child
+// processes (tasklist, powershell) each pop a visible console for a moment —
+// operators saw it every 15-minute pass once the shortcut check landed.
+// CREATE_NO_WINDOW suppresses the console allocation entirely; HideWindow
+// covers GUI children (the NSIS installer) as belt-and-braces.
+func hiddenCmd(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+	return cmd
+}
 
 type handshake struct {
 	ClientID       string `json:"clientId"`
@@ -240,7 +256,7 @@ func backoffFor(failCount int) time.Duration {
 // processRunning reports whether the client process is currently running.
 // Diagnostics + a safety brake: the watchdog never reinstalls over a running app.
 func processRunning() bool {
-	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq MatricaRMZ.exe", "/NH", "/FO", "CSV").Output()
+	out, err := hiddenCmd("tasklist", "/FI", "IMAGENAME eq MatricaRMZ.exe", "/NH", "/FO", "CSV").Output()
 	if err != nil {
 		return false
 	}
@@ -251,7 +267,7 @@ func processRunning() bool {
 // is wrong on redirected desktops (e.g. moved to another drive) — ask the shell.
 // Live acceptance 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
 func resolveDesktopDir() string {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')").Output()
+	out, err := hiddenCmd("powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')").Output()
 	if err == nil {
 		if p := strings.TrimSpace(string(out)); p != "" {
 			return p
@@ -296,7 +312,7 @@ foreach ($p in @('%s','%s')) {
 }`,
 		desktop, startMenu, appExe, filepath.Dir(appExe),
 	)
-	if err := exec.Command("powershell", "-NoProfile", "-Command", script).Run(); err != nil {
+	if err := hiddenCmd("powershell", "-NoProfile", "-Command", script).Run(); err != nil {
 		logf("direct shortcut restore failed: %v", err)
 		return false
 	}
@@ -534,7 +550,7 @@ func validateInstaller(path string, expectedSize int64, expectedSha string) erro
 func runSilentInstaller(path string) (int, error) {
 	// electron-builder NSIS one-click installer: `/S` runs silently; per-user
 	// install needs no UAC, so this works from the Scheduled Task's user context.
-	cmd := exec.Command(path, "/S")
+	cmd := hiddenCmd(path, "/S")
 	err := cmd.Run()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
