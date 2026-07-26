@@ -47,6 +47,7 @@ import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
 type AttributeDef = {
   id: string;
@@ -883,6 +884,7 @@ export function ContractDetailsPage(props: {
   // (sections/executionParts/accountingForm); привязки двигателей и файлы пишутся сразу.
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
   const DRAFT_CARD_TYPE = 'contract';
 
   type ContractDraftSnapshot = {
@@ -902,23 +904,26 @@ export function ContractDetailsPage(props: {
 
   async function saveDraftNow(s: ContractDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!props.canEdit) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: DRAFT_CARD_TYPE,
-        cardId: props.contractId,
-        kind,
-        title: buildDraftTitle(s),
-        payloadJson: JSON.stringify(s),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: DRAFT_CARD_TYPE,
+          cardId: props.contractId,
+          kind,
+          title: buildDraftTitle(s),
+          payloadJson: JSON.stringify(s),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.contractId });
     } catch {

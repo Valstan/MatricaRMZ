@@ -23,6 +23,7 @@ import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
 // Заморожено 2026-05-26: «Разборка двигателя» отключена, поскольку бизнес отказался
 // от потока «разборка → repair_fund → Repair-наряд» (списки деталей по маркам не актуальны,
@@ -525,6 +526,7 @@ export function EngineDetailsPage(props: {
   // (батч saveAllAndClose); файлы/операции/детали пишутся сразу — не в черновике.
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
   const DRAFT_CARD_TYPE = 'engine';
 
   type EngineDraftSnapshot = {
@@ -567,23 +569,26 @@ export function EngineDetailsPage(props: {
 
   async function saveDraftNow(s: EngineDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!canEditEnginesEff) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: DRAFT_CARD_TYPE,
-        cardId: props.engineId,
-        kind,
-        title: buildDraftTitle(s),
-        payloadJson: JSON.stringify(s),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: DRAFT_CARD_TYPE,
+          cardId: props.engineId,
+          kind,
+          title: buildDraftTitle(s),
+          payloadJson: JSON.stringify(s),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.engineId });
     } catch {

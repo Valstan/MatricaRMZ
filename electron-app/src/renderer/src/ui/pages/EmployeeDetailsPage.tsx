@@ -24,6 +24,7 @@ import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
 type EmployeeAccount = {
   id: string;
@@ -288,6 +289,7 @@ export function EmployeeDetailsPage(props: {
   // (батч saveAllAndClose, включая кастомные атрибуты); аккаунт/доступ пишутся сразу.
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
   const DRAFT_CARD_TYPE = 'employee';
 
   type EmployeeDraftSnapshot = {
@@ -322,23 +324,26 @@ export function EmployeeDetailsPage(props: {
 
   async function saveDraftNow(s: EmployeeDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!props.canEdit) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: DRAFT_CARD_TYPE,
-        cardId: props.employeeId,
-        kind,
-        title: buildDraftTitle(s),
-        payloadJson: JSON.stringify(s),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: DRAFT_CARD_TYPE,
+          cardId: props.employeeId,
+          kind,
+          title: buildDraftTitle(s),
+          payloadJson: JSON.stringify(s),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.employeeId });
     } catch {
