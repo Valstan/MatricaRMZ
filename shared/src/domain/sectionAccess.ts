@@ -174,6 +174,71 @@ export function missingSectionDependencies(membership: SectionMembership, sectio
 }
 
 /**
+ * Обратный индекс зависимостей: кто из ВЫДАННЫХ разделов опирается на sectionId.
+ * Используется при СНЯТИИ/отказе: «этот раздел нужен ещё вот этим — точно снять?».
+ */
+export function dependentsOfSection(membership: SectionMembership, sectionId: AccessSection): SectionDependency[] {
+  const out: SectionDependency[] = [];
+  for (const [owner, deps] of Object.entries(SECTION_DEPENDENCIES) as Array<[AccessSection, ReadonlyArray<SectionDependency>]>) {
+    if (!membership[owner]) continue;
+    for (const dep of deps ?? []) {
+      if (dep.section === sectionId) out.push({ ...dep, section: owner });
+    }
+  }
+  // section в результате = ЗАВИСЯЩИЙ раздел (кому станет хуже), reasonRu — почему.
+  return out;
+}
+
+/**
+ * Сверка «раздел ⇄ роль»: editor раздела бесполезен, если операторская роль не несёт
+ * мелких прав на запись в этой области — сервер (ledgerAuthz) проверяет ОБА слоя.
+ * Возвращает русское предупреждение или null (роль admin/superadmin/user — без
+ * операторского скоупа, всегда null; reports/administration — view-центричные, не сверяем).
+ */
+const SECTION_EDIT_PERMISSION_PROBE: Readonly<Partial<Record<AccessSection, string>>> = {
+  [AccessSection.Production]: 'engines.edit',
+  [AccessSection.WorkOrders]: 'work_orders.edit',
+  [AccessSection.Supply]: 'supply_requests.edit',
+  [AccessSection.Warehouse]: 'erp.documents.edit',
+  [AccessSection.Contracts]: 'contracts.edit',
+  [AccessSection.People]: 'employees.create',
+  [AccessSection.Directories]: 'masterdata.edit',
+};
+
+export function sectionEditorRoleWarning(args: {
+  role: string | null | undefined;
+  sectionId: AccessSection;
+  /** результат operatorRolePermissions(role) — передаётся снаружи, чтобы не тащить циклический импорт */
+  rolePermissions: Record<string, boolean> | null;
+}): string | null {
+  if (!args.rolePermissions) return null; // не операторская роль — полный/серверный скоуп
+  const probe = SECTION_EDIT_PERMISSION_PROBE[args.sectionId];
+  if (!probe) return null;
+  if (args.rolePermissions[probe]) return null;
+  const title = accessSectionMeta(args.sectionId)?.titleRu ?? args.sectionId;
+  return (
+    `Роль этого пользователя не даёт прав на запись в области «${title}» — ` +
+    `редактор раздела ничего не сможет сохранить (сервер проверяет и раздел, и права роли). ` +
+    `Обычно правильнее сменить роль на подходящую рабочей области.`
+  );
+}
+
+/**
+ * Проверка связанности всего membership: каких зависимостей не хватает уже выданным
+ * разделам. Для значка ⚠️ в матрице и аудита «доступ открыт, но не работает всецело».
+ */
+export function membershipIssues(membership: SectionMembership): Array<{ section: AccessSection; missing: SectionDependency }> {
+  const out: Array<{ section: AccessSection; missing: SectionDependency }> = [];
+  for (const [owner, deps] of Object.entries(SECTION_DEPENDENCIES) as Array<[AccessSection, ReadonlyArray<SectionDependency>]>) {
+    if (!membership[owner]) continue;
+    for (const dep of deps ?? []) {
+      if (!membership[dep.section]) out.push({ section: owner, missing: dep });
+    }
+  }
+  return out;
+}
+
+/**
  * Tolerant parse of the `section_access` attribute value: object, JSON string,
  * or DOUBLE-encoded JSON string (setEntityAttribute JSON.stringify's the already
  * serialized membership — prod backfill 2026-07-03 stores it that way).

@@ -13,7 +13,7 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, missingSectionDependencies, parseSectionMembership, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, dependentsOfSection, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import type { AccessSection, EntityReferenceTarget, QuickCreateRequest, QuickCreateResult, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -1934,6 +1934,7 @@ export function EmployeeDetailsPage(props: {
               <SectionAccessMirror
                 employeeId={props.employeeId}
                 membership={parseSectionMembership((employee?.attributes ?? {})[SECTION_ACCESS_ATTR])}
+                employeeRole={String((employee?.attributes ?? {})['system_role'] ?? '')}
                 canEdit={meRole === 'superadmin'}
                 onSaved={() => void loadEmployee()}
               />
@@ -2146,6 +2147,7 @@ export function EmployeeDetailsPage(props: {
 function SectionAccessMirror(props: {
   employeeId: string;
   membership: Partial<Record<string, 'viewer' | 'editor'>>;
+  employeeRole: string;
   canEdit: boolean;
   onSaved: () => void;
 }) {
@@ -2166,6 +2168,43 @@ function SectionAccessMirror(props: {
       });
       if (!ok) return;
     }
+    // При снятии — предупредить о зависящих разделах (зеркально AccessSectionsPage).
+    if (!level) {
+      const dependents = dependentsOfSection(props.membership as SectionMembership, sectionId as AccessSection);
+      if (dependents.length > 0) {
+        const listRu = dependents
+          .map((d) => `• «${accessSectionMeta(d.section)?.titleRu ?? d.section}» — ${d.reasonRu}`)
+          .join('\n');
+        const ok = await confirm({
+          title: `Снять «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}»?`,
+          detail:
+            `Этот раздел нужен другим выданным разделам пользователя:\n\n${listRu}\n\n` +
+            'После снятия перечисленные разделы останутся, но поиск/подстановка этих данных в них перестанут работать. Снять всё равно?',
+          confirmLabel: 'Снять всё равно',
+          confirmTone: 'warn',
+        });
+        if (!ok) return;
+      }
+    }
+
+    // При выдаче editor — сверка с ролью (сервер проверяет и раздел, и права роли).
+    if (level === 'editor') {
+      const roleWarn = sectionEditorRoleWarning({
+        role: props.employeeRole,
+        sectionId: sectionId as AccessSection,
+        rolePermissions: operatorRolePermissions(props.employeeRole),
+      });
+      if (roleWarn) {
+        const ok = await confirm({
+          title: `Редактор «${accessSectionMeta(sectionId)?.titleRu ?? sectionId}»?`,
+          detail: roleWarn,
+          confirmLabel: 'Выдать всё равно',
+          confirmTone: 'warn',
+        });
+        if (!ok) return;
+      }
+    }
+
     const next: Record<string, 'viewer' | 'editor'> = { ...props.membership } as Record<string, 'viewer' | 'editor'>;
     if (level) next[sectionId] = level;
     else delete next[sectionId];

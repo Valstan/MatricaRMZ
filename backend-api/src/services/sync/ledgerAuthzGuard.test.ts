@@ -148,6 +148,38 @@ describe('partitionLedgerInputsByAuthz', () => {
     expect(denied[0]?.reason).toBe('forbidden:employee_auth_attr:system_role');
   });
 
+  it('operator: own employee section_access DENIED (superadmin-only, no self-escalation)', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-self', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-sa', code: 'section_access' }]);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self', attribute_def_id: 'def-sa' }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(allowed).toEqual([]);
+    expect(denied.map((d) => d.reason)).toEqual(['forbidden:superadmin_only_attr:section_access']);
+  });
+
+  it('admin: section_access on another employee DENIED (owner decision: superadmin-only), superadmin allowed', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-other', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-sa', code: 'section_access' }]);
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-other', attribute_def_id: 'def-sa' }, row_id: 'a1' },
+    ];
+    const adminRes = await partitionLedgerInputsByAuthz(inputs as any, { id: 'emp-adm', username: 'adm', role: 'admin' });
+    expect(adminRes.denied.map((d) => d.reason)).toEqual(['forbidden:superadmin_only_attr:section_access']);
+
+    seedTypes();
+    seedEntities([{ id: 'emp-other', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-sa', code: 'section_access' }]);
+    const saRes = await partitionLedgerInputsByAuthz(inputs as any, { id: 'emp-sa', username: 'valstan', role: 'superadmin' });
+    expect(saRes.denied).toEqual([]);
+    expect(saRes.allowed.map((i) => i.row_id)).toEqual(['a1']);
+  });
+
   it('legacy non-operator role: backstop still DENIES system_role on ANOTHER employee, but allows a non-security attr', async () => {
     seedTypes();
     seedEntities([{ id: 'emp-other', entityTypeId: 't-employee' }]);
