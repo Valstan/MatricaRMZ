@@ -1,6 +1,7 @@
 // Асинхронный AI-чат: очередь вопросов (≤5/час), ответы пишет облачная рутина
-// (Пн–Пт 8:00–17:00 МСК, раз в час). Вопрос можно редактировать/удалять, пока он
-// не обработан. Файлы — через существующий files-контур (Яндекс.Диск).
+// (Пн–Пт 8:00–17:00 МСК, раз в час, дальше ~50 мин дренажит очередь). Вопрос можно
+// редактировать/удалять, пока он не обработан. Файлы — через существующий files-контур
+// (Яндекс.Диск).
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
 import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
@@ -8,6 +9,7 @@ import {
   AI_CHAT_MAX_QUESTIONS_PER_HOUR,
   AI_CHAT_STATUS_LABELS,
   getNextAiRunAt,
+  isAiRoutineLive,
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
@@ -182,6 +184,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   );
   const leftThisHour = Math.max(0, AI_CHAT_MAX_QUESTIONS_PER_HOUR - usedThisHour);
   const nextRunAt = getNextAiRunAt(now);
+  const routineLive = isAiRoutineLive(lastRunAt, now);
 
   // Частые запросы: только доведённые до ответа (answered) свои вопросы,
   // сгруппированные по нормализованному тексту — топ по повторам, затем по свежести.
@@ -555,9 +558,15 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           flexWrap: 'wrap',
         }}
       >
-        <span title="ИИ отвечает раз в час, Пн–Пт с 8:00 до 17:00 МСК">
-          Следующий ответ ИИ: <b>{formatMoscowTime(nextRunAt)}</b>
-        </span>
+        {routineLive ? (
+          <span title="Рутина сейчас разбирает очередь и перечитывает её каждые 2–3 минуты">
+            🟢 ИИ на связи: <b>ответит за несколько минут</b>
+          </span>
+        ) : (
+          <span title="ИИ включается раз в час (Пн–Пт с 8:00 до 17:00 МСК) и затем около часа держит очередь разобранной">
+            Следующий ответ ИИ: <b>{formatMoscowTime(nextRunAt)}</b>
+          </span>
+        )}
         {lastRunAt != null && <span>Последний запуск: {formatMoscowTime(lastRunAt)}</span>}
       </div>
 
@@ -565,7 +574,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         {myItems.length === 0 && foreignEscalated.length === 0 && (
           <div style={{ color: theme.colors.muted, fontSize: 13 }}>
             Задайте вопрос по данным программы — остатки, двигатели, контракты, отчёты. ИИ проанализирует базу данных и
-            ответит в ближайший запуск (раз в час в рабочее время).
+            ответит в ближайший запуск (раз в час в рабочее время), а пока он на связи — за несколько минут.
           </div>
         )}
         {foreignEscalated.length > 0 && (

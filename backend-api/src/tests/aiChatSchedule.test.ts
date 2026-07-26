@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getNextAiRunAt, getPrevAiRunAt } from '@matricarmz/shared';
+import { AI_CHAT_PULSE_STALE_MS, getNextAiRunAt, getPrevAiRunAt, isAiRoutineLive } from '@matricarmz/shared';
 
 // МСК = UTC+3 (без DST). Утилита: собрать МСК-время как epoch ms.
 function msk(y: number, m: number, d: number, h: number, min = 0): number {
@@ -37,5 +37,23 @@ describe('aiChatSchedule (Пн–Пт, 8:00–17:00 МСК, ежечасно)', 
     expect(getPrevAiRunAt(msk(2026, 7, 15, 6, 15))).toBe(msk(2026, 7, 14, 17));
     // Вс 12:00 -> Пт 17:00
     expect(getPrevAiRunAt(msk(2026, 7, 19, 12))).toBe(msk(2026, 7, 17, 17));
+  });
+});
+
+describe('isAiRoutineLive (пульс дренажа)', () => {
+  const now = msk(2026, 7, 15, 10, 30);
+
+  it('свежий штамп — рутина на связи', () => {
+    expect(isAiRoutineLive(now, now)).toBe(true);
+    expect(isAiRoutineLive(now - 150_000, now)).toBe(true); // один пропущенный пульс
+    expect(isAiRoutineLive(now - AI_CHAT_PULSE_STALE_MS + 1, now)).toBe(true);
+  });
+
+  it('протухший штамп, отсутствие штампа и часы клиента позади — не на связи', () => {
+    expect(isAiRoutineLive(now - AI_CHAT_PULSE_STALE_MS, now)).toBe(false);
+    expect(isAiRoutineLive(now - 45 * 60_000, now)).toBe(false);
+    expect(isAiRoutineLive(null, now)).toBe(false);
+    // штамп «из будущего» (расхождение часов) — падаем на расписание, а не врём «на связи»
+    expect(isAiRoutineLive(now + 60_000, now)).toBe(false);
   });
 });
