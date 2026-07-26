@@ -2,10 +2,11 @@ import { LedgerTableName } from '@matricarmz/ledger';
 import { SyncTableName, syncRowSchemaByTable } from '@matricarmz/shared';
 
 import { assertSyncMapCoverage } from '../services/sync/syncChangeService.js';
+import { checkReplicaStrictness } from './checkReplicaStrictness.js';
 
 process.env.MATRICA_SYNC_GUARD = 'strict';
 
-function checkSyncContract() {
+async function checkSyncContract() {
   const syncTables = Object.values(SyncTableName);
   const ledgerTables = new Set(Object.values(LedgerTableName));
 
@@ -20,10 +21,15 @@ function checkSyncContract() {
   }
 
   assertSyncMapCoverage();
+
+  const strictness = await checkReplicaStrictness();
+  if (strictness.length > 0) {
+    throw new Error(`клиентская реплика строже сервера (#086):\n- ${strictness.join('\n- ')}`);
+  }
 }
 
 try {
-  checkSyncContract();
+  await checkSyncContract();
   console.log('проверка синхронизации контрактов выполнена');
 } catch (e) {
   console.error(String(e));

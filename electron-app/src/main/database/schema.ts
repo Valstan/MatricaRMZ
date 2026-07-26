@@ -284,7 +284,9 @@ export const userPresence = sqliteTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
-    userUq: uniqueIndex('user_presence_user_uq').on(t.userId),
+    // Не unique: сервер уникальность user_id не гарантирует (там она держится
+    // конвенцией id === userId), клиент не имеет права быть строже источника (#086).
+    userIdx: index('user_presence_user_idx').on(t.userId),
     syncStatusIdx: index('user_presence_sync_status_idx').on(t.syncStatus),
   }),
 );
@@ -585,12 +587,9 @@ export const erpEngineAssemblyBomLines = sqliteTable(
   (t) => ({
     bomIdx: index('erp_engine_assembly_bom_lines_bom_idx').on(t.bomId),
     componentIdx: index('erp_engine_assembly_bom_lines_component_idx').on(t.componentNomenclatureId),
-    bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq').on(
-      t.bomId,
-      t.variantGroup,
-      t.componentNomenclatureId,
-      t.componentType,
-    ),
+    bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq')
+      .on(t.bomId, t.variantGroup, t.componentNomenclatureId, t.componentType)
+      .where(sql`${t.deletedAt} is null`),
   }),
 );
 
@@ -610,7 +609,9 @@ export const erpEngineInstances = sqliteTable(
     lastServerSeq: integer('last_server_seq'),
   },
   (t) => ({
-    nomenclatureSerialUq: uniqueIndex('erp_engine_instances_nomenclature_serial_uq').on(t.nomenclatureId, t.serialNumber),
+    nomenclatureSerialUq: uniqueIndex('erp_engine_instances_nomenclature_serial_uq')
+      .on(t.nomenclatureId, t.serialNumber)
+      .where(sql`${t.deletedAt} is null`),
     serialIdx: index('erp_engine_instances_serial_idx').on(t.serialNumber),
     contractIdx: index('erp_engine_instances_contract_idx').on(t.contractId),
     warehouseLocationIdx: index('erp_engine_instances_warehouse_location_idx').on(t.warehouseLocationId),
