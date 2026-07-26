@@ -1,6 +1,11 @@
 // Расписание облачной AI-рутины асинхронного чата: Пн–Пт, ежечасно в :00,
 // с 8:00 до 17:00 МСК включительно. МСК — фиксированный UTC+3, без DST.
 // Клиент считает баннер «когда ответит ИИ» локально этим helper'ом (офлайн-совместимо).
+//
+// Чаще раза в час платформа рутину запускать не даёт («minimum interval is 1 hour»),
+// поэтому прогон не завершается после первой пачки, а ~50 минут дренажит очередь,
+// штампуя /mark-run каждые ~2.5 мин. Свежий штамп = рутина сейчас на связи и ответит
+// за минуты, а не в следующий слот — это и показывает `isAiRoutineLive`.
 
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -8,6 +13,21 @@ const HOUR_MS = 60 * 60 * 1000;
 export const AI_CHAT_RUN_HOUR_FIRST = 8; // первый запуск 8:00 МСК
 export const AI_CHAT_RUN_HOUR_LAST = 17; // последний запуск 17:00 МСК
 export const AI_CHAT_MAX_QUESTIONS_PER_HOUR = 5;
+
+/** Пульс дренажа — ~2.5 мин; допускаем пропуск пары штампов и расхождение часов. */
+export const AI_CHAT_PULSE_STALE_MS = 6 * 60 * 1000;
+
+/**
+ * Рутина прямо сейчас разбирает очередь (жива в дренаже)?
+ * `lastRunAt` — серверный штамп, `now` — локальные часы клиента: при заметном расхождении
+ * (штамп «из будущего» или слишком старый) честно отвечаем false и баннер падает обратно
+ * на расписание — это безопасная сторона ошибки.
+ */
+export function isAiRoutineLive(lastRunAt: number | null, now: number): boolean {
+  if (lastRunAt == null) return false;
+  const age = now - lastRunAt;
+  return age >= 0 && age < AI_CHAT_PULSE_STALE_MS;
+}
 
 function isRunSlot(mskMs: number): boolean {
   const d = new Date(mskMs);
