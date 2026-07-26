@@ -19,6 +19,7 @@ import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type Attribu
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { createNomenclatureRowForSource } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import type { NomenclatureCreateConfig } from './nomenclatureDirectoryPresets.js';
 
 type PhotoFileRef = FileRef & { isObsolete?: boolean };
@@ -98,6 +99,7 @@ export function SimpleMasterdataDetailsPage(props: {
   // Снимок = локальные несохранённые поля (файлы/фото пишутся сразу и в черновик не входят).
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
   const draftCardType = props.typeCode === 'product' || props.typeCode === 'service' ? props.typeCode : null;
 
   type MasterdataDraftSnapshot = {
@@ -121,24 +123,27 @@ export function SimpleMasterdataDetailsPage(props: {
 
   async function saveDraftNow(s: MasterdataDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!props.canEdit || !draftCardType) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: draftCardType,
-        cardId: props.entityId,
-        kind,
-        title: buildDraftTitle(s),
-        payloadJson: JSON.stringify(s),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: draftCardType,
+          cardId: props.entityId,
+          kind,
+          title: buildDraftTitle(s),
+          payloadJson: JSON.stringify(s),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
     if (!draftCardType) return;
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: draftCardType, cardId: props.entityId });
     } catch {

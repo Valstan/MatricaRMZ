@@ -8,6 +8,7 @@ import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
 type CounterpartyEntity = {
   id: string;
@@ -45,6 +46,7 @@ export function CounterpartyDetailsPage(props: {
   // несохранённые поля (файлы вложений грузятся сразу — в черновик едет только их JSON-список).
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
   const DRAFT_CARD_TYPE = 'counterparty';
 
   type CounterpartyDraftSnapshot = {
@@ -68,23 +70,26 @@ export function CounterpartyDetailsPage(props: {
 
   async function saveDraftNow(s: CounterpartyDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!props.canEdit) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: DRAFT_CARD_TYPE,
-        cardId: props.counterpartyId,
-        kind,
-        title: buildDraftTitle(s),
-        payloadJson: JSON.stringify(s),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: DRAFT_CARD_TYPE,
+          cardId: props.counterpartyId,
+          kind,
+          title: buildDraftTitle(s),
+          payloadJson: JSON.stringify(s),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.counterpartyId });
     } catch {

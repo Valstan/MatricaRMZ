@@ -31,6 +31,7 @@ import { parseIdArray } from '../utils/groupBrandIds.js';
 import { buildSearchOption, joinOptionSearch, mapPartRowsToSearchOptions, sortSearchOptions } from '../utils/selectOptions.js';
 import { printRowsPreview } from '../utils/listContextActions.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
 // Режимы отображения списка деталей марки (директива владельца 2026-07-05):
 // фильтр внутри раздутых карточек + срезы по актам + группировка по узлам + печать среза.
@@ -108,6 +109,7 @@ export function EngineBrandDetailsPage(props: {
   // (name/description) + драфт списка деталей; файлы сохраняются сразу — в черновик не входят.
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
   // true только если восстановленный черновик содержал драфт списка деталей —
   // старые черновики без parts не должны блокировать загрузку committed-списка.
   const draftPartsRestoredRef = useRef(false);
@@ -125,23 +127,26 @@ export function EngineBrandDetailsPage(props: {
 
   async function saveDraftNow(s: BrandDraftSnapshot, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!props.canEdit) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: DRAFT_CARD_TYPE,
-        cardId: props.brandId,
-        kind,
-        title: buildDraftTitle(s),
-        payloadJson: JSON.stringify(s),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: DRAFT_CARD_TYPE,
+          cardId: props.brandId,
+          kind,
+          title: buildDraftTitle(s),
+          payloadJson: JSON.stringify(s),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: DRAFT_CARD_TYPE, cardId: props.brandId });
     } catch {

@@ -245,6 +245,11 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     },
   });
   restoreIpcHandle();
+
+  // Quit-flush: пуш несинхронизированного (черновики, надгробия черновиков после
+  // «Сохранить») перед выходом — иначе вторая машина оператора не узнаёт о
+  // закрытии черновика до следующего запуска этой.
+  return { flushSyncBeforeQuit: () => mgr.runOnce() };
 }
 
 

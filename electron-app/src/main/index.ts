@@ -40,6 +40,8 @@ let writeSessionAuditEvent:
   | ((action: 'app.session.start' | 'app.session.stop') => Promise<void>)
   | null = null;
 let stopAuditWritten = false;
+let flushSyncBeforeQuit: (() => Promise<unknown>) | null = null;
+let quitSyncFlushDone = false;
 const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
 
 const { logToFile, getLogPath } = createFileLogger(app);
@@ -482,7 +484,7 @@ app.whenReady().then(() => {
         }
       };
 
-      registerIpc(db, { clientId: stableClientId, apiBaseUrl });
+      ({ flushSyncBeforeQuit } = registerIpc(db, { clientId: stableClientId, apiBaseUrl }));
       logToFile('IPC registered, SQLite ready');
       configureUpdateService({ apiBaseUrl, db });
       await writeSessionAuditEvent('app.session.start');
@@ -544,10 +546,30 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-app.on('before-quit', () => {
-  if (stopAuditWritten) return;
-  stopAuditWritten = true;
-  if (writeSessionAuditEvent) void writeSessionAuditEvent('app.session.stop');
+app.on('before-quit', (event) => {
+  if (!stopAuditWritten) {
+    stopAuditWritten = true;
+    if (writeSessionAuditEvent) void writeSessionAuditEvent('app.session.stop');
+  }
+  // Last-chance sync push: pending drafts (and draft tombstones after «Сохранить»)
+  // otherwise sit in the local queue until the NEXT launch, and the operator's other
+  // machine keeps resurrecting the stale draft. Capped so a dead network can't hang
+  // the exit; the second quit() passes straight through via quitSyncFlushDone.
+  if (quitSyncFlushDone || !flushSyncBeforeQuit) return;
+  quitSyncFlushDone = true;
+  event.preventDefault();
+  logToFile('quit-flush: pushing pending sync before exit');
+  const startedAt = Date.now();
+  const proceed = (how: string) => {
+    logToFile(`quit-flush: ${how} after ${Date.now() - startedAt}ms`);
+    app.quit();
+  };
+  Promise.race([
+    flushSyncBeforeQuit()
+      .catch(() => undefined)
+      .then(() => 'done'),
+    new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), 8_000)),
+  ]).then(proceed, () => proceed('error'));
 });
 
 // Тестовый IPC: проверяем связку renderer -> main.

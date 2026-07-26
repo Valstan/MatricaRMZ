@@ -23,6 +23,7 @@ import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch, mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
+import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import {
   labelForSupplyRequestCreateKind,
   SUPPLY_REQUEST_LINE_CREATE_PRESETS,
@@ -293,6 +294,7 @@ export function SupplyRequestDetailsPage(props: {
   // once per card mount (an explicit reset reloads the committed payload instead).
   const draftTimerRef = useRef<number | null>(null);
   const draftRestoredRef = useRef(false);
+  const { guardDraftWrite, awaitPendingDraftWrite } = useDraftWriteGuard();
 
   function buildDraftTitle(p: SupplyRequestPayload): string {
     const num = String(p.requestNumber ?? '').trim();
@@ -301,23 +303,26 @@ export function SupplyRequestDetailsPage(props: {
 
   async function saveDraftNow(p: SupplyRequestPayload, kind: 'recovery' | 'explicit' = 'recovery') {
     if (!props.canEdit) return false;
-    try {
-      const r = await window.matrica.drafts.save({
-        cardType: SUPPLY_REQUEST_DRAFT_TYPE,
-        cardId: props.id,
-        kind,
-        title: buildDraftTitle(p),
-        payloadJson: JSON.stringify(p),
-        baseUpdatedAt: null,
-      });
-      return Boolean(r?.ok);
-    } catch {
-      // autosave is best-effort — a write failure must never block editing
-      return false;
-    }
+    return guardDraftWrite(async () => {
+      try {
+        const r = await window.matrica.drafts.save({
+          cardType: SUPPLY_REQUEST_DRAFT_TYPE,
+          cardId: props.id,
+          kind,
+          title: buildDraftTitle(p),
+          payloadJson: JSON.stringify(p),
+          baseUpdatedAt: null,
+        });
+        return Boolean(r?.ok);
+      } catch {
+        // autosave is best-effort — a write failure must never block editing
+        return false;
+      }
+    });
   }
 
   async function clearDraft() {
+    await awaitPendingDraftWrite();
     try {
       await window.matrica.drafts.clear({ cardType: SUPPLY_REQUEST_DRAFT_TYPE, cardId: props.id });
     } catch {
