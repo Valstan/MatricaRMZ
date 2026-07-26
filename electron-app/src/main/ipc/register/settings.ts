@@ -1,9 +1,9 @@
 import { app, ipcMain, net } from 'electron';
 import type { UiControlSettings, UiShellPrefs } from '@matricarmz/shared';
 import {
-  CURRENT_RELEASE_WELCOME,
   DEFAULT_UI_CONTROL_SETTINGS,
   UI_DEFAULTS_VERSION,
+  buildReleaseWelcomeDigest,
   sanitizeUiControlSettings,
   sanitizeUiShellPrefs,
 } from '@matricarmz/shared';
@@ -294,7 +294,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
         shouldShow: true,
         currentVersion,
         previouslySeenVersion,
-        welcome: CURRENT_RELEASE_WELCOME,
+        welcome: buildReleaseWelcomeDigest(currentVersion),
       };
     } catch (e) {
       return { ok: false as const, error: String(e) };

@@ -3800,8 +3800,10 @@ export function App() {
   function renderReleaseWelcomeModal() {
     if (!releaseWelcomeUi.open || !releaseWelcomeUi.content) return null;
     const c = releaseWelcomeUi.content;
+    // Только построчный список новинок + завершающая строка-подсказка. Подробная проза
+    // (`intro`) намеренно не показывается: рядом со списком она читалась как второй,
+    // дублирующий текст.
     const teleprompterItems = [
-      { kind: 'intro' as const, text: c.intro },
       ...c.highlights.map((item) => ({ kind: 'highlight' as const, text: item })),
       { kind: 'outro' as const, text: c.outro },
     ];

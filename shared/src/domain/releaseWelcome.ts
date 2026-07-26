@@ -1,3 +1,5 @@
+import { compareCalver, parseCalver } from './calver.js';
+
 export type ReleaseWelcomeContent = {
   releaseLabel: string;
   /**
@@ -9,7 +11,14 @@ export type ReleaseWelcomeContent = {
    */
   epigraph?: string;
   title: string;
-  intro: string;
+  /**
+   * Историческая подробная проза. **В окне больше не показывается** (2026-07-26): рядом с
+   * `highlights` она читалась как второй, дублирующий текст — оператор видел одно и то же
+   * дважды, только длиннее. Оставлено необязательным ради старых записей; для новых
+   * релизов не заполняем — всё, что нужно знать, живёт в `highlights`.
+   */
+  intro?: string;
+  /** Что нового — по строке на новинку, языком бухгалтера, без технических подробностей. */
   highlights: string[];
   outro: string;
 };
@@ -3915,4 +3924,65 @@ export const CURRENT_RELEASE_WELCOME: ReleaseWelcomeContent =
   RELEASE_WELCOME_HISTORY[0] ?? FALLBACK_RELEASE_WELCOME;
 export const PREVIOUS_RELEASE_WELCOME: ReleaseWelcomeContent | null =
   RELEASE_WELCOME_HISTORY[1] ?? null;
+
+/** Сколько календарных дней новинок показываем: день релиза и предыдущий. */
+export const RELEASE_WELCOME_DAYS = 2;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Календарный день релиза (локальная полночь) — не-CalVer (старые 1.x) → null. */
+function releaseDayMs(releaseLabel: string): number | null {
+  const p = parseCalver(releaseLabel);
+  return p ? new Date(p.year, p.month - 1, p.day).getTime() : null;
+}
+
+/**
+ * Что показать в окне «Что нового»: новинки всех релизов за последние `days` календарных
+ * дней, считая от даты установленной версии (CalVer несёт дату сборки — отдельного поля
+ * не нужно). Так оператор, пропустивший пару выкатов за день, видит их одним списком, а
+ * позавчерашнее уже не мозолит глаза.
+ *
+ * Якорь — запись установленной версии; её нет в истории (dev-сборка, версия без записи) →
+ * берём самую свежую. Не-CalVer якорь (старые 1.x) → показываем только его.
+ */
+export function buildReleaseWelcomeDigest(
+  currentVersion: string,
+  days: number = RELEASE_WELCOME_DAYS,
+): ReleaseWelcomeContent {
+  const version = String(currentVersion ?? '').trim();
+  const anchor =
+    RELEASE_WELCOME_HISTORY.find((r) => r.releaseLabel === version) ??
+    RELEASE_WELCOME_HISTORY[0] ??
+    FALLBACK_RELEASE_WELCOME;
+
+  const anchorDay = releaseDayMs(anchor.releaseLabel);
+  if (anchorDay == null) return anchor;
+
+  const cutoff = anchorDay - Math.max(0, days - 1) * DAY_MS;
+  const inWindow = RELEASE_WELCOME_HISTORY.filter((r) => {
+    const day = releaseDayMs(r.releaseLabel);
+    if (day == null || day < cutoff || day > anchorDay) return false;
+    // Новее якоря быть не должно: клиент на старой версии не хвастается чужими новинками.
+    const cmp = compareCalver(r.releaseLabel, anchor.releaseLabel);
+    return cmp != null && cmp <= 0;
+  });
+
+  const seen = new Set<string>();
+  const highlights: string[] = [];
+  for (const r of inWindow) {
+    for (const h of r.highlights) {
+      if (seen.has(h)) continue;
+      seen.add(h);
+      highlights.push(h);
+    }
+  }
+
+  return {
+    releaseLabel: anchor.releaseLabel,
+    ...(anchor.epigraph ? { epigraph: anchor.epigraph } : {}),
+    title: anchor.title,
+    highlights: highlights.length > 0 ? highlights : anchor.highlights,
+    outro: anchor.outro,
+  };
+}
 
