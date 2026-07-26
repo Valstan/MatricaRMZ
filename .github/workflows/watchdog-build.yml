@@ -25,7 +25,9 @@ jobs:
           cache: false
 
       - name: go vet
-        run: cd watchdog && go vet ./...
+        # GOOS=windows: main.go uses windows-only syscall.SysProcAttr fields
+        # (HideWindow) — vetting under the linux host GOOS fails to compile.
+        run: cd watchdog && GOOS=windows go vet ./...
 
       - name: Build (windows/amd64)
         # -H=windowsgui → GUI-subsystem binary: no console window when the Scheduled
