@@ -28,6 +28,7 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pickerFor, setPickerFor] = useState<{ sectionId: string; level: SectionAccessLevel } | null>(null);
+  const [view, setView] = useState<'sections' | 'matrix'>('sections');
 
   async function reload() {
     setLoading(true);
@@ -199,20 +200,144 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
     );
   }
 
+  // «Матрица»: строка = пользователь, столбец = раздел, ячейка = светофор
+  // (🔴 нет доступа / 🟢 наблюдатель / 🔵 редактор). Клик — переключение уровня,
+  // пишет через тот же setLevel (с теми же подтверждениями и связанными разделами).
+  const LIGHTS: Array<{ level: SectionAccessLevel | null; color: string; label: string }> = [
+    { level: null, color: '#dc2626', label: 'Запрещён (раздел не виден)' },
+    { level: 'viewer', color: '#16a34a', label: 'Наблюдатель (видит, не меняет)' },
+    { level: 'editor', color: '#2563eb', label: 'Редактор (полный доступ)' },
+  ];
+
+  function matrixCell(row: Row, sectionId: string) {
+    const current = (row.membership[sectionId as keyof SectionMembership] ?? null) as SectionAccessLevel | null;
+    return (
+      <td
+        key={sectionId}
+        style={{ padding: '4px 4px', borderBottom: '1px solid var(--border)', borderLeft: '1px solid var(--border)', textAlign: 'center' }}
+      >
+        <div style={{ display: 'inline-flex', gap: 3 }}>
+          {LIGHTS.map((l) => {
+            const active = current === l.level;
+            return (
+              <button
+                key={String(l.level)}
+                title={`${accessSectionMeta(sectionId)?.titleRu ?? sectionId} — ${row.login}: ${l.label}`}
+                disabled={saving || active}
+                onClick={() => void setLevel(row, sectionId, l.level)}
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: '50%',
+                  padding: 0,
+                  cursor: active ? 'default' : 'pointer',
+                  border: active ? `2px solid ${l.color}` : '1px solid var(--border)',
+                  background: active ? l.color : 'transparent',
+                  opacity: active ? 1 : 0.45,
+                }}
+              />
+            );
+          })}
+        </div>
+      </td>
+    );
+  }
+
+  const matrixView = (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid var(--border)', position: 'sticky', left: 0, background: 'var(--bg, inherit)', zIndex: 1 }}>
+              Пользователь
+            </th>
+            {ACCESS_SECTION_CATALOG.map((section) => (
+              <th
+                key={section.id}
+                title={section.titleRu}
+                style={{ padding: '6px 4px', borderBottom: '2px solid var(--border)', borderLeft: '1px solid var(--border)', verticalAlign: 'bottom' }}
+              >
+                <div
+                  style={{
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    maxHeight: 150,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    margin: '0 auto',
+                  }}
+                >
+                  {section.titleRu}
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td
+                title={row.name || row.login}
+                onClick={() => props.onOpenEmployee?.(row.id)}
+                style={{
+                  padding: '4px 10px',
+                  borderBottom: '1px solid var(--border)',
+                  whiteSpace: 'nowrap',
+                  cursor: props.onOpenEmployee ? 'pointer' : 'default',
+                  position: 'sticky',
+                  left: 0,
+                  background: 'var(--bg, inherit)',
+                  zIndex: 1,
+                }}
+              >
+                <b>{row.login}</b>
+                {row.name ? <span style={{ color: 'var(--muted)', fontSize: 12 }}> {row.name}</span> : null}
+              </td>
+              {ACCESS_SECTION_CATALOG.map((section) => matrixCell(row, section.id))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Доступы по разделам</h2>
+        <div style={{ display: 'inline-flex', gap: 4 }}>
+          <Button size="sm" variant={view === 'sections' ? 'primary' : 'ghost'} onClick={() => setView('sections')}>
+            По разделам
+          </Button>
+          <Button size="sm" variant={view === 'matrix' ? 'primary' : 'ghost'} onClick={() => setView('matrix')}>
+            Матрица
+          </Button>
+        </div>
         <Button size="sm" variant="ghost" onClick={() => void reload()} disabled={loading}>
           {loading ? 'Обновляю…' : 'Обновить'}
         </Button>
         {status ? <span style={{ color: 'var(--danger, #dc2626)' }}>{status}</span> : null}
       </div>
       <div style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 900 }}>
-        <b>Наблюдатель</b> — видит всё в разделе, ничего не меняет. <b>Редактор</b> — видит и меняет. Кто не добавлен —
-        раздела не видит вовсе. Суперадминистратор всегда имеет полный доступ и в списках не нуждается. То же самое
-        видно и правится в карточке пользователя (Персонал → Сотрудники).
+        {view === 'matrix' ? (
+          <>
+            Светофор: <span style={{ color: '#dc2626' }}>●</span> запрещён (раздела не видит),{' '}
+            <span style={{ color: '#16a34a' }}>●</span> наблюдатель (видит, не меняет),{' '}
+            <span style={{ color: '#2563eb' }}>●</span> редактор (полный доступ). Клик по кружку меняет уровень.
+            Суперадминистратор всегда имеет полный доступ независимо от матрицы.
+          </>
+        ) : (
+          <>
+            <b>Наблюдатель</b> — видит всё в разделе, ничего не меняет. <b>Редактор</b> — видит и меняет. Кто не добавлен —
+            раздела не видит вовсе. Суперадминистратор всегда имеет полный доступ и в списках не нуждается. То же самое
+            видно и правится в карточке пользователя (Персонал → Сотрудники).
+          </>
+        )}
       </div>
+      {view === 'matrix' ? matrixView : (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 760 }}>
           <thead>
@@ -244,6 +369,7 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
