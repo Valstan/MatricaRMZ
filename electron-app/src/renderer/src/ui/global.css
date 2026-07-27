@@ -2669,3 +2669,89 @@ table.list-table.list-table--catalog {
 .entity-card-span-full table tbody td {
   border-bottom: 1px solid var(--list-row-border);
 }
+
+/* ── Фаза D (ui-themes-ergonomics): насыщение украшенного режима ─────────────────
+   Весь декор — на контейнерах (панели/шапки/кнопки), НЕ в строках гридов (перф).
+   Цвет декора везде от --input-border-focus → следует выбранной гамме. */
+
+/* Фон приложения: мягкий градиент + едва заметный орнаментальный узор. */
+:root[data-decor='fancy'] body {
+  background-image:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--input-border-focus) 7%, transparent), transparent 42%),
+    radial-gradient(circle at 88% 92%, color-mix(in srgb, var(--input-border-focus) 6%, transparent), transparent 40%),
+    linear-gradient(160deg, var(--app-bg-from), var(--app-bg-via, var(--app-bg-from)), var(--app-bg-to));
+  background-attachment: fixed;
+}
+
+/* Панели: акцентная «прошивка» сверху + мягкая тень. */
+:root[data-decor='fancy'] .card-panel {
+  border-top: 3px solid color-mix(in srgb, var(--input-border-focus) 55%, transparent);
+}
+
+/* Заголовки секций: завиток-хвостик после текста. */
+:root[data-decor='fancy'] .ui-section-header::after {
+  content: '⸙';
+  color: var(--input-border-focus);
+  opacity: 0.45;
+  font-size: 14px;
+  margin-left: 2px;
+}
+
+/* Основные кнопки: округлее, лёгкий блик. */
+:root[data-decor='fancy'] .ui-btn-primary,
+:root[data-decor='fancy'] button[data-variant='primary'] {
+  border-radius: 999px;
+}
+
+/* Вкладки v3: активная — с градиентной подложкой гаммы и цветочным маркером. */
+:root[data-decor='fancy'] .v3-tab {
+  border-radius: 12px 12px 0 0;
+}
+
+:root[data-decor='fancy'] .v3-tab[data-active='1'] {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--input-border-focus) 14%, transparent), transparent 70%);
+}
+
+:root[data-decor='fancy'] .v3-tab-pinned[data-active='1']::before {
+  content: '✿ ';
+  color: var(--input-border-focus);
+  opacity: 0.7;
+}
+
+/* Меню разделов: hover-подсветка в цвет гаммы. */
+:root[data-decor='fancy'] .v2-menu-btn:hover {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--input-border-focus) 12%, transparent), transparent);
+}
+
+/* Пустое состояние рабочей области — цветочный мотив вместо канцелярской папки. */
+:root[data-decor='fancy'] .v2-workspace-empty > div:first-child,
+:root[data-decor='fancy'] .v3-list-empty > div:first-child {
+  filter: hue-rotate(0deg);
+}
+
+:root[data-decor='fancy'] .v3-list-empty::after,
+:root[data-decor='fancy'] .v2-workspace-empty::after {
+  content: '✿ ❀ ✾';
+  letter-spacing: 10px;
+  color: var(--input-border-focus);
+  opacity: 0.35;
+  font-size: 18px;
+  margin-top: 8px;
+}
+
+/* Модальные и всплывающие панели: орнаментальная кайма. */
+:root[data-decor='fancy'] .v2-card-tabs {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--input-border-focus) 8%, transparent), transparent 60%);
+}
+
+/* Скроллбар в цвет гаммы (WebKit/Electron). */
+:root[data-decor='fancy'] ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--input-border-focus) 35%, #9ca3af 30%);
+  border-radius: 8px;
+}
+
+/* Разделитель колонок сплита v3 — тонкая градиентная нить. */
+:root[data-decor='fancy'] .v3-split-sections {
+  border-right: 2px solid;
+  border-image: linear-gradient(180deg, color-mix(in srgb, var(--input-border-focus) 45%, transparent), transparent) 1;
+}
