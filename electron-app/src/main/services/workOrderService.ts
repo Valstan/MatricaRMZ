@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -20,7 +20,7 @@ import { SystemIds } from '@matricarmz/shared';
 import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
 import { resolveEngineLabels, type EngineLabel } from './engineService.js';
 
-import { auditLog, entities, entityTypes, operations } from '../database/schema.js';
+import { auditLog, entities, entityTypes, erpNomenclature, operations } from '../database/schema.js';
 
 const WORK_ORDERS_CONTAINER_ID = SystemIds.WorkOrdersContainerEntityId;
 const WORK_ORDERS_OPERATION_TYPE = 'work_order';
@@ -789,13 +789,42 @@ async function validateChangedWorkOrderReferences(
   if (changed.length === 0) return null;
 
   const ids = [...new Set(changed.map((candidate) => candidate.referenceId))];
-  const rows = await db
-    .select({ id: entities.id, typeCode: entityTypes.code })
-    .from(entities)
-    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-    .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
+  // Каталожные ссылки (деталь/номенклатура/изделие/услуга) резолвятся в erp_nomenclature,
+  // а НЕ только в entities: детали мигрировали из EAV в directory_parts/erp_nomenclature
+  // (та же грабля, что серверный регресс #319/#325 — клиентский валидатор отставал и
+  // отбивал сохранение сборочных нарядов «partId не найден»). directory_parts на клиент
+  // не синкается — id зеркала совпадает с id справочника, плюс сторожим directory_ref_id.
+  const [rows, nomenRows] = await Promise.all([
+    db
+      .select({ id: entities.id, typeCode: entityTypes.code })
+      .from(entities)
+      .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+      .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt))),
+    db
+      .select({ id: erpNomenclature.id, directoryRefId: erpNomenclature.directoryRefId })
+      .from(erpNomenclature)
+      .where(
+        and(
+          or(inArray(erpNomenclature.id, ids), inArray(erpNomenclature.directoryRefId, ids)),
+          isNull(erpNomenclature.deletedAt),
+        ),
+      ),
+  ]);
   const typeById = new Map(rows.map((row) => [String(row.id), String(row.typeCode)]));
+  const CATALOG_TYPES = new Set(['part', 'nomenclature', 'product', 'service']);
+  const catalogIds = new Set<string>();
+  for (const row of nomenRows) {
+    catalogIds.add(String(row.id));
+    if (row.directoryRefId) catalogIds.add(String(row.directoryRefId));
+  }
+  for (const row of rows) if (CATALOG_TYPES.has(String(row.typeCode))) catalogIds.add(String(row.id));
   for (const candidate of changed) {
+    if (CATALOG_TYPES.has(candidate.expectedType)) {
+      if (!catalogIds.has(candidate.referenceId)) {
+        return `${candidate.path}: элемент ${candidate.referenceId} не найден`;
+      }
+      continue;
+    }
     const actualType = typeById.get(candidate.referenceId);
     if (!actualType) return `${candidate.path}: элемент ${candidate.referenceId} не найден`;
     if (actualType !== candidate.expectedType) {

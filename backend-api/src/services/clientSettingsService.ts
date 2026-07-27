@@ -193,11 +193,31 @@ async function warnOnMultiMachineLogin(clientId: string, username: string, ts: n
     const machines = rows
       .map((r) => String(r.lastHostname ?? '').trim() || String(r.clientId).slice(0, 8))
       .sort((a, b) => a.localeCompare(b, 'ru'));
+    const uniqueMachines = [...new Set(machines)];
+    // Два client_id на ОДНОМ hostname — это не «работа с двух машин», а вторая
+    // установка/копия программы на том же компьютере (обычно старая версия,
+    // забытая после переустановки). Событие «активен на 2 машинах» в этом случае
+    // сбивает с толку (инцидент gala/PC69 2026-07-27) — называем своим именем.
+    if (uniqueMachines.length === 1) {
+      ingestServerCriticalEvent({
+        eventCode: 'auth.duplicate_client_install',
+        title: `Две копии программы под логином «${login}» на машине ${uniqueMachines[0]}`,
+        humanMessage:
+          `На компьютере ${uniqueMachines[0]} одновременно отвечают ${rows.length} экземпляра программы ` +
+          `под логином «${login}» (обычно вторая — забытая старая установка). ` +
+          'Лишнюю копию нужно закрыть и удалить: старая версия ломает синхронизацию и путает учёт.',
+        category: 'auth',
+        severity: 'warn',
+        clientId,
+        dedupMessage: `auth.duplicate_client_install:${login}:${uniqueMachines[0]}:${rows.length}`,
+      });
+      return;
+    }
     ingestServerCriticalEvent({
       eventCode: 'auth.multi_machine_login',
-      title: `Логин «${login}» активен на ${rows.length} машинах`,
+      title: `Логин «${login}» активен на ${uniqueMachines.length} машинах`,
       humanMessage:
-        `Пользователь «${login}» одновременно работает на машинах: ${machines.join(', ')}. ` +
+        `Пользователь «${login}» одновременно работает на машинах: ${uniqueMachines.join(', ')}. ` +
         'Наряды и правки с этих машин записываются на этот логин (атрибуция искажается), ' +
         'а черновики карточек становятся общими. Каждому оператору — свой логин.',
       category: 'auth',
