@@ -4653,9 +4653,14 @@ export function App() {
         {t === 'engine' && selectedEngineId && !engineDetails && (
           <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 12 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Карточка двигателя</div>
-            <div style={{ color: '#6b7280', marginBottom: 12 }}>
-              {engineLoading ? 'Загрузка...' : engineOpenError || 'Нет данных для отображения.'}
-            </div>
+            {engineLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6b7280', marginBottom: 12 }}>
+                <span className="mx-spinner" style={{ width: 24, height: 24 }} aria-hidden="true" />
+                Загрузка карточки...
+              </div>
+            ) : (
+              <div style={{ color: '#6b7280', marginBottom: 12 }}>{engineOpenError || 'Нет данных для отображения.'}</div>
+            )}
             <Button onClick={() => setTab('engines')}>Вернуться к списку</Button>
           </div>
         )}
