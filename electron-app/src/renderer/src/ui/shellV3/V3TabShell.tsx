@@ -43,12 +43,18 @@ export function V3TabShell(props: {
   const activeMenuTab = resolveMenuTab(props.tab);
   const listOpenTab = listTab ? resolveMenuTab(listTab) : null;
 
-  // Карточка смонтирована = текущий tab НЕ списочный и есть сфокусированная карточка.
-  // Активной вкладкой она считается, только когда фокус не уведён на закреплённые:
-  // при pinnedFocus карточка остаётся смонтированной (несохранённые правки живы), но скрыта.
-  const cardMounted = props.focusedCardKey != null && !V2_LIST_TABS.has(props.tab);
-  const cardActive = cardMounted && !props.pinnedFocus;
-  const workspaceTab = cardMounted ? props.tab : null;
+  // Fullscreen-контент = любой НЕ-списочный tab: карточка (focusedCardKey задан) либо
+  // обычная страница (История/Настройки/Заметки/…). Активен он, только когда фокус не
+  // уведён на закреплённые: при pinnedFocus контент остаётся смонтированным (несохранённые
+  // правки/скролл живы), но скрыт.
+  const pageMounted = !V2_LIST_TABS.has(props.tab);
+  const cardFocused = pageMounted && props.focusedCardKey != null;
+  const cardActive = pageMounted && !props.pinnedFocus;
+  const workspaceTab = pageMounted ? props.tab : null;
+  // Страница без карточки (Настройки/История/…) — эфемерная вкладка со своим заголовком.
+  const pageLabel = pageMounted && !cardFocused
+    ? (props.menuLabels[resolveMenuTab(props.tab) as MenuTabId] ?? String(props.tab))
+    : null;
 
   return (
     <div className="v3-shell">
@@ -71,9 +77,20 @@ export function V3TabShell(props: {
         >
           {listLabel ? `Список ${listLabel}` : 'Список …'}
         </button>
+        {pageLabel && (
+          <button
+            type="button"
+            className="v3-tab v3-tab-page"
+            data-active={cardActive ? '1' : undefined}
+            onClick={() => {}}
+            title={pageLabel}
+          >
+            📄 {pageLabel}
+          </button>
+        )}
         {props.openCards.map((card) => {
           const key = `${card.kind}:${card.entityId}`;
-          const active = cardActive && key === props.focusedCardKey;
+          const active = cardActive && cardFocused && key === props.focusedCardKey;
           return (
             <div key={key} className="v3-tab v3-tab-card" data-active={active ? '1' : undefined} title={card.title}>
               <button
