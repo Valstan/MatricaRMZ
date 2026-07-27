@@ -2812,8 +2812,8 @@ export function App() {
       }
       if (kind === 'stock_document') {
         const r = await api.warehouse.documentGet(entityId);
-        const d = r?.document ?? r?.payload ?? r;
-        const n = String(d?.number ?? d?.docNumber ?? '').trim();
+        const h = r?.document?.header ?? r?.header ?? null;
+        const n = String(h?.docNo ?? '').trim();
         return n ? `📦 ${n}` : null;
       }
       if (kind === 'request') {

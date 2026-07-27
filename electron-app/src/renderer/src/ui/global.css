@@ -56,11 +56,11 @@ body {
   --app-bg-to: #e0f2fe;
   --surface: #ffffff;
   --surface-2: #f8fafc;
-  --border: rgba(15, 23, 42, 0.18);
-  --border-strong: rgba(15, 23, 42, 0.28);
+  --border: rgba(15, 23, 42, 0.22);
+  --border-strong: rgba(15, 23, 42, 0.34);
   --text: #0b1220;
   --muted: #334155;
-  --subtle: #64748b;
+  --subtle: #56657b;
   --danger: #b91c1c;
   --success: #15803d;
   --warn: #b45309;
@@ -88,9 +88,9 @@ body {
   --ui-radius-lg: 12px;
 
   --list-row-bg: #f8fafc;
-  --list-row-bg-alt: #eef2f7;
-  --list-row-bg-hover: #e2e8f0;
-  --list-row-border: rgba(15, 23, 42, 0.14);
+  --list-row-bg-alt: #e7edf5;
+  --list-row-bg-hover: #d8e2ee;
+  --list-row-border: rgba(15, 23, 42, 0.2);
   --list-row-text: #0b1220;
   --list-row-padding-y: 4px;
   --list-row-padding-x: 6px;
@@ -105,7 +105,7 @@ body {
   --list-row-green-hover: #bbf7d0;
 
   --card-panel-bg: #eff6ff;
-  --card-panel-border: rgba(37, 99, 235, 0.28);
+  --card-panel-border: rgba(37, 99, 235, 0.4);
   --ui-section-card-alt-color: #93c5fd;
   --ui-section-card-alt-odd: 4%;
   --ui-section-card-alt-even: 8%;
@@ -186,9 +186,9 @@ body {
     0 2px 6px rgba(2, 6, 23, 0.4);
 
   --list-row-bg: rgba(30, 41, 59, 0.72);
-  --list-row-bg-alt: rgba(30, 41, 59, 0.88);
+  --list-row-bg-alt: rgba(51, 65, 85, 0.85);
   --list-row-bg-hover: rgba(56, 189, 248, 0.2);
-  --list-row-border: rgba(148, 163, 184, 0.28);
+  --list-row-border: rgba(148, 163, 184, 0.38);
   --list-row-text: #e2e8f0;
   --list-row-green-bg: rgba(22, 163, 74, 0.22);
   --list-row-green-alt: rgba(22, 163, 74, 0.32);
@@ -283,8 +283,8 @@ body {
     0 2px 5px rgba(90, 55, 15, 0.12);
 
   --list-row-bg: #fbf2df;
-  --list-row-bg-alt: #f4e7cd;
-  --list-row-bg-hover: #f0dcb4;
+  --list-row-bg-alt: #efdfbd;
+  --list-row-bg-hover: #e8d2a4;
   --list-row-border: rgba(124, 74, 20, 0.26);
   --list-row-text: #2a1c0a;
   --list-row-green-bg: #e8f3d8;
@@ -2654,4 +2654,18 @@ table.list-table.list-table--catalog {
 
 :root[data-decor='fancy'] table thead th {
   background-image: linear-gradient(135deg, color-mix(in srgb, var(--input-border-focus) 14%, transparent), transparent);
+}
+
+/* ── Фаза C (ui-themes-ergonomics): читаемость строгого режима ──────────────────
+   Зебра для ad-hoc таблиц внутри карточек (вложения, чек-листы, составы) — раньше
+   строки сливались в сплошную массу. Оверлей через color-mix тема-независим;
+   строки с собственным inline-background (цветные статусы) его перекрывают. */
+.card-panel table tbody tr:nth-child(even) td,
+.entity-card-span-full table tbody tr:nth-child(even) td {
+  background-color: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.card-panel table tbody td,
+.entity-card-span-full table tbody td {
+  border-bottom: 1px solid var(--list-row-border);
 }
