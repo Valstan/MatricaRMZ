@@ -86,6 +86,11 @@ export function AttachmentsPanel(props: {
   const thumbsRef = useRef(thumbs);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
+  // Длинный список файлов по умолчанию свёрнут (этап 4 tabs-window-shell): пользователь
+  // разворачивает сам; превью не грузятся, пока список свёрнут.
+  const LONG_LIST_THRESHOLD = 5;
+  const [listExpanded, setListExpanded] = useState(false);
+  const listCollapsed = list.length > LONG_LIST_THRESHOLD && !listExpanded;
   const filteredList = useMemo(() => {
     if (filterMode === 'actual') return list.filter((file) => !isObsoleteFile(file));
     if (filterMode === 'obsolete') return list.filter((file) => isObsoleteFile(file));
@@ -98,7 +103,7 @@ export function AttachmentsPanel(props: {
   }, [thumbs]);
 
   useEffect(() => {
-    if (!props.canView) return;
+    if (!props.canView || listCollapsed) return;
     let alive = true;
     const run = async () => {
       for (const f of list) {
@@ -121,7 +126,7 @@ export function AttachmentsPanel(props: {
     return () => {
       alive = false;
     };
-  }, [props.canView, listKey, list]);
+  }, [props.canView, listKey, list, listCollapsed]);
 
   async function addFromPaths(paths: string[]) {
     if (!props.canUpload) return;
@@ -281,6 +286,27 @@ export function AttachmentsPanel(props: {
         </div>
       )}
 
+      {listCollapsed ? (
+        <button
+          type="button"
+          onClick={() => setListExpanded(true)}
+          style={{
+            marginTop: 10,
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #e5e7eb',
+            borderRadius: 12,
+            background: '#f8fafc',
+            cursor: 'pointer',
+            font: 'inherit',
+            fontWeight: 600,
+            color: '#334155',
+            textAlign: 'left',
+          }}
+        >
+          ▶ Показать файлы ({filteredList.length})
+        </button>
+      ) : (
       <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -447,6 +473,7 @@ export function AttachmentsPanel(props: {
           </tbody>
         </table>
       </div>
+      )}
       {uploadFlow.renameDialog}
     </div>
   );
