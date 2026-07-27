@@ -14,6 +14,10 @@ import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean,
 import { criticalEventDelete, criticalEventsClear, criticalEventsList } from '../../services/criticalEventsService.js';
 
 const THEMES = new Set(['auto', 'light', 'dark', 'warm']);
+// Оформление «Строго/Красиво» и цветовая гамма — ортогональны теме яркости
+// (план docs/plans/ui-themes-ergonomics-2026-07.md).
+const DECORS = new Set(['strict', 'fancy']);
+const PALETTES = new Set(['classic', 'emerald', 'terracotta', 'lilac', 'graphite']);
 const CHAT_SIDES = new Set(['left', 'right']);
 
 type TabsLayoutPrefs = {
@@ -146,6 +150,8 @@ function safeTabsLayout(value: unknown): TabsLayoutPrefs | null {
 export function registerSettingsIpc(ctx: IpcContext) {
   ipcMain.handle('ui:prefs:get', async (_e, args?: { userId?: string }) => {
     const theme = (await settingsGetString(ctx.sysDb, SettingsKey.UiTheme)) ?? 'auto';
+    const decor = (await settingsGetString(ctx.sysDb, SettingsKey.UiDecor)) ?? 'strict';
+    const palette = (await settingsGetString(ctx.sysDb, SettingsKey.UiPalette)) ?? 'classic';
     const chatSide = (await settingsGetString(ctx.sysDb, SettingsKey.UiChatSide)) ?? 'right';
     const enterAsTab = await settingsGetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, false);
     const userId = String(args?.userId ?? '').trim();
@@ -162,6 +168,8 @@ export function registerSettingsIpc(ctx: IpcContext) {
     return {
       ok: true,
       theme: THEMES.has(theme) ? theme : 'auto',
+      decor: DECORS.has(decor) ? decor : 'strict',
+      palette: PALETTES.has(palette) ? palette : 'classic',
       chatSide: CHAT_SIDES.has(chatSide) ? chatSide : 'right',
       enterAsTab,
       tabsLayout,
@@ -175,6 +183,8 @@ export function registerSettingsIpc(ctx: IpcContext) {
       _e,
       args: {
         theme?: string;
+        decor?: string;
+        palette?: string;
         chatSide?: string;
         enterAsTab?: boolean;
         userId?: string;
@@ -190,8 +200,16 @@ export function registerSettingsIpc(ctx: IpcContext) {
       const chatSide =
         args.chatSide == null ? String(currentChatSide).trim() || 'right' : String(args.chatSide ?? '').trim() || 'right';
       const enterAsTab = args.enterAsTab == null ? currentEnterAsTab : args.enterAsTab === true;
+      const currentDecor = (await settingsGetString(ctx.sysDb, SettingsKey.UiDecor)) ?? 'strict';
+      const currentPalette = (await settingsGetString(ctx.sysDb, SettingsKey.UiPalette)) ?? 'classic';
+      const decor = args.decor == null ? String(currentDecor).trim() || 'strict' : String(args.decor ?? '').trim() || 'strict';
+      const palette = args.palette == null ? String(currentPalette).trim() || 'classic' : String(args.palette ?? '').trim() || 'classic';
       const safeTheme = THEMES.has(theme) ? theme : 'auto';
+      const safeDecor = DECORS.has(decor) ? decor : 'strict';
+      const safePalette = PALETTES.has(palette) ? palette : 'classic';
       const safeChatSide = CHAT_SIDES.has(chatSide) ? chatSide : 'right';
+      await settingsSetString(ctx.sysDb, SettingsKey.UiDecor, safeDecor);
+      await settingsSetString(ctx.sysDb, SettingsKey.UiPalette, safePalette);
       await settingsSetString(ctx.sysDb, SettingsKey.UiTheme, safeTheme);
       await settingsSetString(ctx.sysDb, SettingsKey.UiChatSide, safeChatSide);
       await settingsSetBoolean(ctx.sysDb, SettingsKey.UiEnterAsTab, enterAsTab);
@@ -214,7 +232,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
         await settingsSetString(ctx.sysDb, SettingsKey.UiShellPrefs, JSON.stringify(shellData));
       }
 
-      return { ok: true, theme: safeTheme, chatSide: safeChatSide, enterAsTab, tabsLayout: nextLayout, shellPrefs: nextShellPrefs };
+      return { ok: true, theme: safeTheme, decor: safeDecor, palette: safePalette, chatSide: safeChatSide, enterAsTab, tabsLayout: nextLayout, shellPrefs: nextShellPrefs };
     },
   );
 

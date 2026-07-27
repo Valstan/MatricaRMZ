@@ -77,6 +77,18 @@ import { V2Shell } from './shellV2/V2Shell.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
 import { V3TabShell } from './shellV3/V3TabShell.js';
 
+// Цветовые гаммы (план ui-themes-ergonomics-2026-07): оверрайды акцентных токенов
+// в global.css по data-palette; 'classic' = текущая синяя (без оверрайда).
+const UI_PALETTE_IDS = ['classic', 'emerald', 'terracotta', 'lilac', 'graphite'] as const;
+type UiPaletteId = (typeof UI_PALETTE_IDS)[number];
+const UI_PALETTE_LABELS: Record<UiPaletteId, string> = {
+  classic: 'Классика (синяя)',
+  emerald: 'Изумруд',
+  terracotta: 'Терракота',
+  lilac: 'Сирень',
+  graphite: 'Графит',
+};
+
 type RecentVisitEntry = {
   id: string;
   at: number;
@@ -647,11 +659,15 @@ export function App() {
   const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
   const [uiPrefs, setUiPrefs] = useState<{
     theme: 'auto' | 'light' | 'dark' | 'warm';
+    decor: 'strict' | 'fancy';
+    palette: UiPaletteId;
     chatSide: 'left' | 'right';
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
   }>({
     theme: 'auto',
+    decor: 'strict',
+    palette: 'classic',
     chatSide: 'right',
     enterAsTab: false,
     displayPrefs: DEFAULT_UI_DISPLAY_PREFS,
@@ -1229,6 +1245,8 @@ export function App() {
         setUiPrefs((prev) => ({
           ...prev,
           theme: r.theme ?? 'auto',
+          decor: r.decor === 'fancy' ? 'fancy' : 'strict',
+          palette: UI_PALETTE_IDS.includes(r.palette) ? r.palette : 'classic',
           chatSide: r.chatSide ?? 'right',
           enterAsTab: r.enterAsTab === true,
         }));
@@ -1815,6 +1833,16 @@ export function App() {
     return () => mq.removeEventListener?.('change', handler);
   }, [uiPrefs.theme]);
 
+  // Оформление «Строго/Красиво» и цветовая гамма — ортогональны теме яркости.
+  useEffect(() => {
+    try {
+      document.documentElement.dataset.decor = uiPrefs.decor;
+      document.documentElement.dataset.palette = uiPrefs.palette;
+    } catch {
+      // ignore
+    }
+  }, [uiPrefs.decor, uiPrefs.palette]);
+
   useEffect(() => {
     try {
       document.documentElement.dataset.theme = resolvedTheme;
@@ -2396,6 +2424,16 @@ export function App() {
   async function persistTheme(next: 'auto' | 'light' | 'dark' | 'warm') {
     setUiPrefs((prev) => ({ ...prev, theme: next }));
     await window.matrica.settings.uiSet({ theme: next }).catch(() => {});
+  }
+
+  async function persistDecor(next: 'strict' | 'fancy') {
+    setUiPrefs((prev) => ({ ...prev, decor: next }));
+    await window.matrica.settings.uiSet({ decor: next }).catch(() => {});
+  }
+
+  async function persistPalette(next: UiPaletteId) {
+    setUiPrefs((prev) => ({ ...prev, palette: next }));
+    await window.matrica.settings.uiSet({ palette: next }).catch(() => {});
   }
 
   useEffect(() => {
@@ -5263,6 +5301,29 @@ export function App() {
               </Button>
             ))}
           </div>
+          {/* Оформление «Строго/Красиво» + цветовая гамма (ортогональны теме яркости). */}
+          <Button
+            size="sm"
+            variant={uiPrefs.decor === 'fancy' ? 'primary' : 'ghost'}
+            onClick={() => void persistDecor(uiPrefs.decor === 'fancy' ? 'strict' : 'fancy')}
+            title={uiPrefs.decor === 'fancy' ? 'Украшенное оформление (нажмите для строгого)' : 'Строгое оформление (нажмите для украшенного)'}
+            aria-label="Оформление: строго/красиво"
+          >
+            {uiPrefs.decor === 'fancy' ? '❀ Красиво' : '▦ Строго'}
+          </Button>
+          <select
+            value={uiPrefs.palette}
+            onChange={(e) => void persistPalette(e.target.value as UiPaletteId)}
+            title="Цветовая гамма"
+            aria-label="Цветовая гамма"
+            style={{ padding: '3px 6px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }}
+          >
+            {UI_PALETTE_IDS.map((p) => (
+              <option key={p} value={p}>
+                🎨 {UI_PALETTE_LABELS[p]}
+              </option>
+            ))}
+          </select>
           {/* Переключатель интерфейсов — всегда на виду в шапке (после входа), в обеих
               оболочках. Дефолт — «Резиновый» (v2); возврат на старый в один клик,
               выбор запоминается per-user и переживает обновления. */}

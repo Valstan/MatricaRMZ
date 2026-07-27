@@ -749,6 +749,8 @@ export type MatricaApi = {
     >;
     uiSet: (args: {
       theme?: string;
+      decor?: string;
+      palette?: string;
       chatSide?: string;
       enterAsTab?: boolean;
       userId?: string;

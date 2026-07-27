@@ -2555,3 +2555,103 @@ table.list-table.list-table--catalog {
     animation-duration: 2s;
   }
 }
+
+/* ── Цветовые гаммы (ui-themes-ergonomics-2026-07): оверрайды акцентных токенов ──
+   'classic' = базовые значения (:root / темы), оверрайда нет. Гаммы ортогональны
+   теме яркости: правят акценты (кнопки, фокус, шапки панелей), не фон текста. */
+:root[data-palette='emerald'] {
+  --input-border-focus: #059669;
+  --button-primary-bg: linear-gradient(135deg, #059669 0%, #047857 60%, #0d9488 120%);
+  --button-primary-border: #047857;
+  --card-panel-bg: #ecfdf5;
+  --card-panel-border: rgba(5, 150, 105, 0.28);
+  --card-row-bg: #d1fae5;
+  --card-row-bg-hover: #a7f3d0;
+  --card-row-border: rgba(5, 150, 105, 0.25);
+  --app-bg-from: #e2efe8;
+  --app-bg-to: #dcf5e9;
+  --ui-section-card-alt-color: #6ee7b7;
+}
+
+:root[data-palette='terracotta'] {
+  --input-border-focus: #c2410c;
+  --button-primary-bg: linear-gradient(135deg, #c2410c 0%, #9a3412 60%, #b45309 120%);
+  --button-primary-border: #9a3412;
+  --card-panel-bg: #fff7ed;
+  --card-panel-border: rgba(194, 65, 12, 0.28);
+  --card-row-bg: #ffedd5;
+  --card-row-bg-hover: #fed7aa;
+  --card-row-border: rgba(194, 65, 12, 0.25);
+  --app-bg-from: #f1e7dc;
+  --app-bg-to: #f8ecdd;
+  --ui-section-card-alt-color: #fdba74;
+}
+
+:root[data-palette='lilac'] {
+  --input-border-focus: #7c3aed;
+  --button-primary-bg: linear-gradient(135deg, #7c3aed 0%, #6d28d9 60%, #c026d3 120%);
+  --button-primary-border: #6d28d9;
+  --card-panel-bg: #f5f3ff;
+  --card-panel-border: rgba(124, 58, 237, 0.28);
+  --card-row-bg: #ede9fe;
+  --card-row-bg-hover: #ddd6fe;
+  --card-row-border: rgba(124, 58, 237, 0.25);
+  --app-bg-from: #eae6f5;
+  --app-bg-to: #f3e9fa;
+  --ui-section-card-alt-color: #c4b5fd;
+}
+
+:root[data-palette='graphite'] {
+  --input-border-focus: #475569;
+  --button-primary-bg: linear-gradient(135deg, #475569 0%, #334155 60%, #64748b 120%);
+  --button-primary-border: #334155;
+  --card-panel-bg: #f1f5f9;
+  --card-panel-border: rgba(71, 85, 105, 0.3);
+  --card-row-bg: #e2e8f0;
+  --card-row-bg-hover: #cbd5e1;
+  --card-row-border: rgba(71, 85, 105, 0.28);
+  --app-bg-from: #e7e9ee;
+  --app-bg-to: #e3e6eb;
+  --ui-section-card-alt-color: #94a3b8;
+}
+
+/* ── Украшенное оформление (data-decor='fancy') ─────────────────────────────────
+   Декор только на контейнерах (панели/заголовки), НЕ в строках гридов — перф.
+   Акцентный цвет берём из фокус-токена, чтобы декор следовал выбранной гамме. */
+:root[data-decor='fancy'] .card-panel {
+  border-radius: 14px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.09);
+  position: relative;
+}
+
+:root[data-decor='fancy'] .card-panel::after {
+  content: '❦';
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  font-size: 15px;
+  color: var(--input-border-focus);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+:root[data-decor='fancy'] .ui-section-title {
+  padding-bottom: 3px;
+  border-bottom: 2px solid;
+  border-image: linear-gradient(90deg, var(--input-border-focus), transparent) 1;
+}
+
+:root[data-decor='fancy'] .ui-section-title::before {
+  content: '❀ ';
+  color: var(--input-border-focus);
+  opacity: 0.65;
+}
+
+:root[data-decor='fancy'] .v3-tab[data-active='1'],
+:root[data-decor='fancy'] .v2-col-header {
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--input-border-focus) 12%, transparent), transparent);
+}
+
+:root[data-decor='fancy'] table thead th {
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--input-border-focus) 14%, transparent), transparent);
+}

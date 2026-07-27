@@ -38,6 +38,8 @@ export const SettingsKey = {
 
   // UI preferences
   UiTheme: 'ui.theme',
+  UiDecor: 'ui.decor',
+  UiPalette: 'ui.palette',
   UiChatSide: 'ui.chatSide',
   UiEnterAsTab: 'ui.enterAsTab',
   UiTabsLayout: 'ui.tabs.layout',
