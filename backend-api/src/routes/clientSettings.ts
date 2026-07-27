@@ -23,6 +23,7 @@ clientSettingsRouter.get('/settings', async (req, res) => {
     username: z.string().max(200).optional().nullable(),
     activeMs: z.coerce.number().int().min(0).max(86_400_000).optional().nullable(),
     activeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    source: z.string().max(50).optional().nullable(),
   });
   const parsed = schema.safeParse({
     clientId: String(req.query.clientId ?? ''),
@@ -33,6 +34,7 @@ clientSettingsRouter.get('/settings', async (req, res) => {
     username: req.query.username ? String(req.query.username) : null,
     activeMs: req.query.activeMs != null ? String(req.query.activeMs) : null,
     activeDate: req.query.activeDate ? String(req.query.activeDate) : null,
+    source: req.query.source ? String(req.query.source) : null,
   });
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
@@ -52,10 +54,37 @@ clientSettingsRouter.get('/settings', async (req, res) => {
     }
   }
 
+  // Watchdog polls the same endpoint (needs the reinstall command), but it is
+  // NOT the app: its GET must not count as «клиент жив» — otherwise the row of a
+  // long-dead install stays fresh forever, fakes «живой клиент на старой версии»
+  // in reports and feeds ghost rows into the multi-machine window. New watchdogs
+  // self-mark with source=watchdog; pre-fix binaries send neither hostname nor
+  // username (the app always sends hostname, even before login) — same skip.
+  const isWatchdogPoll =
+    parsed.data.source === 'watchdog' || (!parsed.data.hostname && !parsed.data.username);
+
   try {
     const row = await getOrCreateClientSettings(parsed.data.clientId);
     const globalUiDefaults = await getGlobalUiDefaults();
     const ip = req.ip || req.connection?.remoteAddress || null;
+    if (isWatchdogPoll) {
+      return res.json({
+        ok: true,
+        settings: {
+          clientId: row.clientId,
+          updatesEnabled: row.updatesEnabled,
+          torrentEnabled: row.torrentEnabled,
+          loggingEnabled: row.loggingEnabled,
+          loggingMode: row.loggingMode,
+          uiGlobalSettingsJson: globalUiDefaults.settings,
+          uiDefaultsVersion: globalUiDefaults.version,
+          syncRequestId: row.syncRequestId ?? null,
+          syncRequestType: row.syncRequestType ?? null,
+          syncRequestAt: row.syncRequestAt ?? null,
+          syncRequestPayload: row.syncRequestPayload ?? null,
+        },
+      });
+    }
     await touchClientSettings(parsed.data.clientId, {
       version: parsed.data.version ?? null,
       hostname: parsed.data.hostname ?? null,

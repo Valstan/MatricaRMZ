@@ -600,6 +600,9 @@ func checkReinstallCommand(hs *handshake) (forced bool, requestID string) {
 	}
 	q.Set("platform", runtime.GOOS)
 	q.Set("arch", runtime.GOARCH)
+	// Self-mark: the server must not count a watchdog poll as an app heartbeat
+	// (it kept rows of dead installs «alive» and faked old-version clients).
+	q.Set("source", "watchdog")
 	req, err := newGET(joinURL(hs.APIBaseURL, "/client/settings") + "?" + q.Encode())
 	if err != nil {
 		return false, ""
