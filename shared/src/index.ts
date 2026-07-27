@@ -65,3 +65,4 @@ export * from './ipc/types.js';
 // keep exports sorted manually
 
 
+export * from './domain/import1cStock.js';
