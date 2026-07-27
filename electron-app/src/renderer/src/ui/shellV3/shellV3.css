@@ -132,4 +132,26 @@
   min-height: 0;
   overflow: auto;
   padding: 6px;
+  /* Этап 4: резиновые карточки — поля тянутся на всю доступную ширину, потолки
+     контента сняты; вертикаль компактнее (межстрочные зазоры меньше). Скоуп —
+     только v3, v1/v2 не трогаем. */
+  --ui-content-max-width: 100%;
+  --ui-content-block-max-width: 100%;
+  --card-row-gap: 2px;
+  --ui-space-4: 8px;
+  --ui-space-5: 12px;
+}
+
+/* Инлайновые потолки ширины конкретных карточек (820/900px) перебиваем только в v3. */
+.v3-card-body .entity-card-shell {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.v3-card-body .entity-card-span-full {
+  max-width: 100% !important;
+}
+
+.v3-card-body .card-panel {
+  max-width: 100% !important;
 }
