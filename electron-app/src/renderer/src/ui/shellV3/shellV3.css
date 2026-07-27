@@ -40,6 +40,13 @@
   font-weight: 700;
 }
 
+/* Эфемерная вкладка страницы (Настройки/История/…): как карточка, но без крестика. */
+.v3-tab-page {
+  padding: 7px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .v3-tab[data-active='1'] {
   background: var(--surface, #fff);
   border-color: var(--accent, #2563eb);
