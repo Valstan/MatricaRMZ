@@ -4,6 +4,7 @@ import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { Stock1cImportDialog } from '../components/Stock1cImportDialog.js';
 import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -86,6 +87,7 @@ export function StockDocumentsPage(props: {
   const twoCol = isMultiColumn && width >= 1400;
   const [sortKey, setSortKey] = useState<SortKey>('docDate');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [import1cOpen, setImport1cOpen] = useState(false);
 
   function persistIncludedStatuses(next: string[]) {
     setIncludedStatuses(next);
@@ -302,6 +304,11 @@ export function StockDocumentsPage(props: {
             Создать документ
           </Button>
         ) : null}
+        {props.canEdit ? (
+          <Button variant="ghost" onClick={() => setImport1cOpen(true)} title="Импорт остатков склада из отчёта 1С (.txt)">
+            📥 Импорт из 1С
+          </Button>
+        ) : null}
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
@@ -343,6 +350,15 @@ export function StockDocumentsPage(props: {
         )}
       </div>
       <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {displayRows.length}</div>
+      <Stock1cImportDialog
+        open={import1cOpen}
+        onClose={() => setImport1cOpen(false)}
+        onPosted={(docId) => {
+          setImport1cOpen(false);
+          void refresh();
+          props.onOpen(docId);
+        }}
+      />
     </div>
   );
 }
