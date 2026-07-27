@@ -222,7 +222,13 @@ export function AttachmentsPanel(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <strong>{props.title ?? 'Вложения'}</strong>
         <span style={{ flex: 1 }} />
-        {busy && <div style={{ color: busy.startsWith('Ошибка') || busy.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{busy}</div>}
+        {busy && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: busy.startsWith('Ошибка') || busy.startsWith('Неуспешно') ? '#b91c1c' : '#64748b', fontSize: 12 }}>
+            {/* Крутилка на время операции с файлом: «...» в конце = процесс ещё идёт. */}
+            {busy.endsWith('...') && <span className="mx-spinner" style={{ width: 14, height: 14 }} aria-hidden="true" />}
+            {busy}
+          </div>
+        )}
         {props.canUpload && (
           <>
             <Button

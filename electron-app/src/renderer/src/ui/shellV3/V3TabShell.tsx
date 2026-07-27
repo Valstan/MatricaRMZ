@@ -8,7 +8,12 @@ import { V2_LIST_TABS, buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
 import './shellV3.css';
 
 function suspenseFallback() {
-  return <div style={{ padding: 16, color: 'var(--muted)' }}>Загрузка раздела...</div>;
+  return (
+    <div style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)' }}>
+      <span className="mx-spinner" style={{ width: 24, height: 24 }} aria-hidden="true" />
+      Загрузка раздела...
+    </div>
+  );
 }
 
 /**
