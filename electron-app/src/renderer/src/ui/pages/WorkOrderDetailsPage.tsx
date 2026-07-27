@@ -43,6 +43,7 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
@@ -2039,8 +2040,10 @@ export function WorkOrderDetailsPage(props: {
 
   const signaturesSection = (
     <SectionCard className="entity-card-span-full">
+      {/* Фаза E (ui-themes-ergonomics): блок подписей свёрнут по умолчанию — заполняется
+          при закрытии наряда, а в повседневной работе только загромождает карточку. */}
+      <CollapsibleSection title="Подписи" defaultOpen={false}>
       <div style={{ display: 'grid', gap: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>Подписи</div>
         <datalist id="wo-signature-captions">
           {captionSuggestions.map((c) => (
             <option key={c} value={c} />
@@ -2151,6 +2154,7 @@ export function WorkOrderDetailsPage(props: {
           );
         })}
       </div>
+      </CollapsibleSection>
     </SectionCard>
   );
 

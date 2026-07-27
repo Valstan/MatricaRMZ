@@ -961,10 +961,10 @@ export function EngineAssemblyBomDetailsPage(props: {
         </div>
       ) : null}
       {componentTypeMismatchedLines.length > 0 ? (
-        <div style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
-          <div style={{ fontWeight: 600, color: 'var(--warning, #b45309)' }}>
-            Рассинхрон типа строки и типа номенклатуры ({componentTypeMismatchedLines.length})
-          </div>
+        <details style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
+          <summary style={{ fontWeight: 600, color: 'var(--warning, #b45309)', cursor: 'pointer' }}>
+            Рассинхрон типа строки и типа номенклатуры ({componentTypeMismatchedLines.length}) — развернуть
+          </summary>
           <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
             У этих строк тип не совпадает с «Типом компонента BOM» из карточки номенклатуры. При следующем сохранении тип строки будет приведён к типу из карточки номенклатуры (источник истины).
           </div>
@@ -978,13 +978,13 @@ export function EngineAssemblyBomDetailsPage(props: {
               … и ещё {componentTypeMismatchedLines.length - 12}
             </div>
           ) : null}
-        </div>
+        </details>
       ) : null}
       {lastSaveWarnings.length > 0 ? (
-        <div style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
-          <div style={{ fontWeight: 600, color: 'var(--warning, #b45309)' }}>
-            Предупреждения сохранения ({lastSaveWarnings.length})
-          </div>
+        <details style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
+          <summary style={{ fontWeight: 600, color: 'var(--warning, #b45309)', cursor: 'pointer' }}>
+            Предупреждения сохранения ({lastSaveWarnings.length}) — развернуть
+          </summary>
           {lastSaveWarnings.slice(0, 20).map((message, idx) => (
             <div key={`save-warn-${idx}`} style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
               · {message}
@@ -995,7 +995,7 @@ export function EngineAssemblyBomDetailsPage(props: {
               … и ещё {lastSaveWarnings.length - 20}
             </div>
           ) : null}
-        </div>
+        </details>
       ) : null}
       {!data ? null : (
         <>

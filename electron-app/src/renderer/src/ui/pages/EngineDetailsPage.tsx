@@ -7,6 +7,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -1635,6 +1636,12 @@ export function EngineDetailsPage(props: {
     }),
   ].filter(Boolean);
   const mainFields = orderFieldsByDefs(mainFieldItems as any[], engineDefs);
+  // Фаза E (ui-themes-ergonomics): статусные строки уходят в отдельный сворачиваемый блок —
+  // основные реквизиты не тонут среди чекбоксов статусов.
+  const statusCodeSet = new Set<string>(STATUS_DISPLAY_ORDER as readonly string[]);
+  const mainBaseFields = mainFields.filter((f: { code: string }) => !statusCodeSet.has(String(f.code)));
+  const mainStatusFields = mainFields.filter((f: { code: string }) => statusCodeSet.has(String(f.code)));
+  const activeStatusCount = STATUS_DISPLAY_ORDER.filter((c) => statusFlags[c]).length;
 
   const orderedPrintRows: Array<[string, string]> = [
     ['Номер двигателя', engineNumber],
@@ -1843,13 +1850,14 @@ export function EngineDetailsPage(props: {
         <div className="entity-card-span-full" hidden={activeTab !== 'main'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
         <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
         <DraggableFieldList
-          items={mainFields}
+          items={mainBaseFields}
           getKey={(f) => f.code}
           canDrag={props.canEditMasterData}
           onReorder={(next) => {
             if (!engineTypeId) return;
+            // Статусные коды дописываем в конец — их порядок фиксирован STATUS_DISPLAY_ORDER.
             void persistFieldOrder(
-              next.map((f) => f.code),
+              [...next.map((f) => f.code), ...mainStatusFields.map((f: { code: string }) => f.code)],
               engineDefs,
               { entityTypeId: engineTypeId },
             ).then(() => setEngineDefs([...engineDefs]));
@@ -1873,6 +1881,29 @@ export function EngineDetailsPage(props: {
             </div>
           )}
         />
+        <div style={{ marginTop: 10 }}>
+          <CollapsibleSection title="Статусы ремонта" count={activeStatusCount} defaultOpen={activeStatusCount > 0}>
+            <div style={{ display: 'grid', gap: 'var(--card-row-gap)' }}>
+              {mainStatusFields.map((field: { code: string; label: string; render: React.ReactNode }) => (
+                <div
+                  key={field.code}
+                  className="card-row"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(140px, 180px) 1fr',
+                    gap: 8,
+                    alignItems: 'center',
+                    padding: '4px 6px',
+                    border: '1px solid var(--card-row-border)',
+                  }}
+                >
+                  <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
+                  {field.render}
+                </div>
+              ))}
+            </div>
+          </CollapsibleSection>
+        </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
           <Button
             variant="ghost"
