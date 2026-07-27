@@ -32,6 +32,8 @@ export function V3TabShell(props: {
   focusedCardKey: string | null;
   onFocusCard: (card: { kind: TabId; entityId: string }) => void;
   onCloseCard: (card: { kind: TabId; entityId: string }) => void;
+  /** Лимит вкладок достигнут — открытие заблокировано, показать красное уведомление. */
+  limitNotice: boolean;
   /** Фокус на закреплённых вкладках (карточка при этом остаётся смонтированной, но скрыта). */
   pinnedFocus: boolean;
   /** Вернуть фокус со вкладки-карточки на закреплённые (список/разделы). */
@@ -111,11 +113,15 @@ export function V3TabShell(props: {
             </div>
           );
         })}
-        {v3ShowTabsWarning(props.openCards.length) && (
+        {props.limitNotice ? (
+          <div className="v3-tabs-warning" role="alert">
+            ⛔ Лимит 10 вкладок — закройте одну из открытых, чтобы открыть новую.
+          </div>
+        ) : v3ShowTabsWarning(props.openCards.length) ? (
           <div className="v3-tabs-warning" role="alert">
             ⚠ Открытых вкладок многовато — закройте отработанные, чтобы не наплодить конфликтов и не забыть сохранить.
           </div>
-        )}
+        ) : null}
       </div>
       {/* Сплит «РАЗДЕЛЫ ¼ | Список ¾» всегда смонтирован — скрывается, когда активна карточка. */}
       <div className="v3-split" style={cardActive ? { display: 'none' } : undefined}>
