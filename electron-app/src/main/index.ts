@@ -25,6 +25,7 @@ import {
   startBackgroundUpdatePolling,
 } from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings, setReportedActivity } from './services/clientAdminService.js';
+import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
@@ -458,11 +459,21 @@ app.whenReady().then(() => {
       let stableClientId = (await settingsGetString(db, SettingsKey.ClientId).catch(() => null)) ?? '';
       stableClientId = String(stableClientId).trim();
       if (!stableClientId) {
+        // Пересборка БД (self-heal / schema-rebuild) стирает settings — восстанавливаем
+        // идентичность из sidecar, чтобы клиент не рождался на сервере заново.
+        stableClientId = readSidecarClientId();
+        if (stableClientId) {
+          await settingsSetString(db, SettingsKey.ClientId, stableClientId).catch(() => {});
+          logToFile(`restored stable clientId from sidecar=${stableClientId}`);
+        }
+      }
+      if (!stableClientId) {
         const prefix = String(process.env.COMPUTERNAME ?? 'pc').trim() || 'pc';
         stableClientId = `${prefix}-${randomUUID()}`;
         await settingsSetString(db, SettingsKey.ClientId, stableClientId).catch(() => {});
         logToFile(`generated stable clientId=${stableClientId}`);
       }
+      writeSidecarClientId(stableClientId);
 
       writeSessionAuditEvent = async (action) => {
         try {
