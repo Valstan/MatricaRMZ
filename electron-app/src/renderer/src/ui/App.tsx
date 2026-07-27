@@ -38,6 +38,7 @@ import {
   uiControlToDisplayPrefs,
   withUiControlPresetApplied,
   V3_MAX_CARD_TABS,
+  REPORT_PRESET_DEFINITIONS,
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
@@ -683,6 +684,11 @@ export function App() {
   const V2_MAX_OPEN_CARDS = 3;
   // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
   const [v3PinnedFocus, setV3PinnedFocus] = useState(false);
+  // V3: лимит 10 вкладок — открытие 11-й блокируется с красным уведомлением (авто-гаснет).
+  const [v3LimitNotice, setV3LimitNotice] = useState(false);
+  // Обход гейта лимита для рефокуса УЖЕ открытой карточки и session-restore (selected-id
+  // в момент setTab ещё не закоммичен — по нему «уже открыта?» не определить).
+  const v3BypassLimitRef = useRef(false);
   // Split «2 рядом»: вторая карточка, смонтированная одновременно с primary (справа).
   // Своё состояние загрузки двигателя (engine — единственная не-self-load карточка) и
   // свой close-actions ref (backstop сохранения работает по обеим панелям).
@@ -1011,8 +1017,20 @@ export function App() {
       setV2ActiveListTab(nextTab);
       return;
     }
+    // V3: лимит вкладок — 11-я карточка НЕ открывается (selected-id уже мог смениться,
+    // но без смены tab upsert-эффект вкладку не заведёт). Рефокус открытой карточки и
+    // session-restore идут с bypass-флагом.
+    if (isV3 && isCardTab(nextTab) && nextTab !== tab) {
+      const bypass = v3BypassLimitRef.current;
+      v3BypassLimitRef.current = false;
+      if (!bypass && v2OpenCards.length >= V3_MAX_CARD_TABS) {
+        setV3LimitNotice(true);
+        window.setTimeout(() => setV3LimitNotice(false), 5000);
+        return;
+      }
+    }
     requestTabSwitch(nextTab);
-  }, [requestTabSwitch, isV2, tab]);
+  }, [requestTabSwitch, isV2, isV3, isCardTab, tab, v2OpenCards]);
 
   // V2: список виден рядом с открытой карточкой, поэтому клик по другой строке того же
   // списка меняет selectedXId БЕЗ смены таба — requestTabSwitch не сработает, и key-ремоунт
@@ -2733,8 +2751,68 @@ export function App() {
       if (num) return internal ? `⚙️ ${num} · ${internal}` : `⚙️ ${num}`;
       if (internal) return `⚙️ ${internal}`;
     }
+    if (kind === 'report_preset') {
+      const p = REPORT_PRESET_DEFINITIONS.find((x) => String(x.id) === entityId);
+      if (p?.title) return `📊 ${p.title}`;
+    }
     return `${appTabTitle(kind)} · ${entityId.slice(0, 6)}`;
   }
+
+  // Фолбэк-заголовок «Вид · id6» — маркер, что человекопонятное имя ещё не резолвнуто.
+  const isFallbackCardTitle = (t: string) => / · [0-9a-f]{6}$/i.test(t);
+
+  // Асинхронный резолв человекопонятных заголовков вкладок: EAV-сущности — по атрибутам
+  // (name/full_name/…), наряды и складские документы — по своим bridge-get. Ошибки
+  // (нет прав/сущность не найдена) молча оставляют фолбэк.
+  async function resolveCardTitle(kind: TabId, entityId: string): Promise<string | null> {
+    const api = window.matrica as any;
+    try {
+      if (kind === 'work_order') {
+        const r = await api.workOrders.get(entityId);
+        const n = r?.payload?.workOrderNumber;
+        return n ? `🛠 Наряд № ${n}` : null;
+      }
+      if (kind === 'stock_document') {
+        const r = await api.warehouse.documentGet(entityId);
+        const d = r?.document ?? r?.payload ?? r;
+        const n = String(d?.number ?? d?.docNumber ?? '').trim();
+        return n ? `📦 ${n}` : null;
+      }
+      if (kind === 'request') {
+        const r = await api.supplyRequests.get(entityId);
+        const n = r?.payload?.requestNumber ?? r?.payload?.number;
+        return n ? `🛒 Заявка № ${n}` : null;
+      }
+      if (kind === 'user_screen') {
+        const r = await api.uiScreens.get(entityId);
+        const n = String(r?.name ?? r?.screen?.name ?? '').trim();
+        return n ? `🖥 ${n}` : null;
+      }
+      if (kind === 'report_preset') return null; // статический реестр, резолвится синхронно
+      const d = await api.admin.entities.get(entityId);
+      const attrs = d?.attributes ?? {};
+      const cand = [attrs.name, attrs.full_name, attrs.title, attrs.contract_number, attrs.number, attrs.login];
+      const t = cand.find((x: unknown) => typeof x === 'string' && String(x).trim());
+      return t ? `${String(t).trim()}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Дорезолв заголовков открытых вкладок (один раз на карточку за сессию).
+  const cardTitleResolvedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isV2) return;
+    for (const c of v2OpenCards) {
+      const key = `${c.kind}:${c.entityId}`;
+      if (!isFallbackCardTitle(c.title) || cardTitleResolvedRef.current.has(key)) continue;
+      cardTitleResolvedRef.current.add(key);
+      void resolveCardTitle(c.kind, c.entityId).then((t) => {
+        if (!t) return;
+        setV2OpenCards((prev) => prev.map((x) => (x.kind === c.kind && x.entityId === c.entityId ? { ...x, title: t } : x)));
+      });
+    }
+  }, [isV2, v2OpenCards]);
 
   // Переоткрыть карточку по дескриптору (переиспользует open*-хелперы, включая dirty-guard).
   function reopenV2Card(kind: TabId, entityId: string) {
@@ -2762,6 +2840,7 @@ export function App() {
 
   function focusV2Card(card: { kind: TabId; entityId: string }) {
     setV3PinnedFocus(false);
+    v3BypassLimitRef.current = true;
     // Не держать одну и ту же карточку и слева, и справа: если фокусируем ту, что сейчас
     // в secondary, — закрываем правую панель (пользователь сам увёл её в primary).
     if (v2SecondaryCard && v2SecondaryCard.kind === card.kind && v2SecondaryCard.entityId === card.entityId) {
@@ -2787,8 +2866,10 @@ export function App() {
     const doAfter = () => {
       setV2CardEpoch((e) => e + 1);
       setV2OpenCards(nextCards);
-      if (nextFocus) reopenV2Card(nextFocus.kind, nextFocus.entityId);
-      else setTabState(CARD_PARENT_TAB[card.kind] ?? 'history');
+      if (nextFocus) {
+        v3BypassLimitRef.current = true;
+        reopenV2Card(nextFocus.kind, nextFocus.entityId);
+      } else setTabState(CARD_PARENT_TAB[card.kind] ?? 'history');
     };
     const actions = cardCloseActionsRef.current;
     let dirty = false;
@@ -2847,7 +2928,9 @@ export function App() {
     setV2OpenCards((prev) => {
       const i = prev.findIndex((c) => c.kind === idn.kind && c.entityId === idn.entityId);
       if (i >= 0) {
-        if (prev[i]?.title === title) return prev;
+        // Не затирать асинхронно-резолвнутый человекопонятный заголовок фолбэком «Вид · id6».
+        const existing = prev[i]?.title ?? '';
+        if (existing === title || (isFallbackCardTitle(title) && existing && !isFallbackCardTitle(existing))) return prev;
         const next = [...prev];
         next[i] = { kind: idn.kind, entityId: idn.entityId, title };
         return next;
@@ -2941,7 +3024,10 @@ export function App() {
     v2SessionSigRef.current = JSON.stringify(session);
     setV2OpenCards(cards);
     const focused = cards.find((c) => `${c.kind}:${c.entityId}` === session.focusedKey) ?? cards[cards.length - 1];
-    if (focused) reopenV2Card(focused.kind, focused.entityId);
+    if (focused) {
+      v3BypassLimitRef.current = true;
+      reopenV2Card(focused.kind, focused.entityId);
+    }
     const sec = session.secondary && isCardTab(session.secondary.kind as TabId) ? session.secondary : null;
     if (sec && !(focused && sec.kind === focused.kind && sec.entityId === focused.entityId)) {
       openSecondaryCard({ kind: sec.kind as TabId, entityId: sec.entityId, title: sec.title });
@@ -5479,6 +5565,7 @@ export function App() {
               focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
               onFocusCard={focusV2Card}
               onCloseCard={closeV2Card}
+              limitNotice={v3LimitNotice}
               pinnedFocus={v3PinnedFocus}
               onFocusPinned={() => setV3PinnedFocus(true)}
             />
