@@ -60,6 +60,7 @@ export function ComponentSuggestionsHintButton(props: {
   return createPortal(
     <button
       type="button"
+      data-entity-lookup-popup=""
       onMouseDown={(event) => {
         event.preventDefault();
         event.stopPropagation();

@@ -19,6 +19,20 @@ describe('findUniqueExactReference', () => {
   it('does not accept a merely similar label', () => {
     expect(findUniqueExactReference('вал', options)).toBeNull();
   });
+
+  it('ignores punctuation/spacing differences (в84 → В-84)', () => {
+    expect(findUniqueExactReference('в84', [{ id: 'brand', label: 'В-84' }])?.id).toBe('brand');
+    expect(findUniqueExactReference('В 84', [{ id: 'brand', label: 'В-84' }])?.id).toBe('brand');
+  });
+
+  it('stays null when compact labels collide', () => {
+    expect(
+      findUniqueExactReference('в84', [
+        { id: 'a', label: 'В-84' },
+        { id: 'b', label: 'В 84' },
+      ]),
+    ).toBeNull();
+  });
 });
 
 describe('hasUnresolvedEntityReference', () => {
