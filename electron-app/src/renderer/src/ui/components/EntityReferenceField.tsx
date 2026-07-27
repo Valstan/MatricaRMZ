@@ -5,7 +5,7 @@ import type { EntityReferenceTarget, QuickCreateRequest, QuickCreateResult } fro
 import { useConfirmOptional } from './ConfirmContext.js';
 import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
 import { QuickCreateDialog } from './QuickCreateDialog.js';
-import { normalizeLookupText } from '../utils/searchMatching.js';
+import { normalizeLookupCompact, rankLookupOptions } from '../utils/searchMatching.js';
 
 export type EntityReferenceFieldProps = {
   target: EntityReferenceTarget;
@@ -26,9 +26,12 @@ export type EntityReferenceFieldProps = {
 };
 
 export function findUniqueExactReference(query: string, options: SearchSelectOption[]): SearchSelectOption | null {
-  const normalized = normalizeLookupText(query);
+  // Compact comparison: users type «в84» while the catalog says «В-84» — spacing
+  // and punctuation must not force the "элемент не выбран" dialog. Ambiguity
+  // (several compact-equal labels) still returns null and asks the user.
+  const normalized = normalizeLookupCompact(query);
   if (!normalized) return null;
-  const matches = options.filter((option) => normalizeLookupText(option.label) === normalized);
+  const matches = options.filter((option) => normalizeLookupCompact(option.label) === normalized);
   return matches.length === 1 ? matches[0] ?? null : null;
 }
 
@@ -37,9 +40,9 @@ export function hasUnresolvedEntityReference(
   value: string | null,
   selected: SearchSelectOption | null,
 ): boolean {
-  const normalized = normalizeLookupText(query);
+  const normalized = normalizeLookupCompact(query);
   if (!normalized) return false;
-  return !value || !selected || normalized !== normalizeLookupText(selected.label);
+  return !value || !selected || normalized !== normalizeLookupCompact(selected.label);
 }
 
 export function EntityReferenceField(props: EntityReferenceFieldProps) {
@@ -73,10 +76,18 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
 
   useEffect(() => {
     function blockActionUntilResolved(event: MouseEvent) {
+      // SearchSelect renders its dropdown (and the hint button) through a portal into
+      // document.body — those clicks are part of THIS field's interaction, not a
+      // click-away. Without this check a mouse pick from the dropdown got swallowed
+      // here and the "элемент не выбран" dialog fired instead of committing the pick.
+      const target = event.target as Node | null;
+      const insideLookupPopup =
+        target instanceof Element && target.closest('[data-entity-lookup-popup]') != null;
       if (
         resolvingRef.current ||
         !hasUnresolvedEntityReference(query, props.value, selected) ||
-        rootRef.current?.contains(event.target as Node)
+        rootRef.current?.contains(target) ||
+        insideLookupPopup
       ) {
         return;
       }
@@ -101,7 +112,7 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
 
   function handleQueryChange(next: string) {
     setQuery(next);
-    if (props.value && normalizeLookupText(next) !== normalizeLookupText(selected?.label ?? '')) {
+    if (props.value && normalizeLookupCompact(next) !== normalizeLookupCompact(selected?.label ?? '')) {
       preserveTypedQueryRef.current = true;
       props.onChange(null);
     }
@@ -114,7 +125,12 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
       clear();
       return;
     }
-    if (selected && normalizeLookupText(trimmed) === normalizeLookupText(selected.label)) return;
+    if (selected && normalizeLookupCompact(trimmed) === normalizeLookupCompact(selected.label)) {
+      // Same element typed with different spacing/punctuation — snap the visible
+      // text back to the canonical label instead of leaving the variant on screen.
+      setQuery(selected.label);
+      return;
+    }
     if (props.optionsReady === false) return;
 
     const exact = findUniqueExactReference(trimmed, props.options);
@@ -126,14 +142,20 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     resolvingRef.current = true;
     try {
       const canCreate = props.canCreate === true && Boolean(props.onCreate || props.onQuickCreate);
+      const similar = rankLookupOptions(props.options, trimmed)[0] ?? null;
       const choice = await confirm?.pickChoice({
         title: `${props.targetLabel}: элемент не выбран`,
         detail: `Значение «${trimmed}» не найдено в базе. Выберите существующий элемент или создайте новый.`,
         choices: [
+          ...(similar ? [{ id: 'similar', label: `Выбрать: ${similar.label}` }] : []),
           { id: 'choose', label: 'Выбрать другой элемент' },
           ...(canCreate ? [{ id: 'create', label: props.createLabel ?? `Создать: ${trimmed}` }] : []),
         ],
       });
+      if (choice === 'similar' && similar) {
+        commit(similar);
+        return;
+      }
       if (choice === 'create' && (props.onCreate || props.onQuickCreate)) {
         const id = await runCreate(trimmed);
         if (id) {

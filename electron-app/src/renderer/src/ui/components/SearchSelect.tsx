@@ -6,7 +6,7 @@ import {
   useComponentSuggestionSuppress,
 } from './componentSuggestionHints.js';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
-import { buildLookupHighlightParts, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
+import { buildLookupHighlightParts, normalizeLookupCompact, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
 
 export type SearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
 
@@ -101,10 +101,13 @@ export function SearchSelect(props: {
     return props.options.slice(0, limit).map((option) => ({ option, source: 'database' as SourceLabel }));
   }, [normalizedQuery, props.emptyQueryLimit, props.options, showAllWhenEmpty]);
 
-  const exactMatch = useMemo(
-    () => props.options.find((option) => normalizeLookupText(option.label) === normalizedQuery) ?? null,
-    [normalizedQuery, props.options],
-  );
+  // Compact ("в84" == «В-84»): spacing/punctuation differences must neither hide
+  // the existing element nor allow creating its duplicate.
+  const exactMatch = useMemo(() => {
+    const compactQuery = normalizeLookupCompact(dropdown.query);
+    if (!compactQuery) return null;
+    return props.options.find((option) => normalizeLookupCompact(option.label) === compactQuery) ?? null;
+  }, [dropdown.query, props.options]);
 
   const visibleItems = useMemo(() => {
     if (!normalizedQuery) return emptyQueryItems;
@@ -323,6 +326,7 @@ export function SearchSelect(props: {
         ? createPortal(
             <div
               ref={dropdown.popupRef}
+              data-entity-lookup-popup=""
               onMouseDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
