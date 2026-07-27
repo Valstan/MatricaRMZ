@@ -37,6 +37,7 @@ import {
   sanitizeUiPresetId,
   uiControlToDisplayPrefs,
   withUiControlPresetApplied,
+  V3_MAX_CARD_TABS,
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
@@ -73,6 +74,7 @@ import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { V2Shell } from './shellV2/V2Shell.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
+import { V3TabShell } from './shellV3/V3TabShell.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -679,6 +681,8 @@ export function App() {
   // остальные — «закладки» для быстрого возврата). Дедуп по kind+entityId. Не используется в v1.
   const [v2OpenCards, setV2OpenCards] = useState<Array<{ kind: TabId; entityId: string; title: string }>>([]);
   const V2_MAX_OPEN_CARDS = 3;
+  // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
+  const [v3PinnedFocus, setV3PinnedFocus] = useState(false);
   // Split «2 рядом»: вторая карточка, смонтированная одновременно с primary (справа).
   // Своё состояние загрузки двигателя (engine — единственная не-self-load карточка) и
   // свой close-actions ref (backstop сохранения работает по обеим панелям).
@@ -751,7 +755,10 @@ export function App() {
 
   const isCardTab = useCallback((nextTab: TabId) => CARD_DETAIL_TABS.includes(nextTab), []);
 
-  const isV2 = authStatus.loggedIn && shellPrefs?.shellVersion === 'v2';
+  // v3 «Вкладки» — надстройка над механикой v2 (openCards/списки/session): все v2-гейты
+  // работают и в v3, различается только рендер оболочки (V3TabShell vs V2Shell).
+  const isV3 = authStatus.loggedIn && shellPrefs?.shellVersion === 'v3';
+  const isV2 = authStatus.loggedIn && (shellPrefs?.shellVersion === 'v2' || shellPrefs?.shellVersion === 'v3');
 
   function clearCardCloseTimer() {
     if (cardCloseTimerRef.current == null) return;
@@ -1053,6 +1060,11 @@ export function App() {
     if (!isV2) return;
     if (V2_LIST_TABS.has(tab)) setV2ActiveListTab(tab);
   }, [isV2, tab]);
+
+  // V3: открытие/фокус карточки снимает фокус с закреплённых вкладок.
+  useEffect(() => {
+    if (isV3 && isCardTab(tab)) setV3PinnedFocus(false);
+  }, [isV3, tab, isCardTab]);
 
   // V2: «Закрыть карточку» закрывает и её вкладку (инвариант: любой путь, снимающий карточку
   // с рабочей области, удаляет её дескриптор из v2OpenCards — иначе зависшая вкладка переоткрывает
@@ -2748,6 +2760,7 @@ export function App() {
   }
 
   function focusV2Card(card: { kind: TabId; entityId: string }) {
+    setV3PinnedFocus(false);
     // Не держать одну и ту же карточку и слева, и справа: если фокусируем ту, что сейчас
     // в secondary, — закрываем правую панель (пользователь сам увёл её в primary).
     if (v2SecondaryCard && v2SecondaryCard.kind === card.kind && v2SecondaryCard.entityId === card.entityId) {
@@ -2839,7 +2852,8 @@ export function App() {
         return next;
       }
       const next = [...prev, { kind: idn.kind, entityId: idn.entityId, title }];
-      while (next.length > V2_MAX_OPEN_CARDS) next.shift();
+      const maxOpen = isV3 ? V3_MAX_CARD_TABS : V2_MAX_OPEN_CARDS;
+      while (next.length > maxOpen) next.shift();
       return next;
     });
   }, [
@@ -5171,6 +5185,18 @@ export function App() {
               {isV2 ? '↩️ Старый интерфейс' : '🧩 Интерфейс «Резиновый»'}
             </Button>
           )}
+          {/* V3 «Вкладки» (бета): вход только явным кликом, дефолт остаётся v2. */}
+          {authStatus.loggedIn && isV2 && (
+            <Button
+              size="sm"
+              variant={isV3 ? 'primary' : 'ghost'}
+              onClick={() => switchShellVersion(isV3 ? 'v2' : 'v3')}
+              title={isV3 ? 'Вернуться к «Резиновому»' : 'Включить интерфейс «Вкладки» (бета)'}
+              aria-label={isV3 ? 'Интерфейс «Резиновый»' : 'Интерфейс «Вкладки» (бета)'}
+            >
+              {isV3 ? '🧩 «Резиновый»' : '🗂 «Вкладки» (бета)'}
+            </Button>
+          )}
           {authStatus.loggedIn && (
             <Button variant="ghost" onClick={() => setGlobalSearchOpen(true)} title="Глобальный поиск (Ctrl+K)">
               🔍 Поиск
@@ -5436,7 +5462,26 @@ export function App() {
               {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(', ') || 'другой сотрудник'}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
             </div>
           ) : null}
-          {isV2 ? (
+          {isV3 ? (
+            <V3TabShell
+              availableTabs={sectionGatedTabs}
+              tabletOperatorMenu={tabletActive && userRole !== 'superadmin'}
+              menuLabels={menuLabels}
+              buttonLayout={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2.buttonLayout}
+              onButtonLayoutChange={(next) => updateV2Prefs({ ...(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2, buttonLayout: next })}
+              tab={tab}
+              activeListTab={v2ActiveListTab}
+              onMenuTab={handleMenuTab}
+              renderTabContent={renderTabContent}
+              onSwitchToV2={() => switchShellVersion('v2')}
+              openCards={v2OpenCards}
+              focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
+              onFocusCard={focusV2Card}
+              onCloseCard={closeV2Card}
+              pinnedFocus={v3PinnedFocus}
+              onFocusPinned={() => setV3PinnedFocus(true)}
+            />
+          ) : isV2 ? (
             <V2Shell
               prefs={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2}
               onPrefsChange={updateV2Prefs}

@@ -1,0 +1,128 @@
+/* V3 shell («Вкладки»): панель вкладок + сплит ¼/¾ + карточка на весь экран. */
+
+.v3-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Шапки вкладок: ширина — по названию; сжимаются только когда не влезают. */
+.v3-tab-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 2px 2px 0;
+  border-bottom: 1px solid var(--border, #d1d5db);
+}
+
+.v3-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border, #d1d5db);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-2, #f3f4f6);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.v3-tab-pinned {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  font-weight: 700;
+}
+
+.v3-tab[data-active='1'] {
+  background: var(--surface, #fff);
+  border-color: var(--accent, #2563eb);
+  border-bottom: 2px solid var(--surface, #fff);
+  margin-bottom: -1px;
+  color: var(--accent, #2563eb);
+  font-weight: 700;
+}
+
+.v3-tab-card .v3-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  padding: 7px 4px 7px 10px;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.v3-tab-close {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--muted, #6b7280);
+  cursor: pointer;
+}
+
+.v3-tab-close:hover {
+  color: var(--danger, #dc2626);
+}
+
+.v3-tabs-warning {
+  flex: 1 0 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  color: var(--danger, #dc2626);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: normal;
+}
+
+/* Сплит закреплённых вкладок: «РАЗДЕЛЫ» ¼ | «Список …» ¾. */
+.v3-split {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.v3-split-sections {
+  flex: 0 0 25%;
+  min-width: 180px;
+  max-width: 25%;
+  border-right: 1px solid var(--border, #d1d5db);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.v3-split-list {
+  flex: 1 1 75%;
+  min-width: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.v3-list-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted, #6b7280);
+}
+
+/* Карточка на весь экран. */
+.v3-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}

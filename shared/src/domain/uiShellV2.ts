@@ -3,7 +3,7 @@
 // v2 is the default since 2026-07; an explicit operator choice of 'v1' is
 // remembered and survives updates (sanitize treats only literal 'v1' as v1).
 
-export type UiShellVersion = 'v1' | 'v2';
+export type UiShellVersion = 'v1' | 'v2' | 'v3';
 
 export type V2ColumnId = 'buttons' | 'lists' | 'workspace';
 
@@ -47,9 +47,26 @@ export type V2Prefs = {
   session: V2Session;
 };
 
+/**
+ * V3 shell («Вкладки»): одно окно с панелью вкладок. Две закреплённые вкладки —
+ * «РАЗДЕЛЫ» (крайняя слева, ¼ ширины в сплите) и «Список …» (¾ справа); карточки
+ * открываются собственными вкладками на весь экран. Кнопочная раскладка меню
+ * переиспользуется из v2 (buttonLayout) — операторская настройка общая.
+ */
+export type V3Session = {
+  openCards: V2SessionCard[];
+  /** Активная вкладка: 'sections' | 'list' | `${kind}:${entityId}` карточки. */
+  activeKey: string;
+};
+
+export type V3Prefs = {
+  session: V3Session;
+};
+
 export type UiShellPrefs = {
   shellVersion: UiShellVersion;
   v2: V2Prefs;
+  v3: V3Prefs;
 };
 
 export const V2_COLUMN_IDS: readonly V2ColumnId[] = ['buttons', 'lists', 'workspace'];
@@ -69,9 +86,33 @@ export const DEFAULT_V2_PREFS: V2Prefs = {
 
 export const V2_SESSION_MAX_CARDS = 3;
 
+/** V3: всего вкладок ≤ 10 (2 закреплённые + карточки) → карточек не больше 8. */
+export const V3_PINNED_TABS = 2;
+export const V3_MAX_TOTAL_TABS = 10;
+export const V3_MAX_CARD_TABS = V3_MAX_TOTAL_TABS - V3_PINNED_TABS;
+/** Красное предупреждение «вкладок многовато», когда всего открыто больше 5. */
+export const V3_WARN_TOTAL_TABS = 5;
+
+export function v3TotalTabs(cardCount: number): number {
+  return V3_PINNED_TABS + Math.max(0, cardCount);
+}
+
+export function v3CanOpenCard(cardCount: number): boolean {
+  return cardCount < V3_MAX_CARD_TABS;
+}
+
+export function v3ShowTabsWarning(cardCount: number): boolean {
+  return v3TotalTabs(cardCount) > V3_WARN_TOTAL_TABS;
+}
+
+export const DEFAULT_V3_PREFS: V3Prefs = {
+  session: { openCards: [], activeKey: 'sections' },
+};
+
 export const DEFAULT_UI_SHELL_PREFS: UiShellPrefs = {
   shellVersion: 'v2',
   v2: DEFAULT_V2_PREFS,
+  v3: DEFAULT_V3_PREFS,
 };
 
 function isColumnId(value: unknown): value is V2ColumnId {
@@ -141,11 +182,28 @@ export function sanitizeV2Prefs(value: unknown): V2Prefs {
   };
 }
 
+export function sanitizeV3Prefs(value: unknown): V3Prefs {
+  if (!value || typeof value !== 'object') return structuredClone(DEFAULT_V3_PREFS);
+  const raw = value as Partial<V3Prefs>;
+  const rawSession = raw.session && typeof raw.session === 'object' ? (raw.session as Partial<V3Session>) : {};
+  const openCards = (Array.isArray(rawSession.openCards) ? rawSession.openCards : [])
+    .map(sanitizeSessionCard)
+    .filter((c): c is V2SessionCard => c !== null)
+    .slice(0, V3_MAX_CARD_TABS);
+  const rawActive = typeof rawSession.activeKey === 'string' ? rawSession.activeKey.trim() : '';
+  const activeKey =
+    rawActive === 'sections' || rawActive === 'list' || openCards.some((c) => `${c.kind}:${c.entityId}` === rawActive)
+      ? rawActive
+      : 'sections';
+  return { session: { openCards, activeKey } };
+}
+
 export function sanitizeUiShellPrefs(value: unknown): UiShellPrefs {
   if (!value || typeof value !== 'object') return structuredClone(DEFAULT_UI_SHELL_PREFS);
   const raw = value as Partial<UiShellPrefs>;
   return {
-    shellVersion: raw.shellVersion === 'v1' ? 'v1' : 'v2',
+    shellVersion: raw.shellVersion === 'v1' ? 'v1' : raw.shellVersion === 'v3' ? 'v3' : 'v2',
     v2: sanitizeV2Prefs(raw.v2),
+    v3: sanitizeV3Prefs(raw.v3),
   };
 }
