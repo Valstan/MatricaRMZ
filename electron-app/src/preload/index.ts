@@ -769,6 +769,8 @@ const matricaApi = {
     uiGet: async (args?: { userId?: string }) => ipcRenderer.invoke('ui:prefs:get', args),
     uiSet: async (args: {
       theme?: string;
+      decor?: string;
+      palette?: string;
       chatSide?: string;
       enterAsTab?: boolean;
       userId?: string;
