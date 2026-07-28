@@ -10,30 +10,24 @@ import {
   v3TotalTabs,
 } from './uiShellV2.js';
 
-describe('sanitizeUiShellPrefs — дефолт «Резиновый» (v2), явный откат на v1 запоминается', () => {
-  it('нет сохранённой записи → v2', () => {
-    expect(sanitizeUiShellPrefs(null).shellVersion).toBe('v2');
-    expect(sanitizeUiShellPrefs(undefined).shellVersion).toBe('v2');
+describe('sanitizeUiShellPrefs — v3 «Вкладки» единственная оболочка (этап 6)', () => {
+  it('нет сохранённой записи → v3', () => {
+    expect(sanitizeUiShellPrefs(null).shellVersion).toBe('v3');
+    expect(sanitizeUiShellPrefs(undefined).shellVersion).toBe('v3');
   });
 
-  it('DEFAULT_UI_SHELL_PREFS — v2', () => {
-    expect(DEFAULT_UI_SHELL_PREFS.shellVersion).toBe('v2');
+  it('DEFAULT_UI_SHELL_PREFS — v3', () => {
+    expect(DEFAULT_UI_SHELL_PREFS.shellVersion).toBe('v3');
   });
 
-  it('явный выбор v1 (возврат на старый интерфейс) сохраняется', () => {
-    expect(sanitizeUiShellPrefs({ shellVersion: 'v1' }).shellVersion).toBe('v1');
+  it('легаси-выборы v1/v2 и мусор → v3 (старые оболочки снесены)', () => {
+    expect(sanitizeUiShellPrefs({ shellVersion: 'v1' }).shellVersion).toBe('v3');
+    expect(sanitizeUiShellPrefs({ shellVersion: 'v2' }).shellVersion).toBe('v3');
+    expect(sanitizeUiShellPrefs({}).shellVersion).toBe('v3');
+    expect(sanitizeUiShellPrefs({ shellVersion: 'garbage' }).shellVersion).toBe('v3');
   });
 
-  it('явный выбор v2 сохраняется', () => {
-    expect(sanitizeUiShellPrefs({ shellVersion: 'v2' }).shellVersion).toBe('v2');
-  });
-
-  it('блоб без поля / с мусором → v2 (только литеральный v1 читается как v1)', () => {
-    expect(sanitizeUiShellPrefs({}).shellVersion).toBe('v2');
-    expect(sanitizeUiShellPrefs({ shellVersion: 'garbage' }).shellVersion).toBe('v2');
-  });
-
-  it('v2-настройки (layout/session) переживают sanitize вместе с выбором оболочки', () => {
+  it('v2-настройки (layout/session) переживают sanitize — v3 живёт на них', () => {
     const prefs = sanitizeUiShellPrefs({
       shellVersion: 'v1',
       v2: {
@@ -41,16 +35,16 @@ describe('sanitizeUiShellPrefs — дефолт «Резиновый» (v2), я�
         session: { openCards: [{ kind: 'engine', entityId: 'x', title: 't' }], focusedKey: 'engine:x', secondary: null },
       },
     });
-    expect(prefs.shellVersion).toBe('v1');
+    expect(prefs.shellVersion).toBe('v3');
     expect(prefs.v2.columnOrder).toEqual(['lists', 'workspace', 'buttons']);
     expect(prefs.v2.session.openCards).toHaveLength(1);
   });
 });
 
 describe('v3 «Вкладки»: sanitize + лимиты вкладок', () => {
-  it('явный выбор v3 сохраняется; мусор по-прежнему → v2', () => {
+  it('любое значение shellVersion → v3', () => {
     expect(sanitizeUiShellPrefs({ shellVersion: 'v3' }).shellVersion).toBe('v3');
-    expect(sanitizeUiShellPrefs({ shellVersion: 'v4' }).shellVersion).toBe('v2');
+    expect(sanitizeUiShellPrefs({ shellVersion: 'v4' }).shellVersion).toBe('v3');
   });
 
   it('дефолт v3: без карточек, активна вкладка «РАЗДЕЛЫ»', () => {

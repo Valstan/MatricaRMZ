@@ -13,7 +13,6 @@ import type {
   UiDisplayPrefs,
   UiShellPrefs,
   V2Session,
-  UiShellVersion,
   V2Prefs,
   V3Prefs,
   ReleaseWelcomeContent,
@@ -74,7 +73,6 @@ import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
-import { V2Shell } from './shellV2/V2Shell.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
 import { V3TabShell } from './shellV3/V3TabShell.js';
 
@@ -772,8 +770,10 @@ export function App() {
 
   // v3 «Вкладки» — надстройка над механикой v2 (openCards/списки/session): все v2-гейты
   // работают и в v3, различается только рендер оболочки (V3TabShell vs V2Shell).
-  const isV3 = authStatus.loggedIn && shellPrefs?.shellVersion === 'v3';
-  const isV2 = authStatus.loggedIn && (shellPrefs?.shellVersion === 'v2' || shellPrefs?.shellVersion === 'v3');
+  // v3 «Вкладки» — единственная оболочка (этап 6, 2026-07-28): v1/v2 снесены,
+  // до логина рендерится минимальный каркас (экран входа).
+  const isV3 = authStatus.loggedIn;
+  const isV2 = isV3;
 
   function clearCardCloseTimer() {
     if (cardCloseTimerRef.current == null) return;
@@ -2243,19 +2243,6 @@ export function App() {
     const userId = authStatus.user?.id;
     if (!userId) return;
     await window.matrica.settings.uiSet({ userId, shellPrefs: next }).catch(() => {});
-  }
-
-  function switchShellVersion(version: UiShellVersion) {
-    // Split-панель осмысленна только в v2 — при уходе в v1 закрываем её (без dirty-guard:
-    // это осознанное переключение оболочки; primary-карточка остаётся под своим guard'ом).
-    if (version === 'v1' && v2SecondaryCard) {
-      secondaryCloseRef.current = null;
-      setV2SecondaryCard(null);
-      setSecondaryEngineDetails(null);
-      setSecondaryEngineLoading(false);
-    }
-    const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
-    void persistShellPrefs({ ...base, shellVersion: version });
   }
 
   function updateV2Prefs(nextV2: V2Prefs) {
@@ -5186,34 +5173,6 @@ export function App() {
               </option>
             ))}
           </select>
-          {/* Переключатель интерфейсов — всегда на виду в шапке (после входа), в обеих
-              оболочках. Дефолт — «Резиновый» (v2); возврат на старый в один клик,
-              выбор запоминается per-user и переживает обновления. */}
-          {authStatus.loggedIn && (
-            <Button
-              size="sm"
-              variant={isV2 ? 'primary' : 'ghost'}
-              onClick={() => switchShellVersion(isV2 ? 'v1' : 'v2')}
-              title={isV2 ? 'Вернуться к старому интерфейсу' : 'Включить интерфейс «Резиновый»'}
-              aria-label={isV2 ? 'Старый интерфейс' : 'Интерфейс «Резиновый»'}
-            >
-              {isV2 ? '↩️' : '🧩'}
-              <span data-hdr-label="4">{isV2 ? ' Старый интерфейс' : ' Интерфейс «Резиновый»'}</span>
-            </Button>
-          )}
-          {/* V3 «Вкладки» (бета): вход только явным кликом, дефолт остаётся v2. */}
-          {authStatus.loggedIn && isV2 && (
-            <Button
-              size="sm"
-              variant={isV3 ? 'primary' : 'ghost'}
-              onClick={() => switchShellVersion(isV3 ? 'v2' : 'v3')}
-              title={isV3 ? 'Вернуться к «Резиновому»' : 'Включить интерфейс «Вкладки» (бета)'}
-              aria-label={isV3 ? 'Интерфейс «Резиновый»' : 'Интерфейс «Вкладки» (бета)'}
-            >
-              {isV3 ? '🧩' : '🗂'}
-              <span data-hdr-label="5">{isV3 ? ' «Резиновый»' : ' «Вкладки» (бета)'}</span>
-            </Button>
-          )}
           {authStatus.loggedIn && (
             <Button variant="ghost" onClick={() => setGlobalSearchOpen(true)} title="Глобальный поиск (Ctrl+K)">
               🔍<span data-hdr-label="6"> Поиск</span>
@@ -5387,11 +5346,6 @@ export function App() {
             onClose={() => setAccountMenuPos(null)}
             items={[
               { id: 'settings', label: '⚙️ Настройки', onClick: () => setTab('settings') },
-              {
-                id: 'shell',
-                label: isV2 ? '🧩 Старый интерфейс' : '🧩 Интерфейс «Резиновый»',
-                onClick: () => switchShellVersion(isV2 ? 'v1' : 'v2'),
-              },
               { id: 'switch', label: '👥 Смена аккаунта', onClick: () => setAccountSwitchOpen(true) },
               {
                 id: 'logout',
@@ -5500,7 +5454,6 @@ export function App() {
               activeListTab={v2ActiveListTab}
               onMenuTab={handleMenuTab}
               renderTabContent={renderTabContent}
-              onSwitchToV2={() => switchShellVersion('v2')}
               openCards={v2OpenCards}
               focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
               onFocusCard={focusV2Card}
@@ -5519,29 +5472,8 @@ export function App() {
               comparePct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.comparePct}
               onComparePctChange={(pct) => updateV3Pcts({ comparePct: pct })}
             />
-          ) : isV2 ? (
-            <V2Shell
-              prefs={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2}
-              onPrefsChange={updateV2Prefs}
-              availableTabs={sectionGatedTabs}
-              tabletOperatorMenu={tabletActive && userRole !== 'superadmin'}
-              menuLabels={menuLabels}
-              tab={tab}
-              activeListTab={v2ActiveListTab}
-              onMenuTab={handleMenuTab}
-              onCloseListColumn={() => setV2ActiveListTab(null)}
-              renderTabContent={renderTabContent}
-              onSwitchToV1={() => switchShellVersion('v1')}
-              openCards={v2OpenCards}
-              focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
-              onFocusCard={focusV2Card}
-              onCloseCard={closeV2Card}
-              secondaryCard={v2SecondaryCard}
-              renderSecondaryCard={renderSecondaryCard}
-              onSplitCard={openSecondaryCard}
-              onCloseSecondary={closeSecondaryCard}
-            />
           ) : (
+            /* До логина — минимальный каркас: полоса вкладок v1 и экран входа. */
             <>
           <div style={{ flex: '0 0 auto' }}>
             <Tabs

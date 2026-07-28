@@ -35,7 +35,6 @@ export function V3TabShell(props: {
   activeListTab: TabId | null;
   onMenuTab: (t: MenuTabId) => void;
   renderTabContent: (t: TabId) => React.ReactNode;
-  onSwitchToV2: () => void;
   openCards: Array<{ kind: TabId; entityId: string; title: string }>;
   focusedCardKey: string | null;
   onFocusCard: (card: { kind: TabId; entityId: string }) => void;
@@ -221,10 +220,7 @@ export function V3TabShell(props: {
                 activeMenuTab={activeMenuTab}
                 listOpenTab={listOpenTab}
                 collapsed={false}
-                overlayPinned={false}
-                onToggleOverlayPinned={() => {}}
                 onTab={props.onMenuTab}
-                onSwitchToV1={props.onSwitchToV2}
               />
             </div>
           </Panel>

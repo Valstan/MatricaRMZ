@@ -1,7 +1,7 @@
-// V2 UI shell («Резиновый»): per-user prefs for the 3-column layout.
-// Persisted client-side (sysDb KV, keyed by userId) via ui:prefs:get/set.
-// v2 is the default since 2026-07; an explicit operator choice of 'v1' is
-// remembered and survives updates (sanitize treats only literal 'v1' as v1).
+// UI shell prefs, persisted client-side (sysDb KV, keyed by userId) via ui:prefs:get/set.
+// v3 «Вкладки» is the ONLY shell since 2026-07-28 (этап 6): v1/v2 renderers removed,
+// sanitize maps any stored shellVersion to 'v3'. V2Prefs live on — v3 reuses the
+// button layout and workspace session (open cards / focus / secondary).
 
 export type UiShellVersion = 'v1' | 'v2' | 'v3';
 
@@ -121,7 +121,7 @@ function sanitizePct(value: unknown, fallback: number): number {
 }
 
 export const DEFAULT_UI_SHELL_PREFS: UiShellPrefs = {
-  shellVersion: 'v2',
+  shellVersion: 'v3',
   v2: DEFAULT_V2_PREFS,
   v3: DEFAULT_V3_PREFS,
 };
@@ -217,7 +217,7 @@ export function sanitizeUiShellPrefs(value: unknown): UiShellPrefs {
   if (!value || typeof value !== 'object') return structuredClone(DEFAULT_UI_SHELL_PREFS);
   const raw = value as Partial<UiShellPrefs>;
   return {
-    shellVersion: raw.shellVersion === 'v1' ? 'v1' : raw.shellVersion === 'v3' ? 'v3' : 'v2',
+    shellVersion: 'v3',
     v2: sanitizeV2Prefs(raw.v2),
     v3: sanitizeV3Prefs(raw.v3),
   };
