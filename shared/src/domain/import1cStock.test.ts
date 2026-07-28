@@ -7,6 +7,8 @@ import {
   match1cNomenclature,
   parse1cNumber,
   parse1cStockReport,
+  classify1cGroup,
+  resolve1cUnit,
   revise1cAgainstBalances,
 } from './import1cStock.js';
 
@@ -197,5 +199,37 @@ describe('match1cNomenclature — ярусы артикул → имя → им�
     const r = match1cNomenclature([item('303-12', 'Кольцо')], noms);
     expect(r.matched).toHaveLength(1);
     expect(r.matched[0]!.nom.id).toBe('n2');
+  });
+});
+
+describe('resolve1cUnit / classify1cGroup — подсказки для заводимой номенклатуры', () => {
+  it('единицы 1С маппятся на справочник программы', () => {
+    expect(resolve1cUnit('пар')).toBe('пара');
+    expect(resolve1cUnit('компл')).toBe('комплект');
+    expect(resolve1cUnit('пог. м')).toBe('м');
+    expect(resolve1cUnit('упак')).toBe('пачка');
+    expect(resolve1cUnit('шт')).toBe('шт');
+    expect(resolve1cUnit('неведомое')).toBe('неведомое');
+  });
+
+  it('классификатор раскладывает по тематическим группам (реальные имена из файла)', () => {
+    expect(classify1cGroup('180202 (6202 2RS) подшипник SKF')).toBe('Подшипники');
+    expect(classify1cGroup('2.2-10*22*8 Арм.манжета')).toBe('РТИ и уплотнения');
+    expect(classify1cGroup('Болт 12*40')).toBe('Крепёжные изделия');
+    expect(classify1cGroup('Сверло 8,5 к/х')).toBe('Инструмент и оснастка');
+    expect(classify1cGroup('KU 1010 Эмаль универсальная голубая 520мл.')).toBe('Закупка · Расходные материалы');
+    expect(classify1cGroup('Лист ДПРНМ 2,00*600*1500 М1')).toBe('Закупка · Материалы и сырьё');
+    expect(classify1cGroup('Генератор Г- 6,5С')).toBe('Электрооборудование и КИП');
+    expect(classify1cGroup('Вкладыш коренной 301-82/83-5Р1')).toBe('Запасные части');
+  });
+
+  it('порядок правил: щётка стартера — электрооборудование, щётка по металлу — инструмент', () => {
+    expect(classify1cGroup('Щетка стартера СТ-103')).toBe('Электрооборудование и КИП');
+    expect(classify1cGroup('Щетка по металлу 5-рядная')).toBe('Инструмент и оснастка');
+  });
+
+  it('непонятное имя — без группы', () => {
+    expect(classify1cGroup('Азелит')).toBeNull();
+    expect(classify1cGroup('3335-38')).toBeNull();
   });
 });

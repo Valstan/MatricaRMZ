@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   STOCK_1C_IMPORT_SOURCE,
   canonical1cNomenclature,
+  classify1cGroup,
   match1cNomenclature,
   normalizeLookupCompact,
   parse1cStockReport,
+  resolve1cUnit,
   revise1cAgainstBalances,
   type Stock1cReport,
   type Stock1cSnapshotEntry,
@@ -37,12 +39,16 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
   const [prevLoading, setPrevLoading] = useState(false);
   const [balances, setBalances] = useState<Stock1cSnapshotEntry[] | null>(null);
   const [units, setUnits] = useState<Array<{ id: string; label: string }>>([]);
+  const [groups, setGroups] = useState<Array<{ id: string; label: string }>>([]);
   const [createMissing, setCreateMissing] = useState(true);
 
   const api = window.matrica as unknown as {
     warehouseLocations: { list: (a?: { activeOnly?: boolean }) => Promise<unknown> };
     warehouse: {
-      lookupsGet: () => Promise<{ ok?: boolean; lookups?: { units?: Array<{ id: string; label: string }> } }>;
+      lookupsGet: () => Promise<{
+        ok?: boolean;
+        lookups?: { units?: Array<{ id: string; label: string }>; nomenclatureGroups?: Array<{ id: string; label: string }> };
+      }>;
       nomenclatureList: (a?: Record<string, unknown>) => Promise<unknown>;
       nomenclatureUpsert: (a: Record<string, unknown>) => Promise<{ ok: boolean; id?: string; error?: string }>;
       stockList: (a?: Record<string, unknown>) => Promise<unknown>;
@@ -82,7 +88,10 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
         setNoms(all.filter((n) => n.id));
 
         const lk = await api.warehouse.lookupsGet();
-        if (alive && lk?.ok) setUnits(lk.lookups?.units ?? []);
+        if (alive && lk?.ok) {
+          setUnits(lk.lookups?.units ?? []);
+          setGroups(lk.lookups?.nomenclatureGroups ?? []);
+        }
       } catch (e) {
         if (alive) setError(`Не удалось загрузить справочники: ${String(e)}`);
       }
@@ -180,14 +189,14 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     const block = report.warehouses[blockIdx];
     if (!block) return null;
     const { matched, unmatched, ambiguous } = match1cNomenclature(block.items, noms);
-    const toCreateBy = new Map<string, { article: string; name: string; unit: string; qty: number }>();
+    const toCreateBy = new Map<string, { article: string; name: string; unit: string; qty: number; group: string | null }>();
     for (const item of unmatched) {
       const c = canonical1cNomenclature(item.article, item.name);
       const key = normalizeLookupCompact(c.article) || normalizeLookupCompact(c.name);
       if (!key) continue;
       const prev = toCreateBy.get(key);
       if (prev) prev.qty += item.qty;
-      else toCreateBy.set(key, { article: c.article, name: c.name, unit: item.unit, qty: item.qty });
+      else toCreateBy.set(key, { article: c.article, name: c.name, unit: item.unit, qty: item.qty, group: classify1cGroup(item.name) });
     }
     const toCreate = [...toCreateBy.values()];
     // Ревизия против текущего остатка склада; прошлый снапшот — только для обнуления
@@ -207,14 +216,17 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
       const createdEntries: Stock1cSnapshotEntry[] = [];
       if (createMissing && matching.toCreate.length > 0) {
         const unitByKey = new Map(units.map((u) => [normalizeLookupCompact(u.label), u.id]));
+        const groupByKey = new Map(groups.map((g) => [normalizeLookupCompact(g.label), g.id]));
         let done = 0;
         for (const c of matching.toCreate) {
           setBusy(`Заводим номенклатуру... ${++done} из ${matching.toCreate.length}`);
-          const unitId = unitByKey.get(normalizeLookupCompact(c.unit));
+          const unitId = unitByKey.get(normalizeLookupCompact(resolve1cUnit(c.unit)));
+          const groupId = c.group ? groupByKey.get(normalizeLookupCompact(c.group)) : undefined;
           const r = await api.warehouse.nomenclatureUpsert({
             code: c.article,
             name: c.name,
             ...(unitId ? { unitId } : {}),
+            ...(groupId ? { groupId } : {}),
             isActive: true,
           });
           if (!r.ok || !r.id) {
@@ -361,6 +373,7 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
                   {matching.toCreate.slice(0, 700).map((x, i) => (
                     <div key={i}>
                       {x.name}{x.article ? ` — арт. ${x.article}` : ''} — {x.qty} {x.unit}
+                      {x.group ? <span style={{ color: '#0369a1' }}> → {x.group}</span> : <span> → без группы</span>}
                     </div>
                   ))}
                 </div>
