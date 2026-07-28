@@ -6,9 +6,9 @@
 import { SyncTableName } from '@matricarmz/shared';
 import type { LedgerTableName } from '@matricarmz/ledger';
 
-import { recordLedgerAuthzDenial } from '../authzDenialLog.js';
+import { recordLedgerAuthzDenial, recordLedgerReferenceDenial } from '../authzDenialLog.js';
 import { partitionLedgerInputsByAuthz } from './ledgerAuthzGuard.js';
-import { enforceEntityReferenceIntegrity } from './entityReferenceGuard.js';
+import { partitionByReferenceIntegrity } from './entityReferenceGuard.js';
 import { enforceWorkOrderNumberImmutability, reportWorkOrderNumberHeals } from './workOrderNumberGuard.js';
 import { writeSyncChanges, type SyncWriteInput, type SyncWriteActor } from './syncWriteService.js';
 
@@ -59,9 +59,18 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
   // иначе ledger и PG разъедутся, и replay вернул бы неправильный номер.
   const numberHeals = await enforceWorkOrderNumberImmutability(allowed, writeActor);
   reportWorkOrderNumberHeals(writeActor, numberHeals);
-  if (actor.username !== 'ledger-replay') await enforceEntityReferenceIntegrity(allowed);
+  // Ссылочная целостность — тоже per-row (не throw): одна невалидная ссылка не
+  // должна блокировать push всей машины (инцидент Я01АТ7829, см. entityReferenceGuard).
+  let writable = allowed;
+  let referenceDenied: typeof denied = [];
+  if (actor.username !== 'ledger-replay') {
+    const partition = await partitionByReferenceIntegrity(allowed);
+    writable = partition.allowed;
+    referenceDenied = partition.denied;
+    if (referenceDenied.length > 0) recordLedgerReferenceDenial(writeActor, referenceDenied);
+  }
 
-  const result = await writeSyncChanges(allowed, writeActor);
+  const result = await writeSyncChanges(writable, writeActor);
 
   return {
     dbApplied: result.dbApplied,
@@ -74,6 +83,6 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
       op: r.op,
     })),
     idRemaps: result.idRemaps,
-    skipped: denied.length > 0 ? [...result.skipped, ...denied] : result.skipped,
+    skipped: [...result.skipped, ...denied, ...referenceDenied],
   };
 }

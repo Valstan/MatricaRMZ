@@ -15,11 +15,14 @@ import {
   attributeValues,
   defectConductedVersions,
   directoryParts,
+  directoryWorkshops,
   entities,
   entityTypes,
   erpNomenclature,
   operations,
 } from '../../database/schema.js';
+import { logWarn } from '../../utils/logger.js';
+import type { SyncSkippedRow } from './applyPushBatch.js';
 import type { SyncWriteInput } from './syncWriteService.js';
 
 function parsePayload(raw: unknown): Record<string, unknown> | null {
@@ -82,12 +85,16 @@ function changedDefectOrigins(
   return result;
 }
 
-async function validateDefectOrigins(origins: DefectOriginCandidate[]): Promise<void> {
-  if (origins.length === 0) return;
+/** Ошибки defect-origin для ОДНОГО input'а (не роняют батч — см. partition ниже). */
+async function collectDefectOriginIssues(origins: DefectOriginCandidate[]): Promise<string[]> {
+  if (origins.length === 0) return [];
+  const issues: string[] = [];
   const malformed = origins.find(
     (origin) => !origin.engineId || !origin.conductedVersionId || origin.sourceLineIds.length === 0,
   );
-  if (malformed) throw new Error(`invalid_defect_origin: ${malformed.path}: обязательны engineId, conductedVersionId и sourceLineIds`);
+  if (malformed) {
+    return [`invalid_defect_origin: ${malformed.path}: обязательны engineId, conductedVersionId и sourceLineIds`];
+  }
 
   const versionIds = [...new Set(origins.map((origin) => origin.conductedVersionId))];
   const rows = await db
@@ -102,12 +109,17 @@ async function validateDefectOrigins(origins: DefectOriginCandidate[]): Promise<
   const byId = new Map(rows.map((row) => [String(row.id), row]));
   for (const origin of origins) {
     const version = byId.get(origin.conductedVersionId);
-    if (!version) throw new Error(`invalid_defect_origin: ${origin.path}.conductedVersionId: версия дефектовки не найдена`);
+    if (!version) {
+      issues.push(`invalid_defect_origin: ${origin.path}.conductedVersionId: версия дефектовки не найдена`);
+      continue;
+    }
     if (String(version.engineId) !== origin.engineId) {
-      throw new Error(`invalid_defect_origin: ${origin.path}.engineId: двигатель не соответствует версии дефектовки`);
+      issues.push(`invalid_defect_origin: ${origin.path}.engineId: двигатель не соответствует версии дефектовки`);
+      continue;
     }
     if (String(version.status) !== 'active') {
-      throw new Error(`invalid_defect_origin: ${origin.path}.conductedVersionId: версия дефектовки уже заменена`);
+      issues.push(`invalid_defect_origin: ${origin.path}.conductedVersionId: версия дефектовки уже заменена`);
+      continue;
     }
     const snapshot = parsePayload(version.snapshotJson);
     const lines = Array.isArray(snapshot?.lines) ? snapshot.lines : [];
@@ -118,12 +130,82 @@ async function validateDefectOrigins(origins: DefectOriginCandidate[]): Promise<
     );
     const missingSource = origin.sourceLineIds.find((sourceLineId) => !sourceIds.has(sourceLineId));
     if (missingSource) {
-      throw new Error(`invalid_defect_origin: ${origin.path}.sourceLineIds: строка ${missingSource} отсутствует в проведённой версии`);
+      issues.push(`invalid_defect_origin: ${origin.path}.sourceLineIds: строка ${missingSource} отсутствует в проведённой версии`);
     }
   }
+  return issues;
 }
 
-export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]): Promise<void> {
+const CATALOG_TYPES = new Set<EntityReferenceTarget>(['part', 'nomenclature', 'product', 'service']);
+
+type ReferenceResolver = {
+  /** true, если ссылка (id, expectedType) валидна. */
+  ok(id: string, expectedType: EntityReferenceTarget | ''): boolean;
+  reason(id: string, expectedType: EntityReferenceTarget | ''): 'not_found' | 'wrong_type';
+};
+
+/**
+ * Единый резолвер ссылок батча. Каталожные типы (деталь/номенклатура/изделие/услуга)
+ * живут в erp_nomenclature / directory_parts, а НЕ только в entities (регресс #319).
+ * ЦЕХ мигрировал из EAV в directory_workshops ЦЕЛИКОМ (в entities цехов 0) — резолв
+ * только по entities давал ложный not_found и заваливал весь push машины (инцидент
+ * Я01АТ7829: одна ссылка на «Цех №1» заперла двигатель, его атрибуты и наряды).
+ */
+async function buildReferenceResolver(ids: string[]): Promise<ReferenceResolver> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) {
+    return { ok: () => true, reason: () => 'not_found' };
+  }
+  const [entityRows, nomenRows, partRows, workshopRows] = await Promise.all([
+    db
+      .select({ id: entities.id, typeCode: entityTypes.code })
+      .from(entities)
+      .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+      .where(and(inArray(entities.id, unique), isNull(entities.deletedAt), isNull(entityTypes.deletedAt))),
+    db.select({ id: erpNomenclature.id }).from(erpNomenclature).where(and(inArray(erpNomenclature.id, unique), isNull(erpNomenclature.deletedAt))),
+    db.select({ id: directoryParts.id }).from(directoryParts).where(and(inArray(directoryParts.id, unique), isNull(directoryParts.deletedAt))),
+    db.select({ id: directoryWorkshops.id }).from(directoryWorkshops).where(and(inArray(directoryWorkshops.id, unique), isNull(directoryWorkshops.deletedAt))),
+  ]);
+  const typeById = new Map(entityRows.map((row) => [String(row.id), String(row.typeCode)]));
+  const catalogIds = new Set<string>([...nomenRows, ...partRows].map((r) => String(r.id)));
+  for (const entry of entityRows) {
+    if (CATALOG_TYPES.has(String(entry.typeCode) as EntityReferenceTarget)) catalogIds.add(String(entry.id));
+  }
+  const workshopIds = new Set<string>(workshopRows.map((r) => String(r.id)));
+
+  const ok = (id: string, expectedType: EntityReferenceTarget | ''): boolean => {
+    if (!expectedType) return typeById.has(id) || catalogIds.has(id) || workshopIds.has(id);
+    if (CATALOG_TYPES.has(expectedType)) return catalogIds.has(id);
+    if (expectedType === 'workshop') return workshopIds.has(id) || typeById.get(id) === 'workshop';
+    return typeById.get(id) === expectedType;
+  };
+  const reason = (id: string, _expectedType: EntityReferenceTarget | ''): 'not_found' | 'wrong_type' =>
+    typeById.has(id) || catalogIds.has(id) || workshopIds.has(id) ? 'wrong_type' : 'not_found';
+  return { ok, reason };
+}
+
+function issueReason(issue: InvalidReferenceIssue): string {
+  return `invalid_reference: ${JSON.stringify([issue])}`;
+}
+
+/**
+ * Ссылочная целостность ledger-батча (per-row).
+ *
+ * Раньше любая невалидная ссылка кидала throw и валила ВЕСЬ submit (HTTP 400):
+ * одна отравленная строка в очереди клиента навсегда блокировала push всей машины —
+ * ни одна другая запись (включая совершенно чужие ей сущности) не доезжала до
+ * сервера, а оператор ничего не видел. Теперь провинившаяся строка уходит в
+ * denied (как в authz-гейте), остальной батч живёт. Клиент держит denied-строки
+ * pending и ретраит — если ссылка дозреет (сущность доедет позже), строка уедет сама.
+ */
+export async function partitionByReferenceIntegrity(
+  inputs: SyncWriteInput[],
+): Promise<{ allowed: SyncWriteInput[]; denied: SyncSkippedRow[] }> {
+  const deniedByInput = new Map<SyncWriteInput, string>();
+  const deny = (input: SyncWriteInput, reason: string) => {
+    if (!deniedByInput.has(input)) deniedByInput.set(input, reason);
+  };
+
   const workOrderCandidates = inputs.filter((input) => {
     const row = input.row as Record<string, unknown> | undefined;
     return input.table === SyncTableName.Operations && row && String(row.operation_type ?? '') === 'work_order';
@@ -133,11 +215,15 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
     return input.table === SyncTableName.Operations && row && String(row.operation_type ?? '') === 'supply_request';
   });
   const attributeValueCandidates = inputs.filter((input) => input.table === SyncTableName.AttributeValues && input.row);
-  if (workOrderCandidates.length === 0 && supplyRequestCandidates.length === 0 && attributeValueCandidates.length === 0) return;
+  if (workOrderCandidates.length === 0 && supplyRequestCandidates.length === 0 && attributeValueCandidates.length === 0) {
+    return { allowed: inputs, denied: [] };
+  }
 
-  const issues: InvalidReferenceIssue[] = [];
-  const changedReferences: ReturnType<typeof collectWorkOrderEntityReferences> = [];
-  const defectOrigins: DefectOriginCandidate[] = [];
+  type ChangedReference = { input: SyncWriteInput; path: string; expectedType: EntityReferenceTarget; referenceId: string };
+  const changedReferences: ChangedReference[] = [];
+  // Отложенная инвалидация shortage-approvals: только для строк, которые в итоге прошли.
+  const shortageInvalidation: string[] = [];
+
   for (const input of workOrderCandidates) {
     const row = input.row as Record<string, unknown>;
     const rowId = String(row.id ?? input.row_id ?? '');
@@ -149,43 +235,47 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
     const previous = parsePayload(storedRows[0]?.metaJson);
     if (previous) {
       const changedServerField = SERVER_MANAGED_WORK_ORDER_FIELDS.find((field) => !sameJsonValue(incoming[field], previous[field]));
-      if (changedServerField) throw new Error(`server_managed_field: ${changedServerField}`);
+      if (changedServerField) {
+        deny(input, `server_managed_field: ${changedServerField}`);
+        continue;
+      }
       if (previous.repairIssued === true && !sameJsonValue(incoming.assemblyMaterialHash, previous.assemblyMaterialHash)) {
-        throw new Error('server_managed_field: assemblyMaterialHash');
+        deny(input, 'server_managed_field: assemblyMaterialHash');
+        continue;
       }
       if (!sameJsonValue(incoming.assemblyMaterialHash, previous.assemblyMaterialHash)) {
-        await db
-          .update(assemblyShortageApprovals)
-          .set({ status: 'invalidated', invalidatedAt: Date.now() })
-          .where(
-            and(
-              eq(assemblyShortageApprovals.operationId, rowId),
-              inArray(assemblyShortageApprovals.status, ['requested', 'approved']),
-            ),
-          );
+        shortageInvalidation.push(rowId);
       }
     }
-    issues.push(...collectWorkOrderUnresolvedTextIssues(incoming, previous));
-    defectOrigins.push(
-      ...changedDefectOrigins(
+    const textIssues = collectWorkOrderUnresolvedTextIssues(incoming, previous);
+    if (textIssues.length > 0) {
+      deny(input, issueReason(textIssues[0]!));
+      continue;
+    }
+    const originIssues = await collectDefectOriginIssues(
+      changedDefectOrigins(
         Array.isArray(incoming.freeWorks) ? incoming.freeWorks : [],
         Array.isArray(previous?.freeWorks) ? previous.freeWorks : [],
         'freeWorks',
       ),
     );
+    if (originIssues.length > 0) {
+      deny(input, originIssues[0]!);
+      continue;
+    }
     const previousByPath = new Map(
       collectWorkOrderEntityReferences(previous ?? {}).map((reference) => [reference.path, reference]),
     );
     for (const reference of collectWorkOrderEntityReferences(incoming)) {
       const before = previousByPath.get(reference.path);
       if (!before || before.referenceId !== reference.referenceId || before.expectedType !== reference.expectedType) {
-        changedReferences.push(reference);
+        changedReferences.push({ input, ...reference });
       }
     }
   }
 
-
   for (const input of supplyRequestCandidates) {
+    if (deniedByInput.has(input)) continue;
     const row = input.row as Record<string, unknown>;
     const rowId = String(row.id ?? input.row_id ?? '');
     const incoming = parsePayload(row.meta_json);
@@ -197,8 +287,12 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
 
     const incomingItems = Array.isArray(incoming.items) ? incoming.items : [];
     const previousItems = Array.isArray(previous?.items) ? previous.items : [];
-    defectOrigins.push(...changedDefectOrigins(incomingItems, previousItems, 'items'));
-    const changedProductIds: Array<{ path: string; id: string }> = [];
+    const originIssues = await collectDefectOriginIssues(changedDefectOrigins(incomingItems, previousItems, 'items'));
+    if (originIssues.length > 0) {
+      deny(input, originIssues[0]!);
+      continue;
+    }
+    let deniedHere = false;
     for (const [index, rawItem] of incomingItems.entries()) {
       const item = rawItem && typeof rawItem === 'object' ? (rawItem as Record<string, unknown>) : {};
       const previousRaw = previousItems[index];
@@ -209,18 +303,16 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
         const unchangedLegacy =
           !String(previousItem.productId ?? '').trim() && String(previousItem.name ?? '').trim() === name;
         if (!unchangedLegacy) {
-          issues.push({
-            path: `items[${index}].productId`,
-            expectedType: 'nomenclature',
-            referenceId: null,
-            reason: 'unresolved_text',
-          });
+          deny(input, issueReason({ path: `items[${index}].productId`, expectedType: 'nomenclature', referenceId: null, reason: 'unresolved_text' }));
+          deniedHere = true;
+          break;
         }
       }
       if (id && id !== String(previousItem.productId ?? '').trim()) {
-        changedProductIds.push({ path: `items[${index}].productId`, id });
+        changedReferences.push({ input, path: `items[${index}].productId`, expectedType: 'nomenclature', referenceId: id });
       }
     }
+    if (deniedHere) continue;
 
     const headerReferences = [
       { path: 'departmentId', expectedType: 'department' as const, id: String(incoming.departmentId ?? '').trim() },
@@ -229,44 +321,14 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
     ];
     for (const reference of headerReferences) {
       if (!reference.id || reference.id === String(previous?.[reference.path] ?? '').trim()) continue;
-      changedReferences.push({
-        path: reference.path,
-        expectedType: reference.expectedType,
-        referenceId: reference.id,
-      });
-    }
-
-    if (changedProductIds.length > 0) {
-      const ids = [...new Set(changedProductIds.map((reference) => reference.id))];
-      const [nomenclatureRows, entityRows] = await Promise.all([
-        db
-          .select({ id: erpNomenclature.id })
-          .from(erpNomenclature)
-          .where(and(inArray(erpNomenclature.id, ids), isNull(erpNomenclature.deletedAt))),
-        db
-          .select({ id: entities.id, typeCode: entityTypes.code })
-          .from(entities)
-          .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-          .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt))),
-      ]);
-      const validIds = new Set(nomenclatureRows.map((entry) => String(entry.id)));
-      for (const entry of entityRows) {
-        if (['nomenclature', 'part', 'product', 'service'].includes(String(entry.typeCode))) validIds.add(String(entry.id));
-      }
-      for (const reference of changedProductIds) {
-        if (!validIds.has(reference.id)) {
-          issues.push({
-            path: reference.path,
-            expectedType: 'nomenclature',
-            referenceId: reference.id,
-            reason: 'not_found',
-          });
-        }
-      }
+      changedReferences.push({ input, path: reference.path, expectedType: reference.expectedType, referenceId: reference.id });
     }
   }
 
+  type LinkCheck = { input: SyncWriteInput; path: string; expectedType: EntityReferenceTarget | ''; id: string };
+  const linkChecks: LinkCheck[] = [];
   for (const input of attributeValueCandidates) {
+    if (deniedByInput.has(input)) continue;
     const row = input.row as Record<string, unknown>;
     const rowId = String(row.id ?? input.row_id ?? '');
     const valueJson = typeof row.value_json === 'string' ? row.value_json : 'null';
@@ -284,12 +346,7 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
     try {
       rawValue = JSON.parse(valueJson);
     } catch {
-      issues.push({
-        path: `attribute_values.${rowId}.value_json`,
-        expectedType: 'nomenclature',
-        referenceId: null,
-        reason: 'unresolved_text',
-      });
+      deny(input, issueReason({ path: `attribute_values.${rowId}.value_json`, expectedType: 'nomenclature', referenceId: null, reason: 'unresolved_text' }));
       continue;
     }
     const ids = (Array.isArray(rawValue) ? rawValue : [rawValue])
@@ -297,79 +354,71 @@ export async function enforceEntityReferenceIntegrity(inputs: SyncWriteInput[]):
       .filter(Boolean);
     if (ids.length === 0) continue;
     const meta = parsePayload(def.metaJson);
-    const expectedType = String(meta?.linkTargetTypeCode ?? '').trim() as EntityReferenceTarget;
-    const rows = await db
-      .select({ id: entities.id, typeCode: entityTypes.code })
-      .from(entities)
-      .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-      .where(and(inArray(entities.id, [...new Set(ids)]), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)));
-    const typeById = new Map(rows.map((entry) => [String(entry.id), String(entry.typeCode)]));
+    const expectedType = String(meta?.linkTargetTypeCode ?? '').trim() as EntityReferenceTarget | '';
     for (const id of ids) {
-      const actualType = typeById.get(id);
-      if (!actualType) {
-        issues.push({
-          path: `attribute_values.${rowId}.value_json`,
-          expectedType: expectedType || 'nomenclature',
-          referenceId: id,
-          reason: 'not_found',
-        });
-      } else if (expectedType && actualType !== expectedType) {
-        issues.push({
-          path: `attribute_values.${rowId}.value_json`,
-          expectedType,
-          referenceId: id,
-          reason: 'wrong_type',
-        });
-      }
+      linkChecks.push({ input, path: `attribute_values.${rowId}.value_json`, expectedType, id });
     }
   }
 
-  if (changedReferences.length > 0) {
-    const ids = [...new Set(changedReferences.map((reference) => reference.referenceId))];
-    // Каталожные ссылки (деталь/номенклатура/изделие/услуга) резолвятся в erp_nomenclature /
-    // directory_parts, а НЕ в entities: детали мигрировали из EAV в directory_parts. Раньше гард
-    // искал ВСЕ ссылки только в entities → любой partId в наряде падал 'not_found' (регресс #319,
-    // блокировал сохранение сборочных нарядов). Заявки уже резолвили productId так же (см. выше).
-    const [entityRows, nomenRows, partRows] = await Promise.all([
-      db
-        .select({ id: entities.id, typeCode: entityTypes.code })
-        .from(entities)
-        .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-        .where(and(inArray(entities.id, ids), isNull(entities.deletedAt), isNull(entityTypes.deletedAt))),
-      db.select({ id: erpNomenclature.id }).from(erpNomenclature).where(and(inArray(erpNomenclature.id, ids), isNull(erpNomenclature.deletedAt))),
-      db.select({ id: directoryParts.id }).from(directoryParts).where(and(inArray(directoryParts.id, ids), isNull(directoryParts.deletedAt))),
-    ]);
-    const typeById = new Map(entityRows.map((row) => [String(row.id), String(row.typeCode)]));
-    const CATALOG_TYPES = new Set<EntityReferenceTarget>(['part', 'nomenclature', 'product', 'service']);
-    const catalogIds = new Set<string>([...nomenRows, ...partRows].map((r) => String(r.id)));
-    for (const entry of entityRows) if (CATALOG_TYPES.has(String(entry.typeCode) as EntityReferenceTarget)) catalogIds.add(String(entry.id));
-    for (const reference of changedReferences) {
-      if (CATALOG_TYPES.has(reference.expectedType)) {
-        if (!catalogIds.has(reference.referenceId)) {
-          issues.push({ path: reference.path, expectedType: reference.expectedType, referenceId: reference.referenceId, reason: 'not_found' });
-        }
-        continue;
-      }
-      const actualType = typeById.get(reference.referenceId);
-      if (!actualType) {
-        issues.push({
+  const resolver = await buildReferenceResolver([
+    ...changedReferences.map((r) => r.referenceId),
+    ...linkChecks.map((c) => c.id),
+  ]);
+
+  for (const reference of changedReferences) {
+    if (deniedByInput.has(reference.input)) continue;
+    if (!resolver.ok(reference.referenceId, reference.expectedType)) {
+      deny(
+        reference.input,
+        issueReason({
           path: reference.path,
           expectedType: reference.expectedType,
           referenceId: reference.referenceId,
-          reason: 'not_found',
-        });
-      } else if (actualType !== reference.expectedType) {
-        issues.push({
-          path: reference.path,
-          expectedType: reference.expectedType,
-          referenceId: reference.referenceId,
-          reason: 'wrong_type',
-        });
-      }
+          reason: resolver.reason(reference.referenceId, reference.expectedType),
+        }),
+      );
+    }
+  }
+  for (const check of linkChecks) {
+    if (deniedByInput.has(check.input)) continue;
+    if (!resolver.ok(check.id, check.expectedType)) {
+      deny(
+        check.input,
+        issueReason({
+          path: check.path,
+          expectedType: check.expectedType || 'nomenclature',
+          referenceId: check.id,
+          reason: resolver.reason(check.id, check.expectedType),
+        }),
+      );
     }
   }
 
-  await validateDefectOrigins(defectOrigins);
+  const allowed = inputs.filter((input) => !deniedByInput.has(input));
+  const allowedIds = new Set(allowed.map((input) => String((input.row as Record<string, unknown> | undefined)?.id ?? input.row_id ?? '')));
+  const invalidateIds = shortageInvalidation.filter((id) => allowedIds.has(id));
+  if (invalidateIds.length > 0) {
+    await db
+      .update(assemblyShortageApprovals)
+      .set({ status: 'invalidated', invalidatedAt: Date.now() })
+      .where(
+        and(
+          inArray(assemblyShortageApprovals.operationId, invalidateIds),
+          inArray(assemblyShortageApprovals.status, ['requested', 'approved']),
+        ),
+      );
+  }
 
-  if (issues.length > 0) throw new Error(`invalid_reference: ${JSON.stringify(issues)}`);
+  const denied: SyncSkippedRow[] = [...deniedByInput.entries()].map(([input, reason]) => ({
+    table: input.table,
+    row_id: String((input.row as Record<string, unknown> | undefined)?.id ?? input.row_id ?? ''),
+    reason,
+  }));
+  if (denied.length > 0) {
+    logWarn('sync reference rows skipped', {
+      count: denied.length,
+      sample: denied.slice(0, 3).map((d) => `${d.table}:${d.row_id}:${d.reason.slice(0, 120)}`),
+    });
+  }
+  return { allowed, denied };
 }
