@@ -543,13 +543,6 @@ export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [incrementalSyncUi, setIncrementalSyncUi] = useState<{
-    active: boolean;
-    progress: number | null;
-    activity?: string | null;
-    error?: string | null;
-  } | null>(null);
-  const incrementalSyncCloseTimer = useRef<number | null>(null);
   const [fullSyncUi, setFullSyncUi] = useState<{
     open: boolean;
     progress: number | null;
@@ -652,7 +645,6 @@ export function App() {
   const chatPendingSoundTimerRef = useRef<number | null>(null);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
-  const [updateStatus, setUpdateStatus] = useState<any>(null);
   const [aiChatOpen, setAiChatOpen] = useState<boolean>(true);
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
   const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
@@ -1290,52 +1282,14 @@ export function App() {
     const unsubscribe = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
       if (!evt) return;
       if (evt.mode === 'incremental') {
-        const activity = formatSyncActivity(evt);
-        if (incrementalSyncCloseTimer.current) {
-          window.clearTimeout(incrementalSyncCloseTimer.current);
-          incrementalSyncCloseTimer.current = null;
-        }
-        if (evt.state === 'start') {
-          setIncrementalSyncUi({ active: true, progress: evt.progress ?? null, activity, error: null });
-          return;
-        }
-        if (evt.state === 'progress') {
-          // Progressive fill: EAV-ядро + ERP применены — показываем данные, не дожидаясь хвоста.
-          if (evt.coreReady) {
-            void refreshEngines();
-            if (tab === 'engine') void reloadEngine();
-          }
-          setIncrementalSyncUi((prev) => ({
-            active: true,
-            progress: evt.progress ?? prev?.progress ?? null,
-            activity: activity ?? prev?.activity ?? null,
-            error: null,
-          }));
-          return;
-        }
-        if (evt.state === 'done') {
-          if (Number(evt.pulled ?? 0) > 0) {
-            void refreshEngines();
-            if (tab === 'engine') void reloadEngine();
-          }
-          setIncrementalSyncUi((prev) => ({
-            active: false,
-            progress: 1,
-            activity: activity ?? prev?.activity ?? 'Синхронизация завершена',
-            error: null,
-          }));
-          incrementalSyncCloseTimer.current = window.setTimeout(() => setIncrementalSyncUi(null), 2200);
-          return;
-        }
-        if (evt.state === 'error') {
-          setIncrementalSyncUi((prev) => ({
-            active: false,
-            progress: prev?.progress ?? null,
-            activity: activity ?? prev?.activity ?? 'Ошибка синхронизации',
-            error: evt.error ?? 'unknown',
-          }));
-          incrementalSyncCloseTimer.current = window.setTimeout(() => setIncrementalSyncUi(null), 5000);
-          return;
+        // Полоса прогресса инкрементального синка из шапки убрана — от события нужны
+        // только подтягивания данных на экран. Заодно ушёл setState на каждый тик
+        // прогресса (перерисовывал всё приложение ради полоски).
+        if (evt.state === 'progress' && !evt.coreReady) return;
+        // Progressive fill: EAV-ядро + ERP применены — показываем данные, не дожидаясь хвоста.
+        if (evt.state === 'progress' || (evt.state === 'done' && Number(evt.pulled ?? 0) > 0)) {
+          void refreshEngines();
+          if (tab === 'engine') void reloadEngine();
         }
         return;
       }
@@ -1399,8 +1353,6 @@ export function App() {
       }
     });
     return () => {
-      if (incrementalSyncCloseTimer.current) window.clearTimeout(incrementalSyncCloseTimer.current);
-      incrementalSyncCloseTimer.current = null;
       if (fullSyncCloseTimer.current) window.clearTimeout(fullSyncCloseTimer.current);
       fullSyncCloseTimer.current = null;
       if (unsubscribe) unsubscribe();
@@ -1677,26 +1629,6 @@ export function App() {
     setSelectedCounterpartyId(null);
     setSelectedReportPresetId(null);
   }, [backupMode?.mode, backupMode?.backupDate]);
-
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      try {
-        const r = await window.matrica.update.status();
-        if (!alive) return;
-        if (r && (r as any).ok) setUpdateStatus((r as any).status ?? null);
-      } catch {
-        // ignore
-      }
-    };
-    void tick();
-    // Статус апдейтера — визуальный бейдж; скрытому окну не нужен — пауза.
-    const stop = pollWhenVisible(() => void tick(), 30_000);
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, []);
 
   async function runSyncNow() {
     try {
@@ -3676,38 +3608,6 @@ export function App() {
               ? 'Матрица РМЗ — Админ'
           : 'Матрица РМЗ — Журнал';
 
-  const showUpdateBanner =
-    updateStatus &&
-    ['downloading', 'downloaded', 'error', 'checking'].includes(String(updateStatus.state));
-  const updateSourceLabel = (() => {
-    const src = String(updateStatus?.source ?? '').toLowerCase();
-    if (src === 'yandex') return 'Yandex';
-    if (src === 'github') return 'GitHub';
-    if (src === 'torrent') return 'Торрент';
-    if (src === 'lan') return 'Локальная сеть';
-    if (src === 'server') return 'Сервер';
-    return '';
-  })();
-  const updateBannerText = (() => {
-    if (!updateStatus) return '';
-    if (updateStatus.state === 'downloading') {
-      const pct = Math.max(0, Math.min(100, Math.floor(updateStatus.progress ?? 0)));
-      const src = updateSourceLabel ? ` (${updateSourceLabel})` : '';
-      return `Скачиваем обновление${src}… ${pct}%`;
-    }
-    if (updateStatus.state === 'checking') {
-      const src = updateSourceLabel ? ` (${updateSourceLabel})` : '';
-      return `Проверяем обновления${src}…`;
-    }
-    if (updateStatus.state === 'downloaded') {
-      const src = updateSourceLabel ? ` (${updateSourceLabel})` : '';
-      return `Обновление скачано${src}, установка после перезапуска.`;
-    }
-    if (updateStatus.state === 'error') return `Ошибка обновления: ${updateStatus.message ?? 'unknown'}`;
-    if (updateStatus.message) return String(updateStatus.message);
-    return '';
-  })();
-
   function recordFatalError(error: Error, info?: React.ErrorInfo | null) {
     const message = error?.message || String(error);
     const stack = error?.stack || info?.componentStack || '';
@@ -4252,67 +4152,6 @@ export function App() {
 
   const headerInlineStatusText = postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? postLoginSyncMsg : '';
 
-  const headerStatus = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0, overflow: 'hidden', justifyContent: 'center' }}>
-      <div
-        style={{
-          position: 'relative',
-          height: 16,
-          flex: '1 1 auto',
-          minWidth: 0,
-          background: showUpdateBanner ? 'rgba(148, 163, 184, 0.35)' : 'transparent',
-          overflow: 'hidden',
-          opacity: showUpdateBanner ? 1 : 0,
-          transition: 'opacity 140ms ease',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: `${Math.max(0, Math.min(100, Math.floor(updateStatus?.progress ?? 0)))}%`,
-            background: '#2563eb',
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '0 8px',
-            fontSize: 11,
-            color: '#ffffff',
-            textShadow: '0 1px 2px rgba(15, 23, 42, 0.8)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {showUpdateBanner ? `${updateBannerText}${updateStatus?.version ? ` v${String(updateStatus.version)}` : ''}` : ''}
-        </div>
-      </div>
-      <div
-        style={{
-          flex: '1 1 auto',
-          minWidth: 0,
-          fontSize: 12,
-          color: incrementalSyncUi?.error ? '#fecaca' : '#ffffff',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          textAlign: 'center',
-          minHeight: 16,
-          lineHeight: '16px',
-          opacity: headerInlineStatusText ? 1 : 0,
-          transition: 'opacity 140ms ease',
-        }}
-      >
-        {headerInlineStatusText || ' '}
-      </div>
-    </div>
-  );
   const edgeSide = uiPrefs.chatSide;
   const edgeButtonStyle: React.CSSProperties = {
     writingMode: 'vertical-rl',
@@ -5261,9 +5100,8 @@ export function App() {
       <Page
         title={pageTitle}
         uiTheme={resolvedTheme}
-        center={headerStatus}
         right={
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+        <>
           {/* Крупная кнопка режима «Комп/Планшет» (Ф1a). Появляется ТОЛЬКО когда машина помечена
               планшетом (Настройки → «Это планшет»), на всех страницах обеих оболочек. Палец-таргет
               ~48px. На обычном ПК кнопки нет вовсе. */}
@@ -5277,7 +5115,8 @@ export function App() {
               aria-label={isTabletUi ? 'Режим: Планшет' : 'Режим: Комп'}
               style={{ minHeight: 48, padding: '10px 18px', fontSize: 16, fontWeight: 600 }}
             >
-              {isTabletUi ? '📱 Планшет' : '💻 Комп'}
+              {isTabletUi ? '📱' : '💻'}
+              <span data-hdr-label="2">{isTabletUi ? ' Планшет' : ' Комп'}</span>
             </Button>
           )}
           {/* Переключатель темы интерфейса — всегда виден в верхней панели (в т.ч. до входа).
@@ -5309,14 +5148,16 @@ export function App() {
             title={uiPrefs.decor === 'fancy' ? 'Украшенное оформление (нажмите для строгого)' : 'Строгое оформление (нажмите для украшенного)'}
             aria-label="Оформление: строго/красиво"
           >
-            {uiPrefs.decor === 'fancy' ? '❀ Красиво' : '▦ Строго'}
+            {uiPrefs.decor === 'fancy' ? '❀' : '▦'}
+            <span data-hdr-label="3">{uiPrefs.decor === 'fancy' ? ' Красиво' : ' Строго'}</span>
           </Button>
           <select
             value={uiPrefs.palette}
             onChange={(e) => void persistPalette(e.target.value as UiPaletteId)}
             title="Цветовая гамма"
             aria-label="Цветовая гамма"
-            style={{ padding: '3px 6px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }}
+            data-hdr-compact="46"
+            style={{ padding: '3px 6px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12, maxWidth: 148 }}
           >
             {UI_PALETTE_IDS.map((p) => (
               <option key={p} value={p}>
@@ -5335,7 +5176,8 @@ export function App() {
               title={isV2 ? 'Вернуться к старому интерфейсу' : 'Включить интерфейс «Резиновый»'}
               aria-label={isV2 ? 'Старый интерфейс' : 'Интерфейс «Резиновый»'}
             >
-              {isV2 ? '↩️ Старый интерфейс' : '🧩 Интерфейс «Резиновый»'}
+              {isV2 ? '↩️' : '🧩'}
+              <span data-hdr-label="4">{isV2 ? ' Старый интерфейс' : ' Интерфейс «Резиновый»'}</span>
             </Button>
           )}
           {/* V3 «Вкладки» (бета): вход только явным кликом, дефолт остаётся v2. */}
@@ -5347,12 +5189,13 @@ export function App() {
               title={isV3 ? 'Вернуться к «Резиновому»' : 'Включить интерфейс «Вкладки» (бета)'}
               aria-label={isV3 ? 'Интерфейс «Резиновый»' : 'Интерфейс «Вкладки» (бета)'}
             >
-              {isV3 ? '🧩 «Резиновый»' : '🗂 «Вкладки» (бета)'}
+              {isV3 ? '🧩' : '🗂'}
+              <span data-hdr-label="5">{isV3 ? ' «Резиновый»' : ' «Вкладки» (бета)'}</span>
             </Button>
           )}
           {authStatus.loggedIn && (
             <Button variant="ghost" onClick={() => setGlobalSearchOpen(true)} title="Глобальный поиск (Ctrl+K)">
-              🔍 Поиск
+              🔍<span data-hdr-label="6"> Поиск</span>
             </Button>
           )}
           {authStatus.loggedIn && (
@@ -5362,7 +5205,7 @@ export function App() {
                 onClick={() => setTrashOpen((prev) => !prev)}
                 title="Корзина кнопок"
               >
-                🗑 Корзина
+                🗑<span data-hdr-label="7"> Корзина</span>
               </Button>
               {trashOpen && (
                 <div
@@ -5439,17 +5282,27 @@ export function App() {
                 onClick={() => void sendCurrentPositionToChat()}
                 title="Отправить ссылку на текущий раздел в чат"
               >
-                Ссылку в чат
+                💬<span data-hdr-label="9"> Ссылку в чат</span>
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => void saveCurrentPositionToNotes()}
                 title="Сохранить ссылку на текущий раздел в заметки"
               >
-                Ссылку в заметки
+                📝<span data-hdr-label="10"> Ссылку в заметки</span>
               </Button>
             </>
           )}
+          {/* Ошибка входной синхронизации — единственное, что осталось от прежней
+              центральной полосы: место в шапке она занимает только когда есть что сказать. */}
+          {headerInlineStatusText ? (
+            <span
+              title={headerInlineStatusText}
+              style={{ fontSize: 12, color: '#fecaca', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {headerInlineStatusText}
+            </span>
+          ) : null}
           {authStatus.loggedIn && caps.canUseSync && !viewMode && (
             <Button
               variant="ghost"
@@ -5497,7 +5350,7 @@ export function App() {
           >
             {userLabel?.trim() ? userLabel.trim() : 'Вход'}
           </Button>
-        </div>
+        </>
         }
       >
         {renderReleaseWelcomeModal()}

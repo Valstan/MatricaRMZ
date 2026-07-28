@@ -6,17 +6,18 @@ export function ListColumnsToggle(props: {
 }) {
   const currentMode = props.isMultiColumn ? 'Компактный' : 'Один столбец';
   const nextMode = props.isMultiColumn ? 'Один столбец' : 'Компактный';
-  const label = `Режим: ${currentMode}`;
-  const title = `Переключить в режим "${nextMode}"`;
+  const title = `Режим списков: ${currentMode}. Переключить в "${nextMode}"`;
 
   return (
     <Button
       variant="ghost"
       onClick={props.onToggle}
       title={title}
+      aria-label={`Режим: ${currentMode}`}
       style={{ whiteSpace: 'nowrap' }}
     >
-      {label}
+      {props.isMultiColumn ? '▥' : '▤'}
+      <span data-hdr-label="8">{` Режим: ${currentMode}`}</span>
     </Button>
   );
 }
