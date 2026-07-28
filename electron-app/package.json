@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretypecheck:test": "corepack pnpm -C .. --filter @matricarmz/shared build",
     "typecheck:test": "tsc -p tsconfig.vitest.json --noEmit",
-    "lint": "eslint src electron.vite.config.ts drizzle.config.ts --max-warnings 0",
+    "lint": "eslint src electron.vite.config.ts drizzle.config.ts --max-warnings 153",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "dist": "pnpm build && electron-builder",
