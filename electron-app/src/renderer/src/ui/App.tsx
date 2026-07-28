@@ -15,6 +15,7 @@ import type {
   V2Session,
   UiShellVersion,
   V2Prefs,
+  V3Prefs,
   ReleaseWelcomeContent,
   ReportPresetId,
   ReportThemeId,
@@ -1089,9 +1090,15 @@ export function App() {
 
   // V3: переход на любой fullscreen-контент (карточка ИЛИ страница вроде Настроек/Истории)
   // снимает фокус с закреплённых вкладок — иначе открытое остаётся невидимым за сплитом.
+  // Ключ фокусной карточки — в зависимостях: открытие карточки того же kind (список →
+  // другой двигатель) не меняет tab ('engine' → 'engine'), но экран обязан переключиться.
+  const v3FocusedCardKey = (() => {
+    const idn = v2CurrentCardIdentity();
+    return idn ? `${idn.kind}:${idn.entityId}` : null;
+  })();
   useEffect(() => {
     if (isV3 && !V2_LIST_TABS.has(tab)) setV3PinnedFocus(false);
-  }, [isV3, tab]);
+  }, [isV3, tab, v3FocusedCardKey]);
 
   // V2: «Закрыть карточку» закрывает и её вкладку (инвариант: любой путь, снимающий карточку
   // с рабочей области, удаляет её дескриптор из v2OpenCards — иначе зависшая вкладка переоткрывает
@@ -2254,6 +2261,20 @@ export function App() {
   function updateV2Prefs(nextV2: V2Prefs) {
     const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
     void persistShellPrefs({ ...base, v2: nextV2 });
+  }
+
+  function updateV3Pcts(patch: Partial<Pick<V3Prefs, 'splitPct' | 'comparePct'>>) {
+    const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
+    void persistShellPrefs({ ...base, v3: { ...base.v3, ...patch } });
+  }
+
+  // Закрыть эфемерную вкладку-страницу (Настройки/История/…): вернуться к открытому
+  // списку; если список не открыт — к первому доступному разделу-списку.
+  function closeV3PageTab() {
+    const fallback = sectionGatedTabs.find((t) => V2_LIST_TABS.has(t as TabId)) as TabId | undefined;
+    const target = v2ActiveListTab ?? fallback ?? null;
+    if (target) setTabState(target);
+    setV3PinnedFocus(true);
   }
 
   // Общий обработчик кнопок меню (v1 Tabs и v2 ButtonPanel): auth-гейт, спец-ярлык
@@ -5487,6 +5508,16 @@ export function App() {
               limitNotice={v3LimitNotice}
               pinnedFocus={v3PinnedFocus}
               onFocusPinned={() => setV3PinnedFocus(true)}
+              onFocusPage={() => setV3PinnedFocus(false)}
+              onClosePage={closeV3PageTab}
+              secondaryCard={v2SecondaryCard}
+              renderSecondaryCard={renderSecondaryCard}
+              onSplitCard={openSecondaryCard}
+              onCloseSecondary={closeSecondaryCard}
+              splitPct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.splitPct}
+              onSplitPctChange={(pct) => updateV3Pcts({ splitPct: pct })}
+              comparePct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.comparePct}
+              onComparePctChange={(pct) => updateV3Pcts({ comparePct: pct })}
             />
           ) : isV2 ? (
             <V2Shell

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useMemo, useRef } from 'react';
+import { Group, Panel, Separator, type Layout } from 'react-resizable-panels';
 import { v3ShowTabsWarning } from '@matricarmz/shared';
 
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
@@ -18,9 +19,11 @@ function suspenseFallback() {
 
 /**
  * V3 shell («Вкладки»): одно окно с панелью вкладок.
- * Две закреплённые вкладки — «РАЗДЕЛЫ» (¼ слева) и «Список …» (¾ справа) — делят экран
- * в сплит-режиме; карточка открывается собственной вкладкой на весь экран, при этом
- * сплит остаётся смонтированным (display:none) и не теряет наполнение/скролл/фокус.
+ * Две закреплённые вкладки — «РАЗДЕЛЫ» и «Список …» — делят экран в сплит-режиме
+ * (разделитель тянется мышкой, ширина персистится); карточка открывается собственной
+ * вкладкой на весь экран, при этом сплит остаётся смонтированным (display:none) и не
+ * теряет наполнение/скролл/фокус. Кнопка ⑃ на вкладке карточки открывает её второй
+ * панелью рядом с активной — сравнение «2 рядом» (дефолт пополам, разделитель тянется).
  */
 export function V3TabShell(props: {
   availableTabs: MenuTabId[];
@@ -43,6 +46,21 @@ export function V3TabShell(props: {
   pinnedFocus: boolean;
   /** Вернуть фокус со вкладки-карточки на закреплённые (список/разделы). */
   onFocusPinned: () => void;
+  /** Вернуть фокус на эфемерную вкладку-страницу (клик по её шапке при pinnedFocus). */
+  onFocusPage: () => void;
+  /** Закрыть эфемерную вкладку-страницу (Настройки/История/…) — вернуться к списку. */
+  onClosePage: () => void;
+  /** Сравнение «2 рядом»: вторая (правая) карточка. */
+  secondaryCard: { kind: TabId; entityId: string; title: string } | null;
+  renderSecondaryCard: () => React.ReactNode;
+  onSplitCard: (card: { kind: TabId; entityId: string; title: string }) => void;
+  onCloseSecondary: () => void;
+  /** Ширина «РАЗДЕЛЫ» в сплите закреплённых, % (персистится). */
+  splitPct: number;
+  onSplitPctChange: (pct: number) => void;
+  /** Ширина левой карточки в сравнении «2 рядом», % (персистится). */
+  comparePct: number;
+  onComparePctChange: (pct: number) => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
   const listTab = props.activeListTab && V2_LIST_TABS.has(props.activeListTab) ? props.activeListTab : null;
@@ -62,6 +80,38 @@ export function V3TabShell(props: {
   const pageLabel = pageMounted && !cardFocused
     ? (props.menuLabels[resolveMenuTab(props.tab) as MenuTabId] ?? String(props.tab))
     : null;
+
+  const secondary = props.secondaryCard;
+  const secondaryKey = secondary ? `${secondary.kind}:${secondary.entityId}` : null;
+
+  // Дебаунс персиста процентов сплитов (перетаскивание шлёт layout на каждый пиксель).
+  const saveTimer = useRef<number | null>(null);
+  const pendingRef = useRef<{ split?: number; compare?: number }>({});
+  function schedulePctSave(patch: { split?: number; compare?: number }) {
+    pendingRef.current = { ...pendingRef.current, ...patch };
+    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      saveTimer.current = null;
+      const pending = pendingRef.current;
+      pendingRef.current = {};
+      if (typeof pending.split === 'number') props.onSplitPctChange(pending.split);
+      if (typeof pending.compare === 'number') props.onComparePctChange(pending.compare);
+    }, 400);
+  }
+
+  // defaultLayout читается группой один раз на маунт; во время drag'а source of truth у
+  // панелей — пересборка на каждое изменение pct вызвала бы прыжки. Стейл сознательный.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pinnedLayout: Layout = useMemo(() => ({ 'v3-sections': props.splitPct, 'v3-list': 100 - props.splitPct }), []);
+  const compareLayout: Layout = useMemo(
+    () => ({ 'v3-compare-primary': props.comparePct, 'v3-compare-secondary': 100 - props.comparePct }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [secondaryKey],
+  );
+
+  const workspaceBody = workspaceTab && (
+    <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(workspaceTab)}</React.Suspense>
+  );
 
   return (
     <div className="v3-shell">
@@ -85,19 +135,28 @@ export function V3TabShell(props: {
           {listLabel ? `Список ${listLabel}` : 'Список …'}
         </button>
         {pageLabel && (
-          <button
-            type="button"
-            className="v3-tab v3-tab-page"
-            data-active={cardActive ? '1' : undefined}
-            onClick={() => {}}
-            title={pageLabel}
-          >
-            📄 {pageLabel}
-          </button>
+          <div className="v3-tab v3-tab-card v3-tab-page" data-active={cardActive ? '1' : undefined} title={pageLabel}>
+            <button
+              type="button"
+              className="v3-tab-label"
+              onClick={() => { if (!cardActive) props.onFocusPage(); }}
+            >
+              📄 {pageLabel}
+            </button>
+            <button
+              type="button"
+              className="v3-tab-close"
+              title="Закрыть вкладку"
+              onClick={props.onClosePage}
+            >
+              ✕
+            </button>
+          </div>
         )}
         {props.openCards.map((card) => {
           const key = `${card.kind}:${card.entityId}`;
           const active = cardActive && cardFocused && key === props.focusedCardKey;
+          const isSecondary = key === secondaryKey;
           return (
             <div key={key} className="v3-tab v3-tab-card" data-active={active ? '1' : undefined} title={card.title}>
               <button
@@ -105,13 +164,24 @@ export function V3TabShell(props: {
                 className="v3-tab-label"
                 onClick={() => { if (!active) props.onFocusCard(card); }}
               >
-                {card.title}
+                {isSecondary ? '▐ ' : ''}{card.title}
               </button>
+              {/* ⑃ сравнить: закрепить карточку второй панелью рядом с активной. */}
+              {!active && !isSecondary && (
+                <button
+                  type="button"
+                  className="v3-tab-split"
+                  title="Открыть рядом для сравнения (пополам)"
+                  onClick={() => props.onSplitCard(card)}
+                >
+                  ⑃
+                </button>
+              )}
               <button
                 type="button"
                 className="v3-tab-close"
                 title="Закрыть карточку"
-                onClick={() => props.onCloseCard(card)}
+                onClick={() => (isSecondary ? props.onCloseSecondary() : props.onCloseCard(card))}
               >
                 ✕
               </button>
@@ -128,37 +198,85 @@ export function V3TabShell(props: {
           </div>
         ) : null}
       </div>
-      {/* Сплит «РАЗДЕЛЫ ¼ | Список ¾» всегда смонтирован — скрывается, когда активна карточка. */}
+      {/* Сплит «РАЗДЕЛЫ | Список» всегда смонтирован — скрывается, когда активна карточка.
+          Разделитель тянется мышкой, ширина запоминается. */}
       <div className="v3-split" style={cardActive ? { display: 'none' } : undefined}>
-        <div className="v3-split-sections">
-          <ButtonPanel
-            buttons={buttons}
-            layout={props.buttonLayout}
-            onLayoutChange={props.onButtonLayoutChange}
-            activeMenuTab={activeMenuTab}
-            listOpenTab={listOpenTab}
-            collapsed={false}
-            overlayPinned={false}
-            onToggleOverlayPinned={() => {}}
-            onTab={props.onMenuTab}
-            onSwitchToV1={props.onSwitchToV2}
-          />
-        </div>
-        <div className="v3-split-list">
-          {listTab ? (
-            <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(listTab)}</React.Suspense>
-          ) : (
-            <div className="v3-list-empty">
-              <div style={{ fontSize: 34 }}>🗂️</div>
-              <div>Выберите раздел слева — список откроется здесь.</div>
+        <Group orientation="horizontal" className="v3-split-group" defaultLayout={pinnedLayout}
+          onLayoutChange={(layout: Layout) => {
+            // Персистим любое реальное изменение (дебаунс + guard от echo-записи того же
+            // значения при ремоунте/нормализации) — meta.isUserInteraction из onLayoutChanged
+            // не срабатывает на синтетических pointer-событиях смоука.
+            const pct = layout['v3-sections'];
+            if (typeof pct === 'number' && Number.isFinite(pct) && Math.abs(pct - props.splitPct) > 0.5) {
+              schedulePctSave({ split: pct });
+            }
+          }}
+        >
+          <Panel id="v3-sections" className="v3-panel-body" minSize={180}>
+            <div className="v3-split-sections">
+              <ButtonPanel
+                buttons={buttons}
+                layout={props.buttonLayout}
+                onLayoutChange={props.onButtonLayoutChange}
+                activeMenuTab={activeMenuTab}
+                listOpenTab={listOpenTab}
+                collapsed={false}
+                overlayPinned={false}
+                onToggleOverlayPinned={() => {}}
+                onTab={props.onMenuTab}
+                onSwitchToV1={props.onSwitchToV2}
+              />
             </div>
-          )}
-        </div>
+          </Panel>
+          <Separator className="v3-resize-handle" />
+          <Panel id="v3-list" className="v3-panel-body" minSize={240}>
+            <div className="v3-split-list">
+              {listTab ? (
+                <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(listTab)}</React.Suspense>
+              ) : (
+                <div className="v3-list-empty">
+                  <div style={{ fontSize: 34 }}>🗂️</div>
+                  <div>Выберите раздел слева — список откроется здесь.</div>
+                </div>
+              )}
+            </div>
+          </Panel>
+        </Group>
       </div>
       {workspaceTab && (
-        <div className="v3-card-body" style={!cardActive ? { display: 'none' } : undefined}>
-          <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(workspaceTab)}</React.Suspense>
-        </div>
+        secondary ? (
+          /* Сравнение «2 рядом»: активная карточка слева, закреплённая ⑃ справа, дефолт пополам. */
+          <div className="v3-card-compare" style={!cardActive ? { display: 'none' } : undefined}>
+            <Group key={secondaryKey} orientation="horizontal" className="v3-split-group" defaultLayout={compareLayout}
+              onLayoutChange={(layout: Layout) => {
+                const pct = layout['v3-compare-primary'];
+                if (typeof pct === 'number' && Number.isFinite(pct) && Math.abs(pct - props.comparePct) > 0.5) {
+                  schedulePctSave({ compare: pct });
+                }
+              }}
+            >
+              <Panel id="v3-compare-primary" className="v3-panel-body" minSize={220}>
+                <div className="v3-card-body v3-compare-pane">{workspaceBody}</div>
+              </Panel>
+              <Separator className="v3-resize-handle" />
+              <Panel id="v3-compare-secondary" className="v3-panel-body" minSize={220}>
+                <div className="v3-compare-pane v3-compare-secondary">
+                  <div className="v3-compare-header">
+                    <span className="v3-compare-title">▐ {secondary.title}</span>
+                    <button type="button" className="v3-tab-close" title="Закрыть вторую панель" onClick={props.onCloseSecondary}>
+                      ✕
+                    </button>
+                  </div>
+                  <div className="v3-card-body">
+                    <React.Suspense fallback={suspenseFallback()}>{props.renderSecondaryCard()}</React.Suspense>
+                  </div>
+                </div>
+              </Panel>
+            </Group>
+          </div>
+        ) : (
+          <div className="v3-card-body" style={!cardActive ? { display: 'none' } : undefined}>{workspaceBody}</div>
+        )
       )}
     </div>
   );

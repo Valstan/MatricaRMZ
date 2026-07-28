@@ -61,6 +61,10 @@ export type V3Session = {
 
 export type V3Prefs = {
   session: V3Session;
+  /** Ширина «РАЗДЕЛЫ» в сплите закреплённых вкладок, % (разделитель тянется мышкой). */
+  splitPct: number;
+  /** Ширина левой карточки в сравнении «2 рядом», % (дефолт — пополам). */
+  comparePct: number;
 };
 
 export type UiShellPrefs = {
@@ -107,7 +111,14 @@ export function v3ShowTabsWarning(cardCount: number): boolean {
 
 export const DEFAULT_V3_PREFS: V3Prefs = {
   session: { openCards: [], activeKey: 'sections' },
+  splitPct: 25,
+  comparePct: 50,
 };
+
+function sanitizePct(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(85, Math.max(15, n)) : fallback;
+}
 
 export const DEFAULT_UI_SHELL_PREFS: UiShellPrefs = {
   shellVersion: 'v2',
@@ -195,7 +206,11 @@ export function sanitizeV3Prefs(value: unknown): V3Prefs {
     rawActive === 'sections' || rawActive === 'list' || openCards.some((c) => `${c.kind}:${c.entityId}` === rawActive)
       ? rawActive
       : 'sections';
-  return { session: { openCards, activeKey } };
+  return {
+    session: { openCards, activeKey },
+    splitPct: sanitizePct(raw.splitPct, DEFAULT_V3_PREFS.splitPct),
+    comparePct: sanitizePct(raw.comparePct, DEFAULT_V3_PREFS.comparePct),
+  };
 }
 
 export function sanitizeUiShellPrefs(value: unknown): UiShellPrefs {
