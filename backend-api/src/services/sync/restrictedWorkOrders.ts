@@ -38,23 +38,32 @@ const WORK_ORDER = 'work_order';
  * Cached briefly — the guard runs on every push batch.
  */
 const POLICY_TTL_MS = 15_000;
-let membershipRowsCache: { rows: Array<{ login: string; membership: SectionMembership }>; at: number } | null = null;
+type MembershipRow = { login: string; role: string; membership: SectionMembership };
+let membershipRowsCache: { rows: MembershipRow[]; at: number } | null = null;
 
-async function loadSectionMembershipRows(): Promise<Array<{ login: string; membership: SectionMembership }>> {
+async function loadSectionMembershipRows(): Promise<MembershipRow[]> {
   const defRows = await db
     .select({ id: attributeDefs.id, code: attributeDefs.code })
     .from(attributeDefs)
-    .where(and(inArray(attributeDefs.code, ['login', SECTION_ACCESS_ATTR]), isNull(attributeDefs.deletedAt)));
+    .where(and(inArray(attributeDefs.code, ['login', 'system_role', SECTION_ACCESS_ATTR]), isNull(attributeDefs.deletedAt)));
   const loginDefIds = defRows.filter((r) => String(r.code) === 'login').map((r) => String(r.id));
+  const roleDefIds = defRows.filter((r) => String(r.code) === 'system_role').map((r) => String(r.id));
   const sectionDefIds = defRows.filter((r) => String(r.code) === SECTION_ACCESS_ATTR).map((r) => String(r.id));
   if (loginDefIds.length === 0 || sectionDefIds.length === 0) return [];
   const valRows = await db
     .select({ entityId: attributeValues.entityId, defId: attributeValues.attributeDefId, v: attributeValues.valueJson })
     .from(attributeValues)
-    .where(and(inArray(attributeValues.attributeDefId, [...loginDefIds, ...sectionDefIds]), isNull(attributeValues.deletedAt)));
+    .where(
+      and(
+        inArray(attributeValues.attributeDefId, [...loginDefIds, ...roleDefIds, ...sectionDefIds]),
+        isNull(attributeValues.deletedAt),
+      ),
+    );
   const loginByEntity = new Map<string, string>();
+  const roleByEntity = new Map<string, string>();
   const membershipByEntity = new Map<string, SectionMembership>();
   const loginDefs = new Set(loginDefIds);
+  const roleDefs = new Set(roleDefIds);
   for (const r of valRows) {
     const eid = String(r.entityId);
     let parsed: unknown = null;
@@ -66,22 +75,24 @@ async function loadSectionMembershipRows(): Promise<Array<{ login: string; membe
     if (loginDefs.has(String(r.defId))) {
       const login = String(parsed ?? '').trim().toLowerCase();
       if (login) loginByEntity.set(eid, login);
+    } else if (roleDefs.has(String(r.defId))) {
+      roleByEntity.set(eid, String(parsed ?? '').trim().toLowerCase());
     } else {
       membershipByEntity.set(eid, parseSectionMembership(parsed));
     }
   }
-  const out: Array<{ login: string; membership: SectionMembership }> = [];
+  const out: MembershipRow[] = [];
   for (const [eid, membership] of membershipByEntity) {
     const login = loginByEntity.get(eid);
-    if (login) out.push({ login, membership });
+    if (login) out.push({ login, role: roleByEntity.get(eid) ?? '', membership });
   }
   return out;
 }
 
-async function cachedMembershipRows(): Promise<Array<{ login: string; membership: SectionMembership }>> {
+async function cachedMembershipRows(): Promise<MembershipRow[]> {
   const now = Date.now();
   if (membershipRowsCache && now - membershipRowsCache.at < POLICY_TTL_MS) return membershipRowsCache.rows;
-  let rows: Array<{ login: string; membership: SectionMembership }> = [];
+  let rows: MembershipRow[] = [];
   try {
     rows = await loadSectionMembershipRows();
   } catch {
@@ -94,7 +105,7 @@ async function cachedMembershipRows(): Promise<Array<{ login: string; membership
 export async function getRestrictedWorkOrderPolicy(): Promise<RestrictedWorkOrderPolicy> {
   const rows = await cachedMembershipRows();
   const fromMemberships = restrictedWorkOrderPolicyFromMemberships(
-    rows.map((r) => ({ login: r.login, level: r.membership.restricted_work_orders ?? null })),
+    rows.map((r) => ({ login: r.login, role: r.role, level: r.membership.restricted_work_orders ?? null })),
   );
   return fromMemberships ?? LEGACY_RESTRICTED_WORK_ORDER_POLICY;
 }

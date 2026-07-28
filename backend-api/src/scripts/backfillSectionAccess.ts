@@ -172,7 +172,15 @@ async function main() {
   const toSeed: Array<{ row: EmployeeRow; seed: SectionMembership }> = [];
   let skippedExisting = 0;
   let skippedEmptySeed = 0;
+  let skippedSuperadmin = 0;
   for (const row of employees) {
+    // Суперадмин обходит разделы по роли — membership ему ничего не даёт, но может
+    // навредить (editor «Нарядов закрытых» скрывает ЕГО наряды от всех остальных).
+    if (row.role === 'superadmin') {
+      skippedSuperadmin++;
+      log(`   - ${row.login} (superadmin) — полный доступ по роли, membership не нужен`);
+      continue;
+    }
     const existing = parseSectionMembership(row.membershipRaw);
     if (Object.keys(existing).length > 0) {
       skippedExisting++;
@@ -191,7 +199,9 @@ async function main() {
   for (const { row, seed } of toSeed) {
     log(`   + ${row.login} [${row.role || '?'}] ${row.fullName ? `(${row.fullName}) ` : ''}→ ${summarize(seed)}`);
   }
-  log(`\nпропущено: уже настроено=${skippedExisting}, пустой засев (pending/employee)=${skippedEmptySeed}`);
+  log(
+    `\nпропущено: уже настроено=${skippedExisting}, пустой засев (pending/employee)=${skippedEmptySeed}, суперадминов=${skippedSuperadmin}`,
+  );
 
   if (!APPLY) {
     log(`\n(dry-run — записей не было. Повторите с --apply после ревью.)`);
