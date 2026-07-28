@@ -419,6 +419,19 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     }
   }
 
+  // Дедуп позиций к заведению между блоками складов для сводки в UI.
+  const allToCreate = useMemo(() => {
+    const byKey = new Map<string, { article: string; name: string; unit: string; qty: number; group: string | null }>();
+    for (const p of activePlans) {
+      for (const c of p.toCreate) {
+        const prev = byKey.get(c.key);
+        if (prev) prev.qty += c.qty;
+        else byKey.set(c.key, { article: c.article, name: c.name, unit: c.unit, qty: c.qty, group: c.group });
+      }
+    }
+    return [...byKey.values()];
+  }, [activePlans]);
+
   if (!props.open) return null;
   const totals = activePlans.reduce(
     (acc, p) => {
@@ -440,17 +453,6 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     { matched: 0, ambiguous: 0, fractional: 0, plus: 0, plusN: 0, minus: 0, minusN: 0, zeroed: 0, createQty: 0, lines: 0 },
   );
   const willCreate = createMissing ? uniqueCreateCount : 0;
-  const allToCreate = useMemo(() => {
-    const byKey = new Map<string, { article: string; name: string; unit: string; qty: number; group: string | null }>();
-    for (const p of activePlans) {
-      for (const c of p.toCreate) {
-        const prev = byKey.get(c.key);
-        if (prev) prev.qty += c.qty;
-        else byKey.set(c.key, { article: c.article, name: c.name, unit: c.unit, qty: c.qty, group: c.group });
-      }
-    }
-    return [...byKey.values()];
-  }, [activePlans]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
