@@ -35,6 +35,7 @@ type Row = {
 export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => void }) {
   const { confirm } = useConfirm();
   const [rows, setRows] = useState<Row[]>([]);
+  const [godLogins, setGodLogins] = useState<string[]>([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,15 +48,18 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
       const list = (await window.matrica.employees.list()) as EmployeeListItem[];
       const withLogin = (Array.isArray(list) ? list : []).filter((e) => String(e.login ?? '').trim());
       withLogin.sort((a, b) => String(a.login).localeCompare(String(b.login), 'ru'));
-      setRows(
-        withLogin.map((e) => ({
-          id: String(e.id),
-          login: String(e.login),
-          name: String(e.fullName ?? e.displayName ?? '').trim(),
-          role: String(e.systemRole ?? '').trim().toLowerCase(),
-          membership: parseSectionMembership(e.sectionAccess),
-        })),
-      );
+      const all = withLogin.map((e) => ({
+        id: String(e.id),
+        login: String(e.login),
+        name: String(e.fullName ?? e.displayName ?? '').trim(),
+        role: String(e.systemRole ?? '').trim().toLowerCase(),
+        membership: parseSectionMembership(e.sectionAccess),
+      }));
+      // Суперадмин в таблице не участвует: роль и так обходит разделы везде, поэтому строка
+      // ему ничего не даёт — а «редактор» в «Нарядах закрытых» молча делал ЕГО наряды
+      // невидимыми для всех остальных (инцидент 2026-07-28, 54 наряда). Права бога — по роли.
+      setRows(all.filter((r) => r.role !== 'superadmin'));
+      setGodLogins(all.filter((r) => r.role === 'superadmin').map((r) => (r.name ? `${r.login} — ${r.name}` : r.login)));
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка загрузки: ${String(e)}`);
@@ -395,11 +399,16 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
         ) : (
           <>
             <b>Наблюдатель</b> — видит всё в разделе, ничего не меняет. <b>Редактор</b> — видит и меняет. Кто не добавлен —
-            раздела не видит вовсе. Суперадминистратор всегда имеет полный доступ и в списках не нуждается. То же самое
-            видно и правится в карточке пользователя (Персонал → Сотрудники).
+            раздела не видит вовсе. То же самое видно и правится в карточке пользователя (Персонал → Сотрудники).
           </>
         )}
       </div>
+      {godLogins.length > 0 ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 900 }}>
+          👑 <b>Полный доступ по роли</b> (в таблице не участвует и настройки не требует):{' '}
+          {godLogins.join(', ')}.
+        </div>
+      ) : null}
       {view === 'matrix' ? matrixView : (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 760 }}>

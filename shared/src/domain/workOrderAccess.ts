@@ -45,12 +45,25 @@ export const LEGACY_RESTRICTED_WORK_ORDER_POLICY: RestrictedWorkOrderPolicy = {
 
 /**
  * Build the policy from `restricted_work_orders` membership rows (login +
- * level). Returns null when NO row carries the section — the caller must fall
- * back to LEGACY_RESTRICTED_WORK_ORDER_POLICY. Owners read their own orders by
- * definition, so editors are included in readers.
+ * level + role). Returns null when NO row carries the section — the caller must
+ * fall back to LEGACY_RESTRICTED_WORK_ORDER_POLICY. Owners read their own orders
+ * by definition, so editors are included in readers.
+ *
+ * Superadmin rows are IGNORED: the role already bypasses sections everywhere
+ * (sectionLevelFor / sectionGate / ledger authz), so a superadmin's membership
+ * grants him nothing — but `restricted_work_orders: editor` silently turned HIS
+ * OWN work orders private for everyone else, and the superadmin bypass in
+ * canViewWorkOrder hid the damage from the one person who could notice it
+ * (incident 2026-07-28: 54 orders invisible to the operators who created them
+ * under his login). A membership that can only do harm is not stored — it is
+ * ignored here and no longer offered in the UI.
  */
 export function restrictedWorkOrderPolicyFromMemberships(
-  rows: Iterable<{ login: string | null | undefined; level: 'viewer' | 'editor' | null | undefined }>,
+  rows: Iterable<{
+    login: string | null | undefined;
+    level: 'viewer' | 'editor' | null | undefined;
+    role?: string | null | undefined;
+  }>,
 ): RestrictedWorkOrderPolicy | null {
   const owners = new Set<string>();
   const readers = new Set<string>();
@@ -58,6 +71,7 @@ export function restrictedWorkOrderPolicyFromMemberships(
   for (const row of rows) {
     const login = norm(row.login);
     if (!login || !row.level) continue;
+    if (isSuperadminRole(row.role)) continue;
     any = true;
     if (row.level === 'editor') owners.add(login);
     readers.add(login);

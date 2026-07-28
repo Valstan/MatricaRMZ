@@ -280,7 +280,9 @@ export async function getRestrictedWorkOrderPolicyLocal(
   const { byCode } = await getDefsByType(dataDb, employeeTypeId);
   const loginDef = byCode.login;
   const sectionDef = byCode.section_access;
+  const roleDef = byCode.system_role;
   if (!loginDef || !sectionDef) return null;
+  const defIds = [loginDef, sectionDef, ...(roleDef ? [roleDef] : [])];
   const rows = await dataDb
     .select({
       entityId: attributeValues.entityId,
@@ -288,23 +290,26 @@ export async function getRestrictedWorkOrderPolicyLocal(
       valueJson: attributeValues.valueJson,
     })
     .from(attributeValues)
-    .where(and(inArray(attributeValues.attributeDefId, [loginDef, sectionDef]), isNull(attributeValues.deletedAt)))
+    .where(and(inArray(attributeValues.attributeDefId, defIds), isNull(attributeValues.deletedAt)))
     .limit(40_000);
   const loginByEntity = new Map<string, string>();
+  const roleByEntity = new Map<string, string>();
   const membershipByEntity = new Map<string, SectionMembership>();
   for (const r of rows) {
     const parsed = safeJsonParse(r.valueJson ? String(r.valueJson) : null);
     if (String(r.defId) === String(loginDef)) {
       const login = String(parsed ?? '').trim().toLowerCase();
       if (login) loginByEntity.set(String(r.entityId), login);
+    } else if (roleDef && String(r.defId) === String(roleDef)) {
+      roleByEntity.set(String(r.entityId), String(parsed ?? '').trim().toLowerCase());
     } else {
       membershipByEntity.set(String(r.entityId), parseSectionMembership(parsed));
     }
   }
-  const memberships: Array<{ login: string; level: 'viewer' | 'editor' | null }> = [];
+  const memberships: Array<{ login: string; role: string; level: 'viewer' | 'editor' | null }> = [];
   for (const [eid, membership] of membershipByEntity) {
     const login = loginByEntity.get(eid);
-    if (login) memberships.push({ login, level: membership.restricted_work_orders ?? null });
+    if (login) memberships.push({ login, role: roleByEntity.get(eid) ?? '', level: membership.restricted_work_orders ?? null });
   }
   return restrictedWorkOrderPolicyFromMemberships(memberships);
 }

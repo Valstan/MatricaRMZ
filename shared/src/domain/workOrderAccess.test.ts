@@ -67,6 +67,29 @@ describe('restrictedWorkOrderPolicyFromMemberships', () => {
     expect(restrictedWorkOrderPolicyFromMemberships([{ login: 'x', level: null }])).toBeNull();
     expect(restrictedWorkOrderPolicyFromMemberships([])).toBeNull();
   });
+
+  // Incident 2026-07-28: the owner ticked himself editor of «Наряды закрытые» thinking it
+  // widened access; it made his own 54 orders invisible to every operator, and the
+  // superadmin bypass in canViewWorkOrder hid that from him.
+  it('ignores superadmin rows — his membership grants nothing but could hide his orders', () => {
+    const p = restrictedWorkOrderPolicyFromMemberships([
+      { login: 'valstan', role: 'superadmin', level: 'editor' },
+      { login: 'olga', role: 'master', level: 'editor' },
+    ]);
+    expect([...p!.owners]).toEqual(['olga']);
+    expect([...p!.readers]).toEqual(['olga']);
+    // orders created under the superadmin's login stay visible to ordinary operators
+    expect(canViewWorkOrder({ viewerLogin: 'sapegin', viewerRole: 'admin', ownerLogin: 'valstan', policy: p! })).toBe(
+      true,
+    );
+    expect(canEditWorkOrder({ editorLogin: 'sapegin', editorRole: 'admin', ownerLogin: 'valstan', policy: p! })).toBe(
+      true,
+    );
+  });
+
+  it('a superadmin-only membership falls back to legacy (no policy invented from it)', () => {
+    expect(restrictedWorkOrderPolicyFromMemberships([{ login: 'valstan', role: 'superadmin', level: 'editor' }])).toBeNull();
+  });
 });
 
 describe('policy-driven canView/canEdit (Ф3)', () => {
