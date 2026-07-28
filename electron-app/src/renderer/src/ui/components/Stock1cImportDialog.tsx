@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   STOCK_1C_IMPORT_SOURCE,
-  diff1cSnapshot,
+  canonical1cNomenclature,
   match1cNomenclature,
+  normalizeLookupCompact,
   parse1cStockReport,
+  revise1cAgainstBalances,
   type Stock1cReport,
   type Stock1cSnapshotEntry,
 } from '@matricarmz/shared';
@@ -33,11 +35,17 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
   const [noms, setNoms] = useState<NomRow[] | null>(null);
   const [prevImport, setPrevImport] = useState<PrevImport>(null);
   const [prevLoading, setPrevLoading] = useState(false);
+  const [balances, setBalances] = useState<Stock1cSnapshotEntry[] | null>(null);
+  const [units, setUnits] = useState<Array<{ id: string; label: string }>>([]);
+  const [createMissing, setCreateMissing] = useState(true);
 
   const api = window.matrica as unknown as {
     warehouseLocations: { list: (a?: { activeOnly?: boolean }) => Promise<unknown> };
     warehouse: {
+      lookupsGet: () => Promise<{ ok?: boolean; lookups?: { units?: Array<{ id: string; label: string }> } }>;
       nomenclatureList: (a?: Record<string, unknown>) => Promise<unknown>;
+      nomenclatureUpsert: (a: Record<string, unknown>) => Promise<{ ok: boolean; id?: string; error?: string }>;
+      stockList: (a?: Record<string, unknown>) => Promise<unknown>;
       documentsList: (a?: Record<string, unknown>) => Promise<unknown>;
       documentGet: (id: string) => Promise<unknown>;
       documentCreate: (a: Record<string, unknown>) => Promise<{ ok: boolean; id?: string; error?: string }>;
@@ -72,6 +80,9 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
         }
         if (!alive) return;
         setNoms(all.filter((n) => n.id));
+
+        const lk = await api.warehouse.lookupsGet();
+        if (alive && lk?.ok) setUnits(lk.lookups?.units ?? []);
       } catch (e) {
         if (alive) setError(`Не удалось загрузить справочники: ${String(e)}`);
       }
@@ -82,13 +93,34 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
   }, [props.open]);
 
   // Прошлый импорт по выбранному складу: последний проведённый stock_inventory
-  // с меткой источника 1С в payload (там же лежит снапшот).
+  // с меткой источника 1С в payload (там же лежит снапшот — по нему обнуляются
+  // пропавшие из нового отчёта позиции). Плюс текущие остатки склада — против
+  // них считается ревизия.
   useEffect(() => {
     if (!props.open || !targetLocationId) return;
     let alive = true;
     setPrevLoading(true);
     setPrevImport(null);
+    setBalances(null);
     void (async () => {
+      try {
+        const bal: Stock1cSnapshotEntry[] = [];
+        for (let offset = 0; offset < 100_000; offset += 1000) {
+          const r = (await api.warehouse.stockList({ warehouseId: targetLocationId, limit: 1000, offset })) as {
+            ok?: boolean;
+            rows?: Array<{ nomenclatureId?: string; qty?: number }>;
+            hasMore?: boolean;
+          };
+          const rows = r.rows ?? [];
+          for (const row of rows) {
+            if (row.nomenclatureId) bal.push({ nomenclatureId: String(row.nomenclatureId), qty: Number(row.qty ?? 0) });
+          }
+          if (!r.hasMore || rows.length === 0) break;
+        }
+        if (alive) setBalances(bal);
+      } catch {
+        if (alive) setBalances([]);
+      }
       try {
         const listRaw = (await api.warehouse.documentsList({ docType: 'stock_inventory', statusIn: ['posted'], warehouseId: targetLocationId, limit: 60 })) as {
           rows?: Array<{ id: string; docNo?: string; docDate?: number }>;
@@ -141,22 +173,60 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
   }
 
   // Матчинг: артикул → имя → «имя+артикул» (compact-ключи; логика в shared/import1cStock).
+  // Ненайденные позиции группируются к заведению: имя без артикула, артикул — в поле
+  // артикула (правило владельца; дедуп новых — по артикулу, без него — по имени).
   const matching = useMemo(() => {
     if (!report || !noms) return null;
     const block = report.warehouses[blockIdx];
     if (!block) return null;
     const { matched, unmatched, ambiguous } = match1cNomenclature(block.items, noms);
-    const snapshot: Stock1cSnapshotEntry[] = matched.map((m) => ({ nomenclatureId: m.nom.id, qty: m.item.qty }));
-    const deltas = diff1cSnapshot(prevImport?.snapshot ?? [], snapshot);
+    const toCreateBy = new Map<string, { article: string; name: string; unit: string; qty: number }>();
+    for (const item of unmatched) {
+      const c = canonical1cNomenclature(item.article, item.name);
+      const key = normalizeLookupCompact(c.article) || normalizeLookupCompact(c.name);
+      if (!key) continue;
+      const prev = toCreateBy.get(key);
+      if (prev) prev.qty += item.qty;
+      else toCreateBy.set(key, { article: c.article, name: c.name, unit: item.unit, qty: item.qty });
+    }
+    const toCreate = [...toCreateBy.values()];
+    // Ревизия против текущего остатка склада; прошлый снапшот — только для обнуления
+    // пропавших. Новые (заводимые) позиции лягут приходом с нуля.
+    const fileEntries: Stock1cSnapshotEntry[] = matched.map((m) => ({ nomenclatureId: m.nom.id, qty: m.item.qty }));
+    const deltas = revise1cAgainstBalances({ file: fileEntries, prevSnapshot: prevImport?.snapshot ?? [], balances: balances ?? [] });
+    const createQty = toCreate.reduce((s, x) => s + Math.round(x.qty), 0);
     const fractional = matched.filter((m) => m.item.qty % 1 !== 0).length;
-    return { block, matched, unmatched, ambiguous, snapshot, deltas, fractional };
-  }, [report, blockIdx, noms, prevImport]);
+    return { block, matched, unmatched, ambiguous, toCreate, fileEntries, deltas, createQty, fractional };
+  }, [report, blockIdx, noms, prevImport, balances]);
 
   async function post() {
     if (!matching || !targetLocationId) return;
-    setBusy('Проводим импорт...');
     setError('');
     try {
+      // 1. Заведение ненайденных позиций (если включено).
+      const createdEntries: Stock1cSnapshotEntry[] = [];
+      if (createMissing && matching.toCreate.length > 0) {
+        const unitByKey = new Map(units.map((u) => [normalizeLookupCompact(u.label), u.id]));
+        let done = 0;
+        for (const c of matching.toCreate) {
+          setBusy(`Заводим номенклатуру... ${++done} из ${matching.toCreate.length}`);
+          const unitId = unitByKey.get(normalizeLookupCompact(c.unit));
+          const r = await api.warehouse.nomenclatureUpsert({
+            code: c.article,
+            name: c.name,
+            ...(unitId ? { unitId } : {}),
+            isActive: true,
+          });
+          if (!r.ok || !r.id) {
+            setError(`Не удалось завести «${c.name}»: ${r.error ?? 'неизвестная ошибка'}. Импорт не проведён.`);
+            return;
+          }
+          createdEntries.push({ nomenclatureId: String(r.id), qty: c.qty });
+        }
+      }
+      setBusy('Проводим импорт...');
+      const fileEntries = [...matching.fileEntries, ...createdEntries];
+      const deltas = revise1cAgainstBalances({ file: fileEntries, prevSnapshot: prevImport?.snapshot ?? [], balances: balances ?? [] });
       const now = Date.now();
       const d = new Date(now);
       const pad = (x: number) => String(x).padStart(2, '0');
@@ -166,8 +236,8 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
         docNo,
         docDate: now,
         header: { warehouseId: targetLocationId, reason: `Импорт остатков из 1С (${fileName})` },
-        payloadJson: JSON.stringify({ source: STOCK_1C_IMPORT_SOURCE, importSnapshot: matching.snapshot, importFileName: fileName }),
-        lines: matching.deltas.map((x) => ({
+        payloadJson: JSON.stringify({ source: STOCK_1C_IMPORT_SOURCE, importSnapshot: fileEntries, importFileName: fileName }),
+        lines: deltas.map((x) => ({
           nomenclatureId: x.nomenclatureId,
           qty: Math.abs(x.delta),
           adjustmentQty: x.delta,
@@ -178,7 +248,7 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
         setError(`Не удалось создать документ: ${created.error ?? 'неизвестная ошибка'}`);
         return;
       }
-      if (matching.deltas.length > 0) {
+      if (deltas.length > 0) {
         const posted = await api.warehouse.documentPost(created.id);
         if (!posted.ok) {
           setError(`Документ ${docNo} создан, но не проведён: ${posted.error ?? 'неизвестная ошибка'}`);
@@ -198,6 +268,8 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
   const plus = matching?.deltas.filter((x) => x.delta > 0) ?? [];
   const minus = matching?.deltas.filter((x) => x.delta < 0) ?? [];
   const zeroed = matching?.deltas.filter((x) => x.zeroed) ?? [];
+  const willCreate = createMissing ? (matching?.toCreate.length ?? 0) : 0;
+  const totalLines = (matching?.deltas.length ?? 0) + willCreate;
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -207,9 +279,9 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
           <Button variant="ghost" onClick={props.onClose}>✕ Закрыть</Button>
         </div>
         <div style={{ color: 'var(--muted, #64748b)', fontSize: 13 }}>
-          Файл — отчёт 1С «Остатки и доступность товаров», сохранённый как <b>Текстовый файл (.txt)</b>. Импорт — ревизия «слоя 1С»:
-          сравнивается с прошлым импортом; остатки, заведённые нарядами и документами программы, не затрагиваются. Позиции, пропавшие из
-          отчёта, обнуляются.
+          Файл — отчёт 1С «Остатки и доступность товаров», сохранённый как <b>Текстовый файл (.txt)</b>. Импорт — ревизия: остаток
+          склада приводится к числам из файла (файл показывает реальный физический остаток, поэтому расход нарядами не списывается
+          дважды). Позиции, которых 1С не знает (например, детали от разборки), не затрагиваются; пропавшие из отчёта — обнуляются.
         </div>
 
         <label style={{ display: 'grid', gap: 4 }}>
@@ -252,32 +324,43 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
           <div style={{ display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13 }}>
               <span>✅ Сопоставлено: <b>{matching.matched.length}</b></span>
-              <span style={{ color: matching.unmatched.length ? '#b45309' : undefined }}>❓ Не найдено в программе: <b>{matching.unmatched.length}</b></span>
-              {matching.ambiguous.length > 0 && <span style={{ color: '#b45309' }}>⚠ Неоднозначно: <b>{matching.ambiguous.length}</b></span>}
+              <span style={{ color: matching.toCreate.length ? '#0369a1' : undefined }}>🆕 Новых (нет в программе): <b>{matching.toCreate.length}</b></span>
+              {matching.ambiguous.length > 0 && <span style={{ color: '#b45309' }}>⚠ Неоднозначно (пропускаются): <b>{matching.ambiguous.length}</b></span>}
               {matching.fractional > 0 && <span title="Складской учёт целочисленный — дробные округлены">≈ Дробных (округлено): <b>{matching.fractional}</b></span>}
             </div>
             <div style={{ fontSize: 13 }}>
-              {prevLoading ? (
-                <span style={{ color: 'var(--muted, #64748b)' }}>Ищем прошлый импорт…</span>
+              {balances == null || prevLoading ? (
+                <span style={{ color: 'var(--muted, #64748b)' }}>Читаем остатки склада и прошлый импорт…</span>
               ) : prevImport ? (
-                <span>Прошлый импорт: <b>{prevImport.docNo}</b> ({new Date(prevImport.docDate).toLocaleString('ru-RU')}) — сравнение с ним.</span>
+                <span>Прошлый импорт: <b>{prevImport.docNo}</b> ({new Date(prevImport.docDate).toLocaleString('ru-RU')}). Ревизия — к текущему остатку склада «{locName(targetLocationId)}».</span>
               ) : (
-                <span>Прошлых импортов на складе «{locName(targetLocationId)}» нет — <b>первый импорт</b>, все позиции лягут приходом слоя 1С.</span>
+                <span><b>Первый импорт</b> на складе «{locName(targetLocationId)}» — остатки будут приведены к числам из файла.</span>
               )}
             </div>
+            {matching.toCreate.length > 0 && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={createMissing} onChange={(e) => setCreateMissing(e.target.checked)} />
+                <span>
+                  Завести новые позиции в номенклатуре ({matching.toCreate.length}) — имя без артикула, артикул отдельным полем
+                </span>
+              </label>
+            )}
             <div style={{ fontSize: 13 }}>
               К проводке: <b style={{ color: '#15803d' }}>+{plus.reduce((s, x) => s + x.delta, 0)}</b> по {plus.length} позициям,{' '}
               <b style={{ color: '#b91c1c' }}>{minus.reduce((s, x) => s + x.delta, 0)}</b> по {minus.length} позициям
-              {zeroed.length > 0 && <> (из них обнуляется пропавших из отчёта: {zeroed.length})</>}
-              {matching.deltas.length === 0 && <b> — изменений нет, проводить нечего.</b>}
+              {willCreate > 0 && <>, приход по новым: <b style={{ color: '#0369a1' }}>+{matching.createQty}</b> по {willCreate} позициям</>}
+              {zeroed.length > 0 && <> (обнуляется пропавших из отчёта: {zeroed.length})</>}
+              {totalLines === 0 && <b> — изменений нет, проводить нечего.</b>}
             </div>
-            {matching.unmatched.length > 0 && (
+            {matching.toCreate.length > 0 && (
               <details>
-                <summary style={{ cursor: 'pointer', fontSize: 13 }}>Показать ненайденные позиции ({matching.unmatched.length}) — они будут пропущены</summary>
+                <summary style={{ cursor: 'pointer', fontSize: 13 }}>
+                  Показать новые позиции ({matching.toCreate.length}){createMissing ? ' — будут заведены' : ' — будут пропущены'}
+                </summary>
                 <div style={{ maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--muted, #64748b)', padding: '6px 0' }}>
-                  {matching.unmatched.slice(0, 200).map((x, i) => (
+                  {matching.toCreate.slice(0, 700).map((x, i) => (
                     <div key={i}>
-                      {x.article ? `[${x.article}] ` : ''}{x.name} — {x.qty} {x.unit}
+                      {x.name}{x.article ? ` — арт. ${x.article}` : ''} — {x.qty} {x.unit}
                     </div>
                   ))}
                 </div>
@@ -295,8 +378,8 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
             </span>
           )}
           <Button variant="ghost" onClick={props.onClose}>Отмена</Button>
-          <Button disabled={!matching || !targetLocationId || !!busy || matching.deltas.length === 0} onClick={() => void post()}>
-            Провести импорт ({matching?.deltas.length ?? 0} строк)
+          <Button disabled={!matching || !targetLocationId || !!busy || balances == null || totalLines === 0} onClick={() => void post()}>
+            Провести импорт ({totalLines} строк)
           </Button>
         </div>
       </div>

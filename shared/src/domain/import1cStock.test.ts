@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { clean1cName, diff1cSnapshot, match1cKey, match1cNomenclature, parse1cNumber, parse1cStockReport } from './import1cStock.js';
+import {
+  canonical1cNomenclature,
+  clean1cName,
+  match1cKey,
+  match1cNomenclature,
+  parse1cNumber,
+  parse1cStockReport,
+  revise1cAgainstBalances,
+} from './import1cStock.js';
 
 // Фрагмент реального отчёта «Остатки и доступность товаров» (D:\...\отчет склад 27.txt).
 const SAMPLE = [
@@ -66,40 +74,83 @@ describe('parse1cNumber / clean1cName / match1cKey', () => {
   });
 });
 
-describe('diff1cSnapshot — ревизия внутри слоя 1С', () => {
-  it('новая позиция = +qty, изменение = разница, пропавшая = обнуление', () => {
-    const prev = [
-      { nomenclatureId: 'a', qty: 10 },
-      { nomenclatureId: 'b', qty: 5 },
-      { nomenclatureId: 'c', qty: 7 },
-    ];
-    const next = [
-      { nomenclatureId: 'a', qty: 10 }, // без изменений — не проводится
-      { nomenclatureId: 'b', qty: 8 }, // +3
-      { nomenclatureId: 'd', qty: 4 }, // новая — +4
-      // c пропала → −7, zeroed
-    ];
-    const deltas = diff1cSnapshot(prev, next);
-    expect(deltas).toHaveLength(3);
-    expect(deltas.find((x) => x.nomenclatureId === 'b')).toMatchObject({ delta: 3, prevQty: 5, nextQty: 8, zeroed: false });
-    expect(deltas.find((x) => x.nomenclatureId === 'd')).toMatchObject({ delta: 4, prevQty: 0 });
-    expect(deltas.find((x) => x.nomenclatureId === 'c')).toMatchObject({ delta: -7, nextQty: 0, zeroed: true });
-  });
-
-  it('дробные количества округляются до целых (складской учёт целочисленный)', () => {
-    const deltas = diff1cSnapshot([], [{ nomenclatureId: 'kg', qty: 123.813 }]);
-    expect(deltas[0]!.delta).toBe(124);
-  });
-
-  it('первый импорт (prev пуст) — все позиции плюсом; дубль в снапшоте берётся один раз', () => {
-    const deltas = diff1cSnapshot(
-      [],
-      [
-        { nomenclatureId: 'a', qty: 2 },
-        { nomenclatureId: 'a', qty: 99 },
+describe('revise1cAgainstBalances — ревизия против текущего остатка программы', () => {
+  it('остаток приводится к числу из файла; совпадающие не проводятся', () => {
+    const deltas = revise1cAgainstBalances({
+      file: [
+        { nomenclatureId: 'a', qty: 100 }, // остаток 90 → +10
+        { nomenclatureId: 'b', qty: 5 }, // остаток 5 → без изменений
+        { nomenclatureId: 'd', qty: 4 }, // остатка нет → +4
       ],
-    );
-    expect(deltas).toEqual([{ nomenclatureId: 'a', delta: 2, prevQty: 0, nextQty: 2, zeroed: false }]);
+      prevSnapshot: [],
+      balances: [
+        { nomenclatureId: 'a', qty: 90 },
+        { nomenclatureId: 'b', qty: 5 },
+      ],
+    });
+    expect(deltas).toHaveLength(2);
+    expect(deltas.find((x) => x.nomenclatureId === 'a')).toMatchObject({ delta: 10, prevQty: 90, nextQty: 100 });
+    expect(deltas.find((x) => x.nomenclatureId === 'd')).toMatchObject({ delta: 4, prevQty: 0 });
+  });
+
+  it('расход нарядом НЕ списывается дважды: 1С догнала программу → дельта нулевая', () => {
+    // Наряд списал 10 (остаток 90); свежий файл 1С тоже показывает 90 → изменений нет.
+    const deltas = revise1cAgainstBalances({
+      file: [{ nomenclatureId: 'a', qty: 90 }],
+      prevSnapshot: [{ nomenclatureId: 'a', qty: 100 }],
+      balances: [{ nomenclatureId: 'a', qty: 90 }],
+    });
+    expect(deltas).toHaveLength(0);
+  });
+
+  it('позиция пропала из отчёта → обнуляется по текущему остатку; чисто программные не трогаются', () => {
+    const deltas = revise1cAgainstBalances({
+      file: [],
+      prevSnapshot: [{ nomenclatureId: 'gone', qty: 7 }],
+      balances: [
+        { nomenclatureId: 'gone', qty: 6 }, // 1 уже списан нарядом — обнуляем остаток 6, не 7
+        { nomenclatureId: 'program-only', qty: 33 }, // детали от разборки — импорт не знает и не трогает
+      ],
+    });
+    expect(deltas).toEqual([{ nomenclatureId: 'gone', delta: -6, prevQty: 6, nextQty: 0, zeroed: true }]);
+  });
+
+  it('дробные округляются; дубль в файле берётся один раз', () => {
+    const deltas = revise1cAgainstBalances({
+      file: [
+        { nomenclatureId: 'kg', qty: 123.813 },
+        { nomenclatureId: 'kg', qty: 999 },
+      ],
+      prevSnapshot: [],
+      balances: [],
+    });
+    expect(deltas).toEqual([{ nomenclatureId: 'kg', delta: 124, prevQty: 0, nextQty: 124, zeroed: false }]);
+  });
+});
+
+describe('canonical1cNomenclature — имя без артикула, артикул отдельным полем', () => {
+  it('срезает артикул из начала и конца имени (compact-сравнение)', () => {
+    expect(canonical1cNomenclature('303-11-2', '303-11-2 Кольцо')).toEqual({ article: '303-11-2', name: 'Кольцо' });
+    expect(canonical1cNomenclature('3304-08-11', 'Кольцо поршневое маслосбрасывающее 3304-08-11')).toEqual({
+      article: '3304-08-11',
+      name: 'Кольцо поршневое маслосбрасывающее',
+    });
+  });
+
+  it('артикул из нескольких токенов имени тоже срезается', () => {
+    expect(canonical1cNomenclature('306-89', '306 - 89 уплотнение,')).toEqual({ article: '306-89', name: 'уплотнение' });
+  });
+
+  it('без артикула имя не трогаем; несовпадающий артикул имя не режет', () => {
+    expect(canonical1cNomenclature('', '009-012-19-2-2 ГОСТ 9833-73(кольцо),')).toEqual({
+      article: '',
+      name: '009-012-19-2-2 ГОСТ 9833-73(кольцо)',
+    });
+    expect(canonical1cNomenclature('26х32', '26*32*1,5 Шайба (медь)')).toEqual({ article: '26х32', name: '26*32*1,5 Шайба (медь)' });
+  });
+
+  it('имя, целиком равное артикулу, не схлопывается в пустоту', () => {
+    expect(canonical1cNomenclature('3335-38', '3335-38,')).toEqual({ article: '3335-38', name: '3335-38' });
   });
 });
 

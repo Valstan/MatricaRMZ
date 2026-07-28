@@ -6,11 +6,10 @@
 // номенклатуры (С ведущим табом): Артикул \t Номенклатура,Характеристика \t
 // Ед.изм. \t В наличии \t … ; терминатор — строка «Итого».
 //
-// Семантика применения — «слой 1С» (ревизия внутри слоя): каждый импорт — полный
-// снапшот остатков 1С по складу; дельты считаются ПРОТИВ ПРОШЛОГО ИМПОРТА, а не
-// против системного остатка программы, поэтому движения из нарядов/документов
-// программы импорт не трогает. Позиция, пропавшая из нового снапшота, обнуляется
-// (дельта = −прошлое количество).
+// Семантика применения — ревизия против ТЕКУЩЕГО остатка программы (см.
+// revise1cAgainstBalances): файл 1С — абсолютная истина для известных слою 1С
+// позиций; чисто программные остатки (не встречались ни в файле, ни в прошлом
+// снапшоте) не затрагиваются. Позиция, пропавшая из нового снапшота, обнуляется.
 
 import { normalizeLookupCompact } from './lookupNormalize.js';
 
@@ -180,29 +179,77 @@ export type Stock1cDelta = {
   zeroed: boolean;
 };
 
-/**
- * Дельты «новый снапшот против прошлого». Количества к проводке округляются до целых
- * (складской учёт программы целочисленный); dropped-хвост виден в превью через qty.
- */
-export function diff1cSnapshot(prev: Stock1cSnapshotEntry[], next: Stock1cSnapshotEntry[]): Stock1cDelta[] {
-  const prevBy = new Map<string, number>();
-  for (const p of prev) prevBy.set(p.nomenclatureId, Math.round(p.qty));
+/** Метка источника в header-payload документа stock_inventory. */
+export const STOCK_1C_IMPORT_SOURCE = '1c_stock_import';
+
+// ── Канонизация новой номенклатуры из строки 1С ─────────────────────────────────
+//
+// Правило владельца: в справочник программы имя попадает БЕЗ артикула, артикул —
+// отдельным полем (по нему же дедуп). В 1С артикул часто продублирован прямо в
+// названии — срезаем ведущие/хвостовые токены имени, совпадающие с артикулом
+// (compact-сравнение). Если колонка артикула пуста, имя не трогаем: надёжно
+// выделить артикул из произвольного названия нельзя.
+
+export function canonical1cNomenclature(article: string, name: string): { article: string; name: string } {
+  const art = String(article ?? '').trim();
+  const cleanName = clean1cName(name);
+  if (!art) return { article: '', name: cleanName };
+  const artKey = normalizeLookupCompact(art);
+  if (!artKey) return { article: art, name: cleanName };
+  const tokens = cleanName.split(/\s+/).filter(Boolean);
+  const strip = (list: string[]): string[] => {
+    // Срезаем до 3 токенов с любого края, если склейка равна артикулу.
+    for (const fromStart of [true, false]) {
+      for (let n = Math.min(3, list.length - 1); n >= 1; n -= 1) {
+        const slice = fromStart ? list.slice(0, n) : list.slice(list.length - n);
+        if (normalizeLookupCompact(slice.join(' ')) === artKey) {
+          return fromStart ? list.slice(n) : list.slice(0, list.length - n);
+        }
+      }
+    }
+    return list;
+  };
+  const stripped = strip(tokens).join(' ').trim();
+  return { article: art, name: stripped || cleanName };
+}
+
+// ── Ревизия против остатка программы ────────────────────────────────────────────
+//
+// Файл 1С показывает РЕАЛЬНЫЙ физический остаток, поэтому для позиций, известных
+// слою 1С, он — абсолютная истина: дельта считается против ТЕКУЩЕГО остатка
+// программы, а не против прошлого импорта. Так расход нарядами не списывается
+// дважды (наряд уже уменьшил остаток; когда 1С догонит, дельта станет нулевой),
+// а ошибка от запаздывания файла ограничена окном между импортами и
+// самокорректируется следующим импортом. Позиции, которых нет ни в файле, ни в
+// прошлом снапшоте (чисто программные остатки, напр. детали от разборки),
+// не затрагиваются вовсе.
+
+export function revise1cAgainstBalances(args: {
+  /** Остатки из файла 1С (сматченная номенклатура). */
+  file: Stock1cSnapshotEntry[];
+  /** Снапшот прошлого импорта — чтобы обнулять пропавшие из отчёта позиции. */
+  prevSnapshot: Stock1cSnapshotEntry[];
+  /** Текущие остатки программы на целевом складе. */
+  balances: Stock1cSnapshotEntry[];
+}): Stock1cDelta[] {
+  const balanceBy = new Map<string, number>();
+  for (const b of args.balances) balanceBy.set(b.nomenclatureId, Math.round(b.qty));
   const out: Stock1cDelta[] = [];
   const seen = new Set<string>();
-  for (const n of next) {
-    if (seen.has(n.nomenclatureId)) continue; // дубль в снапшоте — берём первую строку
-    seen.add(n.nomenclatureId);
-    const prevQty = prevBy.get(n.nomenclatureId) ?? 0;
-    const nextQty = Math.round(n.qty);
+  for (const f of args.file) {
+    if (seen.has(f.nomenclatureId)) continue; // дубль в файле — берём первую строку
+    seen.add(f.nomenclatureId);
+    const prevQty = balanceBy.get(f.nomenclatureId) ?? 0;
+    const nextQty = Math.round(f.qty);
     const delta = nextQty - prevQty;
-    if (delta !== 0) out.push({ nomenclatureId: n.nomenclatureId, delta, prevQty, nextQty, zeroed: false });
+    if (delta !== 0) out.push({ nomenclatureId: f.nomenclatureId, delta, prevQty, nextQty, zeroed: false });
   }
-  for (const [nomenclatureId, prevQty] of prevBy) {
-    if (seen.has(nomenclatureId) || prevQty === 0) continue;
-    out.push({ nomenclatureId, delta: -prevQty, prevQty, nextQty: 0, zeroed: true });
+  for (const p of args.prevSnapshot) {
+    if (seen.has(p.nomenclatureId)) continue;
+    seen.add(p.nomenclatureId);
+    const prevQty = balanceBy.get(p.nomenclatureId) ?? 0;
+    if (prevQty === 0) continue;
+    out.push({ nomenclatureId: p.nomenclatureId, delta: -prevQty, prevQty, nextQty: 0, zeroed: true });
   }
   return out;
 }
-
-/** Метка источника в header-payload документа stock_inventory. */
-export const STOCK_1C_IMPORT_SOURCE = '1c_stock_import';
