@@ -42,6 +42,7 @@
     "@typescript-eslint/eslint-plugin": "^8.50.0",
     "@typescript-eslint/parser": "^8.50.0",
     "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.5.0",
     "knip": "^6.17.1",
     "prettier": "^3.4.2",

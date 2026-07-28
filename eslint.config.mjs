@@ -2,6 +2,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
   js.configs.recommended,
@@ -47,6 +48,18 @@ export default [
       'no-redeclare': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-console': 'off',
+    },
+  },
+  {
+    // React-хуки: rules-of-hooks — error (ловит класс багов React #310,
+    // см. инцидент v2026.728.1630), exhaustive-deps — warn (разгребается постепенно).
+    files: ['electron-app/src/renderer/**/*.{ts,tsx}', 'web-admin/src/**/*.{ts,tsx}'],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
     },
   },
 ];
