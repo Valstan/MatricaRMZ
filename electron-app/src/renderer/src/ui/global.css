@@ -2755,3 +2755,21 @@ table.list-table.list-table--catalog {
   border-right: 2px solid;
   border-image: linear-gradient(180deg, color-mix(in srgb, var(--input-border-focus) 45%, transparent), transparent) 1;
 }
+
+/* Верхняя панель приложения: логотип + название + все кнопки одной центрированной
+   строкой. Переноса на второй ряд нет намеренно — при нехватке места HeaderBar
+   гасит подписи кнопок (`data-hdr-label`), иконки остаются. */
+.hdr-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.hdr-bar > * {
+  flex: 0 0 auto;
+}
