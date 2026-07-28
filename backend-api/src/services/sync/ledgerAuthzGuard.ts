@@ -74,13 +74,21 @@ export async function partitionLedgerInputsByAuthz(
   const codeByTypeId = new Map<string, string>();
   for (const r of typeRows) codeByTypeId.set(str(r.id), str(r.code));
 
+  // Sync-контракт entities несёт тип в поле `type_id` (entityRowSchema), НЕ
+  // `entity_type_id` — чтение не того поля давало entityTypeCode=null для всех
+  // entities-строк, и гейты (резерв Ф2, разделы Ф3) молча не применялись к
+  // upsert'ам сущностей, хотя их атрибуты уже гейтились. Fallback оставлен на
+  // случай легаси-строк в оффлайн-очередях.
+  const entityRowTypeId = (inp: SyncWriteInput): string =>
+    str(inp.row?.['type_id'] ?? inp.row?.['entity_type_id']);
+
   // entity_id -> entity_type_id: from this batch's entities rows first, then DB
   // for the rest (an entity created in the same batch is not yet in the DB).
   const typeIdByEntityId = new Map<string, string>();
   for (const inp of inputs) {
     if (inp.table === SyncTableName.Entities) {
       const eid = str(inp.row?.['id'] ?? inp.row_id);
-      const tid = str(inp.row?.['entity_type_id']);
+      const tid = entityRowTypeId(inp);
       if (eid && tid) typeIdByEntityId.set(eid, tid);
     }
   }
@@ -135,7 +143,7 @@ export async function partitionLedgerInputsByAuthz(
   if (reservationGateOn) {
     for (const inp of inputs) {
       if (inp.table === SyncTableName.Entities) {
-        const tid = str(inp.row?.['entity_type_id']);
+        const tid = entityRowTypeId(inp);
         if (codeByTypeId.get(tid) === 'engine') touchedEngineIds.add(str(inp.row?.['id'] ?? inp.row_id));
       } else if (inp.table === SyncTableName.AttributeValues) {
         const eid = str(inp.row?.['entity_id']);
@@ -181,7 +189,7 @@ export async function partitionLedgerInputsByAuthz(
 
     if (inp.table === SyncTableName.Entities) {
       ownerEntityId = str(inp.row?.['id'] ?? inp.row_id);
-      entityTypeCode = codeByTypeId.get(str(inp.row?.['entity_type_id'])) ?? null;
+      entityTypeCode = codeByTypeId.get(entityRowTypeId(inp)) ?? null;
     } else if (inp.table === SyncTableName.AttributeValues) {
       ownerEntityId = str(inp.row?.['entity_id']);
       const tid = typeIdByEntityId.get(ownerEntityId);

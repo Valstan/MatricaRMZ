@@ -85,8 +85,8 @@ describe('partitionLedgerInputsByAuthz', () => {
     ]);
 
     const inputs = [
-      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
-      { type: 'upsert' as const, table: 'entities', row: { id: 'c1', entity_type_id: 't-contract' }, row_id: 'c1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'c1', type_id: 't-contract' }, row_id: 'c1' },
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self' }, row_id: 'a1' },
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a2', entity_id: 'emp-other' }, row_id: 'a2' },
     ];
@@ -103,7 +103,7 @@ describe('partitionLedgerInputsByAuthz', () => {
     seedTypes();
     seedEntities([]); // emp-other not needed; the contract entity is created in-batch
     const inputs = [
-      { type: 'upsert' as const, table: 'entities', row: { id: 'c2', entity_type_id: 't-contract' }, row_id: 'c2' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'c2', type_id: 't-contract' }, row_id: 'c2' },
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a3', entity_id: 'c2' }, row_id: 'a3' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
@@ -116,7 +116,7 @@ describe('partitionLedgerInputsByAuthz', () => {
     seedTypes();
     for (const role of ['user', 'admin', 'superadmin']) {
       const inputs = [
-        { type: 'upsert' as const, table: 'entities', row: { id: 'c1', entity_type_id: 't-contract' }, row_id: 'c1' },
+        { type: 'upsert' as const, table: 'entities', row: { id: 'c1', type_id: 't-contract' }, row_id: 'c1' },
       ];
       const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'u', username: 'u', role });
       expect(allowed, role).toHaveLength(1);
@@ -238,11 +238,37 @@ describe('section viewer write-gate (Ф3)', () => {
     pushQueue(attributeValues, vals);
 
     const inputs = [
-      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
     expect(allowed).toHaveLength(0);
     expect(denied[0]?.reason).toBe('forbidden:section_viewer:production');
+  });
+
+  // Регресс: гард читал `entity_type_id`, а sync-контракт шлёт `type_id` →
+  // entityTypeCode был null для всех entities-строк и гейты (Ф2/Ф3) молча
+  // не применялись к upsert'ам сущностей (fail-open на реальном wire).
+  it('reservation gate applies to the bare engine entity row (real wire field type_id)', async () => {
+    seedTypes();
+    const vals = seedMembership([{ login: 'eng', membership: { production: 'editor' } }]);
+    pushQueue(attributeValues, vals);
+    reservationState.live.set('eng-1', {
+      v: 1,
+      holderUserId: 'other-user',
+      holderLogin: 'other',
+      holderFullName: 'Другой',
+      startedAt: 0,
+      expiresAt: Date.now() + 60_000,
+      releasedAt: null,
+      releasedBy: null,
+    });
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'entities', row: { id: 'eng-1', type_id: 't-engine', updated_at: Date.now() }, row_id: 'eng-1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+    expect(allowed).toHaveLength(0);
+    expect(denied[0]?.reason).toMatch(/^reserved:other:/);
   });
 
   it('seeded editor of production: engine write allowed', async () => {
@@ -251,7 +277,7 @@ describe('section viewer write-gate (Ф3)', () => {
     pushQueue(attributeValues, vals);
 
     const inputs = [
-      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
     expect(allowed).toHaveLength(1);
@@ -264,7 +290,7 @@ describe('section viewer write-gate (Ф3)', () => {
     pushQueue(attributeValues, vals);
 
     const inputs = [
-      { type: 'upsert' as const, table: 'entities', row: { id: 'c1', entity_type_id: 't-contract' }, row_id: 'c1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'c1', type_id: 't-contract' }, row_id: 'c1' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'u', username: 'u', role: 'user' });
     expect(allowed).toHaveLength(0);
@@ -290,7 +316,7 @@ describe('section viewer write-gate (Ф3)', () => {
     seedTypes();
     // no membership rows queued → loads drain empty
     const inputs = [
-      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', entity_type_id: 't-engine' }, row_id: 'e1' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
     expect(allowed).toHaveLength(1);
@@ -319,7 +345,7 @@ describe('advisory engine reservation gate (Ф2)', () => {
 
     const inputs = [
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-num', updated_at: NOW }, row_id: 'a1' },
-      { type: 'upsert' as const, table: 'entities', row: { id: 'eng-2', entity_type_id: 't-engine', updated_at: NOW }, row_id: 'eng-2' },
+      { type: 'upsert' as const, table: 'entities', row: { id: 'eng-2', type_id: 't-engine', updated_at: NOW }, row_id: 'eng-2' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
 
@@ -404,7 +430,7 @@ describe('advisory engine reservation gate (Ф2)', () => {
     seedDefs([]); // подложного def'а в БД ещё нет — он приехал этим же батчем
 
     const inputs = [
-      { type: 'upsert' as const, table: 'attribute_defs', row: { id: 'def-fake', code: 'engine_reservation', entity_type_id: 't-engine' }, row_id: 'def-fake' },
+      { type: 'upsert' as const, table: 'attribute_defs', row: { id: 'def-fake', code: 'engine_reservation', type_id: 't-engine' }, row_id: 'def-fake' },
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-fake', updated_at: NOW }, row_id: 'a1' },
     ];
     const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
