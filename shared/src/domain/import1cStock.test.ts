@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { clean1cName, diff1cSnapshot, match1cKey, parse1cNumber, parse1cStockReport } from './import1cStock.js';
+import { clean1cName, diff1cSnapshot, match1cKey, match1cNomenclature, parse1cNumber, parse1cStockReport } from './import1cStock.js';
 
 // Фрагмент реального отчёта «Остатки и доступность товаров» (D:\...\отчет склад 27.txt).
 const SAMPLE = [
@@ -100,5 +100,51 @@ describe('diff1cSnapshot — ревизия внутри слоя 1С', () => {
       ],
     );
     expect(deltas).toEqual([{ nomenclatureId: 'a', delta: 2, prevQty: 0, nextQty: 2, zeroed: false }]);
+  });
+});
+
+describe('match1cNomenclature — ярусы артикул → имя → имя+артикул', () => {
+  const item = (article: string, name: string, qty = 1) => ({ article, name, unit: 'шт', qty });
+
+  it('артикул 1С матчится на артикул программы (code/sku) при разных именах', () => {
+    const r = match1cNomenclature([item('3304-08-11', 'Кольцо поршневое маслосбрасывающее 3304-08-11')], [
+      { id: 'n1', name: 'Кольцо поршневое маслосбрасывающее', article: '3304-08-11' },
+    ]);
+    expect(r.matched).toHaveLength(1);
+    expect(r.matched[0]!.nom.id).toBe('n1');
+  });
+
+  it('без артикула 1С: имя с дописанным артикулом матчится на имя+артикул программы', () => {
+    const r = match1cNomenclature([item('', 'Кольцо поршневое маслосбрасывающее 504-08-6')], [
+      { id: 'n1', name: 'Кольцо поршневое маслосбрасывающее', article: '504-08-6' },
+      { id: 'n2', name: 'Кольцо поршневое маслосбрасывающее', article: '3304-08-11' },
+    ]);
+    expect(r.matched).toHaveLength(1);
+    expect(r.matched[0]!.nom.id).toBe('n1');
+  });
+
+  it('артикул в начале имени 1С тоже матчится (перестановка артикул+имя)', () => {
+    const r = match1cNomenclature([item('', '303-11-2 Кольцо')], [{ id: 'n1', name: 'Кольцо', article: '303-11-2' }]);
+    expect(r.matched).toHaveLength(1);
+  });
+
+  it('несколько кандидатов = неоднозначно, ноль = не найдено', () => {
+    const noms = [
+      { id: 'n1', name: 'Ветошь', article: '' },
+      { id: 'n2', name: 'Ветошь', article: '' },
+    ];
+    const r = match1cNomenclature([item('', 'Ветошь'), item('', 'Азелит')], noms);
+    expect(r.ambiguous).toHaveLength(1);
+    expect(r.unmatched).toHaveLength(1);
+  });
+
+  it('точный артикул выигрывает раньше имени и не путается с однофамильцами', () => {
+    const noms = [
+      { id: 'n1', name: 'Кольцо', article: '303-11-2' },
+      { id: 'n2', name: 'Кольцо', article: '303-12' },
+    ];
+    const r = match1cNomenclature([item('303-12', 'Кольцо')], noms);
+    expect(r.matched).toHaveLength(1);
+    expect(r.matched[0]!.nom.id).toBe('n2');
   });
 });
