@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   STOCK_1C_IMPORT_SOURCE,
   diff1cSnapshot,
-  match1cKey,
+  match1cNomenclature,
   parse1cStockReport,
   type Stock1cReport,
   type Stock1cSnapshotEntry,
@@ -65,7 +65,8 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
           const r = (await api.warehouse.nomenclatureList({ limit: 1000, offset })) as { ok?: boolean; rows?: Array<Record<string, unknown>>; hasMore?: boolean };
           const rows = r.rows ?? [];
           for (const row of rows) {
-            all.push({ id: String(row.id ?? ''), name: String(row.name ?? ''), article: String(row.article ?? row.articul ?? '') });
+            // Артикул в erp_nomenclature живёт в code/sku (поля article там нет).
+            all.push({ id: String(row.id ?? ''), name: String(row.name ?? ''), article: String(row.code ?? row.sku ?? '') });
           }
           if (!r.hasMore || rows.length === 0) break;
         }
@@ -139,28 +140,12 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     setBlockIdx(mainIdx >= 0 ? mainIdx : 0);
   }
 
-  // Матчинг: артикул → имя (оба compact-нормализованные, дефисы/пробелы не важны).
+  // Матчинг: артикул → имя → «имя+артикул» (compact-ключи; логика в shared/import1cStock).
   const matching = useMemo(() => {
     if (!report || !noms) return null;
     const block = report.warehouses[blockIdx];
     if (!block) return null;
-    const byArticle = new Map<string, NomRow[]>();
-    const byName = new Map<string, NomRow[]>();
-    for (const n of noms) {
-      const k = match1cKey(n.article, n.name);
-      if (k.articleKey) byArticle.set(k.articleKey, [...(byArticle.get(k.articleKey) ?? []), n]);
-      if (k.nameKey) byName.set(k.nameKey, [...(byName.get(k.nameKey) ?? []), n]);
-    }
-    const matched: Array<{ item: (typeof block.items)[number]; nom: NomRow }> = [];
-    const unmatched: typeof block.items = [];
-    const ambiguous: typeof block.items = [];
-    for (const item of block.items) {
-      const k = match1cKey(item.article, item.name);
-      const cands = (k.articleKey ? byArticle.get(k.articleKey) : undefined) ?? byName.get(k.nameKey) ?? [];
-      if (cands.length === 1) matched.push({ item, nom: cands[0]! });
-      else if (cands.length > 1) ambiguous.push(item);
-      else unmatched.push(item);
-    }
+    const { matched, unmatched, ambiguous } = match1cNomenclature(block.items, noms);
     const snapshot: Stock1cSnapshotEntry[] = matched.map((m) => ({ nomenclatureId: m.nom.id, qty: m.item.qty }));
     const deltas = diff1cSnapshot(prevImport?.snapshot ?? [], snapshot);
     const fractional = matched.filter((m) => m.item.qty % 1 !== 0).length;

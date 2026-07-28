@@ -56,6 +56,57 @@ export function match1cKey(article: string, name: string): { articleKey: string;
   };
 }
 
+export type Stock1cNomCandidate = { id: string; name: string; article: string };
+
+export type Stock1cMatchResult<T extends Stock1cItem> = {
+  matched: Array<{ item: T; nom: Stock1cNomCandidate }>;
+  unmatched: T[];
+  ambiguous: T[];
+};
+
+/**
+ * Матчинг строк 1С против номенклатуры программы. Ярусы (первый непустой выигрывает):
+ * 1) артикул 1С ↔ артикул программы (code/sku);
+ * 2) имя 1С ↔ имя программы;
+ * 3) имя 1С ↔ «имя+артикул» программы (в 1С артикул часто дописан прямо в название,
+ *    а в программе живёт отдельным полем; compact-нормализация склеивает без пробелов,
+ *    поэтому проверяются обе перестановки: имя+артикул и артикул+имя).
+ * Все ключи compact-нормализованные (регистр/дефисы/пробелы не важны).
+ */
+export function match1cNomenclature<T extends Stock1cItem>(items: T[], noms: Stock1cNomCandidate[]): Stock1cMatchResult<T> {
+  const push = (map: Map<string, Stock1cNomCandidate[]>, key: string, n: Stock1cNomCandidate) => {
+    if (key) map.set(key, [...(map.get(key) ?? []), n]);
+  };
+  const byArticle = new Map<string, Stock1cNomCandidate[]>();
+  const byName = new Map<string, Stock1cNomCandidate[]>();
+  const byCombined = new Map<string, Stock1cNomCandidate[]>();
+  for (const n of noms) {
+    const k = match1cKey(n.article, n.name);
+    push(byArticle, k.articleKey, n);
+    push(byName, k.nameKey, n);
+    if (k.articleKey && k.nameKey) {
+      push(byCombined, k.nameKey + k.articleKey, n);
+      push(byCombined, k.articleKey + k.nameKey, n);
+    }
+  }
+  const matched: Array<{ item: T; nom: Stock1cNomCandidate }> = [];
+  const unmatched: T[] = [];
+  const ambiguous: T[] = [];
+  for (const item of items) {
+    const k = match1cKey(item.article, item.name);
+    const cands =
+      (k.articleKey ? byArticle.get(k.articleKey) : undefined) ??
+      byName.get(k.nameKey) ??
+      byCombined.get(k.nameKey) ??
+      (k.articleKey ? (byName.get(k.nameKey + k.articleKey) ?? byName.get(k.articleKey + k.nameKey)) : undefined) ??
+      [];
+    if (cands.length === 1) matched.push({ item, nom: cands[0]! });
+    else if (cands.length > 1) ambiguous.push(item);
+    else unmatched.push(item);
+  }
+  return { matched, unmatched, ambiguous };
+}
+
 const REPORT_MARKER = 'Остатки и доступность товаров';
 const TERMINATOR = 'Итого';
 
