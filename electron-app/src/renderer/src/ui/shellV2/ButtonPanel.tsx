@@ -62,10 +62,7 @@ export function ButtonPanel(props: {
   activeMenuTab: MenuTabId | null;
   listOpenTab: MenuTabId | null;
   collapsed: boolean;
-  overlayPinned: boolean;
-  onToggleOverlayPinned: () => void;
   onTab: (id: MenuTabId) => void;
-  onSwitchToV1: () => void;
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -182,18 +179,6 @@ export function ButtonPanel(props: {
             ))}
           </div>
         )}
-        <button
-          type="button"
-          className="v2-footer-btn"
-          data-active={props.overlayPinned ? '1' : undefined}
-          title="Панель кнопок поверх остальных колонок"
-          onClick={props.onToggleOverlayPinned}
-        >
-          {props.overlayPinned ? '📌 Открепить панель' : '📌 Поверх колонок'}
-        </button>
-        <button type="button" className="v2-footer-btn" onClick={props.onSwitchToV1} title="Вернуться на старый интерфейс">
-          ↩️ Старый интерфейс
-        </button>
       </div>
       {menu && (
         <div className="v2-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
