@@ -7,7 +7,13 @@ import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import { attributeDefs, attributeValues, chatMessages, entities, entityTypes } from '../database/schema.js';
 import { makeInsertChain, makeTxSelectFromTableMap } from './utils/dbMockHelpers.js';
 
-const selectQueue: any[] = [];
+// Мок db.select — по ТАБЛИЦЕ, не по порядку вызовов: позиционная очередь ответов
+// молча разъезжается, когда pullChangesSince добавляет/убирает вспомогательный
+// select до скана таблиц (ловилось только на CI — класс brain #101).
+const { pullRowsByTable, pullState } = vi.hoisted(() => ({
+  pullRowsByTable: new Map<unknown, any[]>(),
+  pullState: { maxSeq: 0 },
+}));
 let txRowsByTable = new Map<unknown, any[]>();
 
 const txMock = {
@@ -22,12 +28,18 @@ const txMock = {
 
 vi.mock('../database/db.js', () => ({
   db: {
-    select: vi.fn(() => ({
-      from: vi.fn(() => {
+    select: vi.fn((fields?: Record<string, unknown>) => ({
+      from: vi.fn((table: unknown) => {
+        const keys = fields ? Object.keys(fields) : [];
         const chain: any = {
           where: vi.fn(() => chain),
           orderBy: vi.fn(() => chain),
-          limit: vi.fn(async () => (selectQueue.length > 0 ? (selectQueue.shift() as any[]) : [])),
+          limit: vi.fn(async () => {
+            if (keys.includes('max')) return [{ max: pullState.maxSeq }];
+            if (keys.includes('count')) return [{ count: 0 }];
+            if (keys.length > 0) return []; // проекции-хелперы (noteId / id / LTI-поля)
+            return pullRowsByTable.get(table) ?? []; // полные сканы sync-таблиц
+          }),
         };
         return chain;
       }),
@@ -38,7 +50,8 @@ vi.mock('../database/db.js', () => ({
 
 describe('sync privacy and errors', () => {
   beforeEach(() => {
-    selectQueue.length = 0;
+    pullRowsByTable.clear();
+    pullState.maxSeq = 0;
     txRowsByTable = new Map();
     vi.clearAllMocks();
     txMock.select.mockImplementation(makeTxSelectFromTableMap(txRowsByTable));
@@ -47,49 +60,34 @@ describe('sync privacy and errors', () => {
   });
 
   it('pullChangesSince keeps chat privacy for non-admin', async () => {
-    selectQueue.push(
-      [{ max: 5 }],
-      [{ count: 0 }],
-      [],
-      [],
-      [
-        {
-          id: 'e1',
-          typeId: 't1',
-          createdAt: 1,
-          updatedAt: 1,
-          deletedAt: null,
-          syncStatus: 'synced',
-          lastServerSeq: 5,
-        },
-      ],
-      [],
-      [],
-      [],
-      [
-        {
-          id: 'm1',
-          senderUserId: 'u1',
-          senderUsername: 'u1',
-          recipientUserId: 'u2',
-          messageType: 'text',
-          bodyText: 'hello',
-          payloadJson: null,
-          createdAt: 1,
-          updatedAt: 1,
-          deletedAt: null,
-          syncStatus: 'synced',
-          lastServerSeq: 1,
-        },
-      ],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-    );
+    pullState.maxSeq = 5;
+    pullRowsByTable.set(entities, [
+      {
+        id: 'e1',
+        typeId: 't1',
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: 5,
+      },
+    ]);
+    pullRowsByTable.set(chatMessages, [
+      {
+        id: 'm1',
+        senderUserId: 'u1',
+        senderUsername: 'u1',
+        recipientUserId: 'u2',
+        messageType: 'text',
+        bodyText: 'hello',
+        payloadJson: null,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: 1,
+      },
+    ]);
 
     const res = await pullChangesSince(0, { id: 'u2', role: 'user' });
     const ids = res.changes.map((c) => c.row_id);
@@ -98,51 +96,37 @@ describe('sync privacy and errors', () => {
   });
 
   it('pullChangesSince returns all chat rows for admin', async () => {
-    selectQueue.push(
-      [{ max: 2 }],
-      [{ count: 0 }],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [
-        {
-          id: 'm1',
-          senderUserId: 'u1',
-          senderUsername: 'u1',
-          recipientUserId: 'u2',
-          messageType: 'text',
-          bodyText: 'one',
-          payloadJson: null,
-          createdAt: 1,
-          updatedAt: 1,
-          deletedAt: null,
-          syncStatus: 'synced',
-          lastServerSeq: 1,
-        },
-        {
-          id: 'm2',
-          senderUserId: 'u1',
-          senderUsername: 'u1',
-          recipientUserId: null,
-          messageType: 'text',
-          bodyText: 'two',
-          payloadJson: null,
-          createdAt: 2,
-          updatedAt: 2,
-          deletedAt: null,
-          syncStatus: 'synced',
-          lastServerSeq: 2,
-        },
-      ],
-      [],
-      [],
-      [],
-      [],
-      [],
-    );
+    pullState.maxSeq = 2;
+    pullRowsByTable.set(chatMessages, [
+      {
+        id: 'm1',
+        senderUserId: 'u1',
+        senderUsername: 'u1',
+        recipientUserId: 'u2',
+        messageType: 'text',
+        bodyText: 'one',
+        payloadJson: null,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: 1,
+      },
+      {
+        id: 'm2',
+        senderUserId: 'u1',
+        senderUsername: 'u1',
+        recipientUserId: null,
+        messageType: 'text',
+        bodyText: 'two',
+        payloadJson: null,
+        createdAt: 2,
+        updatedAt: 2,
+        deletedAt: null,
+        syncStatus: 'synced',
+        lastServerSeq: 2,
+      },
+    ]);
     const res = await pullChangesSince(0, { id: 'admin-1', role: 'admin' });
     const ids = res.changes.map((c) => c.row_id);
     expect(ids).toContain('m1');

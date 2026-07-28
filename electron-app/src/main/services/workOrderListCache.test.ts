@@ -59,6 +59,20 @@ function makeDb() {
       deleted_at integer,
       sync_status text NOT NULL DEFAULT 'synced'
     );
+    CREATE TABLE erp_nomenclature (
+      id text PRIMARY KEY NOT NULL,
+      code text NOT NULL,
+      sku text,
+      name text NOT NULL,
+      item_type text NOT NULL DEFAULT 'material',
+      directory_kind text,
+      directory_ref_id text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
     INSERT INTO entity_types (id, code, name, created_at, updated_at) VALUES
       ('type-engine', 'engine', 'Двигатель', 1, 1),
       ('type-part', 'part', 'Деталь', 1, 1),
