@@ -1,0 +1,43 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared + ledger (required by dependents)
+        run: |
+          pnpm --filter @matricarmz/shared build
+          pnpm --filter @matricarmz/ledger build
+
+      - name: Test shared
+        run: pnpm --filter @matricarmz/shared test
+
+      - name: Test backend-api
+        run: pnpm --filter @matricarmz/backend-api test
+
+      # better-sqlite3 must be built for the Node ABI (fresh CI install already is;
+      # local dev often has it rebuilt for Electron — see docs/machines/*, GOTCHAS M2).
+      - name: Test electron-app
+        run: pnpm --filter @matricarmz/electron-app test
