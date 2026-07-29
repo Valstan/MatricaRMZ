@@ -1977,7 +1977,10 @@ export function ContractDetailsPage(props: {
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{status}</div> : null}
     >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(520px, 100%), 1fr))', gap: 16, minWidth: 0, width: '100%' }}>
+        {/* Секции — в один столбец на всю ширину: платёжные колонки таблиц двигателей
+            (этап 2 engine-payments) не влезали, когда секция делила ряд с соседней
+            карточкой/кнопкой «Добавить ДС» и уходили за правый край (fix 2026-07-29). */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, minWidth: 0, width: '100%' }}>
           <SectionBlock
             title="Первичный контракт"
             section={sections.primary}
@@ -2040,11 +2043,11 @@ export function ContractDetailsPage(props: {
           ))}
 
           {props.canEdit && (
-            <SectionCard style={{ borderRadius: 0, padding: 16, alignSelf: 'start', minWidth: 0 }}>
-              <Button variant="outline" tone="neutral" onClick={addAddon} style={{ width: '100%' }}>
+            <div style={{ minWidth: 0 }}>
+              <Button variant="outline" tone="neutral" onClick={addAddon}>
                 + Добавить ДС
               </Button>
-            </SectionCard>
+            </div>
           )}
 
           <SectionCard className="entity-card-span-full" title="Прикрепленные двигатели" style={{ borderRadius: 0, padding: 16 }}>
