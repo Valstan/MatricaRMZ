@@ -127,7 +127,7 @@ export async function buildContractPaymentsMatrixReport(
   };
   const counterpartyId = normalizeText(sections.primary.customerId, '');
   const headerBits = [
-    `Контракт: ${resolveContractLabel(contractId, contractOptions)}`,
+    `Контракт: ${normalizeText(sections.primary.number, '') || contractOptions.get(contractId) || resolveContractLabel(contractId, contractOptions)}`,
     counterpartyId ? `Заказчик: ${resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId)}` : '',
     sections.primary.signedAt ? `заключён ${msToDate(sections.primary.signedAt)}` : '',
     sections.primary.dueAt ? `исполнение до ${msToDate(sections.primary.dueAt)}` : '',
@@ -166,7 +166,11 @@ export async function buildPaymentsOverviewReport(
     const sections = parseContractSections(attrs);
     const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
-    const contractLabel = resolveContractLabel(contractId, contractOptions);
+    // Fallback на номер из секций: у deferred-create контракта displayName ещё пуст.
+    const contractLabel =
+      normalizeText(sections.primary.number, '') ||
+      contractOptions.get(contractId) ||
+      resolveContractLabel(contractId, contractOptions);
     const counterpartyLabel = resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId);
     let emptySlotIndex = 0;
     for (const slot of cp.slots) {
