@@ -33,7 +33,9 @@ export type ReportPresetId =
   | 'engine_kitting'
   | 'supply_receipt_gap'
   | 'norms_purchase_plan'
-  | 'repair_fund_reconciliation';
+  | 'repair_fund_reconciliation'
+  | 'contract_payments_matrix'
+  | 'payments_overview';
 
 export type ReportFilterOption = {
   value: string;
@@ -336,6 +338,8 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   supply_receipt_gap: ['supply', 'audit'],
   norms_purchase_plan: ['supply', 'warehouse'],
   repair_fund_reconciliation: ['warehouse', 'audit'],
+  contract_payments_matrix: ['contracts'],
+  payments_overview: ['contracts'],
 };
 
 export function reportPresetThemes(presetId: ReportPresetId): readonly ReportThemeId[] {
@@ -576,6 +580,53 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'daysLeft', label: 'Дней до окончания', kind: 'number', align: 'right' },
       { key: 'igk', label: 'ИГК' },
       { key: 'separateAccount', label: 'Отдельный счет' },
+    ],
+  },
+  {
+    id: 'contract_payments_matrix',
+    title: 'Платежи по двигателям контракта',
+    description: 'Матрица оплат: стоимость, авансы, окончательный расчёт, переплата/недоплата по каждому двигателю.',
+    filters: [
+      { type: 'select', key: 'contractId', label: 'Контракт', optionsSource: 'contracts' },
+      {
+        type: 'text',
+        key: 'sectionToken',
+        label: 'Раздел (ДС)',
+        placeholder: 'например: ДС 2 — пусто = весь контракт',
+        labelHint: 'Токен раздела: номер первичного контракта или «ДС n». Пусто — все разделы.',
+      },
+    ],
+    columns: [
+      { key: 'engineLabel', label: 'Двигатель / слот' },
+      { key: 'brandLabel', label: 'Марка' },
+      { key: 'sectionToken', label: 'Раздел' },
+      { key: 'priceRub', label: 'Стоимость (руб)', kind: 'number', align: 'right' },
+      { key: 'advanceRub', label: 'Аванс (руб)', kind: 'number', align: 'right' },
+      { key: 'extraAdvanceRub', label: 'Доавансы (руб)', kind: 'number', align: 'right' },
+      { key: 'finalRub', label: 'Оконч. расчёт (руб)', kind: 'number', align: 'right' },
+      { key: 'paidRub', label: 'Итого оплачено (руб)', kind: 'number', align: 'right' },
+      { key: 'deltaRub', label: 'Переплата/недоплата (руб)', kind: 'number', align: 'right' },
+      { key: 'lastPaymentDate', label: 'Последний платёж' },
+      { key: 'countdown', label: 'Срок ремонта' },
+    ],
+  },
+  {
+    id: 'payments_overview',
+    title: 'Платежи по всем контрактам',
+    description: 'Журнал платежей: даты, суммы, виды, контракты, заказчики, двигатели.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период оплат', startKey: 'startMs', endKey: 'endMs' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
+    ],
+    columns: [
+      { key: 'paymentDate', label: 'Дата оплаты' },
+      { key: 'contractLabel', label: 'Контракт' },
+      { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'engineLabel', label: 'Двигатель / слот' },
+      { key: 'sectionToken', label: 'Раздел' },
+      { key: 'kindLabel', label: 'Вид платежа' },
+      { key: 'amountRub', label: 'Сумма (руб)', kind: 'number', align: 'right' },
     ],
   },
   {
