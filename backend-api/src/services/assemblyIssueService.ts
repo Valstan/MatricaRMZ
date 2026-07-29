@@ -146,6 +146,14 @@ async function persistIssueState(args: {
 }
 
 export async function issueAssemblyWorkOrder(args: { operationId: string; actor: Actor }): Promise<IssueResult> {
+  // Ручное отклонение от BOM (спецификация для марки не настроена, оператор сменил
+  // двигатель/собрал строки вручную): резервировать нечего — выдаём без документа.
+  // Иначе выдача (а с ней и статус «Начат ремонт») заложник наличия BOM у марки.
+  const manual = await loadOrder(args.operationId);
+  if (manual && manual.payload.workOrderKind === 'assembly' && manual.payload.assemblyManualDeviation === true && !manual.payload.assemblyBomSnapshot) {
+    const payload = await persistIssueState({ operationId: args.operationId, actor: args.actor, state: 'issued' });
+    return { ok: true, operationId: args.operationId, state: 'issued', documentId: null, payload };
+  }
   const availability = await checkAssemblyAvailability(args.operationId);
   if (!availability.ok) return { ok: false, code: 'invalid_order', error: availability.error };
   if (availability.shortages.length === 0) {

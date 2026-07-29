@@ -1092,9 +1092,20 @@ export function WorkOrderDetailsPage(props: {
         return;
       }
       setPayload(recalcLocally(issued.payload));
+      // Регресс #320: обещанный баннером авто-переход двигателя в «Начат ремонт» потерялся
+      // при переводе выдачи на серверное резервирование (#133 → #320). Возвращаем: статус —
+      // побочный эффект best-effort, ошибку показываем, но выдачу не откатываем.
+      const issuedEngineId = resolveAssemblyEngineId(issued.payload);
+      if (issuedEngineId) {
+        void window.matrica.engines
+          .advanceStatus({ engineId: issuedEngineId, target: 'status_repair_started', dateMs: Date.now() })
+          .catch((err) => setStatus(`Наряд выдан, но статус двигателя не обновился: ${String(err)}`));
+      }
       setStatus(issued.state === 'issued_with_shortage'
         ? 'Наряд выдан с согласованным дефицитом; резерв и списание не созданы.'
-        : 'Наряд выдан, комплектовка полностью зарезервирована.');
+        : issued.documentId == null
+          ? 'Наряд выдан без резервирования (ручное отклонение от BOM).'
+          : 'Наряд выдан, комплектовка полностью зарезервирована.');
       return;
     }
     if (dirtyRef.current) await flushSave(payload);
@@ -1258,9 +1269,49 @@ export function WorkOrderDetailsPage(props: {
         ...(options.bomId ? { bomId: options.bomId } : {}),
       });
       if (!result.ok) {
-        setAssemblyBomCandidates(result.candidates ?? []);
-        setAssemblyPendingEngineId(engineId);
-        setStatus(result.error);
+        if (result.candidates?.length) {
+          // Несколько BOM — оператор выбирает спецификацию, двигатель сменится после выбора.
+          setAssemblyBomCandidates(result.candidates);
+          setAssemblyPendingEngineId(engineId);
+          setStatus(result.error);
+          return;
+        }
+        // BOM для марки не настроена (или профиль неполный) — раньше это молча блокировало
+        // САМУ смену двигателя (перебивка номера была невозможна, пока кто-то не заведёт
+        // спецификацию). Смена двигателя не должна быть заложником комплектовки: предлагаем
+        // тот же путь «ручное отклонение от BOM», что и при отказе от замены строк.
+        setAssemblyBomCandidates([]);
+        setAssemblyPendingEngineId(null);
+        const manual = await confirm({
+          title: 'Сменить двигатель без BOM?',
+          detail: `${result.error}. Двигатель изменится, работы и комплектовка останутся прежними — в наряде будет зафиксировано ручное отклонение от BOM.`,
+          confirmLabel: 'Сменить двигатель',
+          cancelLabel: 'Отмена',
+          confirmTone: 'warn',
+        });
+        if (!manual) {
+          setStatus(result.error);
+          return;
+        }
+        const engine = engines.find((item) => item.id === engineId);
+        const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
+          ...line,
+          engineId,
+          engineNumber: engine?.engineNumber ?? '',
+          engineInternalNumber: engine?.engineInternalNumber ?? '',
+          ...(engine?.engineBrandId ? { engineBrandId: engine.engineBrandId } : {}),
+          engineBrandName: engine?.engineBrandName ?? '',
+        });
+        const kept: WorkOrderPayload = {
+          ...basePayload,
+          assemblyEngineId: engineId,
+          freeWorks: basePayload.freeWorks.map(stamp),
+          assemblyManualDeviation: true,
+        };
+        delete kept.assemblyBomSnapshot;
+        delete kept.assemblyMaterialHash;
+        patch(kept);
+        setStatus('Двигатель изменён без BOM; содержимое наряда сохранено как ручное отклонение.');
         return;
       }
       setAssemblyBomCandidates([]);
