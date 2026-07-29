@@ -980,6 +980,44 @@ async function collectPending(db: BetterSQLite3Database) {
     logSync(`push recover error rows table=${tableName} count=${recoveredIds.length}`);
   }
 
+  /**
+   * Self-heal «отправлено, но сервером не подтверждено» (инцидент asia2/PC51 2026-07-29:
+   * двигатель висел sync_status='synced' локально, а на сервер так и не доехал — и без
+   * единой ошибки нигде). Сигнатура застревания: строка помечена synced, но
+   * last_server_seq пуст — сервер её ни разу не вернул pull'ом, значит подтверждения
+   * не было (после нормального цикла push→pull своя строка приходит обратно с seq).
+   * Такие строки возвращаем в pending — повторный push идемпотентен (upsert по id,
+   * LWW-гарды сервера защищают от отката чужих правок, tombstone-гард — от воскрешения).
+   * Грейс 30 минут — свежепушенным строкам seq штатно приходит следующим pull'ом;
+   * окно 45 дней — не гоняем весь исторический хвост старых реплик.
+   */
+  async function requeueUnconfirmedRows(table: any, tableName: SyncTableName, limit = 500) {
+    const now = nowMs();
+    const graceMs = 30 * 60_000;
+    const windowMs = 45 * 24 * 3_600_000;
+    const rows = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(
+        and(
+          eq(table.syncStatus, 'synced' as any),
+          isNull(table.lastServerSeq),
+          sql`${table.updatedAt} < ${now - graceMs}`,
+          sql`${table.updatedAt} > ${now - windowMs}`,
+        ),
+      )
+      .limit(limit);
+    if (!rows.length) return;
+    const ids = (rows as any[]).map((r) => String(r.id));
+    await db.update(table).set({ syncStatus: pending as any }).where(inArray(table.id, ids as any));
+    logSync(`push requeue unconfirmed rows table=${tableName} count=${ids.length}`);
+  }
+
+  await requeueUnconfirmedRows(entities, SyncTableName.Entities);
+  await requeueUnconfirmedRows(attributeDefs, SyncTableName.AttributeDefs);
+  await requeueUnconfirmedRows(attributeValues, SyncTableName.AttributeValues);
+  await requeueUnconfirmedRows(operations, SyncTableName.Operations);
+
   await recoverErroredRows(entities, entityRowSchema, SyncTableName.Entities, fixEntityTypeIdIfCode);
   await recoverErroredRows(attributeDefs, attributeDefRowSchema, SyncTableName.AttributeDefs);
   await recoverErroredRows(attributeValues, attributeValueRowSchema, SyncTableName.AttributeValues);

@@ -259,7 +259,11 @@ describe('sync privacy and errors', () => {
       ],
     };
 
-    await expect(applyPushBatch(req, { id: 'u1', username: 'user', role: 'user' })).rejects.toThrow('sync_conflict');
+    // Per-row отказ, НЕ throw (правило M49: гейт над оффлайн-очередью не блокирует весь push):
+    // строка уходит в skipped/conflict, тумбстоун не воскресает, остальной батч применяется.
+    const result = await applyPushBatch(req, { id: 'u1', username: 'user', role: 'user' });
+    expect(result.applied).toBe(0);
+    expect(result.skipped.some((r) => r.row_id === '22222222-2222-2222-2222-222222222222' && r.reason === 'conflict')).toBe(true);
   });
 
   it('applyPushBatch accepts update with newer last_server_seq', async () => {
