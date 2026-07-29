@@ -4,7 +4,9 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 
 import type { EngineActType } from '@matricarmz/shared';
+import { ENGINE_INVENTORY_STAGE, engineInventoryHasDefectData } from '@matricarmz/shared';
 
+import { advanceEngineStatusForWorkOrder } from '../../services/engineService.js';
 import {
   getRepairChecklistForEngine,
   listEngineActVersions,
@@ -62,13 +64,25 @@ export function registerChecklistsIpc(ctx: IpcContext) {
         ...(Array.isArray(args.attachments) ? { attachments: args.attachments } : {}),
       };
 
-      return saveRepairChecklistForEngine(ctx.dataDb(), {
+      const saved = await saveRepairChecklistForEngine(ctx.dataDb(), {
         engineId: args.engineId,
         stage: args.stage,
         ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
         payload,
         actor,
       });
+      // Начало дефектовки = двигатель в работе: авто-переход в «Начат ремонт»
+      // (запрос владельца 2026-07-29). Best-effort побочный эффект — сохранение листа
+      // не роняем; гейт «только вперёд» внутри не трогает утильные/продвинутые статусы.
+      // Голая приёмка (комплектность без решений по деталям) переход не даёт.
+      if (saved.ok && args.stage === ENGINE_INVENTORY_STAGE && engineInventoryHasDefectData(payload)) {
+        try {
+          await advanceEngineStatusForWorkOrder(ctx.dataDb(), args.engineId, 'status_repair_started', Date.now(), actor || undefined);
+        } catch {
+          // статус двигателя — не причина терять сохранённую дефектовку
+        }
+      }
+      return saved;
     },
   );
 

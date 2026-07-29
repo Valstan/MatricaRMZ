@@ -2645,6 +2645,14 @@ export function WorkOrderDetailsPage(props: {
                         return;
                       }
                       setOperationStatus('closed');
+                      // Закрытие сборки = двигатель отремонтирован (запрос владельца 2026-07-29):
+                      // авто-переход best-effort, «только вперёд» — отгруженные не откатывает.
+                      const closedEngineId = resolveAssemblyEngineId(payload);
+                      if (closedEngineId) {
+                        void window.matrica.engines
+                          .advanceStatus({ engineId: closedEngineId, target: 'status_repaired', dateMs: Date.now() })
+                          .catch((err) => setStatus(`Проведено, но статус двигателя не обновился: ${String(err)}`));
+                      }
                       setStatus(`Проведено. Документ ${r.documentId} списан.`);
                     } catch (e) {
                       setStatus(`Ошибка: ${String(e)}`);
@@ -2847,6 +2855,15 @@ export function WorkOrderDetailsPage(props: {
                     if (isRegular) setClosedLocally(true);
                     // Заблокировать редактирование всей карточки немедленно.
                     setOperationStatus('closed');
+                    // Закрытие сборочного наряда = двигатель отремонтирован (владелец 2026-07-29).
+                    if (payload.workOrderKind === WorkOrderKind.Assembly) {
+                      const closedEngineId = resolveAssemblyEngineId(payload);
+                      if (closedEngineId) {
+                        void window.matrica.engines
+                          .advanceStatus({ engineId: closedEngineId, target: 'status_repaired', dateMs: Date.now() })
+                          .catch((err) => setStatus(`Закрыто, но статус двигателя не обновился: ${String(err)}`));
+                      }
+                    }
                     setStatus(
                       isRegular
                         ? 'Закрыто (без складского документа).'
