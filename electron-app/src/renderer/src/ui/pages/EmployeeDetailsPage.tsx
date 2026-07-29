@@ -1529,6 +1529,7 @@ export function EmployeeDetailsPage(props: {
     <EntityCardShell
       title={headerTitle}
       layout="two-column"
+      contentMaxWidth={1280}
       cardActions={
         <CardActionBar
           canEdit={props.canEdit}
