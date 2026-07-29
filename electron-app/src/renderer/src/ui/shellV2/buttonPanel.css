@@ -1,0 +1,181 @@
+/* Панель «РАЗДЕЛЫ» v3-оболочки: вертикальный список одинаковых кнопок.
+   Класс-префикс `v2-` исторический (панель пришла из снесённой v2-оболочки) —
+   на него завязаны CDP-драйверы смоуков, поэтому не переименовываем. */
+
+.v2-button-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  gap: 2px;
+}
+
+.v2-button-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Закреплённая группа: тот же список, лёгкая подложка — видно, что это «шапка». */
+.v2-button-section-pinned {
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.06);
+  padding: 3px;
+}
+
+.v2-button-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 2px;
+}
+
+/* Строка списка = кнопка раздела + 📌. Тянется мышкой целиком (dnd-kit висит здесь).
+   📌 лежит поверх правого края кнопки, а не отдельной колонкой: иначе слева от списка
+   оставалась пустая полоса и кнопки переставали быть «во всю ширину раздела». */
+.v2-menu-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  border-radius: 9px;
+  touch-action: none; /* dnd-kit PointerSensor */
+}
+
+.v2-menu-row[data-dragging='1'] {
+  position: relative;
+  z-index: 5;
+  opacity: 0.9;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+}
+
+.v2-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface, #fff);
+  color: var(--text);
+  /* Правый отступ — место под 📌, чтобы подпись под него не заезжала. */
+  padding: 5px 28px 5px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.v2-menu-btn:hover {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.v2-menu-btn[data-active='1'] {
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(37, 99, 235, 0.55);
+  font-weight: 700;
+}
+
+.v2-menu-btn[data-list-open='1']:not([data-active='1']) {
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.v2-menu-btn-icon {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.v2-menu-btn-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 📌 проявляется на наведении; у закреплённых виден всегда. */
+.v2-menu-pin {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  bottom: 3px;
+  width: 22px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  filter: grayscale(1);
+}
+
+.v2-menu-row:hover .v2-menu-pin {
+  opacity: 0.55;
+}
+
+.v2-menu-pin[data-pinned='1'] {
+  opacity: 1;
+  filter: none;
+}
+
+.v2-menu-pin:hover {
+  opacity: 1;
+  filter: none;
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.v2-button-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.v2-footer-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v2-footer-btn:hover {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.v2-hidden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.v2-context-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 190px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+}

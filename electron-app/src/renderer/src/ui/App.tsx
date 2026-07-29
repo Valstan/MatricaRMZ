@@ -2250,7 +2250,7 @@ export function App() {
     void persistShellPrefs({ ...base, v2: nextV2 });
   }
 
-  function updateV3Pcts(patch: Partial<Pick<V3Prefs, 'splitPct' | 'comparePct'>>) {
+  function updateV3Pcts(patch: Partial<Pick<V3Prefs, 'sectionsPct' | 'comparePct'>>) {
     const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
     void persistShellPrefs({ ...base, v3: { ...base.v3, ...patch } });
   }
@@ -5467,8 +5467,8 @@ export function App() {
               renderSecondaryCard={renderSecondaryCard}
               onSplitCard={openSecondaryCard}
               onCloseSecondary={closeSecondaryCard}
-              splitPct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.splitPct}
-              onSplitPctChange={(pct) => updateV3Pcts({ splitPct: pct })}
+              sectionsPct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.sectionsPct}
+              onSectionsPctChange={(pct) => updateV3Pcts({ sectionsPct: pct })}
               comparePct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.comparePct}
               onComparePctChange={(pct) => updateV3Pcts({ comparePct: pct })}
             />

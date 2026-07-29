@@ -1,5 +1,5 @@
-import React, { useMemo, useRef } from 'react';
-import { Group, Panel, Separator, type Layout } from 'react-resizable-panels';
+import React, { useMemo } from 'react';
+import { Group, Panel, Separator, type Layout, type LayoutChangedMeta } from 'react-resizable-panels';
 import { v3ShowTabsWarning } from '@matricarmz/shared';
 
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
@@ -7,6 +7,13 @@ import { ButtonPanel } from '../shellV2/ButtonPanel.js';
 import type { V2ButtonLayout } from '@matricarmz/shared';
 import { V2_LIST_TABS, buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
 import './shellV3.css';
+
+/**
+ * Дефолтная ширина колонки «РАЗДЕЛЫ» — ровно под кнопку раздела (самая длинная подпись
+ * каталога + иконка + 📌), остаток уходит списку. Оператор растягивает разделителем,
+ * выбранная ширина персистится (`sectionsPct`) и с этого момента главнее дефолта.
+ */
+const V3_SECTIONS_DEFAULT_WIDTH_PX = 236;
 
 function suspenseFallback() {
   return (
@@ -54,9 +61,9 @@ export function V3TabShell(props: {
   renderSecondaryCard: () => React.ReactNode;
   onSplitCard: (card: { kind: TabId; entityId: string; title: string }) => void;
   onCloseSecondary: () => void;
-  /** Ширина «РАЗДЕЛЫ» в сплите закреплённых, % (персистится). */
-  splitPct: number;
-  onSplitPctChange: (pct: number) => void;
+  /** Ширина «РАЗДЕЛЫ» в сплите закреплённых, % (персистится; null — по ширине кнопок). */
+  sectionsPct: number | null;
+  onSectionsPctChange: (pct: number) => void;
   /** Ширина левой карточки в сравнении «2 рядом», % (персистится). */
   comparePct: number;
   onComparePctChange: (pct: number) => void;
@@ -83,25 +90,18 @@ export function V3TabShell(props: {
   const secondary = props.secondaryCard;
   const secondaryKey = secondary ? `${secondary.kind}:${secondary.entityId}` : null;
 
-  // Дебаунс персиста процентов сплитов (перетаскивание шлёт layout на каждый пиксель).
-  const saveTimer = useRef<number | null>(null);
-  const pendingRef = useRef<{ split?: number; compare?: number }>({});
-  function schedulePctSave(patch: { split?: number; compare?: number }) {
-    pendingRef.current = { ...pendingRef.current, ...patch };
-    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      saveTimer.current = null;
-      const pending = pendingRef.current;
-      pendingRef.current = {};
-      if (typeof pending.split === 'number') props.onSplitPctChange(pending.split);
-      if (typeof pending.compare === 'number') props.onComparePctChange(pending.compare);
-    }, 400);
-  }
-
-  // defaultLayout читается группой один раз на маунт; во время drag'а source of truth у
-  // панелей — пересборка на каждое изменение pct вызвала бы прыжки. Стейл сознательный.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const pinnedLayout: Layout = useMemo(() => ({ 'v3-sections': props.splitPct, 'v3-list': 100 - props.splitPct }), []);
+  // defaultSize читается панелью один раз на маунт; во время drag'а source of truth у
+  // самих панелей — пересборка на каждое изменение pct вызвала бы прыжки. Стейл сознательный.
+  // Ширину «по кнопкам» переводим в проценты от окна: панель живёт в одних единицах
+  // и на маунте, и после перетаскивания.
+  const sectionsDefaultSize = useMemo(
+    () =>
+      props.sectionsPct != null
+        ? `${props.sectionsPct}%`
+        : `${Math.min(60, (V3_SECTIONS_DEFAULT_WIDTH_PX / Math.max(600, window.innerWidth)) * 100)}%`,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   const compareLayout: Layout = useMemo(
     () => ({ 'v3-compare-primary': props.comparePct, 'v3-compare-secondary': 100 - props.comparePct }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,18 +200,16 @@ export function V3TabShell(props: {
       {/* Сплит «РАЗДЕЛЫ | Список» всегда смонтирован — скрывается, когда активна карточка.
           Разделитель тянется мышкой, ширина запоминается. */}
       <div className="v3-split" style={cardActive ? { display: 'none' } : undefined}>
-        <Group orientation="horizontal" className="v3-split-group" defaultLayout={pinnedLayout}
-          onLayoutChange={(layout: Layout) => {
-            // Персистим любое реальное изменение (дебаунс + guard от echo-записи того же
-            // значения при ремоунте/нормализации) — meta.isUserInteraction из onLayoutChanged
-            // не срабатывает на синтетических pointer-событиях смоука.
+        <Group orientation="horizontal" className="v3-split-group"
+          onLayoutChanged={(layout: Layout, meta: LayoutChangedMeta) => {
+            // Только завершённое перетаскивание оператора: onLayoutChange звал бы персист
+            // на каждый пиксель, а ре-рендер посреди drag'а сбивал первую же тягу.
+            if (!meta.isUserInteraction) return;
             const pct = layout['v3-sections'];
-            if (typeof pct === 'number' && Number.isFinite(pct) && Math.abs(pct - props.splitPct) > 0.5) {
-              schedulePctSave({ split: pct });
-            }
+            if (typeof pct === 'number' && Number.isFinite(pct)) props.onSectionsPctChange(pct);
           }}
         >
-          <Panel id="v3-sections" className="v3-panel-body" minSize={180}>
+          <Panel id="v3-sections" className="v3-panel-body" minSize="150px" defaultSize={sectionsDefaultSize}>
             <div className="v3-split-sections">
               <ButtonPanel
                 buttons={buttons}
@@ -219,7 +217,6 @@ export function V3TabShell(props: {
                 onLayoutChange={props.onButtonLayoutChange}
                 activeMenuTab={activeMenuTab}
                 listOpenTab={listOpenTab}
-                collapsed={false}
                 onTab={props.onMenuTab}
               />
             </div>
@@ -244,11 +241,10 @@ export function V3TabShell(props: {
           /* Сравнение «2 рядом»: активная карточка слева, закреплённая ⑃ справа, дефолт пополам. */
           <div className="v3-card-compare" style={!cardActive ? { display: 'none' } : undefined}>
             <Group key={secondaryKey} orientation="horizontal" className="v3-split-group" defaultLayout={compareLayout}
-              onLayoutChange={(layout: Layout) => {
+              onLayoutChanged={(layout: Layout, meta: LayoutChangedMeta) => {
+                if (!meta.isUserInteraction) return;
                 const pct = layout['v3-compare-primary'];
-                if (typeof pct === 'number' && Number.isFinite(pct) && Math.abs(pct - props.comparePct) > 0.5) {
-                  schedulePctSave({ compare: pct });
-                }
+                if (typeof pct === 'number' && Number.isFinite(pct)) props.onComparePctChange(pct);
               }}
             >
               <Panel id="v3-compare-primary" className="v3-panel-body" minSize={220}>

@@ -61,8 +61,12 @@ export type V3Session = {
 
 export type V3Prefs = {
   session: V3Session;
-  /** Ширина «РАЗДЕЛЫ» в сплите закреплённых вкладок, % (разделитель тянется мышкой). */
-  splitPct: number;
+  /**
+   * Ширина «РАЗДЕЛЫ» в сплите закреплённых вкладок, % (разделитель тянется мышкой).
+   * `null` — ширина не выбрана оператором: колонка встаёт ровно по ширине кнопок
+   * раздела, остаток отдаётся списку.
+   */
+  sectionsPct: number | null;
   /** Ширина левой карточки в сравнении «2 рядом», % (дефолт — пополам). */
   comparePct: number;
 };
@@ -111,7 +115,7 @@ export function v3ShowTabsWarning(cardCount: number): boolean {
 
 export const DEFAULT_V3_PREFS: V3Prefs = {
   session: { openCards: [], activeKey: 'sections' },
-  splitPct: 25,
+  sectionsPct: null,
   comparePct: 50,
 };
 
@@ -208,7 +212,7 @@ export function sanitizeV3Prefs(value: unknown): V3Prefs {
       : 'sections';
   return {
     session: { openCards, activeKey },
-    splitPct: sanitizePct(raw.splitPct, DEFAULT_V3_PREFS.splitPct),
+    sectionsPct: raw.sectionsPct == null ? null : sanitizePct(raw.sectionsPct, 25),
     comparePct: sanitizePct(raw.comparePct, DEFAULT_V3_PREFS.comparePct),
   };
 }

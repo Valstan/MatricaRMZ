@@ -1431,7 +1431,9 @@ table.list-table.list-table--catalog {
 .release-welcome-teleprompter-track {
   display: flex;
   flex-direction: column;
-  animation: releaseWelcomeTeleprompterScroll 54s linear infinite;
+  /* Вдвое медленнее прежних 54s — на прежней скорости строки уезжали вверх раньше,
+     чем оператор успевал их дочитать (отзыв владельца 2026-07-29). */
+  animation: releaseWelcomeTeleprompterScroll 108s linear infinite;
   will-change: transform;
 }
 
