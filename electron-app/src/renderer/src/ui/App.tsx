@@ -593,7 +593,7 @@ export function App() {
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
-  const [engineInitialTab, setEngineInitialTab] = useState<'main' | 'details' | 'files' | 'reclamation'>('main');
+  const [engineInitialTab, setEngineInitialTab] = useState<'main' | 'details' | 'files' | 'reclamation' | 'payments'>('main');
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
   const [engineLoading, setEngineLoading] = useState<boolean>(false);
   const [engineOpenError, setEngineOpenError] = useState<string>('');
@@ -2413,13 +2413,13 @@ export function App() {
     }
   }
 
-  async function openEngine(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' }) {
+  async function openEngine(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' | 'payments' }) {
     v2OpenCardGuarded('engine', () => {
       void openEngineNow(id, opts);
     });
   }
 
-  async function openEngineNow(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' }) {
+  async function openEngineNow(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' | 'payments' }) {
     setEngineInitialTab(opts?.initialTab ?? 'main');
     // Смена двигателя: сбросить details ДО переключения, иначе карточка нового id
     // монтируется (key-ремоунт) с чужими stale-атрибутами и «снимок создания»

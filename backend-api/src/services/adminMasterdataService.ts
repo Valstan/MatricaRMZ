@@ -9,7 +9,10 @@ import {
   SyncTableName,
   attributeDefRowSchema,
   attributeValueRowSchema,
+  CONTRACT_PAYMENTS_ATTR_CODE,
   collectContractEntityReferences,
+  collectContractPaymentsEngineIds,
+  parseContractPayments,
   collectSupplyRequestEntityReferences,
   collectWorkOrderEntityReferences,
   engineInternalNumberDuplicateMessage,
@@ -559,6 +562,32 @@ async function countExtendedIncomingReferences(entityId: string): Promise<Map<st
       if (!sections) continue;
       const hits = collectContractEntityReferences(sections as never).filter((c) => c.referenceId === entityId).length;
       if (hits > 0) bump('Контракты');
+    }
+  }
+
+  // 2.5. Контракты (contract_payments JSON — engineId слотов).
+  const paymentsDefs = await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.code, CONTRACT_PAYMENTS_ATTR_CODE), isNull(attributeDefs.deletedAt)));
+  const paymentsDefIds = paymentsDefs.map((d) => String(d.id));
+  if (paymentsDefIds.length > 0) {
+    const paymentRows = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+      .where(
+        and(
+          inArray(attributeValues.attributeDefId, paymentsDefIds),
+          isNull(attributeValues.deletedAt),
+          isNull(entities.deletedAt),
+          like(attributeValues.valueJson, `%${jsonId}%`),
+        ),
+      )
+      .limit(10_000);
+    for (const r of paymentRows) {
+      const cp = parseContractPayments(r.valueJson ? String(r.valueJson) : null);
+      if (collectContractPaymentsEngineIds(cp).some((c) => c.engineId === entityId)) bump('Контракты (платежи)');
     }
   }
 

@@ -3,8 +3,11 @@ import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  CONTRACT_PAYMENTS_ATTR_CODE,
   ENGINE_RESERVATION_CODE,
   collectContractEntityReferences,
+  collectContractPaymentsEngineIds,
+  parseContractPayments,
   collectSupplyRequestEntityReferences,
   collectWorkOrderEntityReferences,
 } from '@matricarmz/shared';
@@ -580,6 +583,42 @@ export async function findAllIncomingReferences(
           sourceId: String(r.entityId),
           sourceLabel: num || shortId(String(r.entityId)),
           sourceTypeLabel: 'Контракт',
+          paths,
+        });
+      }
+    }
+
+    // 2.5. Контракты (contract_payments JSON — engineId слотов).
+    const paymentsDefs = await db
+      .select({ id: attributeDefs.id })
+      .from(attributeDefs)
+      .where(and(eq(attributeDefs.code, CONTRACT_PAYMENTS_ATTR_CODE), isNull(attributeDefs.deletedAt)));
+    const paymentsDefIds = paymentsDefs.map((d) => String(d.id));
+    if (paymentsDefIds.length > 0) {
+      const paymentRows = await db
+        .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+        .from(attributeValues)
+        .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+        .where(
+          and(
+            inArray(attributeValues.attributeDefId, paymentsDefIds),
+            isNull(attributeValues.deletedAt),
+            isNull(entities.deletedAt),
+            like(attributeValues.valueJson, `%${jsonId}%`),
+          ),
+        )
+        .limit(10_000);
+      for (const r of paymentRows) {
+        const cp = parseContractPayments(r.valueJson ? String(r.valueJson) : null);
+        const paths = collectContractPaymentsEngineIds(cp)
+          .filter((c) => c.engineId === entityId)
+          .map((c) => `contract_payments.${c.path}`);
+        if (paths.length === 0) continue;
+        groups.push({
+          sourceKind: 'contract',
+          sourceId: String(r.entityId),
+          sourceLabel: shortId(String(r.entityId)),
+          sourceTypeLabel: 'Контракт (платежи)',
           paths,
         });
       }

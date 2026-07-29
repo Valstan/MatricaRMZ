@@ -25,6 +25,7 @@ import {
   contractSectionAddonToken,
   aggregateContractExecutionProgress,
   CONTRACT_EXECUTION_PARTS_ATTR_CODE,
+  CONTRACT_PAYMENTS_ATTR_CODE,
   STATUS_LABELS,
   type ContractExecutionProgressAggregate,
   type ContractSections,
@@ -92,6 +93,7 @@ const EMPTY_ACCOUNTING_FORM: ContractAccountingForm = {
 const CONTRACT_ACCOUNTING_FIELDS: Array<{ code: string; name: string; dataType: string; sortOrder: number; metaJson?: string | null }> = [
   { code: 'contract_sections', name: 'Секции контракта', dataType: 'json', sortOrder: 5 },
   { code: CONTRACT_EXECUTION_PARTS_ATTR_CODE, name: 'Детали исполнения контракта', dataType: 'json', sortOrder: 6 },
+  { code: CONTRACT_PAYMENTS_ATTR_CODE, name: 'Платежи по двигателям', dataType: 'json', sortOrder: 7 },
   { code: 'goz_name', name: 'Наименование (ГОЗ)', dataType: 'text', sortOrder: 10 },
   { code: 'number', name: 'Номер контракта', dataType: 'text', sortOrder: 20 },
   { code: 'goz_igk', name: 'ИГК', dataType: 'text', sortOrder: 30 },

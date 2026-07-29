@@ -23,6 +23,7 @@ import type { CardCloseActions } from '../cardCloseTypes.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
+import { EnginePaymentsTab } from '../components/EnginePaymentsTab.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
@@ -36,7 +37,7 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'details' | 'history' | 'files' | 'reclamation';
+export type EngineCardTab = 'main' | 'details' | 'history' | 'files' | 'reclamation' | 'payments';
 
 const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
@@ -44,6 +45,7 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'history', label: 'История ремонта' },
   { key: 'files', label: 'Фото и документы' },
   { key: 'reclamation', label: 'Рекламация' },
+  { key: 'payments', label: 'Платежи' },
 ];
 
 function normalizeForMatch(s: string) {
@@ -2158,6 +2160,25 @@ export function EngineDetailsPage(props: {
             </div>
           )}
         </SectionCard>
+      </div>
+
+      {/* Вкладка «Платежи» (план engine-payments-2026-07): слот двигателя в контрактном
+          contract_payments. Пишет в КОНТРАКТ → гейт masterdata.edit, не резерв двигателя. */}
+      <div className="entity-card-span-full" hidden={activeTab !== 'payments'} style={{ maxWidth: 920, width: '100%', margin: '0 auto' }}>
+        <EnginePaymentsTab
+          engineId={props.engineId}
+          contractId={contractId}
+          sectionKey={contractSectionNumber}
+          {...(engineBrandId ? { engineBrandId } : {})}
+          engineRepaired={Boolean(
+            statusFlags.status_repaired ||
+              statusFlags.status_customer_sent ||
+              statusFlags.status_customer_accepted ||
+              statusFlags.status_rework_sent,
+          )}
+          canEdit={Boolean(props.canEditMasterData)}
+          {...(props.onOpenContract ? { onOpenContract: props.onOpenContract } : {})}
+        />
       </div>
     </EntityCardShell>
   );
