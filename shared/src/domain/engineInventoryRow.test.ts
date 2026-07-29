@@ -6,6 +6,7 @@ import {
   buildScrapIntakeFromInventory,
   buildStampedInstancesFromInventory,
   buildSupplyRequestItemsFromInventory,
+  engineInventoryHasDefectData,
   engineInventoryRowSignature,
   listScrapPartNames,
   mergeLegacyChecklistAnswers,
@@ -455,5 +456,24 @@ describe('listScrapPartNames / buildAutoWithdrawReason', () => {
     expect(buildAutoWithdrawReason(['Картер верхний'])).toBe('Деталь признана утильной: Картер верхний');
     expect(buildAutoWithdrawReason(['Картер', 'Гильза'])).toBe('Детали признаны утильными: Картер, Гильза');
     expect(buildAutoWithdrawReason([])).toBe('Утильная деталь в дефектовке двигателя');
+  });
+});
+
+describe('engineInventoryHasDefectData (авто-переход «Начат ремонт»)', () => {
+  const payloadWith = (rows: unknown[]) => ({
+    kind: 'repair_checklist',
+    answers: { engine_inventory_items: { kind: 'table', rows } },
+  });
+
+  it('голая приёмка (комплектность без решений) — false', () => {
+    expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Гильза', quantity: 2, present: true }]))).toBe(false);
+    expect(engineInventoryHasDefectData(null)).toBe(false);
+    expect(engineInventoryHasDefectData({})).toBe(false);
+  });
+
+  it('любое дефектовочное поле > 0 — true (repairable / scrap / replace)', () => {
+    expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Гильза', quantity: 2, present: true, repairable_qty: 2 }]))).toBe(true);
+    expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Картер', quantity: 1, present: true, scrap_qty: 1 }]))).toBe(true);
+    expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Поршень', quantity: 6, present: true, replace_qty: 1 }]))).toBe(true);
   });
 });
