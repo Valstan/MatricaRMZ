@@ -18,6 +18,7 @@ import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContra
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
+import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
 import { type ReportBuildContext } from './context.js';
 
 export async function buildReportByPreset(
@@ -91,6 +92,10 @@ export async function buildReportByPreset(
         return buildDefectReturnsSummaryReport(db, args.filters);
       case 'movement_integrity_audit':
         return buildMovementIntegrityAuditReport(db, args.filters);
+      case 'contract_payments_matrix':
+        return buildContractPaymentsMatrixReport(db, args.filters);
+      case 'payments_overview':
+        return buildPaymentsOverviewReport(db, args.filters);
       default:
         return { ok: false, error: `Неизвестный пресет: ${String(args.presetId)}` };
     }
