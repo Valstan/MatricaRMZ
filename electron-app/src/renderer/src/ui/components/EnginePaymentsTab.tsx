@@ -8,6 +8,7 @@ import {
   findSlotForEngine,
   formatKopMoney,
   parseContractPayments,
+  parseContractSections,
   parseMoneyToKop,
   slotTotals,
   type ContractPayments,
@@ -80,7 +81,9 @@ export function EnginePaymentsTab(props: {
   canEdit: boolean;
   onOpenContract?: (contractId: string) => void;
 }) {
-  const sectionKey = props.sectionKey.trim() || 'primary';
+  // Токен секции: contract_section_number двигателя ('ДС n' | номер контракта).
+  // Пустой → при сохранении дочитаем номер первичного контракта из его секций.
+  const sectionKey = props.sectionKey.trim();
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
@@ -216,9 +219,12 @@ export function EnginePaymentsTab(props: {
           }),
         };
       } else {
+        const fallbackToken = String(
+          parseContractSections(contract?.attributes ?? {}).primary.number ?? '',
+        ).trim();
         const slot: PaymentSlot = {
           id: crypto.randomUUID(),
-          sectionKey,
+          sectionKey: sectionKey || fallbackToken || 'primary',
           engineId: props.engineId,
           ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}),
           ...(priceKop != null && priceKop > 0 ? { contractPriceKop: priceKop } : {}),

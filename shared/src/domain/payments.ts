@@ -384,6 +384,17 @@ export function removePayment(cp: ContractPayments, slotId: string, paymentId: s
   return withSlot(cp, slotId, (s) => ({ ...s, payments: s.payments.filter((p) => p.id !== paymentId) }));
 }
 
+/**
+ * «Отремонтирован» для гашения отсчёта: сам ремонт или любой терминальный исход
+ * (отгружен / принят заказчиком / утиль отправлен) — двигатель больше не «горит».
+ */
+export function isEngineRepairedForCountdown(flags: Partial<Record<string, boolean>> | null | undefined): boolean {
+  if (!flags) return false;
+  return Boolean(
+    flags.status_repaired || flags.status_customer_sent || flags.status_customer_accepted || flags.status_rework_sent,
+  );
+}
+
 /** Число «горящих» (danger) двигателей контракта — для колонки в списке контрактов. */
 export function burningEnginesCount(cp: ContractPayments, todayIso: string, repairedEngineIds: ReadonlySet<string>): number {
   return cp.slots.filter((s) => {
