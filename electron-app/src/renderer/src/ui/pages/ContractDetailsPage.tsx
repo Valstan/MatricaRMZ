@@ -62,6 +62,7 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartSpecsCache, listAllPartSpecs } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
+import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -414,6 +415,9 @@ function SectionBlock(props: {
   // Платежи (план engine-payments-2026-07, этап 2): слоты секции + распределение аванса.
   contractPayments?: ContractPayments;
   canEditPayments?: boolean;
+  /** Отбор двигателей в накопительную служебную записку (этап 4). */
+  memoSelectedIds?: ReadonlySet<string>;
+  onToggleMemoEngine?: (engineId: string, checked: boolean) => void;
   onDistributeAdvance?: (sectionToken: string, amountKop: number, kind: PaymentKind, date: string, slotCount?: number) => void | Promise<void>;
   onRemoveSlotPayment?: (slotId: string, paymentId: string) => void | Promise<void>;
 }) {
@@ -886,6 +890,7 @@ function SectionBlock(props: {
             {hasEngines && (
               <DataTable className="list-table">
                 <colgroup>
+                  {props.onToggleMemoEngine ? <col style={{ width: 34 }} /> : null}
                   <col style={{ width: '22%' }} />
                   <col style={{ width: '16%' }} />
                   <col style={{ width: '18%' }} />
@@ -895,6 +900,9 @@ function SectionBlock(props: {
                 </colgroup>
                 <thead>
                   <tr>
+                    {props.onToggleMemoEngine ? (
+                      <th style={{ borderBottom: '1px solid var(--border)' }} title="Отметить для служебной записки" />
+                    ) : null}
                     <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Номер двигателя</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Марка</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="text">Статус</th>
@@ -914,6 +922,16 @@ function SectionBlock(props: {
                     const rowStyle = visual.rowBackground ? { background: visual.rowBackground } : undefined;
                     return (
                       <tr key={engine.id} style={rowStyle}>
+                        {props.onToggleMemoEngine ? (
+                          <td style={{ borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={props.memoSelectedIds?.has(engine.id) === true}
+                              onChange={(e) => props.onToggleMemoEngine?.(engine.id, e.target.checked)}
+                              title="В служебную записку"
+                            />
+                          </td>
+                        ) : null}
                         <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                           {onOpenEngine ? (
                             <button
@@ -1101,6 +1119,8 @@ export function ContractDetailsPage(props: {
   // сразу (как привязка двигателей), не через save-on-close.
   const [contractPayments, setContractPayments] = useState<ContractPayments>(emptyContractPayments());
   const paymentsSyncKeyRef = useRef('');
+  // Отбор двигателей в служебную записку (этап 4): локальный, не персистится.
+  const [memoSelection, setMemoSelection] = useState<ReadonlySet<string>>(new Set());
   const [defs, setDefs] = useState<AttributeDef[]>([]);
   const [contractProgress, setContractProgress] = useState<ContractExecutionProgressAggregate | null>(null);
   const [accountingForm, setAccountingForm] = useState<ContractAccountingForm>(EMPTY_ACCOUNTING_FORM);
@@ -1581,6 +1601,47 @@ export function ContractDetailsPage(props: {
     await saveContractPayments(removePayment(contractPayments, slotId, paymentId));
   }
 
+  function toggleMemoEngine(engineId: string, checked: boolean) {
+    setMemoSelection((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(engineId);
+      else next.delete(engineId);
+      return next;
+    });
+  }
+
+  function printServiceMemo() {
+    const today = todayIsoDate();
+    const selected = relatedEngines.filter((e) => memoSelection.has(e.id));
+    if (selected.length === 0) return;
+    const customerName = sections?.primary.customerId
+      ? customerOptions.find((o) => o.id === sections.primary.customerId)?.label ?? ''
+      : '';
+    const engines = selected.map((e) => {
+      const slot = findSlotForEngine(contractPayments, e.id);
+      const totals = slot ? slotTotals(slot) : null;
+      const visual = paymentCountdownVisual(
+        slot ? countdownStatus(slot, today, isEngineRepairedForCountdown(e.statusFlags)) : { state: 'none' },
+      );
+      return {
+        engineNumber: String(e.engineNumber ?? ''),
+        brand: String(e.engineBrand ?? ''),
+        sectionToken: String(e.contractSectionNumber ?? ''),
+        paidLabel: totals && totals.paidKop > 0 ? formatKopMoney(totals.paidKop) : '—',
+        countdownLabel: visual.label,
+      };
+    });
+    openPrintPreview({
+      title: 'Служебная записка',
+      subtitle: `Контракт № ${String(sections?.primary.number ?? '').trim() || '—'} — запуск двигателей в ремонт`,
+      sections: buildServiceMemoSections({
+        contractNumber: String(sections?.primary.number ?? '').trim(),
+        customerName,
+        engines,
+      }),
+    });
+  }
+
   async function createAndOpenEngine(label: string): Promise<string | null> {
     if (!props.canEdit) return null;
     const nextLabel = String(label ?? '').trim();
@@ -1899,6 +1960,16 @@ export function ContractDetailsPage(props: {
       }
       actions={
         <RowActions>
+          {memoSelection.size > 0 ? (
+            <Button
+              variant="ghost"
+              tone="info"
+              onClick={printServiceMemo}
+              title="Накопительная служебная записка по отмеченным галочками двигателям"
+            >
+              Служебная записка ({memoSelection.size})
+            </Button>
+          ) : null}
           <Button variant="ghost" tone="info" onClick={printContractCard}>
             Распечатать
           </Button>
@@ -1922,6 +1993,8 @@ export function ContractDetailsPage(props: {
             canEditPayments={props.canEdit}
             onDistributeAdvance={distributeAdvance}
             onRemoveSlotPayment={removeSlotPayment}
+            memoSelectedIds={memoSelection}
+            onToggleMemoEngine={toggleMemoEngine}
             onOpenCounterparty={props.onOpenCounterparty}
             {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
             {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
@@ -1948,6 +2021,8 @@ export function ContractDetailsPage(props: {
               canEditPayments={props.canEdit}
               onDistributeAdvance={distributeAdvance}
               onRemoveSlotPayment={removeSlotPayment}
+              memoSelectedIds={memoSelection}
+              onToggleMemoEngine={toggleMemoEngine}
               {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
               {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
               onChange={(addonSection) => {
