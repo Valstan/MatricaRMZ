@@ -8,6 +8,9 @@ export function EntityCardShell(props: {
   children: React.ReactNode;
   layout?: 'stack' | 'two-column';
   className?: string;
+  /** Комфортная ширина контента: контент центрируется, не растягиваясь на весь экран
+      (глаза не бегают от левого края к правому на широких мониторах). */
+  contentMaxWidth?: number;
 }) {
   const layout = props.layout ?? 'stack';
   const showHeader = props.title && String(props.title).trim().length > 0;
@@ -36,7 +39,12 @@ export function EntityCardShell(props: {
         </div>
       )}
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
-        <div className={layout === 'two-column' ? 'entity-card-grid' : undefined}>{props.children}</div>
+        <div
+          className={layout === 'two-column' ? 'entity-card-grid' : undefined}
+          style={props.contentMaxWidth ? { maxWidth: props.contentMaxWidth, width: '100%', margin: '0 auto' } : undefined}
+        >
+          {props.children}
+        </div>
       </div>
     </div>
   );

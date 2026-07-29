@@ -558,6 +558,7 @@ export function ToolDetailsPage(props: {
     <EntityCardShell
       title=""
       layout="two-column"
+      contentMaxWidth={1280}
       cardActions={cardActionBar}
       status={status ? <span style={{ fontSize: 12, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', marginLeft: 8 }}>{status}</span> : undefined}
     >
