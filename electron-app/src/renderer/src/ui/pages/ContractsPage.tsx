@@ -14,8 +14,12 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
+  CONTRACT_PAYMENTS_ATTR_CODE,
   aggregateContractExecutionProgress,
+  burningEnginesCount,
   effectiveContractDueAt,
+  isEngineRepairedForCountdown,
+  parseContractPayments,
   type ContractSections,
   type ProgressLinkedItem,
   parseContractExecutionParts,
@@ -53,6 +57,8 @@ type Row = {
   enginesAtFactory: number;
   partsPlanned: number;
   partsCompleted: number;
+  /** «Горящие» двигатели: отсчёт 90 дней ремонта в красной зоне (план engine-payments-2026-07). */
+  burningEngines: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 type SortKey =
@@ -69,7 +75,8 @@ type SortKey =
   | 'enginesAccepted'
   | 'enginesAtFactory'
   | 'partsPlanned'
-  | 'partsCompleted';
+  | 'partsCompleted'
+  | 'burningEngines';
 type ContractsListUiState = {
   query: string;
   sortKey: SortKey;
@@ -281,13 +288,19 @@ export function ContractsPage(props: {
 
       const engines = await window.matrica.engines.list();
       const linkedItemsByContractId = new Map<string, Array<Pick<ProgressLinkedItem, 'statusFlags'>>>();
+      const repairedEngineIds = new Set<string>();
       for (const item of Array.isArray(engines) ? engines : []) {
+        if (isEngineRepairedForCountdown(item.statusFlags)) repairedEngineIds.add(String(item.id));
         const contractId = String(item.contractId ?? '');
         if (!contractId) continue;
         const bucket = linkedItemsByContractId.get(contractId) ?? [];
         bucket.push({ statusFlags: item.statusFlags ?? null });
         linkedItemsByContractId.set(contractId, bucket);
       }
+      const todayIso = (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      })();
 
       const contractIdsByNumber = new Map<string, Set<string>>();
       for (const row of listRaw as any[]) {
@@ -370,6 +383,11 @@ export function ContractsPage(props: {
               enginesAtFactory,
               partsPlanned: Number(progress?.partPlannedCount ?? 0),
               partsCompleted: Number(progress?.partCompletedCount ?? 0),
+              burningEngines: burningEnginesCount(
+                parseContractPayments(attrs[CONTRACT_PAYMENTS_ATTR_CODE]),
+                todayIso,
+                repairedEngineIds,
+              ),
               ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
             };
           } catch {
@@ -391,6 +409,7 @@ export function ContractsPage(props: {
               enginesAtFactory: 0,
               partsPlanned: 0,
               partsCompleted: 0,
+              burningEngines: 0,
             };
           }
         }),
@@ -449,6 +468,7 @@ export function ContractsPage(props: {
       if (key === 'enginesAtFactory') return Number(row.enginesAtFactory ?? 0);
       if (key === 'partsPlanned') return Number(row.partsPlanned ?? 0);
       if (key === 'partsCompleted') return Number(row.partsCompleted ?? 0);
+      if (key === 'burningEngines') return Number(row.burningEngines ?? 0);
       return Number(row.updatedAt ?? 0);
     },
     (row) => row.id,
@@ -595,6 +615,37 @@ export function ContractsPage(props: {
             : row.partsCompleted > 0
               ? String(row.partsCompleted)
               : '—',
+      },
+      {
+        id: 'burningEngines',
+        label: 'Горящие двигатели',
+        sortable: true,
+        sortKey: 'burningEngines',
+        headerAlign: 'right',
+        cellAlign: 'right',
+        width: 90,
+        kind: 'num',
+        render: (row) =>
+          row.burningEngines > 0 ? (
+            <span
+              title={`Двигателей с отсчётом ремонта в красной зоне: ${row.burningEngines}. Откройте контракт — красные строки.`}
+              style={{
+                display: 'inline-block',
+                minWidth: 22,
+                padding: '1px 7px',
+                borderRadius: 999,
+                background: '#dc2626',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 12,
+                textAlign: 'center',
+              }}
+            >
+              {row.burningEngines}
+            </span>
+          ) : (
+            '—'
+          ),
       },
       {
         id: 'progressPct',
