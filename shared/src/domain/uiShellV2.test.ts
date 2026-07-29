@@ -63,15 +63,15 @@ describe('v3 «Вкладки»: sanitize + лимиты вкладок', () => 
     expect(sanitizeV3Prefs({ session: { openCards: [], activeKey: 'list' } }).session.activeKey).toBe('list');
   });
 
-  it('проценты сплитов: дефолты 25/50, кламп 15..85, мусор → дефолт', () => {
+  it('проценты сплитов: ширина разделов null (по кнопкам), сравнение 50, кламп 15..85', () => {
     const def = sanitizeV3Prefs(null);
-    expect(def.splitPct).toBe(25);
+    expect(def.sectionsPct).toBeNull();
     expect(def.comparePct).toBe(50);
-    const p = sanitizeV3Prefs({ session: { openCards: [], activeKey: 'sections' }, splitPct: 40, comparePct: 5 });
-    expect(p.splitPct).toBe(40);
+    const p = sanitizeV3Prefs({ session: { openCards: [], activeKey: 'sections' }, sectionsPct: 40, comparePct: 5 });
+    expect(p.sectionsPct).toBe(40);
     expect(p.comparePct).toBe(15);
-    expect(sanitizeV3Prefs({ splitPct: 99 }).splitPct).toBe(85);
-    expect(sanitizeV3Prefs({ splitPct: 'мусор' }).splitPct).toBe(25);
+    expect(sanitizeV3Prefs({ sectionsPct: 99 }).sectionsPct).toBe(85);
+    expect(sanitizeV3Prefs({ sectionsPct: 'мусор' }).sectionsPct).toBe(25);
   });
 
   it('открытые карточки обрезаются лимитом V3_MAX_CARD_TABS (8)', () => {

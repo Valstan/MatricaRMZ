@@ -13,6 +13,10 @@ import { CSS } from '@dnd-kit/utilities';
 
 import type { MenuTabId } from '../layout/Tabs.js';
 import type { V2ButtonDescriptor, V2Buttons } from './v2ButtonCatalog.js';
+// Стили панели живут рядом с компонентом, а не в оболочке: прежний общий shellV2.css
+// импортировался снесённой v2-оболочкой и после её удаления (#398) осиротел — панель
+// полсуток рендерилась голыми браузерными кнопками.
+import './buttonPanel.css';
 
 type ButtonMenuState = { id: MenuTabId; x: number; y: number; pinned: boolean } | null;
 
@@ -21,39 +25,50 @@ function SortableMenuButton(props: {
   active: boolean;
   listOpen: boolean;
   pinned: boolean;
-  sortable: boolean;
   onClick: () => void;
+  onTogglePin: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: props.btn.id,
-    disabled: !props.sortable,
-  });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.btn.id });
   return (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
-      className="v2-menu-btn"
-      data-active={props.active ? '1' : undefined}
-      data-list-open={props.listOpen ? '1' : undefined}
+      className="v2-menu-row"
       data-dragging={isDragging ? '1' : undefined}
       style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined }}
-      title={`${props.btn.groupLabel} → ${props.btn.label}`}
-      onClick={props.onClick}
-      onContextMenu={props.onContextMenu}
       {...attributes}
       {...listeners}
     >
-      <span className="v2-menu-btn-icon">{props.btn.icon}</span>
-      <span className="v2-menu-btn-label">{props.btn.label}</span>
-      {props.pinned ? <span className="v2-menu-btn-pin">📌</span> : null}
-    </button>
+      <button
+        type="button"
+        className="v2-menu-btn"
+        data-active={props.active ? '1' : undefined}
+        data-list-open={props.listOpen ? '1' : undefined}
+        title={`${props.btn.groupLabel} → ${props.btn.label}`}
+        onClick={props.onClick}
+        onContextMenu={props.onContextMenu}
+      >
+        <span className="v2-menu-btn-icon">{props.btn.icon}</span>
+        <span className="v2-menu-btn-label">{props.btn.label}</span>
+      </button>
+      <button
+        type="button"
+        className="v2-menu-pin"
+        data-pinned={props.pinned ? '1' : undefined}
+        title={props.pinned ? 'Открепить' : 'Закрепить наверху'}
+        onClick={props.onTogglePin}
+      >
+        📌
+      </button>
+    </div>
   );
 }
 
 /**
- * V2 колонка 1: панель кнопок. Перетаскивание (dnd-kit) меняет личный порядок,
- * правый клик — закрепить/скрыть. Свёрнутый режим — иконки без подписей (кликабельны).
+ * Колонка «РАЗДЕЛЫ»: вертикальный список кнопок одинаковой ширины. Перетаскивание
+ * (dnd-kit) меняет личный порядок — отдельно в закреплённой группе сверху и отдельно
+ * в основной; 📌 закрепляет/открепляет, правый клик — то же плюс «скрыть».
+ * Раскладка персистится в аккаунте оператора (ui:prefs, ключ — userId).
  */
 export function ButtonPanel(props: {
   buttons: V2Buttons;
@@ -61,41 +76,55 @@ export function ButtonPanel(props: {
   onLayoutChange: (next: V2ButtonLayout) => void;
   activeMenuTab: MenuTabId | null;
   listOpenTab: MenuTabId | null;
-  collapsed: boolean;
   onTab: (id: MenuTabId) => void;
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  const pinnedIds = useMemo(() => props.buttons.pinned.map((b) => b.id), [props.buttons.pinned]);
   const mainIds = useMemo(() => props.buttons.main.map((b) => b.id), [props.buttons.main]);
 
   const closeMenu = () => setMenu(null);
 
-  // Сохраняемый порядок включает закреплённые в начале: открепление возвращает
-  // кнопку наверх списка, а не на дефолтное место.
-  function fullOrder(main: MenuTabId[]): string[] {
-    return [...props.buttons.pinned.map((b) => b.id), ...main];
+  function reorder(ids: MenuTabId[], activeId: MenuTabId, overId: MenuTabId): MenuTabId[] | null {
+    const from = ids.indexOf(activeId);
+    const to = ids.indexOf(overId);
+    if (from < 0 || to < 0) return null;
+    const next = [...ids];
+    const moved = next.splice(from, 1)[0];
+    if (!moved) return null;
+    next.splice(to, 0, moved);
+    return next;
   }
 
-  function onDragEnd(event: DragEndEvent) {
+  // Сохраняемый порядок включает закреплённые в начале: открепление возвращает
+  // кнопку наверх списка, а не на дефолтное место.
+  function fullOrder(pinned: string[], main: string[]): string[] {
+    return [...pinned, ...main];
+  }
+
+  function onMainDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const from = mainIds.indexOf(active.id as MenuTabId);
-    const to = mainIds.indexOf(over.id as MenuTabId);
-    if (from < 0 || to < 0) return;
-    const next = [...mainIds];
-    const moved = next.splice(from, 1)[0];
-    if (!moved) return;
-    next.splice(to, 0, moved);
-    props.onLayoutChange({ ...props.layout, order: fullOrder(next) });
+    const next = reorder(mainIds, active.id as MenuTabId, over.id as MenuTabId);
+    if (next) props.onLayoutChange({ ...props.layout, order: fullOrder(pinnedIds, next) });
+  }
+
+  function onPinnedDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const next = reorder(pinnedIds, active.id as MenuTabId, over.id as MenuTabId);
+    if (next) props.onLayoutChange({ ...props.layout, pinned: next, order: fullOrder(next, mainIds) });
   }
 
   function togglePinned(id: MenuTabId) {
     const pinned = props.layout.pinned.includes(id)
       ? props.layout.pinned.filter((x) => x !== id)
       : [...props.layout.pinned, id];
-    props.onLayoutChange({ ...props.layout, pinned, order: fullOrder(mainIds) });
+    // Порядок пишем по текущему видимому (закреплённые + основные): открепление
+    // возвращает кнопку наверх основного списка, а не на дефолтное место.
+    props.onLayoutChange({ ...props.layout, pinned, order: fullOrder(pinnedIds, mainIds) });
   }
 
   function hideButton(id: MenuTabId) {
@@ -104,7 +133,7 @@ export function ButtonPanel(props: {
       ...props.layout,
       hidden: [...props.layout.hidden, id],
       pinned: props.layout.pinned.filter((x) => x !== id),
-      order: fullOrder(mainIds),
+      order: fullOrder(pinnedIds, mainIds),
     });
   }
 
@@ -112,15 +141,15 @@ export function ButtonPanel(props: {
     props.onLayoutChange({ ...props.layout, hidden: props.layout.hidden.filter((x) => x !== id) });
   }
 
-  const renderButton = (btn: V2ButtonDescriptor, opts: { pinned: boolean; sortable: boolean }) => (
+  const renderButton = (btn: V2ButtonDescriptor, opts: { pinned: boolean }) => (
     <SortableMenuButton
       key={btn.id}
       btn={btn}
       active={props.activeMenuTab === btn.id}
       listOpen={props.listOpenTab === btn.id}
       pinned={opts.pinned}
-      sortable={opts.sortable}
       onClick={() => props.onTab(btn.id)}
+      onTogglePin={() => togglePinned(btn.id)}
       onContextMenu={(e) => {
         e.preventDefault();
         setMenu({ id: btn.id, x: e.clientX, y: e.clientY, pinned: opts.pinned });
@@ -128,39 +157,22 @@ export function ButtonPanel(props: {
     />
   );
 
-  if (props.collapsed) {
-    const compact = [...props.buttons.pinned, ...props.buttons.main];
-    return (
-      <div className="v2-button-panel v2-button-panel-collapsed">
-        {compact.map((btn) => (
-          <button
-            key={btn.id}
-            type="button"
-            className="v2-menu-btn v2-menu-btn-compact"
-            data-active={props.activeMenuTab === btn.id ? '1' : undefined}
-            data-list-open={props.listOpenTab === btn.id ? '1' : undefined}
-            title={`${btn.groupLabel} → ${btn.label}`}
-            onClick={() => props.onTab(btn.id)}
-          >
-            <span className="v2-menu-btn-icon">{btn.icon}</span>
-          </button>
-        ))}
-      </div>
-    );
-  }
-
   return (
     <div className="v2-button-panel" onClick={() => { if (menu) closeMenu(); }}>
       {props.buttons.pinned.length > 0 && (
-        <div className="v2-button-section">
-          {props.buttons.pinned.map((btn) => renderButton(btn, { pinned: true, sortable: false }))}
-          <div className="v2-button-divider" />
-        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onPinnedDragEnd}>
+          <SortableContext items={pinnedIds} strategy={verticalListSortingStrategy}>
+            <div className="v2-button-section v2-button-section-pinned">
+              {props.buttons.pinned.map((btn) => renderButton(btn, { pinned: true }))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      {props.buttons.pinned.length > 0 && <div className="v2-button-divider" />}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onMainDragEnd}>
         <SortableContext items={mainIds} strategy={verticalListSortingStrategy}>
           <div className="v2-button-section v2-button-section-main">
-            {props.buttons.main.map((btn) => renderButton(btn, { pinned: false, sortable: true }))}
+            {props.buttons.main.map((btn) => renderButton(btn, { pinned: false }))}
           </div>
         </SortableContext>
       </DndContext>
