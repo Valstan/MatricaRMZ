@@ -432,6 +432,10 @@ export async function applyPushBatch(
       }
       let conflicts = 0;
       const conflictIds: string[] = [];
+      // Seq-less «воскрешение» поверх серверного тумбстоуна — всегда per-row отказ,
+      // НЕ общий throw: это ретрай оффлайн-очереди (напр. self-heal requeue клиента),
+      // и одна такая строка не имеет права блокировать push всей машины (правило M49).
+      const undeleteSkippedIds: string[] = [];
       const filtered = rows.filter((r) => {
         const cur = map.get(String(r.id));
         if (!cur || !Number.isFinite(cur.updatedAt)) return true;
@@ -450,8 +454,7 @@ export async function applyPushBatch(
           const incomingDeleted = r.deleted_at != null;
           // If server already has a tombstone with a known seq, do not allow seq-less undelete.
           if (!incomingDeleted && cur.deletedAt != null) {
-            conflicts += 1;
-            conflictIds.push(String(r.id));
+            undeleteSkippedIds.push(String(r.id));
             return false;
           }
           if (incomingDeleted && cur.deletedAt == null) return true;
@@ -460,6 +463,18 @@ export async function applyPushBatch(
         if (r.deleted_at && cur.deletedAt == null) return true;
         return !(cur.updatedAt > r.updated_at);
       });
+      if (undeleteSkippedIds.length > 0) {
+        addSkipMetric('conflict', tableName, undeleteSkippedIds.length, 'tombstone_undelete');
+        logSkip('sync tombstone undelete rows skipped', {
+          table: tableName,
+          conflicts: undeleteSkippedIds.length,
+          client_id: req.client_id,
+          user: actor.username,
+        });
+        for (const rowId of undeleteSkippedIds) {
+          addSkippedRow({ table: tableName, row_id: rowId, reason: 'conflict' });
+        }
+      }
       if (conflicts > 0) {
         addSkipMetric('conflict', tableName, conflicts);
         if (opts?.allowSyncConflicts || applyOpts.allowSyncConflicts) {
