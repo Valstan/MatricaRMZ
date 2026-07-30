@@ -7,7 +7,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 // сканирует пустышки по типам; решение об удалении за оператором (галочки + подтверждение).
 // Удаление — soft-delete через синк, с серверной ре-валидацией «пусто» перед удалением.
 
-type EmptyCardKind = 'engine' | 'contract' | 'employee' | 'work_order' | 'supply_request';
+type EmptyCardKind = 'engine' | 'contract' | 'employee' | 'work_order' | 'supply_request' | 'assembly_bom';
 type EmptyCardRow = { id: string; kind: string; label: string; createdAt: number };
 type EmptyCardsGroup = { kind: EmptyCardKind; label: string; rows: EmptyCardRow[] };
 type DeleteReport = { deleted: number; skipped: Array<{ id: string; reason: string }> };

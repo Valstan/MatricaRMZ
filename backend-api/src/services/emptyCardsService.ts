@@ -13,13 +13,22 @@ import { SyncTableName, isWorkOrderPayloadEmpty, isSupplyRequestPayloadEmpty } f
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  entities,
+  entityTypes,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomLines,
+  operations,
+} from '../database/schema.js';
 import { softDeleteEntity } from './adminMasterdataService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
+import { deleteWarehouseAssemblyBom } from './warehouseBomService.js';
 
 type Actor = { id: string; username: string; role: string };
 
-export type EmptyCardKind = 'engine' | 'contract' | 'employee' | 'work_order' | 'supply_request';
+export type EmptyCardKind = 'engine' | 'contract' | 'employee' | 'work_order' | 'supply_request' | 'assembly_bom';
 export type EmptyCardRow = { id: string; kind: EmptyCardKind; label: string; createdAt: number };
 export type EmptyCardsGroup = { kind: EmptyCardKind; label: string; rows: EmptyCardRow[] };
 
@@ -136,6 +145,49 @@ async function collectEmptyOperations(detector: (typeof OPERATION_DETECTORS)[num
   return out;
 }
 
+/**
+ * BOM пуста, когда у неё НЕТ ни одной живой строки — независимо от названия, марок и статуса.
+ * Это отличается от карточек-сущностей (там пустота = все значимые атрибуты пустые): у BOM
+ * заполненная шапка без строк бесполезна и вредна. Такая пустышка месяц жила на проде
+ * («BOM В-84», 0 строк, 01.07–30.07): она делает марку неоднозначной, и наряд начинает
+ * спрашивать спецификацию руками, а выбравший пустую получает «В основном варианте BOM нет
+ * материалов». Детектор именно поэтому и добавлен.
+ */
+export function selectEmptyAssemblyBomRows(
+  boms: Array<{ id: unknown; name: unknown; createdAt: unknown }>,
+  bomIdsWithLines: Iterable<unknown>,
+): EmptyCardRow[] {
+  const withLines = new Set<string>();
+  for (const id of bomIdsWithLines) withLines.add(String(id));
+
+  const out: EmptyCardRow[] = [];
+  for (const b of boms) {
+    const id = String(b.id);
+    if (withLines.has(id)) continue;
+    // Имя показываем как есть: оператор узнаёт дубль именно по нему («BOM В-84» рядом с настоящей).
+    const name = String(b.name ?? '').trim();
+    out.push({ id, kind: 'assembly_bom', label: name || `…${id.slice(-6)}`, createdAt: Number(b.createdAt) });
+  }
+  return out;
+}
+
+async function collectEmptyAssemblyBoms(): Promise<EmptyCardRow[]> {
+  const boms = await db
+    .select({ id: erpEngineAssemblyBom.id, name: erpEngineAssemblyBom.name, createdAt: erpEngineAssemblyBom.createdAt })
+    .from(erpEngineAssemblyBom)
+    .where(isNull(erpEngineAssemblyBom.deletedAt))
+    .limit(200_000);
+  if (boms.length === 0) return [];
+
+  const bomIds = boms.map((b) => String(b.id));
+  const lines = await db
+    .select({ bomId: erpEngineAssemblyBomLines.bomId })
+    .from(erpEngineAssemblyBomLines)
+    .where(and(inArray(erpEngineAssemblyBomLines.bomId, bomIds as never[]), isNull(erpEngineAssemblyBomLines.deletedAt)));
+
+  return selectEmptyAssemblyBomRows(boms, lines.map((l) => l.bomId));
+}
+
 async function collectEmptyCards(): Promise<{ groups: EmptyCardsGroup[]; kindById: Map<string, EmptyCardKind> }> {
   const groups: EmptyCardsGroup[] = [];
   const kindById = new Map<string, EmptyCardKind>();
@@ -149,6 +201,9 @@ async function collectEmptyCards(): Promise<{ groups: EmptyCardsGroup[]; kindByI
     for (const r of rows) kindById.set(r.id, r.kind);
     if (rows.length > 0) groups.push({ kind: d.kind, label: d.label, rows });
   }
+  const bomRows = await collectEmptyAssemblyBoms();
+  for (const r of bomRows) kindById.set(r.id, r.kind);
+  if (bomRows.length > 0) groups.push({ kind: 'assembly_bom', label: 'Спецификации сборки (BOM)', rows: bomRows });
   return { groups, kindById };
 }
 
@@ -235,6 +290,12 @@ export async function deleteEmptyCards(args: {
       }
       if (kind === 'work_order' || kind === 'supply_request') {
         const res = await softDeleteOperation(args.actor, id);
+        if (res.ok) deleted += 1;
+        else skipped.push({ id, reason: res.error });
+      } else if (kind === 'assembly_bom') {
+        // Через сервис BOM, а не softDeleteEntity: строки и связки с марками лежат в своих
+        // таблицах и должны погаснуть вместе с шапкой одним sync-пакетом.
+        const res = await deleteWarehouseAssemblyBom({ id, actor: args.actor });
         if (res.ok) deleted += 1;
         else skipped.push({ id, reason: res.error });
       } else {
