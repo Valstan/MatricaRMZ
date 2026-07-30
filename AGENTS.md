@@ -54,7 +54,7 @@ git checkout -b <type>/<slug>        # feat/ fix/ chore/ docs/ refactor/
 # … работа, коммиты …
 git push -u origin <type>/<slug>
 gh pr create --title "..." --body "## Summary ... ## Test plan ..."
-# показать diff пользователю → дождаться явного OK
+# подтверждение — зелёные гейты, не человеческое «окей» (см. §Autonomy)
 gh pr merge --squash --delete-branch   # squash по умолчанию; merge commit — для длинных серий
 git checkout main && git pull
 ```
