@@ -1256,6 +1256,33 @@ export function WorkOrderDetailsPage(props: {
     }
   }
 
+  /**
+   * Сменить двигатель, оставив работы и комплектовку как есть (ручное отклонение от BOM).
+   * Общий хвост всех ветвей, где комплектовку из BOM подтянуть нельзя или оператор от неё
+   * отказался: смена двигателя не заложник комплектовки (#411).
+   */
+  function applyEngineKeepingRows(basePayload: WorkOrderPayload, engineId: string, engineBrandId: string | null): void {
+    const engine = engines.find((item) => item.id === engineId);
+    const brandId = (engineBrandId ?? engine?.engineBrandId ?? '') || '';
+    const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
+      ...line,
+      engineId,
+      engineNumber: engine?.engineNumber ?? '',
+      engineInternalNumber: engine?.engineInternalNumber ?? '',
+      ...(brandId ? { engineBrandId: brandId } : {}),
+      engineBrandName: engine?.engineBrandName ?? '',
+    });
+    const kept: WorkOrderPayload = {
+      ...basePayload,
+      assemblyEngineId: engineId,
+      freeWorks: basePayload.freeWorks.map(stamp),
+      assemblyManualDeviation: true,
+    };
+    delete kept.assemblyBomSnapshot;
+    delete kept.assemblyMaterialHash;
+    patch(kept);
+  }
+
   async function applyAssemblyPlan(
     basePayload: WorkOrderPayload,
     engineId: string,
@@ -1270,10 +1297,15 @@ export function WorkOrderDetailsPage(props: {
       });
       if (!result.ok) {
         if (result.candidates?.length) {
-          // Несколько BOM — оператор выбирает спецификацию, двигатель сменится после выбора.
+          // Раньше ветка молча выходила «двигатель сменится после выбора BOM»: пикер шапки
+          // контролируется payload'ом, поэтому он отщёлкивал назад на прежний двигатель, и
+          // оператор видел ровно «двигатель не меняется» — единственной подсказкой был
+          // маленький select рядом с полем. Меняем двигатель сразу, спецификация — отдельный
+          // необязательный шаг (тот же принцип, что и ветка без BOM ниже).
           setAssemblyBomCandidates(result.candidates);
           setAssemblyPendingEngineId(engineId);
-          setStatus(result.error);
+          applyEngineKeepingRows(basePayload, engineId, result.engineBrandId ?? null);
+          setStatus(`${result.error}. Двигатель изменён, работы и комплектовка прежние — выберите спецификацию, чтобы подтянуть их из BOM.`);
           return;
         }
         // BOM для марки не настроена (или профиль неполный) — раньше это молча блокировало
@@ -1293,24 +1325,7 @@ export function WorkOrderDetailsPage(props: {
           setStatus(result.error);
           return;
         }
-        const engine = engines.find((item) => item.id === engineId);
-        const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
-          ...line,
-          engineId,
-          engineNumber: engine?.engineNumber ?? '',
-          engineInternalNumber: engine?.engineInternalNumber ?? '',
-          ...(engine?.engineBrandId ? { engineBrandId: engine.engineBrandId } : {}),
-          engineBrandName: engine?.engineBrandName ?? '',
-        });
-        const kept: WorkOrderPayload = {
-          ...basePayload,
-          assemblyEngineId: engineId,
-          freeWorks: basePayload.freeWorks.map(stamp),
-          assemblyManualDeviation: true,
-        };
-        delete kept.assemblyBomSnapshot;
-        delete kept.assemblyMaterialHash;
-        patch(kept);
+        applyEngineKeepingRows(basePayload, engineId, result.engineBrandId ?? null);
         setStatus('Двигатель изменён без BOM; содержимое наряда сохранено как ручное отклонение.');
         return;
       }
@@ -1343,24 +1358,7 @@ export function WorkOrderDetailsPage(props: {
             confirmTone: 'warn',
           });
           if (!keep) return;
-          const engine = engines.find((item) => item.id === engineId);
-          const stamp = (line: WorkOrderWorkLine): WorkOrderWorkLine => ({
-            ...line,
-            engineId,
-            engineNumber: engine?.engineNumber ?? '',
-            engineInternalNumber: engine?.engineInternalNumber ?? '',
-            engineBrandId: result.engineBrandId,
-            engineBrandName: engine?.engineBrandName ?? '',
-          });
-          const kept: WorkOrderPayload = {
-            ...basePayload,
-            assemblyEngineId: engineId,
-            freeWorks: basePayload.freeWorks.map(stamp),
-            assemblyManualDeviation: true,
-          };
-          delete kept.assemblyBomSnapshot;
-          delete kept.assemblyMaterialHash;
-          patch(kept);
+          applyEngineKeepingRows(basePayload, engineId, result.engineBrandId);
           setStatus('Двигатель изменён; текущее содержимое сохранено как ручное отклонение от BOM.');
           return;
         }

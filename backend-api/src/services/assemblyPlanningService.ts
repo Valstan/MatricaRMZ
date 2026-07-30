@@ -52,6 +52,26 @@ async function resolveEngineBrandId(engineId: string): Promise<{ exists: boolean
   return { exists: true, brandId: parseJsonString(rows[0]?.valueJson ?? null) };
 }
 
+/**
+ * Дедуп кандидатов по `bomId`: junction допускает две живые строки на одну пару (bom, марка),
+ * и такой дубль превращал единственную спецификацию марки в мнимый «конфликт двух BOM».
+ * Флаг «основная» склеивается по OR — дубль не должен отнимать признак у самой BOM.
+ */
+export function dedupeAssemblyBomCandidates(
+  rows: Array<AssemblyPlanCandidate & { isDefaultForBrand: boolean }>,
+): Array<AssemblyPlanCandidate & { isDefaultForBrand: boolean }> {
+  const byBomId = new Map<string, AssemblyPlanCandidate & { isDefaultForBrand: boolean }>();
+  for (const row of rows) {
+    const existing = byBomId.get(row.bomId);
+    if (existing) {
+      if (row.isDefaultForBrand) existing.isDefaultForBrand = true;
+      continue;
+    }
+    byBomId.set(row.bomId, { ...row });
+  }
+  return [...byBomId.values()];
+}
+
 async function loadCandidates(engineBrandId: string): Promise<Array<AssemblyPlanCandidate & { isDefaultForBrand: boolean }>> {
   const rows = await db
     .select({
@@ -72,13 +92,30 @@ async function loadCandidates(engineBrandId: string): Promise<Array<AssemblyPlan
     )
     .where(and(eq(erpEngineAssemblyBom.status, 'active'), isNull(erpEngineAssemblyBom.deletedAt)))
     .orderBy(asc(erpEngineAssemblyBom.name));
-  return rows.map((row) => ({
-    bomId: String(row.bomId),
-    bomName: String(row.bomName),
-    version: Number(row.version),
-    defaultVariantKey: row.defaultVariantKey,
-    isDefaultForBrand: Boolean(row.isDefaultForBrand),
-  }));
+  return dedupeAssemblyBomCandidates(
+    rows.map((row) => ({
+      bomId: String(row.bomId),
+      bomName: String(row.bomName),
+      version: Number(row.version),
+      defaultVariantKey: row.defaultVariantKey,
+      isDefaultForBrand: Boolean(row.isDefaultForBrand),
+    })),
+  );
+}
+
+/**
+ * Какую BOM марки считать выбранной без явного `bomId`.
+ *
+ * Флаг «основная для марки» (`defaultForBrandIds`) редактор BOM никогда не отправляет —
+ * на проде он не выставлен ни у одной связки, поэтому требование флага делало ЛЮБОЙ выбор
+ * двигателя в сборочном наряде тупиком (`bom_conflict` на все марки). Единственная активная
+ * BOM марки — не «конфликт»: выбирать не из чего. Неоднозначность есть только при ≥2.
+ */
+export function pickDefaultAssemblyBom<T extends { isDefaultForBrand: boolean }>(candidates: T[]): T | null {
+  const defaults = candidates.filter((candidate) => candidate.isDefaultForBrand);
+  if (defaults.length === 1) return defaults[0]!;
+  if (defaults.length === 0 && candidates.length === 1) return candidates[0]!;
+  return null;
 }
 
 export async function resolveAssemblyPlan(args: { engineId: string; bomId?: string }): Promise<AssemblyPlanResolution> {
@@ -93,10 +130,7 @@ export async function resolveAssemblyPlan(args: { engineId: string; bomId?: stri
     }
     const selected = args.bomId
       ? candidates.find((candidate) => candidate.bomId === args.bomId)
-      : (() => {
-          const defaults = candidates.filter((candidate) => candidate.isDefaultForBrand);
-          return defaults.length === 1 ? defaults[0] : null;
-        })();
+      : pickDefaultAssemblyBom(candidates);
     if (!selected) {
       return {
         ok: false,
