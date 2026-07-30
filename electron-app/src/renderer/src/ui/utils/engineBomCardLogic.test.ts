@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBomSnapshot,
   computeMissingComponentTypes,
+  pruneDefaultForBrands,
+  toggleDefaultForBrand,
   type EngineBomDetailsForSnapshot,
   type EngineBomLine,
 } from './engineBomCardLogic.js';
@@ -39,6 +41,22 @@ describe('buildBomSnapshot', () => {
     const a = buildBomSnapshot(makeData([{ priority: 100 }]));
     const b = buildBomSnapshot(makeData([{ priority: 5 }]));
     expect(a).not.toBe(b);
+  });
+
+  it('меняется когда переключили «основная для марки»', () => {
+    // Без этого поля в снапшоте галочка не помечает карточку грязной и правка теряется
+    // при закрытии — тот же класс молчаливой потери, что GOTCHAS M53.
+    const base = makeData();
+    const a = buildBomSnapshot(base);
+    const b = buildBomSnapshot({ ...base, header: { ...base.header, defaultForBrandIds: ['brand-1'] } });
+    expect(a).not.toBe(b);
+  });
+
+  it('порядок марок в defaultForBrandIds не создаёт ложной грязи', () => {
+    const base = makeData();
+    const a = buildBomSnapshot({ ...base, header: { ...base.header, engineBrandIds: ['brand-1', 'brand-2'], defaultForBrandIds: ['brand-1', 'brand-2'] } });
+    const b = buildBomSnapshot({ ...base, header: { ...base.header, engineBrandIds: ['brand-2', 'brand-1'], defaultForBrandIds: ['brand-2', 'brand-1'] } });
+    expect(a).toBe(b);
   });
 
   it('меняется когда меняется componentType', () => {
@@ -114,5 +132,39 @@ describe('computeMissingComponentTypes', () => {
       ['sleeve', 'piston'],
     );
     expect(result[0]?.missingTypeIds).toEqual(['piston']);
+  });
+});
+
+describe('toggleDefaultForBrand', () => {
+  it('включает флаг для марки', () => {
+    expect(toggleDefaultForBrand([], 'brand-1', true)).toEqual(['brand-1']);
+  });
+
+  it('снимает флаг', () => {
+    expect(toggleDefaultForBrand(['brand-1', 'brand-2'], 'brand-1', false)).toEqual(['brand-2']);
+  });
+
+  it('повторное включение не копит дубли', () => {
+    expect(toggleDefaultForBrand(['brand-1'], 'brand-1', true)).toEqual(['brand-1']);
+  });
+
+  it('терпит null/undefined', () => {
+    expect(toggleDefaultForBrand(null, 'brand-1', true)).toEqual(['brand-1']);
+    expect(toggleDefaultForBrand(undefined, 'brand-1', false)).toEqual([]);
+  });
+});
+
+describe('pruneDefaultForBrands', () => {
+  it('выкидывает основные марки, которых больше нет в списке марок', () => {
+    // Иначе сервер отвергает весь upsert: «defaultForBrandIds должен быть подмножеством».
+    expect(pruneDefaultForBrands(['brand-1', 'brand-2'], ['brand-2'])).toEqual(['brand-2']);
+  });
+
+  it('пустой список марок обнуляет основные', () => {
+    expect(pruneDefaultForBrands(['brand-1'], [])).toEqual([]);
+  });
+
+  it('подмножество не трогает', () => {
+    expect(pruneDefaultForBrands(['brand-1'], ['brand-1', 'brand-2'])).toEqual(['brand-1']);
   });
 });

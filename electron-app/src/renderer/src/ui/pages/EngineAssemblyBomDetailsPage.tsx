@@ -17,6 +17,8 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import {
   buildBomSnapshot as buildBomSnapshotShared,
+  pruneDefaultForBrands,
+  toggleDefaultForBrand,
   type EngineBomDetailsForSnapshot,
 } from '../utils/engineBomCardLogic.js';
 import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
@@ -26,6 +28,8 @@ type BomDetails = {
     id: string;
     name: string;
     engineBrandIds: string[];
+    /** Марки, для которых эта BOM — основная (подмножество `engineBrandIds`). */
+    defaultForBrandIds?: string[] | null;
     engineNomenclatureId?: string | null;
     engineNomenclatureCode?: string | null;
     engineNomenclatureName?: string | null;
@@ -709,6 +713,10 @@ export function EngineAssemblyBomDetailsPage(props: {
         id: data.header.id,
         name: data.header.name,
         engineBrandIds: data.header.engineBrandIds,
+        // Сервер требует подмножество engineBrandIds; посылаем всегда (в т.ч. пустой массив),
+        // иначе снятую галочку не отличить от «поле не пришло» — при `undefined` сервер
+        // сохраняет прежний флаг.
+        defaultForBrandIds: pruneDefaultForBrands(data.header.defaultForBrandIds, data.header.engineBrandIds),
         ...(explicitHeaderNom ? { engineNomenclatureId: explicitHeaderNom } : {}),
         version: data.header.version,
         status: data.header.status,
@@ -1017,6 +1025,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                             header: {
                               ...prev.header,
                               engineBrandIds: values,
+                              defaultForBrandIds: pruneDefaultForBrands(prev.header.defaultForBrandIds, values),
                               engineNomenclatureId: null,
                               engineNomenclatureCode: null,
                               engineNomenclatureName: null,
@@ -1032,6 +1041,37 @@ export function EngineAssemblyBomDetailsPage(props: {
                   disabled
                 />
               )}
+              {(data.header.engineBrandIds ?? []).length > 0 ? (
+                <div style={{ display: 'grid', gap: 2, marginTop: 2 }}>
+                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                    Основная спецификация марки — её берут наряды сборки, когда у марки их несколько
+                  </span>
+                  {(data.header.engineBrandIds ?? []).map((brandId) => (
+                    <label key={brandId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={(data.header.defaultForBrandIds ?? []).includes(brandId)}
+                        disabled={!props.canEdit}
+                        onChange={(event) => {
+                          const on = event.target.checked;
+                          setData((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  header: {
+                                    ...prev.header,
+                                    defaultForBrandIds: toggleDefaultForBrand(prev.header.defaultForBrandIds, brandId, on),
+                                  },
+                                }
+                              : prev,
+                          );
+                        }}
+                      />
+                      <span>основная для «{brandLabelById.get(brandId) ?? brandId}»</span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </label>
             <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Наименование спецификации</span>
