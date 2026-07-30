@@ -77,9 +77,16 @@ ledger/index.json
 ledger/server-key.json
 ledger/state.json
 
+# Tool-local AI state. Канон правил (AGENTS.md) и общие команды/скиллы/настройки
+# коммитятся намеренно — см. AGENTS.md §«Какие AI-файлы хранить в Git».
+# Кэши и сессии других агентов в репо не место:
+.codex/
+.gemini/
+
 # Claude Code worktrees and local session data — игнорируем содержимое .claude/
 # поэлементно (а не как директорию), чтобы можно было re-include шарящиеся
 # между разработчиками артефакты типа slash-команд и agents.
+# .claude/settings.local.json остаётся игнорируемым (машинно-локальные разрешения).
 .claude/*
 !.claude/commands/
 !.claude/commands/**

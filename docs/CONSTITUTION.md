@@ -45,4 +45,4 @@
 
 ---
 
-_Процедуры и гейты — в [`../CLAUDE.md`](../CLAUDE.md). Карта кода — [`CODEBASE_MAP.md`](CODEBASE_MAP.md). Грабли — [`GOTCHAS.md`](GOTCHAS.md). Архитектура/прод — [`PROJECT_STATE.md`](PROJECT_STATE.md). Открытое — [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md). Сделанное — [`COMPLETED.md`](COMPLETED.md). Кросс-проектные ADR/идеи — `../../brain_matrica/`._
+_Процедуры и гейты — в [`../AGENTS.md`](../AGENTS.md). Карта кода — [`CODEBASE_MAP.md`](CODEBASE_MAP.md). Грабли — [`GOTCHAS.md`](GOTCHAS.md). Архитектура/прод — [`PROJECT_STATE.md`](PROJECT_STATE.md). Открытое — [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md). Сделанное — [`COMPLETED.md`](COMPLETED.md). Кросс-проектные ADR/идеи — `../../brain_matrica/`._

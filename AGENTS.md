@@ -1,4 +1,6 @@
-# MatricaRMZ — Codex instructions
+# AGENTS.md — единые правила для AI-агентов MatricaRMZ
+
+Этот файл — **единственный канонический вход для любой нейросети**: Claude Code, Codex, Gemini CLI и других агентов. Vendor-файлы (`CLAUDE.md`, `GEMINI.md`, …) — тонкие адаптеры: они указывают на инструмент-специфичное, но **не дублируют и не переопределяют** проектные правила. Копия канона расходится с оригиналом молча — это уже случилось здесь однажды (см. [ADR-0011](../brain_matrica/adr/0011-vendor-neutral-agent-contract.md)).
 
 ## Language
 All final messages, summaries, explanations, and recommendations to the user must be in **Russian**.
@@ -6,36 +8,40 @@ Internal reasoning, code comments, commit messages, identifiers — in English (
 
 ## Конституция — приоритетное чтение
 
-**Прежде всего — [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md):** компактный слой **принципов** проекта (ценности, из которых выводятся решения и против которых проверяются задачи). Читать **первым**; процедуры/гейты ниже — точечно. Включает статью «Codex — активный советник с предохранителями» (предлагай лучший путь раз и коротко, поднимай флаг последствий *до* реализации, идеи — в бэклог, решение за владельцем, анти-спам — закон). _(Черновик на ратификации владельца — `2026-06-18-project-constitution-and-advisor-stance`.)_
+**Прежде всего — [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md):** компактный слой **принципов** проекта (ценности, из которых выводятся решения и против которых проверяются задачи). Читать **первым**; процедуры/гейты ниже — точечно. Включает статью «Claude — активный советник с предохранителями» (предлагай лучший путь раз и коротко, поднимай флаг последствий *до* реализации, идеи — в бэклог, решение за владельцем, анти-спам — закон). Статья писалась под Claude, но относится к **любому агенту**.
 
 ## Источники правды для продолжения работы
 
-Эти файлы хранят состояние разработки между сессиями / между компьютерами. Читать в начале каждой новой сессии (это делает `/start`).
+Эти файлы хранят состояние разработки между сессиями, между компьютерами и **между моделями**. Читать в начале каждой новой сессии (это делает `/start`).
 
 **Раскол «открытое vs сделанное» ([план memory-reorg](docs/plans/_archive/memory-reorg-2026-06.md), образец Мозга):** рабочие файлы держат **только открытое**; завершённое уходит в тонкий done-индекс + git/PR. Это убирает «всплытие уже сделанного» и токены холодного старта.
 
 - [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md) — **sticky-note последней сессии**: текущая активная нитка, следующий шаг, ссылка на план. **Только активное** — без дампа завершённого. Заполняется `/close_session`, читается `/start`. Перезаписывается целиком — история через `git log -- docs/SESSION_HANDOFF.md`. **Читать всегда.**
-- [`docs/CODEBASE_MAP.md`](docs/CODEBASE_MAP.md) — **карта монорепо**: где живёт X, когда сюда лезть. Куратируемый markdown ≤2 экрана, не автогенерируется. Читать **вместо** широкой разведки `docs/` или `Glob/Read` «на ощупь». «Карта прежде разведки» — [ADR-0003 brain_matrica](../brain_matrica/adr/0003-token-economy-principles.md). **Читать всегда.**
+- [`docs/CODEBASE_MAP.md`](docs/CODEBASE_MAP.md) — **карта монорепо**: где живёт X, когда сюда лезть. Куратируемый markdown ≤2 экрана, не автогенерируется. Читать **вместо** широкой разведки `docs/` или файловых поисков «на ощупь». «Карта прежде разведки» — [ADR-0003 brain_matrica](../brain_matrica/adr/0003-token-economy-principles.md). **Читать всегда.**
 - [`docs/PENDING_FOLLOWUPS.md`](docs/PENDING_FOLLOWUPS.md) — **только открытые** задачи/техдолги/отложенные (🔴 / ⏳ / 🟡 / 🟢) + метки старения. Завершённое сюда **не кладём** (выпиливается при закрытии). **Читать только если задача про open issues.**
 - [`docs/COMPLETED.md`](docs/COMPLETED.md) — **done-индекс (Tier-1):** 1 строка на завершённую нитку/релиз. Не дублирует git/PR — только навигация «это уже сделано?». **Читать по требованию**, `/start` его не читает.
 - [`docs/GOTCHAS.md`](docs/GOTCHAS.md) — **проектные грабли по симптомам** (Tier-1 индекс + записи). **Грепать перед долгой отладкой**, `/start` не читает. Кросс-проектные — в `../brain_matrica/cross-project-ideas/GOTCHAS.md`.
 - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — архитектурное состояние, правила, устаревшие решения. **Читать только если задача про архитектуру / прод / релизный контур.**
-- [`docs/plans/`](docs/plans/) — **активные** многоэтапные планы. Завершённые → [`docs/plans/_archive/`](docs/plans/_archive/). **При plan mode создавай файл сразу здесь** (`docs/plans/<slug>.md`), не в `~/.Codex/plans/` — иначе план не виден на других компах.
+- [`docs/plans/`](docs/plans/) — **активные** многоэтапные планы. Завершённые → [`docs/plans/_archive/`](docs/plans/_archive/). **При планировании создавай файл сразу здесь** (`docs/plans/<slug>.md`), а не в служебном каталоге своего инструмента — иначе план не виден на других компах и другим моделям.
 - [`docs/machines/<hostname>.md`](docs/machines/README.md) — **профиль окружения этого компа**: порты dev-стенда (PG/backend/vite/CDP), пути к инструментам, как поднимать скиллы (`verifier-electron`), машинные грабли. По файлу на hostname (правит только свой комп → нет межмашинных конфликтов). `/start` §0.5 читает свой по hostname; **пиши по мере изучения** «как тут запускается X». Без секретов. **Читать всегда** (свой). Конвенция — [`docs/machines/README.md`](docs/machines/README.md).
 
 **Принцип token economy:** `SESSION_HANDOFF` + `CODEBASE_MAP` + `docs/machines/<hostname>.md` — обязательны на старте. `PENDING_FOLLOWUPS` / `COMPLETED` / `GOTCHAS` / `PROJECT_STATE` читаются **по требованию задачи**, не безусловно (ADR-0003). История релизов — `git log` + тело PR; тонкая навигация по ней — `COMPLETED.md`.
 
 ## Cross-project knowledge base
 
-Кросс-проектный pool идей, tech-radar, реестр проектов и cross-project ADRs — в meta-репо [`brain_matrica`](https://github.com/Valstan/brain_matrica). Локально: `../brain_matrica/` (если все репо клонированы в одну родительскую папку, например `D:\GitHubReps\`). Fallback: `~/.Codex/cross-project-ideas/` (legacy, помечено к удалению).
+Кросс-проектный pool идей, tech-radar, реестр проектов и cross-project ADRs — в meta-репо [`brain_matrica`](https://github.com/Valstan/brain_matrica). Локально: `../brain_matrica/` (если все репо клонированы в одну родительскую папку, например `D:\GitHubReps\`).
 
-Перед предложением переносимой идеи (фишка из MatricaRMZ, которая может пригодиться в GONBA/setka, или наоборот) — глянь `<brain_matrica>/cross-project-ideas/INDEX.md`. Новые идеи добавляй **в brain_matrica отдельной сессией** (`cd ../brain_matrica && Codex`), не из этого репо. При применении идеи у себя — отметь `✅ YYYY-MM-DD` в её таблице.
+Перед предложением переносимой идеи (фишка из MatricaRMZ, которая может пригодиться в GONBA/setka, или наоборот) — глянь `<brain_matrica>/cross-project-ideas/INDEX.md`. Новые идеи добавляй **в brain_matrica отдельной сессией**, не из этого репо. При применении идеи у себя — отметь `✅ YYYY-MM-DD` в её таблице.
+
+**Consult-library рефлекс (pool #014, условный триггер):** перед вводом в проект **нового инструмента/библиотеки/паттерна** (не рутинная правка) — глянь `<brain_matrica>/REFERENCE.md` / tech-radar: возможно, экосистема уже выбрала решение или отвергла кандидата. Триггер условный — только на «вводим новое», не шаг каждой сессии.
+
+**ADR-0007 «тактика напрямую, знание через курацию»:** любой sibling-репо можно **читать read-only напрямую** (`../<project>/`, перед чтением `git pull --ff-only`) для тактических фактов — API-контракт, форматы, docs, handoff соседа. Писать/коммитить в чужой репо нельзя; прочитанное — не контракт (зависимость от чужого API = интеграция → письмо в мозг). Знание/директивы/переносимые уроки — по-прежнему через mailbox.
 
 **Mailbox-протокол ([ADR-0001](../brain_matrica/adr/0001-brain-projects-mailboxes.md), асимметричный с 2026-05-23):** каждая сторона пишет только в свой репо.
 
 - **brain → MatricaRMZ:** brain пишет в `../brain_matrica/mailboxes/MatricaRMZ/from-brain/*.md`. Мы только читаем (`git -C ../brain_matrica pull --ff-only`).
 - **MatricaRMZ → brain:** мы пишем в [`mailbox/to-brain/`](mailbox/to-brain/) **этого** репо. brain читает через `git pull` MatricaRMZ.
-- **Шеринг находок (pool #009):** значимые *переносимые* находки (скилл/фича/паттерн/решённая нетривиальная боль) сам отправляю в brain через `mailbox/to-brain/` — не только по явной просьбе. Фильтр (слать только если все три: значимость + переносимость + неочевидность) и шаг встроены в `/close_session`. По умолчанию — молчим.
+- **Шеринг находок (pool #009):** значимые *переносимые* находки (скилл/фича/паттерн/решённая нетривиальная боль) отправляем в brain через `mailbox/to-brain/` — не только по явной просьбе. Фильтр (слать только если все три: значимость + переносимость + неочевидность) и шаг встроены в `/close_session`. По умолчанию — молчим.
 - Запись/коммит в `../brain_matrica/` из проектной сессии **запрещён** (никаких `.last-seen`, никакой архивации, никакого `to-brain/` в чужом репо).
 - `/start` §0 сканит входящие и докладывает в формате `[urgency COMPLIANCE] slug — topic`. Compliance: `MAY/SHOULD/MUST` (suggest/recommend/mandate, RFC 2119). Письма kind=directive/idea без поля compliance — читать как `MUST`/`SHOULD` соответственно.
 
@@ -54,23 +60,59 @@ git checkout main && git pull
 ```
 
 - Slug — kebab-case, описательный (`feat/work-order-bom-tree-view`, `fix/payroll-signature-fio`).
+- Один PR — одна задача. Коммиты — Conventional Commits.
 - Релиз = merge PR → `git tag vX.Y.Z` на свежем `main` → `git push origin vX.Y.Z` (GitHub Actions триггерит installer build).
 - **Force-push в `main` — запрещён**; в feature-ветку — разрешён (rebase / amend перед merge).
 - **Hot-fix исключение:** прод упал → допустим direct push, но обязательный follow-up PR постфактум с описанием инцидента.
 - Branch protection на GitHub для `main`: require PR, disallow force push, disallow deletion.
 
-**GitHub — источник истины между машинами ([brain #010](../brain_matrica/cross-project-ideas/ideas/010-session-sync-safeguard.md), mandate).** Работа ведётся на разных компах; не оставляй сессию с несинхронизированной работой. Всё (код + доки) должно быть закоммичено и запушено через PR-flow до закрытия сессии. Гейт встроен в `/close_session` (§9.5, `scripts/git_sync_check.ps1 -Gate`); SessionStart-хук в `.Codex/settings.json` предупреждает о несинхроне на входе (`-Warn`, не блокирующий). Ручной шаг владельца: отключить тумблер Cowork «Classify session states», иначе сессия может уйти в авто-архив с незапушенной работой.
+**GitHub — источник истины между машинами ([brain #010](../brain_matrica/cross-project-ideas/ideas/010-session-sync-safeguard.md), mandate).** Работа ведётся на разных компах; не оставляй сессию с несинхронизированной работой. Всё (код + доки) должно быть закоммичено и запушено через PR-flow до закрытия сессии. Гейт встроен в `/close_session` (§9.5, `scripts/git_sync_check.ps1 -Gate`); SessionStart-хук в `.claude/settings.json` предупреждает о несинхроне на входе (`-Warn`, не блокирующий). Ручной шаг владельца: отключить тумблер Cowork «Classify session states», иначе сессия может уйти в авто-архив с незапушенной работой.
+
+## Сосуществование нескольких агентов
+
+Владелец работает в репо разными нейросетями. Два конфликта, которые это создаёт, снимаются правилами ниже ([ADR-0011](../brain_matrica/adr/0011-vendor-neutral-agent-contract.md)).
+
+**Файловый конфликт:**
+
+- Один агент — одна задача — своя ветка. **Не запускай двух пишущих агентов в одном рабочем дереве**; при одновременной работе второй берёт отдельный `git worktree`.
+- Перед правкой смотри `git status`. **Незнакомые изменения считай чужими:** не удаляй, не форматируй попутно, не включай в свой коммит, не прячь в `stash`.
+- Не переключай ветку в рабочем дереве, которым может пользоваться другой агент.
+- Объявляй границы (файлы/задача) в описании PR. Границы пересеклись — второй ждёт merge первого и ребейзит свою ветку до начала правок.
+- Не клади временные файлы в дерево репо: параллельная сессия с `git add -A` их подхватит. Временное — в скретчпад своего инструмента или в изолированный worktree.
+
+**Мнемонический конфликт:**
+
+- **Чат одной модели не источник истины для другой.** Межмодельная память — только артефакты: Git/PR, [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md), остальные `docs/` (`PENDING_FOLLOWUPS`/`COMPLETED`/`GOTCHAS`/`PROJECT_STATE`/`machines`), `mailbox/`, ADR в brain.
+- После обрыва восстанавливай фактическое состояние **из Git/PR**, не повторяй действия по памяти чата (памятка — [`.claude/commands/obriv.md`](.claude/commands/obriv.md)).
+- Решение, которое должно пережить сессию, обязано лечь в файл. Не оставленное в файле для следующей модели не существует.
+
+## Какие AI-файлы хранить в Git
+
+**Коммитить:**
+
+- `AGENTS.md` — канон, единственный источник правды для агентов;
+- `CLAUDE.md`, `GEMINI.md` — короткие адаптеры к `AGENTS.md`;
+- `.claude/commands/`, `.claude/agents/`, `.claude/skills/`, `.claude/scripts/`, `.claude/settings.json` — общие команды, скиллы, хуки и безопасные разрешения;
+- `docs/**`, `mailbox/**` — проектная документация и почта.
+
+**Не коммитить:**
+
+- локальные разрешения и персональные настройки (`.claude/settings.local.json`);
+- кэши/сессии моделей (`.codex/`, `.gemini/`, `.claude/worktrees/`) и временные планы вне `docs/plans/`;
+- `.env*`, ключи, токены, логи, артефакты сборки, временные файлы.
+
+Секреты не должны жить в репозитории даже под защитой `.gitignore` — **репо публичный**.
 
 ## Autonomy (gate-replaced) — brain [#027](../brain_matrica/cross-project-ideas/ideas/027-gate-replaced-autonomy.md) (mandate)
 
-Владелец почти всегда соглашается на «окей на дифф/мерж/деплой» → человеческое «окей» — слабый гейт (ритуал). Заменяем его **автоматическими гейтами**: автономия безопасна ⟺ гейты зелёные. Настроено в коммитимом [`.Codex/settings.json`](.Codex/settings.json) (`permissions.defaultMode: auto` + узкие `allow`/`deny` + `autoMode.soft_deny`).
+Владелец почти всегда соглашается на «окей на дифф/мерж/деплой» → человеческое «окей» — слабый гейт (ритуал). Заменяем его **автоматическими гейтами**: автономия безопасна ⟺ гейты зелёные. У Claude Code это настроено в коммитимом [`.claude/settings.json`](.claude/settings.json) (`permissions.defaultMode: auto` + узкие `allow`/`deny` + `autoMode.soft_deny`); агент без такого механизма соблюдает те же ярусы вручную.
 
 **Ярусы по риску:**
 - **Правки файлов, ветки, коммиты, PR, авто-мерж** — авто, без переспрашивания. **Подтверждение = зелёные гейты:** build `shared`+`ledger` → `corepack pnpm -r typecheck` + `lint` → `corepack pnpm -F @matricarmz/backend-api test` → **CDP e2e-smoke** (`verifier-electron`, skill `verify`) при UI-правках → CI зелёный. Прогонять перед мержем; красный гейт = стоп, чиню, не мержу.
 - **Деплой на прод** — авто под smoke-гейтом (`/health` + `/updates/status` после рестарта) и лёгким откатом; деплои сериализованы (не внахлёст).
-- **Работа всегда внутри PR-flow** (ADR-0002): авто-PR + авто-мерж, **не** прямой push в main (`deny` в settings).
+- **Работа всегда внутри PR-flow** (ADR-0002): авто-PR + авто-мерж, **не** прямой push в main.
 
-**⚠️ Черту НЕ пересекать (brain [#025](../brain_matrica/cross-project-ideas/ideas/025-destructive-prod-confirm-same-turn.md) / GOTCHAS G29):** необратимые операции с **живыми прод-данными** — `DROP`/`DELETE`/`UPDATE`/`TRUNCATE` на прод-БД, `db:migrate`/Drizzle-миграции на проде, `systemctl stop` прод-сервисов, `rm` на прод-путях, `git reset --hard` на прод-checkout — **остаются под явным подтверждением в том же ходе**. Реализовано через `autoMode.soft_deny` (семантический гейт классификатора, очищается явным намерением — надёжнее prefix-матча для ssh-обёрнутых команд). Это ровно класс инцидента `client_settings` 76→39. Read-only прод-probe (`systemctl is-active`, `curl /health`, `git log`) — авто.
+**⚠️ Черту НЕ пересекать (brain [#025](../brain_matrica/cross-project-ideas/ideas/025-destructive-prod-confirm-same-turn.md) / GOTCHAS G29):** необратимые операции с **живыми прод-данными** — `DROP`/`DELETE`/`UPDATE`/`TRUNCATE` на прод-БД, `db:migrate`/Drizzle-миграции на проде, `systemctl stop` прод-сервисов, `rm` на прод-путях, `git reset --hard` на прод-checkout — **остаются под явным подтверждением в том же ходе**. У Claude Code это реализовано через `autoMode.soft_deny` (семантический гейт классификатора, очищается явным намерением — надёжнее prefix-матча для ssh-обёрнутых команд). Это ровно класс инцидента `client_settings` 76→39. Read-only прод-probe (`systemctl is-active`, `curl /health`, `git log`) — авто.
 
 ## Два режима проекта
 
@@ -81,10 +123,13 @@ git checkout main && git pull
 
 ## Команды управления сессией
 
-- `/start` — онбординг новой сессии: подхватывает SESSION_HANDOFF, синхронизируется с origin, читает три источника правды, докладывает состояние. NL-триггеры: «начни сессию», «начни сессию разработки».
-- `/close_session` — закрытие сессии: сохраняет «куда мы шли» в SESSION_HANDOFF, коммитит+пушит **всё** через PR-flow и не закрывает сессию, пока sync-гейт не зелёный (§9.5). NL-триггеры: «закрой сессию», «заверши сессию».
-- `/reliz` — выпуск нового релиза согласно [Release process](#release-process). Деплой/релиз — отдельный осознанный шаг, **не** часть закрытия сессии. NL-триггеры: «создай релиз», «выпусти релиз».
-- `/zavod` — производственная сессия-консультант (завод-контур, см. «Два режима проекта»). NL-триггеры: «поговорим про завод», «производственная сессия».
+Исполняемые памятки лежат в [`.claude/commands/`](.claude/commands/). Несмотря на имя каталога, **их workflow применим любому агенту** — агент без slash-команд читает соответствующий `.md` и выполняет описанный порядок шагов.
+
+- `/start` ([`start.md`](.claude/commands/start.md)) — онбординг новой сессии: подхватывает SESSION_HANDOFF, синхронизируется с origin, читает источники правды, докладывает состояние. NL-триггеры: «начни сессию», «начни сессию разработки».
+- `/close_session` ([`close_session.md`](.claude/commands/close_session.md)) — закрытие сессии: сохраняет «куда мы шли» в SESSION_HANDOFF, коммитит+пушит **всё** через PR-flow и не закрывает сессию, пока sync-гейт не зелёный (§9.5). NL-триггеры: «закрой сессию», «заверши сессию».
+- `/reliz` ([`reliz.md`](.claude/commands/reliz.md)) — выпуск нового релиза согласно [Release process](#release-process). Деплой/релиз — отдельный осознанный шаг, **не** часть закрытия сессии. NL-триггеры: «создай релиз», «выпусти релиз».
+- `/zavod` ([`zavod.md`](.claude/commands/zavod.md)) — производственная сессия-консультант (завод-контур, см. «Два режима проекта»). NL-триггеры: «поговорим про завод», «производственная сессия».
+- `/obriv` ([`obriv.md`](.claude/commands/obriv.md)) — восстановление после обрыва связи: состояние берётся из Git/PR, не из памяти чата.
 
 ## Project overview
 MatricaRMZ is an Electron + Node.js desktop application for engine repair plant management.
@@ -94,6 +139,22 @@ Monorepo structure:
 - `shared/` — shared types and domain logic (TypeScript)
 - `web-admin/` — web admin panel
 - `scripts/` — release automation scripts
+
+Где что живёт подробно — [`docs/CODEBASE_MAP.md`](docs/CODEBASE_MAP.md). Ledger (`ledger/`) участвует в релизах, синхронизации и обновлениях клиента — **не обходить его** новыми путями доставки.
+
+## Быстрые команды разработки
+
+Всё через `corepack pnpm` (корень репо):
+
+| Задача | Команда |
+|---|---|
+| Установка и подготовка | `corepack pnpm run setup:dev` |
+| Сборка общих типов | `corepack pnpm run build:shared` |
+| Миграции БД | `corepack pnpm run db:migrate` |
+| Backend / Electron / web-admin dev | `corepack pnpm run dev:backend` · `dev:electron` · `dev:web-admin` |
+| Гейты перед мержем | `corepack pnpm -r typecheck` · `lint` · `corepack pnpm -F @matricarmz/backend-api test` |
+
+Порты dev-стенда и особенности запуска зависят от машины — см. `docs/machines/<hostname>.md`. При изменении типов сначала пересобирается `@matricarmz/shared`, иначе зависимые пакеты типизируются по старому `dist`.
 
 ## TypeScript config
 `exactOptionalPropertyTypes: true` is enabled. **Never assign `undefined` to optional fields.**
@@ -109,7 +170,12 @@ New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterd
 **Версия — CalVer, генерируется автоматически.** Номер релиза НЕ выбирается вручную (никаких patch/minor/major). `node scripts/bump-version.mjs` штампит версию из текущей даты: `YYYY.(MM*100+DD).(HH*100+MM)` — напр. `2026.614.1530` (14 июня 2026, 15:30). Это валидный монотонный semver без ведущих нулей → весь конвейер (electron-updater/`latest.yml`, тег `v*`, `/health`, ledger-publish) работает как раньше. Канонический генератор/парсер — `shared/src/domain/calver.ts`; оператору версия показывается **датой сборки** (`formatCalverBuildDate`). Ниже `X.Y.Z` = сгенерированный CalVer. `--set X.Y.Z` — только аварийный ручной оверрайд.
 
 1. `node scripts/bump-version.mjs` — штампит CalVer от текущей даты в `VERSION` + все `package.json` (печатает итоговый `X.Y.Z`).
-2. Add entry to `shared/src/domain/releaseWelcome.ts` (prepend to `RELEASE_WELCOME_HISTORY`; `releaseLabel` = сгенерированный CalVer, текст «что нового» — человеческий). **Обязательно задать `epigraph`** — новую цитату-эпиграф для welcome-окна (показывается вверху вместо заголовка, мельче): юмор/афоризм про завод / машиностроение / механосборку / инструменталку / бухгалтерию, чтобы поднять настроение; можно составить по теме релиза. **Новый эпиграф на каждый релиз** (не повторять прежние; оригинальный текст, не копировать чужие защищённые цитаты).
+2. Add entry to `shared/src/domain/releaseWelcome.ts` (prepend to `RELEASE_WELCOME_HISTORY`; `releaseLabel` = сгенерированный CalVer).
+   - **Только `highlights` — построчный список новинок. `intro` НЕ заполнять** (поле осталось необязательным ради старых записей и в окне не показывается): раньше проза дублировала список, и оператор читал одно и то же дважды, только длиннее.
+   - Пишем **языком бухгалтера**: что нового, чем удобно, что теперь можно делать. Технические подробности (гонки, миграции, гейты, названия таблиц и файлов) в окно **не выносим** — им место в теле PR. Если строку нельзя объяснить без слова «синхронизация» — скорее всего, оператору она не нужна.
+   - Окно показывает новинки **всех релизов за последние 2 календарных дня** (`buildReleaseWelcomeDigest`, дата берётся из самого CalVer). Несколько выкатов за день сливаются в один список — не дублируй в новой записи строки, уже сказанные сегодня.
+   - **Обязательно задать `epigraph`** — новую цитату-эпиграф для welcome-окна (показывается вверху вместо заголовка, мельче): юмор/афоризм про завод / машиностроение / механосборку / инструменталку / бухгалтерию, чтобы поднять настроение; можно составить по теме релиза. **Новый эпиграф на каждый релиз** (не повторять прежние; оригинальный текст, не копировать чужие защищённые цитаты).
+   - `outro` — одна короткая строка-подсказка «где это найти / как применить».
 3. Open PR (per `## Git flow`). After merge: `git tag vX.Y.Z` on fresh `main` → `git push origin vX.Y.Z` (GitHub Actions triggers installer build).
 4. On prod server: `git pull --ff-only && corepack pnpm install && corepack pnpm -F @matricarmz/shared -F @matricarmz/backend-api -F @matricarmz/web-admin build`.
    > ⚠️ **Если `pnpm install` виснет на VPS** (на `added N-1/N` или зомби-процессом) — это флаки-сеть + бесполезная закачка electron-бинаря; гнать `env ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm_config_fetch_timeout=45000 npm_config_fetch_retries=10 corepack pnpm install` (GOTCHAS **M16**). Для code-only релиза (lockfile не менялся) install можно вовсе пропустить — только build серверных пакетов. Застрявшие install'ы убивать по PID, НЕ `pkill -f 'corepack pnpm install'` (самоматчит ssh-команду).
@@ -122,9 +188,14 @@ New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterd
    gh release download vX.Y.Z --pattern "*.blockmap" -D /opt/matricarmz/updates --clobber   # separate call — multi-pattern drops it
    ```
    > ⚠️ **Verify all three landed** (`ls /opt/matricarmz/updates/ | grep <version>` → `.exe`, `.exe.blockmap`, `latest.yml`; `latest.yml` has no version in its name). A missing blockmap makes `/updates/file/<exe>.blockmap` return 404 → clients lose delta and full-download the installer (~116 МБ vs ~10 МБ). Confirm after restart: `curl -fsSk -o /dev/null -w '%{http_code}' https://127.0.0.1/updates/file/<exe>.blockmap` → `200`.
-8. `corepack pnpm release:ledger-publish X.Y.Z` — writes `latest.json` / `latest.torrent` into the updates dir. Still **before** restart.
-9. Restart services: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`. Verify with `curl -fsk https://127.0.0.1/health` (should report new version).
-10. Verify clients will see the update: `curl -fsSk https://127.0.0.1/updates/status` must report `latest: { version: "X.Y.Z", ... }` (not `null` and not the previous version).
+8. **Wait for `latest.json` to agree with the `.exe` on disk BEFORE anything else** (GOTCHAS **M40**, hit three times: 2026-07-23 ×2, 2026-07-26). The running `updateTorrentService` rescans the updates dir every 60 s and seeds the manifest from whatever it finds — `gh release download` writes the `.exe` in place, so a rescan mid-download persists a manifest with a **partial size**. That poisoned manifest survives the restart: `version/fileName/size` mismatch nulls the state and `/updates/file/:name` 404s **both** installer and blockmap — clients see no update at all. Poll until they match, don't eyeball it:
+   ```bash
+   until [ "$(stat -c%s /opt/matricarmz/updates/MatricaRMZ-Setup-X.Y.Z.exe)" = "$(python3 -c "import json,sys;print(json.load(open('/opt/matricarmz/updates/latest.json'))['size'])")" ]; do sleep 10; done
+   ```
+   If you already restarted and see `lastError: "stale_manifest"` → just restart the primary again once the file is complete (the fresh scan re-seeds correctly).
+9. `corepack pnpm release:ledger-publish X.Y.Z` — publishes the release into the ledger. Still **before** restart. Note it does **not** rewrite `latest.json` itself — that is the rescan's job (see step 8).
+10. Restart services: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`. Verify with `curl -fsk https://127.0.0.1/health` (should report new version).
+11. Verify clients will see the update: `curl -fsSk https://127.0.0.1/updates/status` must report `latest: { version: "X.Y.Z", ... }` (not `null` and not the previous version), `lastError: null`, and `/updates/file/<exe>.blockmap` → `200`.
 
 > **Why download + ledger-publish go before restart** (learned v1.34.2): `updateTorrentService` reads the updates dir into in-memory state **at process startup** and only re-scans on a long interval. If you restart while the dir still holds the previous installer, `/updates/status` reports the old version until the next scan (or a second restart). Preparing all artifacts first means the post-restart scan reads the final `latest.yml` / `latest.json` immediately. The DB-touching steps (5, 6) still run between `build` and `restart`.
 
@@ -141,6 +212,8 @@ Health check: `curl -fsk https://127.0.0.1/health`
 Updates status: `curl -fsSk https://127.0.0.1/updates/status`
 
 ## Key architecture decisions
+- **Внутренний номер двигателя** («клеймо» на безымянных деталях): EAV-атрибуты `engine_internal_number` + `engine_internal_number_year`. Уникальна **пара (номер, год)**, не номер: нумерацию ведёт работник в журнале дефектовки и каждый год начинает с единицы. Показывается как `41/26`, в цеху на деталях живёт короткий `41`. Год — **текущий** на момент ввода (номер приходит «с земли» при дефектовке); поле года редактируемо для задним числом. Домен — `shared/src/domain/engineInternalNumber.ts` (формат/ключ/парс/сортировка), гейт дублей — на клиенте (`engineService.setEngineAttribute`) и на сервере (`adminMasterdataService` + `engineNumberGuard`), карточка пишет **год до номера** (гейт дочитывает второй элемент пары из БД). Префикс `engine_` обязателен: голый `internal_number` занят договорами. Флаги осознанного дубля (`repeat_arrival_flag`) на внутренний номер **не** распространяются.
+- **Внутренний номер НЕ подставляется в `stamped_number`** строк списка деталей (решение 2026-07-15, разобрано в PR #216). `stamped_number` — *личный* номер экземпляра детали, набитый изготовителем; это человеческий ключ поэкземплярного учёта ремфонда — `(engineEntityId, nomenclatureId, stampedNumber)` (`repairFundInstance.ts`), дедуп `(partId, stampedNumber)` в `buildStampedInstancesFromInventory`. Одинаковый номер двигателя во всех безымянных строках **схлопнул бы** их в один экземпляр (6 поршней → 1) и обманул бы требование к заказчику. Связь «деталь ↔ двигатель» держит **`engineEntityId` самой записи** (провенанс), а не номер, — отчёты и фильтры ходят по нему и от номера не зависят. Оператору на дефектовке показывается плашка-подсказка с клеймом (`RepairChecklistPanel`), данные не засоряются.
 - Services (услуги) belong to the Supply (Снабжение) menu group
 - `engine_brand_ids` attribute on services: JSON array of engine brand entity IDs, stored via EAV
 - Service card origin tracking: `serviceOriginTab` state in App.tsx — close returns to opening tab

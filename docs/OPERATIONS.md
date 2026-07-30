@@ -8,7 +8,7 @@
 
 ### Управление прод-сервером (напоминание для ИИ-агентов)
 - Прод-VPS обслуживается **только через SSH** в терминале: Host-алиас из `~/.ssh/config` (на Windows — `%USERPROFILE%\.ssh\config`, обычно `matricarmz`). Не рассчитывайте на отдельный MCP-сервер в этом репозитории.
-- После push в GitHub типичный контур деплоя: `ssh matricarmz` → `cd ~/MatricaRMZ` → `git pull`, сборка/миграции/рестарт сервисов по задаче (подробнее — CLAUDE.md §Release process, `docs/TROUBLESHOOTING.md`). Деплой — отдельный осознанный шаг (`/reliz`), не часть закрытия сессии.
+- После push в GitHub типичный контур деплоя: `ssh matricarmz` → `cd ~/MatricaRMZ` → `git pull`, сборка/миграции/рестарт сервисов по задаче (подробнее — AGENTS.md §Release process, `docs/TROUBLESHOOTING.md`). Деплой — отдельный осознанный шаг (`/reliz`), не часть закрытия сессии.
 
 ## 2) Ключевые точки входа
 
