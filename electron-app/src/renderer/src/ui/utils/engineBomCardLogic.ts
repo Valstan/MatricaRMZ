@@ -22,6 +22,8 @@ export type EngineBomDetailsForSnapshot = {
     status: string;
     isDefault: boolean;
     notes?: string | null;
+    /** Марки, для которых эта BOM — основная (подмножество `engineBrandIds`). */
+    defaultForBrandIds?: string[] | null;
   };
   lines: EngineBomLine[];
 };
@@ -48,6 +50,23 @@ export function normalizeVariantGroup(raw: unknown): string | null {
 // Snapshot для dirty-detection. С v1.21.5 `priority` снова в snapshot —
 // backend больше не пересчитывает его при save. `version` остаётся исключённым:
 // server bump'ает version при каждом save, иначе snapshot после refresh всегда отличался бы.
+/**
+ * Переключить «эта BOM — основная для марки». Порядок не значим (сервер хранит флаг на связке),
+ * поэтому дубли не копим: сначала выкидываем, потом при включении добавляем один раз.
+ */
+export function toggleDefaultForBrand(current: readonly string[] | null | undefined, brandId: string, on: boolean): string[] {
+  const without = [...(current ?? [])].filter((id) => id !== brandId);
+  return on ? [...without, brandId] : without;
+}
+
+/**
+ * Снятая марка не может остаться «основной»: сервер отвергает весь upsert, если
+ * `defaultForBrandIds` не подмножество `engineBrandIds`.
+ */
+export function pruneDefaultForBrands(current: readonly string[] | null | undefined, engineBrandIds: readonly string[]): string[] {
+  return [...(current ?? [])].filter((id) => engineBrandIds.includes(id));
+}
+
 export function buildBomSnapshot(data: EngineBomDetailsForSnapshot | null): string {
   if (!data) return '';
   return JSON.stringify({
@@ -57,6 +76,9 @@ export function buildBomSnapshot(data: EngineBomDetailsForSnapshot | null): stri
       engineBrandIds: [...(data.header.engineBrandIds ?? [])].sort(),
       status: data.header.status,
       isDefault: data.header.isDefault,
+      // Без этого поля переключение «основная для марки» не помечает карточку грязной,
+      // и правка молча теряется при закрытии — тот же класс, что GOTCHAS M53.
+      defaultForBrandIds: [...(data.header.defaultForBrandIds ?? [])].sort(),
       notes: data.header.notes ?? null,
     },
     lines: data.lines.map((line) => ({
