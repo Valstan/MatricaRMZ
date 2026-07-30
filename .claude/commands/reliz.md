@@ -1,8 +1,8 @@
 ---
-description: Выпусти новый релиз согласно инструкции в CLAUDE.md (раздел Release process)
+description: Выпусти новый релиз согласно инструкции в AGENTS.md (раздел Release process)
 ---
 
-Выпуск нового релиза MatricaRMZ. Действуй строго по разделу **Release process** в `CLAUDE.md`.
+Выпуск нового релиза MatricaRMZ. Действуй строго по разделу **Release process** в `AGENTS.md`.
 
 **Автономный режим (мандат владельца 2026-07-15, постулат 33 brain: вызов командного скила = полный мандат на весь сценарий).** Пройди весь путь — от команды до **закрытой сессии** — **без единого вопроса владельцу**, кроме гейта #025 (ниже). Каждая пауза на подтверждении = остывший cache = переотправка контекста; поэтому подтверждений нет, есть финальный отчёт.
 
@@ -29,7 +29,7 @@ description: Выпусти новый релиз согласно инстру�
 
 ## Прод-деплой — авто (без «явного да», кроме #025)
 
-Выполняй подряд по разделу Release process в CLAUDE.md (шаги 4-10). Помни: на проде собираются **только** серверные пакеты (`shared`/`backend-api`/`web-admin`), клиент `.exe` приходит готовым артефактом из GitHub Actions.
+Выполняй подряд по разделу Release process в AGENTS.md (шаги 4-10). Помни: на проде собираются **только** серверные пакеты (`shared`/`backend-api`/`web-admin`), клиент `.exe` приходит готовым артефактом из GitHub Actions.
 
 8. `git pull --ff-only && corepack pnpm install && corepack pnpm -F @matricarmz/shared -F @matricarmz/backend-api -F @matricarmz/web-admin build` (renderer-only релиз без смены lockfile — install/build можно пропустить, только swap артефактов).
 9. Миграции: если релиз везёт `backend-api/drizzle/*.sql` — `corepack pnpm -F @matricarmz/backend-api db:migrate` (между build и restart) + backfill-скрипты. ⚠️ **Деструктивная миграция/backfill → гейт #025** (стоп, спросить). Аддитивная → авто.

@@ -138,7 +138,7 @@ if ($Gate) {
 if ($problems.Count -gt 0) {
   Write-Output "$SIGN_WARN this session has work not yet on GitHub:"
   foreach ($p in $problems) { Write-Output "   - $p" }
-  Write-Output "   GitHub is the source of truth between machines - sync before switching computers (see CLAUDE.md / /close_session)."
+  Write-Output "   GitHub is the source of truth between machines - sync before switching computers (see AGENTS.md / /close_session)."
 } else {
   Write-Output "$SIGN_OK clean - committed and pushed (branch '$($s.Branch)')."
 }

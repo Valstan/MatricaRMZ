@@ -22,7 +22,7 @@
 Новый leaf-модуль по образцу shared/src/domain/engineInternalNumber.ts (чистые функции, ноль I/O, ноль импортов из backend/electron). Экспорты РОВНО такие:
 
 Константы:
-- `export const ENGINE_RESERVATION_CODE = 'engine_reservation'` (префикс `engine_` обязателен — правило CLAUDE.md, голый код занят другими типами);
+- `export const ENGINE_RESERVATION_CODE = 'engine_reservation'` (префикс `engine_` обязателен — правило AGENTS.md, голый код занят другими типами);
 - `ENGINE_RESERVATION_TTL_MS = 12*60*60*1000`;
 - `ENGINE_RESERVATION_RENEW_AFTER_MS = ENGINE_RESERVATION_TTL_MS/2`;
 - `ENGINE_RESERVATION_PRE_LOCK_GRACE_MS = 15*60*1000`;
@@ -246,7 +246,7 @@ WHY (аргумент судьи 3): стартовый экран планше�
 
 Тесты — по шагам 1/3/5 (кейсы перечислены в их acceptance). ВАЖНО: дописывать в СУЩЕСТВУЮЩИЙ `backend-api/src/services/sync/ledgerAuthzGuard.test.ts` (248 строк, готовый table-aware мок), а не заводить новый файл — утверждение «тестов на гейт нет» ложно. В моках держать только простые select (мок `makeTxSelectFromTableMap` не умеет `.innerJoin` и игнорирует `.where`), код атрибута дофильтровывать в JS.
 
-Гейты перед мержем (CLAUDE.md §Autonomy): build `shared`+`ledger` → `corepack pnpm -r typecheck` (по пакетам последовательно) → `lint` → `corepack pnpm -F @matricarmz/backend-api test` (в т.ч. существующие sync.test.ts и presenceNotLedgered.test.ts — доказательство, что горячий write-путь не задет) → CI 'Check Sync Contract' (должен пройти БЕЗ изменений — `SyncTableName` не трогаем) → CDP e2e-смоук (skill `verify`).
+Гейты перед мержем (AGENTS.md §Autonomy): build `shared`+`ledger` → `corepack pnpm -r typecheck` (по пакетам последовательно) → `lint` → `corepack pnpm -F @matricarmz/backend-api test` (в т.ч. существующие sync.test.ts и presenceNotLedgered.test.ts — доказательство, что горячий write-путь не задет) → CI 'Check Sync Contract' (должен пройти БЕЗ изменений — `SyncTableName` не трогаем) → CDP e2e-смоук (skill `verify`).
 
 Приёмка на дев-стенде (обязательна, два клиента):
 1. A берёт TEST-001 → B после pull видит бейдж в списке и плашку в карточке, карточка read-only.

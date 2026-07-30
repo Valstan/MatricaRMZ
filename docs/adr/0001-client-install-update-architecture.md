@@ -43,7 +43,7 @@
 - `updateService.ts` — оркестратор: периодическая проверка (`UPDATE_CHECK_INTERVAL_MS = 30 мин`), скачивание в `pending-update`, проверка **sha256** полного файла, detached-spawn инсталлятора, broadcast прогресса в renderer.
 - Получение метаданных: клиент опрашивает `GET /updates/latest-meta` (`{version,fileName,size,sha256}`), torrent-метаданные — `GET /updates/latest`, файл — `GET /updates/file/{name}`.
 - `lanUpdateService.ts` — LAN peer discovery/registration (`listUpdatePeers`, `registerLanPeers`, локальный LAN-HTTP-сервер раздачи).
-- Раздача с сервера: `backend-api/src/routes/updates.ts` + `services/updateTorrentService.ts` (`/updates/latest-meta`, `/updates/latest`, `/updates/file/{name}`, `/updates/latest.torrent`, `latest.json`, torrent-tracker). Статус-эндпоинт `/updates/status` (CLAUDE.md релиз-чек).
+- Раздача с сервера: `backend-api/src/routes/updates.ts` + `services/updateTorrentService.ts` (`/updates/latest-meta`, `/updates/latest`, `/updates/file/{name}`, `/updates/latest.torrent`, `latest.json`, torrent-tracker). Статус-эндпоинт `/updates/status` (AGENTS.md релиз-чек).
 - Каскад источников (из плана updater-рефакторинга): **LAN-пиры → LAN HTTP → сервер → Yandex.Disk → GitHub → torrent**.
 
 **Почему так (по дизайну):** завод = много клиентов в одной LAN + ограничения РФ-сети. P2P/LAN-раздача экономит внешний трафик (один клиент скачал — раздал соседям), а multi-source каскад даёт отказоустойчивость, которой нет у штатного `electron-updater` (один GitHub-feed).
@@ -96,7 +96,7 @@ scripts      → (нет workspace-deps; ledger подключается не ч
 ```
 (подтверждено чтением всех шести `package.json` → `workspace:*`)
 
-`shared` — листовая зависимость всех трёх приложений; `ledger` — обоих backend/клиента. Правка в `shared` задевает почти всё — главный кандидат на affected-гейтинг. **Affected-build тулинга нет** (`turbo.json`/`nx.json`/`lerna.json` отсутствуют). Сборка — ручные последовательности `pnpm -F <pkg> build` (релизный шаг CLAUDE.md: `-F shared -F backend-api -F web-admin build`); CI (`typecheck.yml`, `sync-contract.yml`) собирает безусловно, без path-фильтров.
+`shared` — листовая зависимость всех трёх приложений; `ledger` — обоих backend/клиента. Правка в `shared` задевает почти всё — главный кандидат на affected-гейтинг. **Affected-build тулинга нет** (`turbo.json`/`nx.json`/`lerna.json` отсутствуют). Сборка — ручные последовательности `pnpm -F <pkg> build` (релизный шаг AGENTS.md: `-F shared -F backend-api -F web-admin build`); CI (`typecheck.yml`, `sync-contract.yml`) собирает безусловно, без path-фильтров.
 
 **Рекомендация: Turborepo** (легче Nx, нативно ложится на pnpm). Даёт: граф из импортов автоматически («дорожная карта связей» — самоактуализируется, не ведётся руками); `turbo run build --filter=...[affected]` — пересборка только затронутого + downstream; remote/local cache. Защита от дрейфа (страх владельца «забыть связь»): типы в `shared` как единственный контракт границ + contract-тесты, гейтящиеся по affected-графу. Nx — мощнее, но тяжелее для нашего размера.
 

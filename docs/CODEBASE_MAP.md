@@ -2,6 +2,8 @@
 
 Куратируемая карта где что живёт. **Не автогенерируется**, обновляется при значимых архитектурных изменениях. Цель — навигация от понятия к файлу за один взгляд, без широкой разведки на старте сессии.
 
+Правила проекта для любого AI-агента — [`../AGENTS.md`](../AGENTS.md) (канон; `CLAUDE.md`/`GEMINI.md` — тонкие адаптеры к нему).
+
 История релизов — `git log` + тело PR; навигация по сделанному — [`COMPLETED.md`](COMPLETED.md). Открытые задачи — [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md). Грабли по симптомам — [`GOTCHAS.md`](GOTCHAS.md). Архитектура и правила — [`PROJECT_STATE.md`](PROJECT_STATE.md). Активная нитка — [`SESSION_HANDOFF.md`](SESSION_HANDOFF.md).
 
 ## Монорепо (pnpm workspaces)
@@ -13,7 +15,7 @@
 | [`shared/`](../shared) | Общие типы и pure-логика TS | Изменения видимые и UI и API, доменные правила (BOM, forecast, signatures) |
 | [`web-admin/`](../web-admin) | Веб-админка (React, отдельно от Electron) | Админ-задачи через браузер |
 | [`ledger/`](../ledger) | Encrypted event log + keyring (enc:v1/v2) | Шифрование sync-пакетов, ротация ключей |
-| [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger | Релизный процесс (см. `CLAUDE.md` §Release) |
+| [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger | Релизный процесс (см. `AGENTS.md` §Release) |
 | [`deploy/`](../deploy) | nginx config + systemd units | Прод-конфигурация nginx / systemd таймеры |
 
 ## Backend (`backend-api/src/`)
@@ -68,7 +70,7 @@
 
 - **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0059_directory_parts_spec_columns.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
 - **SQLite (клиент):** локальный кэш. Миграции — `electron-app/drizzle/`. Накат при старте Electron.
-- **EAV (`attribute_values`):** атрибуты сущностей без DDL. Новые атрибуты регистрировать в `ensureAttributeDefs` (`SimpleMasterdataDetailsPage.tsx`). См. `CLAUDE.md` §EAV.
+- **EAV (`attribute_values`):** атрибуты сущностей без DDL. Новые атрибуты регистрировать в `ensureAttributeDefs` (`SimpleMasterdataDetailsPage.tsx`). См. `AGENTS.md` §EAV.
 - **Ledger (encrypted event log):** [`ledger/`](../ledger), keyring enc:v2 (multi-key, backward-compat с enc:v1).
 
 ## Deploy / Operations
@@ -77,7 +79,7 @@
 - **Services (dual-instance):** `matricarmz-backend-primary.service` (`:3001`) — singleton job'ы; `matricarmz-backend-secondary.service` (`:3002`) — только API. nginx upstream.
 - **nginx:** [`deploy/nginx/matricarmz-backend.conf`](../deploy/nginx/matricarmz-backend.conf) (catch-all `location /` + спец-блоки), выкат через [`deploy/nginx/install.sh`](../deploy/nginx/install.sh).
 - **systemd таймеры:** [`deploy/systemd/`](../deploy/systemd) — еженедельная чистка `/opt/matricarmz/updates/`.
-- **CI:** GitHub Actions для Windows installer (`.exe` + `latest.yml` + torrent). Релизный pipeline — `CLAUDE.md` §Release process.
+- **CI:** GitHub Actions для Windows installer (`.exe` + `latest.yml` + torrent). Релизный pipeline — `AGENTS.md` §Release process.
 
 ## Где сейчас активная работа
 
