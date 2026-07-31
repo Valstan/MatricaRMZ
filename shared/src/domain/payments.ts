@@ -282,8 +282,11 @@ export function syncSlotsWithPlan(
   for (const a of attached) {
     if (bound.has(a.engineId)) continue;
     const free = slots.filter((s) => s.sectionKey === a.sectionKey && !s.engineId);
-    const brandMatched = a.engineBrandId ? free.filter((s) => s.engineBrandId === a.engineBrandId) : free;
-    const pool = brandMatched.length > 0 ? brandMatched : free;
+    // Двигатель с известной маркой садится ТОЛЬКО на слот своей марки. Раньше при
+    // отсутствии такого слота он молча занимал чужое плановое место — и аванс, выписанный
+    // под другую марку, доставался не тому двигателю. Нет своего слота → заводим сверх
+    // плана (ветка ниже). Марка не указана — сверять нечем, берём любой свободный.
+    const pool = a.engineBrandId ? free.filter((s) => s.engineBrandId === a.engineBrandId) : free;
     const target = pool.find((s) => s.payments.length > 0) ?? pool[0];
     if (!target) {
       // Двигателей больше плана — заводим слот сверх плана, деньги на него лягут позже.
@@ -339,6 +342,133 @@ export function distributeAmount(
     return { ...s, payments: [...s.payments, row] };
   });
   return { version: 1, slots };
+}
+
+/**
+ * Разнести сумму по ЯВНО выбранным слотам (галочки в карточке контракта).
+ *
+ * Отличие от `distributeAmount`: та берёт первые N слотов секции в порядке массива, поэтому
+ * «аванс только по марке А» в контракте с двумя марками ей недоступен. Здесь цели заданы
+ * списком `slotIds` — секция не при чём, можно смешивать марки и ДС.
+ *
+ * Остаток копеек — первому слоту в порядке `cp.slots` (а не в порядке `slotIds`), чтобы
+ * повторный вызов с той же выборкой дал тот же результат независимо от порядка кликов.
+ */
+export function distributeAmountToSlots(
+  cp: ContractPayments,
+  slotIds: readonly string[],
+  amountKop: number,
+  kind: PaymentKind,
+  date: string,
+  newId: () => string,
+  note?: string,
+): ContractPayments {
+  const wanted = new Set(slotIds);
+  const targets = cp.slots.filter((s) => wanted.has(s.id));
+  if (targets.length === 0 || !Number.isFinite(amountKop) || amountKop <= 0) return cp;
+  const per = Math.floor(amountKop / targets.length);
+  const remainder = amountKop - per * targets.length;
+  const targetIds = new Set(targets.map((s) => s.id));
+  let first = true;
+  const slots = cp.slots.map((s) => {
+    if (!targetIds.has(s.id)) return s;
+    const amount = per + (first ? remainder : 0);
+    first = false;
+    const hasStart = s.payments.some((p) => p.countdownStart);
+    const startsCountdown = !hasStart && (kind === 'advance' || kind === 'extra_advance');
+    const row: PaymentRow = {
+      id: newId(),
+      date,
+      amountKop: amount,
+      kind,
+      ...(note?.trim() ? { note: note.trim() } : {}),
+      ...(startsCountdown ? { countdownStart: true } : {}),
+    };
+    // В отличие от distributeAmount прогоняем нормализацию флагов: слот, уже испорченный
+    // двумя стартовыми платежами, чинится, а не только «не портится дальше».
+    return { ...s, payments: normalizeCountdownFlags([...s.payments, row], startsCountdown ? row.id : undefined) };
+  });
+  return { version: 1, slots };
+}
+
+/** Куда сядет двигатель при привязке к контракту. */
+export type EngineSlotPlacement = {
+  /** Токен секции для `contract_section_number` двигателя. */
+  sectionKey: string;
+  /** Свободный слот своей марки, если нашёлся. */
+  slotId?: string;
+  /**
+   * Плановых мест под эту марку не осталось — слот придётся завести сверх плана.
+   * Оператору об этом говорим вслух: это либо ошибка марки в карточке двигателя,
+   * либо недобитый план контракта, и молча решать за него нельзя.
+   */
+  overPlan: boolean;
+};
+
+/**
+ * Выбрать слот под двигатель по его МАРКЕ. Порядок: предпочтённая секция (выбранная
+ * оператором), затем остальные в переданном порядке — primary, потом ДС.
+ *
+ * Двигатель с известной маркой рассматривает только слоты этой марки; без марки —
+ * любой свободный (сверять нечем).
+ */
+export function planSlotForEngine(args: {
+  cp: ContractPayments;
+  /** Токены секций контракта в порядке предпочтения: primary, затем ДС по возрастанию seq. */
+  sectionKeys: readonly string[];
+  engineBrandId?: string;
+  /** Секция, уже выбранная оператором в карточке двигателя. */
+  preferredSectionKey?: string;
+}): EngineSlotPlacement {
+  const preferred = String(args.preferredSectionKey ?? '').trim();
+  const order = [
+    ...(preferred ? [preferred] : []),
+    ...args.sectionKeys.filter((key) => key !== preferred),
+  ];
+  for (const sectionKey of order) {
+    const free = args.cp.slots.filter((s) => s.sectionKey === sectionKey && !s.engineId);
+    const pool = args.engineBrandId ? free.filter((s) => s.engineBrandId === args.engineBrandId) : free;
+    // Слот с уже лежащими деньгами берём первым: аванс «встречает» приехавший двигатель.
+    const target = pool.find((s) => s.payments.length > 0) ?? pool[0];
+    if (target) return { sectionKey, slotId: target.id, overPlan: false };
+  }
+  return { sectionKey: order[0] ?? '', overPlan: true };
+}
+
+/** Посадить двигатель в выбранный слот (или завести слот сверх плана). Иммутабельно. */
+export function attachEngineToSlot(
+  cp: ContractPayments,
+  placement: EngineSlotPlacement,
+  engineId: string,
+  newId: () => string,
+  engineBrandId?: string,
+): ContractPayments {
+  // Двигатель не может занимать два слота сразу: снимаем прежнюю привязку, деньги
+  // остаются на старом слоте («деньги без двигателя») — как и при смене секции.
+  const cleared = cp.slots.map((s) => {
+    if (s.engineId !== engineId) return s;
+    const { engineId: _drop, ...rest } = s;
+    return rest;
+  });
+  if (placement.slotId) {
+    return {
+      version: 1,
+      slots: cleared.map((s) => (s.id === placement.slotId ? { ...s, engineId } : s)),
+    };
+  }
+  return {
+    version: 1,
+    slots: [
+      ...cleared,
+      {
+        id: newId(),
+        sectionKey: placement.sectionKey,
+        ...(engineBrandId ? { engineBrandId } : {}),
+        engineId,
+        payments: [],
+      },
+    ],
+  };
 }
 
 function withSlot(cp: ContractPayments, slotId: string, fn: (slot: PaymentSlot) => PaymentSlot): ContractPayments {

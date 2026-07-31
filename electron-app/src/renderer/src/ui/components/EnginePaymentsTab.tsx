@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   CONTRACT_PAYMENTS_ATTR_CODE,
@@ -11,7 +11,6 @@ import {
   parseContractSections,
   parseMoneyToKop,
   slotTotals,
-  type ContractPayments,
   type PaymentKind,
   type PaymentRow,
   type PaymentSlot,
@@ -21,6 +20,7 @@ import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { SectionCard } from './SectionCard.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
+import { mutateContractPayments } from '../utils/contractPaymentsStore.js';
 
 // Вкладка «Платежи» карточки двигателя (план engine-payments-2026-07, этап 1).
 // Источник истины — контрактный EAV-атрибут contract_payments: здесь читаем/пишем
@@ -91,6 +91,11 @@ export function EnginePaymentsTab(props: {
   const [rows, setRows] = useState<RowDraft[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Id платежей слота на момент загрузки вкладки. Нужен, чтобы при сохранении отличить
+  // «оператор удалил строку» от «платёж прилетел в этот слот, пока вкладка была открыта»
+  // (напр. групповое разнесение аванса из карточки контракта). Без этого первое лечится
+  // как второе, и удаление молча откатывается.
+  const loadedPaymentIdsRef = useRef<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     setRows([]);
@@ -107,6 +112,7 @@ export function EnginePaymentsTab(props: {
         } | null;
         const cp = parseContractPayments(contract?.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]);
         const slot = findSlotForEngine(cp, props.engineId);
+        loadedPaymentIdsRef.current = new Set(slot?.payments.map((p) => p.id) ?? []);
         if (slot) {
           setRows(slot.payments.filter((p) => p.kind !== 'contract_price').map(rowToDraft));
           setPriceText(slot.contractPriceKop != null ? formatKopMoney(slot.contractPriceKop) : '');
@@ -196,49 +202,53 @@ export function EnginePaymentsTab(props: {
     setSaveStatus('Сохранение…');
     try {
       await ensureContractPaymentsDef();
-      // Пере-чтение перед записью: чужие слоты контракта не затираем.
       const contract = (await window.matrica.admin.entities.get(props.contractId)) as {
         attributes?: Record<string, unknown>;
       } | null;
-      const cp = parseContractPayments(contract?.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]);
       const payments = rows.map(draftToRow).filter((r): r is PaymentRow => r != null);
       const priceKop = parseMoneyToKop(priceText);
-      const existing = findSlotForEngine(cp, props.engineId);
-      let next: ContractPayments;
-      if (existing) {
-        next = {
+      // Токен первичной секции — это НОМЕР контракта (так его кладёт карточка контракта).
+      // Литерал 'primary' здесь был мёртвым фолбэком: слот с ним не совпал бы ни с одним
+      // слотом контракта и потерялся бы для сверки с планом.
+      const fallbackToken = String(parseContractSections(contract?.attributes ?? {}).primary.number ?? '').trim();
+      const loadedIds = loadedPaymentIdsRef.current;
+      const r = await mutateContractPayments(props.contractId, (cp) => {
+        const existing = findSlotForEngine(cp, props.engineId);
+        if (!existing) {
+          const slot: PaymentSlot = {
+            id: crypto.randomUUID(),
+            sectionKey: sectionKey || fallbackToken,
+            engineId: props.engineId,
+            ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}),
+            ...(priceKop != null && priceKop > 0 ? { contractPriceKop: priceKop } : {}),
+            payments,
+          };
+          return { version: 1, slots: [...cp.slots, slot] };
+        }
+        return {
           version: 1,
           slots: cp.slots.map((s) => {
             if (s.id !== existing.id) return s;
             const { contractPriceKop: _drop, ...rest } = s;
+            // Черновиком заменяем только СВОИ строки. Платёж, прилетевший в этот же слот
+            // после открытия вкладки (напр. групповое разнесение аванса в карточке
+            // контракта), вкладка не видела — и раньше стирала его молча.
+            const arrivedWhileEditing = s.payments.filter((p) => p.kind !== 'contract_price' && !loadedIds.has(p.id));
             return {
               ...rest,
-              payments: [...s.payments.filter((p) => p.kind === 'contract_price'), ...payments],
+              payments: [...s.payments.filter((p) => p.kind === 'contract_price'), ...payments, ...arrivedWhileEditing],
               ...(priceKop != null && priceKop > 0 ? { contractPriceKop: priceKop } : {}),
             };
           }),
         };
-      } else {
-        const fallbackToken = String(
-          parseContractSections(contract?.attributes ?? {}).primary.number ?? '',
-        ).trim();
-        const slot: PaymentSlot = {
-          id: crypto.randomUUID(),
-          sectionKey: sectionKey || fallbackToken || 'primary',
-          engineId: props.engineId,
-          ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}),
-          ...(priceKop != null && priceKop > 0 ? { contractPriceKop: priceKop } : {}),
-          payments,
-        };
-        next = { version: 1, slots: [...cp.slots, slot] };
-      }
-      const r = (await window.matrica.admin.entities.setAttr(props.contractId, CONTRACT_PAYMENTS_ATTR_CODE, next)) as
-        | { ok?: boolean; error?: string }
-        | undefined;
-      if (r && r.ok === false) {
-        setSaveStatus(`Ошибка: ${r.error ?? 'не удалось сохранить'}`);
+      });
+      if (!r.ok) {
+        setSaveStatus(`Ошибка: ${r.error}`);
         return;
       }
+      loadedPaymentIdsRef.current = new Set(
+        (findSlotForEngine(r.next, props.engineId)?.payments ?? []).map((p) => p.id),
+      );
       setDirty(false);
       setSaveStatus('Сохранено');
     } catch (e) {

@@ -27,14 +27,16 @@ import {
   CONTRACT_EXECUTION_PARTS_ATTR_CODE,
   CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
+  attachEngineToSlot,
   countdownStatus,
-  distributeAmount,
+  distributeAmountToSlots,
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
   isEngineRepairedForCountdown,
   parseContractPayments,
   parseMoneyToKop,
+  planSlotForEngine,
   removePayment,
   slotTotals,
   syncSlotsWithPlan,
@@ -42,6 +44,7 @@ import {
   type AttachedEngineRef,
   type ContractPayments,
   type PaymentKind,
+  type PaymentSlot,
   type PlannedSectionBrand,
   type ContractExecutionProgressAggregate,
   type ContractSections,
@@ -61,6 +64,7 @@ import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.j
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartSpecsCache, listAllPartSpecs } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
+import { mutateContractPayments, readContractPayments } from '../utils/contractPaymentsStore.js';
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
@@ -323,24 +327,43 @@ function isoDateRu(iso?: string): string {
   return y && m && d ? `${d}.${m}.${y}` : iso;
 }
 
+const TD_HEAD = { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' } as const;
+const TD_CELL = { padding: '6px 8px', borderBottom: '1px solid var(--border)' } as const;
+
 function todayIsoDate(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Форма «Распределить аванс» по слотам секции (план engine-payments-2026-07, этап 2).
-// Кейс владельца: аванс пришёл одной суммой «за N двигателей» — раскидать по первым N
-// слотам (включая пустые, двигатели ещё не приехали).
-function DistributeAdvanceForm(props: {
-  slotsTotal: number;
-  onApply: (amountKop: number, kind: PaymentKind, date: string, slotCount: number | undefined) => void;
+/** Строка списка секции: слот и занявший его двигатель (если приехал). */
+type SectionSlotRow = { slot: PaymentSlot; engine?: EngineListItem };
+
+// Форма «Разнести аванс» на ОТМЕЧЕННЫЕ галочками слоты.
+// Раньше спрашивалось «на слотов (из N)» и деньги ложились на первые N слотов секции по
+// порядку массива — выбрать конкретную марку было нельзя. Кейс владельца ровно обратный:
+// «аванс пришёл за 10 двигателей вот этой марки».
+function DistributeToSelectedForm(props: {
+  selectedCount: number;
+  onApply: (amountKop: number, kind: PaymentKind, date: string, note: string) => void;
   onCancel: () => void;
 }) {
   const [amountText, setAmountText] = useState('');
   const [kind, setKind] = useState<PaymentKind>('advance');
   const [date, setDate] = useState(todayIsoDate());
-  const [countText, setCountText] = useState(String(props.slotsTotal));
+  const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const amountKop = parseMoneyToKop(amountText);
+  // Живой расчёт: бухгалтер видит, что получит каждый двигатель, до нажатия кнопки.
+  const preview =
+    amountKop != null && amountKop > 0 && props.selectedCount > 0
+      ? (() => {
+          const per = Math.floor(amountKop / props.selectedCount);
+          const rest = amountKop - per * props.selectedCount;
+          return `по ${formatKopMoney(per)} ₽ на ${props.selectedCount} поз.${
+            rest > 0 ? `, остаток ${formatKopMoney(rest)} ₽ — первой` : ''
+          }`;
+        })()
+      : '';
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap', padding: '8px 0' }}>
       <FormField label="Сумма, ₽">
@@ -362,30 +385,29 @@ function DistributeAdvanceForm(props: {
       <FormField label="Дата оплаты">
         <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 140 }} />
       </FormField>
-      <FormField label={`На слотов (из ${props.slotsTotal})`}>
-        <Input value={countText} onChange={(e) => setCountText(e.target.value)} style={{ width: 80, textAlign: 'right' }} />
+      <FormField label="Примечание">
+        <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="п/п №…" style={{ width: 160 }} />
       </FormField>
       <Button
         size="sm"
         onClick={() => {
-          const amountKop = parseMoneyToKop(amountText);
-          const count = Number(countText);
           if (amountKop == null || amountKop <= 0) {
             setError('Укажите сумму');
             return;
           }
-          if (!Number.isFinite(count) || count < 1 || count > props.slotsTotal) {
-            setError(`Число слотов — от 1 до ${props.slotsTotal}`);
+          if (props.selectedCount === 0) {
+            setError('Отметьте двигатели галочками');
             return;
           }
-          props.onApply(amountKop, kind, date, count === props.slotsTotal ? undefined : Math.floor(count));
+          props.onApply(amountKop, kind, date, note);
         }}
       >
-        Распределить
+        Разнести на {props.selectedCount}
       </Button>
       <Button variant="ghost" tone="neutral" size="sm" onClick={props.onCancel}>
         Отмена
       </Button>
+      {preview ? <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{preview}</span> : null}
       {error ? <span style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</span> : null}
     </div>
   );
@@ -415,10 +437,14 @@ function SectionBlock(props: {
   // Платежи (план engine-payments-2026-07, этап 2): слоты секции + распределение аванса.
   contractPayments?: ContractPayments;
   canEditPayments?: boolean;
-  /** Отбор двигателей в накопительную служебную записку (этап 4). */
-  memoSelectedIds?: ReadonlySet<string>;
-  onToggleMemoEngine?: (engineId: string, checked: boolean) => void;
-  onDistributeAdvance?: (sectionToken: string, amountKop: number, kind: PaymentKind, date: string, slotCount?: number) => void | Promise<void>;
+  /**
+   * Отбор СЛОТОВ (а не двигателей) — один набор галочек на два действия: разнести аванс
+   * и собрать служебную записку. Ключ слота, а не двигателя, потому что отмечать нужно и
+   * пустые слоты: деньги часто приходят раньше двигателей.
+   */
+  slotSelection?: ReadonlySet<string>;
+  onToggleSlots?: (slotIds: readonly string[], checked: boolean) => void;
+  onDistributeToSlots?: (slotIds: readonly string[], amountKop: number, kind: PaymentKind, date: string, note: string) => void | Promise<void>;
   onRemoveSlotPayment?: (slotId: string, paymentId: string) => void | Promise<void>;
 }) {
   const { confirm } = useConfirm();
@@ -459,8 +485,46 @@ function SectionBlock(props: {
   const sectionSlots = sectionToken
     ? (props.contractPayments?.slots ?? []).filter((s) => s.sectionKey === sectionToken)
     : [];
-  const emptySlots = sectionSlots.filter((s) => !s.engineId);
   const paymentsToday = todayIsoDate();
+
+  // Единый список секции: строка = слот. Двигатель садится в слот СВОЕЙ марки, поэтому
+  // список слотов и есть список двигателей — разводить их по двум таблицам («Двигатели»
+  // и «Платежи по слотам») было ошибкой: занятый слот и занявший его двигатель рисовались
+  // в разных местах листа (владелец, 31.07).
+  const engineById = new Map(sectionEngines.map((e) => [e.id, e] as const));
+  const brandLabelById = (id: string | undefined) =>
+    id ? engineBrandOptions.find((o) => o.id === id)?.label ?? '⚠ марка удалена' : 'Без марки';
+  const slotRows: SectionSlotRow[] = sectionSlots.map((slot) => {
+    const engine = slot.engineId ? engineById.get(slot.engineId) : undefined;
+    return { slot, ...(engine ? { engine } : {}) };
+  });
+  // Двигатель секции без слота: сверка с планом идёт при открытии карточки, так что это
+  // либо гонка, либо признак проблемы. Показываем отдельной группой, а не прячем.
+  const slotEngineIds = new Set(sectionSlots.map((s) => s.engineId).filter(Boolean) as string[]);
+  const orphanEngines = sectionEngines.filter((e) => !slotEngineIds.has(e.id));
+  const brandGroups = (() => {
+    const byBrand = new Map<string, SectionSlotRow[]>();
+    for (const row of slotRows) {
+      const key = row.slot.engineBrandId ?? '';
+      const list = byBrand.get(key);
+      if (list) list.push(row);
+      else byBrand.set(key, [row]);
+    }
+    return [...byBrand.entries()]
+      .map(([key, rows]) => ({
+        key,
+        label: brandLabelById(key || undefined),
+        rows: [...rows].sort((a, b) => {
+          if (Boolean(a.engine) !== Boolean(b.engine)) return a.engine ? -1 : 1;
+          return String(a.engine?.engineNumber ?? '').localeCompare(String(b.engine?.engineNumber ?? ''), 'ru');
+        }),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  })();
+  // Строки kind='contract_price' — это стоимость по контракту, у неё своя колонка.
+  const slotPayments = (slot: PaymentSlot) => slot.payments.filter((p) => p.kind !== 'contract_price');
+  const paymentColumnCount = slotRows.reduce((max, r) => Math.max(max, slotPayments(r.slot).length), 0);
+  const selectedSlotIds = slotRows.filter((r) => props.slotSelection?.has(r.slot.id)).map((r) => r.slot.id);
 
   const update = (patch: Partial<ContractPrimarySection | ContractAddonSection>) => {
     onChange({ ...section, ...patch });
@@ -876,94 +940,243 @@ function SectionBlock(props: {
         </div>
         )}
 
-        {/* C-#6: Двигатели, привязанные к этой ДС (показ + привязать существующий) */}
-        {(hasEngines || addEngineOpen) && (
+        {/* Единый список секции: строка = слот (плановое место под двигатель своей марки).
+            До 2026-07-31 это были ТРИ таблицы — двигатели секции, пустые слоты и общий
+            список прикреплённых, — из-за чего занятый слот и занявший его двигатель
+            рисовались в разных местах. Галочки выбирают слоты, в том числе пустые:
+            деньги часто приходят раньше двигателей. */}
+        {Boolean(sectionToken) && (slotRows.length > 0 || orphanEngines.length > 0 || addEngineOpen) && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <label className="ui-muted">Двигатели</label>
-              {canEdit && Boolean(sectionToken) && hasEngines && !addEngineOpen && (
-                <Button variant="ghost" size="sm" onClick={() => setAddEngineOpen(true)}>
-                  + Привязать
-                </Button>
-              )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+              <label
+                className="ui-muted"
+                title="Слоты создаются по плановому количеству двигателей секции; приехавший двигатель занимает слот СВОЕЙ марки вместе с лежащими на нём деньгами"
+              >
+                Двигатели и платежи{selectedSlotIds.length > 0 ? ` — отмечено: ${selectedSlotIds.length}` : ''}
+              </label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {props.canEditPayments && props.onDistributeToSlots && !distributeOpen && slotRows.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={selectedSlotIds.length === 0}
+                    title={selectedSlotIds.length === 0 ? 'Отметьте галочками, на какие двигатели разнести аванс' : undefined}
+                    onClick={() => setDistributeOpen(true)}
+                  >
+                    Разнести аванс…
+                  </Button>
+                ) : null}
+                {canEdit && !addEngineOpen ? (
+                  <Button variant="ghost" size="sm" onClick={() => setAddEngineOpen(true)}>
+                    + Привязать
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            {hasEngines && (
+            {distributeOpen && props.onDistributeToSlots ? (
+              <DistributeToSelectedForm
+                selectedCount={selectedSlotIds.length}
+                onApply={(amountKop, kind, date, note) => {
+                  void props.onDistributeToSlots?.(selectedSlotIds, amountKop, kind, date, note);
+                  setDistributeOpen(false);
+                }}
+                onCancel={() => setDistributeOpen(false)}
+              />
+            ) : null}
+            {slotRows.length > 0 || orphanEngines.length > 0 ? (
               <DataTable className="list-table">
                 <colgroup>
-                  {props.onToggleMemoEngine ? <col style={{ width: 34 }} /> : null}
-                  <col style={{ width: '22%' }} />
+                  {props.onToggleSlots ? <col style={{ width: 34 }} /> : null}
+                  <col style={{ width: 42 }} />
                   <col style={{ width: '16%' }} />
-                  <col style={{ width: '18%' }} />
-                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '14%' }} />
                   <col style={{ width: '13%' }} />
-                  <col />
+                  <col style={{ width: 110 }} />
+                  <col style={{ width: 110 }} />
+                  {Array.from({ length: paymentColumnCount }, (_, i) => (
+                    <col key={i} style={{ width: 140 }} />
+                  ))}
                 </colgroup>
                 <thead>
                   <tr>
-                    {props.onToggleMemoEngine ? (
-                      <th style={{ borderBottom: '1px solid var(--border)' }} title="Отметить для служебной записки" />
+                    {props.onToggleSlots ? (
+                      <th style={{ borderBottom: '1px solid var(--border)' }} title="Отметить для разнесения аванса и служебной записки" />
                     ) : null}
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Номер двигателя</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Марка</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="text">Статус</th>
-                    <th className="num" data-col-kind="num" title="Оплачено по двигателю">Оплачено, ₽</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="text" title="Дата последнего платежа">Последний платёж</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="text" title="Отсчёт 90 дней ремонта с первого аванса">Отсчёт ремонта</th>
+                    <th style={TD_HEAD}>№</th>
+                    <th style={TD_HEAD} data-col-kind="name">Марка</th>
+                    <th style={TD_HEAD} data-col-kind="name">Двигатель</th>
+                    <th style={TD_HEAD} data-col-kind="text">Статус</th>
+                    <th style={TD_HEAD} data-col-kind="text" title="Отсчёт 90 дней ремонта с первого аванса">Отсчёт ремонта</th>
+                    <th className="num" data-col-kind="num" title="Стоимость по контракту">Стоимость, ₽</th>
+                    <th className="num" data-col-kind="num">Оплачено, ₽</th>
+                    {Array.from({ length: paymentColumnCount }, (_, i) => (
+                      <th key={i} style={TD_HEAD} data-col-kind="text">
+                        Платёж {i + 1}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {sectionEngines.map((engine) => {
-                    const slot = props.contractPayments ? findSlotForEngine(props.contractPayments, engine.id) : undefined;
-                    const totals = slot ? slotTotals(slot) : null;
-                    const repaired = isEngineRepairedForCountdown(engine.statusFlags);
-                    const visual = paymentCountdownVisual(
-                      slot ? countdownStatus(slot, paymentsToday, repaired) : { state: 'none' },
-                    );
-                    const rowStyle = visual.rowBackground ? { background: visual.rowBackground } : undefined;
+                  {brandGroups.map((group) => {
+                    const groupIds = group.rows.map((r) => r.slot.id);
+                    const allChecked = groupIds.every((id) => props.slotSelection?.has(id));
+                    const occupied = group.rows.filter((r) => r.engine).length;
                     return (
-                      <tr key={engine.id} style={rowStyle}>
-                        {props.onToggleMemoEngine ? (
-                          <td style={{ borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
-                            <input
-                              type="checkbox"
-                              checked={props.memoSelectedIds?.has(engine.id) === true}
-                              onChange={(e) => props.onToggleMemoEngine?.(engine.id, e.target.checked)}
-                              title="В служебную записку"
-                            />
+                      <React.Fragment key={group.key || 'no-brand'}>
+                        <tr style={{ background: 'var(--surface-2, rgba(127,127,127,0.08))' }}>
+                          {props.onToggleSlots ? (
+                            <td style={{ borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={allChecked}
+                                onChange={(e) => props.onToggleSlots?.(groupIds, e.target.checked)}
+                                title={`Отметить всю марку «${group.label}»`}
+                              />
+                            </td>
+                          ) : null}
+                          <td colSpan={7 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
+                            {group.label}{' '}
+                            <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>
+                              — {occupied} из {group.rows.length}
+                            </span>
                           </td>
-                        ) : null}
-                        <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                          {onOpenEngine ? (
-                            <button
-                              type="button"
-                              onClick={() => void onOpenEngine(engine.id)}
-                              style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
-                            >
-                              {engine.engineNumber || '—'}
-                            </button>
-                          ) : (
-                            engine.engineNumber || '—'
-                          )}
-                        </td>
-                        <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{engine.engineBrand || '—'}</td>
-                        <td data-col-kind="text" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{currentEngineStatusLabel(engine)}</td>
-                        <td className="num" data-col-kind="num" title={totals ? `Стоимость: ${formatKopMoney(totals.priceKop)} ₽; ${totals.deltaKop >= 0 ? 'переплата' : 'недоплата'} ${formatKopMoney(Math.abs(totals.deltaKop))} ₽` : undefined}>
-                          {totals && (totals.paidKop > 0 || totals.priceKop > 0) ? formatKopMoney(totals.paidKop) : '—'}
-                        </td>
-                        <td data-col-kind="text" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                          {isoDateRu(totals?.lastPaymentDate)}
-                        </td>
-                        <td data-col-kind="text" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', color: visual.textColor ?? 'inherit', fontWeight: visual.textColor ? 700 : 400 }}>
-                          {visual.label}
-                        </td>
-                      </tr>
+                        </tr>
+                        {group.rows.map((row, idx) => {
+                          const { slot, engine } = row;
+                          const totals = slotTotals(slot);
+                          const repaired = engine ? isEngineRepairedForCountdown(engine.statusFlags) : false;
+                          const visual = paymentCountdownVisual(countdownStatus(slot, paymentsToday, repaired));
+                          const payments = slotPayments(slot);
+                          return (
+                            <tr key={slot.id} style={visual.rowBackground ? { background: visual.rowBackground } : undefined}>
+                              {props.onToggleSlots ? (
+                                <td style={{ borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={props.slotSelection?.has(slot.id) === true}
+                                    onChange={(e) => props.onToggleSlots?.([slot.id], e.target.checked)}
+                                  />
+                                </td>
+                              ) : null}
+                              <td style={{ ...TD_CELL, color: 'var(--subtle)' }}>{idx + 1}</td>
+                              <td data-col-kind="name" style={TD_CELL}>
+                                {group.label}
+                              </td>
+                              <td data-col-kind="name" style={TD_CELL}>
+                                {engine ? (
+                                  onOpenEngine ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void onOpenEngine(engine.id)}
+                                      style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                                    >
+                                      {engine.engineNumber || '—'}
+                                    </button>
+                                  ) : (
+                                    engine.engineNumber || '—'
+                                  )
+                                ) : (
+                                  <span style={{ color: 'var(--subtle)' }}>— свободно —</span>
+                                )}
+                              </td>
+                              <td data-col-kind="text" style={TD_CELL}>
+                                {engine ? currentEngineStatusLabel(engine) : '—'}
+                              </td>
+                              <td
+                                data-col-kind="text"
+                                style={{ ...TD_CELL, color: visual.textColor ?? 'inherit', fontWeight: visual.textColor ? 700 : 400 }}
+                              >
+                                {visual.label}
+                              </td>
+                              <td className="num" data-col-kind="num">
+                                {totals.priceKop > 0 ? formatKopMoney(totals.priceKop) : '—'}
+                              </td>
+                              <td
+                                className="num"
+                                data-col-kind="num"
+                                style={{ fontWeight: totals.paidKop > 0 ? 700 : 400 }}
+                                title={
+                                  totals.priceKop > 0
+                                    ? `${totals.deltaKop >= 0 ? 'переплата' : 'недоплата'} ${formatKopMoney(Math.abs(totals.deltaKop))} ₽`
+                                    : undefined
+                                }
+                              >
+                                {totals.paidKop > 0 ? formatKopMoney(totals.paidKop) : '—'}
+                              </td>
+                              {Array.from({ length: paymentColumnCount }, (_, i) => {
+                                const p = payments[i];
+                                return (
+                                  <td key={i} data-col-kind="text" style={TD_CELL}>
+                                    {p ? (
+                                      <span
+                                        title={`${PAYMENT_KIND_LABELS[p.kind]} от ${isoDateRu(p.date)}${p.note ? ` — ${p.note}` : ''}${
+                                          p.countdownStart ? ' — старт отсчёта' : ''
+                                        }`}
+                                        style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}
+                                      >
+                                        <span style={{ whiteSpace: 'nowrap' }}>
+                                          {formatKopMoney(p.amountKop)} ₽{p.countdownStart ? ' ⏱' : ''}
+                                        </span>
+                                        <span style={{ color: 'var(--subtle)', fontSize: 12, whiteSpace: 'nowrap' }}>{isoDateRu(p.date)}</span>
+                                        {props.canEditPayments && props.onRemoveSlotPayment ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => void props.onRemoveSlotPayment?.(slot.id, p.id)}
+                                            title="Удалить платёж"
+                                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--danger)', padding: 0, font: 'inherit' }}
+                                          >
+                                            ×
+                                          </button>
+                                        ) : null}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: 'var(--subtle)' }}>—</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })}
+                  {orphanEngines.map((engine) => (
+                    <tr key={`orphan-${engine.id}`}>
+                      {props.onToggleSlots ? <td style={{ borderBottom: '1px solid var(--border)' }} /> : null}
+                      <td style={{ ...TD_CELL, color: 'var(--warning, #b45309)' }} title="Двигатель привязан к секции, но слот ему ещё не назначен">
+                        ⚠
+                      </td>
+                      <td data-col-kind="name" style={TD_CELL}>
+                        {engine.engineBrand || '—'}
+                      </td>
+                      <td data-col-kind="name" style={TD_CELL}>
+                        {onOpenEngine ? (
+                          <button
+                            type="button"
+                            onClick={() => void onOpenEngine(engine.id)}
+                            style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                          >
+                            {engine.engineNumber || '—'}
+                          </button>
+                        ) : (
+                          engine.engineNumber || '—'
+                        )}
+                      </td>
+                      <td data-col-kind="text" style={TD_CELL}>
+                        {currentEngineStatusLabel(engine)}
+                      </td>
+                      <td colSpan={3 + paymentColumnCount} style={{ ...TD_CELL, color: 'var(--subtle)' }}>
+                        слот не назначен — переоткройте карточку контракта
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </DataTable>
-            )}
+            ) : null}
             {canEdit && addEngineOpen && (
-              <div style={{ display: 'grid', gap: 8, marginTop: hasEngines ? 8 : 0 }}>
+              <div style={{ display: 'grid', gap: 8, marginTop: slotRows.length > 0 ? 8 : 0 }}>
                 <EntityReferenceField
                   target="engine"
                   targetLabel="Двигатель"
@@ -985,107 +1198,6 @@ function SectionBlock(props: {
           </div>
         )}
 
-        {/* Платежи секции: слоты без двигателя (деньги пришли раньше двигателей) +
-            распределение аванса по слотам (план engine-payments-2026-07, этап 2). */}
-        {Boolean(sectionToken) && (emptySlots.length > 0 || (props.canEditPayments && sectionSlots.length > 0)) && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
-              <label className="ui-muted" title="Слоты создаются по плановому количеству двигателей секции; двигатель, приехав, занимает слот вместе с его платежами">
-                Платежи по слотам{emptySlots.length > 0 ? ` (без двигателя: ${emptySlots.length})` : ''}
-              </label>
-              {props.canEditPayments && props.onDistributeAdvance && sectionSlots.length > 0 && !distributeOpen && (
-                <Button variant="ghost" size="sm" onClick={() => setDistributeOpen(true)}>
-                  Распределить аванс…
-                </Button>
-              )}
-            </div>
-            {distributeOpen && props.onDistributeAdvance ? (
-              <DistributeAdvanceForm
-                slotsTotal={sectionSlots.length}
-                onApply={(amountKop, kind, date, slotCount) => {
-                  void props.onDistributeAdvance?.(sectionToken, amountKop, kind, date, slotCount);
-                  setDistributeOpen(false);
-                }}
-                onCancel={() => setDistributeOpen(false)}
-              />
-            ) : null}
-            {emptySlots.length > 0 && (
-              <DataTable className="list-table">
-                <colgroup>
-                  <col style={{ width: 60 }} />
-                  <col style={{ width: '20%' }} />
-                  <col style={{ width: 130 }} />
-                  <col style={{ width: 130 }} />
-                  <col />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Слот</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Марка</th>
-                    <th className="num" data-col-kind="num" title="Стоимость по контракту">Стоимость, ₽</th>
-                    <th className="num" data-col-kind="num">Оплачено, ₽</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>Платежи</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {emptySlots.map((slot, idx) => {
-                    const totals = slotTotals(slot);
-                    const brandLabel = slot.engineBrandId
-                      ? engineBrandOptions.find((o) => o.id === slot.engineBrandId)?.label ?? '⚠ марка удалена'
-                      : '—';
-                    return (
-                      <tr key={slot.id}>
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', color: 'var(--subtle)' }}>№{idx + 1}</td>
-                        <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{brandLabel}</td>
-                        <td className="num" data-col-kind="num">{totals.priceKop > 0 ? formatKopMoney(totals.priceKop) : '—'}</td>
-                        <td className="num" data-col-kind="num" style={{ fontWeight: totals.paidKop > 0 ? 700 : 400 }}>
-                          {totals.paidKop > 0 ? formatKopMoney(totals.paidKop) : '—'}
-                        </td>
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                          {slot.payments.length === 0 ? (
-                            <span style={{ color: 'var(--subtle)' }}>—</span>
-                          ) : (
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                              {slot.payments.map((p) => (
-                                <span
-                                  key={p.id}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    padding: '2px 8px',
-                                    borderRadius: 999,
-                                    border: '1px solid var(--border)',
-                                    background: 'var(--input-bg)',
-                                    fontSize: 12,
-                                  }}
-                                  title={`${PAYMENT_KIND_LABELS[p.kind]} от ${isoDateRu(p.date)}${p.countdownStart ? ' — старт отсчёта' : ''}`}
-                                >
-                                  {isoDateRu(p.date)} · {formatKopMoney(p.amountKop)} ₽
-                                  {p.countdownStart ? ' ⏱' : ''}
-                                  {props.canEditPayments && props.onRemoveSlotPayment ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => void props.onRemoveSlotPayment?.(slot.id, p.id)}
-                                      title="Удалить платёж"
-                                      style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--danger)', padding: 0, font: 'inherit' }}
-                                    >
-                                      ×
-                                    </button>
-                                  ) : null}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </DataTable>
-            )}
-          </div>
-        )}
       </div>
     </SectionCard>
   );
@@ -1105,6 +1217,7 @@ export function ContractDetailsPage(props: {
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
+  const { confirm } = useConfirm();
   const [contract, setContract] = useState<ContractEntity | null>(null);
   const [status, setStatus] = useState<string>('');
   const [sections, setSections] = useState<ContractSections | null>(null);
@@ -1113,6 +1226,9 @@ export function ContractDetailsPage(props: {
   const [customerOptions, setCustomerOptions] = useState<LinkOpt[]>([]);
   const [partOptions, setPartOptions] = useState<LinkOpt[]>([]);
   const [allEngineOptions, setAllEngineOptions] = useState<LinkOpt[]>([]);
+  // Марка по id для ЛЮБОГО двигателя системы: при привязке двигатель ещё не в
+  // relatedEngines, а марка нужна, чтобы посадить его в слот своей марки.
+  const engineBrandByIdRef = React.useRef<Map<string, string>>(new Map());
   const [relatedEngines, setRelatedEngines] = useState<EngineListItem[]>([]);
   const [executionParts, setExecutionParts] = useState<ContractExecutionPartRow[]>([]);
   // Платежи по двигателям (contract_payments) — отдельный от черновика контур: пишется
@@ -1120,12 +1236,13 @@ export function ContractDetailsPage(props: {
   const [contractPayments, setContractPayments] = useState<ContractPayments>(emptyContractPayments());
   const paymentsSyncKeyRef = useRef('');
   // Отбор двигателей в служебную записку (этап 4): локальный, не персистится.
-  const [memoSelection, setMemoSelection] = useState<ReadonlySet<string>>(new Set());
+  // Один набор галочек на два действия — разнести аванс и собрать служебную записку.
+  // Ключ СЛОТА, а не двигателя: отмечать нужно и пустые слоты (деньги приходят раньше).
+  const [slotSelection, setSlotSelection] = useState<ReadonlySet<string>>(new Set());
   const [defs, setDefs] = useState<AttributeDef[]>([]);
   const [contractProgress, setContractProgress] = useState<ContractExecutionProgressAggregate | null>(null);
   const [accountingForm, setAccountingForm] = useState<ContractAccountingForm>(EMPTY_ACCOUNTING_FORM);
   const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({
-    attachedEngines: true,
     contractParts: true,
   });
   const [addEngineOpen, setAddEngineOpen] = useState(false);
@@ -1310,6 +1427,11 @@ export function ContractDetailsPage(props: {
         return b.updatedAt - a.updatedAt;
       });
       setRelatedEngines(sortedEngineItems);
+      engineBrandByIdRef.current = new Map(
+        (Array.isArray(engines) ? engines : []).flatMap((e) =>
+          e.engineBrandId ? [[String(e.id), String(e.engineBrandId)] as const] : [],
+        ),
+      );
       const engineOpts = (Array.isArray(engines) ? engines : []).map((engine) => ({
         id: engine.id,
         label: engineOptionLabel(engine),
@@ -1497,6 +1619,72 @@ export function ContractDetailsPage(props: {
     }
   }
 
+  /** Токены секций контракта в порядке предпочтения: основной договор, затем ДС. */
+  const sectionKeys = useMemo(() => {
+    const committed = parseContractSections(contract?.attributes ?? {});
+    const primaryToken = String(committed.primary.number ?? '').trim();
+    return [
+      ...(primaryToken ? [primaryToken] : []),
+      ...committed.addons.map((addon) => contractSectionAddonToken(addon.seq)),
+    ];
+  }, [contract]);
+
+  /**
+   * Посадить двигатель в слот ЕГО марки и вернуть выбранную секцию.
+   *
+   * Оператор выбирает двигатель, а не слот: слот определяется маркой из карточки
+   * двигателя. Если плановых мест под эту марку не осталось — спрашиваем явно, потому
+   * что «сверх плана» это либо ошибка марки в карточке, либо недобитый план контракта,
+   * и решать за оператора нельзя.
+   */
+  async function placeEngineIntoSlot(
+    engineId: string,
+    preferredSectionKey?: string,
+  ): Promise<{ sectionKey: string; overPlan: boolean } | null> {
+    const engineBrandId = engineBrandByIdRef.current.get(engineId);
+    const preview = planSlotForEngine({
+      cp: await readContractPayments(props.contractId),
+      sectionKeys,
+      ...(engineBrandId ? { engineBrandId } : {}),
+      ...(preferredSectionKey ? { preferredSectionKey } : {}),
+    });
+    if (preview.overPlan) {
+      const brandLabel = engineBrandId
+        ? engineBrandOptions.find((o) => o.id === engineBrandId)?.label ?? 'этой марки'
+        : 'без указанной марки';
+      const ok = await confirm({
+        title: 'Нет свободного места под эту марку',
+        detail:
+          `В контракте не осталось плановых мест под марку «${brandLabel}». ` +
+          'Двигатель можно добавить сверх плана — тогда проверьте план контракта или марку в карточке двигателя.',
+        confirmLabel: 'Добавить сверх плана',
+        confirmTone: 'warn',
+      });
+      if (!ok) return null;
+    }
+    let placed: { sectionKey: string; overPlan: boolean } | null = null;
+    const r = await mutateContractPayments(
+      props.contractId,
+      (current) => {
+        const placement = planSlotForEngine({
+          cp: current,
+          sectionKeys,
+          ...(engineBrandId ? { engineBrandId } : {}),
+          ...(preferredSectionKey ? { preferredSectionKey } : {}),
+        });
+        placed = { sectionKey: placement.sectionKey, overPlan: placement.overPlan };
+        return attachEngineToSlot(current, placement, engineId, () => crypto.randomUUID(), engineBrandId);
+      },
+      contractTypeId || undefined,
+    );
+    if (!r.ok) {
+      setEngineAttachStatus(`Ошибка: ${r.error}`);
+      return null;
+    }
+    setContractPayments(r.next);
+    return placed;
+  }
+
   async function attachEngineToContract(engineId: string) {
     const normalizedId = String(engineId ?? '').trim();
     if (!normalizedId) return;
@@ -1505,32 +1693,37 @@ export function ContractDetailsPage(props: {
       setAddEngineOpen(false);
       return;
     }
-    try {
-      setEngineAttachStatus('Прикрепление двигателя…');
-      await window.matrica.engines.setAttr(normalizedId, 'contract_id', props.contractId);
-      await loadProgress();
-      setAddEngineOpen(false);
-      setEngineAttachStatus('Двигатель добавлен.');
-      setTimeout(() => setEngineAttachStatus(''), 1500);
-    } catch (e) {
-      setEngineAttachStatus(`Ошибка: ${String(e)}`);
-    }
+    await attachEngineToSection(normalizedId, '');
+    setAddEngineOpen(false);
   }
 
-  // C-#6: привязка существующего двигателя к конкретной ДС (из карточки контракта).
-  // Ставит и contract_id (контракт), и contract_section_number (токен секции) — затем
-  // reload, чтобы relatedEngines/раздел ДС обновились.
+  /**
+   * Привязка существующего двигателя (из карточки контракта). Пишет contract_id,
+   * contract_section_number выбранной секции и сажает двигатель в слот его марки.
+   *
+   * Раньше «Добавить двигатель» общего блока ставил ТОЛЬКО contract_id — такой двигатель
+   * не попадал ни в одну секцию и не получал слот никогда.
+   */
   async function attachEngineToSection(engineId: string, sectionToken: string) {
     const normalizedId = String(engineId ?? '').trim();
+    if (!normalizedId) return;
     const token = String(sectionToken ?? '').trim();
-    if (!normalizedId || !token) return;
     try {
-      setEngineAttachStatus('Привязка двигателя к ДС…');
+      setEngineAttachStatus('Привязка двигателя…');
+      const placed = await placeEngineIntoSlot(normalizedId, token || undefined);
+      if (!placed) {
+        setEngineAttachStatus('');
+        return;
+      }
       await window.matrica.engines.setAttr(normalizedId, 'contract_id', props.contractId);
-      await window.matrica.engines.setAttr(normalizedId, 'contract_section_number', token);
+      if (placed.sectionKey) {
+        await window.matrica.engines.setAttr(normalizedId, 'contract_section_number', placed.sectionKey);
+      }
       await loadProgress();
-      setEngineAttachStatus('Двигатель привязан к ДС.');
-      setTimeout(() => setEngineAttachStatus(''), 1500);
+      setEngineAttachStatus(
+        placed.overPlan ? '⚠ Двигатель добавлен СВЕРХ плана — проверьте план контракта или марку.' : 'Двигатель привязан.',
+      );
+      setTimeout(() => setEngineAttachStatus(''), placed.overPlan ? 6000 : 1500);
     } catch (e) {
       setEngineAttachStatus(`Ошибка: ${String(e)}`);
     }
@@ -1538,13 +1731,18 @@ export function ContractDetailsPage(props: {
 
   // --- Платежи (contract_payments): сверка слотов с планом + запись изменений. ---
 
-  async function saveContractPayments(next: ContractPayments) {
-    setContractPayments(next);
-    try {
-      await setContractAttr(CONTRACT_PAYMENTS_ATTR_CODE, next);
-    } catch (e) {
-      setStatus(`Ошибка сохранения платежей: ${String(e)}`);
+  /**
+   * Любая правка платежей — через пере-чтение (см. utils/contractPaymentsStore.ts).
+   * Писать сюда весь атрибут из React-стейта нельзя: вкладка «Платежи» карточки двигателя
+   * пишет в тот же JSON, и стейт карточки контракта устаревает молча.
+   */
+  async function mutatePayments(mutate: (current: ContractPayments) => ContractPayments) {
+    const r = await mutateContractPayments(props.contractId, mutate, contractTypeId || undefined);
+    if (!r.ok) {
+      setStatus(`Ошибка сохранения платежей: ${r.error}`);
+      return;
     }
+    setContractPayments(r.next);
   }
 
   // Сверка слотов с КОММИТНЫМ планом (attributes.contract_sections, не редактируемым
@@ -1578,41 +1776,61 @@ export function ContractDetailsPage(props: {
     paymentsSyncKeyRef.current = syncKey;
     const current = parseContractPayments(contract.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]);
     const next = syncSlotsWithPlan(current, planned, attached, () => crypto.randomUUID());
-    if (JSON.stringify(next) === JSON.stringify(current)) {
-      setContractPayments(current);
-      return;
-    }
     setContractPayments(next);
-    if (props.canEdit) {
-      void setContractAttr(CONTRACT_PAYMENTS_ATTR_CODE, next).catch((e) => {
-        setStatus(`Ошибка сохранения платежей: ${String(e)}`);
+    // Сверка идемпотентна, поэтому её можно (и нужно) прогонять по свежепрочитанному
+    // состоянию: mutateContractPayments сам увидит «ничего не изменилось» и не запишет.
+    if (props.canEdit && JSON.stringify(next) !== JSON.stringify(current)) {
+      void mutateContractPayments(
+        props.contractId,
+        (fresh) => syncSlotsWithPlan(fresh, planned, attached, () => crypto.randomUUID()),
+        contractTypeId || undefined,
+      ).then((r) => {
+        if (!r.ok) setStatus(`Ошибка сохранения платежей: ${r.error}`);
+        else setContractPayments(r.next);
       });
     }
-    // syncKey-гард выше делает лишние прогоны no-op — деп на пересоздаваемый setContractAttr безопасен.
-  }, [contract, relatedEngines, props.canEdit, setContractAttr]);
+    // syncKey-гард выше делает лишние прогоны no-op — деп на пересоздаваемый contractTypeId безопасен.
+  }, [contract, relatedEngines, props.canEdit, props.contractId, contractTypeId]);
 
-  async function distributeAdvance(sectionToken: string, amountKop: number, kind: PaymentKind, date: string, slotCount?: number) {
-    const next = distributeAmount(contractPayments, sectionToken, amountKop, kind, date, () => crypto.randomUUID(), slotCount);
-    if (next === contractPayments) return;
-    await saveContractPayments(next);
+  async function distributeToSlots(
+    slotIds: readonly string[],
+    amountKop: number,
+    kind: PaymentKind,
+    date: string,
+    note: string,
+  ) {
+    if (slotIds.length === 0) return;
+    await mutatePayments((current) =>
+      distributeAmountToSlots(current, slotIds, amountKop, kind, date, () => crypto.randomUUID(), note),
+    );
   }
 
   async function removeSlotPayment(slotId: string, paymentId: string) {
-    await saveContractPayments(removePayment(contractPayments, slotId, paymentId));
+    await mutatePayments((current) => removePayment(current, slotId, paymentId));
   }
 
-  function toggleMemoEngine(engineId: string, checked: boolean) {
-    setMemoSelection((prev) => {
+  function toggleSlots(slotIds: readonly string[], checked: boolean) {
+    setSlotSelection((prev) => {
       const next = new Set(prev);
-      if (checked) next.add(engineId);
-      else next.delete(engineId);
+      for (const id of slotIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
   }
 
+  /** Двигатели отмеченных слотов — пустые слоты в записку не попадают, там нечего запускать. */
+  const selectedMemoEngines = React.useMemo(() => {
+    const engineIds = new Set(
+      contractPayments.slots.filter((s) => slotSelection.has(s.id) && s.engineId).map((s) => s.engineId as string),
+    );
+    return relatedEngines.filter((e) => engineIds.has(e.id));
+  }, [contractPayments, slotSelection, relatedEngines]);
+
   function printServiceMemo() {
     const today = todayIsoDate();
-    const selected = relatedEngines.filter((e) => memoSelection.has(e.id));
+    const selected = selectedMemoEngines;
     if (selected.length === 0) return;
     const customerName = sections?.primary.customerId
       ? customerOptions.find((o) => o.id === sections.primary.customerId)?.label ?? ''
@@ -1793,6 +2011,23 @@ export function ContractDetailsPage(props: {
   const { totalQty, totalSum, dueAt } = useMemo(() => (sections ? computeSectionTotals(sections) : { totalQty: 0, totalSum: 0, dueAt: null }), [sections]);
   const relatedEngineIds = useMemo(() => new Set(relatedEngines.map((engine) => engine.id)), [relatedEngines]);
   const executionPartIds = useMemo(() => new Set(executionParts.map((row) => row.partId)), [executionParts]);
+  /** Двигатели контракта без секции: в слоты они не попадают и в списках секций не видны. */
+  const enginesWithoutSection = useMemo(
+    () => relatedEngines.filter((e) => !String(e.contractSectionNumber ?? '').trim()),
+    [relatedEngines],
+  );
+
+  /**
+   * Разложить «бесхозные» двигатели по слотам их марок. Автоматически при открытии карточки
+   * этого НЕ делаем: часть из них попадёт «сверх плана», а это либо ошибка марки, либо
+   * недобитый план — решение оператора, не наше.
+   */
+  async function placeEnginesWithoutSection() {
+    for (const engine of enginesWithoutSection) {
+      await attachEngineToSection(engine.id, '');
+    }
+  }
+
   const availableEngineOptions = useMemo(
     () => allEngineOptions.filter((option) => !relatedEngineIds.has(option.id)),
     [allEngineOptions, relatedEngineIds],
@@ -1961,14 +2196,14 @@ export function ContractDetailsPage(props: {
       }
       actions={
         <RowActions>
-          {memoSelection.size > 0 ? (
+          {selectedMemoEngines.length > 0 ? (
             <Button
               variant="ghost"
               tone="info"
               onClick={printServiceMemo}
               title="Накопительная служебная записка по отмеченным галочками двигателям"
             >
-              Служебная записка ({memoSelection.size})
+              Служебная записка ({selectedMemoEngines.length})
             </Button>
           ) : null}
           <Button variant="ghost" tone="info" onClick={printContractCard}>
@@ -1995,10 +2230,10 @@ export function ContractDetailsPage(props: {
             onAttachEngineToSection={attachEngineToSection}
             contractPayments={contractPayments}
             canEditPayments={props.canEdit}
-            onDistributeAdvance={distributeAdvance}
+            onDistributeToSlots={distributeToSlots}
             onRemoveSlotPayment={removeSlotPayment}
-            memoSelectedIds={memoSelection}
-            onToggleMemoEngine={toggleMemoEngine}
+            slotSelection={slotSelection}
+            onToggleSlots={toggleSlots}
             onOpenCounterparty={props.onOpenCounterparty}
             {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
             {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
@@ -2023,10 +2258,10 @@ export function ContractDetailsPage(props: {
               onAttachEngineToSection={attachEngineToSection}
               contractPayments={contractPayments}
               canEditPayments={props.canEdit}
-              onDistributeAdvance={distributeAdvance}
+              onDistributeToSlots={distributeToSlots}
               onRemoveSlotPayment={removeSlotPayment}
-              memoSelectedIds={memoSelection}
-              onToggleMemoEngine={toggleMemoEngine}
+              slotSelection={slotSelection}
+              onToggleSlots={toggleSlots}
               {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
               {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
               onChange={(addonSection) => {
@@ -2050,73 +2285,77 @@ export function ContractDetailsPage(props: {
               </Button>
             </div>
           )}
-
-          <SectionCard className="entity-card-span-full" title="Прикрепленные двигатели" style={{ borderRadius: 0, padding: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
-                Всего двигателей: {relatedEngines.length}
+          {/* Третий список двигателей («Прикрепленные двигатели», без платежей и без секций)
+              убран: он дублировал единый список секций. Здесь остаётся только то, чего в
+              секциях не видно — двигатели с contract_id, но без секции. После привязки через
+              карточку они не появляются: секция проставляется вместе со слотом. */}
+          {enginesWithoutSection.length > 0 || props.canEdit ? (
+            <SectionCard className="entity-card-span-full" title="Двигатели без секции" style={{ borderRadius: 0, padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                  Всего двигателей контракта: {relatedEngines.length}
+                  {enginesWithoutSection.length > 0 ? ` · без секции: ${enginesWithoutSection.length}` : ''}
+                </div>
               </div>
-              <Button
-                variant="ghost"
-                tone="neutral"
-                size="sm"
-                onClick={() => setExpandedBlocks((prev) => toggleExpanded(prev, 'attachedEngines'))}
-              >
-                {expandedBlocks.attachedEngines === false ? 'Развернуть' : 'Свернуть'}
-              </Button>
-            </div>
-            {engineAttachStatus ? (
-              <div style={{ marginTop: 10, color: engineAttachStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>
-                {engineAttachStatus}
-              </div>
-            ) : null}
-            {expandedBlocks.attachedEngines !== false && (
-              <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
-                <DataTable className="list-table">
-                  <colgroup>
-                    <col style={{ width: '35%' }} />
-                    <col style={{ width: '35%' }} />
-                    <col />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Номер двигателя</th>
-                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Марка двигателя</th>
-                      <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="text">Статус</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {relatedEngines.map((engine) => (
-                      <tr key={engine.id}>
-                        <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                          {props.onOpenEngine ? (
-                            <button
-                              type="button"
-                              onClick={() => void props.onOpenEngine?.(engine.id)}
-                              style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
-                            >
-                              {engine.engineNumber || '—'}
-                            </button>
-                          ) : (
-                            engine.engineNumber || '—'
-                          )}
-                        </td>
-                        <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{engine.engineBrand || '—'}</td>
-                        <td data-col-kind="text" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>{currentEngineStatusLabel(engine)}</td>
-                      </tr>
-                    ))}
-                    {relatedEngines.length === 0 && (
+              {engineAttachStatus ? (
+                <div style={{ marginTop: 10, color: engineAttachStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>
+                  {engineAttachStatus}
+                </div>
+              ) : null}
+              {enginesWithoutSection.length > 0 ? (
+                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
+                    Эти двигатели привязаны к контракту, но не к секции — они не попадают ни в один слот и не
+                    участвуют в разнесении аванса. Нажмите «Разложить по слотам»: каждый сядет в свободный слот
+                    своей марки.
+                  </div>
+                  <DataTable className="list-table">
+                    <colgroup>
+                      <col style={{ width: '35%' }} />
+                      <col style={{ width: '35%' }} />
+                      <col />
+                    </colgroup>
+                    <thead>
                       <tr>
-                        <td colSpan={3} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
-                          Нет прикрепленных двигателей
-                        </td>
+                        <th style={TD_HEAD} data-col-kind="name">Номер двигателя</th>
+                        <th style={TD_HEAD} data-col-kind="name">Марка двигателя</th>
+                        <th style={TD_HEAD} data-col-kind="text">Статус</th>
                       </tr>
-                    )}
-                  </tbody>
-                </DataTable>
-
-                {props.canEdit && (
-                  addEngineOpen ? (
+                    </thead>
+                    <tbody>
+                      {enginesWithoutSection.map((engine) => (
+                        <tr key={engine.id}>
+                          <td data-col-kind="name" style={TD_CELL}>
+                            {props.onOpenEngine ? (
+                              <button
+                                type="button"
+                                onClick={() => void props.onOpenEngine?.(engine.id)}
+                                style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                              >
+                                {engine.engineNumber || '—'}
+                              </button>
+                            ) : (
+                              engine.engineNumber || '—'
+                            )}
+                          </td>
+                          <td data-col-kind="name" style={TD_CELL}>{engine.engineBrand || '—'}</td>
+                          <td data-col-kind="text" style={TD_CELL}>{currentEngineStatusLabel(engine)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </DataTable>
+                  {props.canEdit ? (
+                    <div>
+                      <Button variant="outline" tone="neutral" size="sm" onClick={() => void placeEnginesWithoutSection()}>
+                        Разложить по слотам
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {props.canEdit && (
+                <div style={{ marginTop: 12 }}>
+                  {addEngineOpen ? (
                     <div style={{ display: 'grid', gap: 8 }}>
                       <EntityReferenceField
                         target="engine"
@@ -2148,11 +2387,11 @@ export function ContractDetailsPage(props: {
                         Добавить двигатель
                       </Button>
                     </div>
-                  )
-                )}
-              </div>
-            )}
-          </SectionCard>
+                  )}
+                </div>
+              )}
+            </SectionCard>
+          ) : null}
 
           <SectionCard className="entity-card-span-full" title="Детали" style={{ borderRadius: 0, padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
