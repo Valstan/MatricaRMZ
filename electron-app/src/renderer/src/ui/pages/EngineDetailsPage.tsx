@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { parseContractSections, buildContractSectionOptions, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { parseContractSections, buildContractSectionOptions, contractSectionAddonToken, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -24,6 +24,7 @@ import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
 import { EnginePaymentsTab } from '../components/EnginePaymentsTab.js';
+import { mutateContractPayments } from '../utils/contractPaymentsStore.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
@@ -876,6 +877,61 @@ export function EngineDetailsPage(props: {
     });
   }
 
+  /**
+   * Посадить двигатель в слот ЕГО марки внутри выбранного контракта.
+   *
+   * Марка известна здесь, а слоты живут в контракте — раньше привязка из карточки
+   * двигателя слот не создавала вовсе: он назначался, только когда кто-нибудь откроет
+   * карточку контракта, и до 31.07 мог достаться слоту чужой марки.
+   *
+   * Возвращает выбранную секцию (её пишем в contract_section_number) и признак «сверх
+   * плана» — о нём говорим оператору вслух.
+   */
+  async function placeEngineIntoContractSlot(
+    targetContractId: string,
+    preferredSectionKey: string,
+  ): Promise<{ sectionKey: string; overPlan: boolean } | null> {
+    try {
+      const contract = (await window.matrica.admin.entities.get(targetContractId)) as {
+        attributes?: Record<string, unknown>;
+      } | null;
+      const committed = parseContractSections(contract?.attributes ?? {});
+      const primaryToken = String(committed.primary.number ?? '').trim();
+      const sectionKeys = [
+        ...(primaryToken ? [primaryToken] : []),
+        ...committed.addons.map((addon) => contractSectionAddonToken(addon.seq)),
+      ];
+      if (sectionKeys.length === 0) return null;
+      let placed: { sectionKey: string; overPlan: boolean } | null = null;
+      const r = await mutateContractPayments(targetContractId, (current) => {
+        const placement = planSlotForEngine({
+          cp: current,
+          sectionKeys,
+          ...(engineBrandId ? { engineBrandId } : {}),
+          ...(preferredSectionKey ? { preferredSectionKey } : {}),
+        });
+        placed = { sectionKey: placement.sectionKey, overPlan: placement.overPlan };
+        return attachEngineToSlot(
+          current,
+          placement,
+          props.engineId,
+          () => crypto.randomUUID(),
+          engineBrandId || undefined,
+        );
+      });
+      if (!r.ok) {
+        setSaveStatus(`Ошибка платежей контракта: ${r.error}`);
+        return null;
+      }
+      return placed;
+    } catch (e) {
+      // Карточку двигателя из-за платежей не валим: связь двигатель↔контракт всё равно
+      // запишется, а слот доназначится при открытии карточки контракта.
+      setSaveStatus(`Слот в контракте не назначен: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
   async function saveAllAndClose() {
     if (canEditEnginesEff) {
       const attrs = props.engine.attributes ?? {};
@@ -883,6 +939,21 @@ export function EngineDetailsPage(props: {
       const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
 
       const internal = resolveInternalNumberFields();
+
+      // Секцию контракта определяет марка: если оператор ДС не выбрал, двигатель сам
+      // сядет в свободный слот своей марки (в основном договоре или в подходящем ДС).
+      let resolvedSectionKey = String(contractSectionNumber ?? '').trim();
+      let overPlanNote = '';
+      const targetContractId = String(contractId ?? '').trim();
+      if (targetContractId) {
+        const placed = await placeEngineIntoContractSlot(targetContractId, resolvedSectionKey);
+        if (placed) {
+          if (placed.sectionKey) resolvedSectionKey = placed.sectionKey;
+          if (placed.overPlan) {
+            overPlanNote = `⚠ В контракте нет свободного места под марку «${brandLabel || '—'}» — двигатель добавлен сверх плана. Проверьте план контракта или марку в карточке.`;
+          }
+        }
+      }
 
       const nextValues: Record<string, unknown> = {
         // Флаги осознанного дубля — ПЕРВЫМИ (до engine_number): гейт запрета дублей
@@ -899,7 +970,7 @@ export function EngineDetailsPage(props: {
         arrival_date: fromInputDate(arrivalDate),
         customer_id: asNullableText(customerId),
         contract_id: asNullableText(contractId),
-        contract_section_number: asNullableText(contractSectionNumber),
+        contract_section_number: asNullableText(resolvedSectionKey),
         workshop_id: asNullableText(workshopId),
       };
       for (const c of STATUS_CODES) {
@@ -973,8 +1044,8 @@ export function EngineDetailsPage(props: {
             }
           }
           await props.onEngineUpdated();
-          setSaveStatus('Сохранено');
-          setTimeout(() => setSaveStatus(''), 700);
+          setSaveStatus(overPlanNote || 'Сохранено');
+          setTimeout(() => setSaveStatus(''), overPlanNote ? 8000 : 700);
         } catch (e) {
           setSaveStatus(`Ошибка сохранения: ${String(e)}`);
           throw e;
