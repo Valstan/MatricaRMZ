@@ -88,34 +88,56 @@ describe('workOrderSignatures', () => {
     expect(result.workshopHead).toBe('');
   });
 
-  it('returns the two-phase issue/completion blocks for every kind', () => {
-    for (const kind of [WorkOrderKind.Regular, WorkOrderKind.Repair, WorkOrderKind.Assembly, WorkOrderKind.Manufacturing, undefined]) {
-      const blocks = getWorkOrderSignatureBlocks(kind);
-      expect(blocks.map((b) => b.id)).toEqual(['issue', 'completion']);
-      expect(blocks.map((b) => b.title)).toEqual(['Выдача наряда', 'Завершение наряда']);
-    }
-  });
-
-  it('pre-fills the procedure roles as default captions', () => {
-    const blocks = getWorkOrderSignatureBlocks(WorkOrderKind.Regular);
+  it('keeps the two-phase issue/completion procedure for assembly', () => {
+    const blocks = getWorkOrderSignatureBlocks(WorkOrderKind.Assembly);
+    expect(blocks.map((b) => b.id)).toEqual(['issue', 'completion']);
     expect(blocks[0]!.defaultCaptions).toEqual(['Наряд выдал', 'Согласовано (ОТК)', 'Принял в работу']);
     expect(blocks[1]!.defaultCaptions).toEqual(['Работу сдал', 'Работу принял (ОТК)', 'Работу принял']);
   });
 
+  it('gives the simple form its own approvers instead of сдал/принял', () => {
+    for (const kind of [WorkOrderKind.Regular, WorkOrderKind.Repair, WorkOrderKind.Manufacturing, undefined]) {
+      const blocks = getWorkOrderSignatureBlocks(kind);
+      expect(blocks[0]!.id).toBe('norming');
+      expect(blocks[0]!.defaultCaptions).toEqual([
+        'Специалист по нормированию',
+        'Специалист по кадрам',
+        'ОТК',
+        'Мастер цеха',
+      ]);
+    }
+  });
+
+  // Уже подписанные обычные/ремонтные наряды не осиротеют: блоки остаются в списке,
+  // но сами собой (без слотов оператора) больше не печатаются.
+  it('keeps issue/completion available for the simple form, but silent by default', () => {
+    const blocks = getWorkOrderSignatureBlocks(WorkOrderKind.Repair);
+    const issue = blocks.find((b) => b.id === 'issue')!;
+    const completion = blocks.find((b) => b.id === 'completion')!;
+    expect(resolveWorkOrderSignatureSlots(issue, undefined)).toEqual([]);
+    expect(resolveWorkOrderSignatureSlots(completion, undefined)).toEqual([]);
+    const persisted = [{ blockId: 'issue', slots: [{ caption: 'Наряд выдал', employeeId: 'e-head' }] }];
+    expect(resolveWorkOrderSignatureSlots(issue, persisted)).toEqual([{ caption: 'Наряд выдал', employeeId: 'e-head' }]);
+  });
+
   it('omits the issue-block date line for assembly, plain date otherwise', () => {
     expect(getWorkOrderSignatureBlocks(WorkOrderKind.Assembly)[0]!.dateLineLabel).toBeUndefined();
-    expect(getWorkOrderSignatureBlocks(WorkOrderKind.Regular)[0]!.dateLineLabel).toBe('Дата выдачи');
-    expect(getWorkOrderSignatureBlocks(WorkOrderKind.Regular)[1]!.dateLineLabel).toBe('Дата выполнения');
+    expect(getWorkOrderSignatureBlocks(WorkOrderKind.Regular)[0]!.dateLineLabel).toBe('Дата выполнения');
   });
 
   it('resolves default-caption slots when the block has no operator-set signers', () => {
-    const [issue] = getWorkOrderSignatureBlocks(WorkOrderKind.Regular);
-    const slots = resolveWorkOrderSignatureSlots(issue!, undefined);
-    expect(slots).toEqual([{ caption: 'Наряд выдал' }, { caption: 'Согласовано (ОТК)' }, { caption: 'Принял в работу' }]);
+    const [norming] = getWorkOrderSignatureBlocks(WorkOrderKind.Regular);
+    const slots = resolveWorkOrderSignatureSlots(norming!, undefined);
+    expect(slots).toEqual([
+      { caption: 'Специалист по нормированию' },
+      { caption: 'Специалист по кадрам' },
+      { caption: 'ОТК' },
+      { caption: 'Мастер цеха' },
+    ]);
   });
 
   it('prefers operator-set slots over defaults', () => {
-    const [issue] = getWorkOrderSignatureBlocks(WorkOrderKind.Regular);
+    const [issue] = getWorkOrderSignatureBlocks(WorkOrderKind.Assembly);
     const blocks = [{ blockId: 'issue', slots: [{ caption: 'Наряд выдал', employeeId: 'e-head' }] }];
     expect(resolveWorkOrderSignatureSlots(issue!, blocks)).toEqual([{ caption: 'Наряд выдал', employeeId: 'e-head' }]);
   });

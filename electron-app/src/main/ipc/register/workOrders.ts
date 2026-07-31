@@ -163,7 +163,13 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
         engineNumber?: string;
         engineBrandId?: string;
         engineBrandName?: string;
-        items: Array<{ partId: string; qty: number; partLabel: string; defectOrigin?: import('@matricarmz/shared').DefectOrigin }>;
+        items: Array<{
+          partId: string;
+          qty: number;
+          partLabel: string;
+          stampedNumbers?: string[];
+          defectOrigin?: import('@matricarmz/shared').DefectOrigin;
+        }>;
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();
@@ -176,6 +182,9 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
           partId: String(it?.partId ?? '').trim(),
           qty: Math.max(0, Math.trunc(Number(it?.qty ?? 0))),
           partLabel: String(it?.partLabel ?? '').trim() || 'Деталь',
+          stampedNumbers: Array.from(
+            new Set((Array.isArray(it?.stampedNumbers) ? it.stampedNumbers : []).map((v) => String(v ?? '').trim()).filter(Boolean)),
+          ),
           ...(it.defectOrigin ? { defectOrigin: it.defectOrigin } : {}),
         }))
         .filter((it) => it.partId && it.qty > 0);
@@ -198,6 +207,7 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
           partId: it.partId,
           partName: it.partLabel,
           engineId,
+          ...(it.stampedNumbers.length > 0 ? { stampedNumbers: it.stampedNumbers } : {}),
           ...(it.defectOrigin ? { defectOrigin: it.defectOrigin } : {}),
         };
         if (engineNumber) line.engineNumber = engineNumber;
