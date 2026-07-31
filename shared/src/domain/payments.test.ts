@@ -2,16 +2,19 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addPayment,
+  attachEngineToSlot,
   burningEnginesCount,
   collectContractPaymentsEngineIds,
   countdownStatus,
   distributeAmount,
+  distributeAmountToSlots,
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
   parseContractPayments,
   parseMoneyToKop,
   paymentRowLabel,
+  planSlotForEngine,
   removePayment,
   slotTotals,
   syncSlotsWithPlan,
@@ -166,6 +169,170 @@ describe('syncSlotsWithPlan', () => {
     );
     expect(cp.slots).toHaveLength(2);
     expect(findSlotForEngine(cp, 'eng-2')).toBeTruthy();
+  });
+});
+
+describe('марка слота — инвариант', () => {
+  const twoBrands = [
+    { sectionKey: 'primary', engineBrandId: 'brand-A', qty: 1, unitPrice: 0 },
+    { sectionKey: 'primary', engineBrandId: 'brand-B', qty: 1, unitPrice: 0 },
+  ];
+
+  it('двигатель НЕ садится в свободный слот чужой марки — заводится слот сверх плана', () => {
+    seq = 0;
+    let cp = syncSlotsWithPlan(emptyContractPayments(), twoBrands, [], nextId);
+    cp = syncSlotsWithPlan(cp, twoBrands, [{ engineId: 'eng-B1', sectionKey: 'primary', engineBrandId: 'brand-B' }], nextId);
+    cp = syncSlotsWithPlan(
+      cp,
+      twoBrands,
+      [
+        { engineId: 'eng-B1', sectionKey: 'primary', engineBrandId: 'brand-B' },
+        { engineId: 'eng-B2', sectionKey: 'primary', engineBrandId: 'brand-B' },
+      ],
+      nextId,
+    );
+    const slotA = cp.slots.find((s) => s.engineBrandId === 'brand-A')!;
+    expect(slotA.engineId).toBeUndefined();
+    expect(findSlotForEngine(cp, 'eng-B2')?.engineBrandId).toBe('brand-B');
+    expect(cp.slots).toHaveLength(3);
+  });
+
+  it('двигатель без марки по-прежнему занимает любой свободный слот', () => {
+    seq = 0;
+    let cp = syncSlotsWithPlan(emptyContractPayments(), twoBrands, [], nextId);
+    cp = syncSlotsWithPlan(cp, twoBrands, [{ engineId: 'eng-x', sectionKey: 'primary' }], nextId);
+    expect(cp.slots).toHaveLength(2);
+    expect(findSlotForEngine(cp, 'eng-x')).toBeTruthy();
+  });
+});
+
+describe('planSlotForEngine / attachEngineToSlot', () => {
+  const plan = [
+    { sectionKey: 'primary', engineBrandId: 'brand-A', qty: 1, unitPrice: 0 },
+    { sectionKey: 'ДС 1', engineBrandId: 'brand-B', qty: 1, unitPrice: 0 },
+  ];
+  const sectionKeys = ['primary', 'ДС 1'];
+
+  it('находит свободный слот своей марки в другой секции, если в предпочтённой его нет', () => {
+    seq = 0;
+    const cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    const placement = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-B', preferredSectionKey: 'primary' });
+    expect(placement.sectionKey).toBe('ДС 1');
+    expect(placement.overPlan).toBe(false);
+    expect(cp.slots.find((s) => s.id === placement.slotId)?.engineBrandId).toBe('brand-B');
+  });
+
+  it('предпочитает слот, на котором уже лежат деньги', () => {
+    seq = 0;
+    let cp = syncSlotsWithPlan(emptyContractPayments(), [{ ...plan[0]!, qty: 2 }], [], nextId);
+    cp = addPayment(cp, cp.slots[1]!.id, { id: 'p1', date: '2026-07-01', amountKop: 500, kind: 'advance' });
+    const placement = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-A' });
+    expect(placement.slotId).toBe(cp.slots[1]!.id);
+  });
+
+  it('марка не запланирована → overPlan, слот заводится с маркой двигателя', () => {
+    seq = 0;
+    const cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    const placement = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-Z', preferredSectionKey: 'primary' });
+    expect(placement).toEqual({ sectionKey: 'primary', overPlan: true });
+    const next = attachEngineToSlot(cp, placement, 'eng-z', nextId, 'brand-Z');
+    expect(next.slots).toHaveLength(cp.slots.length + 1);
+    expect(findSlotForEngine(next, 'eng-z')?.engineBrandId).toBe('brand-Z');
+  });
+
+  it('переезд двигателя не оставляет его в двух слотах, деньги остаются на прежнем', () => {
+    seq = 0;
+    let cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    const first = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-A' });
+    cp = attachEngineToSlot(cp, first, 'eng-1', nextId, 'brand-A');
+    cp = addPayment(cp, first.slotId!, { id: 'p1', date: '2026-07-01', amountKop: 700, kind: 'advance' });
+    const second = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-B' });
+    cp = attachEngineToSlot(cp, second, 'eng-1', nextId, 'brand-B');
+    expect(cp.slots.filter((s) => s.engineId === 'eng-1')).toHaveLength(1);
+    expect(cp.slots.find((s) => s.id === first.slotId)?.payments).toHaveLength(1);
+  });
+});
+
+describe('distributeAmountToSlots', () => {
+  const plan = [
+    { sectionKey: 'primary', engineBrandId: 'brand-A', qty: 2, unitPrice: 0 },
+    { sectionKey: 'primary', engineBrandId: 'brand-B', qty: 2, unitPrice: 0 },
+  ];
+
+  function fourSlots(): ContractPayments {
+    seq = 0;
+    return syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+  }
+
+  it('разносит только по выбранным слотам, чужие марки не трогает', () => {
+    const cp = fourSlots();
+    const brandA = cp.slots.filter((s) => s.engineBrandId === 'brand-A').map((s) => s.id);
+    const next = distributeAmountToSlots(cp, brandA, 1_000_000, 'advance', '2026-07-14', nextId);
+    for (const s of next.slots) {
+      if (s.engineBrandId === 'brand-A') expect(s.payments[0]?.amountKop).toBe(500_000);
+      else expect(s.payments).toHaveLength(0);
+    }
+  });
+
+  it('остаток копеек — первому по порядку слотов, а не по порядку кликов', () => {
+    const cp = fourSlots();
+    const ids = cp.slots.map((s) => s.id);
+    const forward = distributeAmountToSlots(cp, ids, 100, 'advance', '2026-07-14', nextId);
+    const reversed = distributeAmountToSlots(cp, [...ids].reverse(), 100, 'advance', '2026-07-14', nextId);
+    expect(forward.slots.map((s) => s.payments[0]?.amountKop)).toEqual([25, 25, 25, 25]);
+    const amounts = distributeAmountToSlots(cp, ids, 102, 'advance', '2026-07-14', nextId).slots.map(
+      (s) => s.payments[0]?.amountKop,
+    );
+    expect(amounts).toEqual([27, 25, 25, 25]);
+    expect(reversed.slots.map((s) => s.payments[0]?.amountKop)).toEqual(
+      forward.slots.map((s) => s.payments[0]?.amountKop),
+    );
+  });
+
+  it('ставит старт отсчёта только там, где его ещё не было', () => {
+    let cp = fourSlots();
+    const ids = cp.slots.map((s) => s.id);
+    cp = addPayment(cp, ids[0]!, { id: 'p0', date: '2026-06-01', amountKop: 10, kind: 'advance', countdownStart: true });
+    const next = distributeAmountToSlots(cp, ids, 400, 'advance', '2026-07-14', nextId);
+    expect(next.slots[0]!.payments.filter((p) => p.countdownStart)).toHaveLength(1);
+    expect(next.slots[0]!.payments[0]!.id).toBe('p0');
+    expect(next.slots[1]!.payments[0]!.countdownStart).toBe(true);
+  });
+
+  it('чинит слот, у которого стартовых платежей было два', () => {
+    let cp = fourSlots();
+    const id = cp.slots[0]!.id;
+    cp = addPayment(cp, id, { id: 'p1', date: '2026-06-01', amountKop: 10, kind: 'advance', countdownStart: true });
+    cp = {
+      version: 1,
+      slots: cp.slots.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              payments: [
+                ...s.payments,
+                { id: 'p2', date: '2026-06-02', amountKop: 10, kind: 'advance' as const, countdownStart: true },
+              ],
+            }
+          : s,
+      ),
+    };
+    const next = distributeAmountToSlots(cp, [id], 100, 'final', '2026-07-14', nextId);
+    expect(next.slots[0]!.payments.filter((p) => p.countdownStart)).toHaveLength(1);
+  });
+
+  it('окончательный расчёт отсчёт не запускает, примечание доезжает', () => {
+    const cp = fourSlots();
+    const next = distributeAmountToSlots(cp, [cp.slots[0]!.id], 100, 'final', '2026-07-14', nextId, ' по акту №7 ');
+    expect(next.slots[0]!.payments[0]!.countdownStart).toBeUndefined();
+    expect(next.slots[0]!.payments[0]!.note).toBe('по акту №7');
+  });
+
+  it('пустая выборка и мусорная сумма ничего не меняют', () => {
+    const cp = fourSlots();
+    expect(distributeAmountToSlots(cp, [], 100, 'advance', '2026-07-14', nextId)).toBe(cp);
+    expect(distributeAmountToSlots(cp, [cp.slots[0]!.id], 0, 'advance', '2026-07-14', nextId)).toBe(cp);
+    expect(distributeAmountToSlots(cp, ['нет-такого'], 100, 'advance', '2026-07-14', nextId)).toBe(cp);
   });
 });
 

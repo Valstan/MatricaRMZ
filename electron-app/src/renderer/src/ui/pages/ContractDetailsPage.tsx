@@ -61,6 +61,7 @@ import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.j
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartSpecsCache, listAllPartSpecs } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
+import { mutateContractPayments } from '../utils/contractPaymentsStore.js';
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
@@ -1538,13 +1539,18 @@ export function ContractDetailsPage(props: {
 
   // --- Платежи (contract_payments): сверка слотов с планом + запись изменений. ---
 
-  async function saveContractPayments(next: ContractPayments) {
-    setContractPayments(next);
-    try {
-      await setContractAttr(CONTRACT_PAYMENTS_ATTR_CODE, next);
-    } catch (e) {
-      setStatus(`Ошибка сохранения платежей: ${String(e)}`);
+  /**
+   * Любая правка платежей — через пере-чтение (см. utils/contractPaymentsStore.ts).
+   * Писать сюда весь атрибут из React-стейта нельзя: вкладка «Платежи» карточки двигателя
+   * пишет в тот же JSON, и стейт карточки контракта устаревает молча.
+   */
+  async function mutatePayments(mutate: (current: ContractPayments) => ContractPayments) {
+    const r = await mutateContractPayments(props.contractId, mutate, contractTypeId || undefined);
+    if (!r.ok) {
+      setStatus(`Ошибка сохранения платежей: ${r.error}`);
+      return;
     }
+    setContractPayments(r.next);
   }
 
   // Сверка слотов с КОММИТНЫМ планом (attributes.contract_sections, не редактируемым
@@ -1578,27 +1584,30 @@ export function ContractDetailsPage(props: {
     paymentsSyncKeyRef.current = syncKey;
     const current = parseContractPayments(contract.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]);
     const next = syncSlotsWithPlan(current, planned, attached, () => crypto.randomUUID());
-    if (JSON.stringify(next) === JSON.stringify(current)) {
-      setContractPayments(current);
-      return;
-    }
     setContractPayments(next);
-    if (props.canEdit) {
-      void setContractAttr(CONTRACT_PAYMENTS_ATTR_CODE, next).catch((e) => {
-        setStatus(`Ошибка сохранения платежей: ${String(e)}`);
+    // Сверка идемпотентна, поэтому её можно (и нужно) прогонять по свежепрочитанному
+    // состоянию: mutateContractPayments сам увидит «ничего не изменилось» и не запишет.
+    if (props.canEdit && JSON.stringify(next) !== JSON.stringify(current)) {
+      void mutateContractPayments(
+        props.contractId,
+        (fresh) => syncSlotsWithPlan(fresh, planned, attached, () => crypto.randomUUID()),
+        contractTypeId || undefined,
+      ).then((r) => {
+        if (!r.ok) setStatus(`Ошибка сохранения платежей: ${r.error}`);
+        else setContractPayments(r.next);
       });
     }
-    // syncKey-гард выше делает лишние прогоны no-op — деп на пересоздаваемый setContractAttr безопасен.
-  }, [contract, relatedEngines, props.canEdit, setContractAttr]);
+    // syncKey-гард выше делает лишние прогоны no-op — деп на пересоздаваемый contractTypeId безопасен.
+  }, [contract, relatedEngines, props.canEdit, props.contractId, contractTypeId]);
 
   async function distributeAdvance(sectionToken: string, amountKop: number, kind: PaymentKind, date: string, slotCount?: number) {
-    const next = distributeAmount(contractPayments, sectionToken, amountKop, kind, date, () => crypto.randomUUID(), slotCount);
-    if (next === contractPayments) return;
-    await saveContractPayments(next);
+    await mutatePayments((current) =>
+      distributeAmount(current, sectionToken, amountKop, kind, date, () => crypto.randomUUID(), slotCount),
+    );
   }
 
   async function removeSlotPayment(slotId: string, paymentId: string) {
-    await saveContractPayments(removePayment(contractPayments, slotId, paymentId));
+    await mutatePayments((current) => removePayment(current, slotId, paymentId));
   }
 
   function toggleMemoEngine(engineId: string, checked: boolean) {
