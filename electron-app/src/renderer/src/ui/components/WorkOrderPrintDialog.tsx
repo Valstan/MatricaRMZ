@@ -5,6 +5,7 @@ import {
   WORK_ORDER_APPROVER_DEFAULT,
   WORK_ORDER_PRINT_FONT_DEFAULTS,
   WORK_ORDER_PRINT_FONT_RANGES,
+  WorkOrderKind,
   type WorkOrderApprover,
   type WorkOrderPrintSettings,
 } from '@matricarmz/shared';
@@ -285,8 +286,23 @@ export function WorkOrderPrintDialog(props: {
             ))}
           </div>
 
+          {props.workOrderKind === WorkOrderKind.Assembly ? (
           <div>
-            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Утверждаю (гриф)</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--subtle)', marginBottom: 4, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!draft.hideApprover}
+                onChange={(e) => {
+                  const next = { ...draft };
+                  if (e.target.checked) delete next.hideApprover;
+                  else next.hideApprover = true;
+                  applySettings(next);
+                }}
+              />
+              Утверждаю (гриф)
+            </label>
+            {draft.hideApprover ? null : (
+              <>
             <div style={{ display: 'flex', border: '1px solid var(--input-border)', borderRadius: 8, overflow: 'hidden' }}>
               {APPROVER_KEYS.map((key, i) => {
                 const active = (draft.approver ?? WORK_ORDER_APPROVER_DEFAULT) === key;
@@ -356,7 +372,15 @@ export function WorkOrderPrintDialog(props: {
                 </div>
               );
             })()}
+              </>
+            )}
           </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--subtle)', lineHeight: 1.4 }}>
+              Гриф «Утверждаю» в этой форме не печатается — внизу листа подписи нормировщика,
+              отдела кадров, ОТК и мастера цеха, а бригада расписывается в своей таблице.
+            </div>
+          )}
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Шаблоны</div>

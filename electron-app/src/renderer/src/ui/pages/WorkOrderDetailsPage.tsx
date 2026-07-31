@@ -5,7 +5,6 @@ import {
   WORK_ORDER_KIND_DESCRIPTIONS,
   WORK_ORDER_KIND_LABELS,
   WORK_ORDER_KIND_ORDER,
-  WORK_ORDER_PRINT_FONT_DEFAULTS,
   WORK_ORDER_SIGNATURE_CAPTION_SUGGESTIONS,
   WORK_ORDER_STATUS_LABELS,
   WorkOrderKind,
@@ -15,7 +14,6 @@ import {
   workOrderWithdrawnAt,
   formatEmployeeInitialsSurname,
   getWorkOrderSignatureBlocks,
-  resolveWorkOrderApprover,
   resolveWorkOrderSignatureSlots,
   workOrderSignatureBlockAliases,
   isWorkOrderTemplateKind,
@@ -56,10 +54,11 @@ import {
   type ServiceInfo,
 } from '../services/workOrderRefsCache.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
-import { formatMoscowDate, formatMoscowDayMonthName } from '../utils/dateUtils.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { normalizeLookupText } from '../utils/searchMatching.js';
-import { buildWorkOrderA4PreviewHtml, escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
+import { buildWorkOrderA4PreviewHtml, openPrintPreview } from '../utils/printPreview.js';
+import { buildWorkOrderPrintModel, type WoPrintDeps } from '../utils/woPrintModel.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
@@ -1570,15 +1569,6 @@ export function WorkOrderDetailsPage(props: {
     return String(employee.departmentName ?? '').trim();
   }
 
-  /** Имя изделия для печати/строк: сохранённое, иначе по partId из справочника. */
-  function resolvePartName(line: WorkOrderWorkLine): string {
-    const stored = String(line.partName ?? '').trim();
-    if (stored) return stored;
-    const partId = String(line.partId ?? '').trim();
-    if (!partId) return '';
-    return parts.find((p) => p.id === partId)?.name ?? '';
-  }
-
   function resolvePartArticle(line: WorkOrderWorkLine): string {
     const stored = String(line.partArticle ?? '').trim();
     if (stored) return stored;
@@ -1587,269 +1577,21 @@ export function WorkOrderDetailsPage(props: {
     return parts.find((p) => p.id === partId)?.article ?? '';
   }
 
-  function buildPrintModel(current: WorkOrderPayload, settings: WorkOrderPrintSettings) {
-    const fs = {
-      director: settings.fontDirector ?? WORK_ORDER_PRINT_FONT_DEFAULTS.director,
-      title: settings.fontTitle ?? WORK_ORDER_PRINT_FONT_DEFAULTS.title,
-      meta: settings.fontMeta ?? WORK_ORDER_PRINT_FONT_DEFAULTS.meta,
-      crew: settings.fontCrew ?? WORK_ORDER_PRINT_FONT_DEFAULTS.crew,
-      works: settings.fontWorks ?? WORK_ORDER_PRINT_FONT_DEFAULTS.works,
-      signatures: settings.fontSignatures ?? WORK_ORDER_PRINT_FONT_DEFAULTS.signatures,
-    };
-    // Дата печати всегда = дата наряда: сохранённые orderDateOverride (в т.ч. залипшие
-    // от старых клиентов/умолчаний) игнорируются — «застрявшая» дата и была этой граблей.
-    const printDate = current.orderDate;
-    // Mirror the on-screen template field-hiding for the work-line columns this card supports.
-    const showService = !appliedHiddenFields.has('serviceName');
-    const showPrice = !appliedHiddenFields.has('priceRub');
-    const showAmount = !appliedHiddenFields.has('amountRub');
-
-    // Наряд на сборку: марка/№ двигателя и вид работ одинаковы во всех строках — выносим их
-    // в шапку и убираем повторяющиеся колонки из таблицы работ (только для Assembly-наряда).
-    const isAssembly = current.workOrderKind === WorkOrderKind.Assembly;
-    const distinctTrimmed = (vals: Array<string | null | undefined>) =>
-      Array.from(new Set(vals.map((v) => String(v ?? '').trim()).filter(Boolean)));
-    // Фоллбек на двигатель шапки (payload.assemblyEngineId): построчные штампы могли быть
-    // стрижены normalizeWorkOrderLine (строки «Заполнить из спецификации»/прогноза без
-    // engineId) — номер/марка пропадали из печатной формы (регрессия после #133).
-    const headerEngineFromPayload = (() => {
-      const engineId = resolveAssemblyEngineId(current);
-      return engineId ? engines.find((e) => e.id === engineId) ?? null : null;
-    })();
-    const headerEngineBrand =
-      distinctTrimmed(current.freeWorks.map((l) => l.engineBrandName)).join(', ') ||
-      String(headerEngineFromPayload?.engineBrandName ?? '').trim() ||
-      '—';
-    const headerEngineNumber =
-      distinctTrimmed(current.freeWorks.map((l) => l.engineNumber)).join(', ') ||
-      String(headerEngineFromPayload?.engineNumber ?? '').trim() ||
-      '—';
-    const headerEngineInternalNumber =
-      distinctTrimmed(current.freeWorks.map((l) => l.engineInternalNumber)).join(', ') ||
-      String(headerEngineFromPayload?.engineInternalNumber ?? '').trim() ||
-      '';
-    const headerWorkTypes = distinctTrimmed(current.freeWorks.map((l) => l.serviceName));
-    const headerWorkType = headerWorkTypes.length === 1 ? headerWorkTypes[0]! : 'Сборка двигателя';
-
-    const showEngineCols = !isAssembly;
-    const showServiceCol = showService && !isAssembly;
-    // Наряд на сборку: вместо цены/суммы показываем склад-источник детали (откуда её брать).
-    const showPriceCol = showPrice && !isAssembly;
-    const showAmountCol = showAmount && !isAssembly;
-    const warehouseNameById = new Map(warehouseLocations.map((w) => [w.id, w.name]));
-    const warehouseNameByCode = new Map(warehouseLocations.map((w) => [w.code, w.name]));
-    const resolveSourceWarehouseName = (rawId: string | null | undefined) => {
-      const raw = String(rawId ?? '').trim();
-      if (!raw) return 'Склад цеха (по умолчанию)';
-      const byId = raw.includes('-') && raw.length >= 32 ? warehouseNameById.get(raw) : undefined;
-      return byId ?? warehouseNameByCode.get(raw) ?? raw;
-    };
-    const linesTable = (lines: WorkOrderWorkLine[]) => {
-      if (!lines.length) return `<div class="muted">Нет данных</div>`;
-      // Колонки, пустые во ВСЕХ строках, из печати исключаются (решение владельца 2026-07-13):
-      // пустая колонка на листе — шум, съедающий ширину у заполненных.
-      const hasAny = (get: (line: WorkOrderWorkLine) => string | null | undefined) =>
-        lines.some((l) => String(get(l) ?? '').trim());
-      const engineCols = showEngineCols && (hasAny((l) => l.engineNumber) || hasAny((l) => l.engineBrandName));
-      // Колонка внутреннего номера появляется только когда он реально проставлен —
-      // на старых нарядах её не будет, и ширина таблицы не пострадает.
-      const engineInternalCol = engineCols && hasAny((l) => l.engineInternalNumber);
-      const serviceCol = showServiceCol && hasAny((l) => l.serviceName);
-      const articleCol = hasAny((l) => resolvePartArticle(l));
-      const productNumberCol = hasAny((l) => l.productNumber);
-      return `<table><thead><tr>${engineCols ? '<th>№ двигателя</th>' : ''}${
-        engineInternalCol ? '<th>Внутр. №</th>' : ''
-      }${engineCols ? '<th>Марка</th>' : ''}${
-        serviceCol ? '<th>Вид работ</th>' : ''
-      }<th>Наименование изделия</th>${articleCol ? '<th>Артикул</th>' : ''}${
-        productNumberCol ? '<th>№ изделия</th>' : ''
-      }<th>Кол-во</th><th>Ед.</th>${
-        isAssembly ? '<th>Склад</th>' : ''
-      }${showPriceCol ? '<th>Цена</th>' : ''}${showAmountCol ? '<th>Сумма</th>' : ''}</tr></thead><tbody>${lines
-        .map(
-          (line) =>
-            `<tr>${
-              engineCols ? `<td>${escapeHtml(line.engineNumber || '—')}</td>` : ''
-            }${engineInternalCol ? `<td>${escapeHtml(line.engineInternalNumber || '—')}</td>` : ''}${
-              engineCols ? `<td>${escapeHtml(line.engineBrandName || '—')}</td>` : ''
-            }${serviceCol ? `<td>${escapeHtml(line.serviceName || '—')}</td>` : ''}<td>${escapeHtml(
-              resolvePartName(line) || '—',
-            )}</td>${articleCol ? `<td>${escapeHtml(resolvePartArticle(line) || '—')}</td>` : ''}${
-              productNumberCol ? `<td>${escapeHtml(line.productNumber || '—')}</td>` : ''
-            }<td>${escapeHtml(
-              String(line.qty ?? 0),
-            )}</td><td>${escapeHtml(line.unit || '—')}</td>${
-              isAssembly ? `<td>${escapeHtml(resolveSourceWarehouseName(line.sourceWarehouseId))}</td>` : ''
-            }${showPriceCol ? `<td>${escapeHtml(money(line.priceRub ?? 0))}</td>` : ''}${
-              showAmountCol ? `<td>${escapeHtml(money(line.amountRub ?? 0))}</td>` : ''
-            }</tr>`,
-        )
-        .join('')}</tbody></table>`;
-    };
-
-    const crewHtml = current.crew.length
-      ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th></tr></thead><tbody>${current.crew
-          .map((member) => {
-            return `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td><td>${escapeHtml(
-              money(member.payoutRub ?? 0),
-            )}</td><td>${member.payoutFrozen ? 'Да' : 'Нет'}</td></tr>`;
-          })
-          .join('')}</tbody></table>`
-      : `<div class="muted">Нет данных</div>`;
-
-    const worksHtml = `${linesTable(current.freeWorks)}${
-      showAmountCol
-        ? `<div class="wo-print-works-footer" style="margin-top:10px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:13px;"><strong>Итог:</strong> ${escapeHtml(
-            money(current.totalAmountRub || 0),
-          )}</div>`
-        : ''
-    }`;
-
-    // Подписи: блоки зависят от типа наряда. В каждом блоке — строки-подписи (слоты):
-    // роль (свободный текст) + сотрудник (расшифровка «И.О. Фамилия» + должность из
-    // карточки) либо пустой слот под подпись/расшифровку/должность от руки. По две
-    // подписи в строку (inline-block ~48%). Пустых слотов по умолчанию нет — их
-    // добавляет оператор кнопкой; блок без слотов не печатается.
-    const employeeById = new Map(employees.map((e) => [e.id, e] as const));
-    const sigName = fs.signatures;
-    const sigCap = Math.max(9, fs.signatures - 1);
-    const sigPos = Math.max(9, fs.signatures - 2);
-    const sigTitle = fs.signatures + 1;
-    const signCell = (slot: WorkOrderSignatureSlot) => {
-      const caption = String(slot.caption ?? '').trim();
-      const employee = slot.employeeId ? employeeById.get(slot.employeeId) : undefined;
-      const name = employee ? formatEmployeeInitialsSurname(employee) : '';
-      // Под должностью — подразделение/цех подписанта (цех по workshop_id, иначе подразделение).
-      const positionLine = [String(employee?.position ?? '').trim(), resolveEmployeeUnit(employee)].filter(Boolean).join(' · ');
-      const nameCell = name
-        ? `<span style="font-size:${sigName}px;white-space:nowrap;">${escapeHtml(name)}</span>`
-        : `<span style="display:inline-block;width:120px;border-bottom:1px solid #94a3b8;"></span>`;
-      return `<div style="width:100%;margin:5px 0 0;">${
-        caption ? `<div style="font-size:${sigCap}px;color:#334155;margin-bottom:1px;">${escapeHtml(caption)}</div>` : ''
-      }<div style="display:flex;align-items:flex-end;gap:8px;"><span style="flex:1;border-bottom:1px solid #0f172a;height:14px;"></span>${nameCell}</div><div style="text-align:center;font-size:${sigPos}px;color:#64748b;margin-top:1px;min-height:11px;">${escapeHtml(
-        positionLine,
-      )}</div></div>`;
-    };
-    // Два блока подписей — рядом (Выдача | Завершение): экономит высоту под 1 лист A4.
-    const signaturesHtml = `<div style="display:flex;gap:4%;align-items:flex-start;">${getWorkOrderSignatureBlocks(
-      current.workOrderKind,
-    )
-      .map((def) => {
-        const slots = resolveWorkOrderSignatureSlots(def, current.signatureBlocks);
-        if (!slots.length) return '';
-        // Пустая строка даты под запись от руки (план — в блоке выдачи, факт — в блоке выполнения).
-        const dateLine = def.dateLineLabel
-          ? `<div style="font-size:${sigName}px;margin:1px 0 2px;">${escapeHtml(
-              def.dateLineLabel,
-            )}: <span style="display:inline-block;min-width:110px;border-bottom:1px solid #0f172a;"></span></div>`
-          : '';
-        return `<div style="flex:1;min-width:0;break-inside:avoid-page;page-break-inside:avoid;"><div style="font-weight:700;font-size:${sigTitle}px;margin-bottom:1px;">${escapeHtml(
-          def.title,
-        )}</div>${dateLine}${slots.map((slot) => signCell(slot)).join('')}</div>`;
-      })
-      .join('')}</div>`;
-
-    // Шапка: гриф директора (справа), заголовок (по центру) и строка реквизитов (таблицей) —
-    // три независимых блока, каждый со своим размером шрифта (общего масштаба шапки больше нет).
-    const firstWorkType = distinctTrimmed(current.freeWorks.map((l) => l.serviceName))[0] ?? (isAssembly ? headerWorkType : '');
-    const autoTitle = firstWorkType ? `Наряд на ${firstWorkType}` : `Наряд №${current.workOrderNumber || '—'}`;
-    const headerTitle = settings.titleOverride?.trim() || autoTitle;
-    // Реквизиты по первому двигателю наряда: суффикс контракта (***NNN) + контрагент.
-    // Фоллбек на двигатель шапки — как у №/марки выше: строки могут быть без штампа.
-    const firstEngineId =
-      current.freeWorks.map((l) => String(l.engineId ?? '').trim()).find(Boolean) ??
-      resolveAssemblyEngineId(current) ??
-      '';
-    const contractInfo = firstEngineId ? engineContractInfo[firstEngineId] : undefined;
-
-    // Гриф утверждения (ГОСТ Р 7.0.97 — верхний правый угол, над заголовком).
-    // Вариант (директор / технический директор) и, при желании, своя должность + выбранный
-    // из базы сотрудник выбираются оператором на каждый наряд.
-    const approvalLinePx = Math.round(160 * (fs.director / WORK_ORDER_PRINT_FONT_DEFAULTS.director));
-    const approver = resolveWorkOrderApprover(settings);
-    // Полная дата создания наряда — слева, на одном уровне с грифом (вариант Б, 2026-07-03).
-    const createdDateHtml =
-      settings.hideOrderDate || !printDate
-        ? ''
-        : `<div style="font-size:${fs.meta + 1}px;font-weight:600;">${formatMoscowDate(printDate)}</div>`;
-    const approvalHtml = `<div style="display:flex;justify-content:space-between;align-items:flex-start;">${createdDateHtml}<div style="margin-left:auto;text-align:right;font-size:${fs.director}px;line-height:1.4;"><div style="font-weight:700;">Утверждаю</div><div>${escapeHtml(approver.position)}</div><div style="margin-top:14px;"><span style="display:inline-block;width:${approvalLinePx}px;border-bottom:1px solid #0f172a;"></span>&nbsp;${escapeHtml(approver.name)}</div></div></div>`;
-    const titleHtml = `<div style="text-align:center;font-size:${fs.title}px;font-weight:700;line-height:1.25;">${escapeHtml(headerTitle)}</div>`;
-
-    // Строка реквизитов — таблицей. Колонки двигателя только у сборки (вынесены из строк работ),
-    // контракт/заказчик — если резолвятся. Каждое значение в своей ячейке.
-    // Плановые даты и цех наряда — печатаются по умолчанию, каждую можно снять
-    // галочкой в панели печати (settings.hide*).
-    const workshop = workshops.find((w) => w.id === String(current.workshopId ?? '').trim());
-    // Плановые даты — день + месяц словом («14 июля»), без года: год виден в дате создания у грифа.
-    const shortDate = (ms: number | undefined) => (ms ? formatMoscowDayMonthName(ms) : '—');
-    // Два яруса (вариант Б): «наряд» (№/даты/цех) и «двигатель/контракт» — длинному
-    // заказчику не тесно, таблица не расползается за поля листа.
-    const tier1: Array<{ label: string; value: string }> = [
-      { label: '№', value: String(current.workOrderNumber || '—') },
-      ...(settings.hideStartDate ? [] : [{ label: 'Приступить', value: shortDate(current.startDate) }]),
-      ...(settings.hideDueDate ? [] : [{ label: 'Срок', value: shortDate(current.dueDate) }]),
-      ...(settings.hideWorkshop ? [] : [{ label: 'Цех', value: workshop?.name ?? '—' }]),
-    ];
-    const tier2: Array<{ label: string; value: string }> = [
-      ...(isAssembly
-        ? [
-            { label: 'Марка дв.', value: headerEngineBrand },
-            { label: '№ дв.', value: headerEngineNumber },
-            ...(headerEngineInternalNumber ? [{ label: 'Внутр. №', value: headerEngineInternalNumber }] : []),
-          ]
-        : []),
-      ...(contractInfo?.contractSuffix ? [{ label: '№ контр.', value: contractInfo.contractSuffix }] : []),
-      ...(contractInfo?.counterparty ? [{ label: 'Заказчик', value: contractInfo.counterparty }] : []),
-    ];
-    const metaTier = (cols: Array<{ label: string; value: string }>) =>
-      cols.length
-        ? `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr></thead><tbody><tr>${cols
-            .map((c) => `<td>${escapeHtml(c.value)}</td>`)
-            .join('')}</tr></tbody>`
-        : '';
-    const metaHtml = `<table class="wo-meta">${metaTier(tier1)}${metaTier(tier2)}</table>`;
-
+  /** Зависимости печатной формы — то, что раньше было замыканием buildPrintModel. */
+  function printDeps(): WoPrintDeps {
     return {
-      title: headerTitle,
-      subtitle: printDate ? `Дата: ${formatMoscowDate(printDate)}` : 'Дата: —',
-      extraCss: [
-        // Отступы между блоками — визуальное разделение каждого раздела.
-        `.section { margin-bottom: 14px; }`,
-        `th, td { padding: 2px 7px; }`,
-        // Реквизит-таблица шапки: рамка, центрирование, свой шрифт.
-        `[data-print-section="meta"] table.wo-meta { width: 100%; border-collapse: collapse; }`,
-        `[data-print-section="meta"] table.wo-meta th, [data-print-section="meta"] table.wo-meta td { border: 1px solid #0f172a; text-align: center; font-size: ${fs.meta}px; padding: 3px 8px; word-break: break-word; }`,
-        `[data-print-section="meta"] table.wo-meta th { background: #f3f4f6; font-weight: 600; }`,
-        `[data-print-section="crew"] td, [data-print-section="crew"] th { font-size: ${fs.crew}px; }`,
-        `[data-print-section="works"] td, [data-print-section="works"] th { font-size: ${fs.works}px; }`,
-        // Таблицы «Бригада» и «Виды работ / наименование изделия» — с такими же
-        // чёткими рамками, как таблица реквизитов (meta): тёмная линия 1px вместо
-        // бледно-серой из PRINT_BASE_CSS, чтобы сетка была видна на печати.
-        `[data-print-section="crew"] table, [data-print-section="works"] table { border-collapse: collapse; }`,
-        `[data-print-section="crew"] th, [data-print-section="crew"] td, [data-print-section="works"] th, [data-print-section="works"] td { border: 1px solid #0f172a; }`,
-        `[data-print-section="crew"] th, [data-print-section="works"] th { background: #f3f4f6; }`,
-        // Подписи идут сразу за телом наряда (тянутся кверху), с заметным
-        // отступом от последнего блока — но НЕ прижимаются к низу листа.
-        // Прежний bottom-pin (min-height 273мм + margin-top:auto) выталкивал
-        // блок подписей на 2-ю страницу. break-inside:avoid (PRINT_BASE_CSS
-        // .section) не даёт блоку подписей разорваться между листами.
-        `[data-print-section="signatures"] { margin-top: 24px; }`,
-        // Точные поля печати: поля задаёт body (12мм, PRINT_BASE_CSS @media
-        // print) — обнуляем поля @page, иначе браузер добавляет свои сверху,
-        // уменьшает печатную высоту и выталкивает контент на 2-й лист.
-        // Печатная область при этом совпадает с превью (#wo-a4 padding 12мм).
-        `@page { size: A4; margin: 0; }`,
-      ].join(' '),
-      // Пустые блоки не печатаем: бригада/виды работ выводятся только при наличии данных.
-      sections: [
-        { id: 'director', title: 'Гриф директора', html: approvalHtml, hideTitle: true },
-        { id: 'title', title: 'Заголовок', html: titleHtml, hideTitle: true },
-        { id: 'meta', title: 'Реквизиты', html: metaHtml, hideTitle: true },
-        ...(current.crew.length > 0 ? [{ id: 'crew', title: 'Бригада и выплаты', html: crewHtml, hideTitle: true }] : []),
-        ...(current.freeWorks.length > 0 ? [{ id: 'works', title: 'Виды работ', html: worksHtml, hideTitle: true }] : []),
-        ...(signaturesHtml ? [{ id: 'signatures', title: 'Подписи', html: signaturesHtml, hideTitle: true }] : []),
-      ] as PrintSection[],
+      employees,
+      engines,
+      parts,
+      workshops,
+      warehouseLocations,
+      engineContractInfo,
+      hiddenFields: appliedHiddenFields,
     };
+  }
+
+  function buildPrintModel(current: WorkOrderPayload, settings: WorkOrderPrintSettings) {
+    return buildWorkOrderPrintModel(current, settings, printDeps());
   }
 
   function printWorkOrderCard(current: WorkOrderPayload, settings: WorkOrderPrintSettings) {
@@ -3173,6 +2915,7 @@ export function WorkOrderDetailsPage(props: {
               {!appliedHiddenFields.has('serviceName') ? <col /> : null}
               <col style={{ width: '220px' }} />
               <col style={{ width: '120px' }} />
+              {payload.workOrderKind !== WorkOrderKind.Assembly ? <col style={{ width: '110px' }} /> : null}
               {payload.workOrderKind === WorkOrderKind.Assembly ? <col style={{ width: '160px' }} /> : null}
               {!appliedHiddenFields.has('productNumber') ? <col style={{ width: '100px' }} /> : null}
               <col style={{ width: '65px' }} />
@@ -3190,6 +2933,11 @@ export function WorkOrderDetailsPage(props: {
                 {!appliedHiddenFields.has('serviceName') ? <th style={{ textAlign: 'left' }} data-col-kind="name">Вид работ</th> : null}
                 <th style={{ textAlign: 'left' }} data-col-kind="name">Наименование изделия</th>
                 <th style={{ textAlign: 'left' }} data-col-kind="name">Артикул</th>
+                {payload.workOrderKind !== WorkOrderKind.Assembly ? (
+                  <th style={{ textAlign: 'left' }} data-col-kind="name" title="Клеймо завода-изготовителя, набитое на детали (вносится при дефектовке)">
+                    № детали
+                  </th>
+                ) : null}
                 {payload.workOrderKind === WorkOrderKind.Assembly ? <th style={{ textAlign: 'left' }} data-col-kind="name">Склад</th> : null}
                 {!appliedHiddenFields.has('productNumber') ? <th style={{ textAlign: 'left' }} data-col-kind="name">№ изделия</th> : null}
                 <th style={{ textAlign: 'right' }} data-col-kind="num" title="Кол-во">Кол-во</th>
@@ -3387,6 +3135,27 @@ export function WorkOrderDetailsPage(props: {
                   <td data-col-kind="name">
                     <Input value={resolvePartArticle(line)} disabled placeholder="—" title="Артикул из справочника" />
                   </td>
+                  {payload.workOrderKind !== WorkOrderKind.Assembly ? (
+                    <td data-col-kind="name">
+                      <Input
+                        value={(line.stampedNumbers ?? []).join(', ')}
+                        disabled={!canEditNow}
+                        placeholder="—"
+                        title="Клеймо завода-изготовителя. Из дефектовки подставляется само; несколько номеров — через запятую"
+                        onChange={(e) => {
+                          const stampedNumbers = Array.from(
+                            new Set(e.target.value.split(',').map((v) => v.trim()).filter(Boolean)),
+                          );
+                          const freeWorks = payload.freeWorks.map((item, rowIdx) =>
+                            rowIdx === idx
+                              ? { ...item, ...(stampedNumbers.length ? { stampedNumbers } : { stampedNumbers: [] }) }
+                              : item,
+                          );
+                          patch({ ...payload, freeWorks });
+                        }}
+                      />
+                    </td>
+                  ) : null}
                   {payload.workOrderKind === WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
                       <EntityReferenceField
@@ -3500,6 +3269,7 @@ export function WorkOrderDetailsPage(props: {
                       (appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId') ? 0 : 1) +
                       (appliedHiddenFields.has('serviceName') ? 0 : 1) +
                       (payload.workOrderKind === WorkOrderKind.Assembly ? 1 : 0) +
+                      (payload.workOrderKind === WorkOrderKind.Assembly ? 0 : 1) +
                       (appliedHiddenFields.has('productNumber') ? 0 : 1) +
                       (appliedHiddenFields.has('priceRub') ? 0 : 1) +
                       (appliedHiddenFields.has('amountRub') ? 0 : 1) +

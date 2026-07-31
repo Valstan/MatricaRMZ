@@ -1441,7 +1441,14 @@ export type MatricaApi = {
       engineNumber?: string;
       engineBrandId?: string;
       engineBrandName?: string;
-      items: Array<{ partId: string; qty: number; partLabel: string; defectOrigin?: import('../domain/supplyRequest.js').DefectOrigin }>;
+      items: Array<{
+        partId: string;
+        qty: number;
+        partLabel: string;
+        /** Клейма экземпляров из строк дефектовки — снимок в строку наряда («№ детали» на печати). */
+        stampedNumbers?: string[];
+        defectOrigin?: import('../domain/supplyRequest.js').DefectOrigin;
+      }>;
     }) => Promise<
       | { ok: true; id: string; workOrderNumber: number }
       | { ok: false; error: string }

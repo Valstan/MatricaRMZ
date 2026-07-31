@@ -35,6 +35,14 @@ export type WorkOrderWorkLine = {
   // в отдельной колонке справа от наименования. Если пуст — UI/печать резолвят артикул
   // из справочника по partId как fallback.
   partArticle?: string;
+  /**
+   * Клейма («№ детали») экземпляров, над которыми идёт работа — номера, физически набитые
+   * заводом-изготовителем и внесённые при дефектовке (`stamped_number` строк дефектовки).
+   * Массив, потому что одна строка наряда может покрывать несколько экземпляров (qty > 1).
+   * Снимок на момент выписки — как `partArticle`/`engineNumber`: правка дефектовки задним
+   * числом не должна менять уже выданный на руки наряд.
+   */
+  stampedNumbers?: string[];
   // Склад-источник для списания детали (только Assembly). Может быть UUID warehouse_ref
   // либо workshop_<code>. Если не задан — backend подставит склад цеха по умолчанию.
   sourceWarehouseId?: string | null;
@@ -90,6 +98,14 @@ export function normalizeWorkOrderLine(line: unknown, lineNo: number): WorkOrder
     const partArticle = String(raw.partArticle ?? '').trim();
     if (partArticle) result.partArticle = partArticle;
   }
+
+  // Клейма экземпляров: дедуп с сохранением порядка — при qty > 1 одинаковый номер
+  // в списке ничего не добавляет, а на печати съедает ширину колонки.
+  const rawStamped = Array.isArray(raw.stampedNumbers) ? raw.stampedNumbers : [];
+  const stampedNumbers = Array.from(
+    new Set(rawStamped.map((value) => String(value ?? '').trim()).filter(Boolean)),
+  );
+  if (stampedNumbers.length > 0) result.stampedNumbers = stampedNumbers;
 
   const sourceWarehouseId = raw.sourceWarehouseId ? String(raw.sourceWarehouseId).trim() : '';
   if (sourceWarehouseId) result.sourceWarehouseId = sourceWarehouseId;
@@ -256,6 +272,11 @@ export type WorkOrderPrintSettings = {
   hideStartDate?: boolean;
   hideDueDate?: boolean;
   hideWorkshop?: boolean;
+  /**
+   * Убрать гриф «Утверждаю» целиком (наряд на сборку). В простой форме — обычный /
+   * ремонт / изготовление — грифа нет в принципе, и флаг на неё не влияет.
+   */
+  hideApprover?: boolean;
   /** Гриф «Утверждаю · Директор» (верхний правый угол). */
   fontDirector?: number;
   /** Заголовок наряда («Наряд на …»). */

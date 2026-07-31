@@ -571,17 +571,26 @@ export function RepairChecklistPanel(props: {
       setStatus('Сначала проведите текущую версию дефектовки — ремонтный наряд должен ссылаться на зафиксированные строки.');
       return;
     }
-    const linkedItems = repairOrderDraft.items.map((item) => ({
-      ...item,
-      defectOrigin: {
-        engineId: props.engineId,
-        conductedVersionId: activeVersion.id,
-        sourceLineIds: rawRows.flatMap((raw, index) => {
-          const partId = String(raw[BRAND_ROW_PART_ID_KEY] ?? raw[ROW_PART_ID_KEY] ?? '').trim();
-          return partId === item.partId ? [inventorySourceLineId(raw, index, partId)] : [];
-        }),
-      },
-    }));
+    const linkedItems = repairOrderDraft.items.map((item) => {
+      // Один проход: и ссылки на строки дефектовки, и клейма («№ на детали») тех же строк —
+      // они попадут в наряд снимком, чтобы печатная форма показывала номер, набитый на детали.
+      const matched = rawRows.flatMap((raw, index) => {
+        const partId = String(raw[BRAND_ROW_PART_ID_KEY] ?? raw[ROW_PART_ID_KEY] ?? '').trim();
+        if (partId !== item.partId) return [];
+        const stampedNumber = normalizeEngineInventoryRows([raw]).rows[0]?.stamped_number?.trim() ?? '';
+        return [{ sourceLineId: inventorySourceLineId(raw, index, partId), stampedNumber }];
+      });
+      const stampedNumbers = Array.from(new Set(matched.map((m) => m.stampedNumber).filter(Boolean)));
+      return {
+        ...item,
+        ...(stampedNumbers.length > 0 ? { stampedNumbers } : {}),
+        defectOrigin: {
+          engineId: props.engineId,
+          conductedVersionId: activeVersion.id,
+          sourceLineIds: matched.map((m) => m.sourceLineId),
+        },
+      };
+    });
     setRepairOrderBusy(true);
     try {
       const r = await window.matrica.workOrders.createRepairFromDefects({
