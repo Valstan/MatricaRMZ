@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ReportPresetDefinition,
   ReportPresetId,
@@ -76,7 +76,7 @@ export function ReportsCatalogPage(props: {
     [history],
   );
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setBusy(true);
     setStatus('Загрузка отчётов...');
     try {
@@ -98,11 +98,11 @@ export function ReportsCatalogPage(props: {
     } finally {
       setBusy(false);
     }
-  }
+  }, [props.userId]);
 
   useEffect(() => {
     void loadAll();
-  }, [props.userId]);
+  }, [loadAll]);
 
   useEffect(() => {
     if (!ctxMenu) return;

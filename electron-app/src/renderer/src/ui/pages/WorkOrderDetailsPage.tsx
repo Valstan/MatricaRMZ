@@ -619,7 +619,20 @@ export function WorkOrderDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- close actions intentionally re-register only on payload/card-id change; flushSave/clearDraft/refresh/saveDraftNow are plain body helpers recreated each render, so listing them (or props/canEditNow) would re-register on every render
+    // KNOWN GAP (pre-existing; behaviour deliberately left untouched by this lint-only pass):
+    // canEditNow is read above (saveAndClose, keepDraft) and is NOT in the deps. Unlike the helpers
+    // it is a plain boolean (canEditNow = props.canEdit && !isClosed), so listing it would
+    // re-register only when it flips — its absence is a real stale closure, not a render-cost
+    // trade-off. Posting/closing the order calls setOperationStatus('closed') (plus
+    // setClosedLocally(true) for a regular order) while setPayload is either not called at all
+    // (postAssembly) or only when the backend returned r.documentId (close) — so the payload
+    // identity is unchanged, this effect does not re-run, and the still-registered saveAndClose
+    // keeps canEditNow === true together with the flushSave captured before the close, whose own
+    // `if (!canEditNow) return` guard is just as stale. If a close-guard «Сохранить и закрыть»
+    // fires after that (reachable when the pre-close flushSave failed and left dirtyRef set), it
+    // issues workOrders.update against an already-closed order. The real fix is to add canEditNow
+    // to the deps, but that changes behaviour and belongs to a separate follow-up PR.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave/clearDraft/refresh/saveDraftNow are plain function declarations in the component body, new on every render, so listing them (or `props` as a whole) would re-register the close actions on every render; canEditNow is omitted despite being read — see the KNOWN GAP above
   }, [payload, props.registerCardCloseActions, props.id]);
 
   // Реквизиты контракта/контрагента для печати: резолвим двигатель наряда → контракт

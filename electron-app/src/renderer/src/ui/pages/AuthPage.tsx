@@ -184,6 +184,7 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
     // не должен дёргать /health всю ночь.
     const stop = pollWhenVisible(() => void probeServer(), 30_000);
     return () => stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only bootstrap (status probe, MRU preselect + password focus, 30s health poll subscription); refresh is a body-declared helper closing over props.onChanged, so listing it would re-run the bootstrap, steal focus and re-subscribe the poll on every parent render
   }, []);
 
   useEffect(() => {

@@ -571,6 +571,7 @@ export function Tabs(props: {
     return groupsInUse.indexOf(activeGroup);
   }, [activeGroup, groupsInUse]);
   const menuItemsKey = groupMenuItems.join('|');
+  const groupsInUseKey = groupsInUse.join('|');
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const movePopupRef = useRef<HTMLDivElement | null>(null);
@@ -674,6 +675,7 @@ export function Tabs(props: {
       activeGroup: preferredGroupByTab,
       collapsedGroups: Array.from(nextCollapsed),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- updateGroupPrefs pushes a new layout up via props.onLayoutChange, so its identity changes on every layout write; depending on it would re-enter this effect after each write
   }, [activeGroup, collapsedGroups, preferredGroupByTab, props.layout?.activeGroup]);
 
   function openContextMenu(target: ContextTarget, e: React.MouseEvent) {
@@ -820,7 +822,7 @@ export function Tabs(props: {
       window.removeEventListener('resize', sync);
       window.removeEventListener('scroll', sync, true);
     };
-  }, [moveId, menuItemsKey, groupsInUse.join('|')]);
+  }, [moveId, menuItemsKey, groupsInUseKey]);
 
   useEffect(() => {
     if (!contextMenu && !moveId) return;

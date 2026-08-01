@@ -1120,7 +1120,7 @@ export function EngineDetailsPage(props: {
     return () => {
       void auditEditDone();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only audit flush; adding auditEditDone (redefined every render) would fire the audit cleanup on every re-render instead of once at close
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only audit flush. KNOWN GAP (существует и на main, заведено в docs/PENDING_FOLLOWUPS.md «Аудит правки двигателя не пишется никогда»): с [] cleanup держит auditEditDone ПЕРВОГО рендера, поэтому при закрытии сравнивает initialSnapshot.current не с правками оператора, а со значениями engineNumber/engineBrand/arrivalDate/internalNumberFull НА МОМЕНТ МОНТИРОВАНИЯ; обе стороны берутся из одних и тех же props.engine.attributes, поэтому в штатном случае fieldsChanged пуст → срабатывает `if (!fieldsChanged.length) return` и window.matrica.audit.add('ui.engine.edit_done') не вызывается вообще. Правок оператора этот cleanup не видит ни при каких условиях; непустым список становится только на расхождении форматов (в атрибутах есть номер без валидного года: поле подставляет текущий год, снимок — нет), и тогда уходит ложная запись «изменён внутренний номер» по значениям на момент монтирования. Зависимости оставлены как есть намеренно: auditEditDone пересоздаётся каждый рендер, и его добавление гоняло бы flush на каждый ре-рендер вместо одного раза при закрытии. Штатное лечение — ref на свежий колбэк — это поведенческая правка, она в отдельном PR, а не в этом поведенчески нейтральном проходе.
   }, []);
 
   useEffect(() => {
@@ -1154,7 +1154,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- close-actions registration is keyed on the data the closures capture; saveAllAndClose/clearDraft/etc. are redefined every render and adding them (or whole props) would re-register on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- saveAllAndClose/clearDraft/currentDraftSnapshot/saveDraftNow пересоздаются каждый рендер, а `props` меняется на любой проп, поэтому их добавление перерегистрировало бы actions на каждый рендер. KNOWN GAP (существует и на main): массив зависимостей покрывает НЕ ВСЁ, что читают замыкания — нет internalNumber/internalNumberYear (их читает saveAllAndClose через resolveInternalNumberFields), нет scrapReason (nextValues.scrap_reason) и нет canEditEnginesEff. Правка ТОЛЬКО внутреннего номера или причины утиля не двигает ни одной зависимости → при закрытии App зовёт последний зарегистрированный saveAndClose, устаревшее замыкание кладёт в nextValues до-правочные значения, из-за чего эти поля не попадают в changedEntries и не пишутся, а следом clearDraft() убирает recovery-снимок: правка оператора теряется молча (тот же класс, что потеря правки в ToolDetailsPage). Лечение — добавить эти четыре значения в зависимости — меняет поведение и вынесено в отдельный PR.
   }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {

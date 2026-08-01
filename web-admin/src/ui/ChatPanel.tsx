@@ -102,6 +102,7 @@ export function ChatPanel(props: {
 
   useEffect(() => {
     props.onChatContextChange?.({ selectedUserId, adminMode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- this effect reports chat selection upward only; App.tsx renders `onChatContextChange={(ctx) => setChatContext(ctx)}` inline at every call site, so depending on props/onChatContextChange here would re-fire on every render and push a fresh context object into the parent's state, which re-renders the parent — the electron copy of this component does carry that dep and does loop (docs/PENDING_FOLLOWUPS.md → «Цикл перерисовки в чат-панели»). Cost of the omission: a parent that swapped in a genuinely different callback would not be re-notified until selectedUserId/adminMode changes
   }, [selectedUserId, adminMode]);
   const [sendingFile, setSendingFile] = useState(false);
   const [openInfoId, setOpenInfoId] = useState<string | null>(null);
@@ -178,6 +179,7 @@ export function ChatPanel(props: {
       alive = false;
       clearInterval(id);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the poll is keyed to the chat selection only; refreshMessages is re-created on every render, so depending on it would tear down and restart the interval (refetching messages and marking them read) on every render. KNOWN GAP: the running tick keeps the refreshMessages of the render that installed it, so later changes to props.meRole (via isPending), props.canAdminViewAll and props.meUserId do not reach the poll until selectedUserId/adminMode/adminPair changes
   }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId]);
 
   useEffect(() => {

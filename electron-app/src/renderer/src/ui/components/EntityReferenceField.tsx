@@ -98,6 +98,7 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     }
     document.addEventListener('mousedown', blockActionUntilResolved, true);
     return () => document.removeEventListener('mousedown', blockActionUntilResolved, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveOnBlur is re-created on every render, so listing it would detach/attach this capture-phase document listener on every render. KNOWN GAP: the deps cover only what the listener body itself reads (query, props.value, selected) plus the props resolveOnBlur reads on its way to the dialog (props.disabled, props.optionsReady, props.options); resolveOnBlur and its callees commit/clear/runCreate additionally read props.onChange, props.canCreate, props.onCreate, props.onQuickCreate, props.targetLabel and props.createLabel from the render closure, and those are NOT deps — on this click-away path a listener installed before one of them changes keeps using the value captured at install time (e.g. flipping props.canCreate false->true without touching options/value/query/selected leaves the dialog without the «Создать» choice)
   }, [props.disabled, props.options, props.optionsReady, props.value, query, selected]);
 
   function commit(option: SearchSelectOption) {

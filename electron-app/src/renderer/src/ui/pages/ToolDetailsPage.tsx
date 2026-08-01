@@ -252,7 +252,7 @@ export function ToolDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registration is keyed on the form fields the close actions capture; props (method-call receiver) and saveAllFields/refresh/refreshMovements are recreated each render, so depending on them would re-register on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps left byte-for-byte as on main: the rule asks for 'props', 'refresh', 'refreshMovements', 'saveAllFields', but those three are plain function declarations recreated every render and 'props' changes with any prop, so listing them would re-register the close actions on every render. KNOWN GAP (pre-existing, NOT fixed here): saveAllFields() also writes saveAttribute('properties', properties) and saveAttribute('photos', photos), and neither `properties` nor `photos` is in this array; updateProperties() and the AttachmentsPanel onChange only set dirtyRef, so after editing just a property value or a photo the registered saveAndClose still holds the pre-edit closure and writes the stale properties/photos over the user's edit on tab close (data loss). Tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты, вскрытые разбором exhaustive-deps»; the fix is to add `properties, photos` here, as CounterpartyDetailsPage.tsx already does for `attachments`
   }, [toolNumber, name, serialNumber, description, departmentId, toolCatalogId, receivedAt, retiredAt, retireReason, props.registerCardCloseActions]);
 
   useEffect(() => {
@@ -281,10 +281,8 @@ export function ToolDetailsPage(props: {
   );
 
   useEffect(() => {
-    if (employeeOptions.length > 0) return;
-    const filtered = employeeOptionsAll.map((e) => ({ id: e.id, label: e.label }));
-    setEmployeeOptions(filtered);
-  }, [employeeOptionsAll, employeeOptions.length]);
+    setEmployeeOptions((prev) => (prev.length > 0 ? prev : employeeOptionsAll.map((e) => ({ id: e.id, label: e.label }))));
+  }, [employeeOptionsAll]);
 
   async function saveAttribute(code: string, value: unknown) {
     if (!props.canEdit) return;

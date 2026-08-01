@@ -1366,7 +1366,7 @@ export function App() {
       fullSyncCloseTimer.current = null;
       if (unsubscribe) unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription; re-subscribing on tab/helper identity changes would tear down the fullSync close timer mid-flight and duplicate handlers
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. KNOWN GAP: the empty deps also freeze the handler on the first-render closure, where `tab` is still the useState default 'history' — so both `if (tab === 'engine') void reloadEngine()` branches above are dead code and an open engine card is never refreshed after an incremental or full sync (refreshEngines still runs and updates the list). The standard fix is a tabRef/reloadEngineRef; not applied here because this branch is lint-only
   }, []);
 
   useEffect(() => {
@@ -3235,7 +3235,7 @@ export function App() {
                       : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render; adding it would recompute the memo on every render and defeat it, while the memo already keys on the tab/selection state it reads
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps try to mirror the state that helper reads. KNOWN GAP: the mirror is incomplete — buildChatBreadcrumbs also reads selectedWorkOrderId and selectedEngineAssemblyBomId, and neither is listed below, so picking another row on the work_order / engine_assembly_bom_item tab (the V2/V3 shell changes selectedXId WITHOUT changing tab) leaves aiContext.breadcrumbs showing the previously selected entity's ID and useAiAgentTracker gets stale context. Pre-existing; not fixed here because this branch is lint-only
     [
       tab,
       selectedEngineId,
@@ -3284,7 +3284,7 @@ export function App() {
       reportPresetId: tab === 'report_preset' ? selectedReportPresetId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render; adding it would recompute the memo on every render and defeat it, while the memo already keys on the tab/selection state it reads
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps try to mirror the state that helper reads. KNOWN GAP: the mirror is incomplete — buildChatBreadcrumbs also reads selectedWorkOrderId and selectedEngineAssemblyBomId, and neither is listed below, so on the work_order / engine_assembly_bom_item tab (where the V2/V3 shell changes selectedXId WITHOUT changing tab) currentAppLink.breadcrumbs can lag one selection behind in the navigation history and in the chat deep-link payload. Pre-existing; not fixed here because this branch is lint-only
     [
       tab,
       selectedEngineId,

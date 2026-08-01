@@ -984,7 +984,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- engine-card autofill keyed by activeTemplate?.id intentionally; save is re-created every render (declared later in the body), adding it would run this effect on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. Note `answers` IS in the deps, so this effect re-runs on every answer edit — deliberately: in the defect/completeness/inventory stages the engine fields are locked to the engine card, so a manual edit is written back to the prop value and auto-saved. The `if (!changed) return` guard above makes that converge instead of looping
   }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   useEffect(() => {
@@ -1009,7 +1009,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature autofill keyed by activeTemplate?.id intentionally; save is re-created every render (declared later in the body), adding it would run this effect on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!changed) return` guard above keeps it a no-op once the signature fields already hold the current user's name/position
   }, [activeTemplate?.id, answers, props.canEdit, props.currentUserProfile?.fullName, props.currentUserProfile?.position]);
 
   // Хвост Т6: автоподстановка комиссии акта комплектности по цеху двигателя (динамический список).
@@ -1045,7 +1045,7 @@ export function RepairChecklistPanel(props: {
     const next = { ...answers, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members: res.members } } as RepairChecklistAnswers;
     setAnswers(next);
     void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- commission autofill keyed by activeTemplate?.id intentionally; save is re-created every render (declared later in the body), adding it would run this effect on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!res.changed) return` guard above keeps it a no-op once the commission rows match the workshop roster
   }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.stage, props.workshopName]);
 
   // Кнопка «Заполнить комиссию по цеху» (под-вкладка комплектности): принудительно ставит

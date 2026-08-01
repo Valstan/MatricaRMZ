@@ -523,6 +523,7 @@ export function SupplyRequestDetailsPage(props: {
   useEffect(() => {
     void load();
     void loadLinkLists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot card load keyed on the opened request id; load()/loadLinkLists() are re-created every render, and re-running them would refetch the whole nomenclature and overwrite the user's in-progress edits with the committed payload
   }, [props.id]);
 
   useEffect(() => {
@@ -538,6 +539,7 @@ export function SupplyRequestDetailsPage(props: {
       if (next.length !== uiDefs.length) setUiDefs(next);
       setCoreDefsReady(true);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot core-def bootstrap per loaded card; `uiDefs.length` is the deliberate trigger, depending on the `uiDefs` array identity would re-fire the attribute-def write on every setUiDefs (e.g. field reorder)
   }, [props.canEditMasterData, uiTypeId, uiDefs.length, coreDefsReady]);
 
   useEffect(() => {
@@ -818,6 +820,7 @@ export function SupplyRequestDetailsPage(props: {
     return () => {
       void auditEditDone(payloadRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only audit flush; auditEditDone is re-created every render, so depending on it would run the cleanup and write an «edit_done» audit record on every render
   }, []);
 
   // Phase 3d: debounced recovery-draft autosave. Fires ~1.5s after the last edit while the
@@ -835,6 +838,7 @@ export function SupplyRequestDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the 1.5s debounce must restart only on an actual payload edit; saveDraftNow is re-created every render, so depending on it would re-arm the timer on every render and the autosave would never fire
   }, [payload, props.canEdit]);
 
   useEffect(() => {
@@ -869,6 +873,7 @@ export function SupplyRequestDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registration is deliberately keyed on the payload the close actions capture; clearDraft/load/saveAllAndClose/saveDraftNow and the whole `props` object are re-created every render, so depending on them would unregister+re-register the card close actions on every render
   }, [payload, props.registerCardCloseActions, props.id]);
 
   useLiveDataRefresh(

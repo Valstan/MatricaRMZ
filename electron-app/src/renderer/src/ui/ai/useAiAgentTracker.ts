@@ -85,18 +85,28 @@ export function useAiAgentTracker(args: {
   context: AiAgentContext;
   onEvent?: (event: AiAgentEvent) => void;
 }) {
+  const { enabled, onEvent } = args;
   const contextRef = useRef(args.context);
   const focusStartRef = useRef<Map<HTMLElement, number>>(new Map());
   const lastInputRef = useRef<{ el: HTMLElement | null; value: string; ts: number }>({ el: null, value: '', ts: 0 });
   const idleTimerRef = useRef<number | null>(null);
   const lastIdleSentAtRef = useRef<number>(0);
 
-  useEffect(() => {
-    contextRef.current = args.context;
-  }, [args.context.tab, args.context.entityId, args.context.entityType, args.context.breadcrumbs?.join('|')]);
+  const contextBreadcrumbsKey = args.context.breadcrumbs?.join('|');
 
   useEffect(() => {
-    if (!args.enabled) return;
+    contextRef.current = args.context;
+  }, [args.context, args.context.tab, args.context.entityId, args.context.entityType, contextBreadcrumbsKey]);
+
+  // KNOWN GAP: at the only call site (App.tsx, `useAiAgentTracker({ ... onEvent: (event) => { ... } })`) onEvent is an
+  // inline arrow, so it gets a new identity on every App render and this effect tears down and re-installs the three
+  // document listeners every time, and the cleanup below also clears the pending idle timer. Typing itself does not
+  // re-render App (handleInput does not emit), so the common "type, then pause" flow still fires 'idle' — but any
+  // unrelated App render inside the IDLE_TIMEOUT_MS window (the 60s presence tick, sync progress, another field's
+  // focus/blur through this same hook) silently cancels the pending idle event, and nothing reschedules it.
+  // Pre-existing; not fixed here because this branch is lint-only.
+  useEffect(() => {
+    if (!enabled) return;
 
     const emit = (event: AiAgentEvent) => {
       const ctx = contextRef.current;
@@ -106,7 +116,7 @@ export function useAiAgentTracker(args: {
         entityId: ctx.entityId ?? null,
         entityType: ctx.entityType ?? null,
       };
-      args.onEvent?.(enriched);
+      onEvent?.(enriched);
       void window.matrica.aiAgent.logEvent({ context: ctx, event: enriched }).catch(() => {});
     };
 
@@ -161,7 +171,7 @@ export function useAiAgentTracker(args: {
       document.removeEventListener('input', handleInput);
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
     };
-  }, [args.enabled, args.onEvent]);
+  }, [enabled, onEvent]);
 
   return {
     longIdleMs: LONG_IDLE_MS,

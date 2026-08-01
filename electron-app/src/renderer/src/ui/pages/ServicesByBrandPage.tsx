@@ -86,6 +86,7 @@ export function ServicesByBrandPage(props: {
   useEffect(() => {
     if (!props.canView) return;
     void loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot load on gaining view access; loadAll depends on selectedBrandId and itself sets selectedBrandId, so adding it would re-run the full (up to 5000 entity fetches) reload right after the first load and again on every brand switch
   }, [props.canView]);
 
   const dirtyCount = useMemo(() => services.filter((s) => s.dirty).length, [services]);

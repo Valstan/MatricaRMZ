@@ -133,7 +133,7 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     return () => {
       alive = false;
     };
-  }, [props.open]);
+  }, [props.open, api.warehouse, api.warehouseLocations]);
 
   // Остатки + прошлый 1С-импорт по каждому сопоставленному складу программы
   // (снапшот прошлого импорта — в payload документа; по нему обнуляются пропавшие).
@@ -195,6 +195,7 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- this effect writes locState (setLocState per warehouse), so depending on it would cancel and restart the fetch loop after every write; locState is read only as an "already fetched" guard, and the real triggers (props.open, mapping) are deps
   }, [props.open, mapping]);
 
   async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {

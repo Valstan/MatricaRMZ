@@ -164,6 +164,7 @@ export function SupplyRequestsPage(props: {
         .filter((col): col is RequestColumn => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id))
         .filter((col) => !col.requireShowPreviews || showPreviews),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render, so depending on `columnLayout` (demanded only because `isVisible` is called as a method) would defeat this memo; `columnLayout.hidden` is the Set `isVisible` reads, so the listed deps already cover every input
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);

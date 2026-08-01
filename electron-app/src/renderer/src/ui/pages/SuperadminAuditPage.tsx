@@ -424,6 +424,7 @@ export function SuperadminAuditPage() {
 
   useEffect(() => {
     void loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load; loadAll reads the filter state (fromDate, toDate, actor, actionType, reportDate), so adding it would re-query the 4000-row audit log on every filter keystroke instead of on the explicit refresh button
   }, []);
 
   return (

@@ -273,7 +273,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- autofill must run only when template/engine props change: adding answers would re-run it on every edit and clobber manual field edits in defect stage; save is re-created every render (declared later in the body)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the rule asks for activeTemplate, answers, props.canEdit and save. `save` is recreated every render; `activeTemplate` is covered by its id, which is a dep. `answers` is omitted deliberately: in the defect stage this effect force-writes engine_brand/engine_number back to the engine-card values, so re-running on every edit would revert manual edits. ⚠ DIVERGES FROM THE DESKTOP SIBLING (electron-app/src/renderer/src/ui/components/RepairChecklistPanel.tsx has `answers` IN its deps): the same manual edit in the defect stage survives here and is reverted + auto-saved there. Exactly one of the two is the intended product behavior; not decided on this lint-only branch, tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты». `props.canEdit` is also omitted: a read-only→editable transition does not re-run the autofill, so a value computed while read-only stays unsaved
   }, [activeTemplate?.id, props.engineBrand, props.engineNumber, props.stage]);
 
   useEffect(() => {
@@ -411,7 +411,7 @@ export function RepairChecklistPanel(props: {
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill guarded by prefillKey ref; answers/payload are read-latest on purpose (re-running per answers change would refetch parts); save is re-created every render (declared later in the body)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill: re-entry is blocked by the prefillKey ref, which is set BEFORE the async fetch starts, so adding `answers` could not cause a second listParts call. Omitting `answers` is therefore a deliberate STALE read (not a "latest" read): the IIFE above awaits listParts and only then spreads the pre-fetch `answers` snapshot into `next` and persists it. `save` is recreated every render. KNOWN GAP (pre-existing, NOT fixed here; tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты»): any answer edited while that fetch is in flight is discarded and overwritten on the server. The fix is the functional setAnswers form plus a save built from the merged value — a behavior change, so it belongs to the follow-up PR
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   useEffect(() => {
@@ -446,7 +446,7 @@ export function RepairChecklistPanel(props: {
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill guarded by prefillKey ref; answers/payload are read-latest on purpose (re-running per answers change would refetch parts); save is re-created every render (declared later in the body)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill: re-entry is blocked by the prefillKey ref, which is set BEFORE the async fetch starts, so adding `answers` could not cause a second listParts call. Omitting `answers` is therefore a deliberate STALE read (not a "latest" read): the IIFE above awaits listParts and only then spreads the pre-fetch `answers` snapshot into `next` and persists it. `save` is recreated every render. KNOWN GAP (pre-existing, NOT fixed here; tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты»): any answer edited while that fetch is in flight is discarded and overwritten on the server. The fix is the functional setAnswers form plus a save built from the merged value — a behavior change, so it belongs to the follow-up PR
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   useEffect(() => {
@@ -463,7 +463,7 @@ export function RepairChecklistPanel(props: {
     const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy-row normalization keyed by activeTemplate?.id intentionally; save is re-created every render (declared later in the body), adding it would run this effect on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!normalized.changed) return` guard above keeps it a no-op once the legacy rows are normalized
   }, [activeTemplate?.id, props.stage, answers, props.canEdit]);
 
   async function save(nextAnswers: RepairChecklistAnswers) {

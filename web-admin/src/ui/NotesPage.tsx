@@ -134,6 +134,7 @@ export function NotesPage(props: {
   useEffect(() => {
     const count = notesVisible.filter((n) => n.importance === 'burning' || (n.dueAt != null && n.dueAt < now)).length;
     props.onBurningCountChange?.(count);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- props is demanded only because onBurningCountChange is invoked as a method; the callback is the sole prop read here and depending on the whole props object would re-notify the parent on every parent re-render that recreates it
   }, [notesVisible, now]);
 
   const ownedNotes = notesVisible.filter((n) => !n.shared);
