@@ -204,6 +204,7 @@ export function ContractsPage(props: {
   useEffect(() => {
     if (!props.canViewMasterData) return;
     void loadContracts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadContracts is recreated every render; the initial load is intentionally keyed to the view permission only, re-running per render would refetch in a loop (loadContracts sets state)
   }, [props.canViewMasterData]);
 
   useEffect(() => {

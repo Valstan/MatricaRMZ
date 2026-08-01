@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DefectConductedVersionSummary, DefectPartHistoryEvent, EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
 import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
@@ -528,7 +528,7 @@ export function RepairChecklistPanel(props: {
   // (решение владельца 2026-07-09). Данные общие (одно сохранение), меняется набор
   // колонок таблицы, показанных подписей/дат и кнопок печати.
   const [actView, setActView] = useState<'completeness' | 'defect'>('completeness');
-  async function loadActVersions() {
+  const loadActVersions = useCallback(async () => {
     if (!isInventoryStage || !props.engineId) return;
     const [c, d, p] = await Promise.all([
       window.matrica.checklists.engineActVersions({ engineId: props.engineId, actType: 'completeness' }),
@@ -536,13 +536,13 @@ export function RepairChecklistPanel(props: {
       window.matrica.checklists.engineActVersions({ engineId: props.engineId, actType: 'claim' }),
     ]);
     setActVersions({ completeness: c.ok ? c.versions : [], defect: d.ok ? d.versions : [], claim: p.ok ? p.versions : [] });
-  }
+  }, [isInventoryStage, props.engineId]);
   useEffect(() => {
     void loadActVersions();
-  }, [isInventoryStage, props.engineId]);
+  }, [isInventoryStage, loadActVersions, props.engineId]);
 
   // Ф5: производные статусы ремонта per-деталь + история событий part_status_event + Ф3-экземпляры + Ф4-версии требования.
-  async function loadRepairPartData() {
+  const loadRepairPartData = useCallback(async () => {
     if (!isInventoryStage || !props.engineId) return;
     const [states, events, stamped, requirement, versions, history] = await Promise.all([
       window.matrica.workOrders.engineRepairPartStates(props.engineId),
@@ -558,10 +558,10 @@ export function RepairChecklistPanel(props: {
     setRequirementVersions(requirement.ok ? requirement.versions : []);
     setConductedVersions(versions.ok ? versions.versions : []);
     setDefectPartHistory(history.ok ? history.events : []);
-  }
+  }, [isInventoryStage, props.engineId]);
   useEffect(() => {
     void loadRepairPartData();
-  }, [isInventoryStage, props.engineId]);
+  }, [isInventoryStage, loadRepairPartData, props.engineId]);
 
   async function createRepairOrderFromDefects() {
     if (repairOrderBusy || repairOrderDraft.items.length === 0) return;
@@ -851,7 +851,7 @@ export function RepairChecklistPanel(props: {
     return locked;
   }, [props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus('Загрузка чек-листа...');
     const r = await window.matrica.checklists.engineGet({ engineId: props.engineId, stage: props.stage });
     if (!r.ok) {
@@ -890,11 +890,11 @@ export function RepairChecklistPanel(props: {
     brandRowsSyncKeyRef.current = '';
     setLoadVersion((v) => v + 1);
     setStatus('');
-  }
+  }, [props.engineId, props.stage]);
 
   useEffect(() => {
     void load();
-  }, [props.engineId, props.stage]);
+  }, [load, props.engineId, props.stage]);
 
   useEffect(() => {
     let alive = true;
@@ -922,7 +922,7 @@ export function RepairChecklistPanel(props: {
     if (!activeTemplate) return;
     if (payload?.templateId) return;
     setAnswers((prev) => (Object.keys(prev).length ? prev : emptyAnswersForTemplate(activeTemplate)));
-  }, [activeTemplate?.id]);
+  }, [activeTemplate, activeTemplate?.id, payload?.templateId]);
 
   // Автоподстановка повторяющихся данных из карточки двигателя.
   useEffect(() => {
@@ -984,6 +984,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. Note `answers` IS in the deps, so this effect re-runs on every answer edit — deliberately: in the defect/completeness/inventory stages the engine fields are locked to the engine card, so a manual edit is written back to the prop value and auto-saved. The `if (!changed) return` guard above makes that converge instead of looping
   }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   useEffect(() => {
@@ -1008,6 +1009,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!changed) return` guard above keeps it a no-op once the signature fields already hold the current user's name/position
   }, [activeTemplate?.id, answers, props.canEdit, props.currentUserProfile?.fullName, props.currentUserProfile?.position]);
 
   // Хвост Т6: автоподстановка комиссии акта комплектности по цеху двигателя (динамический список).
@@ -1043,6 +1045,7 @@ export function RepairChecklistPanel(props: {
     const next = { ...answers, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members: res.members } } as RepairChecklistAnswers;
     setAnswers(next);
     void save(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!res.changed) return` guard above keeps it a no-op once the commission rows match the workshop roster
   }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.stage, props.workshopName]);
 
   // Кнопка «Заполнить комиссию по цеху» (под-вкладка комплектности): принудительно ставит
@@ -1084,17 +1087,17 @@ export function RepairChecklistPanel(props: {
   }
 
   // Шаблоны актов по марке двигателя (PR4): список для текущей марки.
-  async function loadActTemplates() {
+  const loadActTemplates = useCallback(async () => {
     const brandId = String(props.engineBrandId || '').trim();
     if (!brandId) { setActTemplates([]); return; }
     const r = await window.matrica.engineActTemplates.list({ engineBrandId: brandId });
     if (r.ok) setActTemplates(r.templates);
-  }
+  }, [props.engineBrandId]);
 
   useEffect(() => {
     if (props.stage !== ENGINE_INVENTORY_STAGE) return;
     void loadActTemplates();
-  }, [props.stage, props.engineBrandId]);
+  }, [loadActTemplates, props.stage, props.engineBrandId]);
 
   async function applyActTemplate(id: string) {
     if (!props.canEdit || !id) return;
@@ -1492,6 +1495,7 @@ export function RepairChecklistPanel(props: {
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- brand-rows resync is one-shot per syncKey (brandRowsSyncKeyRef); save is re-created every render (declared later in the body), adding it would run this effect on every render
   }, [activeTemplate?.id, answers, loadVersion, props.canEdit, props.engineBrandId, props.engineId, props.stage]);
 
   // Note: normalization happens on load/save to avoid focus loss on each keystroke.

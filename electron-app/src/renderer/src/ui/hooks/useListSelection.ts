@@ -127,6 +127,7 @@ export function useListSelection(orderedIds: string[]) {
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleShiftArrow is re-created every render, so depending on it would re-subscribe the capture-phase keydown listener on every render; the deps below are exactly the values it closes over (memoizing it would cascade through addRangeTo/toggleSelect)
   }, [selectedCount, orderedIds, selectedInOrder, cursorId, anchorId]);
 
   return {

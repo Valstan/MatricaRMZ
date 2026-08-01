@@ -72,6 +72,11 @@ export function SuggestInput(props: {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [createBusy, setCreateBusy] = React.useState(false);
   const bumpAutoHide = dropdown.bumpAutoHide;
+  // Hoisted so the effects below can depend on the setters themselves instead of the
+  // whole `dropdown` object (which is a fresh object on every render). Both are raw
+  // useState setters from useSuggestionDropdown, so they are referentially stable.
+  const setDropdownQuery = dropdown.setQuery;
+  const setDropdownActiveIdx = dropdown.setActiveIdx;
 
   const openDropdown = useCallback(() => {
     if (disabled || hints.suppressed) return;
@@ -85,8 +90,8 @@ export function SuggestInput(props: {
   }, [dropdown, hints]);
 
   useEffect(() => {
-    dropdown.setQuery(props.value ?? '');
-  }, [props.value]);
+    setDropdownQuery(props.value ?? '');
+  }, [props.value, setDropdownQuery]);
 
   useEffect(() => {
     if (!dropdown.open) return;
@@ -101,8 +106,8 @@ export function SuggestInput(props: {
   useEffect(() => {
     if (!dropdown.open) return;
     if (!dropdown.filtered.length) return;
-    dropdown.setActiveIdx((i) => Math.min(Math.max(0, i), dropdown.filtered.length - 1));
-  }, [dropdown.filtered.length, dropdown.open, dropdown.setActiveIdx]);
+    setDropdownActiveIdx((i) => Math.min(Math.max(0, i), dropdown.filtered.length - 1));
+  }, [dropdown.filtered.length, dropdown.open, setDropdownActiveIdx]);
 
   function pick(value: string) {
     props.onChange(value);

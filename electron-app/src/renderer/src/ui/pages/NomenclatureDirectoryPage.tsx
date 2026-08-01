@@ -116,7 +116,7 @@ export function NomenclatureDirectoryPage(props: {
     return `${rounded.toLocaleString('ru-RU')} ₽`;
   }
 
-  function looksLikeLegacyDirectoryRow(row: WarehouseNomenclatureListItem): boolean {
+  const looksLikeLegacyDirectoryRow = useCallback((row: WarehouseNomenclatureListItem): boolean => {
     const code = String((row as any).code ?? '').trim().toLowerCase();
     const itemType = String((row as any).itemType ?? '').trim().toLowerCase();
     const specRaw = String((row as any).specJson ?? '');
@@ -146,7 +146,7 @@ export function NomenclatureDirectoryPage(props: {
       return (itemType === 'product' && category === 'service') || code.startsWith('srv-') || specJson.includes('"source":"service"');
     }
     return false;
-  }
+  }, [props.directoryKind]);
 
   const refresh = useCallback(async () => {
     if (!canView) return;
@@ -187,7 +187,7 @@ export function NomenclatureDirectoryPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [canView, props.directoryKind, query]);
+  }, [canView, looksLikeLegacyDirectoryRow, props.directoryKind, query]);
 
   useEffect(() => {
     void refresh();
@@ -339,6 +339,7 @@ export function NomenclatureDirectoryPage(props: {
         .map((id) => serviceColumnsById.get(id))
         .filter((c): c is ServiceColumnDef => Boolean(c))
         .filter((c) => serviceColumnLayout.isVisible(c.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only reads serviceColumnLayout.hidden, which is already a dep; useColumnLayout returns a fresh object/isVisible closure on every render, so listing serviceColumnLayout would recompute this memo on every render
     [serviceColumnLayout.order, serviceColumnLayout.hidden, serviceColumnsById],
   );
   const serviceColumnDescriptors = useMemo<ColumnDescriptor[]>(

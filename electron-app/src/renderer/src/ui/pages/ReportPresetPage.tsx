@@ -313,6 +313,7 @@ export function ReportPresetPage(props: {
 
   useEffect(() => {
     void loadPresetMeta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial catalog load; loadPresetMeta reads props.presetId, so adding it would refetch the whole preset catalog and reset status on every presetId change
   }, []);
 
   useEffect(() => {

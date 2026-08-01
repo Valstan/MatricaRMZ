@@ -790,13 +790,13 @@ export function App() {
     });
   }
 
-  function replayQueuedHistoryStep() {
+  const replayQueuedHistoryStep = useCallback(() => {
     const queued = queuedHistoryReplayRef.current;
     if (!queued) return false;
     queuedHistoryReplayRef.current = null;
     replayNavigationStep(queued.step);
     return true;
-  }
+  }, []);
 
   function clearQueuedHistoryReplay(restoreIndex: boolean) {
     const queued = queuedHistoryReplayRef.current;
@@ -929,6 +929,7 @@ export function App() {
         }, 1000);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- finalizeCardClose is declared below this hook (mutual reference via the countdown timer); listing it here would read a TDZ binding and crash on render, and the timer closure resolves it lazily at call time
     [setTabState, paneCloseActions, clearSecondaryPaneState, respondAppClose],
   );
 
@@ -1002,7 +1003,7 @@ export function App() {
         respondAppClose();
       }
     },
-    [setTabState, paneCloseActions, clearSecondaryPaneState, respondAppClose],
+    [setTabState, paneCloseActions, clearSecondaryPaneState, respondAppClose, replayQueuedHistoryStep],
   );
 
   const requestTabSwitch = useCallback(
@@ -1254,6 +1255,7 @@ export function App() {
     void window.matrica.settings.uiControlGet().then((r: any) => {
       if (r?.ok && r?.effective) applyEffectiveUiSettings(r.effective as UiControlSettings);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup bootstrap (engines list, auth status, UI prefs); refreshEngines is a render-scoped function recreated every render, adding it would re-run the whole bootstrap on each render
   }, [applyEffectiveUiSettings]);
 
   useEffect(() => {
@@ -1364,6 +1366,7 @@ export function App() {
       fullSyncCloseTimer.current = null;
       if (unsubscribe) unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. KNOWN GAP: the empty deps also freeze the handler on the first-render closure, where `tab` is still the useState default 'history' — so both `if (tab === 'engine') void reloadEngine()` branches above are dead code and an open engine card is never refreshed after an incremental or full sync (refreshEngines still runs and updates the list). The standard fix is a tabRef/reloadEngineRef; not applied here because this branch is lint-only
   }, []);
 
   useEffect(() => {
@@ -1635,6 +1638,7 @@ export function App() {
     setNomenclatureOriginTab(null);
     setSelectedCounterpartyId(null);
     setSelectedReportPresetId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on mode+backupDate only: the backupMode object is replaced by a 15s status poll, and re-running on object identity would clobber the user's selection every tick; refreshEngines is recreated every render
   }, [backupMode?.mode, backupMode?.backupDate]);
 
   async function runSyncNow() {
@@ -1701,6 +1705,7 @@ export function App() {
     void (async () => {
       await runSyncNow();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires only on a real user-id change (prevUserId ref guard); runSyncNow is recreated every render and would force a useCallback cascade through refreshEngines without changing behavior
   }, [authReady, authStatus.loggedIn, authStatus.user?.id, backupMode?.mode]);
 
   // Periodically sync auth permissions from server (important for delegated permissions).
@@ -2007,11 +2012,11 @@ export function App() {
   // Gate: без входа показываем только вкладку "Вход".
   useEffect(() => {
     if (!authStatus.loggedIn && tab !== 'auth') setTab('auth');
-  }, [authStatus.loggedIn, tab]);
+  }, [authStatus.loggedIn, tab, setTab]);
 
   useEffect(() => {
     if (authStatus.loggedIn && tab === 'auth') setTab('history');
-  }, [authStatus.loggedIn, tab]);
+  }, [authStatus.loggedIn, tab, setTab]);
 
   // Gate: chat requires auth + permission.
   useEffect(() => {
@@ -2100,6 +2105,7 @@ export function App() {
       chatNewMessageAudioRef.current = null;
       chatPendingAudioRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only audio element setup/teardown; ensureChatAudioElements is recreated every render, and re-running would pause and rebuild the audio elements on each render
   }, []);
 
   // Poll unread count (for the "Открыть чат" counter).
@@ -2149,6 +2155,7 @@ export function App() {
     }
 
     chatUnreadTotalRef.current = chatUnreadTotal;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on unread-count transitions; the playChat* helpers are render-scoped functions recreated every render, adding them would force a useCallback cascade without changing behavior
   }, [authStatus.loggedIn, canChat, viewMode, chatUnreadTotal]);
 
   // Poll burning notes count for tab indicator.
@@ -2229,6 +2236,7 @@ export function App() {
       return;
     if (visibleTabs.includes(tab) || tab === userTab) return;
     setTab(visibleTabs[0] ?? 'auth');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the visibleTabsKey string signature because the visibleTabs array identity is not stable across renders; setTab varies with tab/v2OpenCards and re-running on it would add no new information
   }, [tab, visibleTabsKey, userTab]);
 
   async function persistTabsLayout(next: TabsLayoutPrefs) {
@@ -2396,6 +2404,7 @@ export function App() {
     };
   }, []);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- wrapping in useCallback would cascade: it calls the render-scoped helpers sameEngineList/engineRowSignature which would then be flagged in its deps; the consumer callback at useLiveDataRefresh already re-creates every render, so behavior is unchanged
   async function refreshEngines() {
     try {
       const list = await window.matrica.engines.list();
@@ -2707,6 +2716,7 @@ export function App() {
     user_screen: selectedUserScreenId,
   };
   const v2PrevSelectedRef = useRef<Partial<Record<TabId, string | null>>>({});
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional every-render diff against v2PrevSelectedRef; the suggested dep v2SelectedByKind is a fresh object each render so a deps array would not reduce runs, and the ref comparison already prevents setState loops
   useEffect(() => {
     const prev = v2PrevSelectedRef.current;
     const next: Partial<Record<TabId, string | null>> = {};
@@ -2918,6 +2928,7 @@ export function App() {
       while (next.length > maxOpen) next.shift();
       return next;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on tab+selected ids which fully drive the focused-card identity; v2CardTitle/v2CurrentCardIdentity are render-scoped helpers recreated every render, and isV3 is defined as equal to isV2 which is already a dep
   }, [
     isV2,
     tab,
@@ -2962,6 +2973,7 @@ export function App() {
       void persistShellPrefs({ ...base, v2: { ...base.v2, session } });
     }, 800);
     return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced session persist; persistShellPrefs/v2CurrentCardIdentity are render-scoped functions recreated every render, adding them would restart the 800ms debounce on each render and never let it settle
   }, [
     isV2,
     shellPrefs,
@@ -3010,6 +3022,7 @@ export function App() {
     if (sec && !(focused && sec.kind === focused.kind && sec.entityId === focused.entityId)) {
       openSecondaryCard({ kind: sec.kind as TabId, entityId: sec.entityId, title: sec.title });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot session restore per user (v2SessionRestoredRef guard); reopenV2Card/openSecondaryCard are render-scoped helpers recreated every render, and isCardTab is a stable useCallback
   }, [isV2, shellPrefs, authStatus.user?.id]);
 
   function openNoteFromHistory(noteId?: string | null) {
@@ -3222,6 +3235,7 @@ export function App() {
                       : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps try to mirror the state that helper reads. KNOWN GAP: the mirror is incomplete — buildChatBreadcrumbs also reads selectedWorkOrderId and selectedEngineAssemblyBomId, and neither is listed below, so picking another row on the work_order / engine_assembly_bom_item tab (the V2/V3 shell changes selectedXId WITHOUT changing tab) leaves aiContext.breadcrumbs showing the previously selected entity's ID and useAiAgentTracker gets stale context. Pre-existing; not fixed here because this branch is lint-only
     [
       tab,
       selectedEngineId,
@@ -3270,6 +3284,7 @@ export function App() {
       reportPresetId: tab === 'report_preset' ? selectedReportPresetId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps try to mirror the state that helper reads. KNOWN GAP: the mirror is incomplete — buildChatBreadcrumbs also reads selectedWorkOrderId and selectedEngineAssemblyBomId, and neither is listed below, so on the work_order / engine_assembly_bom_item tab (where the V2/V3 shell changes selectedXId WITHOUT changing tab) currentAppLink.breadcrumbs can lag one selection behind in the navigation history and in the chat deep-link payload. Pre-existing; not fixed here because this branch is lint-only
     [
       tab,
       selectedEngineId,
@@ -3346,7 +3361,7 @@ export function App() {
     }
 
     replayNavigationStep(step);
-  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab]);
+  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab, replayQueuedHistoryStep]);
 
   const goForward = useCallback(() => {
     if (navigationIndex < 0 || navigationIndex >= navigationHistory.length - 1) return;
@@ -3369,7 +3384,7 @@ export function App() {
     }
 
     replayNavigationStep(step);
-  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab]);
+  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab, replayQueuedHistoryStep]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) return;
@@ -3488,7 +3503,7 @@ export function App() {
     setTimeout(() => setPostLoginSyncMsg(''), 6000);
   }
 
-  async function reloadEngine() {
+  const reloadEngine = useCallback(async () => {
     if (!selectedEngineId) return;
     setEngineOpenError('');
     setEngineLoading(true);
@@ -3501,7 +3516,7 @@ export function App() {
     } finally {
       setEngineLoading(false);
     }
-  }
+  }, [selectedEngineId]);
 
   useLiveDataRefresh(
     useCallback(async () => {
@@ -3521,6 +3536,7 @@ export function App() {
       void refreshEngines();
     }
     prevTabRef.current = tab;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetches only on the transition into the engines tab (prevTabRef guard); refreshEngines is recreated every render and adding it would run the effect on each render
   }, [tab, authStatus.loggedIn]);
 
   // Audit page is hidden in client app.

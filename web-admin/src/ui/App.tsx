@@ -234,6 +234,7 @@ export function App() {
       alive = false;
       clearInterval(id);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- presence poll is deliberately keyed on user?.id; depending on the user object would tear down and restart the 20s interval on every object identity change
   }, [user?.id]);
 
   async function doLogin() {
@@ -303,6 +304,7 @@ export function App() {
     const ids = visibleTabs.map((t) => t.id);
     if (ids.includes(tab)) return;
     setTab(userTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- visibleTabs is rebuilt every render; the effect deliberately keys on the derived visibleTabIds string so it only runs when the actual tab set changes
   }, [tab, visibleTabIds, userTab]);
 
   useEffect(() => {
@@ -319,6 +321,7 @@ export function App() {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed on user?.id: user is only read as a presence guard, and depending on the object would refetch masterdata types on every identity change
   }, [user?.id, caps.canViewMasterData]);
 
   function noteToChatText(note: { title: string; body: Array<any> }) {
@@ -382,6 +385,7 @@ export function App() {
       alive = false;
       clearInterval(id);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- notes-alert poll is deliberately keyed on user?.id (tick only reads user.id); depending on the object would restart the 60s interval on every identity change
   }, [user?.id]);
 
   if (loading) {

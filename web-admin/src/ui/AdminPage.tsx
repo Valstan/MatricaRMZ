@@ -190,6 +190,7 @@ export function MasterdataPage(props: {
         targetEntityLabel: opt?.label ?? null,
       };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getLinkTargetTypeCode is a component-body helper over the per-render linkTargetByCode map; memoizing it would cascade, and its output only changes with defs/types which are already deps
   }, [defs, entityAttrs, linkOptions, types]);
 
   async function refreshTypes() {
@@ -550,6 +551,7 @@ export function MasterdataPage(props: {
     } catch {
       // ignore
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot deep-link open guarded by openEntityRef; jumpToEntity is an unstable body helper (calls refreshDefs/refreshEntities) and must not retrigger this effect
   }, [types]);
 
   async function refreshLinkOptions(defsForType: AttrDefRow[]) {
@@ -569,6 +571,7 @@ export function MasterdataPage(props: {
 
   useEffect(() => {
     void refreshTypes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load; refreshTypes sets `types` state and has a new identity each render, so adding it would refetch in a loop
   }, []);
 
   useEffect(() => {
@@ -577,6 +580,7 @@ export function MasterdataPage(props: {
       await refreshDefs(selectedTypeId);
       await refreshEntities(selectedTypeId);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload defs/entities only when the selected type changes; refreshDefs/refreshEntities are unstable body helpers and adding them would refetch on every render
   }, [selectedTypeId]);
 
   useEffect(() => {
@@ -604,6 +608,7 @@ export function MasterdataPage(props: {
   useEffect(() => {
     if (!selectedTypeId) return;
     void refreshLinkOptions(defs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshLinkOptions is an unstable body helper; everything it reads (defs, types) is already in the deps, adding the function would refetch on every render
   }, [selectedTypeId, defs, types]);
 
   const pinnedTypeIds = useMemo(() => new Set(props.pinnedTypeIds ?? []), [props.pinnedTypeIds]);
@@ -1465,6 +1470,7 @@ function NewEntityTypeForm(props: { existingCodes: string[]; onSubmit: (code: st
     return `${base}_${i}`;
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- suggestCode is a pure body helper (memoizing it would cascade through slugifyCode/normalizeForMatch); its only reactive input props.existingCodes is tracked via the join('|') key
   const computedCode = useMemo(() => (name.trim() ? suggestCode(name) : ''), [name, props.existingCodes.join('|')]);
   return (
     <>

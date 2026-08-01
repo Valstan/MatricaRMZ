@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { AuthUserInfo, ChangeRequestRow } from '@matricarmz/shared';
 
@@ -157,7 +157,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
   const [rows, setRows] = useState<ChangeRequestRow[]>([]);
   const [msg, setMsg] = useState<string>('');
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setMsg('Загрузка…');
     const r = await window.matrica.changes.list({ status, limit: 2000 });
     if (!r.ok) {
@@ -167,11 +167,11 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     }
     setRows(r.changes ?? []);
     setMsg('');
-  }
+  }, [status]);
 
   useEffect(() => {
     void refresh();
-  }, [status]);
+  }, [refresh]);
 
   const filtered = useMemo(() => {
     return rows.filter((row) => matchesQueryInRecord(query, row));

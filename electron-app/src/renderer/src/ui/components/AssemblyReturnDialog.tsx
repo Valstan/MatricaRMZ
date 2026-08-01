@@ -178,6 +178,7 @@ export function AssemblyReturnDialog(props: {
 
   useEffect(() => {
     if (props.open && usingAll) void ensureAllOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot lazy load already guarded inside ensureAllOptions by allOptions/allLoading; memoizing it would make the effect re-run on every allLoading flip and retry the request in a loop whenever nomenclatureList rejects (allOptions stays null)
   }, [props.open, usingAll]);
 
   const optionById = useMemo(() => {

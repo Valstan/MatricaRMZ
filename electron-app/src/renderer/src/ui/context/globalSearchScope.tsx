@@ -37,5 +37,6 @@ export function useRegisterSearchScope(scope: GlobalSearchScope | null): void {
     register(scope);
     return () => register(null);
     // rows identity changes when the page reloads its list — re-register then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- callers build the scope object inline, so depending on its identity would loop: register() is the provider's setState, whose re-render yields a fresh scope object; the scalar keys above are the real change signal
   }, [register, scope?.kind, scope?.title, scope?.rows]);
 }

@@ -232,6 +232,7 @@ export function EngineDetailsPage(props: {
   useEffect(() => {
     void loadEngine();
     void loadLinkLists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load keyed on engineId; loadEngine is redefined every render (closes over ensureEngineSchema/props), adding it would refetch on every render
   }, [props.engineId]);
 
   async function saveAttr(code: string, value: unknown) {

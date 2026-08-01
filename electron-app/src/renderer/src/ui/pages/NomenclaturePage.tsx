@@ -346,6 +346,7 @@ export function NomenclaturePage(props: {
         setCreatingKind(null);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps reverted to main's on purpose: listing `refresh` here would make the two `await refresh()` calls above ALWAYS perform the multi-page group fetch, where today they perform it only when App has re-rendered since the group was expanded — that is a behavior change this lint-only branch must not make. KNOWN GAP: this callback keeps the `refresh` of the render that memoized it, and neither dep changes when a group is expanded (`setExpandedGroupKey` is NomenclaturePage-local state; `props.onOpen` is App's body-declared `openNomenclature`, so its identity changes only when App itself re-renders — which happens at least on the 60s presence tick). Inside that window `await refresh()` runs a closure whose `expandedGroupKey` is still `null` and takes its early return (`setRows([]); setStatus('')`), clearing the list instead of reloading the expanded group after a create. Left in place here; the fix belongs in the behavior follow-up
     [props.onOpen, promptText],
   );
 

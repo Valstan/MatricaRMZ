@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -20,7 +20,7 @@ export function ToolPropertyDetailsPage(props: {
   const [paramHints, setParamHints] = useState<string[]>([]);
   const dirtyRef = useRef(false);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       setStatus('Загрузка...');
       const r = await window.matrica.tools.properties.get(props.id);
@@ -36,11 +36,11 @@ export function ToolPropertyDetailsPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, [props.id]);
 
   useEffect(() => {
     void refresh();
-  }, [props.id]);
+  }, [props.id, refresh]);
 
   useEffect(() => {
     void window.matrica.tools.properties.list().then((r: any) => {
@@ -87,6 +87,7 @@ export function ToolPropertyDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registration is keyed on the form fields the close actions capture; props (method-call receiver) and saveAttr are recreated each render, so depending on them would re-register on every render
   }, [name, params, props.registerCardCloseActions]);
 
   return (

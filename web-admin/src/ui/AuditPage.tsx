@@ -401,6 +401,7 @@ export function AuditPage() {
 
   useEffect(() => {
     void loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load; loadAll reads the filter fields, so depending on it would auto-refetch on every filter edit instead of via the explicit refresh button
   }, []);
 
   return (

@@ -199,11 +199,13 @@ export function ContractDetailsPage(props: {
 
   useEffect(() => {
     void loadContract();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadContract is recreated every render; the load is intentionally keyed to contractId only, re-running per render would refetch in a loop (loadContract sets state)
   }, [props.contractId]);
 
   useEffect(() => {
     if (entityTypes.length === 0) return;
     void loadEngineBrands();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadEngineBrands is recreated every render; the directory is intentionally refetched only when entityTypes first arrive, not on every entityTypes identity change
   }, [entityTypes.length]);
 
   useEffect(() => {
@@ -227,6 +229,7 @@ export function ContractDetailsPage(props: {
     } else {
       setEngineCountItems(items);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- form state is seeded only when contract id/version changes; depending on the contract object would re-seed on every reload and clobber user edits
   }, [contract?.id, contract?.updatedAt]);
 
   async function saveAttr(code: string, value: unknown) {
@@ -335,6 +338,7 @@ export function ContractDetailsPage(props: {
       if (linkOptionsByCode[def.code] || linkLoadingByCode[def.code]) continue;
       void loadLinkOptions(targetTypeCode, def.code);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to contract id/version and defs.length on purpose; loadLinkOptions is recreated every render, and depending on the contract/defs objects would re-run on every reload (fetches are already guarded by the option/loading maps)
   }, [contract?.id, contract?.updatedAt, defs.length, linkOptionsByCode, linkLoadingByCode, entityTypes.length]);
 
   async function createNewField() {

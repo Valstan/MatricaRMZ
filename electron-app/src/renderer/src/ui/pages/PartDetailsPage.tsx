@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
@@ -380,7 +380,7 @@ export function PartDetailsPage(props: {
     }
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     // Phase 3 Stage E: embedded card reads residual part fields from the metadata blob
     // passed by the parent (directory_parts.metadataJson) — not from parts.get. The rev
     // bump gives the synthetic part a fresh updatedAt so the field-hydration effect re-runs.
@@ -392,7 +392,7 @@ export function PartDetailsPage(props: {
       attributes: buildSyntheticPartAttributes(props.partMetadata ?? {}),
     });
     setStatus('');
-  }
+  }, [props.partId, props.partMetadata]);
 
   async function loadUsage(partValue?: Part | null) {
     const currentPart = partValue ?? part;
@@ -533,7 +533,7 @@ export function PartDetailsPage(props: {
     // Stage E: re-hydrate the embedded synthetic part whenever the parent passes a fresh
     // metadata blob (e.g. after a save → reload). Non-embedded keys on partId only.
     void load();
-  }, [props.partId, props.embedded, props.partMetadata]);
+  }, [props.partId, props.embedded, props.partMetadata, load]);
 
   useEffect(() => {
     void loadEngineBrands();
@@ -563,6 +563,7 @@ export function PartDetailsPage(props: {
       if (next.length !== partDefs.length) setPartDefs(next);
       setCoreDefsReady(true);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- effect writes partDefs itself (setPartDefs); intentionally keyed on partDefs.length + coreDefsReady guard so it does not re-run on the array identity it creates
   }, [props.canEdit, partTypeId, partDefs.length, coreDefsReady]);
 
   // Sync local fields from loaded part (important after reload/save)
@@ -598,6 +599,7 @@ export function PartDetailsPage(props: {
     for (const c of STATUS_CODES) dates[c] = normalizeDateInput(byCode[statusDateCode(c)]?.value);
     setStatusDates(dates);
     dirtyRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydration intentionally keyed on part id/updatedAt; re-running on part object identity (recreated by every embedded attribute edit) or on loadBrandLinks would reset fields and dirtyRef, clobbering user edits
   }, [part?.id, part?.updatedAt]);
 
   useEffect(() => {
@@ -607,11 +609,12 @@ export function PartDetailsPage(props: {
     const match = customerOptions.find((c) => normalizeForMatch(c.label) === normalized);
     if (!match) return;
     setSupplierId(match.id);
-  }, [part?.id, supplierId, supplier, customerOptions]);
+  }, [part, part?.id, supplierId, supplier, customerOptions]);
 
   useEffect(() => {
     if (!part) return;
     void loadUsage(part);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- heavy IPC usage scan intentionally keyed on part id/updatedAt + option lists; keying on the part object (recreated by every embedded attribute edit) or on loadUsage would refetch on each edit
   }, [part?.id, part?.updatedAt, brandLinks, engineBrandOptions, contractOptions, entityTypes, linkOptionsByCode]);
 
   useEffect(() => {
@@ -623,7 +626,7 @@ export function PartDetailsPage(props: {
       if (linkOptionsByCode[attr.code] || linkLoadingByCode[attr.code]) continue;
       void loadLinkOptions(targetTypeCode, attr.code);
     }
-  }, [part?.id, part?.updatedAt, linkOptionsByCode, linkLoadingByCode]);
+  }, [part, part?.id, part?.updatedAt, linkOptionsByCode, linkLoadingByCode]);
 
   // Phase 3 Stage E: build the directory_parts.metadataJson blob from the card's current
   // state. Symmetric to backend partFieldMirror.buildPartMetadataBlob (same field names /
@@ -670,13 +673,17 @@ export function PartDetailsPage(props: {
     metadataProviderRef.current = buildMetadataFromState;
   });
 
+  const { onRegisterMetadataProvider } = props;
   useEffect(() => {
-    if (!props.onRegisterMetadataProvider) return;
-    props.onRegisterMetadataProvider(() => metadataProviderRef.current?.() ?? {});
-    return () => props.onRegisterMetadataProvider?.(null);
-  }, [props.onRegisterMetadataProvider]);
+    if (!onRegisterMetadataProvider) return;
+    onRegisterMetadataProvider(() => metadataProviderRef.current?.() ?? {});
+    return () => onRegisterMetadataProvider(null);
+  }, [onRegisterMetadataProvider]);
 
   useEffect(() => {
+    // The Map instance in pendingAttributeSaveValuesRef.current is created once and never
+    // reassigned, so capturing it here is equivalent to reading the ref at unmount.
+    const pendingValues = pendingAttributeSaveValuesRef.current;
     return () => {
       if (attributeSaveTimerRef.current) {
         clearTimeout(attributeSaveTimerRef.current);
@@ -685,8 +692,9 @@ export function PartDetailsPage(props: {
       if (pendingAttributeSaveResolversRef.current.length > 0) {
         resolvePendingAttributeSaves({ ok: false, error: 'component unmounted' });
       }
-      pendingAttributeSaveValuesRef.current.clear();
+      pendingValues.clear();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only cleanup; resolvePendingAttributeSaves is recreated each render, and depending on it would run this cleanup (cancelling pending saves) on every render
   }, []);
 
   type SaveAttributeOptions = {

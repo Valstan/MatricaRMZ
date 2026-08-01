@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CardActionBar } from '../components/CardActionBar.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -115,7 +115,7 @@ export function CounterpartyDetailsPage(props: {
     setAttachments(Array.isArray(s.attachments) ? s.attachments : []);
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setStatus('Загрузка…');
       const types = await window.matrica.admin.entityTypes.list();
@@ -138,11 +138,11 @@ export function CounterpartyDetailsPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }
+  }, [props.counterpartyId]);
 
   useEffect(() => {
     void load();
-  }, [props.counterpartyId]);
+  }, [load]);
 
   useLiveDataRefresh(
     async () => {
@@ -168,6 +168,7 @@ export function CounterpartyDetailsPage(props: {
       if (next.length !== defs.length) setDefs(next);
       setCoreDefsReady(true);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot core-def bootstrap per loaded card; `defs.length` is the deliberate trigger, depending on the `defs` array identity would re-fire the attribute-def write on every setDefs (e.g. field reorder)
   }, [props.canEdit, typeId, defs.length, coreDefsReady]);
 
   useEffect(() => {
@@ -200,6 +201,7 @@ export function CounterpartyDetailsPage(props: {
         }
       })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field hydration is deliberately keyed on the loaded entity version; re-running on the `entity` object identity, on canEdit, or on the per-render `applyDraftSnapshot` would overwrite the user's in-progress edits
   }, [entity?.id, entity?.updatedAt]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
@@ -214,6 +216,7 @@ export function CounterpartyDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the 1.5s debounce must restart only on an actual field edit; currentDraftSnapshot/saveDraftNow are re-created every render, so depending on them would re-arm the timer on every render and the autosave would never fire
   }, [name, shortName, inn, kpp, address, phone, email, attachments, props.canEdit]);
 
   useEffect(() => {
@@ -253,6 +256,7 @@ export function CounterpartyDetailsPage(props: {
     return () => { props.registerCardCloseActions?.(null); };
     // attachments в deps: keepDraft/saveAndClose снимают снимок из замыкания — без него
     // зарегистрированные actions видели бы устаревший список вложений.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registration is deliberately keyed on the edited values the close actions capture; clearDraft/currentDraftSnapshot/saveAllAndClose/saveDraftNow and the whole `props` object are re-created every render, so depending on them would unregister+re-register the card close actions on every render
   }, [name, shortName, inn, kpp, address, phone, email, attachments, typeId, props.registerCardCloseActions]);
 
   async function saveAttr(code: string, value: unknown) {

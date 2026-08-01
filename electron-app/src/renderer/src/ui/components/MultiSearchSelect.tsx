@@ -20,8 +20,13 @@ export function MultiSearchSelect(props: {
   onChange: (next: string[]) => void;
 }) {
   const disabled = props.disabled === true;
-  const safeValues = Array.isArray(props.values) ? props.values : [];
+  const safeValues = useMemo(() => (Array.isArray(props.values) ? props.values : []), [props.values]);
   const dropdown = useSuggestionDropdown(props.options);
+  // Hoisted so the effects below can depend on the setters themselves instead of the
+  // whole `dropdown` object (which is a fresh object on every render). Both are raw
+  // useState setters from useSuggestionDropdown, so they are referentially stable.
+  const setDropdownQuery = dropdown.setQuery;
+  const setDropdownActiveIdx = dropdown.setActiveIdx;
   const hints = useComponentSuggestionSuppress();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -44,8 +49,8 @@ export function MultiSearchSelect(props: {
   useEffect(() => {
     if (props.query === undefined) return;
     if (dropdown.query === props.query) return;
-    dropdown.setQuery(props.query);
-  }, [dropdown.query, props.query]);
+    setDropdownQuery(props.query);
+  }, [dropdown.query, props.query, setDropdownQuery]);
 
   useEffect(() => {
     if (!dropdown.open) return;
@@ -58,8 +63,8 @@ export function MultiSearchSelect(props: {
   useEffect(() => {
     if (!dropdown.open) return;
     if (!dropdown.filtered.length) return;
-    dropdown.setActiveIdx((i) => Math.min(Math.max(0, i), dropdown.filtered.length - 1));
-  }, [dropdown.filtered.length, dropdown.open, dropdown.setActiveIdx]);
+    setDropdownActiveIdx((i) => Math.min(Math.max(0, i), dropdown.filtered.length - 1));
+  }, [dropdown.filtered.length, dropdown.open, setDropdownActiveIdx]);
 
   function setQuery(next: string) {
     dropdown.setQuery(next);

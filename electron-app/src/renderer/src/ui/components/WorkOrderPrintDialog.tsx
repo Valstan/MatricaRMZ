@@ -159,7 +159,8 @@ export function WorkOrderPrintDialog(props: {
   const [note, setNote] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const html = useMemo(() => props.buildHtml(draft), [props.buildHtml, draft]);
+  const { buildHtml } = props;
+  const html = useMemo(() => buildHtml(draft), [buildHtml, draft]);
 
   function applySettings(next: WorkOrderPrintSettings) {
     setDraft(next);

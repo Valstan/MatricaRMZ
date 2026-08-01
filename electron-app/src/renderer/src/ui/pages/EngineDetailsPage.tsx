@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
 import { parseContractSections, buildContractSectionOptions, contractSectionAddonToken, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
@@ -669,14 +669,14 @@ export function EngineDetailsPage(props: {
    * Пара (номер, год) из полей карточки. Номер терпит и '41', и полный '41/26' —
    * год из ввода главнее поля года; если года нет вовсе, подставляем текущий.
    */
-  function resolveInternalNumberFields(): { number: string; year: number | null } {
+  const resolveInternalNumberFields = useCallback((): { number: string; year: number | null } => {
     const parsed = parseEngineInternalNumberInput(internalNumber);
     if (!parsed.number) return { number: '', year: null };
     const typedYear = Number(internalNumberYear);
     const year =
       parsed.year ?? (isValidEngineInternalNumberYear(typedYear) ? typedYear : resolveEngineInternalNumberYear(Date.now()));
     return { number: parsed.number, year };
-  }
+  }, [internalNumber, internalNumberYear]);
 
   const internalFields = resolveInternalNumberFields();
   const internalNumberFull = formatEngineInternalNumber(internalFields.number, internalFields.year);
@@ -703,7 +703,7 @@ export function EngineDetailsPage(props: {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [internalNumber, internalNumberYear, props.engineId]);
+  }, [internalNumber, internalNumberYear, props.engineId, resolveInternalNumberFields]);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
@@ -761,6 +761,7 @@ export function EngineDetailsPage(props: {
         }
       })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- DB-sync intentionally keyed on engineId/updatedAt only; re-running on attributes object identity or applyDraftSnapshot would clobber operator edits with committed values on unrelated renders
   }, [props.engineId, props.engine.updatedAt]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
@@ -775,6 +776,7 @@ export function EngineDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is keyed on the edited field values; currentDraftSnapshot/saveDraftNow are redefined every render, adding them would restart the 1.5s timer on every render
   }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
 
   useEffect(() => {
@@ -828,6 +830,7 @@ export function EngineDetailsPage(props: {
     };
     setSessionChanged(false);
     setActiveTab(props.initialTab ?? 'main');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- editing-session baseline resets only on engine switch; re-running on attributes/initialTab change would wipe sessionChanged and yank the active tab mid-edit
   }, [props.engineId]);
 
   function asNullableText(v: unknown): string | null {
@@ -1117,6 +1120,7 @@ export function EngineDetailsPage(props: {
     return () => {
       void auditEditDone();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only audit flush. KNOWN GAP (существует и на main, заведено в docs/PENDING_FOLLOWUPS.md «Аудит правки двигателя не пишется никогда»): с [] cleanup держит auditEditDone ПЕРВОГО рендера, поэтому при закрытии сравнивает initialSnapshot.current не с правками оператора, а со значениями engineNumber/engineBrand/arrivalDate/internalNumberFull НА МОМЕНТ МОНТИРОВАНИЯ; обе стороны берутся из одних и тех же props.engine.attributes, поэтому в штатном случае fieldsChanged пуст → срабатывает `if (!fieldsChanged.length) return` и window.matrica.audit.add('ui.engine.edit_done') не вызывается вообще. Правок оператора этот cleanup не видит ни при каких условиях; непустым список становится только на расхождении форматов (в атрибутах есть номер без валидного года: поле подставляет текущий год, снимок — нет), и тогда уходит ложная запись «изменён внутренний номер» по значениям на момент монтирования. Зависимости оставлены как есть намеренно: auditEditDone пересоздаётся каждый рендер, и его добавление гоняло бы flush на каждый ре-рендер вместо одного раза при закрытии. Штатное лечение — ref на свежий колбэк — это поведенческая правка, она в отдельном PR, а не в этом поведенчески нейтральном проходе.
   }, []);
 
   useEffect(() => {
@@ -1150,6 +1154,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- saveAllAndClose/clearDraft/currentDraftSnapshot/saveDraftNow пересоздаются каждый рендер, а `props` меняется на любой проп, поэтому их добавление перерегистрировало бы actions на каждый рендер. KNOWN GAP (существует и на main): массив зависимостей покрывает НЕ ВСЁ, что читают замыкания — нет internalNumber/internalNumberYear (их читает saveAllAndClose через resolveInternalNumberFields), нет scrapReason (nextValues.scrap_reason) и нет canEditEnginesEff. Правка ТОЛЬКО внутреннего номера или причины утиля не двигает ни одной зависимости → при закрытии App зовёт последний зарегистрированный saveAndClose, устаревшее замыкание кладёт в nextValues до-правочные значения, из-за чего эти поля не попадают в changedEntries и не пишутся, а следом clearDraft() убирает recovery-снимок: правка оператора теряется молча (тот же класс, что потеря правки в ToolDetailsPage). Лечение — добавить эти четыре значения в зависимости — меняет поведение и вынесено в отдельный PR.
   }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
@@ -1291,6 +1296,7 @@ export function EngineDetailsPage(props: {
         setCoreDefsReady(true);
       });
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- effect itself writes engineDefs (setEngineDefs after ensureAttributeDefs); keying on engineDefs identity would re-trigger after every ensure pass — length + coreDefsReady gate is the intended one-shot trigger
   }, [props.canEditMasterData, engineTypeId, engineDefs.length, coreDefsReady]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {

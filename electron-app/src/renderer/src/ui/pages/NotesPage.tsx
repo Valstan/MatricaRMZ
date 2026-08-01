@@ -198,6 +198,7 @@ export function NotesPage(props: {
   useEffect(() => {
     void refresh();
     void refreshUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load; refreshUsers is a body-declared fetcher (closes over props.meUserId), so listing it would re-issue the notes/chat user IPC calls on every render
   }, []);
 
   useLiveDataRefresh(
@@ -213,8 +214,11 @@ export function NotesPage(props: {
   }, []);
 
   useEffect(() => {
+    // autoSaveTimersRef.current is only ever mutated in place, never reassigned,
+    // so this alias is the same object the cleanup needs to drain.
+    const autoSaveTimers = autoSaveTimersRef.current;
     return () => {
-      for (const timer of Object.values(autoSaveTimersRef.current)) {
+      for (const timer of Object.values(autoSaveTimers)) {
         window.clearTimeout(timer);
       }
     };

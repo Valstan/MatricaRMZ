@@ -1453,6 +1453,7 @@ export function ContractDetailsPage(props: {
 
   useEffect(() => {
     void loadContract();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadContract is recreated every render; the load is intentionally keyed to contractId only, re-running per render would refetch in a loop (loadContract sets state it reads)
   }, [props.contractId]);
 
   useEffect(() => {
@@ -1460,10 +1461,12 @@ export function ContractDetailsPage(props: {
     void loadEngineBrands();
     void loadCustomers();
     void loadParts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadCustomers/loadEngineBrands are recreated every render; directories are intentionally refetched only when entityTypes first arrive, not on every entityTypes identity change
   }, [entityTypes.length]);
 
   useEffect(() => {
     if (contract) void loadProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to contract id/version on purpose; loadProgress is recreated every render and depending on the contract object would refetch on every reload even when nothing changed
   }, [contract?.id, contract?.updatedAt, sections, executionParts, entityTypes.length]);
 
   useEffect(() => {
@@ -1490,6 +1493,7 @@ export function ContractDetailsPage(props: {
         }
       })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- state is seeded only when contract id/version changes; depending on the contract object or the render-scoped applyDraftSnapshot would re-seed on every reload and clobber user edits
   }, [contract?.id, contract?.updatedAt]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
@@ -1504,6 +1508,7 @@ export function ContractDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is keyed to the edited form state; currentDraftSnapshot/saveDraftNow are recreated every render and adding them would reset the 1.5s timer on every render
   }, [sections, executionParts, accountingForm, props.canEdit]);
 
   useLiveDataRefresh(
@@ -1549,6 +1554,7 @@ export function ContractDetailsPage(props: {
     return () => { props.registerCardCloseActions?.(null); };
     // accountingForm в deps: keepDraft/saveAndClose читают его из замыкания — без него
     // зарегистрированные actions видели бы устаревшие реквизиты ГОЗ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the registered closures capture render-scoped helpers (saveAllAndClose, saveDraftNow, ...) recreated every render; adding them would re-register on every render, deps list the actual data the actions must see fresh
   }, [sections, executionParts, accountingForm, entityTypes, props.registerCardCloseActions]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {

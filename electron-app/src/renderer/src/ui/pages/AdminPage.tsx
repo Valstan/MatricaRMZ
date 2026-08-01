@@ -390,6 +390,7 @@ export function MasterdataPage(props: {
         targetEntityLabel: opt?.label ?? null,
       };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getLinkTargetTypeCode is a pure body-declared helper over def.metaJson/code; its identity changes every render (it closes over a per-render literal map), so listing it would defeat memoization without changing results
   }, [visibleDefs, entityAttrs, linkOptions, types]);
 
   async function refreshTypes() {
@@ -927,6 +928,7 @@ export function MasterdataPage(props: {
 
   useEffect(() => {
     void refreshTypes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load of entity types; refreshTypes is body-declared and re-running it on identity churn would refetch the type list every render
   }, []);
 
   useEffect(() => {
@@ -939,6 +941,7 @@ export function MasterdataPage(props: {
         await resyncSelectedType(selectedTypeId, { skipTypesRefresh: true, silent: true });
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on selectedTypeId only; refreshDefs/refreshEntities/resyncSelectedType are body-declared helpers whose per-render identity would otherwise trigger a refetch + server resync on every render
   }, [selectedTypeId]);
 
   useEffect(() => {
@@ -978,6 +981,7 @@ export function MasterdataPage(props: {
     if (!selectedTypeId) return;
     void refreshLinkOptions(visibleDefs);
     void refreshLookupOptions(visibleDefs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshLinkOptions/refreshLookupOptions are body-declared fetchers; their reactive inputs (visibleDefs, types) are already in the deps, and listing the functions themselves would refetch options on every render
   }, [selectedTypeId, visibleDefs, types]);
 
   return (
@@ -1644,6 +1648,7 @@ function NewEntityTypeForm(props: { existingCodes: string[]; onSubmit: (code: st
     return `${base}_${i}`;
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- suggestCode is a pure body-declared helper whose only reactive input is props.existingCodes, deliberately keyed via join('|') so the memo tracks content instead of per-render array identity
   const computedCode = useMemo(() => (name.trim() ? suggestCode(name) : ''), [name, props.existingCodes.join('|')]);
   return (
     <>

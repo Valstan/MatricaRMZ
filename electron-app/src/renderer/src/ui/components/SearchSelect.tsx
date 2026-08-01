@@ -57,6 +57,11 @@ export function SearchSelect(props: {
 }) {
   const disabled = props.disabled === true;
   const dropdown = useSuggestionDropdown(props.options);
+  // Hoisted so the effects below can depend on the setters themselves instead of the
+  // whole `dropdown` object (which is a fresh object on every render). Both are raw
+  // useState setters from useSuggestionDropdown, so they are referentially stable.
+  const setDropdownQuery = dropdown.setQuery;
+  const setDropdownActiveIdx = dropdown.setActiveIdx;
   const hints = useComponentSuggestionSuppress();
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -152,7 +157,7 @@ export function SearchSelect(props: {
 
   useEffect(() => {
     if (props.query !== undefined) {
-      if (dropdown.query !== props.query) dropdown.setQuery(props.query);
+      if (dropdown.query !== props.query) setDropdownQuery(props.query);
       return;
     }
     if (!dropdown.open) {
@@ -160,23 +165,23 @@ export function SearchSelect(props: {
       // explicit close (pick / click-away / Escape) reverts to the selected label.
       if (dropdown.autoHidden) return;
       const next = selected?.label ?? '';
-      if (dropdown.query !== next) dropdown.setQuery(next);
+      if (dropdown.query !== next) setDropdownQuery(next);
       return;
     }
     const next = String(dropdown.query ?? '').trim() ? dropdown.query : (selected?.label ?? '');
-    if (dropdown.query !== next) dropdown.setQuery(next);
-  }, [dropdown.open, dropdown.autoHidden, dropdown.query, props.query, selected?.label]);
+    if (dropdown.query !== next) setDropdownQuery(next);
+  }, [dropdown.open, dropdown.autoHidden, dropdown.query, props.query, selected?.label, setDropdownQuery]);
 
   useEffect(() => {
     if (!dropdown.open) return;
-    dropdown.setActiveIdx((idx) => {
+    setDropdownActiveIdx((idx) => {
       if (visibleItems.length === 0) return -1;
       if (exactMatch) return 0;
       if (idx < 0) return 0;
       if (idx >= visibleItems.length) return visibleItems.length - 1;
       return idx;
     });
-  }, [dropdown.open, dropdown.setActiveIdx, exactMatch, visibleItems.length]);
+  }, [dropdown.open, setDropdownActiveIdx, exactMatch, visibleItems.length]);
 
   async function submitCreate() {
     if (!props.onCreate || createBusy) return;
@@ -229,6 +234,7 @@ export function SearchSelect(props: {
       e.preventDefault();
       close();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- close/pickByIndex/submitCreate are plain component-body functions re-created on every render; this callback already re-computes every render (dropdown is a fresh object), so it never reads a stale one, and listing them would force a useCallback cascade over all three
   }, [disabled, dropdown, openDropdown, visibleItems, props.onCreate, exactMatch]);
 
   const createBtnHeight = props.onCreate ? 52 : 0;

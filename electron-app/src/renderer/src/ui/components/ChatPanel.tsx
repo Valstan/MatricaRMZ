@@ -106,9 +106,15 @@ export function ChatPanel(props: {
     return base.filter((u) => u.isActive && u.id !== props.meUserId);
   }, [users, isPending, props.meUserId]);
 
+  // KNOWN GAP (docs/PENDING_FOLLOWUPS.md → «Цикл перерисовки в чат-панели»): this effect is already inside a
+  // feedback loop. App.tsx renders `onChatContextChange={(ctx) => setChatContext(ctx)}` inline, so the dep
+  // identity changes on every App render; the effect then stores a NEW context object via a plain useState
+  // setter, which re-renders App, which makes a new arrow, which re-fires the effect. ChatPanel is not
+  // memoized, so nothing breaks the cycle. Deliberately left as-is: this pass is behaviour-neutral.
+  const { onChatContextChange } = props;
   useEffect(() => {
-    props.onChatContextChange?.({ selectedUserId, adminMode });
-  }, [selectedUserId, adminMode, props.onChatContextChange]);
+    onChatContextChange?.({ selectedUserId, adminMode });
+  }, [selectedUserId, adminMode, onChatContextChange]);
 
   async function refreshUsers() {
     const r = await window.matrica.chat.usersList().catch(() => null);
@@ -171,6 +177,7 @@ export function ChatPanel(props: {
       alive = false;
       stop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the poll is keyed to the chat selection only; refreshMessages is re-created on every render, so depending on it would tear down and restart the poll (refetching messages and marking them read) on every render. KNOWN GAP: the running tick keeps the refreshMessages of the render that installed it, so later changes to props.meRole (via isPending), props.canAdminViewAll and props.meUserId do not reach the poll until selectedUserId/adminMode/adminPair changes
   }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId]);
 
   useEffect(() => {

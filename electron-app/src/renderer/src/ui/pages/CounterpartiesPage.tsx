@@ -99,12 +99,12 @@ export function CounterpartiesPage(props: {
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
 
-  async function loadType() {
+  const loadType = useCallback(async () => {
     if (!props.canViewMasterData) return;
     const types = await window.matrica.admin.entityTypes.list();
     const type = (types as any[]).find((t) => String(t.code) === 'customer');
     setTypeId(type?.id ? String(type.id) : '');
-  }
+  }, [props.canViewMasterData]);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -144,7 +144,7 @@ export function CounterpartiesPage(props: {
 
   useEffect(() => {
     void loadType();
-  }, [props.canViewMasterData]);
+  }, [loadType]);
 
   useEffect(() => {
     void refresh();
@@ -263,6 +263,7 @@ export function CounterpartiesPage(props: {
         .filter((col): col is CounterpartyColumn => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id))
         .filter((col) => !col.requireShowPreviews || showPreviews),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render, so depending on `columnLayout` (demanded only because `isVisible` is called as a method) would defeat this memo; `columnLayout.hidden` is the Set `isVisible` reads, so the listed deps already cover every input
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);

@@ -70,6 +70,7 @@ export function UserSettingsPage(props: {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- profile fetch is deliberately keyed on props.user?.id; props.user is only read as a presence guard, and depending on the object would refetch on every parent re-render that recreates it
   }, [props.user?.id]);
 
   function describeUpdateStatus(status: typeof updateStatusInfo): string {

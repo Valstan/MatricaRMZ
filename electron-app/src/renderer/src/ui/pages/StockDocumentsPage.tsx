@@ -201,6 +201,7 @@ export function StockDocumentsPage(props: {
         .map((id) => columnsById.get(id))
         .filter((col): col is DocColumn => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object (and a fresh isVisible closure) on every render, so depending on columnLayout would recompute this memo every render; isVisible only reads columnLayout.hidden, which is already listed
     [columnLayout.order, columnLayout.hidden, columnsById],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);

@@ -449,7 +449,8 @@ export function WorkOrderDetailsPage(props: {
   // Загрузка списка универсальных шаблонов нарядов по kind. Workshop-template
   // (legacy 5-й тип) не имеет своих универсальных шаблонов — пропускаем.
   useEffect(() => {
-    if (!payload || !isWorkOrderTemplateKind(payload.workOrderKind)) {
+    const workOrderKind = payload?.workOrderKind;
+    if (!isWorkOrderTemplateKind(workOrderKind)) {
       setAvailableWorkOrderTemplates([]);
       setSelectedWorkOrderTemplateId('');
       return;
@@ -457,7 +458,7 @@ export function WorkOrderDetailsPage(props: {
     let cancelled = false;
     (async () => {
       try {
-        const r = await window.matrica.workOrderTemplates.list({ kind: payload.workOrderKind as WorkOrderKind });
+        const r = await window.matrica.workOrderTemplates.list({ kind: workOrderKind });
         if (cancelled) return;
         if (r?.ok) setAvailableWorkOrderTemplates(r.templates);
       } catch {
@@ -618,6 +619,20 @@ export function WorkOrderDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // KNOWN GAP (pre-existing; behaviour deliberately left untouched by this lint-only pass):
+    // canEditNow is read above (saveAndClose, keepDraft) and is NOT in the deps. Unlike the helpers
+    // it is a plain boolean (canEditNow = props.canEdit && !isClosed), so listing it would
+    // re-register only when it flips — its absence is a real stale closure, not a render-cost
+    // trade-off. Posting/closing the order calls setOperationStatus('closed') (plus
+    // setClosedLocally(true) for a regular order) while setPayload is either not called at all
+    // (postAssembly) or only when the backend returned r.documentId (close) — so the payload
+    // identity is unchanged, this effect does not re-run, and the still-registered saveAndClose
+    // keeps canEditNow === true together with the flushSave captured before the close, whose own
+    // `if (!canEditNow) return` guard is just as stale. If a close-guard «Сохранить и закрыть»
+    // fires after that (reachable when the pre-close flushSave failed and left dirtyRef set), it
+    // issues workOrders.update against an already-closed order. The real fix is to add canEditNow
+    // to the deps, but that changes behaviour and belongs to a separate follow-up PR.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave/clearDraft/refresh/saveDraftNow are plain function declarations in the component body, new on every render, so listing them (or `props` as a whole) would re-register the close actions on every render; canEditNow is omitted despite being read — see the KNOWN GAP above
   }, [payload, props.registerCardCloseActions, props.id]);
 
   // Реквизиты контракта/контрагента для печати: резолвим двигатель наряда → контракт
@@ -632,7 +647,7 @@ export function WorkOrderDetailsPage(props: {
     const headerEngineId = payload ? resolveAssemblyEngineId(payload) : null;
     if (headerEngineId) ids.push(headerEngineId);
     return Array.from(new Set(ids)).sort().join(',');
-  }, [payload?.freeWorks, payload?.workGroups, payload?.assemblyEngineId]);
+  }, [payload]);
   useEffect(() => {
     const engineIds = orderEngineIdsKey ? orderEngineIdsKey.split(',') : [];
     if (!engineIds.length || engines.length === 0) {
@@ -933,6 +948,7 @@ export function WorkOrderDetailsPage(props: {
 
   useEffect(() => {
     void Promise.all([refresh(), loadRefs()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load runs once per card id; refresh is a plain body helper recreated each render, so listing it would re-run the load (and clobber unsaved edits) on every render
   }, [props.id]);
 
   // Phase 3b: debounced recovery-draft autosave. Fires ~1.5s after the last edit while the
@@ -950,6 +966,7 @@ export function WorkOrderDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce must restart only when payload/canEditNow change; saveDraftNow is a plain body helper recreated each render, so listing it would reset the 1.5s autosave timer on every render
   }, [payload, canEditNow]);
 
   async function flushSave(next: WorkOrderPayload) {
@@ -1019,6 +1036,7 @@ export function WorkOrderDetailsPage(props: {
 
   useEffect(() => {
     void loadShortageApproval();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps mirror the exact inputs loadShortageApproval reads (card id, kind, operationUpdatedAt); the helper is a plain body function recreated each render, so listing it would refetch on every render
   }, [props.id, payload?.workOrderKind, operationUpdatedAt]);
 
   async function decideShortageApproval(approve: boolean) {
@@ -1417,6 +1435,7 @@ export function WorkOrderDetailsPage(props: {
     if (assemblyInitialAutoFillRef.current === key) return;
     assemblyInitialAutoFillRef.current = key;
     void applyAssemblyPlan(payload, engineId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot auto-fill guarded by assemblyInitialAutoFillRef; applyAssemblyPlan is a large body helper recreated each render, so listing it would re-run the effect every render (and wrapping it would cascade through confirm/patch/engines)
   }, [payload, props.id, props.initialPayload]);
 
   function findExistingServiceByLabel(label: string, partId: string | null): ServiceInfo | null {
