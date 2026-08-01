@@ -287,6 +287,74 @@ function toQtyValue(v: unknown) {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }
 
+/**
+ * Канонические строки стадии по спецификации марки — единственный источник «как должно быть».
+ * Используется и авто-resync'ом (там результат сливается с правками оператора), и кнопкой
+ * «Сбросить по двигателю и марке» (там заменяет строки целиком).
+ */
+function buildBrandRowsForStage(
+  parts: unknown[],
+  engineBrandId: string | undefined,
+  stage: string,
+): ChecklistTableRow[] {
+  return parts.map((p: any) => {
+    const link = getBrandLinkForPart(p, engineBrandId);
+    const qty = toQtyValue(link?.quantity ?? 0);
+    const partName = String(p.name ?? p.article ?? p.id);
+    const partId = String(p?.id ?? '');
+
+    if (stage === 'defect') {
+      return markBrandLinkedRow(
+        {
+          part_name: partName,
+          part_number: String(link?.partNumber ?? ''),
+          quantity: qty,
+          repairable_qty: qty,
+          scrap_qty: 0,
+        },
+        partId,
+      );
+    }
+
+    if (stage === 'completeness') {
+      return markBrandLinkedRow(
+        {
+          part_name: partName,
+          assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+          quantity: qty,
+          present: false,
+          actual_qty: 0,
+        },
+        partId,
+      );
+    }
+
+    // Т4: галочки актов копируются из привязки деталь↔марка; default-наличие: акт-детали
+    // приходят с ПУСТЫМ наличием (печатается чистый акт, работники заполняют на бумаге),
+    // остальная мелочёвка — наличие проставлено сразу.
+    const inCompleteness = Boolean((link as any)?.inCompletenessAct);
+    const inDefect = Boolean((link as any)?.inDefectAct);
+    const defaultPresent = !(inCompleteness || inDefect);
+    return markBrandLinkedRow(
+      {
+        part_name: partName,
+        assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+        part_number: String(link?.partNumber ?? ''),
+        bom_variant_group: '',
+        quantity: qty,
+        present: defaultPresent,
+        actual_qty: defaultPresent ? qty : 0,
+        repairable_qty: qty,
+        scrap_qty: 0,
+        replace_qty: 0,
+        in_completeness_act: inCompleteness,
+        in_defect_act: inDefect,
+      },
+      partId,
+    );
+  });
+}
+
 function inventoryRawRows(answers: RepairChecklistAnswers): Record<string, unknown>[] {
   const a: any = (answers as any).engine_inventory_items;
   if (!a || a.kind !== 'table') return [];
@@ -415,6 +483,7 @@ export function RepairChecklistPanel(props: {
   const [conductBusy, setConductBusy] = useState(false);
   const conductOperationIdRef = useRef<string | null>(null);
   const [conductedVersions, setConductedVersions] = useState<DefectConductedVersionSummary[]>([]);
+  const { confirm } = useConfirm();
   const [defectPartHistory, setDefectPartHistory] = useState<DefectPartHistoryEvent[]>([]);
   const [defectHistoryOpen, setDefectHistoryOpen] = useState(false);
   // Ф5 (GAP-4): производные статусы «в ремонте/готова к сборке» per partId.
@@ -828,28 +897,6 @@ export function RepairChecklistPanel(props: {
     : props.stage === 'defect'
       ? 'Вложения к листу дефектовки'
       : 'Вложения к акту комплектности';
-  const lockedFieldIds = useMemo(() => {
-    const locked = new Set<string>();
-    const brand = String(props.engineBrand ?? '').trim();
-    const number = String(props.engineNumber ?? '').trim();
-    const internalNumber = String(props.engineInternalNumber ?? '').trim();
-    const contractNumber = String(props.contractNumber ?? '').trim();
-    const hasArrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate);
-
-    if (props.stage === 'defect' || props.stage === 'completeness' || props.stage === ENGINE_INVENTORY_STAGE) {
-      if (brand) locked.add('engine_brand');
-      if (number) locked.add('engine_number');
-      if (internalNumber) locked.add('engine_internal_number');
-    }
-    if ((props.stage === 'completeness' || props.stage === ENGINE_INVENTORY_STAGE) && contractNumber) {
-      locked.add('contract_number');
-    }
-    if (props.stage === ENGINE_INVENTORY_STAGE && hasArrivalDate) {
-      locked.add('arrival_date');
-    }
-
-    return locked;
-  }, [props.arrivalDate, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   const load = useCallback(async () => {
     setStatus('Загрузка чек-листа...');
@@ -935,15 +982,16 @@ export function RepairChecklistPanel(props: {
     const arrivalDate = typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate) ? props.arrivalDate : null;
     const next = { ...answers } as RepairChecklistAnswers;
     let changed = false;
-    const isDefect = props.stage === 'defect';
     const isCompleteness = props.stage === 'completeness';
     const isInventory = props.stage === ENGINE_INVENTORY_STAGE;
-    const isLockedByEngine = isDefect || isCompleteness || isInventory;
 
+    // Решение владельца 2026-08-01: оператор вправе править эти поля на каждом двигателе.
+    // Поэтому автоподстановка только ЗАПОЛНЯЕТ ПУСТОЕ и никогда не перетирает введённое —
+    // вернуть значения из карточки двигателя можно кнопкой «Сбросить по двигателю и марке».
     if (hasItem('engine_brand') && brand) {
       const a: any = (answers as any).engine_brand;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isLockedByEngine && current !== brand) || (!isLockedByEngine && !current.trim())) {
+      if (!current.trim()) {
         (next as any).engine_brand = { kind: 'text', value: brand };
         changed = true;
       }
@@ -951,7 +999,7 @@ export function RepairChecklistPanel(props: {
     if (hasItem('engine_number') && num) {
       const a: any = (answers as any).engine_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isLockedByEngine && current !== num) || (!isLockedByEngine && !current.trim())) {
+      if (!current.trim()) {
         (next as any).engine_number = { kind: 'text', value: num };
         changed = true;
       }
@@ -959,7 +1007,7 @@ export function RepairChecklistPanel(props: {
     if (hasItem('engine_internal_number') && internalNum) {
       const a: any = (answers as any).engine_internal_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isLockedByEngine && current !== internalNum) || (!isLockedByEngine && !current.trim())) {
+      if (!current.trim()) {
         (next as any).engine_internal_number = { kind: 'text', value: internalNum };
         changed = true;
       }
@@ -967,7 +1015,7 @@ export function RepairChecklistPanel(props: {
     if ((isCompleteness || isInventory) && hasItem('contract_number') && contractNumber) {
       const a: any = (answers as any).contract_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (current !== contractNumber) {
+      if (!current.trim()) {
         (next as any).contract_number = { kind: 'text', value: contractNumber };
         changed = true;
       }
@@ -975,7 +1023,7 @@ export function RepairChecklistPanel(props: {
     if (isInventory && hasItem('arrival_date') && arrivalDate) {
       const a: any = (answers as any).arrival_date;
       const current = a?.kind === 'date' && Number.isFinite(a.value) ? Number(a.value) : null;
-      if (current !== arrivalDate) {
+      if (current == null) {
         (next as any).arrival_date = { kind: 'date', value: arrivalDate };
         changed = true;
       }
@@ -984,7 +1032,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. Note `answers` IS in the deps, so this effect re-runs on every answer edit — deliberately: in the defect/completeness/inventory stages the engine fields are locked to the engine card, so a manual edit is written back to the prop value and auto-saved. The `if (!changed) return` guard above makes that converge instead of looping
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; since each branch now only fills a BLANK field, an edited field never matches and the `if (!changed) return` guard keeps it a no-op
   }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   useEffect(() => {
@@ -1047,6 +1095,68 @@ export function RepairChecklistPanel(props: {
     void save(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!res.changed) return` guard above keeps it a no-op once the commission rows match the workshop roster
   }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.stage, props.workshopName]);
+
+  // Кнопка «Сбросить по двигателю и марке» (решение владельца 2026-08-01). Состав дефектовки и
+  // шапка акта правятся оператором на каждом двигателе, автоподстановка их больше не перетирает —
+  // значит нужен явный путь назад: вернуть строки к спецификации марки, а шапку — к карточке
+  // двигателя. Операторские правки при этом теряются, поэтому вызов идёт через confirm.
+  async function resetToBrandCanonical() {
+    if (!activeTemplate || !props.canEdit) return;
+    const tableId =
+      props.stage === 'defect'
+        ? 'defect_items'
+        : props.stage === 'completeness'
+          ? 'completeness_items'
+          : isInventoryStage
+            ? 'engine_inventory_items'
+            : null;
+    if (!tableId) return;
+    const tableItem = activeTemplate.items.find((it) => it.kind === 'table' && it.id === tableId);
+
+    const ok = await confirm({
+      title: 'Сбросить по двигателю и марке?',
+      detail:
+        'Строки будут заменены на спецификацию марки, а марка / номер / договор / дата — на значения из карточки двигателя. ' +
+        'Всё, что правили руками в этом акте (добавленные строки, изменённые количества, брак, отметки наличия), будет потеряно.',
+      confirmLabel: 'Сбросить',
+    });
+    if (!ok) return;
+
+    const next = { ...answers } as RepairChecklistAnswers;
+    const hasItem = (id: string) => activeTemplate.items.some((it) => it.id === id);
+    const brand = String(props.engineBrand ?? '').trim();
+    const num = String(props.engineNumber ?? '').trim();
+    const internalNum = String(props.engineInternalNumber ?? '').trim();
+    const contractNumber = String(props.contractNumber ?? '').trim();
+    const arrivalDate =
+      typeof props.arrivalDate === 'number' && Number.isFinite(props.arrivalDate) ? props.arrivalDate : null;
+    if (hasItem('engine_brand') && brand) (next as any).engine_brand = { kind: 'text', value: brand };
+    if (hasItem('engine_number') && num) (next as any).engine_number = { kind: 'text', value: num };
+    if (hasItem('engine_internal_number') && internalNum)
+      (next as any).engine_internal_number = { kind: 'text', value: internalNum };
+    if (hasItem('contract_number') && contractNumber)
+      (next as any).contract_number = { kind: 'text', value: contractNumber };
+    if (hasItem('arrival_date') && arrivalDate != null)
+      (next as any).arrival_date = { kind: 'date', value: arrivalDate };
+
+    if (tableItem && props.engineBrandId) {
+      setStatus('Загрузка спецификации марки...');
+      const parts = await listAllPartSpecs({ engineBrandId: props.engineBrandId });
+      if (!parts.ok) {
+        setStatus(`Ошибка: ${parts.error}`);
+        return;
+      }
+      const rows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
+      (next as any)[tableItem.id] = { kind: 'table', rows };
+      setStatus('');
+    }
+
+    // brandRowsSyncKeyRef НЕ трогаем: строки уже канонические, а перевзведённый resync отработал бы
+    // на своём снимке answers и затёр бы выставленную выше шапку. При смене марки карточки ключ и так
+    // становится другим (engineBrandId входит в syncKey), так что слияние по-прежнему произойдёт.
+    setAnswers(next);
+    void save(next);
+  }
 
   // Кнопка «Заполнить комиссию по цеху» (под-вкладка комплектности): принудительно ставит
   // стандартные роли комиссии (нач. цеха/мастер — из цеха двигателя, нач. ОТК — по всей базе),
@@ -1353,33 +1463,7 @@ export function RepairChecklistPanel(props: {
       }
 
       if (props.stage === ENGINE_INVENTORY_STAGE) {
-        const freshBrandRows = (parts.parts as any[]).map((p: any) => {
-          const link = getBrandLinkForPart(p, props.engineBrandId);
-          const qty = toQtyValue(link?.quantity ?? 0);
-          // Т4: галочки актов копируются из привязки деталь↔марка; default-наличие:
-          // акт-детали приходят с ПУСТЫМ наличием (печатается чистый акт, работники
-          // заполняют на бумаге), остальная мелочёвка — наличие проставлено сразу.
-          const inCompleteness = Boolean((link as any)?.inCompletenessAct);
-          const inDefect = Boolean((link as any)?.inDefectAct);
-          const defaultPresent = !(inCompleteness || inDefect);
-          return markBrandLinkedRow(
-            {
-              part_name: String(p.name ?? p.article ?? p.id),
-              assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
-              part_number: String(link?.partNumber ?? ''),
-              bom_variant_group: '',
-              quantity: qty,
-              present: defaultPresent,
-              actual_qty: defaultPresent ? qty : 0,
-              repairable_qty: qty,
-              scrap_qty: 0,
-              replace_qty: 0,
-              in_completeness_act: inCompleteness,
-              in_defect_act: inDefect,
-            },
-            String((p as any).id ?? ''),
-          );
-        });
+        const freshBrandRows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
         const merged = mergeBrandManagedRows(
           currentRows,
           freshBrandRows,
@@ -1441,20 +1525,7 @@ export function RepairChecklistPanel(props: {
       }
 
       if (props.stage === 'defect') {
-        const freshBrandRows = (parts.parts as any[]).map((p: any) => {
-          const link = getBrandLinkForPart(p, props.engineBrandId);
-          const qty = toQtyValue(link?.quantity ?? 0);
-          return markBrandLinkedRow(
-            {
-              part_name: String(p.name ?? p.article ?? p.id),
-              part_number: String(link?.partNumber ?? ''),
-              quantity: qty,
-              repairable_qty: qty,
-              scrap_qty: 0,
-            },
-            String((p as any).id ?? ''),
-          );
-        });
+        const freshBrandRows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
         const merged = mergeBrandManagedRows(currentRows, freshBrandRows, defectRowSignature, (base, prev) => ({
           ...base,
           scrap_qty: toQtyValue((prev as any)?.scrap_qty ?? 0),
@@ -1469,19 +1540,7 @@ export function RepairChecklistPanel(props: {
         return;
       }
 
-      const freshBrandRows = (parts.parts as any[]).map((p: any) => {
-        const link = getBrandLinkForPart(p, props.engineBrandId);
-        return markBrandLinkedRow(
-          {
-            part_name: String(p.name ?? p.article ?? p.id),
-            assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
-            quantity: toQtyValue(link?.quantity ?? 0),
-            present: false,
-            actual_qty: 0,
-          },
-          String((p as any).id ?? ''),
-        );
-      });
+      const freshBrandRows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
       const merged = mergeBrandManagedRows(currentRows, freshBrandRows, completenessRowSignature, (base, prev) => ({
         ...base,
         present: Boolean((prev as any)?.present),
@@ -2440,19 +2499,35 @@ export function RepairChecklistPanel(props: {
             const isCompletenessGroupsTable = props.stage === 'completeness' && it.kind === 'table' && it.id === 'completeness_items';
             const isInventoryItemsTable = isInventoryStage && it.kind === 'table' && it.id === 'engine_inventory_items';
             const isWideTableRow = isDefectResultsTable || isCompletenessGroupsTable || isInventoryItemsTable;
-            const isLockedField = lockedFieldIds.has(it.id);
             return (
               <React.Fragment key={it.id}>
-                <div style={{ color: '#334155', ...(isWideTableRow ? { gridColumn: '1 / -1' } : {}) }}>
-                  {it.label} {it.required ? <span style={{ color: '#b91c1c' }}>*</span> : null}
+                <div
+                  style={{
+                    color: '#334155',
+                    ...(isWideTableRow
+                      ? { gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }
+                      : {}),
+                  }}
+                >
+                  <span>
+                    {it.label} {it.required ? <span style={{ color: '#b91c1c' }}>*</span> : null}
+                  </span>
+                  {isWideTableRow && props.canEdit ? (
+                    <Button
+                      variant="ghost"
+                      title="Вернуть строки к спецификации марки двигателя, а марку / номер / договор / дату — к значениям из карточки двигателя. Ручные правки этого акта (добавленные строки, количества, брак, отметки наличия) будут потеряны."
+                      onClick={() => void resetToBrandCanonical()}
+                    >
+                      Сбросить по двигателю и марке
+                    </Button>
+                  ) : null}
                 </div>
                 <div style={isWideTableRow ? { gridColumn: '1 / -1' } : undefined}>
                   {it.kind === 'text' && (
                     <OverflowTooltipInput
                       value={a?.kind === 'text' ? a.value : ''}
-                      disabled={!props.canEdit || isLockedField}
+                      disabled={!props.canEdit}
                       onChange={(e) => {
-                        if (isLockedField) return;
                         const next = { ...answers, [it.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
                         setAnswers(next);
                       }}
@@ -2464,9 +2539,8 @@ export function RepairChecklistPanel(props: {
                     <Input
                       type="date"
                       value={a?.kind === 'date' && a.value ? toInputDate(a.value) : ''}
-                      disabled={!props.canEdit || isLockedField}
+                      disabled={!props.canEdit}
                       onChange={(e) => {
-                        if (isLockedField) return;
                         const nextVal = fromInputDate(e.target.value);
                         const next = { ...answers, [it.id]: { kind: 'date', value: nextVal } } as RepairChecklistAnswers;
                         setAnswers(next);

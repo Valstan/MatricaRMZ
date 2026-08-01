@@ -248,10 +248,13 @@ export function RepairChecklistPanel(props: {
     let changed = false;
     const isDefect = props.stage === 'defect';
 
+    // Решение владельца 2026-08-01: оператор вправе править эти поля на каждом двигателе.
+    // Автоподстановка только ЗАПОЛНЯЕТ ПУСТОЕ и никогда не перетирает введённое (клиент ведёт
+    // себя так же); вернуть значения из карточки двигателя можно кнопкой сброса.
     if (hasItem('engine_brand') && brand) {
       const a: any = (answers as any).engine_brand;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isDefect && current !== brand) || (!isDefect && !current.trim())) {
+      if (!current.trim()) {
         (next as any).engine_brand = { kind: 'text', value: brand };
         changed = true;
       }
@@ -259,7 +262,7 @@ export function RepairChecklistPanel(props: {
     if (hasItem('engine_number') && num) {
       const a: any = (answers as any).engine_number;
       const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if ((isDefect && current !== num) || (!isDefect && !current.trim())) {
+      if (!current.trim()) {
         (next as any).engine_number = { kind: 'text', value: num };
         changed = true;
       }
@@ -277,7 +280,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the rule asks for activeTemplate, answers, props.canEdit and save. `save` is recreated every render; `activeTemplate` is covered by its id, which is a dep. `answers` is omitted deliberately: in the defect stage this effect force-writes engine_brand/engine_number back to the engine-card values, so re-running on every edit would revert manual edits. ⚠ DIVERGES FROM THE DESKTOP SIBLING (electron-app/src/renderer/src/ui/components/RepairChecklistPanel.tsx has `answers` IN its deps): the same manual edit in the defect stage survives here and is reverted + auto-saved there. Exactly one of the two is the intended product behavior; not decided on this lint-only branch, tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты». `props.canEdit` is also omitted: a read-only→editable transition does not re-run the autofill, so a value computed while read-only stays unsaved
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the rule asks for activeTemplate, answers, props.canEdit and save. `save` is recreated every render; `activeTemplate` is covered by its id, which is a dep. `answers` is omitted because every branch above only fills a BLANK field, so re-running on each edit could not change the outcome — it would only cost a pass. This matches the desktop copy, which lists `answers` and reaches the same result through its `if (!changed) return` guard: since the owner's 2026-08-01 decision neither copy overwrites what the operator typed. `props.canEdit` is also omitted: a read-only→editable transition does not re-run the autofill, so a value computed while read-only stays unsaved
   }, [activeTemplate?.id, props.engineBrand, props.engineNumber, props.stage]);
 
   useEffect(() => {
