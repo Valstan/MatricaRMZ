@@ -108,6 +108,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   useEffect(() => {
     if (!canManageUsers) return;
     void refreshUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- permission-gated initial load; refreshUsers reads selectedUserId, so depending on it would refetch the whole user list on every selection change
   }, [canManageUsers]);
 
   useEffect(() => {

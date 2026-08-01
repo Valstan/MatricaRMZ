@@ -199,6 +199,7 @@ export function EnginesPage(props: {
   useEffect(() => {
     if (!props.canViewEngines) return;
     void loadEngines();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load keyed on view permission; loadEngines is redefined every render (closes over ensureEngineSchema/props), adding it would refetch on every render
   }, [props.canViewEngines]);
 
   useEffect(() => {

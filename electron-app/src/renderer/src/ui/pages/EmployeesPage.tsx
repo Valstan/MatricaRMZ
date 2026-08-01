@@ -286,6 +286,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         .filter((col): col is EmployeeColumn => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id))
         .filter((col) => !col.requireShowPreviews || showPreviews),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only derives from columnLayout.hidden, which is tracked; useColumnLayout returns a fresh object every render, so depending on columnLayout itself would defeat the memo
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);

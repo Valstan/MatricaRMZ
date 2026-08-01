@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate } from '@matricarmz/shared';
 
@@ -167,7 +167,7 @@ export function RepairChecklistPanel(props: {
         ? 'Вложения к акту комплектности'
         : 'Вложения к контрольному листу';
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus('Загрузка чек-листа...');
     const r = await checklistsApi.getEngineChecklist({ engineId: props.engineId, stage: props.stage });
     if (!r.ok) {
@@ -186,11 +186,11 @@ export function RepairChecklistPanel(props: {
     else setAnswers({});
 
     setStatus('');
-  }
+  }, [props.engineId, props.stage]);
 
   useEffect(() => {
     void load();
-  }, [props.engineId, props.stage]);
+  }, [load, props.engineId, props.stage]);
 
   useEffect(() => {
     let alive = true;
@@ -232,7 +232,7 @@ export function RepairChecklistPanel(props: {
     if (!activeTemplate) return;
     if (payload?.templateId) return;
     setAnswers((prev) => (Object.keys(prev).length ? prev : emptyAnswersForTemplate(activeTemplate)));
-  }, [activeTemplate?.id]);
+  }, [activeTemplate, activeTemplate?.id, payload?.templateId]);
 
   useEffect(() => {
     if (!activeTemplate) return;
@@ -273,6 +273,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- autofill must run only when template/engine props change: adding answers would re-run it on every edit and clobber manual field edits in defect stage; save is re-created every render (declared later in the body)
   }, [activeTemplate?.id, props.engineBrand, props.engineNumber, props.stage]);
 
   useEffect(() => {
@@ -410,6 +411,7 @@ export function RepairChecklistPanel(props: {
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill guarded by prefillKey ref; answers/payload are read-latest on purpose (re-running per answers change would refetch parts); save is re-created every render (declared later in the body)
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   useEffect(() => {
@@ -444,6 +446,7 @@ export function RepairChecklistPanel(props: {
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill guarded by prefillKey ref; answers/payload are read-latest on purpose (re-running per answers change would refetch parts); save is re-created every render (declared later in the body)
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   useEffect(() => {
@@ -460,6 +463,7 @@ export function RepairChecklistPanel(props: {
     const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalized.rows } } as RepairChecklistAnswers;
     setAnswers(next);
     if (props.canEdit) void save(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy-row normalization keyed by activeTemplate?.id intentionally; save is re-created every render (declared later in the body), adding it would run this effect on every render
   }, [activeTemplate?.id, props.stage, answers, props.canEdit]);
 
   async function save(nextAnswers: RepairChecklistAnswers) {

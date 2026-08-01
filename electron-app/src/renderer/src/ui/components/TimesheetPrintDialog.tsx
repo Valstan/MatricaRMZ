@@ -49,7 +49,8 @@ export function TimesheetPrintDialog(props: {
   const [pages, setPages] = useState(1);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const html = useMemo(() => props.buildHtml(draft, variant, blocks), [props.buildHtml, draft, variant, blocks]);
+  const { buildHtml } = props;
+  const html = useMemo(() => buildHtml(draft, variant, blocks), [buildHtml, draft, variant, blocks]);
 
   function update(patch: Partial<TimesheetPrintSettings>) {
     setDraft((prev) => ({ ...prev, ...patch }));

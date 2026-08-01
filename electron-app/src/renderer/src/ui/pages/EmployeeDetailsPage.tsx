@@ -424,6 +424,7 @@ export function EmployeeDetailsPage(props: {
 
   useEffect(() => {
     void loadEmployee();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load keyed by employeeId only; loadEmployee is recreated each render and writes state, so listing it would re-run the fetch after every render
   }, [props.employeeId]);
 
   function moveTransfer(from: number, to: number) {
@@ -463,7 +464,7 @@ export function EmployeeDetailsPage(props: {
       if (next.length !== employeeDefs.length) setEmployeeDefs(next as AttrDef[]);
       setCoreDefsReady(true);
     });
-  }, [props.canEdit, employeeTypeId, employeeDefs.length, coreDefsReady]);
+  }, [props.canEdit, employeeTypeId, employeeDefs, employeeDefs.length, coreDefsReady]);
 
   useEffect(() => {
     if (customDataType !== 'link') setCustomLinkTargetCode('');
@@ -488,12 +489,14 @@ export function EmployeeDetailsPage(props: {
   useEffect(() => {
     if (entityTypes.length === 0) return;
     void loadLinkRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on entityTypes only; loadLinkRules is recreated each render and setLinkRules(new array) would re-trigger the effect endlessly
   }, [entityTypes]);
 
   useEffect(() => {
     for (const def of customDefs) {
       if (def.dataType === 'link') void ensureLinkOptions(def);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ensureLinkOptions is recreated each render (declared below this effect) and is internally guarded by per-def option/loading caches; re-run keyed on defs/types only
   }, [customDefs, entityTypes]);
 
   useEffect(() => {
@@ -504,10 +507,12 @@ export function EmployeeDetailsPage(props: {
       if (textLookupOptionsByDefId[def.id] || textLookupLoadingByDefId[def.id]) continue;
       void ensureTextLookupOptions(def);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ensureTextLookupOptions is recreated each render (declared below this effect) and is internally guarded by per-def option/loading caches; re-run keyed on the listed data deps only
   }, [customDefs, entityTypes, textLookupOptionsByDefId, textLookupLoadingByDefId]);
 
   useEffect(() => {
     void loadAccountPerms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load keyed by employeeId only; loadAccountPerms is recreated each render and writes state, so listing it would re-run the fetch after every render
   }, [props.employeeId]);
 
   useEffect(() => {
@@ -515,6 +520,7 @@ export function EmployeeDetailsPage(props: {
     setAccountLogin(accountUser.login ?? '');
     setAccountRole(String(accountUser.role ?? 'user'));
     setAccountActive(!!accountUser.isActive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps track the primitive fields read; the accountUser object gets a new identity on every 20s permissions poll, and re-running on it would clobber unsaved login/role/active edits
   }, [accountUser?.id, accountUser?.login, accountUser?.role, accountUser?.isActive]);
 
   useLiveDataRefresh(
@@ -1168,6 +1174,7 @@ export function EmployeeDetailsPage(props: {
         }
       })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed-from-committed intentionally keyed on employee id/attributes + customDefs; applyDraftSnapshot & co are recreated each render, and listing them would re-seed the form (clobbering the restored draft) on every render
   }, [employee?.id, employee?.attributes, customDefs]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
@@ -1182,6 +1189,7 @@ export function EmployeeDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce deliberately keyed on the snapshot fields; currentDraftSnapshot/saveDraftNow are recreated each render and listing them would reset the 1.5s timer on every render, so the autosave would never fire
   }, [lastName, firstName, middleName, position, departmentId, workshopId, attachments, personnelNumber, birthDate, employmentStatus, hireDate, terminationDate, transfers, customDraftValues, props.canEdit]);
 
   useEffect(() => {
@@ -1225,6 +1233,7 @@ export function EmployeeDetailsPage(props: {
     };
     // Даты/статус/переводы/вложения в deps: keepDraft/saveAndClose снимают снимок из
     // замыкания — без них зарегистрированные actions видели бы устаревшие значения.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps enumerate the state the registered actions must capture; the props object and the helper functions (saveAllAndClose, clearDraft, saveDraftNow, ...) are recreated each render, and listing them would re-register the actions on every render
   }, [lastName, firstName, middleName, position, personnelNumber, departmentId, workshopId, attachments, birthDate, employmentStatus, hireDate, terminationDate, transfers, props.registerCardCloseActions, customDefs, customDraftValues]);
 
   const computedFullName = buildFullName(lastName, firstName, middleName);

@@ -690,6 +690,7 @@ export function ContractsPage(props: {
         .filter((col): col is ColumnDef => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id))
         .filter((col) => !col.requireShowPreviews || showPreviews),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render; isVisible derives solely from columnLayout.hidden which is already a dep, adding columnLayout would defeat the memo
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(

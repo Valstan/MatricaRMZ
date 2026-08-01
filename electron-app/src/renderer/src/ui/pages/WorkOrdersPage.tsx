@@ -256,19 +256,19 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     [acceptedOrCrew],
   );
 
-  function printRows(items: Row[]) {
+  const printRows = useCallback((items: Row[]) => {
     printRowsPreview({
       title: items.length > 1 ? `Выделенные наряды (${items.length})` : `Наряд №${items[0]?.workOrderNumber ?? '-'}`,
       sectionTitle: 'Список нарядов',
       rows: items,
       columns: contextColumns,
     });
-  }
+  }, [contextColumns]);
 
-  async function copyRows(items: Row[]) {
+  const copyRows = useCallback(async (items: Row[]) => {
     await copyRowsToClipboard(items, contextColumns);
     setStatus(buildCopyRowsStatus(items.length));
-  }
+  }, [contextColumns]);
 
   async function createWithKind(kind: WorkOrderKind) {
     if (creating) return;
@@ -292,7 +292,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     }
   }
 
-  async function deleteRows(ids: string[]) {
+  const deleteRows = useCallback(async (ids: string[]) => {
     if (!props.canDelete) return;
     if (!ids.length) return;
     const message = buildDeleteConfirmMessage({
@@ -316,7 +316,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     );
     selection.clearSelection();
     await refresh();
-  }
+  }, [props.canDelete, confirm, selection, refresh]);
 
   type WorkOrderColumn = ColumnDescriptor & {
     sortKey?: SortKey;
@@ -387,6 +387,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         .map((id) => columnsById.get(id))
         .filter((col): col is WorkOrderColumn => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only reads columnLayout.hidden, which is a dep; useColumnLayout returns a fresh object/isVisible closure each render, so listing columnLayout would recompute this memo on every render
     [columnLayout.order, columnLayout.hidden, columnsById],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);

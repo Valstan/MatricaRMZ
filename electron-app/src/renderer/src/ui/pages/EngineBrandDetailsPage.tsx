@@ -782,6 +782,7 @@ export function EngineBrandDetailsPage(props: {
     void loadBrand();
     void loadPartsOptions();
     void loadBrandParts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load keyed on brandId/permissions; loadBrand/loadPartsOptions/loadBrandParts are redefined every render, adding them would refetch on every render
   }, [props.brandId, props.canViewMasterData, props.canViewParts]);
 
   useLiveDataRefresh(
@@ -806,6 +807,7 @@ export function EngineBrandDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is keyed on the edited field values; currentDraftSnapshot/saveDraftNow are redefined every render, adding them would restart the 1.5s timer on every render
   }, [name, description, brandParts, props.canEdit]);
 
   useEffect(() => {
@@ -841,6 +843,7 @@ export function EngineBrandDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- close-actions registration is keyed on the data the closures capture; saveAllAndClose/clearDraft/etc. are redefined every render and adding them (or whole props) would re-register on every render
   }, [name, description, brandParts, props.registerCardCloseActions]);
 
   const selectedParts = brandParts;

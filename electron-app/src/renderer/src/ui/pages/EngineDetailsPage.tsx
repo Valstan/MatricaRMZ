@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
 import { parseContractSections, buildContractSectionOptions, contractSectionAddonToken, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
@@ -669,14 +669,14 @@ export function EngineDetailsPage(props: {
    * Пара (номер, год) из полей карточки. Номер терпит и '41', и полный '41/26' —
    * год из ввода главнее поля года; если года нет вовсе, подставляем текущий.
    */
-  function resolveInternalNumberFields(): { number: string; year: number | null } {
+  const resolveInternalNumberFields = useCallback((): { number: string; year: number | null } => {
     const parsed = parseEngineInternalNumberInput(internalNumber);
     if (!parsed.number) return { number: '', year: null };
     const typedYear = Number(internalNumberYear);
     const year =
       parsed.year ?? (isValidEngineInternalNumberYear(typedYear) ? typedYear : resolveEngineInternalNumberYear(Date.now()));
     return { number: parsed.number, year };
-  }
+  }, [internalNumber, internalNumberYear]);
 
   const internalFields = resolveInternalNumberFields();
   const internalNumberFull = formatEngineInternalNumber(internalFields.number, internalFields.year);
@@ -703,7 +703,7 @@ export function EngineDetailsPage(props: {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [internalNumber, internalNumberYear, props.engineId]);
+  }, [internalNumber, internalNumberYear, props.engineId, resolveInternalNumberFields]);
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
@@ -761,6 +761,7 @@ export function EngineDetailsPage(props: {
         }
       })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- DB-sync intentionally keyed on engineId/updatedAt only; re-running on attributes object identity or applyDraftSnapshot would clobber operator edits with committed values on unrelated renders
   }, [props.engineId, props.engine.updatedAt]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
@@ -775,6 +776,7 @@ export function EngineDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is keyed on the edited field values; currentDraftSnapshot/saveDraftNow are redefined every render, adding them would restart the 1.5s timer on every render
   }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
 
   useEffect(() => {
@@ -828,6 +830,7 @@ export function EngineDetailsPage(props: {
     };
     setSessionChanged(false);
     setActiveTab(props.initialTab ?? 'main');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- editing-session baseline resets only on engine switch; re-running on attributes/initialTab change would wipe sessionChanged and yank the active tab mid-edit
   }, [props.engineId]);
 
   function asNullableText(v: unknown): string | null {
@@ -1117,6 +1120,7 @@ export function EngineDetailsPage(props: {
     return () => {
       void auditEditDone();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only audit flush; adding auditEditDone (redefined every render) would fire the audit cleanup on every re-render instead of once at close
   }, []);
 
   useEffect(() => {
@@ -1150,6 +1154,7 @@ export function EngineDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- close-actions registration is keyed on the data the closures capture; saveAllAndClose/clearDraft/etc. are redefined every render and adding them (or whole props) would re-register on every render
   }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
@@ -1291,6 +1296,7 @@ export function EngineDetailsPage(props: {
         setCoreDefsReady(true);
       });
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- effect itself writes engineDefs (setEngineDefs after ensureAttributeDefs); keying on engineDefs identity would re-trigger after every ensure pass — length + coreDefsReady gate is the intended one-shot trigger
   }, [props.canEditMasterData, engineTypeId, engineDefs.length, coreDefsReady]);
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {

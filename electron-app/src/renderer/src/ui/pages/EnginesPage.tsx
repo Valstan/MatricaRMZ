@@ -747,6 +747,7 @@ export function EnginesPage(props: {
         .filter((col): col is EngineColumn => Boolean(col))
         .filter((col) => columnLayout.isVisible(col.id))
         .filter((col) => !col.requireShowPreviews || showPreviews),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object/isVisible every render; the data isVisible reads (order/hidden) is already in deps, adding columnLayout would recompute the memo on every render
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);

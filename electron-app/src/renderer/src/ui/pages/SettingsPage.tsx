@@ -385,16 +385,19 @@ export function SettingsPage(props: {
     void refreshE2eStatus();
     void refreshUpdateDownloadDir();
     void loadSyncConnectionSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load of settings/profile/server state; the loaders are body-declared and re-running them on identity churn would refetch and overwrite in-progress user edits every render
   }, []);
 
   // Список бэкапов — только при праве backups.view (см. backupPerms выше).
   useEffect(() => {
     if (backupPerms.view) void refreshBackups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on backupPerms.view only; refreshBackups is a body-declared fetcher (closes over body-declared formatError) and listing it would refetch the backup list on every render
   }, [backupPerms.view]);
 
   useEffect(() => {
     const timer = setInterval(() => void refreshLoggingConfig(), 30_000);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only 30s polling subscription; re-subscribing on refreshLoggingConfig identity churn would tear down and reset the interval every render
   }, []);
 
   useEffect(() => {
@@ -403,6 +406,7 @@ export function SettingsPage(props: {
     void refreshCriticalEvents();
     const timer = setInterval(() => void refreshCriticalEvents(), 60_000);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- polling subscription intentionally keyed on the role only; refreshCriticalEvents is body-declared and listing it would reset the 60s interval every render
   }, [authUser?.role, profileUser?.role]);
 
   useEffect(() => {

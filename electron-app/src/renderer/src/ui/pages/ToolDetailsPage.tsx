@@ -220,6 +220,7 @@ export function ToolDetailsPage(props: {
     void refresh();
     void refreshMovements();
     void loadOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial per-tool load; refresh/refreshMovements/loadOptions are recreated each render (adding them would refetch every render), and loadOptions reads departmentId — keying on it would reload the whole card on department change
   }, [props.toolId]);
 
   function movePropertyRow(from: number, to: number) {
@@ -251,6 +252,7 @@ export function ToolDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registration is keyed on the form fields the close actions capture; props (method-call receiver) and saveAllFields/refresh/refreshMovements are recreated each render, so depending on them would re-register on every render
   }, [toolNumber, name, serialNumber, description, departmentId, toolCatalogId, receivedAt, retiredAt, retireReason, props.registerCardCloseActions]);
 
   useEffect(() => {
@@ -282,7 +284,7 @@ export function ToolDetailsPage(props: {
     if (employeeOptions.length > 0) return;
     const filtered = employeeOptionsAll.map((e) => ({ id: e.id, label: e.label }));
     setEmployeeOptions(filtered);
-  }, [employeeOptionsAll]);
+  }, [employeeOptionsAll, employeeOptions.length]);
 
   async function saveAttribute(code: string, value: unknown) {
     if (!props.canEdit) return;
@@ -366,6 +368,7 @@ export function ToolDetailsPage(props: {
   useEffect(() => {
     const ids = Array.from(new Set(properties.map((p) => p.propertyId).filter(Boolean)));
     ids.forEach((id) => void ensureValueHints(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hint loading intentionally keyed on the joined set of propertyIds only; keying on properties/ensureValueHints (recreated each render) would re-run per value keystroke and duplicate in-flight valueHints IPC fetches
   }, [properties.map((p) => p.propertyId).join('|')]);
 
   async function addMovement() {

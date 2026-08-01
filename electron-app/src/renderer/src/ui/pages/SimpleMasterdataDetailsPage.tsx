@@ -247,7 +247,7 @@ export function SimpleMasterdataDetailsPage(props: {
     }
   }
 
-  async function loadDefs() {
+  const loadDefs = useCallback(async () => {
     if (!props.typeCode) return;
     setDefsLoaded(false);
     try {
@@ -263,7 +263,7 @@ export function SimpleMasterdataDetailsPage(props: {
       setDefs([]);
       setDefsLoaded(true);
     }
-  }
+  }, [props.typeCode]);
 
   function isFileRef(x: any): x is PhotoFileRef {
     return x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string';
@@ -301,7 +301,7 @@ export function SimpleMasterdataDetailsPage(props: {
 
   useEffect(() => {
     void loadDefs();
-  }, [props.typeCode]);
+  }, [props.typeCode, loadDefs]);
 
   useEffect(() => {
     let alive = true;
@@ -384,6 +384,7 @@ export function SimpleMasterdataDetailsPage(props: {
       if (next.length !== defs.length) setDefs(next);
       setCoreDefsReady(true);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot ensure of core attribute defs gated by defsLoaded/coreDefsReady; the effect writes defs itself, so listing defs (or typeCode, already implied by the loadDefs cycle) risks re-entrant runs that could double-create defs mid-flight
   }, [props.canEdit, entityTypeId, defsLoaded, coreDefsReady]);
 
   async function saveName() {
@@ -471,6 +472,7 @@ export function SimpleMasterdataDetailsPage(props: {
     } catch {
       // ignore errors during duplicate check
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- props.entityId is deliberately kept: the callback reads the id via resolvedEntityIdRef, but its identity must change when the opened card switches so the debounced duplicate check re-runs for the new entity
   }, [entityTypeId, props.canEdit, props.entityId, name, article, price]);
 
   // Debounced duplicate check on field changes
@@ -690,6 +692,7 @@ export function SimpleMasterdataDetailsPage(props: {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the opened entity id changes; load() is body-declared and overwrites all form fields, so re-running it on helper identity churn would clobber in-progress user edits
   }, [props.entityId]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
@@ -706,6 +709,7 @@ export function SimpleMasterdataDetailsPage(props: {
       window.clearTimeout(timer);
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is intentionally keyed on the form-field values only; currentDraftSnapshot/saveDraftNow are body-declared helpers (draftCardType derives from props.typeCode) and re-keying on their per-render identity would reset the 1.5s autosave timer on every render
   }, [name, description, shop, article, unit, price, engineBrandIds, props.canEdit]);
 
   useEffect(() => {
@@ -743,6 +747,7 @@ export function SimpleMasterdataDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registers the card-close callbacks exactly when the values those closures capture change; the missing entries (load/saveAllAndClose/saveDraftNow/clearDraft/currentDraftSnapshot and props as a whole) are body-declared helpers whose per-render identity would force an unregister/re-register cycle on every render
   }, [
     name,
     description,
