@@ -98,13 +98,9 @@ export function useAiAgentTracker(args: {
     contextRef.current = args.context;
   }, [args.context, args.context.tab, args.context.entityId, args.context.entityType, contextBreadcrumbsKey]);
 
-  // KNOWN GAP: at the only call site (App.tsx, `useAiAgentTracker({ ... onEvent: (event) => { ... } })`) onEvent is an
-  // inline arrow, so it gets a new identity on every App render and this effect tears down and re-installs the three
-  // document listeners every time, and the cleanup below also clears the pending idle timer. Typing itself does not
-  // re-render App (handleInput does not emit), so the common "type, then pause" flow still fires 'idle' — but any
-  // unrelated App render inside the IDLE_TIMEOUT_MS window (the 60s presence tick, sync progress, another field's
-  // focus/blur through this same hook) silently cancels the pending idle event, and nothing reschedules it.
-  // Pre-existing; not fixed here because this branch is lint-only.
+  // onEvent is an effect dep, and the cleanup clears the pending idle timer: a caller passing an inline arrow would
+  // re-install the listeners on every one of its renders and silently cancel the pending 'idle' event. Callers must
+  // pass a stable callback (App.tsx uses useCallback).
   useEffect(() => {
     if (!enabled) return;
 

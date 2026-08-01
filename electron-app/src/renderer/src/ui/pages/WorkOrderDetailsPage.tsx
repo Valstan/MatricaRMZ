@@ -619,21 +619,12 @@ export function WorkOrderDetailsPage(props: {
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
-    // KNOWN GAP (pre-existing; behaviour deliberately left untouched by this lint-only pass):
-    // canEditNow is read above (saveAndClose, keepDraft) and is NOT in the deps. Unlike the helpers
-    // it is a plain boolean (canEditNow = props.canEdit && !isClosed), so listing it would
-    // re-register only when it flips — its absence is a real stale closure, not a render-cost
-    // trade-off. Posting/closing the order calls setOperationStatus('closed') (plus
-    // setClosedLocally(true) for a regular order) while setPayload is either not called at all
-    // (postAssembly) or only when the backend returned r.documentId (close) — so the payload
-    // identity is unchanged, this effect does not re-run, and the still-registered saveAndClose
-    // keeps canEditNow === true together with the flushSave captured before the close, whose own
-    // `if (!canEditNow) return` guard is just as stale. If a close-guard «Сохранить и закрыть»
-    // fires after that (reachable when the pre-close flushSave failed and left dirtyRef set), it
-    // issues workOrders.update against an already-closed order. The real fix is to add canEditNow
-    // to the deps, but that changes behaviour and belongs to a separate follow-up PR.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave/clearDraft/refresh/saveDraftNow are plain function declarations in the component body, new on every render, so listing them (or `props` as a whole) would re-register the close actions on every render; canEditNow is omitted despite being read — see the KNOWN GAP above
-  }, [payload, props.registerCardCloseActions, props.id]);
+    // canEditNow must stay in the deps: posting/closing the order flips it via
+    // setOperationStatus('closed') without changing the payload identity, so without it the
+    // registered saveAndClose/keepDraft would keep a stale canEditNow === true (and a stale
+    // flushSave whose own guard reads the same value) and update an already-closed order.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave/saveDraftNow/clearDraft/refresh/copyToNewWorkOrder are plain function declarations in the component body, new on every render, so listing them (or `props` as a whole) would re-register the close actions on every render
+  }, [payload, canEditNow, props.registerCardCloseActions, props.id]);
 
   // Реквизиты контракта/контрагента для печати: резолвим двигатель наряда → контракт
   // (основной номер → ***NNN) и контрагент (краткое наименование, иначе полное) из EAV.
