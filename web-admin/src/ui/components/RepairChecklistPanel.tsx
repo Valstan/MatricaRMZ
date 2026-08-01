@@ -152,6 +152,10 @@ export function RepairChecklistPanel(props: {
   const [defectOptionsStatus, setDefectOptionsStatus] = useState<string>('');
   const [completenessOptions, setCompletenessOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [completenessOptionsStatus, setCompletenessOptionsStatus] = useState<string>('');
+  // Latest answers for the brand prefills: they merge into state only after an await, so the
+  // pre-fetch snapshot would drop anything edited while listParts was in flight.
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const panelTitle =
@@ -407,11 +411,11 @@ export function RepairChecklistPanel(props: {
           scrap_qty: 0,
         };
       });
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+      const next = { ...answersRef.current, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill: re-entry is blocked by the prefillKey ref, which is set BEFORE the async fetch starts, so adding `answers` could not cause a second listParts call. Omitting `answers` is therefore a deliberate STALE read (not a "latest" read): the IIFE above awaits listParts and only then spreads the pre-fetch `answers` snapshot into `next` and persists it. `save` is recreated every render. KNOWN GAP (pre-existing, NOT fixed here; tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты»): any answer edited while that fetch is in flight is discarded and overwritten on the server. The fix is the functional setAnswers form plus a save built from the merged value — a behavior change, so it belongs to the follow-up PR
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill: re-entry is blocked by the prefillKey ref, which is set BEFORE the async fetch starts, so adding `answers` could not cause a second listParts call. `answers` is omitted deliberately: the only synchronous read is the `existing` guard above (fresh at effect time), and the post-await merge goes through answersRef.current, so edits made while listParts was in flight are preserved. `save` is recreated every render; `props.canEdit` is read from this closure after the await, so a read-only→editable flip mid-fetch leaves the prefill unsaved until the next edit
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   useEffect(() => {
@@ -442,11 +446,11 @@ export function RepairChecklistPanel(props: {
           actual_qty: 0,
         };
       });
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
+      const next = { ...answersRef.current, [tableItem.id]: { kind: 'table', rows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill: re-entry is blocked by the prefillKey ref, which is set BEFORE the async fetch starts, so adding `answers` could not cause a second listParts call. Omitting `answers` is therefore a deliberate STALE read (not a "latest" read): the IIFE above awaits listParts and only then spreads the pre-fetch `answers` snapshot into `next` and persists it. `save` is recreated every render. KNOWN GAP (pre-existing, NOT fixed here; tracked in docs/PENDING_FOLLOWUPS.md → «Stale-closure дефекты»): any answer edited while that fetch is in flight is discarded and overwritten on the server. The fix is the functional setAnswers form plus a save built from the merged value — a behavior change, so it belongs to the follow-up PR
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot brand prefill: re-entry is blocked by the prefillKey ref, which is set BEFORE the async fetch starts, so adding `answers` could not cause a second listParts call. `answers` is omitted deliberately: the only synchronous read is the `existing` guard above (fresh at effect time), and the post-await merge goes through answersRef.current, so edits made while listParts was in flight are preserved. `save` is recreated every render; `props.canEdit` is read from this closure after the await, so a read-only→editable flip mid-fetch leaves the prefill unsaved until the next edit
   }, [activeTemplate?.id, props.stage, props.engineBrandId, payload?.templateId]);
 
   useEffect(() => {

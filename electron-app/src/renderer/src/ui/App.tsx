@@ -295,6 +295,18 @@ function recentVisitsStorageKey(userId: string) {
   return `matrica:recent-visits:${userId}`;
 }
 
+// Same rule useLiveDataRefresh applies via skipWhenInteracting: a sync-driven card reload replaces
+// every field from the server copy, so it must not fire while the operator is typing into one.
+function isEditingAField() {
+  if (!document.hasFocus()) return false;
+  const active = document.activeElement;
+  return (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    active instanceof HTMLSelectElement
+  );
+}
+
 function quickStartRatingsStorageKey(userId: string) {
   return `matrica:history:quick-start-ratings:${userId}`;
 }
@@ -572,6 +584,9 @@ export function App() {
   const [accountSwitchOpen, setAccountSwitchOpen] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [tab, setTabState] = useState<TabId>('history');
+  // Latest-value ref for the mount-only sync-progress subscription below.
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
   const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
   const [recentVisits, setRecentVisits] = useState<RecentVisitEntry[]>([]);
@@ -637,6 +652,10 @@ export function App() {
     selectedUserId: null,
     adminMode: false,
   });
+  // Stable identity: ChatPanel keeps this callback in an effect dep, an inline arrow would re-fire it every render.
+  const handleChatContextChange = useCallback((ctx: { selectedUserId: string | null; adminMode: boolean }) => {
+    setChatContext(ctx);
+  }, []);
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   const chatNewMessageAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1298,7 +1317,7 @@ export function App() {
         // Progressive fill: EAV-ядро + ERP применены — показываем данные, не дожидаясь хвоста.
         if (evt.state === 'progress' || (evt.state === 'done' && Number(evt.pulled ?? 0) > 0)) {
           void refreshEngines();
-          if (tab === 'engine') void reloadEngine();
+          if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
         }
         return;
       }
@@ -1334,7 +1353,7 @@ export function App() {
       if (evt.state === 'done') {
         if (Number(evt.pulled ?? 0) > 0) {
           void refreshEngines();
-          if (tab === 'engine') void reloadEngine();
+          if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
         }
         setFullSyncUi((prev) => ({
           open: true,
@@ -1366,7 +1385,7 @@ export function App() {
       fullSyncCloseTimer.current = null;
       if (unsubscribe) unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. KNOWN GAP: the empty deps also freeze the handler on the first-render closure, where `tab` is still the useState default 'history' — so both `if (tab === 'engine') void reloadEngine()` branches above are dead code and an open engine card is never refreshed after an incremental or full sync (refreshEngines still runs and updates the list). The standard fix is a tabRef/reloadEngineRef; not applied here because this branch is lint-only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. The handler reads the live tab and reloadEngine through tabRef/reloadEngineRef, and skips the card reload while a field is focused (isEditingAField) so a sync tick cannot overwrite what the operator is typing; refreshEngines only touches the IPC bridge and setEngines, so its first-render identity is safe to keep
   }, []);
 
   useEffect(() => {
@@ -3235,12 +3254,13 @@ export function App() {
                       : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps try to mirror the state that helper reads. KNOWN GAP: the mirror is incomplete — buildChatBreadcrumbs also reads selectedWorkOrderId and selectedEngineAssemblyBomId, and neither is listed below, so picking another row on the work_order / engine_assembly_bom_item tab (the V2/V3 shell changes selectedXId WITHOUT changing tab) leaves aiContext.breadcrumbs showing the previously selected entity's ID and useAiAgentTracker gets stale context. Pre-existing; not fixed here because this branch is lint-only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps below mirror every piece of state that helper reads (selectedWorkOrderId and selectedEngineAssemblyBomId are read only by it, not by the memo body)
     [
       tab,
       selectedEngineId,
       selectedEngineBrandId,
       selectedRequestId,
+      selectedWorkOrderId,
       selectedToolId,
       selectedToolPropertyId,
       selectedContractId,
@@ -3249,19 +3269,24 @@ export function App() {
       selectedServiceId,
       selectedCounterpartyId,
       selectedNomenclatureId,
+      selectedEngineAssemblyBomId,
       selectedStockDocumentId,
       selectedReportPresetId,
       engineDetails,
     ],
   );
 
+  // Stable identity: the tracker keeps onEvent in an effect dep, an inline arrow would re-install its
+  // document listeners every render and cancel the pending idle timer.
+  const handleAiAgentEvent = useCallback((event: AiAgentEvent) => {
+    setAiLastEvent(event);
+    setAiRecentEvents((prev) => [...prev.slice(-11), event]);
+  }, []);
+
   useAiAgentTracker({
     enabled: canAiAgent,
     context: aiContext,
-    onEvent: (event) => {
-      setAiLastEvent(event);
-      setAiRecentEvents((prev) => [...prev.slice(-11), event]);
-    },
+    onEvent: handleAiAgentEvent,
   });
 
   const currentAppLink = useMemo(
@@ -3284,12 +3309,13 @@ export function App() {
       reportPresetId: tab === 'report_preset' ? selectedReportPresetId ?? null : null,
       breadcrumbs: buildChatBreadcrumbs(),
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps try to mirror the state that helper reads. KNOWN GAP: the mirror is incomplete — buildChatBreadcrumbs also reads selectedWorkOrderId and selectedEngineAssemblyBomId, and neither is listed below, so on the work_order / engine_assembly_bom_item tab (where the V2/V3 shell changes selectedXId WITHOUT changing tab) currentAppLink.breadcrumbs can lag one selection behind in the navigation history and in the chat deep-link payload. Pre-existing; not fixed here because this branch is lint-only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildChatBreadcrumbs is a render-scoped helper rebuilt every render, so listing it would recompute the memo every render; instead the deps below mirror every piece of state that helper reads (selectedWorkOrderId and selectedEngineAssemblyBomId are read only by it, not by the memo body)
     [
       tab,
       selectedEngineId,
       selectedEngineBrandId,
       selectedRequestId,
+      selectedWorkOrderId,
       selectedToolId,
       selectedToolPropertyId,
       selectedContractId,
@@ -3298,6 +3324,7 @@ export function App() {
       selectedServiceId,
       selectedCounterpartyId,
       selectedNomenclatureId,
+      selectedEngineAssemblyBomId,
       selectedStockDocumentId,
       selectedReportPresetId,
       engineDetails,
@@ -3517,6 +3544,10 @@ export function App() {
       setEngineLoading(false);
     }
   }, [selectedEngineId]);
+
+  // Latest-value ref for the mount-only sync-progress subscription above.
+  const reloadEngineRef = useRef(reloadEngine);
+  reloadEngineRef.current = reloadEngine;
 
   useLiveDataRefresh(
     useCallback(async () => {
@@ -5411,7 +5442,7 @@ export function App() {
               chatSide="left"
               onHide={() => setChatOpen(false)}
               onToggleSide={() => void persistChatSide('right')}
-              onChatContextChange={(ctx) => setChatContext(ctx)}
+              onChatContextChange={handleChatContextChange}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
               }}
@@ -5554,7 +5585,7 @@ export function App() {
               chatSide="right"
               onHide={() => setChatOpen(false)}
               onToggleSide={() => void persistChatSide('left')}
-              onChatContextChange={(ctx) => setChatContext(ctx)}
+              onChatContextChange={handleChatContextChange}
               onNavigate={(link) => {
                 void navigateDeepLink(link);
               }}

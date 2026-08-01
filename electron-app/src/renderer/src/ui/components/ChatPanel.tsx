@@ -106,11 +106,9 @@ export function ChatPanel(props: {
     return base.filter((u) => u.isActive && u.id !== props.meUserId);
   }, [users, isPending, props.meUserId]);
 
-  // KNOWN GAP (docs/PENDING_FOLLOWUPS.md → «Цикл перерисовки в чат-панели»): this effect is already inside a
-  // feedback loop. App.tsx renders `onChatContextChange={(ctx) => setChatContext(ctx)}` inline, so the dep
-  // identity changes on every App render; the effect then stores a NEW context object via a plain useState
-  // setter, which re-renders App, which makes a new arrow, which re-fires the effect. ChatPanel is not
-  // memoized, so nothing breaks the cycle. Deliberately left as-is: this pass is behaviour-neutral.
+  // Destructured on purpose: this effect keeps the callback in its deps, so a caller passing an inline arrow
+  // would re-fire it on every parent render and store a new context object each time (a render feedback loop).
+  // Both call sites in App.tsx pass a useCallback-stabilised handler.
   const { onChatContextChange } = props;
   useEffect(() => {
     onChatContextChange?.({ selectedUserId, adminMode });
