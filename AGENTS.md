@@ -64,7 +64,7 @@ git checkout main && git pull
 - Релиз = merge PR → `git tag vX.Y.Z` на свежем `main` → `git push origin vX.Y.Z` (GitHub Actions триггерит installer build).
 - **Force-push в `main` — запрещён**; в feature-ветку — разрешён (rebase / amend перед merge).
 - **Hot-fix исключение:** прод упал → допустим direct push, но обязательный follow-up PR постфактум с описанием инцидента.
-- Branch protection на GitHub для `main`: require PR, disallow force push, disallow deletion.
+- Branch protection на GitHub для `main`: require PR, disallow force push, disallow deletion, **`enforce_admins=true`** (с 2026-08-01; правило действует и для администратора — прямой апдейт `refs/heads/main` отклоняется сервером: `422 Changes must be made through a pull request`, проверено мутационной пробой по brain #114). **Аварийный выход** (прод упал, hot-fix мимо PR): `gh api -X DELETE repos/Valstan/MatricaRMZ/branches/main/protection/enforce_admins` — одна команда; после инцидента включить обратно тем же путём с `-X POST` + follow-up PR (см. «Hot-fix исключение» выше).
 
 **GitHub — источник истины между машинами ([brain #010](../brain_matrica/cross-project-ideas/ideas/010-session-sync-safeguard.md), mandate).** Работа ведётся на разных компах; не оставляй сессию с несинхронизированной работой. Всё (код + доки) должно быть закоммичено и запушено через PR-flow до закрытия сессии. Гейт встроен в `/close_session` (§9.5, `scripts/git_sync_check.ps1 -Gate`); SessionStart-хук в `.claude/settings.json` предупреждает о несинхроне на входе (`-Warn`, не блокирующий). Ручной шаг владельца: отключить тумблер Cowork «Classify session states», иначе сессия может уйти в авто-архив с незапушенной работой.
 
