@@ -648,6 +648,20 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
         >
           «В мире, где всё работало само, люди ценились примерно как комнатные растения — вроде нужны, но никто не помнит уже зачем.»
         </div>
+
+        {/* Подпись автора. Внешнюю ссылку в окно приложения не пускаем: setWindowOpenHandler
+            в main отдаёт её системному браузеру через shell.openExternal и гасит навигацию. */}
+        <div style={{ marginTop: 12, textAlign: 'center', fontSize: 11, color: palette.hint, opacity: 0.75 }}>
+          <a
+            href="https://xn--80adkmnnb2b.xn--80adkdyec4j.xn--p1ai/"
+            target="_blank"
+            rel="noreferrer"
+            title="Валентин Савиных — программист"
+            style={{ color: 'inherit', textDecoration: 'underline' }}
+          >
+            Сделано вМалмыже.РФ
+          </a>
+        </div>
       </div>
     </div>
   );
