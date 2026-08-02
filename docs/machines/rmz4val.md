@@ -13,6 +13,7 @@
 - **Electron renderer env (`.env.dev`):** `MATRICA_API_URL=http://127.0.0.1:3001`, `MATRICA_SYNC_V2=1`, `MATRICA_UPDATE_PEER_HTTP_PORT=3001`, `MATRICA_UPDATE_LAN_ENABLED=0`.
 
 ## Инструменты / пути
+- **Android-тулчейн НЕ установлен** (проверено 2026-08-02: нет `java`, `adb`, Android SDK; `winget` тоже не в PATH). Для сборки Capacitor-APK (нитка android-app) нужно: JDK 21 (zip Adoptium) + Android cmdline-tools + `sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"` (~2–3 ГБ, сеть на этой машине бывает вялая — качать фоном). Пилотный планшет: DIGMA PRO Odyssey, Android 15 — подключать по USB (adb) или Wi-Fi adb.
 - **Node/pnpm:** `corepack pnpm` (стандартно).
 - **psql.exe** — путь не зафиксирован (искать в `C:\Program Files\PostgreSQL\17\bin\`). Для прод-SQL — через `ssh matricarmz`.
 - **Go — НЕ установлен.** Watchdog (`watchdog/main.go`) собирается только в CI (`watchdog-build.yml` + релизный workflow). Локально build/vet нельзя без установки Go-тулчейна.
