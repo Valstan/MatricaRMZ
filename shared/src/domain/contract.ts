@@ -455,6 +455,33 @@ export function contractSectionAddonToken(seq: number): string {
   return `ДС ${seq}`;
 }
 
+/**
+ * Стабильный ключ основного договора. Раньше эту роль играл САМ номер договора —
+ * редактируемое поле карточки, поэтому его правка молча отвязывала слоты с платежами
+ * и привязки двигателей (ключ менялся, а сохранённые значения оставались прежними).
+ * Номер остаётся реквизитом для показа; связь держит неизменяемый ключ.
+ */
+export const PRIMARY_CONTRACT_SECTION_KEY = 'primary';
+
+/**
+ * Приводит сохранённый ключ секции к каноническому виду.
+ *
+ * Видов секций ровно два — основной договор и ДС, — поэтому всё, что не «ДС {seq}»,
+ * относится к основному договору. Это чинит и легаси-значения (там лежал номер
+ * договора), и уже осиротевшие (номер, который с тех пор успели изменить): угадывать
+ * исходную строку не нужно, достаточно знать, что другой секции у неё быть не могло.
+ */
+export function canonicalContractSectionKey(raw: string | null | undefined): string {
+  const key = String(raw ?? '').trim();
+  if (!key) return '';
+  return isContractAddonToken(key) ? key : PRIMARY_CONTRACT_SECTION_KEY;
+}
+
+/** Канонический ключ секции: основной договор → `primary`, ДС → «ДС {seq}». */
+export function contractSectionToken(section: ContractPrimarySection | ContractAddonSection): string {
+  return 'seq' in section ? contractSectionAddonToken(section.seq) : PRIMARY_CONTRACT_SECTION_KEY;
+}
+
 /** Является ли значение `contract_section_number` токеном ДС («ДС {seq}»), а не номером основного договора. */
 export function isContractAddonToken(sectionNumber: string | null | undefined): boolean {
   return /^ДС\s/.test(String(sectionNumber ?? '').trim());
@@ -496,7 +523,14 @@ export type ContractSectionOption = { id: string; label: string; isPrimary: bool
 export function buildContractSectionOptions(sections: ContractSections): ContractSectionOption[] {
   const out: ContractSectionOption[] = [];
   const primaryNumber = String(sections.primary.number ?? '').trim();
-  if (primaryNumber) out.push({ id: primaryNumber, label: `Договор ${primaryNumber}`, isPrimary: true });
+  // id — стабильный ключ, а не номер: номер правится и раньше уносил с собой привязки.
+  // Опция основного договора есть всегда: пока номер не заполнен, двигатель тоже надо
+  // куда-то привязывать (раньше секция просто пропадала из выбора).
+  out.push({
+    id: PRIMARY_CONTRACT_SECTION_KEY,
+    label: primaryNumber ? `Договор ${primaryNumber}` : 'Основной договор',
+    isPrimary: true,
+  });
   for (const addon of sections.addons) {
     const date = formatContractDate(addon.signedAt);
     out.push({

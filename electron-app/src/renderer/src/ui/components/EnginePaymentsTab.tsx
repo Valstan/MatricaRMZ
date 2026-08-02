@@ -4,12 +4,13 @@ import {
   CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
   REPAIR_COUNTDOWN_DAYS,
+  canonicalContractSectionKey,
   countdownStatus,
   findSlotForEngine,
   formatKopMoney,
   parseContractPayments,
-  parseContractSections,
   parseMoneyToKop,
+  PRIMARY_CONTRACT_SECTION_KEY,
   slotTotals,
   type PaymentKind,
   type PaymentRow,
@@ -81,9 +82,10 @@ export function EnginePaymentsTab(props: {
   canEdit: boolean;
   onOpenContract?: (contractId: string) => void;
 }) {
-  // Токен секции: contract_section_number двигателя ('ДС n' | номер контракта).
-  // Пустой → при сохранении дочитаем номер первичного контракта из его секций.
-  const sectionKey = props.sectionKey.trim();
+  // Ключ секции двигателя, приведённый к канону ('primary' | «ДС n»): в старых
+  // записях тут лежал номер договора. Пустой → секция не выбрана, при сохранении
+  // слот уходит в основной договор.
+  const sectionKey = canonicalContractSectionKey(props.sectionKey);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
@@ -202,22 +204,17 @@ export function EnginePaymentsTab(props: {
     setSaveStatus('Сохранение…');
     try {
       await ensureContractPaymentsDef();
-      const contract = (await window.matrica.admin.entities.get(props.contractId)) as {
-        attributes?: Record<string, unknown>;
-      } | null;
       const payments = rows.map(draftToRow).filter((r): r is PaymentRow => r != null);
       const priceKop = parseMoneyToKop(priceText);
-      // Токен первичной секции — это НОМЕР контракта (так его кладёт карточка контракта).
-      // Литерал 'primary' здесь был мёртвым фолбэком: слот с ним не совпал бы ни с одним
-      // слотом контракта и потерялся бы для сверки с планом.
-      const fallbackToken = String(parseContractSections(contract?.attributes ?? {}).primary.number ?? '').trim();
+      // Секция не выбрана → слот принадлежит основному договору. Раньше сюда
+      // подставлялся номер контракта, который менялся вместе с правкой номера.
       const loadedIds = loadedPaymentIdsRef.current;
       const r = await mutateContractPayments(props.contractId, (cp) => {
         const existing = findSlotForEngine(cp, props.engineId);
         if (!existing) {
           const slot: PaymentSlot = {
             id: crypto.randomUUID(),
-            sectionKey: sectionKey || fallbackToken,
+            sectionKey: sectionKey || PRIMARY_CONTRACT_SECTION_KEY,
             engineId: props.engineId,
             ...(props.engineBrandId ? { engineBrandId: props.engineBrandId } : {}),
             ...(priceKop != null && priceKop > 0 ? { contractPriceKop: priceKop } : {}),
