@@ -936,6 +936,15 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
+    // Право на запись могло пропасть уже ПОСЛЕ того, как оператор начал править
+    // (резерв перехватил другой оператор, админ отозвал доступ). Молча резолвиться
+    // нельзя: App считает успешный промис за сохранение и закрывает вкладку — правки
+    // исчезли бы без следа, ровно как в дефекте, который эта ветка и чинит.
+    if (!canEditEnginesEff && sessionHadChanges.current) {
+      const msg = 'Карточку занял другой оператор — правки НЕ сохранены. Скопируйте их и откройте карточку заново.';
+      setSaveStatus(msg);
+      throw new Error(msg);
+    }
     if (canEditEnginesEff) {
       const attrs = props.engine.attributes ?? {};
       const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
@@ -1149,7 +1158,19 @@ export function EngineDetailsPage(props: {
     },
     keepDraft: async () => {
       cancelPendingDraftSave();
-      if (canEditEnginesEff) await saveDraftNow(currentDraftSnapshot());
+      // Та же ловушка, что и в saveAllAndClose, плюс автоматика: App сам жмёт
+      // «Оставить черновик» по 10-секундному таймеру, поэтому без права на запись
+      // отошедший от экрана оператор потерял бы правки вообще без своего участия.
+      if (!canEditEnginesEff) {
+        if (sessionHadChanges.current) {
+          const msg = 'Карточку занял другой оператор — черновик НЕ сохранён. Скопируйте правки и откройте карточку заново.';
+          setSaveStatus(msg);
+          throw new Error(msg);
+        }
+        setSessionChanged(false);
+        return;
+      }
+      await saveDraftNow(currentDraftSnapshot());
       setSessionChanged(false);
     },
     copyToNew: async () => {
@@ -1833,7 +1854,7 @@ export function EngineDetailsPage(props: {
             })();
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()).catch(() => undefined); }}
           onSaveAsDraft={() => {
             void (async () => {
               // Явная парковка в черновик: без записи в EAV; отменяем отложенный
