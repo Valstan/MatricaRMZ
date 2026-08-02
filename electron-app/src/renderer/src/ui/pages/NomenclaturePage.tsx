@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -211,6 +211,12 @@ export function NomenclaturePage(props: {
     }
   }, [directoryKind, expandedGroupKey, groupId, itemType, query]);
 
+  // Свежий refresh: мемоизированные колбэки ниже иначе держат тот, что был создан до
+  // раскрытия группы (expandedGroupKey === null), и вместо перезагрузки списка
+  // срабатывает его ранний выход — группа очищается сразу после создания позиции.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
   const refreshGovernance = useCallback(async () => {
     if (!props.canEdit) return;
     const [propertiesRes, templatesRes] = await Promise.all([
@@ -315,6 +321,7 @@ export function NomenclaturePage(props: {
     return itemTypeOptions.find((item) => item.id === itemTypeValue)?.label ?? String(itemTypeValue ?? '—');
   }
 
+  const onOpen = props.onOpen;
   const runCreateWithPreset = useCallback(
     async (preset: NomenclatureDirectoryPreset) => {
       const article = await promptNomenclatureArticle(promptText, preset.createConfig.name);
@@ -330,24 +337,23 @@ export function NomenclaturePage(props: {
         });
         if (!result.ok) {
           if ('duplicateNomenclatureId' in result) {
-            await refresh();
-            await props.onOpen(result.duplicateNomenclatureId);
+            await refreshRef.current();
+            await onOpen(result.duplicateNomenclatureId);
             setStatus(`Позиция уже существовала, открыта существующая карточка (${result.duplicateNomenclatureId.slice(0, 8)}...).`);
             return;
           }
           setStatus(`Ошибка: ${result.error}`);
           return;
         }
-        await refresh();
+        await refreshRef.current();
         setStatus('');
         setCreateDialogOpen(false);
-        props.onOpen(result.nomenclatureId);
+        onOpen(result.nomenclatureId);
       } finally {
         setCreatingKind(null);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps reverted to main's on purpose: listing `refresh` here would make the two `await refresh()` calls above ALWAYS perform the multi-page group fetch, where today they perform it only when App has re-rendered since the group was expanded — that is a behavior change this lint-only branch must not make. KNOWN GAP: this callback keeps the `refresh` of the render that memoized it, and neither dep changes when a group is expanded (`setExpandedGroupKey` is NomenclaturePage-local state; `props.onOpen` is App's body-declared `openNomenclature`, so its identity changes only when App itself re-renders — which happens at least on the 60s presence tick). Inside that window `await refresh()` runs a closure whose `expandedGroupKey` is still `null` and takes its early return (`setRows([]); setStatus('')`), clearing the list instead of reloading the expanded group after a create. Left in place here; the fix belongs in the behavior follow-up
-    [props.onOpen, promptText],
+    [onOpen, promptText],
   );
 
   return (

@@ -936,6 +936,15 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
+    // Право на запись могло пропасть уже ПОСЛЕ того, как оператор начал править
+    // (резерв перехватил другой оператор, админ отозвал доступ). Молча резолвиться
+    // нельзя: App считает успешный промис за сохранение и закрывает вкладку — правки
+    // исчезли бы без следа, ровно как в дефекте, который эта ветка и чинит.
+    if (!canEditEnginesEff && sessionHadChanges.current) {
+      const msg = 'Карточку занял другой оператор — правки НЕ сохранены. Скопируйте их и откройте карточку заново.';
+      setSaveStatus(msg);
+      throw new Error(msg);
+    }
     if (canEditEnginesEff) {
       const attrs = props.engine.attributes ?? {};
       const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
@@ -1058,6 +1067,10 @@ export function EngineDetailsPage(props: {
       // чтобы он не переписал черновик после очистки.
       cancelPendingDraftSave();
       await clearDraft();
+      // Аудит «правка завершена» — здесь, пока флаг сессии ещё поднят и правки уже
+      // легли в БД. Из cleanup размонтирования запись не уходила никогда: все пути
+      // закрытия карточки гасят флаг синхронно, до размонтирования.
+      await auditEditDone();
     }
     setSessionChanged(false);
     // Продление резерва — СОБЫТИЙНОЕ (при сохранении) и не чаще половины TTL.
@@ -1110,52 +1123,83 @@ export function EngineDetailsPage(props: {
           summaryRu: `Изменил: ${fieldsChanged.join(', ')}`,
         },
       });
+      // Новая базовая точка: следующая правка той же карточки не должна
+      // перечислять поля, о которых уже отчитались.
+      initialSnapshot.current = {
+        engineNumber: String(engineNumber ?? ''),
+        internalNumberFull,
+        engineBrand: String(engineBrand ?? ''),
+        arrivalDate: String(arrivalDate ?? ''),
+      };
       setSessionChanged(false);
     } catch {
       // ignore
     }
   }
 
-  useEffect(() => {
-    return () => {
-      void auditEditDone();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only audit flush. KNOWN GAP (существует и на main, заведено в docs/PENDING_FOLLOWUPS.md «Аудит правки двигателя не пишется никогда»): с [] cleanup держит auditEditDone ПЕРВОГО рендера, поэтому при закрытии сравнивает initialSnapshot.current не с правками оператора, а со значениями engineNumber/engineBrand/arrivalDate/internalNumberFull НА МОМЕНТ МОНТИРОВАНИЯ; обе стороны берутся из одних и тех же props.engine.attributes, поэтому в штатном случае fieldsChanged пуст → срабатывает `if (!fieldsChanged.length) return` и window.matrica.audit.add('ui.engine.edit_done') не вызывается вообще. Правок оператора этот cleanup не видит ни при каких условиях; непустым список становится только на расхождении форматов (в атрибутах есть номер без валидного года: поле подставляет текущий год, снимок — нет), и тогда уходит ложная запись «изменён внутренний номер» по значениям на момент монтирования. Зависимости оставлены как есть намеренно: auditEditDone пересоздаётся каждый рендер, и его добавление гоняло бы flush на каждый ре-рендер вместо одного раза при закрытии. Штатное лечение — ref на свежий колбэк — это поведенческая правка, она в отдельном PR, а не в этом поведенчески нейтральном проходе.
-  }, []);
-
-  useEffect(() => {
-    if (!props.registerCardCloseActions) return;
-    props.registerCardCloseActions({
-      isDirty: () => sessionHadChanges.current,
-      saveAndClose: async () => {
-        await saveAllAndClose();
-        setSessionChanged(false);
-      },
-      reset: async () => {
-        await props.onReload();
-        setSessionChanged(false);
-      },
-      closeWithoutSave: () => {
-        setSessionChanged(false);
-        void clearDraft();
-      },
-      keepDraft: async () => {
-        cancelPendingDraftSave();
-        if (canEditEnginesEff) await saveDraftNow(currentDraftSnapshot());
-        setSessionChanged(false);
-      },
-      copyToNew: async () => {
-        const r = await window.matrica.engines.create();
-        if (r?.id) {
-          await window.matrica.engines.setAttr(r.id, 'engine_number', engineNumber + ' (копия)');
-          await window.matrica.engines.setAttr(r.id, 'engine_brand', engineBrand || null);
-          await window.matrica.engines.setAttr(r.id, 'engine_brand_id', engineBrandId || null);
+  // Тела close-действий читают почти весь стейт карточки, поэтому список зависимостей
+  // регистрации молча расходился с ними: правка ТОЛЬКО внутреннего номера или причины
+  // утиля не двигала ни одной зависимости, App звал устаревшее замыкание, оно клало в
+  // nextValues до-правочные значения — и правка терялась вместе с черновиком.
+  // Держим свежие действия в ref, а регистрируем стабильные обёртки.
+  const closeActions: CardCloseActions = {
+    isDirty: () => sessionHadChanges.current,
+    saveAndClose: async () => {
+      await saveAllAndClose();
+      setSessionChanged(false);
+    },
+    reset: async () => {
+      await props.onReload();
+      setSessionChanged(false);
+    },
+    closeWithoutSave: () => {
+      setSessionChanged(false);
+      void clearDraft();
+    },
+    keepDraft: async () => {
+      cancelPendingDraftSave();
+      // Та же ловушка, что и в saveAllAndClose, плюс автоматика: App сам жмёт
+      // «Оставить черновик» по 10-секундному таймеру, поэтому без права на запись
+      // отошедший от экрана оператор потерял бы правки вообще без своего участия.
+      if (!canEditEnginesEff) {
+        if (sessionHadChanges.current) {
+          const msg = 'Карточку занял другой оператор — черновик НЕ сохранён. Скопируйте правки и откройте карточку заново.';
+          setSaveStatus(msg);
+          throw new Error(msg);
         }
+        setSessionChanged(false);
+        return;
+      }
+      await saveDraftNow(currentDraftSnapshot());
+      setSessionChanged(false);
+    },
+    copyToNew: async () => {
+      const r = await window.matrica.engines.create();
+      if (r?.id) {
+        await window.matrica.engines.setAttr(r.id, 'engine_number', engineNumber + ' (копия)');
+        await window.matrica.engines.setAttr(r.id, 'engine_brand', engineBrand || null);
+        await window.matrica.engines.setAttr(r.id, 'engine_brand_id', engineBrandId || null);
+      }
+    },
+  };
+  const closeActionsRef = useRef(closeActions);
+  closeActionsRef.current = closeActions;
+
+  const registerCardCloseActions = props.registerCardCloseActions;
+  useEffect(() => {
+    if (!registerCardCloseActions) return;
+    registerCardCloseActions({
+      isDirty: () => closeActionsRef.current.isDirty(),
+      saveAndClose: () => closeActionsRef.current.saveAndClose(),
+      reset: () => closeActionsRef.current.reset(),
+      closeWithoutSave: () => closeActionsRef.current.closeWithoutSave(),
+      copyToNew: () => closeActionsRef.current.copyToNew(),
+      keepDraft: async () => {
+        await closeActionsRef.current.keepDraft?.();
       },
     });
-    return () => { props.registerCardCloseActions?.(null); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- saveAllAndClose/clearDraft/currentDraftSnapshot/saveDraftNow пересоздаются каждый рендер, а `props` меняется на любой проп, поэтому их добавление перерегистрировало бы actions на каждый рендер. KNOWN GAP (существует и на main): массив зависимостей покрывает НЕ ВСЁ, что читают замыкания — нет internalNumber/internalNumberYear (их читает saveAllAndClose через resolveInternalNumberFields), нет scrapReason (nextValues.scrap_reason) и нет canEditEnginesEff. Правка ТОЛЬКО внутреннего номера или причины утиля не двигает ни одной зависимости → при закрытии App зовёт последний зарегистрированный saveAndClose, устаревшее замыкание кладёт в nextValues до-правочные значения, из-за чего эти поля не попадают в changedEntries и не пишутся, а следом clearDraft() убирает recovery-снимок: правка оператора теряется молча (тот же класс, что потеря правки в ToolDetailsPage). Лечение — добавить эти четыре значения в зависимости — меняет поведение и вынесено в отдельный PR.
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, props.registerCardCloseActions]);
+    return () => { registerCardCloseActions(null); };
+  }, [registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
     try {
@@ -1810,7 +1854,7 @@ export function EngineDetailsPage(props: {
             })();
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()).catch(() => undefined); }}
           onSaveAsDraft={() => {
             void (async () => {
               // Явная парковка в черновик: без записи в EAV; отменяем отложенный

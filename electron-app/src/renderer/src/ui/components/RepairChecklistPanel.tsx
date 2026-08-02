@@ -503,6 +503,11 @@ export function RepairChecklistPanel(props: {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [payload, setPayload] = useState<RepairChecklistPayload | null>(null);
   const [answers, setAnswers] = useState<RepairChecklistAnswers>({});
+  // Живые ответы для слияний, которые продолжаются ПОСЛЕ await: снимок замыкания к
+  // этому моменту уже устарел, и запись по нему затирает правки, сделанные оператором
+  // пока летел запрос спецификации (в web-admin тот же дефект лечён этим же ref'ом).
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
   const [actTemplates, setActTemplates] = useState<EngineActTemplateSummary[]>([]);
   const [selectedActTemplateId, setSelectedActTemplateId] = useState<string>('');
   const [savingTemplateName, setSavingTemplateName] = useState<string | null>(null);
@@ -1462,10 +1467,19 @@ export function RepairChecklistPanel(props: {
         return;
       }
 
+      // Пока летел запрос, оператор мог править акт: сливаем с ЖИВЫМИ ответами и
+      // строками, иначе запись по до-запросному снимку молча отменит его правки.
+      const liveAnswers = answersRef.current;
+      const liveCurrent = (liveAnswers as any)[tableItem.id];
+      const liveRows: ChecklistTableRow[] =
+        liveCurrent?.kind === 'table' && Array.isArray(liveCurrent.rows)
+          ? ((liveCurrent.rows as ChecklistTableRow[]) ?? [])
+          : [];
+
       if (props.stage === ENGINE_INVENTORY_STAGE) {
         const freshBrandRows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
         const merged = mergeBrandManagedRows(
-          currentRows,
+          liveRows,
           freshBrandRows,
           (row) => engineInventoryRowSignature({
             part_name: String((row as any).part_name ?? ''),
@@ -1516,9 +1530,9 @@ export function RepairChecklistPanel(props: {
           return { ...nr, ...preserveRowIdentityMeta(prev) } as unknown as ChecklistTableRow;
         });
         const nextJson = safeJsonStringify(preservedRows);
-        const currJson = safeJsonStringify(currentRows);
+        const currJson = safeJsonStringify(liveRows);
         if (nextJson === currJson) return;
-        const next = { ...answers, [tableItem.id]: { kind: 'table', rows: preservedRows } } as RepairChecklistAnswers;
+        const next = { ...liveAnswers, [tableItem.id]: { kind: 'table', rows: preservedRows } } as RepairChecklistAnswers;
         setAnswers(next);
         if (props.canEdit) void save(next);
         return;
@@ -1526,31 +1540,31 @@ export function RepairChecklistPanel(props: {
 
       if (props.stage === 'defect') {
         const freshBrandRows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
-        const merged = mergeBrandManagedRows(currentRows, freshBrandRows, defectRowSignature, (base, prev) => ({
+        const merged = mergeBrandManagedRows(liveRows, freshBrandRows, defectRowSignature, (base, prev) => ({
           ...base,
           scrap_qty: toQtyValue((prev as any)?.scrap_qty ?? 0),
         }));
         const normalizedRows = normalizeDefectRows(merged as any).rows as ChecklistTableRow[];
         const nextJson = safeJsonStringify(normalizedRows);
-        const currJson = safeJsonStringify(currentRows);
+        const currJson = safeJsonStringify(liveRows);
         if (nextJson === currJson) return;
-        const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
+        const next = { ...liveAnswers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
         setAnswers(next);
         if (props.canEdit) void save(next);
         return;
       }
 
       const freshBrandRows = buildBrandRowsForStage(parts.parts as any[], props.engineBrandId, props.stage);
-      const merged = mergeBrandManagedRows(currentRows, freshBrandRows, completenessRowSignature, (base, prev) => ({
+      const merged = mergeBrandManagedRows(liveRows, freshBrandRows, completenessRowSignature, (base, prev) => ({
         ...base,
         present: Boolean((prev as any)?.present),
         actual_qty: toQtyValue((prev as any)?.actual_qty ?? 0),
       }));
       const normalizedRows = normalizeCompletenessRows(merged as any).rows as ChecklistTableRow[];
       const nextJson = safeJsonStringify(normalizedRows);
-      const currJson = safeJsonStringify(currentRows);
+      const currJson = safeJsonStringify(liveRows);
       if (nextJson === currJson) return;
-      const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
+      const next = { ...liveAnswers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
       setAnswers(next);
       if (props.canEdit) void save(next);
     })();
