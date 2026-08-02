@@ -1164,9 +1164,10 @@ export function EngineDetailsPage(props: {
   const closeActionsRef = useRef(closeActions);
   closeActionsRef.current = closeActions;
 
+  const registerCardCloseActions = props.registerCardCloseActions;
   useEffect(() => {
-    if (!props.registerCardCloseActions) return;
-    props.registerCardCloseActions({
+    if (!registerCardCloseActions) return;
+    registerCardCloseActions({
       isDirty: () => closeActionsRef.current.isDirty(),
       saveAndClose: () => closeActionsRef.current.saveAndClose(),
       reset: () => closeActionsRef.current.reset(),
@@ -1176,8 +1177,8 @@ export function EngineDetailsPage(props: {
         await closeActionsRef.current.keepDraft?.();
       },
     });
-    return () => { props.registerCardCloseActions?.(null); };
-  }, [props.registerCardCloseActions]);
+    return () => { registerCardCloseActions(null); };
+  }, [registerCardCloseActions]);
 
   async function saveAttachments(next: any[]) {
     try {

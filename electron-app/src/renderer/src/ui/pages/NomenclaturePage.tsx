@@ -321,6 +321,7 @@ export function NomenclaturePage(props: {
     return itemTypeOptions.find((item) => item.id === itemTypeValue)?.label ?? String(itemTypeValue ?? '—');
   }
 
+  const onOpen = props.onOpen;
   const runCreateWithPreset = useCallback(
     async (preset: NomenclatureDirectoryPreset) => {
       const article = await promptNomenclatureArticle(promptText, preset.createConfig.name);
@@ -337,7 +338,7 @@ export function NomenclaturePage(props: {
         if (!result.ok) {
           if ('duplicateNomenclatureId' in result) {
             await refreshRef.current();
-            await props.onOpen(result.duplicateNomenclatureId);
+            await onOpen(result.duplicateNomenclatureId);
             setStatus(`Позиция уже существовала, открыта существующая карточка (${result.duplicateNomenclatureId.slice(0, 8)}...).`);
             return;
           }
@@ -347,12 +348,12 @@ export function NomenclaturePage(props: {
         await refreshRef.current();
         setStatus('');
         setCreateDialogOpen(false);
-        props.onOpen(result.nomenclatureId);
+        onOpen(result.nomenclatureId);
       } finally {
         setCreatingKind(null);
       }
     },
-    [props.onOpen, promptText],
+    [onOpen, promptText],
   );
 
   return (
