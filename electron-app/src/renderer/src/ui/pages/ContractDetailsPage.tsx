@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 
 import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
@@ -23,6 +23,8 @@ import {
   effectiveContractDueAt,
   nextAddonSeq,
   contractSectionAddonToken,
+  canonicalContractSectionKey,
+  PRIMARY_CONTRACT_SECTION_KEY,
   aggregateContractExecutionProgress,
   CONTRACT_EXECUTION_PARTS_ATTR_CODE,
   CONTRACT_PAYMENTS_ATTR_CODE,
@@ -471,12 +473,13 @@ function SectionBlock(props: {
   } = props;
 
   // C-#6: токен привязки этой секции — то, что хранит engine.contract_section_number.
-  // Primary → номер договора; ДС → стабильный addon-токен (как в buildContractSectionOptions).
+  // Оба вида ключа стабильны: основной договор → `primary` (номер правится и раньше
+  // уносил с собой привязки), ДС → addon-токен по неизменяемому seq.
   const sectionToken = isPrimary
-    ? String((section as ContractPrimarySection).number ?? '').trim()
+    ? PRIMARY_CONTRACT_SECTION_KEY
     : contractSectionAddonToken((section as ContractAddonSection).seq);
   const sectionEngines = sectionToken
-    ? relatedEngines.filter((e) => String(e.contractSectionNumber ?? '').trim() === sectionToken)
+    ? relatedEngines.filter((e) => canonicalContractSectionKey(e.contractSectionNumber) === sectionToken)
     : [];
   const sectionEngineIds = new Set(sectionEngines.map((e) => e.id));
   const engineOptionsForSection = engineOptions.filter((o) => !sectionEngineIds.has(o.id));
@@ -1604,6 +1607,30 @@ export function ContractDetailsPage(props: {
 
   async function saveSections() {
     if (!props.canEdit || !sections) return;
+    // Номер договора больше не служит ключом привязки (ключ — стабильный `primary`),
+    // поэтому здесь ничего не рвётся. Но компьютеры со СТАРОЙ версией программы всё ещё
+    // считают ключом сам номер, и до их обновления смена номера спрячет от них двигатели
+    // и платежи этой секции — про это оператора и предупреждаем, с точными числами.
+    const committedNumber = String(parseContractSections(contract?.attributes ?? {}).primary.number ?? '').trim();
+    const nextNumber = String(sections.primary.number ?? '').trim();
+    if (committedNumber && nextNumber !== committedNumber) {
+      const primarySlots = (contractPayments?.slots ?? []).filter(
+        (slot) => canonicalContractSectionKey(slot.sectionKey) === PRIMARY_CONTRACT_SECTION_KEY,
+      );
+      const paidKop = primarySlots.reduce((sum, slot) => sum + slotTotals(slot).paidKop, 0);
+      const enginesCount = relatedEngines.filter(
+        (e) => canonicalContractSectionKey(e.contractSectionNumber) === PRIMARY_CONTRACT_SECTION_KEY,
+      ).length;
+      const ok = await confirm({
+        title: 'Сменить номер договора?',
+        detail:
+          `Номер «${committedNumber}» → «${nextNumber}». К основному договору привязано двигателей: ${enginesCount}, ` +
+          `оплачено по ним: ${formatKopMoney(paidKop)}. На этом компьютере связи сохранятся, но на компьютерах, ` +
+          'где программа ещё не обновилась, эти двигатели и платежи временно не будут видны в карточке контракта.',
+        confirmLabel: 'Сменить номер',
+      });
+      if (!ok) return;
+    }
     try {
       setStatus('Сохранение…');
       const normalizedSections: ContractSections = {
@@ -1625,12 +1652,25 @@ export function ContractDetailsPage(props: {
     }
   }
 
+  /**
+   * Подпись секции для оператора. Ключ (`primary`) — служебный, в документы и списки
+   * идёт номер договора; у ДС ключ и подпись совпадают.
+   */
+  const sectionLabelOf = useCallback(
+    (raw: string | null | undefined): string => {
+      const key = canonicalContractSectionKey(raw);
+      if (!key) return '';
+      if (key !== PRIMARY_CONTRACT_SECTION_KEY) return key;
+      return String(sections?.primary.number ?? '').trim() || 'Основной договор';
+    },
+    [sections],
+  );
+
   /** Токены секций контракта в порядке предпочтения: основной договор, затем ДС. */
   const sectionKeys = useMemo(() => {
     const committed = parseContractSections(contract?.attributes ?? {});
-    const primaryToken = String(committed.primary.number ?? '').trim();
     return [
-      ...(primaryToken ? [primaryToken] : []),
+      PRIMARY_CONTRACT_SECTION_KEY,
       ...committed.addons.map((addon) => contractSectionAddonToken(addon.seq)),
     ];
   }, [contract]);
@@ -1757,7 +1797,6 @@ export function ContractDetailsPage(props: {
   useEffect(() => {
     if (!contract) return;
     const committedSections = parseContractSections(contract.attributes ?? {});
-    const primaryToken = String(committedSections.primary.number ?? '').trim();
     const planned: PlannedSectionBrand[] = [];
     const pushPlan = (token: string, rows: ContractEngineBrandRow[]) => {
       if (!token) return;
@@ -1766,15 +1805,15 @@ export function ContractDetailsPage(props: {
         planned.push({ sectionKey: token, engineBrandId: row.engineBrandId, qty: row.qty, unitPrice: row.unitPrice });
       }
     };
-    pushPlan(primaryToken, committedSections.primary.engineBrands);
+    pushPlan(PRIMARY_CONTRACT_SECTION_KEY, committedSections.primary.engineBrands);
     for (const addon of committedSections.addons) {
       pushPlan(contractSectionAddonToken(addon.seq), addon.engineBrands);
     }
     const attached: AttachedEngineRef[] = relatedEngines
-      .filter((e) => String(e.contractSectionNumber ?? '').trim())
+      .filter((e) => canonicalContractSectionKey(e.contractSectionNumber))
       .map((e) => ({
         engineId: e.id,
-        sectionKey: String(e.contractSectionNumber ?? '').trim(),
+        sectionKey: canonicalContractSectionKey(e.contractSectionNumber),
         ...(e.engineBrandId ? { engineBrandId: e.engineBrandId } : {}),
       }));
     const syncKey = `${contract.id}:${contract.updatedAt}:${attached.map((a) => `${a.engineId}@${a.sectionKey}`).sort().join(',')}`;
@@ -1850,7 +1889,7 @@ export function ContractDetailsPage(props: {
       return {
         engineNumber: String(e.engineNumber ?? ''),
         brand: String(e.engineBrand ?? ''),
-        sectionToken: String(e.contractSectionNumber ?? ''),
+        sectionToken: sectionLabelOf(e.contractSectionNumber),
         paidLabel: totals && totals.paidKop > 0 ? formatKopMoney(totals.paidKop) : '—',
         countdownLabel: visual.label,
       };
@@ -2019,7 +2058,7 @@ export function ContractDetailsPage(props: {
   const executionPartIds = useMemo(() => new Set(executionParts.map((row) => row.partId)), [executionParts]);
   /** Двигатели контракта без секции: в слоты они не попадают и в списках секций не видны. */
   const enginesWithoutSection = useMemo(
-    () => relatedEngines.filter((e) => !String(e.contractSectionNumber ?? '').trim()),
+    () => relatedEngines.filter((e) => !canonicalContractSectionKey(e.contractSectionNumber)),
     [relatedEngines],
   );
 

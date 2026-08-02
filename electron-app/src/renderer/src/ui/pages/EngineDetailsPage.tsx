@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { parseContractSections, buildContractSectionOptions, contractSectionAddonToken, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -441,10 +441,16 @@ export function EngineDetailsPage(props: {
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
+  // Ключ секции держим каноническим (`primary` / «ДС {seq}»): в старых записях тут
+  // лежал номер договора, и он переставал совпадать с секцией, как только номер правили.
   const [contractSectionNumber, setContractSectionNumber] = useState(
-    String(props.engine.attributes?.contract_section_number ?? ''),
+    canonicalContractSectionKey(props.engine.attributes?.contract_section_number as string | null | undefined),
   );
   const [contractSectionOptions, setContractSectionOptions] = useState<ContractSectionOption[]>([]);
+  // Подпись секции для оператора: ключ служебный, показываем номер договора / «ДС N».
+  const contractSectionLabel =
+    contractSectionOptions.find((o) => o.id === contractSectionNumber)?.label ??
+    (contractSectionNumber === PRIMARY_CONTRACT_SECTION_KEY ? 'Основной договор' : contractSectionNumber);
   // C-#8: контрагент стал первичным (выбирается пользователем), контракт фильтруется по нему.
   // Эффект загрузки контракта читает свежий customerId через ref — иначе пришлось бы добавить
   // customerId в deps и эффект перезапускался бы на каждый выбор контрагента.
@@ -614,7 +620,7 @@ export function EngineDetailsPage(props: {
     setArrivalDate(String(s.arrivalDate ?? ''));
     setCustomerId(String(s.customerId ?? ''));
     setContractId(String(s.contractId ?? ''));
-    setContractSectionNumber(String(s.contractSectionNumber ?? ''));
+    setContractSectionNumber(canonicalContractSectionKey(s.contractSectionNumber));
     setWorkshopId(String(s.workshopId ?? ''));
     if (s.statusFlags && typeof s.statusFlags === 'object') setStatusFlags(s.statusFlags);
     if (s.statusDates && typeof s.statusDates === 'object') setStatusDates(s.statusDates);
@@ -718,7 +724,7 @@ export function EngineDetailsPage(props: {
     setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
     setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
     setContractId(String(props.engine.attributes?.contract_id ?? ''));
-    setContractSectionNumber(String(props.engine.attributes?.contract_section_number ?? ''));
+    setContractSectionNumber(canonicalContractSectionKey(props.engine.attributes?.contract_section_number as string | null | undefined));
     setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
     const attrs = props.engine.attributes ?? {};
     const flags: Partial<Record<StatusCode, boolean>> = {};
@@ -899,12 +905,10 @@ export function EngineDetailsPage(props: {
         attributes?: Record<string, unknown>;
       } | null;
       const committed = parseContractSections(contract?.attributes ?? {});
-      const primaryToken = String(committed.primary.number ?? '').trim();
       const sectionKeys = [
-        ...(primaryToken ? [primaryToken] : []),
+        PRIMARY_CONTRACT_SECTION_KEY,
         ...committed.addons.map((addon) => contractSectionAddonToken(addon.seq)),
       ];
-      if (sectionKeys.length === 0) return null;
       let placed: { sectionKey: string; overPlan: boolean } | null = null;
       const r = await mutateContractPayments(targetContractId, (current) => {
         const placement = planSlotForEngine({
@@ -1668,7 +1672,7 @@ export function EngineDetailsPage(props: {
             <SearchSelect
               value={contractSectionNumber || null}
               options={(contractSectionNumber && !contractSectionOptions.some((o) => o.id === contractSectionNumber)
-                ? [{ id: contractSectionNumber, label: contractSectionNumber }, ...contractSectionOptions]
+                ? [{ id: contractSectionNumber, label: contractSectionLabel }, ...contractSectionOptions]
                 : contractSectionOptions
               ).map((o) => ({ id: o.id, label: o.label }))}
               placeholder={contractId ? 'Выберите ДС' : 'Сначала выберите контракт'}
@@ -1772,7 +1776,7 @@ export function EngineDetailsPage(props: {
     ['Марка двигателя', engineBrand],
     ['Контрагент', linkLabel('customer_id', customerId)],
     ['Контракт', linkLabel('contract_id', contractId)],
-    ['ДС контракта', contractSectionNumber],
+    ['ДС контракта', contractSectionLabel],
     ['Дата прихода', formatDateLabel(arrivalDate)],
     ['Забракован', statusPrintValue(Boolean(statusFlags.status_rejected), statusDates.status_rejected)],
     ['Принят на хранение', statusPrintValue(Boolean(statusFlags.status_storage_received), statusDates.status_storage_received)],
@@ -2037,7 +2041,7 @@ export function EngineDetailsPage(props: {
               setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
               setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
               setContractId(String(props.engine.attributes?.contract_id ?? ''));
-              setContractSectionNumber(String(props.engine.attributes?.contract_section_number ?? ''));
+              setContractSectionNumber(canonicalContractSectionKey(props.engine.attributes?.contract_section_number as string | null | undefined));
               const attrs = props.engine.attributes ?? {};
               const flags: Partial<Record<StatusCode, boolean>> = {};
               for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);

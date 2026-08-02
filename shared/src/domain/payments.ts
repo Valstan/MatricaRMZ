@@ -4,6 +4,8 @@
 // читает/пишет через контракт (`contract_id`), пустые слоты — деньги без двигателя.
 // Никакого DDL: едет существующим EAV-sync.
 
+import { canonicalContractSectionKey } from './contract.js';
+
 export const CONTRACT_PAYMENTS_ATTR_CODE = 'contract_payments';
 
 /** Срок ремонта с даты стартового аванса, дней. */
@@ -86,7 +88,10 @@ export function parseContractPayments(raw: unknown): ContractPayments {
     if (!s || typeof s !== 'object') continue;
     const rec = s as Record<string, unknown>;
     const id = String(rec.id ?? '').trim();
-    const sectionKey = String(rec.sectionKey ?? '').trim();
+    // Канонизация на чтении покрывает все места разом: в старых записях ключом
+    // основного договора служил его номер, а после чьей-то правки номера — уже
+    // осиротевшая строка. И то, и другое означает одну и ту же единственную секцию.
+    const sectionKey = canonicalContractSectionKey(rec.sectionKey as string | null | undefined);
     if (!id || !sectionKey) continue;
     const payments: PaymentRow[] = [];
     if (Array.isArray(rec.payments)) {

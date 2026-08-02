@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   aggregateContractExecutionProgress,
+  buildContractSectionOptions,
+  canonicalContractSectionKey,
   classifyEngineContractBinding,
   computeObjectProgress,
   isContractAddonToken,
@@ -190,3 +192,55 @@ describe('engine contract binding classification', () => {
   });
 });
 
+
+describe('canonical contract section key', () => {
+  it('keeps ДС tokens as they are', () => {
+    expect(canonicalContractSectionKey('ДС 3')).toBe('ДС 3');
+    expect(canonicalContractSectionKey('  ДС 12  ')).toBe('ДС 12');
+  });
+
+  it('maps a legacy contract number to the stable primary key', () => {
+    // Так лежит на проде до миграции: ключом основного договора был его номер.
+    expect(canonicalContractSectionKey('2325187912611432245222883/739-1/71ОВК/12-23/29/ГОЗ-24')).toBe('primary');
+    expect(canonicalContractSectionKey('K-2024/15')).toBe('primary');
+  });
+
+  it('rescues a key orphaned by an earlier number edit', () => {
+    // Номер уже сменили, сохранённая строка ни с чем не совпадает — но другой секции
+    // у неё быть не могло, значит это основной договор.
+    expect(canonicalContractSectionKey('K-2024/15-старый')).toBe('primary');
+  });
+
+  it('is idempotent and keeps "no binding" empty', () => {
+    expect(canonicalContractSectionKey('primary')).toBe('primary');
+    expect(canonicalContractSectionKey(canonicalContractSectionKey('K-2024/15'))).toBe('primary');
+    expect(canonicalContractSectionKey('')).toBe('');
+    expect(canonicalContractSectionKey('   ')).toBe('');
+    expect(canonicalContractSectionKey(null)).toBe('');
+    expect(canonicalContractSectionKey(undefined)).toBe('');
+  });
+
+  it('option id of the primary section no longer depends on the editable number', () => {
+    const sections = parseContractSections({
+      contract_sections: {
+        primary: { number: 'K-2024/15', signedAt: null, dueAt: null, engineBrands: [] },
+        addons: [],
+      },
+    });
+    const before = buildContractSectionOptions(sections);
+    const renamed = { ...sections, primary: { ...sections.primary, number: 'K-2024/15-1' } };
+    const after = buildContractSectionOptions(renamed);
+    expect(before[0]?.id).toBe('primary');
+    expect(after[0]?.id).toBe(before[0]?.id);
+    // Показываем оператору по-прежнему номер — меняется подпись, а не ключ.
+    expect(after[0]?.label).toBe('Договор K-2024/15-1');
+  });
+
+  it('offers the primary section even before the number is filled in', () => {
+    const sections = parseContractSections({
+      contract_sections: { primary: { number: '', signedAt: null, dueAt: null, engineBrands: [] }, addons: [] },
+    });
+    const options = buildContractSectionOptions(sections);
+    expect(options[0]).toMatchObject({ id: 'primary', isPrimary: true, label: 'Основной договор' });
+  });
+});
