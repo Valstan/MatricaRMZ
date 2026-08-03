@@ -48,7 +48,9 @@ export function isTransientNetworkError(e: unknown): boolean {
 }
 
 function isOnline(): boolean {
-  return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  // Node (vitest) имеет navigator БЕЗ onLine (undefined) — это «онлайн»;
+  // офлайном считаем только явный false из WebView.
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
 }
 
 export async function fetchWithRetry(url: string, init: RequestInit, opts: RetryOptions): Promise<Response> {
