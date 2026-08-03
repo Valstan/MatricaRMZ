@@ -3,6 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   TIMESHEET_PRINT_FONT_DEFAULTS,
   TIMESHEET_PRINT_FONT_RANGES,
+  TIMESHEET_PRINT_INK_DEFAULT,
+  TIMESHEET_PRINT_INK_RANGE,
+  TIMESHEET_PRINT_LINE_WIDTH_DEFAULT,
+  TIMESHEET_PRINT_LINE_WIDTH_RANGE,
   type TimesheetPrintSettings,
 } from '@matricarmz/shared';
 
@@ -34,6 +38,25 @@ const FONT_ROWS: Array<{ key: FontKey; label: string; hint?: string; range: { mi
   { key: 'fontDayNum', label: 'Числа месяца', hint: 'шапка колонок 1..31', range: TIMESHEET_PRINT_FONT_RANGES.dayNum, def: TIMESHEET_PRINT_FONT_DEFAULTS.dayNum },
   { key: 'fontWeekday', label: 'Дни недели', hint: 'пн/вт под числами', range: TIMESHEET_PRINT_FONT_RANGES.weekday, def: TIMESHEET_PRINT_FONT_DEFAULTS.weekday },
   { key: 'fontLegend', label: 'Легенда и расшифровки', range: TIMESHEET_PRINT_FONT_RANGES.legend, def: TIMESHEET_PRINT_FONT_DEFAULTS.legend },
+];
+
+/** Печать на бумаге: у принтеров разная передача серого и тонких линий — отдаём градацию оператору. */
+type InkKey = 'weekendInk' | 'lineWidth';
+const INK_ROWS: Array<{ key: InkKey; label: string; hint: string; range: { min: number; max: number }; def: number }> = [
+  {
+    key: 'weekendInk',
+    label: 'Чернота выходных',
+    hint: '0 — без заливки, 10 — почти чёрный',
+    range: TIMESHEET_PRINT_INK_RANGE,
+    def: TIMESHEET_PRINT_INK_DEFAULT,
+  },
+  {
+    key: 'lineWidth',
+    label: 'Толщина линий',
+    hint: 'px; тонкие на части принтеров пропадают',
+    range: TIMESHEET_PRINT_LINE_WIDTH_RANGE,
+    def: TIMESHEET_PRINT_LINE_WIDTH_DEFAULT,
+  },
 ];
 
 export function TimesheetPrintDialog(props: {
@@ -156,15 +179,31 @@ export function TimesheetPrintDialog(props: {
             ))}
           </div>
 
+          <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 2 }}>Печать на бумаге</div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {INK_ROWS.map((row) => (
+              <FontStepper
+                key={row.key}
+                label={row.label}
+                hint={row.hint}
+                value={draft[row.key] ?? row.def}
+                min={row.range.min}
+                max={row.range.max}
+                onChange={(v) => update({ [row.key]: v })}
+              />
+            ))}
+          </div>
+
           <Button
             variant="ghost"
             onClick={() => setDraft((prev) => {
               const next = { ...prev };
               for (const row of FONT_ROWS) delete next[row.key];
+              for (const row of INK_ROWS) delete next[row.key];
               return next;
             })}
           >
-            Сбросить шрифты
+            Сбросить настройки
           </Button>
 
           <div style={{ fontSize: 13, fontWeight: 700, color: fits ? '#15803d' : '#b45309' }}>

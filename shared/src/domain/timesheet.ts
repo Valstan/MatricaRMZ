@@ -119,6 +119,14 @@ export type TimesheetPrintSettings = {
   fontCell?: number;
   /** Легенда кодов и расшифровки комментариев. */
   fontLegend?: number;
+  /**
+   * Насыщенность заливки выходных на бумаге, 0..10 (0 — без заливки, 10 — почти чёрный).
+   * Принтеры печатают серое по-разному: на одних видна и светлая заливка, на других
+   * и средняя не проявляется — поэтому градация отдана оператору.
+   */
+  weekendInk?: number;
+  /** Толщина линий сетки на бумаге, px (тонкие линии на части принтеров не пропечатываются). */
+  lineWidth?: number;
 };
 
 export type TimesheetPrintFontKey = 'header' | 'fio' | 'dayNum' | 'weekday' | 'cell' | 'legend';
@@ -160,10 +168,18 @@ export const TIMESHEET_PRINT_PAGE_PX = {
  */
 export const TIMESHEET_PRINT_ROW_HEIGHT_MAX_PX = 110;
 
+/** Отступ снизу у каждой печатной секции (`.section { margin-bottom }` печатной вёрстки). */
+const TIMESHEET_PRINT_SECTION_GAP_PX = 6;
+
 /**
  * Высота строки табеля на печати: всё свободное место листа делится на число сотрудников,
  * чтобы ячейки под ручной ввод были максимально крупными. Ниже натуральной высоты строки
  * (шрифт ячейки) не опускаемся — `height` у `<tr>` всё равно работает как минимум.
+ *
+ * Считаем ВСЁ, что занимает высоту, иначе лист уезжает на вторую страницу ровно тогда, когда
+ * места стало больше: при снятой легенде строки становятся выше, и незачтённые мелочи
+ * (рамки строк, отступы секций) вылезают за лист. Каждое слагаемое здесь — из реальной вёрстки:
+ * рамка на строку (`border-collapse` даёт rowCount+1 линию) и `margin-bottom` каждой секции.
  */
 export function timesheetPrintRowHeightPx(args: {
   rowCount: number;
@@ -171,17 +187,111 @@ export function timesheetPrintRowHeightPx(args: {
   withHeader: boolean;
   /** Число строк легенды под таблицей (0 — легенда не печатается). */
   legendLines: number;
+  /** Толщина линии сетки (px) — из настроек печати. */
+  lineWidth?: number;
 }): number {
   const f = args.fonts;
-  const headerPx = args.withHeader ? f.header * 1.15 + f.header * 0.7 * 1.2 + 6 : 0;
-  const legendPx = args.legendLines > 0 ? f.legend * 1.35 * args.legendLines + 6 : 0;
-  // Шапка таблицы: число месяца + буква дня недели + паддинги/рамки.
-  const theadPx = f.dayNum * 1.05 + f.weekday * 1.05 + 6;
-  const slackPx = 10;
-  const available = TIMESHEET_PRINT_PAGE_PX.height - headerPx - legendPx - theadPx - slackPx;
+  const rowCount = Math.max(1, args.rowCount);
+  const line = Math.max(1, Math.round(args.lineWidth ?? 1));
+  const headerPx = args.withHeader ? f.header * 1.15 + f.header * 0.7 * 1.2 : 0;
+  const legendPx = args.legendLines > 0 ? f.legend * 1.35 * args.legendLines : 0;
+  // Шапка таблицы: число месяца + буква дня недели + паддинги.
+  const theadPx = f.dayNum * 1.05 + f.weekday * 1.05 + 4;
+  // Секции листа: шапка + таблица + легенда — у каждой свой отступ снизу.
+  const sections = 1 + (args.withHeader ? 1 : 0) + (args.legendLines > 0 ? 1 : 0);
+  const gapsPx = sections * TIMESHEET_PRINT_SECTION_GAP_PX;
+  // Рамки: линия над каждой строкой тела, над шапкой таблицы и под последней строкой.
+  const bordersPx = (rowCount + 2) * line;
+  const slackPx = 8;
+  const available = TIMESHEET_PRINT_PAGE_PX.height - headerPx - legendPx - theadPx - gapsPx - bordersPx - slackPx;
   const natural = f.cell * 1.25 + 4;
-  const raw = available / Math.max(1, args.rowCount);
-  return Math.round(Math.min(TIMESHEET_PRINT_ROW_HEIGHT_MAX_PX, Math.max(natural, raw)));
+  // Округление ТОЛЬКО вниз: `round` на 20+ строках добавляет по полпикселя на строку и съедает
+  // весь запас — лист уходит на вторую страницу из-за арифметики, а не из-за содержимого.
+  return Math.floor(Math.min(TIMESHEET_PRINT_ROW_HEIGHT_MAX_PX, Math.max(natural, available / rowCount)));
+}
+
+/** Разрешённые цвета печати табеля: заливка выходных, цвет цифр поверх неё, толщина линий. */
+export type TimesheetPrintInk = {
+  /** Уровень насыщенности 0..10 (как задан оператором). */
+  level: number;
+  /** Заливка ячейки выходного дня в теле таблицы. */
+  weekendBg: string;
+  /** Заливка ячейки выходного дня в шапке колонок (на ступень темнее). */
+  weekendHeadBg: string;
+  /** Цвет текста поверх заливки выходного (на тёмной — белый). */
+  weekendText: string;
+  /** Толщина линий сетки, px. */
+  lineWidth: number;
+};
+
+export const TIMESHEET_PRINT_INK_RANGE = { min: 0, max: 10 } as const;
+export const TIMESHEET_PRINT_LINE_WIDTH_RANGE = { min: 1, max: 3 } as const;
+// Умолчание 6 — заметный средний серый: прежняя светлая заливка на части принтеров не проявлялась.
+export const TIMESHEET_PRINT_INK_DEFAULT = 6;
+export const TIMESHEET_PRINT_LINE_WIDTH_DEFAULT = 1;
+
+/**
+ * Шкала серого для заливки выходных: 0 — без заливки, 10 — почти чёрный (#1f1f1f).
+ * Шаг равномерный по яркости; на тёмных ступенях цифры печатаются белым, иначе
+ * рукописную клетку не разобрать.
+ */
+function inkGray(level: number): string {
+  if (level <= 0) return 'transparent';
+  // 1 → 0.88 яркости, 10 → 0.12.
+  const v = Math.round(255 * (0.88 - ((level - 1) * (0.88 - 0.12)) / 9));
+  const hex = Math.min(255, Math.max(0, v)).toString(16).padStart(2, '0');
+  return `#${hex}${hex}${hex}`;
+}
+
+export function resolveTimesheetPrintInk(settings?: TimesheetPrintSettings | null): TimesheetPrintInk {
+  const rawLevel = settings?.weekendInk;
+  const level =
+    typeof rawLevel === 'number' && Number.isFinite(rawLevel)
+      ? Math.min(TIMESHEET_PRINT_INK_RANGE.max, Math.max(TIMESHEET_PRINT_INK_RANGE.min, Math.round(rawLevel)))
+      : TIMESHEET_PRINT_INK_DEFAULT;
+  const rawLine = settings?.lineWidth;
+  const lineWidth =
+    typeof rawLine === 'number' && Number.isFinite(rawLine)
+      ? Math.min(TIMESHEET_PRINT_LINE_WIDTH_RANGE.max, Math.max(TIMESHEET_PRINT_LINE_WIDTH_RANGE.min, Math.round(rawLine)))
+      : TIMESHEET_PRINT_LINE_WIDTH_DEFAULT;
+  return {
+    level,
+    weekendBg: inkGray(level),
+    // Шапка выходной колонки — на ступень темнее тела (но не темнее максимума).
+    weekendHeadBg: inkGray(level > 0 ? Math.min(TIMESHEET_PRINT_INK_RANGE.max, level + 1) : 0),
+    weekendText: level >= 7 ? '#ffffff' : '#000000',
+    lineWidth,
+  };
+}
+
+/** Часы в ячейке табеля по-русски: 9.5 → «9,5», целые — без хвоста. */
+export function formatTimesheetHours(hours: number | null | undefined): string {
+  if (hours == null || !Number.isFinite(hours)) return '';
+  return String(Math.round(hours * 100) / 100).replace('.', ',');
+}
+
+/** Доля кегля на символ: у цифры и буквы она заметно больше, чем у запятой. */
+function charWidthEm(ch: string): number {
+  return ch === ',' || ch === '.' ? 0.3 : 0.62;
+}
+
+/** Оценка ширины строки в ячейке (жирные цифры, px) — без замера DOM. */
+export function timesheetTextWidthPx(text: string, fontPx: number): number {
+  let em = 0;
+  for (const ch of String(text ?? '')) em += charWidthEm(ch);
+  return em * fontPx;
+}
+
+/**
+ * Размер шрифта для содержимого ячейки: пока значение помещается в свою колонку — полный кегль,
+ * а «9,5» / «11,5» уменьшаем ровно настолько, чтобы колонка НЕ расширилась и клетки остались
+ * плюс-минус одинаковыми. Уменьшение по фактической ширине, а не по числу знаков: иначе
+ * помещающееся значение мельчится зря и его не прочесть на бумаге.
+ */
+export function timesheetCellFontPx(text: string, baseFontPx: number, availableWidthPx: number): number {
+  const width = timesheetTextWidthPx(text, baseFontPx);
+  if (!text || width <= availableWidthPx || availableWidthPx <= 0) return baseFontPx;
+  return Math.max(4, Math.floor((baseFontPx * availableWidthPx) / width));
 }
 
 /** Разрешить настройки в готовые размеры: невалидное/отсутствующее → дефолт, значения клампятся в диапазон. */
