@@ -1,7 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EmployeeListItem, TimesheetCodeDef, TimesheetData, TimesheetPrintFonts, TimesheetPrintSettings, TimesheetRowData } from '@matricarmz/shared';
-import { computeTimesheetRowTotals, isTimesheetWeekend, resolveEmploymentStatusCode, resolveTimesheetPrintFonts, timesheetDayOfWeek, timesheetDaysInMonth } from '@matricarmz/shared';
+import type { EmployeeListItem, TimesheetCodeDef, TimesheetData, TimesheetPrintSettings, TimesheetRowData } from '@matricarmz/shared';
+import {
+  computeTimesheetRowTotals,
+  formatTimesheetHours,
+  isTimesheetWeekend,
+  resolveEmploymentStatusCode,
+  resolveTimesheetPrintFonts,
+  resolveTimesheetPrintInk,
+  timesheetDayOfWeek,
+  timesheetDaysInMonth,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -9,7 +18,7 @@ import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { TimesheetPrintDialog, type TimesheetPrintBlocks, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildWorkOrderA4PreviewHtml, printSectionsDirect } from '../utils/printPreview.js';
-import { buildTimesheetPrintSections, TIMESHEET_PRINT_CSS, timesheetPrintTitle, type TimesheetPrintInput } from '../utils/timesheetPrintHtml.js';
+import { buildTimesheetPrintSections, timesheetPrintCss, timesheetPrintTitle, type TimesheetPrintInput } from '../utils/timesheetPrintHtml.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -289,10 +298,25 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
       e.preventDefault();
       return;
     }
+    // Дробные часы: «9» «,» «5» → 9,5. Разделитель принимаем и точкой, и запятой; десятичный
+    // знак ровно один (полчаса/десятые — больше в табеле не пишут).
+    if (e.key === ',' || e.key === '.') {
+      const int = digitBuf.current.split(/[.,]/)[0] ?? '';
+      digitBuf.current = `${int || '0'},`;
+      e.preventDefault();
+      return;
+    }
     if (/^[0-9]$/.test(e.key)) {
-      digitBuf.current = (digitBuf.current + e.key).slice(-2);
-      let h = Number(digitBuf.current);
-      if (h > 24) { h = Number(e.key); digitBuf.current = e.key; }
+      const buf = digitBuf.current;
+      if (buf.includes(',')) {
+        // После запятой — одна цифра; следующая цифра начинает новое число.
+        const int = buf.split(',')[0] ?? '0';
+        digitBuf.current = buf.endsWith(',') ? `${int},${e.key}` : e.key;
+      } else {
+        digitBuf.current = (buf + e.key).slice(-2);
+      }
+      let h = Number(digitBuf.current.replace(',', '.'));
+      if (!Number.isFinite(h) || h > 24) { h = Number(e.key); digitBuf.current = e.key; }
       applyHours(rowId, day, h);
       e.preventDefault();
       return;
@@ -448,17 +472,17 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     workshopName,
   };
   const printTitle = timesheetPrintTitle(printInput);
-  const printSections = (f: TimesheetPrintFonts, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) =>
-    buildTimesheetPrintSections(printInput, f, variant, blocks);
-  // Не useCallback: блок стоит после ранних return (rules of hooks).
-  const buildPrintPreviewHtml = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
+  const printParts = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
     const f = resolveTimesheetPrintFonts(settings);
-    return buildWorkOrderA4PreviewHtml({ sections: printSections(f, variant, blocks), extraCss: TIMESHEET_PRINT_CSS, landscape: true, marginMm: 8 });
+    const ink = resolveTimesheetPrintInk(settings);
+    return { sections: buildTimesheetPrintSections(printInput, f, variant, blocks, ink), extraCss: timesheetPrintCss(ink) };
   };
+  // Не useCallback: блок стоит после ранних return (rules of hooks).
+  const buildPrintPreviewHtml = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) =>
+    buildWorkOrderA4PreviewHtml({ ...printParts(settings, variant, blocks), landscape: true, marginMm: 8 });
   const doPrint = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
     // Печать сразу из диалога настроек — без промежуточного окна с чекбоксами.
-    const f = resolveTimesheetPrintFonts(settings);
-    printSectionsDirect({ title: printTitle, sections: printSections(f, variant, blocks), extraCss: TIMESHEET_PRINT_CSS });
+    printSectionsDirect({ title: printTitle, ...printParts(settings, variant, blocks) });
   };
 
   return (
@@ -471,7 +495,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
         <Button variant="ghost" onClick={props.onBack}>← К списку</Button>
         <strong style={{ fontSize: 16 }}>Табель · {MONTHS[ts.month - 1]} {ts.year}</strong>
         <span style={{ fontSize: 12, color: '#64748b' }}>
-          {ts.weekMode}-дневка · норма {ts.normHours ?? '—'} ч/чел · отработано {grandHours} из {totalNorm ?? '—'} ч {totalNorm != null ? (grandHours >= totalNorm ? '✓' : `(−${Math.round((totalNorm - grandHours) * 100) / 100})`) : ''}
+          {ts.weekMode}-дневка · норма {ts.normHours ?? '—'} ч/чел · отработано {formatTimesheetHours(grandHours)} из {totalNorm ?? '—'} ч {totalNorm != null ? (grandHours >= totalNorm ? '✓' : `(−${Math.round((totalNorm - grandHours) * 100) / 100})`) : ''}
         </span>
         <div style={{ display: 'flex', gap: 0, alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden' }}>
           <button onClick={() => setMode('first')} style={segBtn(viewMode === 'first')} title="Первая половина месяца">1–15</button>
@@ -529,6 +553,18 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
               {h}
             </button>
           ))}
+          <button
+            title="Полчаса к выбранным часам: 8 → 8,5. Повторный клик убирает половину. С клавиатуры — запятая: 9 , 5"
+            onClick={() => {
+              const base = brush && brush.kind === 'worked' && brush.hours != null ? brush.hours : lastHours.current;
+              const next = base % 1 === 0.5 ? base - 0.5 : base + 0.5;
+              lastHours.current = next;
+              setBrush((b) => (b && b.kind === 'worked' ? { ...b, hours: next } : { kind: 'worked', code: 'Я', hours: next }));
+            }}
+            style={chipStyle('#e0f2fe', brush?.kind === 'worked' && brush.hours != null && brush.hours % 1 === 0.5)}
+          >
+            +½
+          </button>
           <span style={{ width: 1, height: 22, background: '#cbd5e1', margin: '0 4px' }} />
           <span style={{ fontSize: 12, color: '#64748b', marginRight: 4 }}>Коды (без часов):</span>
           {absenceCodes.map((c) => (
@@ -546,7 +582,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
           <button onClick={() => setBrush(null)} style={chipStyle(brush ? '#fff' : '#dcfce7', false)} title="Снять кисть">
             {brush ? `${brushLabel(brush)} — снять` : 'Кисть выкл'}
           </button>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>Выбери код+часы / код без часов / резинку — это «кисть»; ЛКМ-клик или протяжка ставит её. ПКМ-протяжка — прямоугольная заливка; ПКМ-клик без движения — комментарий. Клавиши: цифры → часы, буква → код, ←↑↓→/Enter/Tab — навигация, Del — очистить, Ctrl+D — повтор сверху.</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>Выбери код+часы / код без часов / резинку — это «кисть»; ЛКМ-клик или протяжка ставит её. ПКМ-протяжка — прямоугольная заливка; ПКМ-клик без движения — комментарий. Клавиши: цифры → часы (запятая — полчаса: 9 , 5), буква → код, ←↑↓→/Enter/Tab — навигация, Del — очистить, Ctrl+D — повтор сверху.</span>
         </div>
       )}
       </div>
@@ -642,18 +678,18 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
                         {c.code && c.hours != null ? (
                           <>
                             {c.code !== 'Я' && <div style={{ fontWeight: 400, lineHeight: 1, fontSize: codeFont, color: '#475569' }}>{c.code}</div>}
-                            <div style={{ fontWeight: 800, lineHeight: 1, fontSize: hoursFont, color: '#000' }}>{c.hours}</div>
+                            <div style={{ fontWeight: 800, lineHeight: 1, fontSize: hoursFont, color: '#000' }}>{formatTimesheetHours(c.hours)}</div>
                           </>
                         ) : c.code ? (
                           <div style={{ fontWeight: 700, lineHeight: 1.05, fontSize: bigCodeFont, color: '#0b1220' }}>{c.code}</div>
                         ) : c.hours != null ? (
-                          <div style={{ fontWeight: 800, lineHeight: 1, fontSize: hoursFont, color: '#000' }}>{c.hours}</div>
+                          <div style={{ fontWeight: 800, lineHeight: 1, fontSize: hoursFont, color: '#000' }}>{formatTimesheetHours(c.hours)}</div>
                         ) : null}
                         {c.comment ? <div title={String(c.comment)} style={{ position: 'absolute', top: 0, right: 0, width: 0, height: 0, borderTop: '12px solid #7f1d1d', borderLeft: '12px solid transparent' }} /> : null}
                       </td>
                     );
                   })}
-                  <td style={{ ...bCell, fontWeight: 700 }}>{totals.totalHours || ''}</td>
+                  <td style={{ ...bCell, fontWeight: 700 }}>{totals.totalHours ? formatTimesheetHours(totals.totalHours) : ''}</td>
                   <td style={bCell}>{totals.workedDays || ''}</td>
                   {canEdit && (
                     <td style={bCell}>
@@ -693,10 +729,10 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
                 {colTotals.map((c, i) => (
                   <td key={i} style={{ ...bCell, fontSize: 9 }}>
                     <div>{c.present || ''}</div>
-                    <div style={{ color: '#475569' }}>{c.hours || ''}</div>
+                    <div style={{ color: '#475569' }}>{c.hours ? formatTimesheetHours(c.hours) : ''}</div>
                   </td>
                 ))}
-                <td style={bCell}>{grandHours || ''}</td>
+                <td style={bCell}>{grandHours ? formatTimesheetHours(grandHours) : ''}</td>
                 <td style={bCell} />
                 {canEdit && <td style={bCell} />}
               </tr>
@@ -842,7 +878,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
 function brushLabel(b: NonNullable<Brush>): string {
   if (b.kind === 'eraser') return '⌫ Резинка';
   if (b.kind === 'absence') return b.code;
-  return b.hours != null ? `${b.code} · ${b.hours} ч` : b.code;
+  return b.hours != null ? `${b.code} · ${formatTimesheetHours(b.hours)} ч` : b.code;
 }
 
 function chipStyle(bg: string | null, active: boolean): React.CSSProperties {

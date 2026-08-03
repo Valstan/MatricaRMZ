@@ -10,22 +10,21 @@
 import {
   computeTimesheetRowTotals,
   formatEmployeeSurnameInitials,
+  formatTimesheetHours,
   isTimesheetWeekend,
+  timesheetCellFontPx,
   TIMESHEET_PRINT_PAGE_PX,
   timesheetDayOfWeek,
   timesheetPrintRowHeightPx,
   type TimesheetCodeDef,
   type TimesheetPrintFonts,
+  type TimesheetPrintInk,
 } from '@matricarmz/shared';
 
 import { escapeHtml, type PrintSection } from './printPreview.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-
-/** Заливка выходных на бумаге (светлый экранный #f1f5f9 принтер не пропечатывал). */
-export const TIMESHEET_PRINT_WEEKEND_BG = '#cbd5e1';
-export const TIMESHEET_PRINT_WEEKEND_HEAD_BG = '#b3bfcd';
 
 export type TimesheetPrintVariant = 'full' | 'first' | 'second';
 /** Какие блоки выводить на печать (все отключаемые галочками в диалоге). */
@@ -53,14 +52,19 @@ export type TimesheetPrintInput = {
   workshopName?: string | null;
 };
 
-/** Компактная вёрстка листа: узкие поля, тонкие рамки, гарантированная печать заливок. */
-export const TIMESHEET_PRINT_CSS = `
+/**
+ * Компактная вёрстка листа: узкие поля, гарантированная печать заливок.
+ * Толщина линий сетки — из настроек: на части принтеров линия в 1px не пропечатывается.
+ */
+export function timesheetPrintCss(ink: TimesheetPrintInk): string {
+  return `
     @page { size: A4 landscape; margin: 8mm; }
     @media print { body { margin: 0; } }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    th, td { padding: 1px 2px; line-height: 1.05; vertical-align: middle; border: 1px solid #1f2937; }
+    th, td { padding: 1px 2px; line-height: 1.05; vertical-align: middle; border: ${ink.lineWidth}px solid #111827; }
     .section { margin-bottom: 6px; }
   `;
+}
 
 export function timesheetPrintTitle(input: Pick<TimesheetPrintInput, 'workshopName'>): string {
   return `Табель учёта рабочего времени${input.workshopName ? ` · ${input.workshopName}` : ''}`;
@@ -80,29 +84,37 @@ function headerHtml(input: TimesheetPrintInput, f: TimesheetPrintFonts): string 
 
 // Рендер ячейки: «Я» не печатаем — только часы во всю ячейку; прочие коды-с-часами — код
 // мелко сверху; код-без-часов — тем же размером, что и цифры часов (полная ячейка).
-function cellHtml(c: TimesheetPrintCell, f: TimesheetPrintFonts): string {
+// Длинные значения («9,5», «11») печатаются мельче — иначе они расширяют колонку и клетки
+// перестают быть одинаковыми (`timesheetCellFontPx`).
+function cellHtml(c: TimesheetPrintCell, f: TimesheetPrintFonts, color: string, cellWidthPx: number): string {
   const code = c.code === 'Я' ? '' : (c.code ?? '');
-  const h = c.hours != null ? String(c.hours) : '';
+  const h = formatTimesheetHours(c.hours);
   const small = Math.max(4, Math.round(f.cell * 0.55));
-  if (code && h) return `<div style="font-size:${small}px;line-height:1.05">${escapeHtml(code)}</div><div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
-  if (code) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(code)}</div>`;
-  if (h) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
+  const big = (text: string) =>
+    `<div style="font-size:${timesheetCellFontPx(text, f.cell, cellWidthPx)}px;font-weight:800;color:${color};line-height:1.05">${escapeHtml(text)}</div>`;
+  if (code && h) return `<div style="font-size:${small}px;line-height:1.05;color:${color}">${escapeHtml(code)}</div>${big(h)}`;
+  if (code) return big(code);
+  if (h) return big(h);
   return '';
 }
 
-function gridHtml(input: TimesheetPrintInput, fromDay: number, toDay: number, f: TimesheetPrintFonts, rowHeightPx: number): string {
+function gridHtml(input: TimesheetPrintInput, fromDay: number, toDay: number, f: TimesheetPrintFonts, rowHeightPx: number, ink: TimesheetPrintInk): string {
   const cols = input.dayList.filter((d) => d >= fromDay && d <= toDay);
   // Служебные колонки (№, ФИО, Σч, дн.) сжимаются по содержимому (width:1% + nowrap),
   // всю остальную ширину листа поровну забирают дни — под запись ручкой.
   const dayWidth = `${Math.max(1, Math.floor(92 / Math.max(1, cols.length)))}%`;
+  // Полезная ширина клетки дня: доля листа минус паддинги и рамки — по ней мельчим длинные значения.
+  const dayCellWidthPx = Math.max(6, (TIMESHEET_PRINT_PAGE_PX.width * 0.92) / Math.max(1, cols.length) - 4 - 2 * ink.lineWidth);
   const weekend = (d: number) => isTimesheetWeekend(input.year, input.month, d, input.weekMode);
+  const headWeekend = ink.level > 0 ? `;background:${ink.weekendHeadBg};color:${ink.weekendText}` : '';
+  const bodyWeekend = ink.level > 0 ? `;background:${ink.weekendBg}` : '';
   const head =
     `<tr><th style="font-size:${f.dayNum}px;width:1%;white-space:nowrap">№</th>` +
     `<th style="text-align:left;font-size:${f.dayNum}px;width:1%;white-space:nowrap">ФИО</th>` +
     cols
       .map(
         (d) =>
-          `<th style="font-size:${f.dayNum}px;line-height:1.05;width:${dayWidth}${weekend(d) ? `;background:${TIMESHEET_PRINT_WEEKEND_HEAD_BG}` : ''}">${d}<br/><span style="font-weight:400;font-size:${f.weekday}px">${DOW[timesheetDayOfWeek(input.year, input.month, d)]}</span></th>`,
+          `<th style="font-size:${f.dayNum}px;line-height:1.05;width:${dayWidth}${weekend(d) ? headWeekend : ''}">${d}<br/><span style="font-weight:400;font-size:${f.weekday}px">${DOW[timesheetDayOfWeek(input.year, input.month, d)]}</span></th>`,
       )
       .join('') +
     `<th style="font-size:${f.dayNum}px;width:1%;white-space:nowrap">Σч</th>` +
@@ -112,14 +124,19 @@ function gridHtml(input: TimesheetPrintInput, fromDay: number, toDay: number, f:
       const rc = cols.map((d) => ({ day: d, ...input.getCell(row.id, d) }));
       const tot = computeTimesheetRowTotals(rc, input.codes);
       const dayTds = cols
-        .map((d) => `<td style="text-align:center${weekend(d) ? `;background:${TIMESHEET_PRINT_WEEKEND_BG}` : ''}">${cellHtml(input.getCell(row.id, d), f)}</td>`)
+        .map((d) => {
+          const we = weekend(d);
+          return `<td style="text-align:center${we ? bodyWeekend : ''}">${cellHtml(input.getCell(row.id, d), f, we ? ink.weekendText : '#000', dayCellWidthPx)}</td>`;
+        })
         .join('');
-      const fio = `<span style="font-size:${f.fio}px">${escapeHtml(formatEmployeeSurnameInitials({ fullName: row.fullName }))}</span>`;
+      // ФИО жирным: на принтере тонкое начертание в мелком кегле почти не читается.
+      const fio = `<span style="font-size:${f.fio}px;font-weight:700">${escapeHtml(formatEmployeeSurnameInitials({ fullName: row.fullName }))}</span>`;
       return (
         `<tr style="height:${rowHeightPx}px">` +
         `<td style="text-align:center;font-size:${f.dayNum}px;width:1%;white-space:nowrap">${i + 1}</td>` +
         `<td style="text-align:left;white-space:nowrap;width:1%">${fio}</td>${dayTds}` +
-        `<td style="text-align:center;font-weight:700;font-size:${f.cell}px;width:1%">${tot.totalHours || ''}</td>` +
+        // Σч — служебная колонка, она сжата по содержимому: цифры тут не мельчим, только формат.
+        `<td style="text-align:center;font-weight:700;font-size:${f.cell}px;width:1%">${escapeHtml(tot.totalHours ? formatTimesheetHours(tot.totalHours) : '')}</td>` +
         `<td style="text-align:center;font-size:${f.cell}px;width:1%">${tot.workedDays || ''}</td></tr>`
       );
     })
@@ -166,6 +183,7 @@ export function buildTimesheetPrintSections(
   f: TimesheetPrintFonts,
   variant: TimesheetPrintVariant,
   blocks: TimesheetPrintBlocks,
+  ink: TimesheetPrintInk,
 ): PrintSection[] {
   // Высота строки — весь остаток листа, делённый на число сотрудников: клетки под ручку максимально крупные.
   const rowHeightPx = timesheetPrintRowHeightPx({
@@ -173,13 +191,14 @@ export function buildTimesheetPrintSections(
     fonts: f,
     withHeader: blocks.header,
     legendLines: blocks.legend ? timesheetLegendLineCount(input.codes, f) : 0,
+    lineWidth: ink.lineWidth,
   });
   const grid =
     variant === 'full'
-      ? gridHtml(input, 1, input.days, f, rowHeightPx)
+      ? gridHtml(input, 1, input.days, f, rowHeightPx, ink)
       : variant === 'first'
-        ? gridHtml(input, 1, 15, f, rowHeightPx)
-        : gridHtml(input, 16, input.days, f, rowHeightPx);
+        ? gridHtml(input, 1, 15, f, rowHeightPx, ink)
+        : gridHtml(input, 16, input.days, f, rowHeightPx, ink);
   return [
     ...(blocks.header ? [{ id: 'header', title: 'Шапка листа', html: headerHtml(input, f), hideTitle: true }] : []),
     ...(blocks.grid ? [{ id: 'grid', title: 'Табель', html: grid, hideTitle: true }] : []),
