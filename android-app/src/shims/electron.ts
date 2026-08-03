@@ -49,3 +49,92 @@ export const app = {
     return getAndroidPlatformHooks().appVersion();
   },
 };
+
+// ── In-process IPC-шина (Ф2) ────────────────────────────────────────────────
+// main- и renderer-код исполняются в одном WebView, поэтому ipcMain/ipcRenderer
+// сводятся к общему реестру хэндлеров + слушателей. Это позволяет реюзать
+// НАСТОЯЩИЕ preload/index.ts и ipc/register/*-модули Electron-клиента: весь
+// маппинг window.matrica → сервисы приходит без форка (метод Ф1 — шимить края).
+
+type IpcHandler = (event: unknown, ...args: unknown[]) => unknown;
+type IpcListener = (event: unknown, ...args: unknown[]) => void;
+
+const ipcHandlers = new Map<string, IpcHandler>();
+const ipcListeners = new Map<string, Set<IpcListener>>();
+const missedChannels = new Set<string>();
+
+const ipcEvent = Object.freeze({ sender: { send: sendToRenderer } });
+
+function sendToRenderer(channel: string, ...args: unknown[]): void {
+  const set = ipcListeners.get(channel);
+  if (!set) return;
+  for (const listener of [...set]) {
+    try {
+      listener(ipcEvent, ...args);
+    } catch (e) {
+      console.error(`[electron-shim] listener error on ${channel}:`, e);
+    }
+  }
+}
+
+// sectionGate монкипатчит ipcMain.handle — объект должен оставаться мутируемым.
+export const ipcMain = {
+  handle(channel: string, handler: IpcHandler): void {
+    ipcHandlers.set(channel, handler);
+  },
+  removeHandler(channel: string): void {
+    ipcHandlers.delete(channel);
+  },
+  on(channel: string, listener: IpcListener): void {
+    // send-каналы renderer→main (activity:report и т.п.) — та же таблица слушателей.
+    let set = ipcListeners.get(channel);
+    if (!set) ipcListeners.set(channel, (set = new Set()));
+    set.add(listener);
+  },
+};
+
+export const ipcRenderer = {
+  async invoke(channel: string, ...args: unknown[]): Promise<unknown> {
+    const handler = ipcHandlers.get(channel);
+    if (!handler) {
+      // Незарегистрированный канал (раздел вне android-рамки) — громко в лог,
+      // мягко в UI: тот же контракт, что у спайк-моста Ф0.
+      if (!missedChannels.has(channel)) {
+        missedChannels.add(channel);
+        console.warn(`[electron-shim] no IPC handler: ${channel}`);
+      }
+      return { ok: false, error: `недоступно на планшете: ${channel}` };
+    }
+    return handler(ipcEvent, ...args);
+  },
+  send(channel: string, ...args: unknown[]): void {
+    sendToRenderer(channel, ...args);
+  },
+  on(channel: string, listener: IpcListener): void {
+    let set = ipcListeners.get(channel);
+    if (!set) ipcListeners.set(channel, (set = new Set()));
+    set.add(listener);
+  },
+  removeListener(channel: string, listener: IpcListener): void {
+    ipcListeners.get(channel)?.delete(listener);
+  },
+};
+
+export const contextBridge = {
+  exposeInMainWorld(key: string, value: unknown): void {
+    (globalThis as Record<string, unknown>)[key] = value;
+  },
+};
+
+// Единственное «окно» — сам WebView; webContents.send доставляет событие
+// слушателям ipcRenderer.on (sync:progress, auth:changed и т.п.).
+const fakeWindow = {
+  isDestroyed: () => false,
+  webContents: { send: sendToRenderer },
+};
+
+export const BrowserWindow = {
+  getAllWindows(): Array<typeof fakeWindow> {
+    return [fakeWindow];
+  },
+};
