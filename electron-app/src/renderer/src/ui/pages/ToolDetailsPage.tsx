@@ -245,9 +245,9 @@ export function ToolDetailsPage(props: {
       },
       copyToNew: async () => {
         const r = await window.matrica.tools.create();
-        if (r?.ok && r.id) {
-          await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
-          await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+        if (r.ok && r.tool.id) {
+          await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'name', value: name.trim() + ' (копия)' });
+          await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'description', value: description.trim() });
         }
       },
     });
@@ -512,9 +512,9 @@ export function ToolDetailsPage(props: {
       onCopyToNew={() => {
         void (async () => {
           const r = await window.matrica.tools.create();
-          if (r?.ok && r.id) {
-            await window.matrica.tools.setAttr({ toolId: r.id, code: 'name', value: name.trim() + ' (копия)' });
-            await window.matrica.tools.setAttr({ toolId: r.id, code: 'description', value: description.trim() });
+          if (r.ok && r.tool.id) {
+            await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'name', value: name.trim() + ' (копия)' });
+            await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'description', value: description.trim() });
           }
         })();
       }}
