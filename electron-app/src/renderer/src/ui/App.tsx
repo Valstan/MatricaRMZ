@@ -42,7 +42,8 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, GROUP_LABELS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
+import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, GROUP_LABELS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
+import { isAndroidPlatform } from './platform.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 // «Доступ по разделам» (Ф1): таб меню → раздел. Табы вне разделов (заметки, история,
@@ -1871,7 +1872,8 @@ export function App() {
       ? { ...capsRaw, canEditMasterData: true }
       : capsRaw;
   const viewMode = backupMode?.mode === 'backup';
-  const canChat = !!authStatus.permissions?.['chat.use'];
+  // Android v1: чат и AI скрыты платформой (план android-tablet-client §Решения 4).
+  const canChat = !!authStatus.permissions?.['chat.use'] && !isAndroidPlatform();
   const canChatExport = !!authStatus.permissions?.['chat.export'];
   const canChatAdminView = !!authStatus.permissions?.['chat.admin.view'];
   // Асинхронный AI-чат (очередь + облачная рутина) не зависит от серверного
@@ -1948,12 +1950,17 @@ export function App() {
     ...(caps.canViewWarehouseLocations || caps.canManageWarehouseLocations ? (['warehouses_admin'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit', 'access_sections'] as const) : []),
   ];
-  const sectionGatedTabs = sectionMembership
+  const sectionGatedTabsFull = sectionMembership
     ? availableTabs.filter((t) => {
         const sectionId = SECTION_BY_TAB.get(t);
         return !sectionId || sectionMembership[sectionId] != null;
       })
     : availableTabs;
+  // Android-планшет: меню сужено до рамки владельца (это не права — узость
+  // клиента v1; права/section-гейт выше уже применены).
+  const sectionGatedTabs = isAndroidPlatform()
+    ? sectionGatedTabsFull.filter((t) => ANDROID_TABS.includes(t))
+    : sectionGatedTabsFull;
   const menuState = deriveMenuState(sectionGatedTabs, tabsLayout);
   const visibleTabs = menuState.visibleOrdered;
   const visibleTabsKey = visibleTabs.join('|');

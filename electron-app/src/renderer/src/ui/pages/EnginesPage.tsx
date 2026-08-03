@@ -27,6 +27,7 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
 import { openPrintPreview, escapeHtml } from '../utils/printPreview.js';
+import { isAndroidPlatform } from '../platform.js';
 
 
 type EngineRow = EngineListItem & {
@@ -937,20 +938,24 @@ export function EnginesPage(props: {
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
-        <Button
-          variant="ghost"
-          onClick={() => setLabelDialogOpen(true)}
-          title="Печать QR-этикеток на тару с деталями: марка, внутренний номер, QR для поиска двигателя"
-        >
-          Печать этикеток
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => setPrintDialogOpen(true)}
-          title="Печать текущего списка (по фильтру или выделенных строк) с выбором полей"
-        >
-          Печать списка
-        </Button>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setLabelDialogOpen(true)}
+            title="Печать QR-этикеток на тару с деталями: марка, внутренний номер, QR для поиска двигателя"
+          >
+            Печать этикеток
+          </Button>
+        )}
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка (по фильтру или выделенных строк) с выбором полей"
+          >
+            Печать списка
+          </Button>
+        )}
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}
