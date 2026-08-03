@@ -74,6 +74,61 @@ describe('печатная форма табеля — ФИО', () => {
   });
 });
 
+describe('печатная форма табеля — шапка листа', () => {
+  it('одна строка одним кеглем: «за <месяц> <год> · <цех>»', () => {
+    const header = buildTimesheetPrintSections(input(), fonts, 'full', allBlocks, defaultInk).find((s) => s.id === 'header')?.html ?? '';
+    expect(header).toContain('Табель учёта рабочего времени за Август 2026 · Цех №1');
+    // Второй строки другого размера (месяц/режим недели) на листе больше нет.
+    expect(header.match(/<div/g)?.length).toBe(1);
+    expect(header).not.toContain('дневка');
+  });
+
+  it('без цеха обходится без хвоста', () => {
+    const header = buildTimesheetPrintSections(input({ workshopName: null }), fonts, 'full', allBlocks, defaultInk).find((s) => s.id === 'header')?.html ?? '';
+    expect(header).toContain('Табель учёта рабочего времени за Август 2026<');
+  });
+});
+
+describe('печатная форма табеля — код важнее часов', () => {
+  const dayCell = (code: string | null, hours: number | null) =>
+    input({
+      rows: [{ id: 'r1', fullName: 'Асхатов Рамиль Зулкафирович' }],
+      getCell: (_rowId, day) => (day === 3 ? { code, hours, comment: null } : { code: null, hours: null, comment: null }),
+    });
+  const sizeOf = (html: string, text: string) => Number(/font-size:(\d+)px;font-weight:800/.exec(html.slice(html.indexOf(`>${text}<`) - 90))?.[1]);
+  /** Что реально напечатано в клетках строки сотрудника (шапку с числами месяца не берём). */
+  const printedValues = (html: string) => {
+    const body = html.slice(html.indexOf('<tr style="height:'));
+    return [...body.matchAll(/font-weight:800;color:[^"]*;line-height:1\.05">([^<]*)</g)].map((m) => m[1]);
+  };
+
+  it('при коде часы на бумагу не идут — печатается только буква', () => {
+    // Именно та путаница, из-за которой командировку принимали за явку: «К» мелко, «8» крупно.
+    expect(printedValues(gridHtml(dayCell('К', 8)))).toEqual(['К']);
+  });
+
+  it('буква печатается тем же кеглем, что и цифры', () => {
+    expect(sizeOf(gridHtml(dayCell('К', 8)), 'К')).toBe(sizeOf(gridHtml(dayCell('Я', 8)), '8'));
+  });
+
+  it('«Я» — это и есть явка: печатаются часы, а не буква', () => {
+    expect(printedValues(gridHtml(dayCell('Я', 8)))).toEqual(['8']);
+  });
+
+  it('двухбуквенный код не расширяет колонку', () => {
+    const bigFonts = { ...fonts, cell: 18 };
+    const html = buildTimesheetPrintSections(dayCell('ОТ', null), bigFonts, 'full', allBlocks, defaultInk).find((x) => x.id === 'grid')?.html ?? '';
+    const size = sizeOf(html, 'ОТ');
+    expect(size).toBeLessThanOrEqual(18);
+    expect(size).toBeGreaterThanOrEqual(6);
+  });
+
+  it('часы с кодом остаются в итоге строки, хотя в клетке их не видно', () => {
+    // «К» + 8 часов: в клетке только буква, но 8 часов зачтены.
+    expect(gridHtml(dayCell('К', 8))).toContain('>8</td>');
+  });
+});
+
 describe('печатная форма табеля — дробные часы', () => {
   const halfDay = (hours: number) =>
     input({
