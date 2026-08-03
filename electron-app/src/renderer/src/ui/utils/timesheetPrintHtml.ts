@@ -89,7 +89,10 @@ function cellHtml(c: TimesheetPrintCell, f: TimesheetPrintFonts, color: string, 
   const code = c.code === 'Я' ? '' : (c.code ?? '');
   const text = code || formatTimesheetHours(c.hours);
   if (!text) return '';
-  return `<div style="font-size:${timesheetCellFontPx(text, f.cell, cellWidthPx)}px;font-weight:800;color:${color};line-height:1.05">${escapeHtml(text)}</div>`;
+  // Цифры жирные, буквы — обычным начертанием: по одному взгляду на колонку видно, где часы,
+  // а где код (отпуск, командировка, больничный), не вчитываясь в саму букву.
+  const weight = code ? 400 : 800;
+  return `<div style="font-size:${timesheetCellFontPx(text, f.cell, cellWidthPx)}px;font-weight:${weight};color:${color};line-height:1.05">${escapeHtml(text)}</div>`;
 }
 
 function gridHtml(input: TimesheetPrintInput, fromDay: number, toDay: number, f: TimesheetPrintFonts, rowHeightPx: number, ink: TimesheetPrintInk): string {

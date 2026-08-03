@@ -95,12 +95,22 @@ describe('печатная форма табеля — код важнее ча�
       rows: [{ id: 'r1', fullName: 'Асхатов Рамиль Зулкафирович' }],
       getCell: (_rowId, day) => (day === 3 ? { code, hours, comment: null } : { code: null, hours: null, comment: null }),
     });
-  const sizeOf = (html: string, text: string) => Number(/font-size:(\d+)px;font-weight:800/.exec(html.slice(html.indexOf(`>${text}<`) - 90))?.[1]);
+  // Ищем ТОЛЬКО в строке сотрудника: `>8<` совпадает и с шапкой числа месяца.
+  const inBody = (html: string) => html.slice(html.indexOf('<tr style="height:'));
+  const around = (html: string, text: string) => { const b = inBody(html); return b.slice(b.indexOf(`>${text}<`) - 90); };
+  const sizeOf = (html: string, text: string) => Number(/font-size:(\d+)px;font-weight:\d+/.exec(around(html, text))?.[1]);
+  const weightOf = (html: string, text: string) => Number(/font-weight:(\d+)/.exec(around(html, text))?.[1]);
   /** Что реально напечатано в клетках строки сотрудника (шапку с числами месяца не берём). */
   const printedValues = (html: string) => {
     const body = html.slice(html.indexOf('<tr style="height:'));
-    return [...body.matchAll(/font-weight:800;color:[^"]*;line-height:1\.05">([^<]*)</g)].map((m) => m[1]);
+    return [...body.matchAll(/font-weight:\d+;color:[^"]*;line-height:1\.05">([^<]*)</g)].map((m) => m[1]);
   };
+
+  it('цифры печатаются жирными, буквы — обычным начертанием', () => {
+    expect(weightOf(gridHtml(dayCell('Я', 8)), '8')).toBe(800);
+    expect(weightOf(gridHtml(dayCell('К', 8)), 'К')).toBe(400);
+    expect(weightOf(gridHtml(dayCell('ОТ', null)), 'ОТ')).toBe(400);
+  });
 
   it('при коде часы на бумагу не идут — печатается только буква', () => {
     // Именно та путаница, из-за которой командировку принимали за явку: «К» мелко, «8» крупно.
@@ -142,7 +152,7 @@ describe('печатная форма табеля — дробные часы',
   });
 
   it('длинное число печатается мельче — но только когда перестаёт влезать в колонку', () => {
-    const sizeOf = (html: string, text: string) => Number(/font-size:(\d+)px;font-weight:800/.exec(html.slice(html.indexOf(`>${text}<`) - 90))?.[1]);
+    const sizeOf = (html: string, text: string) => Number(/font-size:(\d+)px;font-weight:\d+/.exec(html.slice(html.indexOf(`>${text}<`) - 90))?.[1]);
     // При дефолтном кегле «9,5» помещается — мельчить незачем; «11,5» упирается в край колонки
     // и ужимается на считаные пиксели, а не в полтора раза.
     expect(sizeOf(gridHtml(halfDay(9.5)), '9,5')).toBe(fonts.cell);
