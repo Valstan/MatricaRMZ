@@ -5,6 +5,7 @@ import type { WorkshopStatsResult } from '../domain/workshopStats.js';
 import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain/timesheet.js';
 import type { UserUiProfile } from '../domain/userUiProfile.js';
 import type { UiShellPrefs } from '../domain/uiShellV2.js';
+import type { SectionMembership } from '../domain/sectionAccess.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -697,14 +698,128 @@ export type UiScreenListItem = {
 
 export type UiScreenDetails = UiScreenListItem & { specJson: string };
 
+/** Ответ сервера на sync-snapshot; `resolvedId`/`resolvedCode` — если тип нашёлся по коду, а не по id. */
+export type MasterdataResyncSnapshot = {
+  ok?: boolean;
+  error?: string;
+  resolvedId?: string;
+  resolvedCode?: string;
+  [key: string]: unknown;
+};
+
+/** Resync «справочник/сотрудники с сервера»: снимок + прогон синхронизации следом. */
+export type MasterdataResyncResult =
+  | { ok: true; resync: MasterdataResyncSnapshot; sync: SyncRunResult | { ok: false; error: string } }
+  | { ok: false; error: string };
+
+export type EngineDedupeAnalyzeResult =
+  | {
+      ok: true;
+      totalEngines: number;
+      groups: Array<{
+        kind: 'exact' | 'similar';
+        engines: Array<{ id: string; engineNumber: string; engineBrand: string; createdAt: number; opsCount: number }>;
+      }>;
+    }
+  | { ok: false; error: string };
+
+export type EngineDedupeMergeResult =
+  | { ok: true; report: { survivorId: string; merged: Array<{ loserId: string; opsRepointed: number; attrsFilled: number }> } }
+  | { ok: false; error: string };
+
+export type WarehousePartsDedupeAnalyzeResult =
+  | {
+      ok: true;
+      totalParts: number;
+      groups: Array<{
+        kind: 'exact' | 'code-collision' | 'fuzzy';
+        parts: Array<{
+          id: string;
+          name: string;
+          code: string | null;
+          isActive: boolean;
+          createdAt: number;
+          usage: {
+            stockBalances: number;
+            stockMovements: number;
+            bomLines: number;
+            docLines: number;
+            brandLinks: number;
+            hasNomenclature: boolean;
+          };
+        }>;
+      }>;
+    }
+  | { ok: false; error: string };
+
+export type WarehousePartsDedupeMergeResult =
+  | {
+      ok: true;
+      report: {
+        survivorId: string;
+        merged: Array<{
+          loserId: string;
+          repointed: { stockBalances: number; stockMovements: number; bomLines: number; docLines: number; operations: number };
+          bomLinesDropped: number;
+          brandLinksAdded: number;
+        }>;
+        fills: string[];
+        conflicts: string[];
+      };
+    }
+  | { ok: false; error: string };
+
+export type MaintenanceEmptyCardsAnalyzeResult =
+  | {
+      ok: true;
+      total: number;
+      groups: Array<{
+        kind: 'engine' | 'contract' | 'employee' | 'work_order' | 'supply_request';
+        label: string;
+        rows: Array<{ id: string; kind: string; label: string; createdAt: number }>;
+      }>;
+    }
+  | { ok: false; error: string };
+
+export type MaintenanceEmptyCardsDeleteResult =
+  | { ok: true; deleted: number; skipped: Array<{ id: string; reason: string }> }
+  | { ok: false; error: string };
+
+/** Черновик карточки (owner-private снимок формы): один на пару (cardType, cardId) на оператора. */
+export type CardDraftRecord = {
+  id: string;
+  cardType: string;
+  cardId: string;
+  kind: 'recovery' | 'explicit';
+  title: string | null;
+  payloadJson: string | null;
+  baseUpdatedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** RBAC #474 M4: заявка админа на изменение пользователя, ждущая решения супер-админа. */
+export type UserChangeRequestItem = {
+  id: string;
+  status: string;
+  rowId: string;
+  payload: Record<string, unknown> | null;
+  beforeJson: string | null;
+  changeAuthorUserId: string;
+  changeAuthorUsername: string;
+  note: string | null;
+  createdAt: number;
+};
+
 export type MatricaApi = {
   ping: () => Promise<{ ok: boolean; ts: number }>;
   app: {
     version: () => Promise<AppVersionResult>;
-    onCloseRequest?: (handler: () => void) => () => void;
-    respondToCloseRequest?: (args: { allowClose: boolean }) => void;
-    navigateDeepLink?: (link: ChatDeepLinkPayload) => Promise<{ ok: boolean; error?: string }>;
-    onDeepLink?: (handler: (link: ChatDeepLinkPayload) => void) => () => void;
+    /** Подписки/ответы возвращают функцию отписки; preload определяет их всегда. */
+    onCloseRequest: (handler: () => void) => () => void;
+    respondToCloseRequest: (args: { allowClose: boolean }) => void;
+    navigateDeepLink: (link: ChatDeepLinkPayload) => Promise<{ ok: boolean; error?: string }>;
+    onDeepLink: (handler: (link: ChatDeepLinkPayload) => void) => () => void;
   };
   search: {
     global: (args: { q: string; limit?: number }) => Promise<GlobalSearchResponse>;
@@ -877,6 +992,31 @@ export type MatricaApi = {
       acquire: (engineId: string) => Promise<EngineReservationResult>;
       release: (engineId: string) => Promise<EngineReservationResult>;
     };
+    delete: (engineId: string) => Promise<{ ok: boolean; error?: string }>;
+    /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
+    dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
+    dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;
+  };
+  maintenance: {
+    emptyCardsAnalyze: () => Promise<MaintenanceEmptyCardsAnalyzeResult>;
+    emptyCardsDelete: (args: { ids: string[] }) => Promise<MaintenanceEmptyCardsDeleteResult>;
+  };
+  drafts: {
+    save: (args: {
+      cardType: string;
+      cardId: string;
+      kind?: 'recovery' | 'explicit';
+      title?: string | null;
+      payloadJson?: string | null;
+      baseUpdatedAt?: number | null;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    list: () => Promise<{ ok: true; drafts: CardDraftRecord[] } | { ok: false; error: string }>;
+    get: (args: { cardType: string; cardId: string }) => Promise<
+      { ok: true; draft: CardDraftRecord | null } | { ok: false; error: string }
+    >;
+    clear: (args: { id?: string; cardType?: string; cardId?: string }) => Promise<
+      { ok: true; cleared: number } | { ok: false; error: string }
+    >;
   };
   operations: {
     list: (engineId: string) => Promise<OperationItem[]>;
@@ -894,7 +1034,7 @@ export type MatricaApi = {
     configSet: (args: { apiBaseUrl: string }) => Promise<{ ok: boolean; error?: string }>;
     reset: () => Promise<{ ok: boolean; error?: string }>;
     resetLocalDb: () => Promise<{ ok: boolean; restarting?: boolean; error?: string }>;
-    onProgress?: (handler: (event: SyncProgressEvent) => void) => () => void;
+    onProgress: (handler: (event: SyncProgressEvent) => void) => () => void;
   };
   changes: {
     list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;
@@ -999,6 +1139,9 @@ export type MatricaApi = {
       upsert: (args: { id?: string; code: string; name: string }) => Promise<{ ok: boolean; id?: string; error?: string }>;
       deleteInfo: (entityTypeId: string) => Promise<EntityTypeDeleteInfoResult>;
       delete: (args: { entityTypeId: string; deleteEntities: boolean; deleteDefs: boolean }) => Promise<EntityTypeDeleteResult>;
+      /** Подтянуть справочник с сервера снимком; при смене id тип ищется по коду (resolvedId). */
+      resyncFromServer: (entityTypeId: string) => Promise<MasterdataResyncResult>;
+      resyncAllFromServer: () => Promise<MasterdataResyncResult>;
     };
     attributeDefs: {
       listByEntityType: (entityTypeId: string) => Promise<
@@ -1039,7 +1182,11 @@ export type MatricaApi = {
       // synthesizes an empty card on get and materializes the row on the first setAttr.
       get: (id: string, fallbackTypeId?: string) => Promise<EntityDetails>;
       setAttr: (entityId: string, code: string, value: unknown, fallbackTypeId?: string) => Promise<{ ok: boolean; error?: string }>;
-      findDuplicates: (args: { entityTypeId: string; query: { name?: string; article?: string; price?: number }; excludeEntityId?: string }) => Promise<DuplicateCandidate[]>;
+      findDuplicates: (args: {
+        entityTypeId: string;
+        query: { name?: string; article?: string; inn?: string; price?: number };
+        excludeEntityId?: string;
+      }) => Promise<DuplicateCandidate[]>;
       deleteInfo: (entityId: string) => Promise<EntityDeleteInfoResult>;
       incomingReferences: (
         entityId: string,
@@ -1137,6 +1284,13 @@ export type MatricaApi = {
       deleteRequest: (userId: string) => Promise<{ ok: boolean; error?: string }>;
       deleteConfirm: (userId: string) => Promise<{ ok: boolean; error?: string }>;
       deleteCancel: (userId: string) => Promise<{ ok: boolean; error?: string }>;
+      /** RBAC #474 M4: очередь заявок на изменение пользователя (админ предлагает — супер-админ решает). */
+      changeRequestsList: () => Promise<
+        { ok: true; requests: UserChangeRequestItem[] } | { ok: false; error: string }
+      >;
+      changeRequestsDecide: (args: { id: string; action: 'approve' | 'reject'; note?: string }) => Promise<
+        { ok: true; mode: 'applied' | 'rejected' } | { ok: false; error: string }
+      >;
     };
     audit: {
       list: (args?: { limit?: number; fromMs?: number; toMs?: number; actor?: string; actionType?: 'create' | 'update' | 'delete' | 'session' | 'other' }) => Promise<
@@ -1179,6 +1333,13 @@ export type MatricaApi = {
       >;
     };
   };
+  access: {
+    /**
+     * Self-read собственного membership «доступа по разделам» — без permission-гейта.
+     * `null` = не засеяно либо superadmin (гейтинг не применяется) → меню работает fail-open.
+     */
+    sectionsSelf: () => Promise<SectionMembership | null>;
+  };
   employees: {
     list: () => Promise<EmployeeListItem[]>;
     get: (id: string) => Promise<EntityDetails>;
@@ -1186,6 +1347,8 @@ export type MatricaApi = {
     setAttr: (employeeId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
     delete: (employeeId: string) => Promise<{ ok: boolean; error?: string }>;
     merge: () => Promise<{ ok: true; stats?: any } | { ok: false; error: string }>;
+    /** Подтянуть карточки сотрудников снимком с сервера и прогнать синхронизацию следом. */
+    resyncFromServer: () => Promise<MasterdataResyncResult>;
     departmentsList: () => Promise<EntityListItem[]>;
     defs: () => Promise<EmployeeAttributeDef[]>;
     permissionsGet: (userId: string) => Promise<
@@ -1677,6 +1840,86 @@ export type MatricaApi = {
     delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
 
+  tools: {
+    list: (args?: { q?: string }) => Promise<{ ok: true; tools: ToolListItem[] } | { ok: false; error: string }>;
+    get: (id: string) => Promise<{ ok: true; tool: ToolDetails } | { ok: false; error: string }>;
+    create: () => Promise<{ ok: true; tool: ToolDetails } | { ok: false; error: string }>;
+    setAttr: (args: { toolId: string; code: string; value: unknown }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    exportPdf: (toolId: string) => Promise<
+      { ok: true; contentBase64: string; fileName: string; mime: string } | { ok: false; error: string }
+    >;
+    /** Подразделение текущего оператора — им ограничена видимость инструментов не-админам. */
+    scope: () => Promise<{ ok: true; departmentId: string | null } | { ok: false; error: string }>;
+    movements: {
+      list: (toolId: string) => Promise<{ ok: true; movements: ToolMovementItem[] } | { ok: false; error: string }>;
+      listAll: () => Promise<{ ok: true; movements: ToolMovementItem[] } | { ok: false; error: string }>;
+      add: (args: {
+        toolId: string;
+        movementAt: number;
+        mode: 'received' | 'returned';
+        employeeId?: string | null;
+        confirmed?: boolean;
+        confirmedById?: string | null;
+        comment?: string | null;
+      }) => Promise<{ ok: true } | { ok: false; error: string }>;
+      update: (args: {
+        id: string;
+        toolId: string;
+        movementAt: number;
+        mode: 'received' | 'returned';
+        employeeId?: string | null;
+        confirmed?: boolean;
+        confirmedById?: string | null;
+        comment?: string | null;
+      }) => Promise<{ ok: true } | { ok: false; error: string }>;
+      delete: (args: { id: string; toolId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    };
+    properties: {
+      list: () => Promise<{ ok: true; items: ToolPropertyListItem[] } | { ok: false; error: string }>;
+      get: (id: string) => Promise<{ ok: true; property: ToolDetails } | { ok: false; error: string }>;
+      create: () => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      setAttr: (args: { id: string; code: string; value: unknown }) => Promise<{ ok: true } | { ok: false; error: string }>;
+      delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+      /** Значения этого свойства, уже встречавшиеся у видимых инструментов (подсказки ввода). */
+      valueHints: (propertyId: string) => Promise<{ ok: true; values: string[] } | { ok: false; error: string }>;
+    };
+    catalog: {
+      list: () => Promise<{ ok: true; items: ToolCatalogItem[] } | { ok: false; error: string }>;
+      create: (args: { name: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    };
+    employees: {
+      list: (args?: { departmentId?: string | null }) => Promise<
+        | { ok: true; employees: Array<{ id: string; label: string; departmentId: string | null }> }
+        | { ok: false; error: string }
+      >;
+    };
+    report: (args: {
+      startMs?: number | null;
+      endMs?: number | null;
+      nameQuery?: string | null;
+      propertyId?: string | null;
+      propertyValue?: string | null;
+      location?: 'store' | 'in_use' | 'unknown' | null;
+    }) => Promise<
+      | {
+          ok: true;
+          rows: Array<{
+            toolId: string;
+            toolNumber?: string;
+            name?: string;
+            serialNumber?: string;
+            departmentId?: string | null;
+            departmentName?: string | null;
+            lastMovementAt?: number | null;
+            lastMovementMode?: 'received' | 'returned' | null;
+            location: 'store' | 'in_use' | 'unknown';
+          }>;
+          totals: { total: number; store: number; inUse: number; unknown: number };
+        }
+      | { ok: false; error: string }
+    >;
+  };
   parts: {
     list: (args?: { q?: string; limit?: number; offset?: number; engineBrandId?: string; templateId?: string }) => Promise<
       | {
@@ -1839,6 +2082,9 @@ export type MatricaApi = {
       isActive?: boolean;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     nomenclatureDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    /** Разбор дублей номенклатуры-деталей: полное сканирование НА СЕРВЕРЕ. */
+    partsDedupeAnalyze: () => Promise<WarehousePartsDedupeAnalyzeResult>;
+    partsDedupeMerge: (args: { survivorId: string; mergedIds: string[] }) => Promise<WarehousePartsDedupeMergeResult>;
     stockList: (args?: {
       warehouseId?: string;
       nomenclatureId?: string;
@@ -1862,7 +2108,15 @@ export type MatricaApi = {
       offset?: number;
     }) => Promise<{ ok: true; rows: WarehouseDocumentListItem[]; hasMore?: boolean } | { ok: false; error: string }>;
     documentGet: (id: string) => Promise<{ ok: true; document: WarehouseDocumentDetails } | { ok: false; error: string }>;
-    documentCreate: (args: WarehouseDocumentUpsertInput) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    /**
+     * Создание/правка документа. Сервер недоступен — команда НЕ теряется, а ложится в
+     * warehouse_command_outbox: тогда `queued: true` + `clientOperationId`, а `warning`
+     * несёт причину офлайна. `ok: true` в обоих случаях — очередь это успех, не отказ.
+     */
+    documentCreate: (args: WarehouseDocumentUpsertInput) => Promise<
+      | { ok: true; id: string; queued: boolean; clientOperationId?: string; warning?: string }
+      | { ok: false; error: string }
+    >;
     documentPlan: (id: string) => Promise<{ ok: true; id: string; planned?: boolean } | { ok: false; error: string }>;
     documentPost: (arg: string | { id: string; expectedUpdatedAt?: number }) => Promise<{ ok: true; id: string; posted?: boolean; queued?: boolean } | { ok: false; error: string }>;
     repairFundIntake: (args: { engineId: string; items: Array<{ partId: string; partLabel: string; qty: number }> }) => Promise<
@@ -1983,6 +2237,7 @@ export type MatricaApi = {
     engineInstancesList: (args?: {
       nomenclatureId?: string;
       contractId?: string;
+      contractSectionNumber?: string;
       warehouseId?: string;
       status?: EngineInstanceStatus | string;
       search?: string;

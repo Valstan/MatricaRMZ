@@ -4,6 +4,8 @@
 // preload → шина → register → портированные сервисы работает по-настоящему.
 import { vi } from 'vitest';
 
+import type { MatricaApi } from '@matricarmz/shared';
+
 import { authLogin, clearSession } from '../../../../electron-app/src/main/services/authService.js';
 
 import {
@@ -39,10 +41,9 @@ export const PERMS: Record<string, boolean> = {
 export type BridgeHarness = {
   adapter: BetterSqlite3AsyncAdapter;
   core: AndroidCore;
-  /** Нетипизированный доступ: форму методов диктует настоящий preload, а не
-   *  MatricaApi из shared (тот отстаёт — см. отдельный таск синхронизации). */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  matrica: () => any;
+  /** Мост здесь — настоящий preload, и его форму описывает контракт MatricaApi
+   *  (сверен с preload 2026-08-03: drafts/maintenance/access/tools и хвосты). */
+  matrica: () => MatricaApi;
   /** Ответы фейкового сервера сверх базовых (login/health) — по префиксу URL. */
   dispose: () => Promise<void>;
 };
@@ -95,8 +96,7 @@ export async function startBridgeHarness(opts: HarnessOptions = {}): Promise<Bri
   return {
     adapter,
     core,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    matrica: (): any => (globalThis as { matrica?: unknown }).matrica,
+    matrica: (): MatricaApi => (globalThis as unknown as { matrica: MatricaApi }).matrica,
     dispose: async () => {
       await clearSession(core.serviceDb);
       await adapter.close();
