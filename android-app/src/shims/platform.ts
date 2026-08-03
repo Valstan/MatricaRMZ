@@ -17,6 +17,8 @@ export type AndroidPlatformHooks = {
   relaunch: () => void;
   /** Версия приложения для heartbeat/диагностики. */
   appVersion: () => string;
+  /** Имя устройства для clientId/heartbeat (модель планшета). Опционально. */
+  deviceName?: () => string;
 };
 
 let hooks: AndroidPlatformHooks = {

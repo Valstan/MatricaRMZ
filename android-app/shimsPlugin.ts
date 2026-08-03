@@ -38,6 +38,7 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
       }
       if (browser && source === 'node:fs/promises') return resolve(shimsDir, 'nodeFsPromises.ts');
       if (browser && source === 'node:path') return resolve(shimsDir, 'nodePath.ts');
+      if (browser && (source === 'node:os' || source === 'os')) return resolve(shimsDir, 'nodeOs.ts');
       // Relative-импорты платформенных модулей ИЗ портированных main-сервисов —
       // без подмены они резолвятся в electron-версии (node:fs / better-sqlite3 / cipher).
       const fromPortedMain = !!importer && norm(importer).startsWith(electronMainDir);
@@ -45,6 +46,9 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
         if (source === './netFetch.js' || source.endsWith('/netFetch.js')) {
           return resolve(shimsDir, 'netFetch.ts');
         }
+        // Watchdog — внешний десктоп-процесс; его handshake шимится и в vitest:
+        // electron-шим app не имеет getPath, реальный модуль упал бы fire-and-forget'ом.
+        if (source.endsWith('/watchdogHandshakeService.js')) return resolve(shimsDir, 'watchdogHandshake.ts');
         if (browser) {
           if (source.endsWith('/utils/logger.js')) return resolve(shimsDir, 'logger.ts');
           if (source.endsWith('/database/db.js')) return resolve(shimsDir, 'dbHandle.ts');
