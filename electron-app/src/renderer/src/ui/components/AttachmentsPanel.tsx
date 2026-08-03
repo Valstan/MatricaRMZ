@@ -5,6 +5,7 @@ import type { FileRef } from '@matricarmz/shared';
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
+import { isAndroidPlatform } from '../platform.js';
 
 type AttachmentFileRef = FileRef & { isObsolete?: boolean };
 type FileFilterMode = 'actual' | 'obsolete' | 'all';
@@ -70,14 +71,23 @@ function isObsoleteFile(file: AttachmentFileRef): boolean {
   return file.isObsolete === true;
 }
 
-export function AttachmentsPanel(props: {
+type AttachmentsPanelProps = {
   title?: string;
   value: unknown; // FileRef[] in JSON
   canView: boolean;
   canUpload: boolean;
   scope?: { ownerType: string; ownerId: string; category: string };
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
-}) {
+};
+
+// Android v1: вложения скрыты платформой (файловые диалоги не портируются) —
+// гейт в корне компонента закрывает все точки монтирования разом.
+export function AttachmentsPanel(props: AttachmentsPanelProps) {
+  if (isAndroidPlatform()) return null;
+  return <AttachmentsPanelInner {...props} />;
+}
+
+function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const { confirm } = useConfirm();
   const [busy, setBusy] = useState<string>('');
   const [filterMode, setFilterMode] = useState<FileFilterMode>('all');

@@ -10,6 +10,7 @@ import { Input } from './Input.js';
 import { OverflowTooltipInput } from './OverflowTooltipInput.js';
 import { NumpadOverlay } from './NumpadOverlay.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
+import { isAndroidPlatform } from '../platform.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useTabletDevice, useUiMode } from '../hooks/useUiMode.js';
@@ -478,6 +479,8 @@ export function RepairChecklistPanel(props: {
   onOpenWorkOrder?: (workOrderId: string) => void;
 }) {
   const [status, setStatus] = useState<string>('');
+  // Android v1: печать скрыта платформой (кнопки актов/бланков/претензии).
+  const canPrint = props.canPrint && !isAndroidPlatform();
   const [supplyRequestBusy, setSupplyRequestBusy] = useState(false);
   const [repairOrderBusy, setRepairOrderBusy] = useState(false);
   const [conductBusy, setConductBusy] = useState(false);
@@ -1877,12 +1880,12 @@ export function RepairChecklistPanel(props: {
             </Button>
           </>
         )}
-        {props.canPrint && !isInventoryStage && (
+        {canPrint && !isInventoryStage && (
           <Button variant="ghost" onClick={printChecklist}>
             Печать
           </Button>
         )}
-        {props.canPrint && isInventoryStage && (
+        {canPrint && isInventoryStage && (
           <>
             {actView === 'completeness' ? (
               <>
@@ -3210,7 +3213,7 @@ export function RepairChecklistPanel(props: {
             >
               {conductBusy ? 'Проводим…' : 'Провести дефектовку'}
             </Button>
-            {props.canPrint && requirementInstances.length > 0 ? (
+            {canPrint && requirementInstances.length > 0 ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -3239,7 +3242,7 @@ export function RepairChecklistPanel(props: {
           <Button variant="ghost" onClick={() => setDefectHistoryOpen((value) => !value)}>
             {`История деталей (${defectPartHistory.length}) ${defectHistoryOpen ? '▲' : '▼'}`}
           </Button>
-          {props.canPrint && defectPartHistory.some((event) =>
+          {canPrint && defectPartHistory.some((event) =>
             ['classified_scrap', 'replacement_required', 'repaired', 'purchased', 'customer_supplied', 'issued_to_assembly', 'returned_from_assembly', 'written_off_again'].includes(event.eventType),
           ) ? (
             <Button size="sm" variant="outline" onClick={printDefectHistoryAttachment}>Печать приложения</Button>

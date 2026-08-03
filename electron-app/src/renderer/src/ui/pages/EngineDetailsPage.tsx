@@ -27,6 +27,7 @@ import { EnginePaymentsTab } from '../components/EnginePaymentsTab.js';
 import { mutateContractPayments } from '../utils/contractPaymentsStore.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
+import { isAndroidPlatform } from '../platform.js';
 
 // Заморожено 2026-05-26: «Разборка двигателя» отключена, поскольку бизнес отказался
 // от потока «разборка → repair_fund → Repair-наряд» (списки деталей по маркам не актуальны,
@@ -44,9 +45,14 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
   { key: 'details', label: 'Детали и акты' },
   { key: 'history', label: 'История ремонта' },
-  { key: 'files', label: 'Фото и документы' },
+  // Android v1: файловые диалоги не портируются, платежи вне цеховой рамки.
+  ...(isAndroidPlatform()
+    ? []
+    : ([
+        { key: 'files', label: 'Фото и документы' },
+        { key: 'payments', label: 'Платежи' },
+      ] as { key: EngineCardTab; label: string }[])),
   { key: 'reclamation', label: 'Рекламация' },
-  { key: 'payments', label: 'Платежи' },
 ];
 
 function normalizeForMatch(s: string) {
@@ -1878,7 +1884,7 @@ export function EngineDetailsPage(props: {
               setSessionChanged(false);
             });
           }}
-          onPrint={props.canPrintEngineCard ? handlePrint : undefined}
+          onPrint={props.canPrintEngineCard && !isAndroidPlatform() ? handlePrint : undefined}
           onDelete={() => void handleDelete()}
           deleteConfirmDetail={`Будет удалён двигатель «${String(engineNumber || '').trim() || props.engineId}» (марка: ${String(engineBrand || '—').trim()}). Действие обычно нельзя отменить.`}
           onClose={() => props.requestClose?.()}

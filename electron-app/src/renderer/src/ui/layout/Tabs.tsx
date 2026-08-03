@@ -280,6 +280,20 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
  * снимается кнопкой «Комп» на той же машине. Сохранённая раскладка меню при этом
  * не трогается — иначе возврат в режим «Комп» приходил бы с урезанным меню.
  */
+/**
+ * Android-планшет (Ф2 порта, рамка владельца 2026-08-02): Двигатели, Наряды,
+ * Документы склада, Ремфонд. Уже TABLET_OPERATOR_TABS (стартовый пресет носимого
+ * клиента; разделы добавляются «по ходу пьесы» — включить страницу + доложить
+ * методы моста). Применяется по платформе (isAndroidPlatform), а не по UI-режиму:
+ * это свойство клиента, а не рабочего места.
+ */
+export const ANDROID_TABS: readonly MenuTabId[] = [
+  'engines',
+  'work_orders',
+  'stock_documents',
+  'repair_fund_audit',
+];
+
 export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'engines',
   'work_orders',

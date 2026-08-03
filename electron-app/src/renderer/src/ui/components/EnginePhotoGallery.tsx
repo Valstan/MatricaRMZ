@@ -4,6 +4,7 @@ import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
+import { isAndroidPlatform } from '../platform.js';
 
 type GalleryFile = FileRef & { isObsolete?: boolean };
 
@@ -25,13 +26,21 @@ function normalizeList(v: unknown): GalleryFile[] {
   return v.filter((x): x is GalleryFile => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string');
 }
 
-export function EnginePhotoGallery(props: {
+type EnginePhotoGalleryProps = {
   value: unknown; // FileRef[] (все вложения; галерея сама отфильтрует фото)
   canView: boolean;
   canDelete: boolean;
   engineLabel?: string;
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
-}) {
+};
+
+// Android v1: фото/вложения скрыты платформой — гейт в корне компонента.
+export function EnginePhotoGallery(props: EnginePhotoGalleryProps) {
+  if (isAndroidPlatform()) return null;
+  return <EnginePhotoGalleryInner {...props} />;
+}
+
+function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
   const { confirm } = useConfirm();
   const allFiles = useMemo(() => normalizeList(props.value), [props.value]);
   const photos = useMemo(() => allFiles.filter(isImage), [allFiles]);
