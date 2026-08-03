@@ -14,7 +14,8 @@ import { getAndroidPlatformHooks } from './platform.js';
 
 export const net = {
   fetch: (input: string | URL | Request, init?: RequestInit): Promise<Response> => globalThis.fetch(input, init),
-  isOnline: (): boolean => (typeof navigator !== 'undefined' ? navigator.onLine : true),
+  // Явный false из WebView = офлайн; navigator без onLine (Node/vitest) = онлайн.
+  isOnline: (): boolean => typeof navigator === 'undefined' || navigator.onLine !== false,
 };
 
 export const safeStorage = {

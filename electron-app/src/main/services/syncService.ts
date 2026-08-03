@@ -243,6 +243,15 @@ export function setSyncSqlExecutor(executor: SqlExecutor | null): void {
   sqlExecutorOverride = executor;
 }
 
+// Android-порт подменяет version-chained мигратор своим async-портом
+// (android-app/src/db/migrations/clientSchemaCompatible.ts): electron-версия
+// тянет better-sqlite3-handle и sync node:crypto, в WebView она неисполнима.
+let ensureClientSchemaCompatibleImpl: typeof ensureClientSchemaCompatible = ensureClientSchemaCompatible;
+
+export function setEnsureClientSchemaCompatibleImpl(impl: typeof ensureClientSchemaCompatible): void {
+  ensureClientSchemaCompatibleImpl = impl;
+}
+
 function getSqlExecutor(): SqlExecutor | null {
   if (sqlExecutorOverride) return sqlExecutorOverride;
   const sqlite = getSqliteHandle();
@@ -2956,7 +2965,7 @@ export async function runSync(
 
       emitStage('prepare', 'загрузка схемы синхронизации', { service: 'schema' });
       const schema = await fetchSyncSchemaSnapshot(db, currentApiBaseUrl).catch(() => null);
-      const compatibility = await ensureClientSchemaCompatible(db, schema ?? null, { log: logSync }).catch((e) => ({
+      const compatibility = await ensureClientSchemaCompatibleImpl(db, schema ?? null, { log: logSync }).catch((e) => ({
         action: 'rebuild' as const,
         reason: `compat check failed: ${String(e)}`,
       }));

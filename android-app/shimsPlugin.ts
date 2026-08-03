@@ -36,14 +36,20 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
       if (browser && (source === 'node:crypto' || source === 'crypto')) {
         return resolve(shimsDir, 'nodeCrypto.ts');
       }
-      // netFetch подменяется только у портированных main-сервисов —
-      // их relative-импорт './netFetch.js' резолвился бы в electron-версию.
-      if (
-        importer &&
-        norm(importer).startsWith(electronMainDir) &&
-        (source === './netFetch.js' || source.endsWith('/netFetch.js'))
-      ) {
-        return resolve(shimsDir, 'netFetch.ts');
+      if (browser && source === 'node:fs/promises') return resolve(shimsDir, 'nodeFsPromises.ts');
+      if (browser && source === 'node:path') return resolve(shimsDir, 'nodePath.ts');
+      // Relative-импорты платформенных модулей ИЗ портированных main-сервисов —
+      // без подмены они резолвятся в electron-версии (node:fs / better-sqlite3 / cipher).
+      const fromPortedMain = !!importer && norm(importer).startsWith(electronMainDir);
+      if (fromPortedMain) {
+        if (source === './netFetch.js' || source.endsWith('/netFetch.js')) {
+          return resolve(shimsDir, 'netFetch.ts');
+        }
+        if (browser) {
+          if (source.endsWith('/utils/logger.js')) return resolve(shimsDir, 'logger.ts');
+          if (source.endsWith('/database/db.js')) return resolve(shimsDir, 'dbHandle.ts');
+          if (source.endsWith('/sync/e2eCrypto.js')) return resolve(shimsDir, 'e2eCrypto.ts');
+        }
       }
       return null;
     },
