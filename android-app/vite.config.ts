@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+import { androidShims } from './shimsPlugin.js';
+
 // F0 spike: build the EXISTING Electron renderer as a plain web app.
 // The renderer is not moved — this config points at electron-app/src/renderer
 // (see docs/plans/android-tablet-client-2026-08.md, «Ключевые решения» #1).
@@ -13,7 +15,7 @@ export default defineConfig({
   root: 'src',
   base: './',
   publicDir: resolve(rendererRoot, 'public'),
-  plugins: [react()],
+  plugins: [androidShims({ target: 'browser' }), react()],
   resolve: {
     alias: {
       '@matricarmz/shared': resolve(here, '../shared/src/index.ts'),
