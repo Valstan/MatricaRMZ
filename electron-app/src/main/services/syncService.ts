@@ -28,6 +28,7 @@ import { appendMainLogLine } from '../utils/logger.js';
 import { randomUUID } from 'node:crypto';
 
 import { getSqliteHandle } from '../database/db.js';
+import { createBetterSqlite3Executor, type SqlExecutor } from '../database/sqlExecutor.js';
 import {
   attributeDefs,
   attributeValues,
@@ -233,6 +234,21 @@ function logSync(message: string) {
   appendMainLogLine(app, `sync ${message}`);
 }
 
+// Async-шов над сырым SQLite (см. database/sqlExecutor.ts): десктоп оборачивает
+// better-sqlite3, android-порт подставляет свой async-исполнитель. Все сырые
+// обращения синка (repair/remap/align) ходят через него.
+let sqlExecutorOverride: SqlExecutor | null = null;
+
+export function setSyncSqlExecutor(executor: SqlExecutor | null): void {
+  sqlExecutorOverride = executor;
+}
+
+function getSqlExecutor(): SqlExecutor | null {
+  if (sqlExecutorOverride) return sqlExecutorOverride;
+  const sqlite = getSqliteHandle();
+  return sqlite ? createBetterSqlite3Executor(sqlite) : null;
+}
+
 function scheduleAppRestartAfterDbReset(reason: string) {
   if (localDbRestartScheduled) return;
   localDbRestartScheduled = true;
@@ -355,24 +371,24 @@ async function fetchSyncSchemaSnapshot(db: BetterSQLite3Database, apiBaseUrl: st
   }
 }
 
-function getLocalTableInfo(sqlite: any, table: string) {
-  return sqlite.prepare(`PRAGMA table_info(${quoteIdent(table)})`).all() as Array<{
+async function getLocalTableInfo(sqlite: SqlExecutor, table: string) {
+  return (await sqlite.all(`PRAGMA table_info(${quoteIdent(table)})`)) as Array<{
     name: string;
     notnull: number;
     dflt_value: string | null;
   }>;
 }
 
-function getLocalForeignKeys(sqlite: any, table: string) {
-  return sqlite.prepare(`PRAGMA foreign_key_list(${quoteIdent(table)})`).all() as Array<{
+async function getLocalForeignKeys(sqlite: SqlExecutor, table: string) {
+  return (await sqlite.all(`PRAGMA foreign_key_list(${quoteIdent(table)})`)) as Array<{
     table: string;
     from: string;
     to: string;
   }>;
 }
 
-function getLocalUniqueConstraints(sqlite: any, table: string) {
-  const indexes = sqlite.prepare(`PRAGMA index_list(${quoteIdent(table)})`).all() as Array<{
+async function getLocalUniqueConstraints(sqlite: SqlExecutor, table: string) {
+  const indexes = (await sqlite.all(`PRAGMA index_list(${quoteIdent(table)})`)) as Array<{
     name: string;
     unique: number;
     origin: string;
@@ -380,7 +396,7 @@ function getLocalUniqueConstraints(sqlite: any, table: string) {
   const uniques = indexes.filter((idx) => Number(idx.unique) === 1 && idx.origin !== 'pk');
   const result: Array<{ columns: string[]; isPrimary: boolean }> = [];
   for (const idx of uniques) {
-    const cols = sqlite.prepare(`PRAGMA index_info(${quoteIdent(idx.name)})`).all() as Array<{ name: string }>;
+    const cols = (await sqlite.all(`PRAGMA index_info(${quoteIdent(idx.name)})`)) as Array<{ name: string }>;
     const names = cols.map((c) => String(c.name)).filter(Boolean);
     if (names.length > 0) result.push({ columns: names, isPrimary: false });
   }
@@ -401,12 +417,12 @@ function pickSurvivor(rows: Array<{ id: string; updated_at: number | null; delet
 }
 
 async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: SyncSchemaSnapshot | null) {
-  const sqlite = getSqliteHandle();
+  const sqlite = getSqlExecutor();
   if (!sqlite) return;
   const tables = Object.values(SyncTableName);
-  const localInfoByTable = new Map<string, ReturnType<typeof getLocalTableInfo>>();
+  const localInfoByTable = new Map<string, Awaited<ReturnType<typeof getLocalTableInfo>>>();
   for (const table of tables) {
-    localInfoByTable.set(table, getLocalTableInfo(sqlite, table));
+    localInfoByTable.set(table, await getLocalTableInfo(sqlite, table));
   }
   const reverseFks = new Map<string, Array<{ table: string; column: string }>>();
   if (serverSchema?.tables) {
@@ -420,7 +436,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
     }
   } else {
     for (const table of tables) {
-      const fkList = getLocalForeignKeys(sqlite, table);
+      const fkList = await getLocalForeignKeys(sqlite, table);
       for (const fk of fkList) {
         const arr = reverseFks.get(fk.table) ?? [];
         arr.push({ table, column: fk.from });
@@ -445,21 +461,19 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
     if (notNullCols.length > 0) {
       for (const col of notNullCols) {
         if (col.dflt_value != null) {
-          const update = sqlite.prepare(
+          const res = await sqlite.run(
             `UPDATE ${quoteIdent(table)} SET ${quoteIdent(col.name)} = ${col.dflt_value} WHERE ${quoteIdent(
               col.name,
             )} IS NULL`,
           );
-          const res = update.run();
-          const fixed = Number((res as any)?.changes ?? 0);
+          const fixed = Number(res?.changes ?? 0);
           if (fixed > 0) logSync(`repair ${table} set default ${col.name} count=${fixed}`);
         }
       }
       const where = notNullCols.map((c) => `${quoteIdent(c.name)} IS NULL`).join(' OR ');
       if (where) {
-        const del = sqlite.prepare(`DELETE FROM ${quoteIdent(table)} WHERE ${where}`);
-        const res = del.run();
-        const dropped = Number((res as any)?.changes ?? 0);
+        const res = await sqlite.run(`DELETE FROM ${quoteIdent(table)} WHERE ${where}`);
+        const dropped = Number(res?.changes ?? 0);
         if (dropped > 0) logSync(`repair ${table} dropped=${dropped}`);
       }
     }
@@ -467,7 +481,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
     const uniqueConstraints =
       serverSchema?.tables?.[table]?.uniqueConstraints?.length
         ? serverSchema.tables[table].uniqueConstraints ?? []
-        : getLocalUniqueConstraints(sqlite, table);
+        : await getLocalUniqueConstraints(sqlite, table);
     for (const uq of uniqueConstraints) {
       const cols = Array.isArray(uq.columns) ? uq.columns.map(String).filter(Boolean) : [];
       if (cols.length === 0) continue;
@@ -475,24 +489,21 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       if (cols.length === 1 && cols[0] === 'id') continue;
       if (cols.some((c) => !localByName.has(c))) continue;
       const whereNotNull = cols.map((c) => `${quoteIdent(c)} IS NOT NULL`).join(' AND ');
-      const groups = sqlite
-        .prepare(
-          `SELECT ${cols.map(quoteIdent).join(', ')}, COUNT(*) AS cnt
+      const groups = (await sqlite.all(
+        `SELECT ${cols.map(quoteIdent).join(', ')}, COUNT(*) AS cnt
            FROM ${quoteIdent(table)}
            WHERE ${whereNotNull}
            GROUP BY ${cols.map(quoteIdent).join(', ')}
            HAVING cnt > 1`,
-        )
-        .all() as Array<Record<string, unknown>>;
+      )) as Array<Record<string, unknown>>;
       for (const g of groups) {
         const values = cols.map((c) => g[c]);
-        const rows = sqlite
-          .prepare(
-            `SELECT id, updated_at, deleted_at FROM ${quoteIdent(table)} WHERE ${cols
-              .map((c) => `${quoteIdent(c)} = ?`)
-              .join(' AND ')}`,
-          )
-          .all(values) as Array<{ id: string; updated_at: number | null; deleted_at: number | null }>;
+        const rows = (await sqlite.all(
+          `SELECT id, updated_at, deleted_at FROM ${quoteIdent(table)} WHERE ${cols
+            .map((c) => `${quoteIdent(c)} = ?`)
+            .join(' AND ')}`,
+          values,
+        )) as Array<{ id: string; updated_at: number | null; deleted_at: number | null }>;
         if (!rows || rows.length <= 1) continue;
         const survivor = pickSurvivor(rows);
         if (!survivor) continue;
@@ -503,13 +514,12 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
             const refInfo = localInfoByTable.get(ref.table) ?? [];
             const refCols = new Set(refInfo.map((c) => c.name));
             if (!refCols.has(ref.column)) continue;
-            sqlite
-              .prepare(
-                `UPDATE ${quoteIdent(ref.table)} SET ${quoteIdent(ref.column)} = ? WHERE ${quoteIdent(ref.column)} = ?`,
-              )
-              .run(survivor.id, row.id);
+            await sqlite.run(
+              `UPDATE ${quoteIdent(ref.table)} SET ${quoteIdent(ref.column)} = ? WHERE ${quoteIdent(ref.column)} = ?`,
+              [survivor.id, row.id],
+            );
           }
-          sqlite.prepare(`DELETE FROM ${quoteIdent(table)} WHERE id = ?`).run(row.id);
+          await sqlite.run(`DELETE FROM ${quoteIdent(table)} WHERE id = ?`, [row.id]);
         }
       }
     }
@@ -517,7 +527,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
     const fkList =
       serverSchema?.tables?.[table]?.foreignKeys?.length
         ? serverSchema.tables[table].foreignKeys
-        : getLocalForeignKeys(sqlite, table).map((fk) => ({ column: fk.from, refTable: fk.table, refColumn: fk.to }));
+        : (await getLocalForeignKeys(sqlite, table)).map((fk) => ({ column: fk.from, refTable: fk.table, refColumn: fk.to }));
     for (const fk of fkList) {
       if (!fk?.column || !fk?.refTable || !fk?.refColumn) continue;
       if (!localByName.has(fk.column)) continue;
@@ -531,8 +541,8 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
             SELECT 1 FROM ${quoteIdent(fk.refTable)}
             WHERE ${quoteIdent(fk.refTable)}.${quoteIdent(fk.refColumn)} = ${quoteIdent(table)}.${quoteIdent(fk.column)}
           )`;
-      const resFk = sqlite.prepare(orphanSql).run();
-      const droppedFk = Number((resFk as any)?.changes ?? 0);
+      const resFk = await sqlite.run(orphanSql);
+      const droppedFk = Number(resFk?.changes ?? 0);
       if (droppedFk > 0) logSync(`repair ${table} orphan fk=${fk.column}->${fk.refTable}.${fk.refColumn} dropped=${droppedFk}`);
     }
   }
@@ -709,11 +719,10 @@ function looksLikeUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value ?? ''));
 }
 
-function mergeAttributeValuesByDefId(sqlite: any, fromDefId: string, toDefId: string, ts: number) {
+async function mergeAttributeValuesByDefId(sqlite: SqlExecutor, fromDefId: string, toDefId: string, ts: number) {
   if (!fromDefId || !toDefId || fromDefId === toDefId) return;
-  sqlite
-    .prepare(
-      `DELETE FROM attribute_values
+  await sqlite.run(
+    `DELETE FROM attribute_values
        WHERE attribute_def_id = ?
          AND entity_id IN (
            SELECT src.entity_id
@@ -723,53 +732,64 @@ function mergeAttributeValuesByDefId(sqlite: any, fromDefId: string, toDefId: st
             AND dst.attribute_def_id = ?
            WHERE src.attribute_def_id = ?
          )`,
-    )
-    .run(fromDefId, toDefId, fromDefId);
-  sqlite.prepare('UPDATE attribute_values SET attribute_def_id = ?, updated_at = ? WHERE attribute_def_id = ?').run(toDefId, ts, fromDefId);
+    [fromDefId, toDefId, fromDefId],
+  );
+  await sqlite.run('UPDATE attribute_values SET attribute_def_id = ?, updated_at = ? WHERE attribute_def_id = ?', [
+    toDefId,
+    ts,
+    fromDefId,
+  ]);
 }
 
-function remapAttributeDefInSqlite(sqlite: any, fromDefId: string, toDefId: string, ts: number) {
+async function remapAttributeDefInSqlite(sqlite: SqlExecutor, fromDefId: string, toDefId: string, ts: number) {
   if (!fromDefId || !toDefId || fromDefId === toDefId) return;
-  mergeAttributeValuesByDefId(sqlite, fromDefId, toDefId, ts);
-  const target = sqlite.prepare('SELECT id FROM attribute_defs WHERE id = ? LIMIT 1').get(toDefId) as { id?: string } | undefined;
+  await mergeAttributeValuesByDefId(sqlite, fromDefId, toDefId, ts);
+  const target = (await sqlite.get('SELECT id FROM attribute_defs WHERE id = ? LIMIT 1', [toDefId])) as
+    | { id?: string }
+    | undefined;
   if (target?.id) {
-    sqlite.prepare('DELETE FROM attribute_defs WHERE id = ?').run(fromDefId);
+    await sqlite.run('DELETE FROM attribute_defs WHERE id = ?', [fromDefId]);
     return;
   }
-  sqlite.prepare('UPDATE attribute_defs SET id = ?, updated_at = ? WHERE id = ?').run(toDefId, ts, fromDefId);
+  await sqlite.run('UPDATE attribute_defs SET id = ?, updated_at = ? WHERE id = ?', [toDefId, ts, fromDefId]);
 }
 
-function remapEntityTypeInSqlite(sqlite: any, fromTypeId: string, toTypeId: string, ts: number) {
+async function remapEntityTypeInSqlite(sqlite: SqlExecutor, fromTypeId: string, toTypeId: string, ts: number) {
   if (!fromTypeId || !toTypeId || fromTypeId === toTypeId) return;
-  const duplicateDefs = sqlite
-    .prepare(
-      `SELECT src.id AS src_id, dst.id AS dst_id
+  const duplicateDefs = (await sqlite.all(
+    `SELECT src.id AS src_id, dst.id AS dst_id
        FROM attribute_defs src
        JOIN attribute_defs dst
          ON dst.entity_type_id = ?
         AND src.entity_type_id = ?
         AND dst.code = src.code`,
-    )
-    .all(toTypeId, fromTypeId) as Array<{ src_id?: string; dst_id?: string }>;
+    [toTypeId, fromTypeId],
+  )) as Array<{ src_id?: string; dst_id?: string }>;
   for (const pair of duplicateDefs) {
     const srcId = String(pair.src_id ?? '');
     const dstId = String(pair.dst_id ?? '');
     if (!srcId || !dstId || srcId === dstId) continue;
-    remapAttributeDefInSqlite(sqlite, srcId, dstId, ts);
+    await remapAttributeDefInSqlite(sqlite, srcId, dstId, ts);
   }
-  sqlite.prepare('UPDATE entities SET type_id = ?, updated_at = ? WHERE type_id = ?').run(toTypeId, ts, fromTypeId);
-  sqlite.prepare('UPDATE attribute_defs SET entity_type_id = ?, updated_at = ? WHERE entity_type_id = ?').run(toTypeId, ts, fromTypeId);
-  const target = sqlite.prepare('SELECT id FROM entity_types WHERE id = ? LIMIT 1').get(toTypeId) as { id?: string } | undefined;
+  await sqlite.run('UPDATE entities SET type_id = ?, updated_at = ? WHERE type_id = ?', [toTypeId, ts, fromTypeId]);
+  await sqlite.run('UPDATE attribute_defs SET entity_type_id = ?, updated_at = ? WHERE entity_type_id = ?', [
+    toTypeId,
+    ts,
+    fromTypeId,
+  ]);
+  const target = (await sqlite.get('SELECT id FROM entity_types WHERE id = ? LIMIT 1', [toTypeId])) as
+    | { id?: string }
+    | undefined;
   if (target?.id) {
-    sqlite.prepare('DELETE FROM entity_types WHERE id = ?').run(fromTypeId);
+    await sqlite.run('DELETE FROM entity_types WHERE id = ?', [fromTypeId]);
     return;
   }
-  sqlite.prepare('UPDATE entity_types SET id = ?, updated_at = ? WHERE id = ?').run(toTypeId, ts, fromTypeId);
+  await sqlite.run('UPDATE entity_types SET id = ?, updated_at = ? WHERE id = ?', [toTypeId, ts, fromTypeId]);
 }
 
 async function applyServerIdRemaps(db: BetterSQLite3Database, idRemaps: LedgerPushSubmitResponse['id_remaps'] | null | undefined) {
   void db;
-  const sqlite = getSqliteHandle();
+  const sqlite = getSqlExecutor();
   if (!sqlite || !idRemaps) return;
   const entityTypeMap = (idRemaps.entity_types ?? {}) as Record<string, string>;
   const attrDefMap = (idRemaps.attribute_defs ?? {}) as Record<string, string>;
@@ -781,15 +801,14 @@ async function applyServerIdRemaps(db: BetterSQLite3Database, idRemaps: LedgerPu
   );
   if (entityTypeEntries.length === 0 && attrDefEntries.length === 0) return;
   const ts = nowMs();
-  const applyTx = sqlite.transaction(() => {
+  await sqlite.transaction(async () => {
     for (const [fromId, toId] of entityTypeEntries) {
-      remapEntityTypeInSqlite(sqlite, fromId, toId, ts);
+      await remapEntityTypeInSqlite(sqlite, fromId, toId, ts);
     }
     for (const [fromId, toId] of attrDefEntries) {
-      remapAttributeDefInSqlite(sqlite, fromId, toId, ts);
+      await remapAttributeDefInSqlite(sqlite, fromId, toId, ts);
     }
   });
-  applyTx();
 }
 
 export async function alignSchemaWithServer(
@@ -820,22 +839,23 @@ export async function alignSchemaWithServer(
   if (!/^[a-f0-9]{64}$/.test(fingerprint)) {
     return { ok: false as const, reason: 'invalid_fingerprint' };
   }
-  const sqlite = getSqliteHandle();
+  const sqlite = getSqlExecutor();
   if (!sqlite) return { ok: false as const, reason: 'sqlite_unavailable' };
   const ts = nowMs();
-  const alignTx = sqlite.transaction(() => {
+  await sqlite.transaction(async () => {
     for (const typeRow of payload.entity_types) {
       const serverId = String(typeRow.id ?? '').trim();
       const code = String(typeRow.code ?? '').trim();
       if (!looksLikeUuid(serverId) || !code) continue;
-      const existingByCode = sqlite.prepare('SELECT id FROM entity_types WHERE code = ? LIMIT 1').get(code) as { id?: string } | undefined;
+      const existingByCode = (await sqlite.get('SELECT id FROM entity_types WHERE code = ? LIMIT 1', [code])) as
+        | { id?: string }
+        | undefined;
       const localId = String(existingByCode?.id ?? '').trim();
       if (localId && localId !== serverId) {
-        remapEntityTypeInSqlite(sqlite, localId, serverId, ts);
+        await remapEntityTypeInSqlite(sqlite, localId, serverId, ts);
       }
-      sqlite
-        .prepare(
-          `INSERT INTO entity_types (id, code, name, created_at, updated_at, deleted_at, sync_status)
+      await sqlite.run(
+        `INSERT INTO entity_types (id, code, name, created_at, updated_at, deleted_at, sync_status)
            VALUES (?, ?, ?, ?, ?, ?, 'synced')
            ON CONFLICT(id) DO UPDATE SET
              code = excluded.code,
@@ -843,15 +863,15 @@ export async function alignSchemaWithServer(
              updated_at = excluded.updated_at,
              deleted_at = excluded.deleted_at,
              sync_status = 'synced'`,
-        )
-        .run(
+        [
           serverId,
           code,
           String(typeRow.name ?? '').trim() || code,
           Number(typeRow.created_at ?? ts),
           Number(typeRow.updated_at ?? ts),
           typeRow.deleted_at ?? null,
-        );
+        ],
+      );
     }
 
     for (const defRow of payload.attribute_defs) {
@@ -860,17 +880,17 @@ export async function alignSchemaWithServer(
       const code = String(defRow.code ?? '').trim();
       if (!looksLikeUuid(serverId) || !looksLikeUuid(typeId) || !code) continue;
 
-      const existingByKey = sqlite
-        .prepare('SELECT id FROM attribute_defs WHERE entity_type_id = ? AND code = ? LIMIT 1')
-        .get(typeId, code) as { id?: string } | undefined;
+      const existingByKey = (await sqlite.get(
+        'SELECT id FROM attribute_defs WHERE entity_type_id = ? AND code = ? LIMIT 1',
+        [typeId, code],
+      )) as { id?: string } | undefined;
       const localId = String(existingByKey?.id ?? '').trim();
       if (localId && localId !== serverId) {
-        remapAttributeDefInSqlite(sqlite, localId, serverId, ts);
+        await remapAttributeDefInSqlite(sqlite, localId, serverId, ts);
       }
 
-      sqlite
-        .prepare(
-          `INSERT INTO attribute_defs (
+      await sqlite.run(
+        `INSERT INTO attribute_defs (
              id, entity_type_id, code, name, data_type, is_required, sort_order, meta_json, created_at, updated_at, deleted_at, sync_status
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
            ON CONFLICT(id) DO UPDATE SET
@@ -884,8 +904,7 @@ export async function alignSchemaWithServer(
              updated_at = excluded.updated_at,
              deleted_at = excluded.deleted_at,
              sync_status = 'synced'`,
-        )
-        .run(
+        [
           serverId,
           typeId,
           code,
@@ -897,10 +916,10 @@ export async function alignSchemaWithServer(
           Number(defRow.created_at ?? ts),
           Number(defRow.updated_at ?? ts),
           defRow.deleted_at ?? null,
-        );
+        ],
+      );
     }
   });
-  alignTx();
   await settingsSetString(db, SettingsKey.SyncSchemaFingerprint, fingerprint);
   return { ok: true as const, fingerprint };
 }
@@ -2694,7 +2713,18 @@ async function tryRecoverApiBaseUrl(db: BetterSQLite3Database, current: string):
   return null;
 }
 
+// Android-порт (у него нет ни файловой БД в userData, ни app.relaunch-семантики
+// Electron) подменяет весь reset-флоу целиком; десктопная ветка ниже не меняется.
+let resetLocalDatabaseOverride:
+  | ((db: BetterSQLite3Database, reason: string) => Promise<{ ok: true } | { ok: false; error: string }>)
+  | null = null;
+
+export function setResetLocalDatabaseImpl(impl: typeof resetLocalDatabaseOverride): void {
+  resetLocalDatabaseOverride = impl;
+}
+
 export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui') {
+  if (resetLocalDatabaseOverride) return resetLocalDatabaseOverride(db, reason);
   try {
     logSync(`local db reset requested reason=${reason}`);
     await clearSession(db).catch(() => {});
