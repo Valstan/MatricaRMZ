@@ -70,6 +70,8 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const dragRowIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [gridMaxH, setGridMaxH] = useState<number | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const appliedFont = autoFont ?? fontScale;
   // Право редактирования табеля: автор-создатель всегда; другие — только если автор включил
@@ -153,6 +155,33 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     window.addEventListener('resize', measure);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
   }, [viewMode, fontScale, autoFont, days, displayDays.length, ts?.rows.length]);
+
+  // Высота области таблицы: длинный табель должен прокручиваться ВНУТРИ своей рамки, а не
+  // вместе со страницей. Только так шапка с числами и днями недели может залипнуть сверху
+  // (`position:sticky` считает «верх» от ближайшего скролл-контейнера — а им уже является
+  // сама рамка с `overflow:auto`, поэтому без ограничения высоты залипание не работает).
+  // Свободную высоту меряем до низа .ui-content-viewport, чтобы не гадать про хром окна.
+  useEffect(() => {
+    const measure = () => {
+      const sc = scrollRef.current;
+      if (!sc) return;
+      const viewport = sc.closest('.ui-content-viewport');
+      const bottom = viewport ? viewport.getBoundingClientRect().bottom : window.innerHeight;
+      const next = Math.round(bottom - sc.getBoundingClientRect().top - 8);
+      // Совсем маленькая область бесполезна — тогда лучше прежнее поведение (растём как есть).
+      setGridMaxH(next > 160 ? next : null);
+    };
+    const raf = requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
+    // Панель кистей переносится по строкам и меняет высоту — область таблицы обязана следовать.
+    const ro = toolbarRef.current ? new ResizeObserver(() => measure()) : null;
+    if (ro && toolbarRef.current) ro.observe(toolbarRef.current);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
+  }, [viewMode, canEdit, ts?.rows.length]);
 
   function getCell(rowId: string, day: number): Cell {
     return cells[rowId]?.[day] ?? { code: null, hours: null, comment: null };
@@ -490,7 +519,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
       {/* Панель управления табелем (тулбар + кисти-коды) закреплена сверху: при вертикальной
           прокрутке длинного табеля внутри .ui-content-viewport она не уезжает (sticky top:0,
           непрозрачный фон перекрывает строки, что прокручиваются под ней). */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#fff', paddingTop: 4, marginTop: -4 }}>
+      <div ref={toolbarRef} style={{ position: 'sticky', top: 0, zIndex: 20, background: '#fff', paddingTop: 4, marginTop: -4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <Button variant="ghost" onClick={props.onBack}>← К списку</Button>
         <strong style={{ fontSize: 16 }}>Табель · {MONTHS[ts.month - 1]} {ts.year}</strong>
@@ -589,28 +618,31 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
 
       <div
         ref={scrollRef}
-        style={{ overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 10 }}
+        style={{ overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 10, maxHeight: gridMaxH ?? undefined }}
         onMouseMove={(e) => { if (brush) setCursorPos({ x: e.clientX, y: e.clientY }); }}
         onMouseLeave={() => setCursorPos(null)}
       >
         <table ref={tableRef} style={{ borderCollapse: 'collapse', fontSize: appliedFont, width: '100%', tableLayout: 'auto' }}>
           <thead>
             <tr style={{ background: '#0f2f72', color: '#fff' }}>
-              <th style={{ ...hCell, position: 'sticky', left: 0, zIndex: 2, background: '#0f2f72', width: 30 }}>№</th>
-              <th style={{ ...hCell, position: 'sticky', left: 30, zIndex: 2, background: '#0f2f72', width: 160, minWidth: 120, textAlign: 'left' }}>ФИО</th>
+              {/* Шапка залипает сверху: при прокрутке длинного табеля видно, в какой день недели
+                  ставишь часы последним сотрудникам. Угловые ячейки липнут и влево, и вверх — им
+                  нужен z-index выше и шапки, и левой колонки. */}
+              <th style={{ ...hCell, position: 'sticky', left: 0, top: 0, zIndex: 4, background: '#0f2f72', width: 30 }}>№</th>
+              <th style={{ ...hCell, position: 'sticky', left: 30, top: 0, zIndex: 4, background: '#0f2f72', width: 160, minWidth: 120, textAlign: 'left' }}>ФИО</th>
               {displayDays.map((d) => {
                 const we = isTimesheetWeekend(ts.year, ts.month, d, ts.weekMode);
                 return (
-                  <th key={d} style={{ ...hCell, background: we ? '#1e3a8a' : '#0f2f72' }}>
+                  <th key={d} style={{ ...hCell, position: 'sticky', top: 0, zIndex: 3, background: we ? '#1e3a8a' : '#0f2f72' }}>
                     <div>{d}</div>
                     <div style={{ fontSize: Math.max(8, appliedFont - 4), opacity: 0.8 }}>{DOW[timesheetDayOfWeek(ts.year, ts.month, d)]}</div>
                   </th>
                 );
               })}
-              <th style={{ ...hCell, minWidth: 44 }}>Σч</th>
-              <th style={{ ...hCell, minWidth: 36 }}>дн.</th>
+              <th style={{ ...hCell, position: 'sticky', top: 0, zIndex: 3, background: '#0f2f72', minWidth: 44 }}>Σч</th>
+              <th style={{ ...hCell, position: 'sticky', top: 0, zIndex: 3, background: '#0f2f72', minWidth: 36 }}>дн.</th>
               {canEdit && (
-                <th style={{ ...hCell, minWidth: 30 }}>
+                <th style={{ ...hCell, position: 'sticky', top: 0, zIndex: 3, background: '#0f2f72', minWidth: 30 }}>
                   <input
                     type="checkbox"
                     title="Отметить всех / снять отметку"
