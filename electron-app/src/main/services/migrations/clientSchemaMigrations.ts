@@ -44,6 +44,9 @@ type Migration = {
   up: (db: BetterSQLite3Database, sqlite: Database.Database) => Promise<void>;
 };
 
+// ⚠️ Android-клиент держит порт этого механизма
+// (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
+// НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
 export const CURRENT_CLIENT_SCHEMA_VERSION = 12;
 
 const MIGRATIONS: Migration[] = [
