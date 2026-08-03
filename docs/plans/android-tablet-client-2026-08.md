@@ -60,7 +60,9 @@ android-app/  (новый пакет монорепо)
 
 **Ф0 — Спайк (гейт всего плана).** ✅ *Браузерная половина сделана 2026-08-02:* пакет `android-app/` (Vite root → `electron-app/src/renderer`, стаб-мост ~15 методов) собрал ВЕСЬ renderer plain-Vite за ~32 с, логин-экран рендерится вне Electron (скриншот headless Chrome). Остаток Ф0 — Capacitor-shell + SQLite-бенч на купленном планшете (нужна модель устройства). Исходный объём: standalone Vite-сборка renderer + стаб-мост (~12 методов boot-контракта: `auth.status`, `settings.uiGet/uiControlGet/releaseWelcomeGet`, `sync.status`, `backups.status`, `server.health`, `app.version`, `auth.loginMru/loginSuggest`, `engines.list`, `log.send`) → логин-экран в браузере/эмуляторе. Capacitor-shell на купленном планшете. **Бенч SQLite:** importFromJson/executeSet на 100k+ строк на реальном железе → выбор плагина (community vs fast-sql). Провал бенча = пересмотр стека до начала Ф1.
 
-**Ф1 — Фундамент (самая тяжёлая).** Шов драйвера (sqlite-proxy + async-фасад `getSqliteHandle`), оба мигратора, шимы netFetch/authService/crypto/env, порт syncService (2 транзакции, reset-флоу без relaunch) + syncManager, auth (login/refresh/secure-storage), clientId + heartbeat + админ-команды. **Выход:** холодный полный pull прод-масштаба на планшете + push тестовой правки, повторные инкременты.
+**Ф1 — Фундамент (самая тяжёлая).** ✅ *Ядро закрыто 2026-08-03 пятью PR* ([#454](https://github.com/Valstan/MatricaRMZ/pull/454), [#455](https://github.com/Valstan/MatricaRMZ/pull/455), [#456](https://github.com/Valstan/MatricaRMZ/pull/456), [#457](https://github.com/Valstan/MatricaRMZ/pull/457), [#458](https://github.com/Valstan/MatricaRMZ/pull/458)): async-шов `AsyncSqlite` + drizzle sqlite-proxy, async-раннер drizzle-цепочки (парити-гейт против штатного пути), порт version-chained мигратора, 12 шимов (electron/netFetch/node:crypto/os/path/fs/logger/db/e2eCrypto/watchdog), `SqlExecutor`-шов в syncService + 4 injection-точки, clientId + heartbeat, `bootAndroidCore`. **Ключевой факт: портированные сервисы Electron-клиента (authService, settingsStore, syncService, syncManager, clientAdminService) исполняются на android-фасаде БЕЗ переписывания** — 22 теста гоняют настоящие сервисы против фейкового сервера. Остаток: платформенный слой Capacitor (открыть SQLCipher-БД как `AsyncSqlite`, reset-функция, platform-хуки) — он же в остатке Ф0. **Выход** (холодный полный pull прод-масштаба на планшете + push тестовой правки) — ждёт физическое устройство.
+
+Исходный объём фазы: шов драйвера (sqlite-proxy + async-фасад `getSqliteHandle`), оба мигратора, шимы netFetch/authService/crypto/env, порт syncService (2 транзакции, reset-флоу без relaunch) + syncManager, auth (login/refresh/secure-storage), clientId + heartbeat + админ-команды.
 
 **Ф2 — Двигатели.** Мост для engines/operations/checklists/admin.entities/employees/audit/drafts + список двигателей, карточка, **дефектовка и комплектность офлайн** (NumpadOverlay уже есть), резервирование «Взять в работу» (engineReservationClient — HTTP, офлайн-release уже в syncManager). Платформенные скрытия. **Выход:** обход цеха без сети с галочками/количествами, синк при появлении Wi-Fi.
 
@@ -71,6 +73,8 @@ android-app/  (новый пакет монорепо)
 **Ф-развитие (после обкатки):** камера-QR (скан клейма → карточка двигателя; `startScan` офлайн), фото дефектов в дефектовку, вложения через Blob-канал, доп-разделы меню по запросу, OTA web-бандла.
 
 Оценка честная: Ф0 1–2 сессии, Ф1 3–5, Ф2 2–3, Ф3 2–3, Ф4 1–2 — порядка 2–4 недель сессионной работы до полной рамки. Узкое место — Ф1 (порт синка) и живой бенч Ф0.
+
+**Факт по Ф1 (2026-08-03):** ядро уложилось в одну сессию вместо 3–5 — потому что renderer и сервисы оказались переносимы ровно так, как обещала разведка, и порт свёлся к шимам платформенных краёв + injection-точкам вместо форка кода. Узким местом остаётся живое железо (остаток Ф0), а не код.
 
 ## Риски
 
