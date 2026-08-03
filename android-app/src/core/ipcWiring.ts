@@ -26,6 +26,10 @@ import { registerNotesIpc } from '../../../electron-app/src/main/ipc/register/no
 import { registerPartsIpc } from '../../../electron-app/src/main/ipc/register/parts.js';
 import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
 import { registerSupplyRequestsIpc } from '../../../electron-app/src/main/ipc/register/supplyRequests.js';
+import { registerWarehouseLocationsIpc } from '../../../electron-app/src/main/ipc/register/warehouseLocations.js';
+import { registerWorkOrderSignatureCaptionsIpc } from '../../../electron-app/src/main/ipc/register/workOrderSignatureCaptions.js';
+import { registerWorkOrderTemplatesIpc } from '../../../electron-app/src/main/ipc/register/workOrderTemplates.js';
+import { registerWorkOrdersIpc } from '../../../electron-app/src/main/ipc/register/workOrders.js';
 import { registerWorkshopsIpc } from '../../../electron-app/src/main/ipc/register/workshops.js';
 
 import { getAndroidPlatformHooks } from '../shims/platform.js';
@@ -80,6 +84,14 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerEngineActTemplatesIpc(ctx);
   registerWorkshopsIpc(ctx);
   registerSupplyRequestsIpc(ctx);
+  // Ф3 — наряды и склад. Локально-офлайн: workOrderService (локальная БД) и
+  // складские документы (warehouseCommandOutbox). Сборочные действия
+  // (issue/post/close) и справочники шаблонов/подписей ходят по HTTP — на
+  // планшете это штатный «нужна сеть», как на десктопе.
+  registerWorkOrdersIpc(ctx);
+  registerWorkOrderTemplatesIpc(ctx);
+  registerWorkOrderSignatureCaptionsIpc(ctx);
+  registerWarehouseLocationsIpc(ctx);
   registerSettingsIpc(ctx);
   registerNotesIpc(ctx);
   registerPartsIpc(ctx);
