@@ -144,6 +144,46 @@ const TIMESHEET_PRINT_SETTING_KEYS: Record<TimesheetPrintFontKey, keyof Timeshee
   legend: 'fontLegend',
 };
 
+/**
+ * Печатный лист табеля — A4 landscape с полями 8мм, размеры в px @96dpi.
+ * Из них считается высота строки: свободное место делится на число сотрудников,
+ * чтобы клетки под запись ручкой были максимально крупными (см. `timesheetPrintRowHeightPx`).
+ */
+export const TIMESHEET_PRINT_PAGE_PX = {
+  width: Math.round(((297 - 16) * 96) / 25.4),
+  height: Math.round(((210 - 16) * 96) / 25.4),
+} as const;
+
+/**
+ * Потолок высоты строки на печати (px @96dpi ≈ 29мм): на малой бригаде строки не растягиваются
+ * до нелепого — но клетка всё равно кратно крупнее прежней компактной вёрстки.
+ */
+export const TIMESHEET_PRINT_ROW_HEIGHT_MAX_PX = 110;
+
+/**
+ * Высота строки табеля на печати: всё свободное место листа делится на число сотрудников,
+ * чтобы ячейки под ручной ввод были максимально крупными. Ниже натуральной высоты строки
+ * (шрифт ячейки) не опускаемся — `height` у `<tr>` всё равно работает как минимум.
+ */
+export function timesheetPrintRowHeightPx(args: {
+  rowCount: number;
+  fonts: TimesheetPrintFonts;
+  withHeader: boolean;
+  /** Число строк легенды под таблицей (0 — легенда не печатается). */
+  legendLines: number;
+}): number {
+  const f = args.fonts;
+  const headerPx = args.withHeader ? f.header * 1.15 + f.header * 0.7 * 1.2 + 6 : 0;
+  const legendPx = args.legendLines > 0 ? f.legend * 1.35 * args.legendLines + 6 : 0;
+  // Шапка таблицы: число месяца + буква дня недели + паддинги/рамки.
+  const theadPx = f.dayNum * 1.05 + f.weekday * 1.05 + 6;
+  const slackPx = 10;
+  const available = TIMESHEET_PRINT_PAGE_PX.height - headerPx - legendPx - theadPx - slackPx;
+  const natural = f.cell * 1.25 + 4;
+  const raw = available / Math.max(1, args.rowCount);
+  return Math.round(Math.min(TIMESHEET_PRINT_ROW_HEIGHT_MAX_PX, Math.max(natural, raw)));
+}
+
 /** Разрешить настройки в готовые размеры: невалидное/отсутствующее → дефолт, значения клампятся в диапазон. */
 export function resolveTimesheetPrintFonts(settings?: TimesheetPrintSettings | null): TimesheetPrintFonts {
   const out = { ...TIMESHEET_PRINT_FONT_DEFAULTS };

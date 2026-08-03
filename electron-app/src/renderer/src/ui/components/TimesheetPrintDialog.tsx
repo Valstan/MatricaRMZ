@@ -8,6 +8,7 @@ import {
 
 import { Button } from './Button.js';
 import { FontStepper } from './WorkOrderPrintDialog.js';
+import type { TimesheetPrintBlocks, TimesheetPrintVariant } from '../utils/timesheetPrintHtml.js';
 import { loadTimesheetPrintSettings, saveTimesheetPrintSettings } from '../utils/timesheetPrintSettings.js';
 
 /** A4 landscape в px @96dpi: страница 297×210мм. */
@@ -15,10 +16,8 @@ const A4L_WIDTH_PX = Math.round((297 * 96) / 25.4); // ≈ 1123
 const A4L_HEIGHT_PX = Math.round((210 * 96) / 25.4); // ≈ 794
 const PREVIEW_SCALE = 0.62;
 
-export type TimesheetPrintVariant = 'full' | 'first' | 'second';
-
-/** Какие блоки выводить на печать (все отключаемые галочками). */
-export type TimesheetPrintBlocks = { header: boolean; grid: boolean; legend: boolean; decode: boolean };
+// Типы живут рядом с билдерами печатной формы (utils/timesheetPrintHtml) — диалог их реэкспортит.
+export type { TimesheetPrintBlocks, TimesheetPrintVariant } from '../utils/timesheetPrintHtml.js';
 
 const BLOCK_ROWS: Array<{ key: keyof TimesheetPrintBlocks; label: string; hint?: string }> = [
   { key: 'header', label: 'Шапка листа' },

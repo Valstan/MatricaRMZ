@@ -8,7 +8,8 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { TimesheetPrintDialog, type TimesheetPrintBlocks, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
-import { buildWorkOrderA4PreviewHtml, escapeHtml, printSectionsDirect } from '../utils/printPreview.js';
+import { buildWorkOrderA4PreviewHtml, printSectionsDirect } from '../utils/printPreview.js';
+import { buildTimesheetPrintSections, TIMESHEET_PRINT_CSS, timesheetPrintTitle, type TimesheetPrintInput } from '../utils/timesheetPrintHtml.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -433,92 +434,31 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   };
 
   const sheet = ts;
-  // ===== Печать: все размеры — из настроек по блокам (TimesheetPrintSettings), компактная вёрстка,
-  // A4 landscape. Один набор билдеров обслуживает и живое превью диалога, и окно печати.
-  const printTitle = `Табель учёта рабочего времени${workshopName ? ` · ${workshopName}` : ''}`;
-  const printSubtitle = `${MONTHS[sheet.month - 1]} ${sheet.year} · ${sheet.weekMode}-дневка`;
-  // Шапка листа — печатаемая секция (h1 окна печати — .no-print и на бумагу не попадает).
-  const headerHtml = (f: TimesheetPrintFonts) =>
-    `<div style="font-size:${f.header}px;font-weight:700;line-height:1.15">${escapeHtml(printTitle)}</div>` +
-    `<div style="font-size:${Math.max(6, Math.round(f.header * 0.7))}px;color:#334155;line-height:1.2">${escapeHtml(printSubtitle)}</div>`;
-  // Рендер ячейки: «Я» не печатаем — только часы во всю ячейку; прочие коды-с-часами — код
-  // мелко сверху; код-без-часов — тем же размером, что и цифры часов (полная ячейка).
-  const printCellText = (c: Cell, f: TimesheetPrintFonts) => {
-    const code = c.code === 'Я' ? '' : (c.code ?? '');
-    const h = c.hours != null ? String(c.hours) : '';
-    const small = Math.max(4, Math.round(f.cell * 0.55));
-    if (code && h) return `<div style="font-size:${small}px;line-height:1.05">${escapeHtml(code)}</div><div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
-    if (code) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(code)}</div>`;
-    if (h) return `<div style="font-size:${f.cell}px;font-weight:800;color:#000;line-height:1.05">${escapeHtml(h)}</div>`;
-    return '';
+  // ===== Печать: вёрстка листа живёт в utils/timesheetPrintHtml.ts (чистые билдеры — их же
+  // проверяет тест печатной формы). Здесь только сбор входных данных из состояния страницы.
+  const printInput: TimesheetPrintInput = {
+    year: sheet.year,
+    month: sheet.month,
+    weekMode: sheet.weekMode,
+    days,
+    dayList,
+    rows: presentRows.map((r) => ({ id: r.id, fullName: r.fullName, position: r.position })),
+    codes,
+    getCell: (rowId, day) => getCell(rowId, day),
+    workshopName,
   };
-  const gridHtml = (fromDay: number, toDay: number, f: TimesheetPrintFonts) => {
-    const cols = dayList.filter((d) => d >= fromDay && d <= toDay);
-    const head = `<tr><th style="font-size:${f.dayNum}px">№</th><th style="text-align:left;font-size:${f.dayNum}px">ФИО</th>${cols
-      .map(
-        (d) =>
-          `<th style="font-size:${f.dayNum}px;line-height:1.05${isTimesheetWeekend(sheet.year, sheet.month, d, sheet.weekMode) ? ';background:#eef2ff' : ''}">${d}<br/><span style="font-weight:400;font-size:${f.weekday}px">${DOW[timesheetDayOfWeek(sheet.year, sheet.month, d)]}</span></th>`,
-      )
-      .join('')}<th style="font-size:${f.dayNum}px">Σч</th><th style="font-size:${f.dayNum}px">дн.</th></tr>`;
-    const body = presentRows
-      .map((row, i) => {
-        const rc = cols.map((d) => ({ day: d, ...getCell(row.id, d) }));
-        const tot = computeTimesheetRowTotals(rc, codes);
-        const dayTds = cols
-          .map((d) => {
-            const c = getCell(row.id, d);
-            const we = isTimesheetWeekend(sheet.year, sheet.month, d, sheet.weekMode);
-            return `<td style="text-align:center${we ? ';background:#f1f5f9' : ''}">${printCellText(c, f)}</td>`;
-          })
-          .join('');
-        const fio = `<span style="font-size:${f.fio}px">${escapeHtml(row.fullName || '')}</span>${row.position ? `<div style="font-size:${Math.max(5, f.fio - 3)}px;color:#64748b;font-weight:400;line-height:1.05">${escapeHtml(row.position)}</div>` : ''}`;
-        return `<tr><td style="text-align:center;font-size:${f.dayNum}px">${i + 1}</td><td style="text-align:left;white-space:nowrap">${fio}</td>${dayTds}<td style="text-align:center;font-weight:700;font-size:${f.cell}px">${tot.totalHours || ''}</td><td style="text-align:center;font-size:${f.cell}px">${tot.workedDays || ''}</td></tr>`;
-      })
-      .join('');
-    // ширина: узкие колонки дней (G68 — table-layout:auto раздувает; width:1%+nowrap держит компактно)
-    return `<table style="font-size:${f.cell}px;table-layout:auto;width:100%">${head}${body}</table>`;
-  };
-  const legendHtml = (f: TimesheetPrintFonts) =>
-    `<div style="font-size:${f.legend}px;color:#334155;line-height:1.35">${codes.map((c) => `<b>${escapeHtml(c.code)}</b> — ${escapeHtml(c.title)}`).join(' · ')}</div>`;
-  const decodeHtml = (f: TimesheetPrintFonts) => {
-    const blocks = presentRows
-      .map((row) => {
-        const items = dayList.map((d) => ({ d, comment: getCell(row.id, d).comment })).filter((x) => x.comment);
-        if (!items.length) return '';
-        return `<div style="margin-bottom:8px;font-size:${f.legend}px"><b>${escapeHtml(row.fullName || '')}</b><ul>${items.map((x) => `<li>${x.d} ${MONTHS[sheet.month - 1]} — ${escapeHtml(String(x.comment))}</li>`).join('')}</ul></div>`;
-      })
-      .filter(Boolean)
-      .join('');
-    return blocks || '<div class="muted">Комментариев нет.</div>';
-  };
-  // Компактная вёрстка: минимальные отступы ячеек, альбомный A4 с узкими полями,
-  // на печати поля даёт @page (базовый 12mm-margin body гасим).
-  const compactPrintCss = `
-    @page { size: A4 landscape; margin: 8mm; }
-    @media print { body { margin: 0; } }
-    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    th, td { padding: 1px 2px; line-height: 1.05; vertical-align: middle; border: 1px solid #1f2937; }
-    .section { margin-bottom: 6px; }
-  `;
-  // Все блоки отключаемые галочками в диалоге; комментарии — на отдельном листе после табеля.
-  const printSections = (f: TimesheetPrintFonts, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
-    const grid = variant === 'full' ? gridHtml(1, days, f) : variant === 'first' ? gridHtml(1, 15, f) : gridHtml(16, days, f);
-    return [
-      ...(blocks.header ? [{ id: 'header', title: 'Шапка листа', html: headerHtml(f), hideTitle: true }] : []),
-      ...(blocks.grid ? [{ id: 'grid', title: 'Табель', html: grid, hideTitle: true }] : []),
-      ...(blocks.legend ? [{ id: 'legend', title: 'Легенда кодов', html: legendHtml(f), hideTitle: true }] : []),
-      ...(blocks.decode ? [{ id: 'decode', title: 'Комментарии по сотрудникам', html: `<div style="page-break-before:always">${decodeHtml(f)}</div>`, hideTitle: true }] : []),
-    ];
-  };
+  const printTitle = timesheetPrintTitle(printInput);
+  const printSections = (f: TimesheetPrintFonts, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) =>
+    buildTimesheetPrintSections(printInput, f, variant, blocks);
   // Не useCallback: блок стоит после ранних return (rules of hooks).
   const buildPrintPreviewHtml = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
     const f = resolveTimesheetPrintFonts(settings);
-    return buildWorkOrderA4PreviewHtml({ sections: printSections(f, variant, blocks), extraCss: compactPrintCss, landscape: true, marginMm: 8 });
+    return buildWorkOrderA4PreviewHtml({ sections: printSections(f, variant, blocks), extraCss: TIMESHEET_PRINT_CSS, landscape: true, marginMm: 8 });
   };
   const doPrint = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
     // Печать сразу из диалога настроек — без промежуточного окна с чекбоксами.
     const f = resolveTimesheetPrintFonts(settings);
-    printSectionsDirect({ title: printTitle, sections: printSections(f, variant, blocks), extraCss: compactPrintCss });
+    printSectionsDirect({ title: printTitle, sections: printSections(f, variant, blocks), extraCss: TIMESHEET_PRINT_CSS });
   };
 
   return (
