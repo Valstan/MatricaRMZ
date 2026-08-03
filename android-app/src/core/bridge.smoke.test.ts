@@ -4,8 +4,6 @@
 // кроме сервера (globalThis.fetch) и самой SQLite-платформы.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { MatricaApi } from '@matricarmz/shared';
-
 import { authLogin, clearSession } from '../../../electron-app/src/main/services/authService.js';
 
 import { createBetterSqlite3AsyncAdapter, type BetterSqlite3AsyncAdapter } from '../db/testing/betterSqlite3Adapter.js';
@@ -26,8 +24,12 @@ const PERMS = {
   'employees.view': true,
 };
 
-function matrica(): MatricaApi {
-  return (globalThis as unknown as { matrica: MatricaApi }).matrica;
+// Нетипизированный доступ вместо MatricaApi из shared: тот тип отстаёт от
+// реального preload (нет drafts и части checklists) — а мост в этом гейте и
+// есть настоящий preload, форму методов диктует он.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function matrica(): any {
+  return (globalThis as { matrica?: unknown }).matrica;
 }
 
 describe('android bridge smoke (preload → шина → register → сервисы)', () => {

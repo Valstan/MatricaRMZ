@@ -25,7 +25,8 @@ export type AndroidCoreConfig = {
   /** Дефолтный API base URL первой установки; после — правится настройкой в БД. */
   defaultApiBaseUrl: string;
   resetLocalDatabaseFiles: () => Promise<void>;
-  onSyncProgress?: Parameters<typeof startClientSettingsPolling>[0]['onSyncProgress'];
+  /** Доставка sync:progress в renderer (авто/ручной синк SyncManager + админ-команды heartbeat). */
+  onSyncProgress?: NonNullable<ConstructorParameters<typeof SyncManager>[3]>['onProgress'];
   log?: (msg: string) => void;
 };
 
@@ -54,7 +55,16 @@ export async function bootAndroidCore(cfg: AndroidCoreConfig): Promise<AndroidCo
 
   const clientId = await ensureClientId(serviceDb);
 
-  const syncManager = new SyncManager(serviceDb, clientId, apiBaseUrl);
+  // onSyncProgress прокидывается и в SyncManager (авто/ручной синк), и в
+  // heartbeat-поллер (админ-команды): renderer слушает sync:progress через мост,
+  // и обёртка обязана доставлять события обоих источников (как emitSyncProgress
+  // в десктопном registerIpc).
+  const syncManager = new SyncManager(
+    serviceDb,
+    clientId,
+    apiBaseUrl,
+    cfg.onSyncProgress ? { onProgress: cfg.onSyncProgress } : {},
+  );
 
   const startHeartbeat = () =>
     startClientSettingsPolling({
