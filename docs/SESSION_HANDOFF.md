@@ -23,12 +23,7 @@
 
 **A. Планшета нет (продолжаем здесь) — доставить стенд и Capacitor-shell.**
 
-1. Докачать системный образ эмулятора (оборвался на закрытии сессии):
-   ```bash
-   export JAVA_HOME="C:\\Program Files\\Android\\Android Studio\\jbr"
-   /d/Android/Sdk/cmdline-tools/latest/bin/sdkmanager.bat --sdk_root="D:\\Android\\Sdk" "system-images;android-35;google_apis;x86_64"
-   ```
-   Затем AVD с `ANDROID_AVD_HOME=D:\Android\avd` (иначе съест дефицитный C:). Все пути/грабли — [`machines/PC40.md`](machines/PC40.md) §Android-стенд.
+1. Создать AVD и поднять эмулятор — **SDK и системный образ уже стоят целиком** (4,8 ГБ, `D:\Android\Sdk`). Команда с обязательным `ANDROID_AVD_HOME=D:\Android\avd` — в [`machines/PC40.md`](machines/PC40.md) §Android-стенд, там же грабли установки.
 2. Добавить Capacitor в `android-app` и собрать APK. **Вероятная точка отказа:** JBR несёт JDK 25, Gradle/AGP держат до 21–23 → ставить Temurin 17/21 и указывать его в `JAVA_HOME` только для Gradle.
 3. На эмуляторе закрывается функциональная половина Ф0: поднимается ли `@capacitor-community/sqlite` с SQLCipher, катятся ли оба мигратора, идёт ли синк с прода, живёт ли Keystore-хранилище токена, работает ли мост Ф2/Ф3 в настоящем WebView (сейчас проверен только на better-sqlite3 в vitest).
 4. **Бенч SQLite эмулятор НЕ закрывает** — x86_64 на десктопном CPU врёт в плюс, ARM-образ на x86-хосте в минус. Гейт стека БД (провал = смена плагина) только на планшете.
@@ -45,7 +40,7 @@
 - **Решения владельца по пилоту (03.08):** планшет носит **мастер**; доступ — как у обычного клиента (токен + реплика, без device-gate); **SIM пока не ставим**, позже корпоративная.
 - **Что готово в `android-app/`:** `src/db/` (async-шов, drizzle sqlite-proxy, миграторы), `src/shims/` (12 шимов + IPC-шина в `electron.ts`), `src/core/` (`boot`, `syncWiring`, `clientId`, `ipcWiring`, `testing/bridgeHarness`), три смоук-гейта. Тестов **34**, все зелёные.
 - **Платформенный флаг:** `window.__MATRICA_PLATFORM__ = 'android'` ставится в `android-app/src/main.tsx` до загрузки renderer; читается через `electron-app/src/renderer/src/ui/platform.ts`. Десктоп флаг не ставит — 311/311 без изменений.
-- **Android-стенд PC40:** Studio + SDK стоят, **образ эмулятора не докачан, AVD не создан** — см. профиль машины.
+- **Android-стенд PC40:** Studio + SDK + системный образ стоят целиком (4,8 ГБ); осталось **создать AVD** — см. профиль машины.
 - **Прод:** v2026.803.1121, не трогали.
 - **Открытых PR:** нет. **Письмо brain'у этой сессии:** `mailbox/to-brain/2026-08-03-a-contract-that-lags-its-implementation-voids-the-tests-above-it.md`.
 - **Локальные ветки:** `feat/deletion-intent-dialog` (1 незапушенный коммит `bfd53d6f`, содержимое отгружено через #324 — можно снести); `claude/sharp-keller-9c640a` + её worktree `.claude/worktrees/sharp-keller-9c640a` от завершившейся параллельной сессии — **содержимое уже в main через #465**, ветка на origin доребейзная и не собирается. Обе можно удалять; не трогал без слова владельца.
