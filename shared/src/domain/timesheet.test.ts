@@ -33,7 +33,7 @@ describe('timesheetPrintRowHeightPx', () => {
       for (const legendLines of [0, 1, 2]) {
         const line = 1;
         const h = timesheetPrintRowHeightPx({ rowCount, fonts, withHeader: true, legendLines, lineWidth: line });
-        const headerPx = fonts.header * 1.15 + fonts.header * 0.7 * 1.2;
+        const headerPx = fonts.header * 1.15;
         const legendPx = legendLines > 0 ? fonts.legend * 1.35 * legendLines : 0;
         const theadPx = fonts.dayNum * 1.05 + fonts.weekday * 1.05 + 4;
         const gaps = (1 + 1 + (legendLines > 0 ? 1 : 0)) * 6;

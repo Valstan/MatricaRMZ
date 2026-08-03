@@ -193,7 +193,8 @@ export function timesheetPrintRowHeightPx(args: {
   const f = args.fonts;
   const rowCount = Math.max(1, args.rowCount);
   const line = Math.max(1, Math.round(args.lineWidth ?? 1));
-  const headerPx = args.withHeader ? f.header * 1.15 + f.header * 0.7 * 1.2 : 0;
+  // Шапка — одна строка одним кеглем (см. timesheetPrintTitle).
+  const headerPx = args.withHeader ? f.header * 1.15 : 0;
   const legendPx = args.legendLines > 0 ? f.legend * 1.35 * args.legendLines : 0;
   // Шапка таблицы: число месяца + буква дня недели + паддинги.
   const theadPx = f.dayNum * 1.05 + f.weekday * 1.05 + 4;

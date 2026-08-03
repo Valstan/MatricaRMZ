@@ -66,36 +66,30 @@ export function timesheetPrintCss(ink: TimesheetPrintInk): string {
   `;
 }
 
-export function timesheetPrintTitle(input: Pick<TimesheetPrintInput, 'workshopName'>): string {
-  return `Табель учёта рабочего времени${input.workshopName ? ` · ${input.workshopName}` : ''}`;
-}
-
-function timesheetPrintSubtitle(input: TimesheetPrintInput): string {
-  return `${MONTHS[input.month - 1]} ${input.year} · ${input.weekMode}-дневка`;
+/** Шапка листа одной строкой: «Табель учёта рабочего времени за Июль 2026 · Цех №2». */
+export function timesheetPrintTitle(input: Pick<TimesheetPrintInput, 'workshopName' | 'month' | 'year'>): string {
+  return `Табель учёта рабочего времени за ${MONTHS[input.month - 1]} ${input.year}${input.workshopName ? ` · ${input.workshopName}` : ''}`;
 }
 
 // Шапка листа — печатаемая секция (h1 окна печати — .no-print и на бумагу не попадает).
+// Одна строка одним кеглем: две строки разного размера съедали высоту, нужную клеткам.
 function headerHtml(input: TimesheetPrintInput, f: TimesheetPrintFonts): string {
-  return (
-    `<div style="font-size:${f.header}px;font-weight:700;line-height:1.15">${escapeHtml(timesheetPrintTitle(input))}</div>` +
-    `<div style="font-size:${Math.max(6, Math.round(f.header * 0.7))}px;color:#334155;line-height:1.2">${escapeHtml(timesheetPrintSubtitle(input))}</div>`
-  );
+  return `<div style="font-size:${f.header}px;font-weight:700;line-height:1.15">${escapeHtml(timesheetPrintTitle(input))}</div>`;
 }
 
-// Рендер ячейки: «Я» не печатаем — только часы во всю ячейку; прочие коды-с-часами — код
-// мелко сверху; код-без-часов — тем же размером, что и цифры часов (полная ячейка).
-// Длинные значения («9,5», «11») печатаются мельче — иначе они расширяют колонку и клетки
-// перестают быть одинаковыми (`timesheetCellFontPx`).
+/**
+ * Содержимое ячейки на бумаге — ОДНО значение одним кеглем, подогнанным под ширину клетки.
+ *
+ * Буква важнее часов: «К8» мелкой буквой и крупной восьмёркой читалось как обычная явка, и
+ * командировку путали с работой. Поэтому если у дня стоит код (кроме «Я» — это и есть явка),
+ * печатается ТОЛЬКО код во весь размер клетки; часы остаются в учёте и в итогах строки.
+ * Двухбуквенные коды и «9,5» уменьшаются ровно настолько, чтобы не расширить колонку.
+ */
 function cellHtml(c: TimesheetPrintCell, f: TimesheetPrintFonts, color: string, cellWidthPx: number): string {
   const code = c.code === 'Я' ? '' : (c.code ?? '');
-  const h = formatTimesheetHours(c.hours);
-  const small = Math.max(4, Math.round(f.cell * 0.55));
-  const big = (text: string) =>
-    `<div style="font-size:${timesheetCellFontPx(text, f.cell, cellWidthPx)}px;font-weight:800;color:${color};line-height:1.05">${escapeHtml(text)}</div>`;
-  if (code && h) return `<div style="font-size:${small}px;line-height:1.05;color:${color}">${escapeHtml(code)}</div>${big(h)}`;
-  if (code) return big(code);
-  if (h) return big(h);
-  return '';
+  const text = code || formatTimesheetHours(c.hours);
+  if (!text) return '';
+  return `<div style="font-size:${timesheetCellFontPx(text, f.cell, cellWidthPx)}px;font-weight:800;color:${color};line-height:1.05">${escapeHtml(text)}</div>`;
 }
 
 function gridHtml(input: TimesheetPrintInput, fromDay: number, toDay: number, f: TimesheetPrintFonts, rowHeightPx: number, ink: TimesheetPrintInk): string {
