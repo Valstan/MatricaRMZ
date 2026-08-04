@@ -51,6 +51,14 @@ Anthropic режет РФ-IP на edge (прод `195.161.41.30`, myjino, RU →
 
 Релиз переносит **весь исполняемый контур** под `%LOCALAPPDATA%\Programs` ([ADR-0002](adr/0002-single-executable-root-not-program-files.md)): сторож уехал из Roaming в `Programs\MatricaRMZ-Watchdog`, кэш обновлений — из «Загрузок» в `Programs\MatricaRMZ-Updates`, из сторожа убраны powershell и tasklist, у всех дочерних процессов появились таймауты. **Ошибки в `installer.nsh` и в Go-стороже не ловятся ни линтером, ни тестами** — только реальной установкой, поэтому парк катим волнами, начиная с одной машины.
 
+**Часть проверок уже пройдена на PC40 2026-08-04** (ручная установка v2026.804.1200): сторож в `Programs\MatricaRMZ-Watchdog`, задача `Watchdog Periodic` = Ready с верным `/TR`, кэш обновлений создан в `Programs\MatricaRMZ-Updates`, старый каталог в «Загрузках» удалён клиентом, `watchdog.log` без `falling back to reinstall`, ярлыки живые. **Задачи `Watchdog Logon` нет** — как исторически и на rmz4val, то есть установщик её, похоже, не создаёт вовсе. НЕ проверены: починка ярлыков сторожем и раскладка на не-dev машине.
+
+⚠️ **Следующий релиз добавляет к приёмке переезд каталога установки** (`Programs\@matricarmzelectron-app` → `Programs\MatricaRMZ`, ветка `fix/update-lock-recovery-and-install-dir`). Это правка `installer.nsh` (`preInit` + снятый `RMDir` целевой папки) — тот же класс риска, что и ADR-0002, проверять на одной машине первой волной:
+- клиент установился в `%LOCALAPPDATA%\Programs\MatricaRMZ`, ярлыки и `InstallLocation` в `HKCU\Software\<APP_GUID>` указывают туда же;
+- прежний `Programs\@matricarmzelectron-app` исчез (его убирает клиент при первом запуске, строка `legacy install dir removed` в `matricarmz.log`);
+- `%APPDATA%\@matricarmz\electron-app` (userData) на месте — локальная реплика, `db-key.json` и `ledger-client-key.json` НЕ должны обнулиться, повторного полного sync быть не должно;
+- сторож не ушёл в переустановку из-за устаревшего `appExePath` в handshake (окно риска — от установки до первого запуска клиента).
+
 Что проверить на первой машине после обновления:
 - `schtasks /Query /TN "MatricaRMZ\Watchdog Periodic" /V` — путь `/TR` указывает на `Programs\MatricaRMZ-Watchdog`, задача существует (на rmz4val исторически была только Periodic — проверить и Logon);
 - бинарь лежит в `%LOCALAPPDATA%\Programs\MatricaRMZ-Watchdog\`, из `%APPDATA%\MatricaRMZ\` исчез (данные сторожа — handshake/лог/состояние — остаются там же);

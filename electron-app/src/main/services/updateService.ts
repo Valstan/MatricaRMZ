@@ -12,6 +12,7 @@ import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
 import type { DeltaPlan } from './blockmapDelta.js';
 import { deltaAssemblyTempPath, isLaunchableInstallerName } from './installerNaming.js';
+import { decideStaleLock, isDeltaAssemblyLeftover, type UpdateLockOwnerState } from './updateLockPolicy.js';
 import { classifyIntegrityFailure } from './installerIntegrityRecovery.js';
 import { extractYandexFolderItems, extractYandexResourceMeta } from './yandexResourceMeta.js';
 import { getUpdatesRootDir, setConfiguredUpdatesRootDir } from './updatePaths.js';
@@ -237,6 +238,30 @@ async function acquireUpdateLock(tag: string): Promise<boolean> {
 
 async function releaseUpdateLock() {
   await rm(updateLockPath(), { force: true }).catch(() => {});
+}
+
+async function readUpdateLock(): Promise<{ pid?: number } | null> {
+  try {
+    const raw = await readFile(updateLockPath(), 'utf8');
+    const json = JSON.parse(raw) as any;
+    const pid = Number(json?.pid);
+    return Number.isFinite(pid) && pid > 0 ? { pid } : {};
+  } catch {
+    return null;
+  }
+}
+
+// Только недособранный delta-temp мёртвого процесса. Топливо delta (installer + .blockmap +
+// .cache.json) остаётся: без него следующее обновление тянет полные ~136 МБ вместо ~15.
+async function removeDeltaAssemblyLeftovers(): Promise<void> {
+  const dir = getUpdatesRootDir();
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (isDeltaAssemblyLeftover(entry.name, FIXED_UPDATE_INSTALLER_NAME)) {
+      await rm(join(dir, entry.name), { force: true }).catch(() => {});
+    }
+  }
 }
 
 async function writeUpdaterLog(message: string) {
@@ -1019,23 +1044,29 @@ export async function recoverStuckUpdateState(): Promise<void> {
   const lock = updateLockPath();
   const lockStat = await stat(lock).catch(() => null);
   if (!lockStat?.isFile()) return;
+
+  const info = await readUpdateLock();
+  const owner: UpdateLockOwnerState =
+    typeof info?.pid === 'number' ? (isProcessAlive(info.pid) ? 'alive' : 'gone') : 'unknown';
+  const decision = decideStaleLock({ owner, lockAgeMs: Date.now() - Number(lockStat.mtimeMs ?? 0) });
+  if (!decision.release) {
+    await writeUpdaterLog(`update lock kept: ${decision.reason}`);
+    return;
+  }
+
   const current = app.getVersion();
   const pending = await readPendingUpdate();
-  let keepCache = false;
   if (pending?.installerPath) {
     const validation = await validateInstallerPath(pending.installerPath, pending.installerPath);
     if (!validation.ok || (pending.version && compareSemver(pending.version, current) <= 0)) {
       await writeUpdaterLog(`stale update cleared: ${validation.ok ? 'version <= current' : validation.error}`);
       await clearPendingUpdate();
-    } else {
-      keepCache = true;
     }
   }
-  if (!keepCache) {
-    await cleanupUpdateCache(current);
-  }
+  // НЕ cleanupUpdateCache: он стирает весь корень updates, включая топливо delta.
+  await removeDeltaAssemblyLeftovers();
   await releaseUpdateLock();
-  await writeUpdaterLog('stale update lock removed, update flow reset');
+  await writeUpdaterLog(`stale update lock removed (${decision.reason}), delta cache kept`);
 }
 
 export async function resetUpdateCache(reason = 'manual'): Promise<void> {
@@ -3317,8 +3348,11 @@ function isProcessAlive(pid: number) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    // EPERM — процесс существует, просто принадлежит другому пользователю. Считать его
+    // мёртвым нельзя: recoverStuckUpdateState по этому ответу решает, снимать ли чужой
+    // update.lock, и ошибка здесь стирает работу живого процесса.
+    return (e as NodeJS.ErrnoException)?.code === 'EPERM';
   }
 }
 
