@@ -364,6 +364,9 @@ const matricaApi = {
     // «Где используется деталь»: один вызов вместо открытия каждого наряда по очереди.
     usageByPart: async (partId: string) => ipcRenderer.invoke('workOrders:usageByPart', partId),
     activeAssemblyVariant: async (engineId: string) => ipcRenderer.invoke('workOrders:activeAssemblyVariant', engineId),
+    // Гейт дублей: сборочные наряды этого двигателя (кроме `excludeId` — самого редактируемого).
+    assemblyForEngine: async (args: { engineId: string; excludeId?: string }) =>
+      ipcRenderer.invoke('workOrders:assemblyForEngine', args),
     create: async () => ipcRenderer.invoke('workOrders:create'),
     update: async (args: { id: string; payload: unknown }) => ipcRenderer.invoke('workOrders:update', args),
     setNumber: async (args: { id: string; workOrderNumber: number }) => ipcRenderer.invoke('workOrders:setNumber', args),

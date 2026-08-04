@@ -2487,8 +2487,9 @@ table.list-table.list-table--catalog {
 
 
 
-/* ИИваныч — значок в правом верхнем углу его чата. Ноги стоят, корпус с ключом
-   качается вокруг гайки в правом захвате; одна итерация при открытии панели. */
+/* ИИваныч — значок в правом верхнем углу его чата и на кнопке свёрнутого чата.
+   Ноги стоят, корпус с ключом качается вокруг гайки в правом захвате. Цикл 30 с:
+   первые ~2.4 с крутит ключ, остальное время стоит — «шевелится раз в полминуты». */
 .ivanych {
   flex: 0 0 auto;
   color: #dc2626;
@@ -2498,16 +2499,18 @@ table.list-table.list-table--catalog {
 .ivanych-crew {
   transform-box: view-box;
   transform-origin: 828px 426px;
-  animation: ivanych-crank 2.4s ease-in-out 1 both;
+  animation: ivanych-crank 30s ease-in-out infinite both;
 }
 
+/* Проценты = кадры прежней 2.4-секундной итерации, сжатые в первые 8 % цикла. */
 @keyframes ivanych-crank {
   0% { transform: rotate(0deg); }
-  12% { transform: rotate(-6deg); }
-  30% { transform: rotate(3deg); }
-  48% { transform: rotate(-6deg); }
-  66% { transform: rotate(3deg); }
-  84% { transform: rotate(-4.5deg); }
+  0.96% { transform: rotate(-6deg); }
+  2.4% { transform: rotate(3deg); }
+  3.84% { transform: rotate(-6deg); }
+  5.28% { transform: rotate(3deg); }
+  6.72% { transform: rotate(-4.5deg); }
+  8% { transform: rotate(0deg); }
   100% { transform: rotate(0deg); }
 }
 

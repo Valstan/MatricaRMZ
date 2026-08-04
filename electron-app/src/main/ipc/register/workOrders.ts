@@ -9,6 +9,7 @@ import {
   deleteWorkOrder,
   getActiveAssemblyVariant,
   getWorkOrder,
+  listAssemblyWorkOrdersForEngine,
   listWorkOrders,
   listWorkOrdersUsingPart,
   setWorkOrderNumber,
@@ -42,6 +43,15 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'work_orders.view');
     if (!gate.ok) return gate as any;
     return getActiveAssemblyVariant(ctx.dataDb(), engineId);
+  });
+
+  ipcMain.handle('workOrders:assemblyForEngine', async (_e, args: { engineId: string; excludeId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'work_orders.view');
+    if (!gate.ok) return gate as any;
+    return listAssemblyWorkOrdersForEngine(ctx.dataDb(), {
+      engineId: String(args?.engineId ?? ''),
+      ...(args?.excludeId ? { excludeId: String(args.excludeId) } : {}),
+    });
   });
 
   ipcMain.handle('workOrders:create', async () => {

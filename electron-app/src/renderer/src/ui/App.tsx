@@ -56,6 +56,8 @@ import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
 import { ListContextMenu } from './components/ListContextMenu.js';
+import { useConfirm } from './components/ConfirmContext.js';
+import { IvanychFigure } from './components/IvanychFigure.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { GlobalSearchOverlay } from './components/GlobalSearchOverlay.js';
@@ -68,6 +70,7 @@ import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
 import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
+import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyDuplicateGate.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { loadContractActivityAlerts } from './utils/contractAlerts.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
@@ -552,6 +555,7 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
 ];
 
 export function App() {
+  const { pickChoice } = useConfirm();
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -4305,7 +4309,7 @@ export function App() {
         );
       case 'work_order':
         return (
-          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canApproveAssemblyShortage={caps.canApproveAssemblyShortage} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenEngine={openEngine} onOpenService={openService} onOpenEmployee={openEmployee} onClose={close} />
+          <WorkOrderDetailsPage key={k} id={id} canEdit={caps.canEditWorkOrders} canEditMasterData={caps.canEditMasterData} canCreateParts={caps.canCreateParts} canCreateEmployees={caps.canManageEmployees} canCloseWorkOrders={caps.canCloseWorkOrders} canApproveAssemblyShortage={caps.canApproveAssemblyShortage} canEditWorkshopRepairTemplates={caps.canEditWorkshopRepairTemplates} canEditWorkOrderTemplates={caps.canEditWorkOrderTemplates} canChangeWorkOrderNumber={userRole === 'superadmin'} registerCardCloseActions={reg} requestClose={close} onOpenPart={openPart} onOpenEngine={openEngine} onOpenService={openService} onOpenEmployee={openEmployee} onOpenWorkOrder={(workOrderId: string) => { void openWorkOrder(workOrderId); }} onClose={close} />
         );
       case 'contract':
         return (
@@ -4397,6 +4401,18 @@ export function App() {
                     // (backend не трогаем — строка/номер материализуются на первом сохранении).
                     void (async () => {
                       try {
+                        // Гейт дублей — ДО create(): на двигатель с действующим сборочным нарядом
+                        // карточка не открывается вовсе, оператору предлагается открыть прежний.
+                        const gate = await checkAssemblyDuplicate({
+                          engineId: engine.id,
+                          engineLabel: formatEngineGateLabel(engine),
+                          pickChoice,
+                        });
+                        if (gate.action === 'cancel') return;
+                        if (gate.action === 'open') {
+                          await openWorkOrder(gate.workOrderId);
+                          return;
+                        }
                         const r = await window.matrica.workOrders.create();
                         if (!r.ok) {
                           setPostLoginSyncMsg(`Ошибка создания наряда: ${r.error}`);
@@ -4656,6 +4672,9 @@ export function App() {
             onOpenEngine={openEngine}
             onOpenService={openService}
             onOpenEmployee={openEmployee}
+            onOpenWorkOrder={(workOrderId: string) => {
+              void openWorkOrder(workOrderId);
+            }}
             onClose={() => {
               setSelectedWorkOrderId(null);
               setTabState('work_orders');
@@ -5657,14 +5676,18 @@ export function App() {
                 border: '1px solid var(--border)',
                 background: 'var(--surface)',
                 color: 'var(--text)',
-                padding: '8px 14px',
+                padding: '6px 14px 6px 8px',
                 fontWeight: 700,
                 boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
                 cursor: 'pointer',
                 zIndex: 20,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}
               title="Позвать ИИваныча — он знает про завод, двигатели и детали"
             >
+              <IvanychFigure size={26} />
               ИИваныч
             </button>
           )}

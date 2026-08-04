@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   applyWorkOrderIssue,
   applyWorkOrderWithdrawal,
+  buildAssemblyDuplicateMessage,
   deriveWorkOrderStatusCode,
+  formatAssemblyWorkOrderRef,
+  isAssemblyWorkOrderBlocking,
+  type AssemblyEngineWorkOrderRef,
   workOrderWithdrawnAt,
   isWorkOrderPayloadEmpty,
   normalizeWorkOrderLine,
@@ -473,5 +477,60 @@ describe('withdraw/issue lifecycle', () => {
     expect(v3.withdrawnReason).toBe('причина');
     expect(v3.withdrawnAuto).toBe(true);
     expect(normalizeWorkOrderPayloadV3Fields({ withdrawnAt: 0, withdrawnAuto: false })).toEqual({});
+  });
+});
+
+describe('гейт дублей сборочных нарядов', () => {
+  const ref = (over: Partial<AssemblyEngineWorkOrderRef> = {}): AssemblyEngineWorkOrderRef => ({
+    id: 'wo-1',
+    workOrderNumber: 12,
+    orderDate: Date.UTC(2026, 7, 3, 9, 0),
+    statusCode: 'issued',
+    ...over,
+  });
+
+  it('двигатель держат только наряды в работе', () => {
+    expect(isAssemblyWorkOrderBlocking(ref({ statusCode: 'issued' }))).toBe(true);
+    expect(isAssemblyWorkOrderBlocking(ref({ statusCode: 'overdue' }))).toBe(true);
+    expect(isAssemblyWorkOrderBlocking(ref({ statusCode: 'done' }))).toBe(false);
+    expect(isAssemblyWorkOrderBlocking(ref({ statusCode: 'done_late' }))).toBe(false);
+    // Отозванный наряд стоит на паузе — двигатель свободен для нового наряда.
+    expect(isAssemblyWorkOrderBlocking(ref({ statusCode: 'withdrawn' }))).toBe(false);
+  });
+
+  it('без нарядов сообщения нет', () => {
+    expect(buildAssemblyDuplicateMessage({ engineLabel: 'Д6 123', refs: [] })).toBeNull();
+  });
+
+  it('действующий наряд запрещает создание и называет номер, дату и статус', () => {
+    const msg = buildAssemblyDuplicateMessage({ engineLabel: 'Д6 123', refs: [ref()] });
+    expect(msg?.blocking).toBe(true);
+    expect(msg?.text).toContain('Д6 123');
+    expect(msg?.text).toContain('№ 12');
+    expect(msg?.text).toContain('03.08.2026');
+    expect(msg?.text).toContain('Выдан');
+  });
+
+  it('закрытые наряды создание не запрещают', () => {
+    const msg = buildAssemblyDuplicateMessage({
+      engineLabel: 'Д6 123',
+      refs: [ref({ statusCode: 'done' }), ref({ id: 'wo-2', statusCode: 'withdrawn' })],
+    });
+    expect(msg?.blocking).toBe(false);
+    expect(msg?.text).toContain('создать можно');
+  });
+
+  it('среди закрытых один действующий блокирует и показывается только он', () => {
+    const msg = buildAssemblyDuplicateMessage({
+      engineLabel: 'Д6 123',
+      refs: [ref({ id: 'wo-old', workOrderNumber: 7, statusCode: 'done' }), ref({ workOrderNumber: 12 })],
+    });
+    expect(msg?.blocking).toBe(true);
+    expect(msg?.text).toContain('№ 12');
+    expect(msg?.text).not.toContain('№ 7');
+  });
+
+  it('наряд без номера называется словами, а не «№ 0»', () => {
+    expect(formatAssemblyWorkOrderRef(ref({ workOrderNumber: 0 }))).toContain('без номера');
   });
 });

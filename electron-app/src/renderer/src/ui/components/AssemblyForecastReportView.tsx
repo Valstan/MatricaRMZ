@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { ReportCellValue, ReportPresetPreviewResult } from '@matricarmz/shared';
 
+import { checkAssemblyDuplicate } from '../utils/assemblyDuplicateGate.js';
 import { formatReportCell, formatReportTotals } from '../utils/reportUtils.js';
+import { useConfirm } from './ConfirmContext.js';
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
 
@@ -107,6 +109,7 @@ export function AssemblyForecastReportView(props: {
   onOpenSupplyRequest?: (id: string, payload: unknown) => void;
 }) {
   const { preview, onOpenWorkOrder, onOpenSupplyRequest } = props;
+  const { pickChoice } = useConfirm();
   const [supplyBusy, setSupplyBusy] = useState(false);
   const [supplyMsg, setSupplyMsg] = useState('');
   const purchaseDeficits = (preview.assemblyDeficits ?? []).filter((d) => d.toPurchase > 0);
@@ -201,6 +204,21 @@ export function AssemblyForecastReportView(props: {
     if (!row.variantKey || row.requiredParts.length === 0) {
       setRowMessageByKey((prev) => ({ ...prev, [rowKey]: { kind: 'error', text: 'Нет данных варианта для создания наряда.' } }));
       return;
+    }
+    // Гейт дублей: наряд из прогноза привязывается к конкретному двигателю с площадки —
+    // если он уже в сборочном наряде, второй не создаём (та же проверка, что в списке
+    // двигателей и в шапке карточки).
+    if (row.onSiteEngineId) {
+      const gate = await checkAssemblyDuplicate({
+        engineId: row.onSiteEngineId,
+        engineLabel: [row.engineBrand, row.onSiteEngineNumber].filter(Boolean).join(' '),
+        pickChoice,
+      });
+      if (gate.action === 'cancel') return;
+      if (gate.action === 'open') {
+        onOpenWorkOrder?.(gate.workOrderId);
+        return;
+      }
     }
     setBusyRowKey(rowKey);
     setRowMessageByKey((prev) => {
