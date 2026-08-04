@@ -274,8 +274,12 @@ function restoreShortcutsHeadless(): boolean {
   let ok = false;
   for (const shortcutPath of targets) {
     try {
-      // create-if-absent, replace-if-present: 'create' падает на существующем.
-      const written = shell.writeShortcutLink(shortcutPath, 'replace', {
+      // ТОЛЬКО 'create' — он и создаёт отсутствующий ярлык, и перезаписывает
+      // существующий. 'replace' ведёт себя ровно наоборот: на отсутствующем файле
+      // возвращает false, не создавая ничего (проверено эмпирически на Electron 43).
+      // Сюда попадают ровно тогда, когда ярлыков НЕТ, поэтому с 'replace' функция
+      // не работала бы никогда, а сторож уходил бы в переустановку 136 МБ по кругу.
+      const written = shell.writeShortcutLink(shortcutPath, 'create', {
         target: exe,
         cwd: dirname(exe),
         appUserModelId: 'ru.matricarmz.app',
@@ -347,6 +351,13 @@ app.whenReady().then(() => {
   void import('./services/backupService.js')
     .then(({ sweepBackupCache }) => sweepBackupCache(app.getPath('userData')))
     .catch((e) => logToFile(`backup cache sweep failed: ${String(e)}`));
+
+  // Разовая подчистка прежнего кэша обновлений в «Загрузках» (ADR-0002). Делает
+  // клиент, а не установщик: установщик запущен ИЗ этого каталога и удалить свой
+  // же образ не может. Здесь — после single-instance-lock, установщик уже завершён.
+  void import('./services/updatePaths.js')
+    .then(({ sweepLegacyDownloadsCache }) => sweepLegacyDownloadsCache((line) => logToFile(line)))
+    .catch((e) => logToFile(`legacy updates cache sweep failed: ${String(e)}`));
 
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.

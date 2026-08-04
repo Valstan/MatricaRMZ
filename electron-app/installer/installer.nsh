@@ -5,12 +5,21 @@
 ; Show install progress page.
 !insertmacro MUI_PAGE_INSTFILES
 
+; Возвращает "1", если клиент запущен, иначе "0".
+;
+; ⚠️ Код возврата nsExec ОБЯЗАН лежать в регистре, отличном от outVar. Все вызовы
+; передают сюда $R0, а макрос NSIS — текстовая подстановка: `StrCpy ${outVar} "1"`
+; разворачивался в `StrCpy $R0 "1"` и затирал код возврата ДО сравнения, поэтому
+; StrCmp никогда не совпадал и макрос всегда отвечал «не запущен». Следствие было
+; хуже мёртвого taskkill: раз в файле объявлен customCheckAppRunning, electron-builder
+; подменяет им СВОЙ рабочий _CHECK_APP_RUNNING — то есть штатное закрытие приложения
+; тоже было выключено, и установка поверх живого клиента падала на занятом файле.
 !macro CheckClientRunning outVar
   nsExec::ExecToStack '"$SYSDIR\cmd.exe" /C tasklist /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" /NH | find /I "${APP_EXECUTABLE_FILENAME}" >NUL'
-  Pop $R0
-  Pop $R1
+  Pop $R8
+  Pop $R9
   StrCpy ${outVar} "1"
-  StrCmp $R0 "0" +2
+  StrCmp $R8 "0" +2
   StrCpy ${outVar} "0"
 !macroend
 
@@ -99,6 +108,13 @@ killDoneUninstall:
   RMDir /r "$APPDATA\matricarmz-updates"
   RMDir /r "$LOCALAPPDATA\MatricaRMZ-Updates"
   RMDir /r "$LOCALAPPDATA\matricarmz-updates"
+
+  ; Хвост прежней раскладки — неподписанный сторож в Roaming. Штатно его убирает
+  ; СТАРЫЙ деинсталлятор, но uninstallOldVersion молча возвращается, если в реестре
+  ; нет UninstallString (а это ровно состояние «установка порвана» — то есть машины,
+  ; где переустановку запускает сам сторож). Здесь удаление безусловное. Данные
+  ; сторожа (watchdog.json/log/state) и client-id не трогаем — только .exe.
+  Delete "$APPDATA\MatricaRMZ\matricarmz-watchdog.exe"
 !macroend
 
 !macro customInit
@@ -128,9 +144,21 @@ killDoneUninstall:
 ; Go binary reads them from %APPDATA% and is unaffected by this move.
 !macro InstallWatchdog
   CreateDirectory "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog"
-  ; Refresh the bundled binary on every install/update (best-effort — a CopyFiles
-  ; failure must not break the app install).
+  ; Хвост прошлой замены (см. ниже) — подбираем, когда файл уже разблокирован.
+  Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe.old"
+  ; Сторож сам мог запустить эту установку (восстановление сломанного клиента) и
+  ; ждёт её завершения — тогда его образ ЗАБЛОКИРОВАН, и CopyFiles молча не
+  ; перезапишет .exe: версия сторожа заморозилась бы навсегда именно на тех машинах,
+  ; где он нужнее всего. Rename занятый образ разрешает — уводим в сторону и копируем
+  ; на освободившееся имя. Ошибки игнорируются: сбой обновления сторожа не должен
+  ; ронять установку клиента (best-effort, как и раньше).
+  ClearErrors
+  Rename "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe" "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe.old"
+  ClearErrors
   CopyFiles /SILENT "$INSTDIR\resources\matricarmz-watchdog.exe" "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog"
+  ClearErrors
+  Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe.old"
+  ClearErrors
   ; Per-user Scheduled Tasks (no admin rights): fast reaction at logon plus a
   ; steady 15-min cadence. /F overwrites so the path stays current across
   ; updates — including the one that moves the exe here. nsExec only logs; a
@@ -139,16 +167,32 @@ killDoneUninstall:
   nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /F /RL LIMITED /SC MINUTE /MO 15 /TN "MatricaRMZ\Watchdog Periodic" /TR "\"$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe\""'
 !macroend
 
+; ⚠️ Вызывается из customUnInstall, а он выполняется и при ОБНОВЛЕНИИ: одноклик-апдейт
+; сперва гоняет старый деинсталлятор и только потом распаковывает новую версию. Снимать
+; задачи при обновлении нельзя — между этими шагами лежит вся распаковка (~136 МБ), и
+; обрыв внутри окна оставлял бы машину без клиента И без сторожа, то есть без всякой
+; возможности починиться самой. Ещё коварнее штатная ветка: если деинсталлятор упрётся
+; в занятый файл, он делает Abort ПОСЛЕ customUnInstall — приложение откатывается и
+; работает как ни в чём не бывало, а сторож удалён молча и навсегда.
+; Поэтому при обновлении не трогаем ничего: `schtasks /Create /F` в InstallWatchdog
+; перерегистрирует задачи с актуальным путём сам.
 !macro RemoveWatchdog
-  nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Logon"'
-  nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Periodic"'
-  ; Only the watchdog binary — never its data dir (handshake/log/state) and never
-  ; the app's userData. The Roaming path is the pre-2026-08 home: an update runs the
-  ; OLD uninstaller first, so this line also clears the stale copy on migrating
-  ; clients; keep it until the fleet is known to be past that release.
-  Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe"
-  RMDir "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog"
-  Delete "$APPDATA\MatricaRMZ\matricarmz-watchdog.exe"
+  ${ifNot} ${isUpdated}
+    nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Logon"'
+    nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Periodic"'
+    ; Only the watchdog binary — never its data dir (handshake/log/state) and never
+    ; the app's userData. The Roaming path is the pre-2026-08 home.
+    Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe"
+    Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe.old"
+    RMDir "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog"
+    Delete "$APPDATA\MatricaRMZ\matricarmz-watchdog.exe"
+    ; Кэш обновлений живёт вне $INSTDIR, поэтому штатный деинсталлятор его не видит:
+    ; без этой строки после честного удаления продукта на диске остаются 130+ МБ
+    ; установщиков — ровно в той папке, на которую заведено исключение антивируса.
+    RMDir /r "$LOCALAPPDATA\Programs\MatricaRMZ-Updates"
+    ; Пустая папка «MatricaRMZ» в планировщике остаётся: schtasks удаляет задачи, но
+    ; не каталоги. Косметика, отдельного кода (COM/PowerShell) ради неё не заводим.
+  ${endIf}
 !macroend
 
 !macro customInstall

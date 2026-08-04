@@ -31,6 +31,14 @@ export type WatchdogHandshake = {
    * Электрон знает путь нативно, поэтому отдаём готовым (ADR-0002).
    */
   desktopDir: string;
+  /**
+   * Клиент понимает `--restore-shortcuts` (headless-починка ярлыков). Фича-гейт для
+   * сторожа: клиент СТАРЕЕ этого релиза неизвестный флаг игнорирует и стартует
+   * целиком — окно, а сторож ждёт его закрытия всю смену. Такая связка достижима
+   * (сторож при недоступном сервере ставит любой валидный установщик из кэша, в том
+   * числе прошлой версии), поэтому право на запуск даёт handshake, а не догадка.
+   */
+  supportsRestoreShortcuts: boolean;
   updatedAtMs: number;
 };
 
@@ -60,6 +68,7 @@ export async function writeWatchdogHandshake(args: {
     updaterLogPath: join(userDataDir, 'matricarmz-updater.log'),
     appLogPath: join(userDataDir, 'matricarmz.log'),
     desktopDir: app.getPath('desktop'),
+    supportsRestoreShortcuts: true,
     updatedAtMs: Date.now(),
   };
   const target = handshakePath();

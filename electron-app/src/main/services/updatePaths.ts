@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 let cachedDefaultRoot: string | null = null;
@@ -49,4 +49,31 @@ export function setConfiguredUpdatesRootDir(path: string | null | undefined) {
   const next = String(path ?? '').trim();
   configuredRoot = next || null;
   if (configuredRoot) ensureDir(configuredRoot);
+}
+
+/**
+ * Разовая подчистка прежнего кэша обновлений в «Загрузках».
+ *
+ * Установщик сделать этого не может: он сам ЗАПУЩЕН из этого каталога (старый клиент
+ * кладёт туда `matrica_rmz_update.exe` и открывает его на месте), а образ работающего
+ * процесса Windows удалить не даёт — `RMDir /r` в `customInit` оставляет ровно тот
+ * 136-МБ .exe, ради выноса которого переезд и делался. К моменту старта нового клиента
+ * установщик уже завершён, замка нет.
+ *
+ * Только дефолтный путь: если оператор задал свой каталог (env или настройка), он тут
+ * ни при чём. Не трогаем и когда кэш всё ещё указывает в «Загрузки» (переезд не состоялся).
+ */
+export function sweepLegacyDownloadsCache(onLog?: (line: string) => void): void {
+  if (process.platform !== 'win32') return;
+  if (String(process.env.MATRICA_UPDATE_CACHE_DIR ?? '').trim() || configuredRoot) return;
+  const legacy = join(app.getPath('downloads'), 'MatricaRMZ-Updates');
+  if (getUpdatesRootDir() === legacy) return;
+  try {
+    if (!existsSync(legacy)) return;
+    rmSync(legacy, { recursive: true, force: true });
+    onLog?.(`legacy updates cache removed: ${legacy}`);
+  } catch (e) {
+    // Не критично: каталог подберётся при следующем запуске либо руками.
+    onLog?.(`legacy updates cache cleanup failed: ${String(e)}`);
+  }
 }

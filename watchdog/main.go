@@ -26,6 +26,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -64,17 +65,39 @@ func hiddenCmd(name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// hiddenCmdCtx is hiddenCmd with a hard ceiling. Every child the watchdog waits on
+// gets one: the pass runs from a Scheduled Task, and the default task policy starts
+// no second instance while the first is alive — a child that hangs (a broken client
+// showing a modal, an installer waiting on a dialog) would silently kill the whole
+// recovery agent until reboot. WaitDelay makes Run() return even when the killed
+// child leaves inherited pipes open.
+func hiddenCmdCtx(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 5 * time.Second
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+	return cmd
+}
+
+// handshake is what the client publishes for the watchdog. Fields added over time
+// are absent in files written by older clients — every reader must tolerate zero
+// values. SupportsRestoreShortcuts is exactly that kind of gate: false means the
+// installed client predates `--restore-shortcuts` (2026-08, ADR-0002) and must not
+// be launched with it, or it would start a full window and never return.
 type handshake struct {
-	ClientID       string `json:"clientId"`
-	APIBaseURL     string `json:"apiBaseUrl"`
-	Version        string `json:"version"`
-	AppExePath     string `json:"appExePath"`
-	UserDataDir    string `json:"userDataDir"`
-	UpdatesRootDir string `json:"updatesRootDir"`
-	UpdaterLogPath string `json:"updaterLogPath"`
-	AppLogPath     string `json:"appLogPath"`
-	DesktopDir     string `json:"desktopDir"`
-	UpdatedAtMs    int64  `json:"updatedAtMs"`
+	ClientID                 string `json:"clientId"`
+	APIBaseURL               string `json:"apiBaseUrl"`
+	Version                  string `json:"version"`
+	AppExePath               string `json:"appExePath"`
+	UserDataDir              string `json:"userDataDir"`
+	UpdatesRootDir           string `json:"updatesRootDir"`
+	UpdaterLogPath           string `json:"updaterLogPath"`
+	AppLogPath               string `json:"appLogPath"`
+	DesktopDir               string `json:"desktopDir"`
+	SupportsRestoreShortcuts bool   `json:"supportsRestoreShortcuts"`
+	UpdatedAtMs              int64  `json:"updatedAtMs"`
 }
 
 type pendingUpdate struct {
@@ -341,7 +364,27 @@ func shortcutsPresent(hs *handshake) bool {
 // script interpreter at all: an unsigned scheduled binary launching powershell is a
 // far stronger antivirus signal than launching the product's own exe.
 func restoreShortcuts(hs *handshake) bool {
-	cmd := hiddenCmd(hs.AppExePath, "--restore-shortcuts")
+	// Фича-гейт: клиент СТАРЕЕ релиза с этим флагом неизвестный аргумент игнорирует
+	// и стартует целиком — окно оператору и вечное ожидание здесь. Связка достижима
+	// (при недоступном сервере сторож ставит любой валидный установщик из кэша,
+	// в том числе прошлой версии), поэтому запускаем только по явному признаку.
+	if !hs.SupportsRestoreShortcuts {
+		logf("client does not advertise --restore-shortcuts (handshake from an older build) — skipping direct restore")
+		return false
+	}
+	exe := resolveAppExe(hs)
+	if exe == "" {
+		logf("shortcut restore skipped: client exe not found")
+		return false
+	}
+	// Таймаут обязателен: раньше здесь запускался заведомо короткий powershell, а
+	// теперь — сам клиент, то есть ровно тот компонент, чья поломка и приводит сюда.
+	// Зависший (или показавший модалку) клиент без потолка вешает весь проход, а
+	// планировщик по умолчанию не стартует второй экземпляр задачи — сторож умер бы
+	// молча до перезагрузки.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := hiddenCmdCtx(ctx, exe, "--restore-shortcuts")
 	if err := cmd.Run(); err != nil {
 		logf("shortcut restore via client failed: %v", err)
 		return false
@@ -373,18 +416,27 @@ func readHandshake() (*handshake, error) {
 
 // --- presence --------------------------------------------------------------
 
-func appPresent(hs *handshake) bool {
-	if isRegularFile(hs.AppExePath) {
-		return true
+// resolveAppExe returns the client exe that actually exists on disk: the handshake
+// path first, then the standard per-user install path (in case the handshake is
+// stale — e.g. a dev build wrote it). "" means the client is not installed.
+//
+// Single source of truth on purpose: appPresent used to accept the fallback while
+// restoreShortcuts launched hs.AppExePath unconditionally, so a stale handshake made
+// the shortcut repair fail deterministically and escalate to a full reinstall.
+func resolveAppExe(hs *handshake) string {
+	if hs != nil && isRegularFile(hs.AppExePath) {
+		return hs.AppExePath
 	}
-	// Fall back to the standard per-user install path in case the handshake's
-	// recorded exe path is stale (e.g. a dev build wrote it).
 	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		if isRegularFile(filepath.Join(local, standardInstallExe)) {
-			return true
+		if p := filepath.Join(local, standardInstallExe); isRegularFile(p) {
+			return p
 		}
 	}
-	return false
+	return ""
+}
+
+func appPresent(hs *handshake) bool {
+	return resolveAppExe(hs) != ""
 }
 
 // updaterInProgress mirrors the app's acquireUpdateLock staleness window (2h):
@@ -527,18 +579,32 @@ func downloadInstaller(hs *handshake) (string, error) {
 		dstDir = os.TempDir()
 	}
 	dst := filepath.Join(dstDir, fmt.Sprintf("matricarmz-watchdog-%s.exe", meta.Version))
-	out, err := os.Create(dst)
+	// Качаем во временное имя и переименовываем только после валидации. Иначе
+	// оборванная закачка (kill по лимиту задачи, перезагрузка, кончился диск)
+	// оставляет обрезанный .exe под финальным именем — а этот каталог сторож САМ
+	// же и сканирует следующим проходом, где размер и sha неизвестны и проверяется
+	// только сигнатура MZ. Обрезанный NSIS её проходит, значит битый установщик
+	// запускался бы вечно. В %TEMP% (прежнее место) такой петли не было.
+	tmp := dst + ".part"
+	out, err := os.Create(tmp)
 	if err != nil {
 		return "", err
 	}
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		out.Close()
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("write installer: %w", err)
 	}
 	out.Close()
-	if err := validateInstaller(dst, meta.Size, meta.Sha256); err != nil {
-		_ = os.Remove(dst)
+	if err := validateInstaller(tmp, meta.Size, meta.Sha256); err != nil {
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("downloaded installer invalid: %w", err)
+	}
+	// Rename не перезаписывает существующий файл в Windows — сносим прежний.
+	_ = os.Remove(dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("publish installer: %w", err)
 	}
 	return dst, nil
 }
@@ -590,7 +656,13 @@ func validateInstaller(path string, expectedSize int64, expectedSha string) erro
 func runSilentInstaller(path string) (int, error) {
 	// electron-builder NSIS one-click installer: `/S` runs silently; per-user
 	// install needs no UAC, so this works from the Scheduled Task's user context.
-	cmd := hiddenCmd(path, "/S")
+	//
+	// Потолок 15 минут: тихий установщик всё же способен встать на невидимом
+	// диалоге (занятый файл, карантин антивируса), а зависший проход выключает
+	// сторожа целиком — планировщик не поднимет второй экземпляр задачи.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	cmd := hiddenCmdCtx(ctx, path, "/S")
 	err := cmd.Run()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
