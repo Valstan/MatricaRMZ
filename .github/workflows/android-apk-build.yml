@@ -7,6 +7,15 @@ on:
       # Отдельный префикс: Electron-релизы идут по "v*.*.*" и НЕ должны
       # запускать сборку APK (и наоборот).
       - "android-v*.*.*"
+  # Нативную часть планшетного клиента не проверяет ни один другой гейт:
+  # ошибка в Gradle/манифесте/плагине видна только при сборке APK. Гоняем её
+  # на PR, задевающих android-контур, а не раз в релиз.
+  pull_request:
+    paths:
+      - "android-app/**"
+      - "shared/**"
+      - "electron-app/src/renderer/**"
+      - ".github/workflows/android-apk-build.yml"
 
 permissions:
   contents: write
