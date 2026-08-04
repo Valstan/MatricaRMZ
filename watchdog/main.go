@@ -26,6 +26,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -41,14 +42,20 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // hiddenCmd builds an exec.Cmd that never flashes a console window. The
-// watchdog binary itself is GUI-subsystem (-H=windowsgui), but console child
-// processes (tasklist, powershell) each pop a visible console for a moment —
-// operators saw it every 15-minute pass once the shortcut check landed.
-// CREATE_NO_WINDOW suppresses the console allocation entirely; HideWindow
-// covers GUI children (the NSIS installer) as belt-and-braces.
+// watchdog binary itself is GUI-subsystem (-H=windowsgui), but a console child
+// process pops a visible console for a moment — operators saw it every 15-minute
+// pass once the shortcut check landed. CREATE_NO_WINDOW suppresses the console
+// allocation entirely; HideWindow covers GUI children (the NSIS installer and the
+// client's headless --restore-shortcuts run) as belt-and-braces.
+//
+// Since 2026-08 the only children left are the product's own binaries — the
+// installer and the client. tasklist and powershell were replaced by native
+// calls: an unsigned scheduled binary spawning system tools reads as discovery
+// plus LOLBin usage to behavioural analysis.
 func hiddenCmd(name string, args ...string) *exec.Cmd {
 	cmd := exec.Command(name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -58,16 +65,39 @@ func hiddenCmd(name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// hiddenCmdCtx is hiddenCmd with a hard ceiling. Every child the watchdog waits on
+// gets one: the pass runs from a Scheduled Task, and the default task policy starts
+// no second instance while the first is alive — a child that hangs (a broken client
+// showing a modal, an installer waiting on a dialog) would silently kill the whole
+// recovery agent until reboot. WaitDelay makes Run() return even when the killed
+// child leaves inherited pipes open.
+func hiddenCmdCtx(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 5 * time.Second
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+	return cmd
+}
+
+// handshake is what the client publishes for the watchdog. Fields added over time
+// are absent in files written by older clients — every reader must tolerate zero
+// values. SupportsRestoreShortcuts is exactly that kind of gate: false means the
+// installed client predates `--restore-shortcuts` (2026-08, ADR-0002) and must not
+// be launched with it, or it would start a full window and never return.
 type handshake struct {
-	ClientID       string `json:"clientId"`
-	APIBaseURL     string `json:"apiBaseUrl"`
-	Version        string `json:"version"`
-	AppExePath     string `json:"appExePath"`
-	UserDataDir    string `json:"userDataDir"`
-	UpdatesRootDir string `json:"updatesRootDir"`
-	UpdaterLogPath string `json:"updaterLogPath"`
-	AppLogPath     string `json:"appLogPath"`
-	UpdatedAtMs    int64  `json:"updatedAtMs"`
+	ClientID                 string `json:"clientId"`
+	APIBaseURL               string `json:"apiBaseUrl"`
+	Version                  string `json:"version"`
+	AppExePath               string `json:"appExePath"`
+	UserDataDir              string `json:"userDataDir"`
+	UpdatesRootDir           string `json:"updatesRootDir"`
+	UpdaterLogPath           string `json:"updaterLogPath"`
+	AppLogPath               string `json:"appLogPath"`
+	DesktopDir               string `json:"desktopDir"`
+	SupportsRestoreShortcuts bool   `json:"supportsRestoreShortcuts"`
+	UpdatedAtMs              int64  `json:"updatedAtMs"`
 }
 
 type pendingUpdate struct {
@@ -118,7 +148,7 @@ func main() {
 	forced, reqID := checkReinstallCommand(hs)
 	present := appPresent(hs)
 	running := processRunning()
-	shortcuts := shortcutsPresent()
+	shortcuts := shortcutsPresent(hs)
 
 	if present && !forced {
 		// Exe on disk, but a wiped install can leave the operator with no way to
@@ -128,7 +158,7 @@ func main() {
 		// respects "user deleted it") — see restoreShortcuts.
 		if !shortcuts && !running {
 			logf("app exe present but shortcuts missing and process not running — restoring shortcuts directly")
-			if restoreShortcuts(hs.AppExePath) {
+			if restoreShortcuts(hs) {
 				logf("shortcuts restored directly (no reinstall needed)")
 				report(hs, "recovered", "shortcuts restored directly (desktop + start menu)", 0)
 				return
@@ -185,7 +215,7 @@ func main() {
 	if appPresent(hs) {
 		logf("recovery succeeded (installer exit=%d)", exitCode)
 		// The installer skips shortcuts it considers user-deleted — top them up.
-		if !shortcutsPresent() && restoreShortcuts(hs.AppExePath) {
+		if !shortcutsPresent(hs) && restoreShortcuts(hs) {
 			logf("shortcuts topped up after reinstall")
 		}
 		writeState(state{}) // success resets the failure counter
@@ -255,21 +285,49 @@ func backoffFor(failCount int) time.Duration {
 
 // processRunning reports whether the client process is currently running.
 // Diagnostics + a safety brake: the watchdog never reinstalls over a running app.
+//
+// Enumerated natively (CreateToolhelp32Snapshot) instead of shelling out to
+// tasklist: one less hidden child process per pass, and process discovery via an
+// external tool is itself a behavioural-analysis signal for an unsigned binary.
 func processRunning() bool {
-	out, err := hiddenCmd("tasklist", "/FI", "IMAGENAME eq MatricaRMZ.exe", "/NH", "/FO", "CSV").Output()
+	snap, err := syscall.CreateToolhelp32Snapshot(syscall.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), "MatricaRMZ.exe")
+	defer syscall.CloseHandle(snap)
+	var entry syscall.ProcessEntry32
+	// Единственное место с unsafe во всём стороже: Windows требует, чтобы структура
+	// сама несла свой размер. Это compile-time Sizeof, без арифметики над указателями
+	// и без преобразований uintptr↔Pointer — ровно так это делает и golang.org/x/sys.
+	// nosemgrep: use-of-unsafe-block
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	if err := syscall.Process32First(snap, &entry); err != nil {
+		return false
+	}
+	for {
+		name := syscall.UTF16ToString(entry.ExeFile[:])
+		if strings.EqualFold(name, "MatricaRMZ.exe") {
+			return true
+		}
+		if err := syscall.Process32Next(snap, &entry); err != nil {
+			return false
+		}
+	}
 }
 
 // resolveDesktopDir returns the user's actual Desktop folder. %USERPROFILE%\Desktop
-// is wrong on redirected desktops (e.g. moved to another drive) — ask the shell.
-// Live acceptance 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
-func resolveDesktopDir() string {
-	out, err := hiddenCmd("powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')").Output()
-	if err == nil {
-		if p := strings.TrimSpace(string(out)); p != "" {
+// is wrong on redirected desktops (e.g. moved to another drive) — live acceptance
+// 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
+//
+// The path comes from the handshake: Electron resolves it natively and publishes it
+// (app.getPath('desktop')). Previously the watchdog asked `powershell -Command
+// [Environment]::GetFolderPath('Desktop')` on every pass — a hidden powershell every
+// 15 minutes out of an unsigned scheduled binary is the strongest heuristic left
+// (AMSI / Script Block Logging), see ADR-0002. Clients older than that release send
+// no desktopDir; the profile path is the fallback, exactly as before.
+func resolveDesktopDir(hs *handshake) string {
+	if hs != nil {
+		if p := strings.TrimSpace(hs.DesktopDir); p != "" {
 			return p
 		}
 	}
@@ -278,9 +336,9 @@ func resolveDesktopDir() string {
 
 // shortcutsPresent checks the per-user launch points the NSIS installer creates.
 // Either one is enough for the operator to start the app.
-func shortcutsPresent() bool {
+func shortcutsPresent(hs *handshake) bool {
 	candidates := []string{
-		filepath.Join(resolveDesktopDir(), "MatricaRMZ.lnk"),
+		filepath.Join(resolveDesktopDir(hs), "MatricaRMZ.lnk"),
 	}
 	if ad := os.Getenv("APPDATA"); ad != "" {
 		candidates = append(candidates, filepath.Join(ad, `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`))
@@ -293,30 +351,45 @@ func shortcutsPresent() bool {
 	return false
 }
 
-// restoreShortcuts recreates both .lnk files directly via WScript.Shell.
-// A silent NSIS reinstall does NOT bring deleted shortcuts back — electron-builder's
-// one-click updater treats a missing shortcut as "user deleted it on purpose" and
-// respects that (found on live acceptance 2026-07-25: reinstall exit=0, shortcuts
-// still gone → the old logic would reinstall 136 MB every 15 minutes forever).
-// Direct creation is also far cheaper than a reinstall.
-func restoreShortcuts(appExe string) bool {
-	desktop := filepath.Join(resolveDesktopDir(), "MatricaRMZ.lnk")
-	startMenu := filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`)
-	script := fmt.Sprintf(
-		`$ws = New-Object -ComObject WScript.Shell
-foreach ($p in @('%s','%s')) {
-  $lnk = $ws.CreateShortcut($p)
-  $lnk.TargetPath = '%s'
-  $lnk.WorkingDirectory = '%s'
-  $lnk.Save()
-}`,
-		desktop, startMenu, appExe, filepath.Dir(appExe),
-	)
-	if err := hiddenCmd("powershell", "-NoProfile", "-Command", script).Run(); err != nil {
-		logf("direct shortcut restore failed: %v", err)
+// restoreShortcuts asks the client itself to recreate both .lnk files:
+// `MatricaRMZ.exe --restore-shortcuts` runs headless (no window, no single-instance
+// lock) and exits. A silent NSIS reinstall does NOT bring deleted shortcuts back —
+// electron-builder's one-click updater treats a missing shortcut as "user deleted it
+// on purpose" and respects that (live acceptance 2026-07-25: reinstall exit=0,
+// shortcuts still gone → the old logic would reinstall 136 MB every 15 minutes
+// forever). Direct creation is also far cheaper than a reinstall.
+//
+// The .lnk used to be written here through `powershell` + COM WScript.Shell. Moved
+// into the app (Electron's native shell.writeShortcutLink) so the watchdog spawns no
+// script interpreter at all: an unsigned scheduled binary launching powershell is a
+// far stronger antivirus signal than launching the product's own exe.
+func restoreShortcuts(hs *handshake) bool {
+	// Фича-гейт: клиент СТАРЕЕ релиза с этим флагом неизвестный аргумент игнорирует
+	// и стартует целиком — окно оператору и вечное ожидание здесь. Связка достижима
+	// (при недоступном сервере сторож ставит любой валидный установщик из кэша,
+	// в том числе прошлой версии), поэтому запускаем только по явному признаку.
+	if !hs.SupportsRestoreShortcuts {
+		logf("client does not advertise --restore-shortcuts (handshake from an older build) — skipping direct restore")
 		return false
 	}
-	return shortcutsPresent()
+	exe := resolveAppExe(hs)
+	if exe == "" {
+		logf("shortcut restore skipped: client exe not found")
+		return false
+	}
+	// Таймаут обязателен: раньше здесь запускался заведомо короткий powershell, а
+	// теперь — сам клиент, то есть ровно тот компонент, чья поломка и приводит сюда.
+	// Зависший (или показавший модалку) клиент без потолка вешает весь проход, а
+	// планировщик по умолчанию не стартует второй экземпляр задачи — сторож умер бы
+	// молча до перезагрузки.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := hiddenCmdCtx(ctx, exe, "--restore-shortcuts")
+	if err := cmd.Run(); err != nil {
+		logf("shortcut restore via client failed: %v", err)
+		return false
+	}
+	return shortcutsPresent(hs)
 }
 
 // --- handshake -------------------------------------------------------------
@@ -343,18 +416,27 @@ func readHandshake() (*handshake, error) {
 
 // --- presence --------------------------------------------------------------
 
-func appPresent(hs *handshake) bool {
-	if isRegularFile(hs.AppExePath) {
-		return true
+// resolveAppExe returns the client exe that actually exists on disk: the handshake
+// path first, then the standard per-user install path (in case the handshake is
+// stale — e.g. a dev build wrote it). "" means the client is not installed.
+//
+// Single source of truth on purpose: appPresent used to accept the fallback while
+// restoreShortcuts launched hs.AppExePath unconditionally, so a stale handshake made
+// the shortcut repair fail deterministically and escalate to a full reinstall.
+func resolveAppExe(hs *handshake) string {
+	if hs != nil && isRegularFile(hs.AppExePath) {
+		return hs.AppExePath
 	}
-	// Fall back to the standard per-user install path in case the handshake's
-	// recorded exe path is stale (e.g. a dev build wrote it).
 	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		if isRegularFile(filepath.Join(local, standardInstallExe)) {
-			return true
+		if p := filepath.Join(local, standardInstallExe); isRegularFile(p) {
+			return p
 		}
 	}
-	return false
+	return ""
+}
+
+func appPresent(hs *handshake) bool {
+	return resolveAppExe(hs) != ""
 }
 
 // updaterInProgress mirrors the app's acquireUpdateLock staleness window (2h):
@@ -486,19 +568,43 @@ func downloadInstaller(hs *handshake) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download HTTP %d", resp.StatusCode)
 	}
-	dst := filepath.Join(os.TempDir(), fmt.Sprintf("matricarmz-watchdog-%s.exe", meta.Version))
-	out, err := os.Create(dst)
+	// В общий кэш обновлений, а не в %TEMP%: транзитный .exe там выпадает из
+	// единственного исключения антивируса, ради которого весь исполняемый контур
+	// сведён под один корень. UpdatesRootDir приходит в handshake от клиента.
+	dstDir := strings.TrimSpace(hs.UpdatesRootDir)
+	if dstDir == "" {
+		dstDir = os.TempDir()
+	} else if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		logf("updates dir %s unusable (%v) — falling back to temp", dstDir, err)
+		dstDir = os.TempDir()
+	}
+	dst := filepath.Join(dstDir, fmt.Sprintf("matricarmz-watchdog-%s.exe", meta.Version))
+	// Качаем во временное имя и переименовываем только после валидации. Иначе
+	// оборванная закачка (kill по лимиту задачи, перезагрузка, кончился диск)
+	// оставляет обрезанный .exe под финальным именем — а этот каталог сторож САМ
+	// же и сканирует следующим проходом, где размер и sha неизвестны и проверяется
+	// только сигнатура MZ. Обрезанный NSIS её проходит, значит битый установщик
+	// запускался бы вечно. В %TEMP% (прежнее место) такой петли не было.
+	tmp := dst + ".part"
+	out, err := os.Create(tmp)
 	if err != nil {
 		return "", err
 	}
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		out.Close()
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("write installer: %w", err)
 	}
 	out.Close()
-	if err := validateInstaller(dst, meta.Size, meta.Sha256); err != nil {
-		_ = os.Remove(dst)
+	if err := validateInstaller(tmp, meta.Size, meta.Sha256); err != nil {
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("downloaded installer invalid: %w", err)
+	}
+	// Rename не перезаписывает существующий файл в Windows — сносим прежний.
+	_ = os.Remove(dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("publish installer: %w", err)
 	}
 	return dst, nil
 }
@@ -550,7 +656,13 @@ func validateInstaller(path string, expectedSize int64, expectedSha string) erro
 func runSilentInstaller(path string) (int, error) {
 	// electron-builder NSIS one-click installer: `/S` runs silently; per-user
 	// install needs no UAC, so this works from the Scheduled Task's user context.
-	cmd := hiddenCmd(path, "/S")
+	//
+	// Потолок 15 минут: тихий установщик всё же способен встать на невидимом
+	// диалоге (занятый файл, карантин антивируса), а зависший проход выключает
+	// сторожа целиком — планировщик не поднимет второй экземпляр задачи.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	cmd := hiddenCmdCtx(ctx, path, "/S")
 	err := cmd.Run()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

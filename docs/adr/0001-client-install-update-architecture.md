@@ -17,6 +17,8 @@
 
 **Статус: отложен (нужна машина с установленным клиентом).** На dev-машине PC40 клиент не установлен (`%LOCALAPPDATA%\Programs\MatricaRMZ` отсутствует), live-аудит раскладки/мусора невозможен здесь.
 
+> ⚠️ **Поправка 2026-08-04 (разбор под [ADR-0002](0002-single-executable-root-not-program-files.md), факты сверены по коду):** два пути ниже угаданы неверно и успели попасть в комментарии `installer.nsh`. Реально: каталог установки — `%LOCALAPPDATA%\Programs\@matricarmzelectron-app` (electron-builder берёт имя из санитизированного `name` пакета, не из `productName`), а userData — `%APPDATA%\@matricarmz\electron-app`. `%APPDATA%\MatricaRMZ` — это не userData, а каталог данных сторожа (handshake, лог, состояние, client-id).
+
 Ожидаемая раскладка (выводится из конфига `electron-app/package.json` → `build`):
 - `nsis.oneClick: true`, `nsis.perMachine: false` → **per-user** установка в `%LOCALAPPDATA%\Programs\MatricaRMZ`.
 - userData (SQLite-кэш, логи, настройки) → `%APPDATA%\MatricaRMZ`.

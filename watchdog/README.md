@@ -47,10 +47,23 @@ itself. The Go stdlib / minimal / single-pass design keeps the AV footprint low.
 
 ## Installer integration (Phase 5)
 
-The installer copies the bundled binary to `%APPDATA%\MatricaRMZ\` (outside the
-wiped install dir) and registers two per-user Scheduled Tasks — `at logon` and
-`every 15 min` — pointing at it (`electron-app/installer/installer.nsh`,
-`customInstall` / `customUnInstall`). Per-user, no admin rights.
+The installer copies the bundled binary to
+`%LOCALAPPDATA%\Programs\MatricaRMZ-Watchdog\` and registers two per-user
+Scheduled Tasks — `at logon` and `every 15 min` — pointing at it
+(`electron-app/installer/installer.nsh`, `customInstall` / `customUnInstall`).
+Per-user, no admin rights.
+
+That folder is a **sibling** of the install dir, not a subfolder: the one-click
+updater replaces the install dir wholesale, and the watchdog must outlive exactly
+that moment. It moved there from `%APPDATA%\MatricaRMZ\` (Roaming) in 2026-08 —
+running an unsigned exe out of Roaming on a schedule is a top behavioural-analysis
+trigger, and keeping every product executable under one parent is what makes a
+single antivirus exclusion possible. See
+[`docs/adr/0002-single-executable-root-not-program-files.md`](../docs/adr/0002-single-executable-root-not-program-files.md)
+for the decision and for what has to be set up in Kaspersky by hand.
+
+The watchdog's **data** files (`watchdog.json` handshake, `watchdog.log`,
+`watchdog-state.json`) stayed in `%APPDATA%\MatricaRMZ\` — only the executable moved.
 
 ## Status
 

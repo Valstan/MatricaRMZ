@@ -12,6 +12,8 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { getUpdatesRootDir } from './updatePaths.js';
+
 export type EmergencyUpdateResult =
   | { launched: true; version: string; installerPath: string }
   | { launched: false; reason: string };
@@ -123,7 +125,7 @@ async function launchInstaller(installerPath: string): Promise<boolean> {
 /**
  * Attempt a one-shot installer fetch + launch as a last-resort recovery when
  * SQLite migrations are structurally broken on this client. Side effects:
- * downloads a file to %TEMP% and spawns the installer detached.
+ * downloads a file to the shared updates cache and spawns the installer detached.
  *
  * Returns `launched: true` when the installer process started successfully;
  * the caller is expected to call `app.quit()` immediately after so the
@@ -159,7 +161,16 @@ export async function tryEmergencyUpdate(opts: {
     };
   }
 
-  const destPath = join(tmpdir(), `matricarmz-emergency-${meta.version}.exe`);
+  // Под общий корень обновлений, а не в %TEMP%: транзитный .exe там — отдельный
+  // повод для эвристики, и он выпадал из единственного исключения антивируса.
+  // getUpdatesRootDir сам создаёт каталог; tmpdir остаётся аварийным фолбэком.
+  let destDir: string;
+  try {
+    destDir = getUpdatesRootDir();
+  } catch {
+    destDir = tmpdir();
+  }
+  const destPath = join(destDir, `matricarmz-emergency-${meta.version}.exe`);
   log(`downloading installer to ${destPath}`);
   const downloaded = await downloadInstaller(apiBaseUrl, meta, destPath);
   if (!downloaded.ok) {

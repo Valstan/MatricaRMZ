@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 let cachedDefaultRoot: string | null = null;
@@ -25,10 +25,19 @@ export function getUpdatesRootDir() {
     return configuredRoot;
   }
   if (cachedDefaultRoot) return cachedDefaultRoot;
-  const preferred = join(app.getPath('downloads'), 'MatricaRMZ-Updates');
-  if (ensureDir(preferred)) {
-    cachedDefaultRoot = preferred;
-    return cachedDefaultRoot;
+  // Кэш обновлений — сиблинг каталога установки под "$LOCALAPPDATA\Programs", а не
+  // «Загрузки» (дефолт до 2026-08). Причина не в удобстве: постоянный 136-МБ .exe с
+  // предсказуемым именем в самой сканируемой папке Windows читается эвристикой как
+  // дроппер, а держать ВСЕ исполняемые продукта под одним родителем — единственный
+  // способ накрыть их одним исключением антивируса (плана А, разбор 2026-08-04).
+  // Electron не отдаёт localAppData через getPath — берём из env, с прежним фолбэком.
+  const localAppData = process.platform === 'win32' ? String(process.env.LOCALAPPDATA ?? '').trim() : '';
+  if (localAppData) {
+    const preferred = join(localAppData, 'Programs', 'MatricaRMZ-Updates');
+    if (ensureDir(preferred)) {
+      cachedDefaultRoot = preferred;
+      return cachedDefaultRoot;
+    }
   }
   const fallback = join(app.getPath('userData'), 'MatricaRMZ-Updates');
   ensureDir(fallback);
@@ -40,4 +49,31 @@ export function setConfiguredUpdatesRootDir(path: string | null | undefined) {
   const next = String(path ?? '').trim();
   configuredRoot = next || null;
   if (configuredRoot) ensureDir(configuredRoot);
+}
+
+/**
+ * Разовая подчистка прежнего кэша обновлений в «Загрузках».
+ *
+ * Установщик сделать этого не может: он сам ЗАПУЩЕН из этого каталога (старый клиент
+ * кладёт туда `matrica_rmz_update.exe` и открывает его на месте), а образ работающего
+ * процесса Windows удалить не даёт — `RMDir /r` в `customInit` оставляет ровно тот
+ * 136-МБ .exe, ради выноса которого переезд и делался. К моменту старта нового клиента
+ * установщик уже завершён, замка нет.
+ *
+ * Только дефолтный путь: если оператор задал свой каталог (env или настройка), он тут
+ * ни при чём. Не трогаем и когда кэш всё ещё указывает в «Загрузки» (переезд не состоялся).
+ */
+export function sweepLegacyDownloadsCache(onLog?: (line: string) => void): void {
+  if (process.platform !== 'win32') return;
+  if (String(process.env.MATRICA_UPDATE_CACHE_DIR ?? '').trim() || configuredRoot) return;
+  const legacy = join(app.getPath('downloads'), 'MatricaRMZ-Updates');
+  if (getUpdatesRootDir() === legacy) return;
+  try {
+    if (!existsSync(legacy)) return;
+    rmSync(legacy, { recursive: true, force: true });
+    onLog?.(`legacy updates cache removed: ${legacy}`);
+  } catch (e) {
+    // Не критично: каталог подберётся при следующем запуске либо руками.
+    onLog?.(`legacy updates cache cleanup failed: ${String(e)}`);
+  }
 }
