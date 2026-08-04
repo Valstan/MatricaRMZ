@@ -8,11 +8,13 @@ import {
   canViewWorkOrder,
   collectWorkOrderEntityReferences,
   collectWorkOrderUnresolvedTextIssues,
+  deriveWorkOrderStatusCode,
   findWorkOrderSignatureSlots,
   normalizeWorkOrderLine,
   normalizeWorkOrderPayloadV3Fields,
   resolveAssemblyEngineId,
   workOrderWithdrawnAt,
+  type AssemblyEngineWorkOrderRef,
   type WorkOrderAuditTrailItem,
   type WorkOrderPayload,
 } from '@matricarmz/shared';
@@ -708,6 +710,60 @@ export async function getActiveAssemblyVariant(
       return { ok: true as const, variantGroup: vg || null };
     }
     return { ok: true as const, variantGroup: null };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Сборочные наряды двигателя — вход гейта дублей: на один двигатель один действующий
+ * наряд на сборку. Скан идёт по реплике (наряд материализуется локально и уезжает
+ * синком), поэтому проверка живёт здесь, рядом с `getActiveAssemblyVariant`.
+ *
+ * `excludeId` — сам редактируемый наряд: при смене двигателя в шапке он не должен
+ * блокировать сам себя. Deferred-create наряды строки в БД ещё не имеют и в скан
+ * не попадают вовсе.
+ */
+export async function listAssemblyWorkOrdersForEngine(
+  db: BetterSQLite3Database,
+  args: { engineId: string; excludeId?: string },
+): Promise<{ ok: true; rows: AssemblyEngineWorkOrderRef[] } | { ok: false; error: string }> {
+  try {
+    const target = String(args.engineId ?? '').trim();
+    if (!target) return { ok: true as const, rows: [] };
+    const exclude = String(args.excludeId ?? '').trim();
+    const now = nowMs();
+    const rows = await db
+      .select()
+      .from(operations)
+      .where(and(eq(operations.operationType, WORK_ORDERS_OPERATION_TYPE), isNull(operations.deletedAt)))
+      .orderBy(desc(operations.updatedAt))
+      .limit(5000);
+
+    const out: AssemblyEngineWorkOrderRef[] = [];
+    for (const row of rows) {
+      const id = String(row.id);
+      if (exclude && id === exclude) continue;
+      const payload = parseWorkOrder(row.metaJson ? String(row.metaJson) : null);
+      if (!payload || payload.workOrderKind !== WorkOrderKind.Assembly) continue;
+      if (resolveAssemblyEngineId(payload) !== target) continue;
+      const operationStatus = String(row.status ?? 'open');
+      const statusCode = deriveWorkOrderStatusCode({
+        operationStatus,
+        dueDate: payload.dueDate ?? null,
+        completedAt: operationStatus === 'closed' ? Number(row.updatedAt ?? 0) : null,
+        completedDate: payload.completedDate ?? null,
+        withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),
+        now,
+      });
+      out.push({
+        id,
+        workOrderNumber: safeNum(payload.workOrderNumber, 0),
+        orderDate: safeNum(payload.orderDate, safeNum(row.createdAt, 0)),
+        statusCode,
+      });
+    }
+    return { ok: true as const, rows: out };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }

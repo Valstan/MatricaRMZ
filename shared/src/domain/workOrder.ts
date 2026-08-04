@@ -729,6 +729,79 @@ export function applyWorkOrderIssue(payload: WorkOrderPayload, args: { at: numbe
   return next;
 }
 
+/* -------------------------------------------------------------------------- *
+ * Гейт дублей сборочных нарядов: на один двигатель — один действующий наряд на
+ * сборку. Классификация и текст сообщения — pure, чтобы одинаково считали обе
+ * точки входа (ПКМ списка двигателей и пикер двигателя в шапке карточки).
+ * -------------------------------------------------------------------------- */
+
+/** Существующий сборочный наряд двигателя — вход гейта дублей. */
+export type AssemblyEngineWorkOrderRef = {
+  id: string;
+  workOrderNumber: number;
+  orderDate: number;
+  statusCode: WorkOrderStatusCode;
+};
+
+/**
+ * Наряд занимает двигатель, пока он в работе (выдан/просрочен). Выполненные и отозванные
+ * двигатель не держат: двигатель приходит в ремонт повторно, и блокировка по закрытому
+ * наряду прошлого года требовала бы обхода. Их показываем справкой, без запрета.
+ */
+export function isAssemblyWorkOrderBlocking(ref: AssemblyEngineWorkOrderRef): boolean {
+  return ref.statusCode === 'issued' || ref.statusCode === 'overdue';
+}
+
+function formatAssemblyRefDate(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(ms));
+}
+
+/** «№ 12 от 03.08.2026 (Выдан)» — как наряд называется в сообщении гейта. */
+export function formatAssemblyWorkOrderRef(ref: AssemblyEngineWorkOrderRef): string {
+  const number = ref.workOrderNumber > 0 ? `№ ${ref.workOrderNumber}` : 'без номера';
+  const date = formatAssemblyRefDate(ref.orderDate);
+  const status = WORK_ORDER_STATUS_LABELS[ref.statusCode] ?? '';
+  return `${number}${date ? ` от ${date}` : ''}${status ? ` (${status})` : ''}`;
+}
+
+/**
+ * Текст сообщения оператору: чем занят двигатель. `blocking: true` — создание запрещено,
+ * `false` — прежние наряды закрыты/отозваны, создание разрешено с предупреждением.
+ */
+export function buildAssemblyDuplicateMessage(args: {
+  engineLabel: string;
+  refs: AssemblyEngineWorkOrderRef[];
+}): { blocking: boolean; text: string } | null {
+  const refs = args.refs.filter((ref) => Boolean(ref?.id));
+  if (refs.length === 0) return null;
+  const blockingRefs = refs.filter(isAssemblyWorkOrderBlocking);
+  const shown = (blockingRefs.length > 0 ? blockingRefs : refs).map(formatAssemblyWorkOrderRef);
+  const engine = args.engineLabel.trim() || 'этот двигатель';
+  const list = shown.join('; ');
+  if (blockingRefs.length > 0) {
+    return {
+      blocking: true,
+      text:
+        shown.length === 1
+          ? `На двигатель ${engine} уже есть наряд на сборку ${list}. Повторный наряд на сборку не создаётся.`
+          : `На двигатель ${engine} уже есть наряды на сборку: ${list}. Повторный наряд на сборку не создаётся.`,
+    };
+  }
+  return {
+    blocking: false,
+    text:
+      shown.length === 1
+        ? `На двигатель ${engine} уже был наряд на сборку ${list}. Он закрыт — новый наряд создать можно.`
+        : `На двигатель ${engine} уже были наряды на сборку: ${list}. Все закрыты — новый наряд создать можно.`,
+  };
+}
+
 function clampFont(value: unknown, range: { min: number; max: number }): number | undefined {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return undefined;

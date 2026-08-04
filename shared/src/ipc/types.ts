@@ -1509,6 +1509,11 @@ export type MatricaApi = {
       | { ok: true; variantGroup: string | null }
       | { ok: false; error: string }
     >;
+    /** Гейт дублей: сборочные наряды двигателя, кроме `excludeId` (самого редактируемого). */
+    assemblyForEngine: (args: { engineId: string; excludeId?: string }) => Promise<
+      | { ok: true; rows: import('../domain/workOrder.js').AssemblyEngineWorkOrderRef[] }
+      | { ok: false; error: string }
+    >;
     create: () => Promise<{ ok: true; id: string; payload: WorkOrderPayload } | { ok: false; error: string }>;
     update: (args: { id: string; payload: WorkOrderPayload }) => Promise<{ ok: true; workOrderNumber: number } | { ok: false; error: string }>;
     /** Смена номера наряда — только суперадмин (обычный `update` номер не пускает). */

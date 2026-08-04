@@ -53,6 +53,7 @@ import {
   type PartInfo,
   type ServiceInfo,
 } from '../services/workOrderRefsCache.js';
+import { checkAssemblyDuplicate, formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
@@ -301,6 +302,8 @@ export function WorkOrderDetailsPage(props: {
   canChangeWorkOrderNumber?: boolean;
   onOpenPart?: (partId: string) => void;
   onOpenEngine?: (engineId: string) => void;
+  /** Открыть другой наряд — гейт дублей предлагает перейти в уже существующий сборочный. */
+  onOpenWorkOrder?: (workOrderId: string) => void;
   onOpenService?: (serviceId: string) => void;
   onOpenEmployee?: (employeeId: string) => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
@@ -2178,7 +2181,23 @@ export function WorkOrderDetailsPage(props: {
                 placeholder="Выберите двигатель сборки"
                 onChange={(next) => {
                   if (next) {
-                    void applyAssemblyPlan(payload, next);
+                    // Гейт дублей до применения BOM: двигатель, занятый действующим сборочным
+                    // нарядом, в шапку не встаёт. Отмена — просто выход: пикер контролируется
+                    // payload'ом и сам отщёлкивает на прежний двигатель.
+                    void (async () => {
+                      const gate = await checkAssemblyDuplicate({
+                        engineId: next,
+                        engineLabel: formatEngineGateLabel(engines.find((item) => item.id === next) ?? {}),
+                        excludeId: props.id,
+                        pickChoice,
+                      });
+                      if (gate.action === 'cancel') return;
+                      if (gate.action === 'open') {
+                        props.onOpenWorkOrder?.(gate.workOrderId);
+                        return;
+                      }
+                      await applyAssemblyPlan(payload, next);
+                    })();
                     return;
                   }
                   setAssemblyBomCandidates([]);
