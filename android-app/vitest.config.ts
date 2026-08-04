@@ -12,6 +12,8 @@ export default defineConfig({
     alias: {
       '@matricarmz/shared': resolve(here, '../shared/src/index.ts'),
     },
+    // Один экземпляр drizzle на программу — см. комментарий в tsconfig.json.
+    dedupe: ['drizzle-orm'],
   },
   test: {
     environment: 'node',

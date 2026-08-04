@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MatricaRMZ</string>
+    <string name="title_activity_main">MatricaRMZ</string>
+    <string name="package_name">ru.matricarmz.tablet</string>
+    <string name="custom_url_scheme">ru.matricarmz.tablet</string>
+</resources>
