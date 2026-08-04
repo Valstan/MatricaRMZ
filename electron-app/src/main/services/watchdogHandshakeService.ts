@@ -23,6 +23,14 @@ export type WatchdogHandshake = {
   updatesRootDir: string;
   updaterLogPath: string;
   appLogPath: string;
+  /**
+   * Настоящая папка рабочего стола (бывает перенесена на другой диск). Сторож
+   * проверяет по ней наличие ярлыка. Раньше он выяснял её сам — скрытым
+   * `powershell -Command [Environment]::GetFolderPath('Desktop')` раз в 15 минут,
+   * что для неподписанного бинаря по расписанию читается антивирусом как LOLBin.
+   * Электрон знает путь нативно, поэтому отдаём готовым (ADR-0002).
+   */
+  desktopDir: string;
   updatedAtMs: number;
 };
 
@@ -51,6 +59,7 @@ export async function writeWatchdogHandshake(args: {
     updatesRootDir: getUpdatesRootDir(),
     updaterLogPath: join(userDataDir, 'matricarmz-updater.log'),
     appLogPath: join(userDataDir, 'matricarmz.log'),
+    desktopDir: app.getPath('desktop'),
     updatedAtMs: Date.now(),
   };
   const target = handshakePath();

@@ -73,6 +73,7 @@ type handshake struct {
 	UpdatesRootDir string `json:"updatesRootDir"`
 	UpdaterLogPath string `json:"updaterLogPath"`
 	AppLogPath     string `json:"appLogPath"`
+	DesktopDir     string `json:"desktopDir"`
 	UpdatedAtMs    int64  `json:"updatedAtMs"`
 }
 
@@ -124,7 +125,7 @@ func main() {
 	forced, reqID := checkReinstallCommand(hs)
 	present := appPresent(hs)
 	running := processRunning()
-	shortcuts := shortcutsPresent()
+	shortcuts := shortcutsPresent(hs)
 
 	if present && !forced {
 		// Exe on disk, but a wiped install can leave the operator with no way to
@@ -134,7 +135,7 @@ func main() {
 		// respects "user deleted it") — see restoreShortcuts.
 		if !shortcuts && !running {
 			logf("app exe present but shortcuts missing and process not running — restoring shortcuts directly")
-			if restoreShortcuts(hs.AppExePath) {
+			if restoreShortcuts(hs) {
 				logf("shortcuts restored directly (no reinstall needed)")
 				report(hs, "recovered", "shortcuts restored directly (desktop + start menu)", 0)
 				return
@@ -191,7 +192,7 @@ func main() {
 	if appPresent(hs) {
 		logf("recovery succeeded (installer exit=%d)", exitCode)
 		// The installer skips shortcuts it considers user-deleted — top them up.
-		if !shortcutsPresent() && restoreShortcuts(hs.AppExePath) {
+		if !shortcutsPresent(hs) && restoreShortcuts(hs) {
 			logf("shortcuts topped up after reinstall")
 		}
 		writeState(state{}) // success resets the failure counter
@@ -272,6 +273,10 @@ func processRunning() bool {
 	}
 	defer syscall.CloseHandle(snap)
 	var entry syscall.ProcessEntry32
+	// Единственное место с unsafe во всём стороже: Windows требует, чтобы структура
+	// сама несла свой размер. Это compile-time Sizeof, без арифметики над указателями
+	// и без преобразований uintptr↔Pointer — ровно так это делает и golang.org/x/sys.
+	// nosemgrep: use-of-unsafe-block
 	entry.Size = uint32(unsafe.Sizeof(entry))
 	if err := syscall.Process32First(snap, &entry); err != nil {
 		return false
@@ -287,70 +292,30 @@ func processRunning() bool {
 	}
 }
 
-// folderIDDesktop is FOLDERID_Desktop ({B4BFCC3A-DB2C-424C-B029-7FE99A87C641}).
-var folderIDDesktop = syscall.GUID{
-	Data1: 0xB4BFCC3A,
-	Data2: 0xDB2C,
-	Data3: 0x424C,
-	Data4: [8]byte{0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41},
-}
-
-var (
-	shell32                  = syscall.NewLazyDLL("shell32.dll")
-	ole32                    = syscall.NewLazyDLL("ole32.dll")
-	procSHGetKnownFolderPath = shell32.NewProc("SHGetKnownFolderPath")
-	procCoTaskMemFree        = ole32.NewProc("CoTaskMemFree")
-)
-
 // resolveDesktopDir returns the user's actual Desktop folder. %USERPROFILE%\Desktop
-// is wrong on redirected desktops (e.g. moved to another drive) — ask the shell.
-// Live acceptance 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
+// is wrong on redirected desktops (e.g. moved to another drive) — live acceptance
+// 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
 //
-// SHGetKnownFolderPath directly instead of `powershell -Command
-// [Environment]::GetFolderPath('Desktop')`: a hidden powershell every 15 minutes
-// out of an unsigned GUI binary is the strongest heuristic left (AMSI / Script
-// Block Logging). Any failure falls back to the profile path, as before.
-func resolveDesktopDir() string {
-	fallback := filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
-	// Out-параметр держим как *uint16, а не uintptr: обратное преобразование
-	// uintptr → unsafe.Pointer для чтения строки — ровно то, на что ругается
-	// `go vet` (unsafeptr), да и сборщик вправе не считать uintptr ссылкой.
-	var buf *uint16
-	r, _, _ := procSHGetKnownFolderPath.Call(
-		uintptr(unsafe.Pointer(&folderIDDesktop)),
-		0, // no flags
-		0, // current user token
-		uintptr(unsafe.Pointer(&buf)),
-	)
-	if r != 0 || buf == nil {
-		return fallback
+// The path comes from the handshake: Electron resolves it natively and publishes it
+// (app.getPath('desktop')). Previously the watchdog asked `powershell -Command
+// [Environment]::GetFolderPath('Desktop')` on every pass — a hidden powershell every
+// 15 minutes out of an unsigned scheduled binary is the strongest heuristic left
+// (AMSI / Script Block Logging), see ADR-0002. Clients older than that release send
+// no desktopDir; the profile path is the fallback, exactly as before.
+func resolveDesktopDir(hs *handshake) string {
+	if hs != nil {
+		if p := strings.TrimSpace(hs.DesktopDir); p != "" {
+			return p
+		}
 	}
-	defer procCoTaskMemFree.Call(uintptr(unsafe.Pointer(buf)))
-	path := strings.TrimSpace(utf16PtrToString(buf))
-	if path == "" {
-		return fallback
-	}
-	return path
-}
-
-// utf16PtrToString reads a NUL-terminated UTF-16 string allocated by the shell.
-// Stdlib has UTF16ToString for slices only; this is the same walk x/sys does.
-func utf16PtrToString(p *uint16) string {
-	if p == nil {
-		return ""
-	}
-	n := 0
-	for ptr := unsafe.Pointer(p); *(*uint16)(ptr) != 0; ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(uint16(0))) {
-		n++
-	}
-	return syscall.UTF16ToString(unsafe.Slice(p, n))
+	return filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
 }
 
 // shortcutsPresent checks the per-user launch points the NSIS installer creates.
 // Either one is enough for the operator to start the app.
-func shortcutsPresent() bool {
+func shortcutsPresent(hs *handshake) bool {
 	candidates := []string{
-		filepath.Join(resolveDesktopDir(), "MatricaRMZ.lnk"),
+		filepath.Join(resolveDesktopDir(hs), "MatricaRMZ.lnk"),
 	}
 	if ad := os.Getenv("APPDATA"); ad != "" {
 		candidates = append(candidates, filepath.Join(ad, `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`))
@@ -375,13 +340,13 @@ func shortcutsPresent() bool {
 // into the app (Electron's native shell.writeShortcutLink) so the watchdog spawns no
 // script interpreter at all: an unsigned scheduled binary launching powershell is a
 // far stronger antivirus signal than launching the product's own exe.
-func restoreShortcuts(appExe string) bool {
-	cmd := hiddenCmd(appExe, "--restore-shortcuts")
+func restoreShortcuts(hs *handshake) bool {
+	cmd := hiddenCmd(hs.AppExePath, "--restore-shortcuts")
 	if err := cmd.Run(); err != nil {
 		logf("shortcut restore via client failed: %v", err)
 		return false
 	}
-	return shortcutsPresent()
+	return shortcutsPresent(hs)
 }
 
 // --- handshake -------------------------------------------------------------
