@@ -41,14 +41,20 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // hiddenCmd builds an exec.Cmd that never flashes a console window. The
-// watchdog binary itself is GUI-subsystem (-H=windowsgui), but console child
-// processes (tasklist, powershell) each pop a visible console for a moment —
-// operators saw it every 15-minute pass once the shortcut check landed.
-// CREATE_NO_WINDOW suppresses the console allocation entirely; HideWindow
-// covers GUI children (the NSIS installer) as belt-and-braces.
+// watchdog binary itself is GUI-subsystem (-H=windowsgui), but a console child
+// process pops a visible console for a moment — operators saw it every 15-minute
+// pass once the shortcut check landed. CREATE_NO_WINDOW suppresses the console
+// allocation entirely; HideWindow covers GUI children (the NSIS installer and the
+// client's headless --restore-shortcuts run) as belt-and-braces.
+//
+// Since 2026-08 the only children left are the product's own binaries — the
+// installer and the client. tasklist and powershell were replaced by native
+// calls: an unsigned scheduled binary spawning system tools reads as discovery
+// plus LOLBin usage to behavioural analysis.
 func hiddenCmd(name string, args ...string) *exec.Cmd {
 	cmd := exec.Command(name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -255,25 +261,89 @@ func backoffFor(failCount int) time.Duration {
 
 // processRunning reports whether the client process is currently running.
 // Diagnostics + a safety brake: the watchdog never reinstalls over a running app.
+//
+// Enumerated natively (CreateToolhelp32Snapshot) instead of shelling out to
+// tasklist: one less hidden child process per pass, and process discovery via an
+// external tool is itself a behavioural-analysis signal for an unsigned binary.
 func processRunning() bool {
-	out, err := hiddenCmd("tasklist", "/FI", "IMAGENAME eq MatricaRMZ.exe", "/NH", "/FO", "CSV").Output()
+	snap, err := syscall.CreateToolhelp32Snapshot(syscall.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), "MatricaRMZ.exe")
+	defer syscall.CloseHandle(snap)
+	var entry syscall.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	if err := syscall.Process32First(snap, &entry); err != nil {
+		return false
+	}
+	for {
+		name := syscall.UTF16ToString(entry.ExeFile[:])
+		if strings.EqualFold(name, "MatricaRMZ.exe") {
+			return true
+		}
+		if err := syscall.Process32Next(snap, &entry); err != nil {
+			return false
+		}
+	}
 }
+
+// folderIDDesktop is FOLDERID_Desktop ({B4BFCC3A-DB2C-424C-B029-7FE99A87C641}).
+var folderIDDesktop = syscall.GUID{
+	Data1: 0xB4BFCC3A,
+	Data2: 0xDB2C,
+	Data3: 0x424C,
+	Data4: [8]byte{0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41},
+}
+
+var (
+	shell32                  = syscall.NewLazyDLL("shell32.dll")
+	ole32                    = syscall.NewLazyDLL("ole32.dll")
+	procSHGetKnownFolderPath = shell32.NewProc("SHGetKnownFolderPath")
+	procCoTaskMemFree        = ole32.NewProc("CoTaskMemFree")
+)
 
 // resolveDesktopDir returns the user's actual Desktop folder. %USERPROFILE%\Desktop
 // is wrong on redirected desktops (e.g. moved to another drive) — ask the shell.
 // Live acceptance 2026-07-25 on rmz4val: Desktop lives on D:\Desktop.
+//
+// SHGetKnownFolderPath directly instead of `powershell -Command
+// [Environment]::GetFolderPath('Desktop')`: a hidden powershell every 15 minutes
+// out of an unsigned GUI binary is the strongest heuristic left (AMSI / Script
+// Block Logging). Any failure falls back to the profile path, as before.
 func resolveDesktopDir() string {
-	out, err := hiddenCmd("powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')").Output()
-	if err == nil {
-		if p := strings.TrimSpace(string(out)); p != "" {
-			return p
-		}
+	fallback := filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
+	// Out-параметр держим как *uint16, а не uintptr: обратное преобразование
+	// uintptr → unsafe.Pointer для чтения строки — ровно то, на что ругается
+	// `go vet` (unsafeptr), да и сборщик вправе не считать uintptr ссылкой.
+	var buf *uint16
+	r, _, _ := procSHGetKnownFolderPath.Call(
+		uintptr(unsafe.Pointer(&folderIDDesktop)),
+		0, // no flags
+		0, // current user token
+		uintptr(unsafe.Pointer(&buf)),
+	)
+	if r != 0 || buf == nil {
+		return fallback
 	}
-	return filepath.Join(os.Getenv("USERPROFILE"), "Desktop")
+	defer procCoTaskMemFree.Call(uintptr(unsafe.Pointer(buf)))
+	path := strings.TrimSpace(utf16PtrToString(buf))
+	if path == "" {
+		return fallback
+	}
+	return path
+}
+
+// utf16PtrToString reads a NUL-terminated UTF-16 string allocated by the shell.
+// Stdlib has UTF16ToString for slices only; this is the same walk x/sys does.
+func utf16PtrToString(p *uint16) string {
+	if p == nil {
+		return ""
+	}
+	n := 0
+	for ptr := unsafe.Pointer(p); *(*uint16)(ptr) != 0; ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(uint16(0))) {
+		n++
+	}
+	return syscall.UTF16ToString(unsafe.Slice(p, n))
 }
 
 // shortcutsPresent checks the per-user launch points the NSIS installer creates.
@@ -293,27 +363,22 @@ func shortcutsPresent() bool {
 	return false
 }
 
-// restoreShortcuts recreates both .lnk files directly via WScript.Shell.
-// A silent NSIS reinstall does NOT bring deleted shortcuts back — electron-builder's
-// one-click updater treats a missing shortcut as "user deleted it on purpose" and
-// respects that (found on live acceptance 2026-07-25: reinstall exit=0, shortcuts
-// still gone → the old logic would reinstall 136 MB every 15 minutes forever).
-// Direct creation is also far cheaper than a reinstall.
+// restoreShortcuts asks the client itself to recreate both .lnk files:
+// `MatricaRMZ.exe --restore-shortcuts` runs headless (no window, no single-instance
+// lock) and exits. A silent NSIS reinstall does NOT bring deleted shortcuts back —
+// electron-builder's one-click updater treats a missing shortcut as "user deleted it
+// on purpose" and respects that (live acceptance 2026-07-25: reinstall exit=0,
+// shortcuts still gone → the old logic would reinstall 136 MB every 15 minutes
+// forever). Direct creation is also far cheaper than a reinstall.
+//
+// The .lnk used to be written here through `powershell` + COM WScript.Shell. Moved
+// into the app (Electron's native shell.writeShortcutLink) so the watchdog spawns no
+// script interpreter at all: an unsigned scheduled binary launching powershell is a
+// far stronger antivirus signal than launching the product's own exe.
 func restoreShortcuts(appExe string) bool {
-	desktop := filepath.Join(resolveDesktopDir(), "MatricaRMZ.lnk")
-	startMenu := filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Start Menu\Programs\MatricaRMZ.lnk`)
-	script := fmt.Sprintf(
-		`$ws = New-Object -ComObject WScript.Shell
-foreach ($p in @('%s','%s')) {
-  $lnk = $ws.CreateShortcut($p)
-  $lnk.TargetPath = '%s'
-  $lnk.WorkingDirectory = '%s'
-  $lnk.Save()
-}`,
-		desktop, startMenu, appExe, filepath.Dir(appExe),
-	)
-	if err := hiddenCmd("powershell", "-NoProfile", "-Command", script).Run(); err != nil {
-		logf("direct shortcut restore failed: %v", err)
+	cmd := hiddenCmd(appExe, "--restore-shortcuts")
+	if err := cmd.Run(); err != nil {
+		logf("shortcut restore via client failed: %v", err)
 		return false
 	}
 	return shortcutsPresent()
@@ -486,7 +551,17 @@ func downloadInstaller(hs *handshake) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download HTTP %d", resp.StatusCode)
 	}
-	dst := filepath.Join(os.TempDir(), fmt.Sprintf("matricarmz-watchdog-%s.exe", meta.Version))
+	// В общий кэш обновлений, а не в %TEMP%: транзитный .exe там выпадает из
+	// единственного исключения антивируса, ради которого весь исполняемый контур
+	// сведён под один корень. UpdatesRootDir приходит в handshake от клиента.
+	dstDir := strings.TrimSpace(hs.UpdatesRootDir)
+	if dstDir == "" {
+		dstDir = os.TempDir()
+	} else if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		logf("updates dir %s unusable (%v) — falling back to temp", dstDir, err)
+		dstDir = os.TempDir()
+	}
+	dst := filepath.Join(dstDir, fmt.Sprintf("matricarmz-watchdog-%s.exe", meta.Version))
 	out, err := os.Create(dst)
 	if err != nil {
 		return "", err

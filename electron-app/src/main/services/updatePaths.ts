@@ -25,10 +25,19 @@ export function getUpdatesRootDir() {
     return configuredRoot;
   }
   if (cachedDefaultRoot) return cachedDefaultRoot;
-  const preferred = join(app.getPath('downloads'), 'MatricaRMZ-Updates');
-  if (ensureDir(preferred)) {
-    cachedDefaultRoot = preferred;
-    return cachedDefaultRoot;
+  // Кэш обновлений — сиблинг каталога установки под "$LOCALAPPDATA\Programs", а не
+  // «Загрузки» (дефолт до 2026-08). Причина не в удобстве: постоянный 136-МБ .exe с
+  // предсказуемым именем в самой сканируемой папке Windows читается эвристикой как
+  // дроппер, а держать ВСЕ исполняемые продукта под одним родителем — единственный
+  // способ накрыть их одним исключением антивируса (плана А, разбор 2026-08-04).
+  // Electron не отдаёт localAppData через getPath — берём из env, с прежним фолбэком.
+  const localAppData = process.platform === 'win32' ? String(process.env.LOCALAPPDATA ?? '').trim() : '';
+  if (localAppData) {
+    const preferred = join(localAppData, 'Programs', 'MatricaRMZ-Updates');
+    if (ensureDir(preferred)) {
+      cachedDefaultRoot = preferred;
+      return cachedDefaultRoot;
+    }
   }
   const fallback = join(app.getPath('userData'), 'MatricaRMZ-Updates');
   ensureDir(fallback);

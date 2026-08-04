@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
@@ -254,6 +254,41 @@ function getArgValue(argv: string[], key: string) {
   return argv[idx + 1] ?? null;
 }
 
+/**
+ * Восстановление ярлыков без окна: `MatricaRMZ.exe --restore-shortcuts`.
+ *
+ * Раньше это делал сторож — скрытым `powershell -Command` с COM `WScript.Shell`
+ * раз в 15 минут. Неподписанный агент, поднимающий powershell по расписанию, —
+ * сильнейшая из оставшихся поведенческих эвристик (AMSI / Script Block Logging),
+ * поэтому создание .lnk переехало сюда, на нативный `shell.writeShortcutLink`.
+ * Тихая переустановка ярлыки не возвращает: one-click-апдейтер electron-builder
+ * считает удалённый ярлык осознанным выбором оператора (живая приёмка 25.07).
+ */
+function restoreShortcutsHeadless(): boolean {
+  if (process.platform !== 'win32') return false;
+  const exe = process.execPath;
+  const targets = [
+    join(app.getPath('desktop'), 'MatricaRMZ.lnk'),
+    join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'MatricaRMZ.lnk'),
+  ];
+  let ok = false;
+  for (const shortcutPath of targets) {
+    try {
+      // create-if-absent, replace-if-present: 'create' падает на существующем.
+      const written = shell.writeShortcutLink(shortcutPath, 'replace', {
+        target: exe,
+        cwd: dirname(exe),
+        appUserModelId: 'ru.matricarmz.app',
+      });
+      if (written) ok = true;
+      else logToFile(`restore-shortcuts: writeShortcutLink returned false for ${shortcutPath}`);
+    } catch (e) {
+      logToFile(`restore-shortcuts: ${shortcutPath} failed: ${String(e)}`);
+    }
+  }
+  return ok;
+}
+
 function getUpdateHelperArgs(argv: string[]) {
   if (!argv.includes('--update-helper')) return null;
   const installerPath = getArgValue(argv, '--installer');
@@ -266,6 +301,16 @@ function getUpdateHelperArgs(argv: string[]) {
 }
 
 app.whenReady().then(() => {
+  // Режим сторожа: чинит ярлыки и сразу выходит. Стоит ДО сетевого бутстрапа и
+  // до single-instance-lock — окно не создаётся, синк не поднимается, работающему
+  // клиенту этот запуск не мешает.
+  if (process.argv.includes('--restore-shortcuts')) {
+    const ok = restoreShortcutsHeadless();
+    logToFile(`restore-shortcuts headless run: ${ok ? 'ok' : 'failed'}`);
+    app.exit(ok ? 0 : 1);
+    return;
+  }
+
   // Логи Chromium/Electron в stderr (в Windows можно потом смотреть через event viewer / debug tools).
   app.commandLine.appendSwitch('enable-logging');
   app.commandLine.appendSwitch('v', '1');
