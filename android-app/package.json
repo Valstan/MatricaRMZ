@@ -12,6 +12,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "buffer": "^6.0.3",
     "drizzle-orm": "^0.45.2",
     "react": "^18.3.1",
@@ -19,6 +22,7 @@
     "@matricarmz/shared": "workspace:*"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@types/better-sqlite3": "^7.6.13",
     "@vitejs/plugin-react": "^4.3.4",
     "better-sqlite3": "12.11.1",

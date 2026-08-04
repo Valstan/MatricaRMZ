@@ -2,7 +2,20 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client"],
+    "baseUrl": ".",
+    // Пакет компилирует и исходники electron-app, а под pnpm у них свой
+    // физический экземпляр drizzle-orm: набор peer'ов расходится — в графе
+    // android-app есть sql.js (приезжает с jeep-sqlite внутри плагина SQLite),
+    // и pnpm разводит drizzle на две копии. Одинаковые типы из разных копий
+    // несовместимы по приватным полям («separate declarations of a private
+    // property 'resultKind'»), поэтому программу собираем на одной.
+    // Рантайм-двойника не даёт resolve.dedupe в vite.config.ts / vitest.config.ts.
+    "paths": {
+      "drizzle-orm": ["./node_modules/drizzle-orm"],
+      "drizzle-orm/*": ["./node_modules/drizzle-orm/*"],
+      "@renderer/*": ["../electron-app/src/renderer/src/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.config.ts"]
 }

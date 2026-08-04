@@ -42,6 +42,11 @@ export const app = {
   relaunch(): void {
     getAndroidPlatformHooks().relaunch();
   },
+  // Реального каталога у WebView нет: путь — только ключ для шима
+  // node:fs/promises (см. его шапку), а не место на диске.
+  getPath(name: string): string {
+    return `/android/${name}`;
+  },
   exit(_code?: number): void {
     // На Android процесс не завершаем — relaunch-хук решает сам.
   },

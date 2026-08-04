@@ -117,3 +117,7 @@ const matrica = {
 });
 
 console.info('[matrica-shim] F0 spike bridge installed');
+
+// Модуль подключается динамически (src/main.tsx выбирает мост по платформе) —
+// без экспорта TypeScript не считает файл модулем.
+export {};
