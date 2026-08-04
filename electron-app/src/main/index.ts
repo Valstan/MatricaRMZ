@@ -356,7 +356,11 @@ app.whenReady().then(() => {
   // клиент, а не установщик: установщик запущен ИЗ этого каталога и удалить свой
   // же образ не может. Здесь — после single-instance-lock, установщик уже завершён.
   void import('./services/updatePaths.js')
-    .then(({ sweepLegacyDownloadsCache }) => sweepLegacyDownloadsCache((line) => logToFile(line)))
+    .then(({ sweepLegacyDownloadsCache, sweepLegacyInstallDir }) => {
+      sweepLegacyDownloadsCache((line) => logToFile(line));
+      // Тем же порядком — прежний каталог установки `Programs\@matricarmzelectron-app`.
+      sweepLegacyInstallDir((line) => logToFile(line));
+    })
     .catch((e) => logToFile(`legacy updates cache sweep failed: ${String(e)}`));
 
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).

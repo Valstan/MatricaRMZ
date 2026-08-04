@@ -86,18 +86,19 @@ killDoneUninstall:
 !macroend
 
 !macro CleanupMatricaFiles
-  ; Historical/mistaken install folders only. NOTE: the REAL per-user install dir is
-  ; "$LOCALAPPDATA\Programs\@matricarmzelectron-app" (electron-builder derives it from
-  ; the sanitized package.json `name`, not productName) — it is intentionally NOT wiped
-  ; here: electron-builder's own one-click installer manages replacing it. The paths
-  ; below never exist on current installs; kept as best-effort cleanup of legacy layouts.
+  ; Historical/mistaken layouts only — never the CURRENT install dir.
+  ;
+  ; ⚠️ Здесь раньше стояло `RMDir /r "$LOCALAPPDATA\Programs\MatricaRMZ"` как чистка
+  ; «ошибочной» папки, которой на реальных установках не бывает. С переездом каталога
+  ; установки (см. preInit) это ровно тот путь, куда ставится клиент, а CleanupMatricaFiles
+  ; вызывается из customInit — то есть строка снесла бы установку на каждом обновлении.
+  ; Прежний каталог "@matricarmzelectron-app" отсюда тоже не трогаем: его штатно удаляет
+  ; старый деинсталлятор, а хвост подбирает клиент (sweepLegacyInstallDir) — установщик
+  ; в этот момент может быть запущен из процесса, который ещё держит те файлы.
   ;
   ; No $PROGRAMFILES* entries here on purpose: a recursive delete aimed at a protected
   ; system folder from a non-elevated installer is logged as suspicious by Kaspersky and
   ; Defender even when it fails, and those folders never existed on real installs.
-  ; RMDir removes exactly the named directory — the siblings "MatricaRMZ-Watchdog" and
-  ; "MatricaRMZ-Updates" under the same parent are NOT matched by the line below.
-  RMDir /r "$LOCALAPPDATA\Programs\MatricaRMZ"
 
   ; Update caches. The current default cache is "$LOCALAPPDATA\Programs\MatricaRMZ-Updates"
   ; and MUST NOT be listed here: the installer is normally launched FROM it, and wiping it
@@ -117,6 +118,27 @@ killDoneUninstall:
   Delete "$APPDATA\MatricaRMZ\matricarmz-watchdog.exe"
 !macroend
 
+; --- Каталог установки ------------------------------------------------------
+; electron-builder при `oneClick` + `perMachine: false` берёт имя папки из `name`
+; пакета, а не из productName: getWindowsInstallationDirName(appInfo, !oneClick ||
+; isPerMachine) получает false и уходит на appInfo.sanitizedName — отсюда и брался
+; "@matricarmzelectron-app". Переименовать `name` нельзя: он же задаёт userData
+; ("$APPDATA\@matricarmz\electron-app"), где лежат локальная SQLite-реплика, ключ БД
+; и ledger-ключ клиента — смена имени увела бы каждую машину парка на пустой каталог
+; с полным ре-sync и потерей ledger-ключа.
+;
+; Поэтому путь задаётся здесь, через реестр: setInstallModePerUser читает
+; InstallLocation ПЕРВЫМ и вычисляет дефолт, только если значения нет. preInit
+; выполняется раньше check64BitAndSetRegView, поэтому вид реестра выставляем сами
+; (сборка x64 → SetRegView 64, как это потом делает и сам установщик).
+!macro preInit
+  !ifndef BUILD_UNINSTALLER
+    SetShellVarContext current
+    SetRegView 64
+    WriteRegExpandStr HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation "$LOCALAPPDATA\Programs\MatricaRMZ"
+  !endif
+!macroend
+
 !macro customInit
   !insertmacro KillClientProcesses
   DetailPrint "Режим установки: Автоматическая переустановка"
@@ -129,10 +151,9 @@ killDoneUninstall:
 
 ; --- Watchdog (external recovery agent) ------------------------------------
 ; The watchdog is a tiny external Go binary launched by a per-user Scheduled
-; Task. It must live OUTSIDE the install dir ("$LOCALAPPDATA\Programs\
-; @matricarmzelectron-app") — the one-click installer replaces that dir on every
-; update, and the watchdog's whole purpose is to recover when that replacement
-; is left half-done.
+; Task. It must live OUTSIDE the install dir ("$LOCALAPPDATA\Programs\MatricaRMZ")
+; — the one-click installer replaces that dir on every update, and the watchdog's
+; whole purpose is to recover when that replacement is left half-done.
 ;
 ; It lives in a SIBLING folder under "$LOCALAPPDATA\Programs" rather than in
 ; "$APPDATA\MatricaRMZ" (its pre-2026-08 home): running an unsigned exe out of

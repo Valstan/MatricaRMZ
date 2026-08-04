@@ -1,6 +1,20 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve, isAbsolute } from 'node:path';
+
+/**
+ * Каталог установки до 2026-08: electron-builder при `oneClick` + `perMachine: false`
+ * берёт имя папки из `name` пакета (`@matricarmz/electron-app`), а не из `productName` —
+ * см. getWindowsInstallationDirName(appInfo, !oneClick || isPerMachine) в app-builder-lib.
+ * Новый путь задаётся installer.nsh через реестр; сюда клиент приходит подчистить прежний.
+ */
+export const LEGACY_INSTALL_DIR_NAME = '@matricarmzelectron-app';
+
+/** Лежит ли `target` внутри `dir` (или это он сам). Без обращения к ФС. */
+export function isPathInsideDir(dir: string, target: string): boolean {
+  const rel = relative(resolve(dir), resolve(target));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
 
 let cachedDefaultRoot: string | null = null;
 let configuredRoot: string | null = null;
@@ -75,5 +89,32 @@ export function sweepLegacyDownloadsCache(onLog?: (line: string) => void): void 
   } catch (e) {
     // Не критично: каталог подберётся при следующем запуске либо руками.
     onLog?.(`legacy updates cache cleanup failed: ${String(e)}`);
+  }
+}
+
+/**
+ * Разовая подчистка прежнего каталога установки (`Programs\@matricarmzelectron-app`).
+ *
+ * Делает это клиент, а не установщик, по той же причине, что и с кэшем обновлений: на
+ * момент установки старый каталог ещё может держать запущенный процесс, а к первому
+ * старту нового клиента он свободен. Плюс страховка: если клиент почему-то запущен
+ * ИЗ старого каталога (переезд не состоялся), каталог не трогаем — иначе снесли бы
+ * образ работающего процесса.
+ */
+export function sweepLegacyInstallDir(onLog?: (line: string) => void): void {
+  if (process.platform !== 'win32') return;
+  const localAppData = String(process.env.LOCALAPPDATA ?? '').trim();
+  if (!localAppData) return;
+  const legacy = join(localAppData, 'Programs', LEGACY_INSTALL_DIR_NAME);
+  try {
+    if (!existsSync(legacy)) return;
+    if (isPathInsideDir(legacy, process.execPath)) {
+      onLog?.(`legacy install dir kept (running from it): ${legacy}`);
+      return;
+    }
+    rmSync(legacy, { recursive: true, force: true });
+    onLog?.(`legacy install dir removed: ${legacy}`);
+  } catch (e) {
+    onLog?.(`legacy install dir cleanup failed: ${String(e)}`);
   }
 }
