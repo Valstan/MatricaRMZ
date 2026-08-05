@@ -239,3 +239,49 @@ describe('drizzle поверх адаптера', () => {
     expect(a).toEqual([{ id: 'e2', syncStatus: 'pending' }]);
   });
 });
+
+describe('маршрутизация exec (Android-ограничение плагина)', () => {
+  it('PRAGMA идёт через query, DDL/транзакции — через execute', async () => {
+    const calls: Array<{ via: string; sql: string }> = [];
+    const raw = new Database(':memory:');
+    const conn: CapacitorDbConnection = {
+      async execute(statements: string) {
+        calls.push({ via: 'execute', sql: statements });
+        raw.exec(statements);
+        return {};
+      },
+      async run(statement: string, values: unknown[] = []) {
+        const info = raw.prepare(statement).run(...(values as never[]));
+        return { changes: { changes: info.changes } };
+      },
+      async query(statement: string) {
+        calls.push({ via: 'query', sql: statement });
+        const stmt = raw.prepare(statement);
+        if (!stmt.reader) {
+          stmt.run();
+          return { values: [] };
+        }
+        const rows = stmt.all() as Array<Record<string, unknown>>;
+        return { values: rows };
+      },
+      async close() {
+        raw.close();
+      },
+    };
+    const db = createCapacitorAsyncSqlite(conn);
+
+    await db.exec('PRAGMA journal_mode = WAL;');
+    await db.exec('BEGIN IMMEDIATE');
+    await db.exec('COMMIT');
+    await db.exec(`PRAGMA foreign_keys=OFF; CREATE TABLE tmp (x integer); PRAGMA foreign_keys=ON;`);
+
+    expect(calls).toEqual([
+      { via: 'query', sql: 'PRAGMA journal_mode = WAL;' },
+      { via: 'execute', sql: 'BEGIN IMMEDIATE' },
+      { via: 'execute', sql: 'COMMIT' },
+      // Multi-statement PRAGMA-скрипт query() не переварит — остаётся на execute()
+      // (в проде таких нет, это только паритет с better-sqlite3-стендом).
+      { via: 'execute', sql: `PRAGMA foreign_keys=OFF; CREATE TABLE tmp (x integer); PRAGMA foreign_keys=ON;` },
+    ]);
+  });
+});
