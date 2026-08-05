@@ -264,7 +264,9 @@ export function RepairFundAuditPage(props: {
       </div>
 
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {/* mx-page-toolbar — планшетный режим убирает заголовок с поиском при прокрутке.
+            Ряд с «Провести ревизию» выше НЕ помечен: действие оператора не прячем. */}
+        <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ fontWeight: 700 }}>Детали в фонде</div>
           <Input
             value={query}
@@ -302,7 +304,7 @@ export function RepairFundAuditPage(props: {
             </table>
           </div>
         </div>
-        <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {visibleRows.length}</div>
+        <div className="mx-page-footer" style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {visibleRows.length}</div>
       </div>
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

@@ -9,6 +9,8 @@ import './ui/global.css';
 import { App } from './ui/App.js';
 import { ConfirmProvider } from './ui/components/ConfirmContext.js';
 import { GlobalSearchScopeProvider } from './ui/context/globalSearchScope.js';
+import { ChromeHandleRail } from './ui/shell/ChromeHandleRail.js';
+import { ChromeVisibilityProvider } from './ui/shell/ChromeVisibilityContext.js';
 import { startActivityTracker } from './ui/utils/activityTracker.js';
 
 if (!('workOrderId' in globalThis)) {
@@ -52,7 +54,12 @@ if (!root) {
     <React.StrictMode>
       <ConfirmProvider>
         <GlobalSearchScopeProvider>
-          <App />
+          {/* Планшетный режим «данные на весь экран»: на десктопе провайдер не вешает
+              ни одного слушателя, а рейл не рендерится вовсе. */}
+          <ChromeVisibilityProvider>
+            <App />
+            <ChromeHandleRail />
+          </ChromeVisibilityProvider>
         </GlobalSearchScopeProvider>
       </ConfirmProvider>
     </React.StrictMode>,

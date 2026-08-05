@@ -265,7 +265,8 @@ export function StockDocumentsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 8, alignItems: 'center', gridTemplateColumns: 'minmax(220px, 0.9fr) minmax(220px, 0.9fr) minmax(220px, 1fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto auto auto' }}>
+      {/* mx-page-toolbar — планшетный режим убирает фильтры при прокрутке списка. */}
+      <div className="mx-page-toolbar" style={{ display: 'grid', gap: 8, alignItems: 'center', gridTemplateColumns: 'minmax(220px, 0.9fr) minmax(220px, 0.9fr) minmax(220px, 1fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto auto auto' }}>
         <select value={docType} onChange={(e) => setDocType((e.target.value || '') as WarehouseDocumentType | '')} style={{ minWidth: 220, padding: '8px 10px' }}>
           {WAREHOUSE_DOC_TYPE_OPTIONS.map((item) => (
             <option key={item.id || 'all'} value={item.id}>
@@ -350,7 +351,7 @@ export function StockDocumentsPage(props: {
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {displayRows.length}</div>
+      <div className="mx-page-footer" style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {displayRows.length}</div>
       <Stock1cImportDialog
         open={import1cOpen}
         onClose={() => setImport1cOpen(false)}

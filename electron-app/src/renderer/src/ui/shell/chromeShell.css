@@ -1,0 +1,180 @@
+/* Режим «данные на весь экран» (Android-планшет).
+   КАЖДОЕ правило начинается с :root[data-mx-chrome='on'] — атрибут ставит только
+   ChromeVisibilityProvider на Android. В Electron новые классы остаются классами без
+   единого правила, поэтому файл безопасно грузится общим бандлом renderer. */
+
+:root[data-mx-chrome='on'] {
+  /* Хэндлы стоят с отступом от физического края: полосу у боковых краёв держит
+     системный жест «назад» Android, отобрать её из JS нельзя. */
+  --mx-rail-inset: 12px;
+  --mx-rail-bg: rgba(11, 45, 99, 0.82);
+}
+
+/* ── Скрытие слоёв ─────────────────────────────────────────────────────────────
+   display:none, а не transform: место обязано ДОСТАТЬСЯ данным. Возврат виден как
+   короткий наезд сверху (animation перезапускается при возврате из display:none и
+   сама снимает transform в конце — containing block для fixed-потомков не остаётся).
+   `!important` обязателен: почти весь хром renderer размечен ИНЛАЙНОВЫМИ стилями
+   (display:flex прямо на узле), а инлайн сильнее любого селектора без !important. */
+
+:root[data-mx-chrome='on'][data-mx-chrome-hidden~='appHeader'] .mx-chrome-slot--header {
+  display: none !important;
+}
+
+:root[data-mx-chrome='on'][data-mx-chrome-hidden~='tabStrip'] .v3-tab-strip {
+  display: none !important;
+}
+
+:root[data-mx-chrome='on'][data-mx-chrome-hidden~='pageToolbar'] .mx-page-toolbar {
+  display: none !important;
+}
+
+:root[data-mx-chrome='on'][data-mx-chrome-hidden~='pageFooter'] .mx-page-footer {
+  display: none !important;
+}
+
+/* Заголовок карточки — да; панель действий карточки (CardActionBar с «Сохранить»,
+   «Закрыть») сюда НЕ входит и не скрывается ничем: это не хром, а работа оператора. */
+:root[data-mx-chrome='on'][data-mx-chrome-hidden~='cardHeader'] .entity-card-shell > .ui-section-header {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-mx-chrome='on'] .mx-chrome-slot--header,
+  :root[data-mx-chrome='on'] .v3-tab-strip,
+  :root[data-mx-chrome='on'] .mx-page-toolbar {
+    animation: mx-chrome-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes mx-chrome-in {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ── Выдвижная панель (разделы) ────────────────────────────────────────────────
+   Следует за пальцем через --mx-drawer-progress, который пишется в style САМОЙ
+   панели (запись в :root.style будит глобальные MutationObserver'ы renderer). */
+
+:root[data-mx-chrome='on'] .mx-drawer--left {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(320px, 78vw);
+  z-index: 700;
+  background: var(--surface, #fff);
+  border-right: 1px solid var(--border, #d1d5db);
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.28);
+  transform: translateX(calc((var(--mx-drawer-progress, 0) - 1) * 100%));
+  will-change: transform;
+}
+
+/* Доводка появляется только со второго кадра: иначе панель на старте приложения
+   поехала бы из «открыто» (начальное значение transform) в «закрыто» — при запуске
+   оператор видел бы, как разделы уезжают с экрана. Атрибут ставит ChromeDrawer. */
+:root[data-mx-chrome='on'] .mx-drawer--left[data-mx-ready] {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:root[data-mx-chrome='on'] .mx-drawer--left[data-mx-open='1'] {
+  --mx-drawer-progress: 1;
+}
+
+/* Доводка окончена — transform снимается совсем: с ним панель становится containing
+   block'ом для position:fixed внутри (контекст-меню разделов) и меню клипается
+   прокруткой панели. Ставит/снимает ChromeDrawer по transitionend. */
+:root[data-mx-chrome='on'] .mx-drawer--left[data-mx-settled='1']:not([data-mx-dragging]) {
+  transform: none;
+}
+
+:root[data-mx-chrome='on'] .mx-drawer--left[data-mx-dragging] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-mx-chrome='on'] .mx-drawer--left[data-mx-ready] {
+    transition: none;
+  }
+}
+
+/* Панель разделов внутри drawer'а: тач прокручивает её, а не тащит кнопки (dnd-kit
+   на Android отключён — иначе список не скроллится пальцем). */
+:root[data-mx-chrome='on'] .mx-drawer--left .v2-menu-row {
+  touch-action: pan-y;
+}
+
+:root[data-mx-chrome='on'] .mx-drawer--left .v2-context-menu {
+  z-index: 760;
+}
+
+/* ── Рейл ──────────────────────────────────────────────────────────────────────
+   Обёртка сквозная для касаний, «ловят» только сами хэндлы. */
+
+:root[data-mx-chrome='on'] .mx-chrome-rail {
+  position: fixed;
+  inset: 0;
+  z-index: 710;
+  pointer-events: none;
+}
+
+:root[data-mx-chrome='on'] .mx-rail-handle {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: var(--mx-rail-bg);
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.38;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+:root[data-mx-chrome='on'] .mx-rail-handle:active {
+  opacity: 1;
+}
+
+:root[data-mx-chrome='on'] .mx-rail-top {
+  top: 0;
+  left: 50%;
+  margin-left: -28px;
+  width: 56px;
+  height: 26px;
+  border-radius: 0 0 10px 10px;
+}
+
+:root[data-mx-chrome='on'] .mx-rail-left {
+  left: var(--mx-rail-inset);
+  top: 42%;
+  width: 44px;
+  height: 96px;
+  border-radius: 0 14px 14px 0;
+}
+
+:root[data-mx-chrome='on'] .mx-rail-search {
+  left: var(--mx-rail-inset);
+  top: calc(42% + 108px);
+  width: 44px;
+  height: 44px;
+  border-radius: 0 14px 14px 0;
+}
+
+:root[data-mx-chrome='on'] .mx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 690;
+  background: rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+}

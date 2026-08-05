@@ -32,6 +32,47 @@ function stubGroup(group: string, impl: Record<string, unknown>): Record<string,
 
 const SPIKE_VERSION = '0.0.1-android-spike';
 
+// `?spikeLogin=1` — фиктивный вход ТОЛЬКО в браузерном спайке (на устройстве работает
+// настоящий мост, этот файл туда не подключается). Нужен, чтобы смотреть и править
+// планшетную раскладку оболочки без планшета: до входа оболочки v3 нет вовсе, а
+// именно она и её панели — предмет планшетных правок. Данных не будет (все прочие
+// методы возвращают пустое), но раскладка, жесты и скрытие панелей проверяются.
+const spikeLogin = (() => {
+  try {
+    return new URLSearchParams(window.location.search).has('spikeLogin');
+  } catch {
+    return false;
+  }
+})();
+
+// Полный набор ключей, которые читает deriveUiCaps: без них меню пустое и смотреть
+// планшетную раскладку не на чем.
+const SPIKE_PERMISSIONS = Object.fromEntries(
+  [
+    'admin.users.manage', 'contracts.edit', 'employees.create', 'employees.view',
+    'engines.disassemble_confirm', 'engines.edit', 'engines.view', 'files.upload', 'files.view',
+    'masterdata.edit', 'masterdata.view', 'movements.revert', 'operations.edit', 'operations.view',
+    'parts.create', 'parts.delete', 'parts.edit', 'parts.view',
+    'reports.export', 'reports.print', 'reports.view',
+    'supply_requests.accept', 'supply_requests.create', 'supply_requests.director_approve',
+    'supply_requests.edit', 'supply_requests.fulfill', 'supply_requests.print',
+    'supply_requests.sign', 'supply_requests.view', 'sync.use',
+    'timesheet.edit', 'timesheet.print', 'timesheet.view', 'updates.use',
+    'warehouse.assembly_return', 'warehouse_locations.manage', 'warehouse_locations.view',
+    'work_order_templates.edit', 'work_orders.assembly_shortage_approve', 'work_orders.close',
+    'work_orders.create', 'work_orders.edit', 'work_orders.print', 'work_orders.revert',
+    'work_orders.view', 'workshop_repair_templates.edit', 'workshops.manage',
+  ].map((k) => [k, true]),
+);
+
+const SPIKE_AUTH = spikeLogin
+  ? {
+      loggedIn: true,
+      user: { id: 'spike-user', username: 'spike', role: 'superadmin', fullName: 'Спайк' },
+      permissions: SPIKE_PERMISSIONS,
+    }
+  : { loggedIn: false, user: null, permissions: null };
+
 const matrica = {
   ping: async () => 'pong',
   log: stubGroup('log', {
@@ -52,8 +93,8 @@ const matrica = {
     },
   }),
   auth: stubGroup('auth', {
-    status: async () => ({ loggedIn: false, user: null, permissions: null }),
-    sync: async () => ({ loggedIn: false, user: null, permissions: null }),
+    status: async () => SPIKE_AUTH,
+    sync: async () => SPIKE_AUTH,
     loginMru: async () => ({ ok: true, logins: [] }),
     loginSuggest: async (_args: { q: string }) => ({ ok: true, rows: [] }),
     login: async (_args: { username: string; password: string }) => ({
@@ -92,7 +133,10 @@ const matrica = {
     health: async () => ({ ok: false, error: 'спайк: без сети' }),
   }),
   access: stubGroup('access', {
-    sectionsSelf: async () => ({ ok: true, sections: null }),
+    // Renderer ждёт КАРТУ membership (или null = гейт секций не применяется), а не
+    // конверт {ok,…}: объект-конверт трактуется как пустая карта и вырезает из меню
+    // все разделы, у которых есть секция, — панель «РАЗДЕЛЫ» оказывается пустой.
+    sectionsSelf: async () => null,
   }),
   presence: stubGroup('presence', {
     me: async () => ({ ok: false, error: 'спайк' }),
