@@ -33,9 +33,10 @@
   display: none !important;
 }
 
-/* Заголовок карточки — да; панель действий карточки (CardActionBar с «Сохранить»,
-   «Закрыть») сюда НЕ входит и не скрывается ничем: это не хром, а работа оператора. */
-:root[data-mx-chrome='on'][data-mx-chrome-hidden~='cardHeader'] .entity-card-shell > .ui-section-header {
+/* Прячется ТОЛЬКО строка названия карточки. В том же `.ui-section-header` лежат
+   actions и status («Ошибка: …», «Беру двигатель в работу…») — их скрытие означало бы
+   молча потерянные правки. Панель действий карточки (CardActionBar) тоже не хром. */
+:root[data-mx-chrome='on'][data-mx-chrome-hidden~='cardHeader'] .entity-card-shell > .ui-section-header > .mx-card-title {
   display: none !important;
 }
 
@@ -73,6 +74,17 @@
   border-right: 1px solid var(--border, #d1d5db);
   box-shadow: 0 0 24px rgba(0, 0, 0, 0.28);
   transform: translateX(calc((var(--mx-drawer-progress, 0) - 1) * 100%));
+  /* Панель — колонка с ограниченной высотой: без этого список разделов не
+     упирается в низ экрана, не скроллится и нижние разделы недостижимы. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* `will-change: transform` держит containing block для position:fixed потомков даже
+   при transform: none — с ним приём с data-mx-settled не давал бы контекст-меню
+   разделов выйти за пределы панели. Поэтому только на время движения. */
+:root[data-mx-chrome='on'] .mx-drawer--left[data-mx-dragging] {
   will-change: transform;
 }
 

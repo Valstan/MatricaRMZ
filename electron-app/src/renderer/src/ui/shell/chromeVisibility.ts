@@ -33,6 +33,7 @@ export const TOP_CHROME_LAYERS: readonly ChromeLayer[] = [
   'appHeader',
   'tabStrip',
   'pageToolbar',
+  'pageFooter',
   'cardHeader',
 ];
 
@@ -87,14 +88,15 @@ export const CHROME_ALL_VISIBLE: ChromeState = Object.freeze({
 
 /**
  * Старт включённого режима: хром на месте (оператор не должен гадать, куда всё делось),
- * панель разделов закрыта — она становится выдвижной, а не колонкой,
- * футер «Всего: N» убран сразу: справочная строка, дублируется бейджем на рейле.
+ * закрыта только панель разделов — она становится выдвижной, а не колонкой.
+ * Футер «Всего: N» ходит вместе с «верхним этажом»: спрятать его навсегда нельзя —
+ * вернуть было бы нечем.
  */
 export function createChromeState(enabled: boolean, now = 0): ChromeState {
   if (!enabled) return CHROME_ALL_VISIBLE;
   return {
     enabled: true,
-    hidden: { ...ALL_VISIBLE, sections: true, pageFooter: true },
+    hidden: { ...ALL_VISIBLE, sections: true },
     locked: false,
     scrollAccum: 0,
     lastChangeAt: now,
@@ -143,6 +145,13 @@ export function chromeReducer(state: ChromeState, event: ChromeEvent): ChromeSta
 
     case 'scroll': {
       if (state.locked) return state;
+      // Окно удержания глушит ЛЮБУЮ автоматику, включая возврат у верха списка:
+      // иначе ручное «убрать панели» отменялось бы само на первом же событии, а
+      // «скрыли хром → список подрос → браузер поджал scrollTop к нулю → показали
+      // хром → список сжался» давало бы бесконечное мигание.
+      if (event.now < state.holdUntil) {
+        return state.scrollAccum === 0 ? state : { ...state, scrollAccum: 0 };
+      }
       if (event.scrollTop <= SCROLL_SHOW_TOP) {
         const hidden = withTopLayers(state.hidden, false);
         if (sameHidden(hidden, state.hidden) && state.scrollAccum === 0) return state;
@@ -151,7 +160,6 @@ export function chromeReducer(state: ChromeState, event: ChromeEvent): ChromeSta
       if (event.delta <= 0) return state.scrollAccum === 0 ? state : { ...state, scrollAccum: 0 };
       const accum = state.scrollAccum + event.delta;
       if (accum < SCROLL_HIDE_DELTA) return { ...state, scrollAccum: accum };
-      if (event.now < state.holdUntil) return { ...state, scrollAccum: accum };
       if (event.now - state.lastChangeAt < MIN_STATE_INTERVAL_MS) return { ...state, scrollAccum: accum };
       const hidden = withTopLayers(state.hidden, true);
       if (sameHidden(hidden, state.hidden)) return { ...state, scrollAccum: 0 };
@@ -189,6 +197,9 @@ export function chromeReducer(state: ChromeState, event: ChromeEvent): ChromeSta
       return {
         ...state,
         hidden,
+        // Смена экрана — точка, где заведомо нет фокуса в поле: снимаем возможный
+        // залипший lock (поле могло быть размонтировано без focusout).
+        locked: false,
         scrollAccum: 0,
         lastChangeAt: event.now,
         holdUntil: event.now + ROUTE_STICKY_MS,

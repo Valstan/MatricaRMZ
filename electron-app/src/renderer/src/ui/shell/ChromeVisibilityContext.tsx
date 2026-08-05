@@ -103,7 +103,10 @@ export function ChromeVisibilityProvider(props: { children: React.ReactNode }) {
     createChromeState(on, Date.now()),
   );
 
+  // Даже этот слушатель — только на планшете: на десктопе провайдер обязан быть
+  // полностью инертным (ни слушателей, ни таймеров, ни атрибутов корня).
   React.useEffect(() => {
+    if (matricaPlatform() !== 'android') return;
     const onPref = () => setPrefEnabled(readChromeAutoHidePref());
     window.addEventListener(PREF_EVENT, onPref);
     return () => window.removeEventListener(PREF_EVENT, onPref);
@@ -126,9 +129,13 @@ export function ChromeVisibilityProvider(props: { children: React.ReactNode }) {
       const target = e.target;
       if (!(target instanceof Element)) return;
       if (!isDataScrollTarget(classChain(target))) return;
-      const prev = tops.get(target) ?? 0;
       const next = target.scrollTop;
+      const prev = tops.get(target);
       tops.set(target, next);
+      // Первое событие незнакомого контейнера только запоминает позицию: у списка
+      // с восстановленной прокруткой разница «от нуля» выглядела бы как рывок вниз
+      // на весь экран — хром уехал бы, хотя оператор ничего не листал.
+      if (prev == null) return;
       send({ type: 'scroll', delta: next - prev, scrollTop: next, now: Date.now() });
     };
     const onFocusIn = (e: FocusEvent) => {

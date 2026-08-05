@@ -39,6 +39,9 @@ function Handle(props: {
   const gestureRef = React.useRef<ReturnType<typeof createEdgeGesture> | null>(null);
   const followRef = React.useRef<HTMLElement | null>(null);
   const movedRef = React.useRef(false);
+  // За настоящим тапом браузер шлёт И pointerup, И click. Без этой отметки слой
+  // переключался бы дважды подряд, то есть возвращался в исходное — язычок «не работает».
+  const pointerHandledRef = React.useRef(false);
 
   const paint = React.useCallback((progress: number | null) => {
     const el = followRef.current;
@@ -85,10 +88,18 @@ function Handle(props: {
     const g = gestureRef.current;
     gestureRef.current = null;
     if (!g) return;
-    const r = cancelled ? g.cancel() : g.end(point(e));
     paint(null);
     followRef.current = null;
-    if (cancelled || movedRef.current) {
+    pointerHandledRef.current = true;
+    if (cancelled) {
+      // Систему перебить нельзя (свайп «назад» Android забирает жест) — просто
+      // откатываемся к текущему состоянию. Коммитить «закрыть» здесь нельзя: для
+      // верхнего язычка это дало бы ОБРАТНЫЙ результат — жест звали ради возврата.
+      g.cancel();
+      return;
+    }
+    const r = g.end(point(e));
+    if (movedRef.current) {
       if (r.open !== props.open) props.onCommit(r.open);
       return;
     }
@@ -106,9 +117,13 @@ function Handle(props: {
       onPointerMove={onPointerMove}
       onPointerUp={(e) => finish(e, false)}
       onPointerCancel={(e) => finish(e, true)}
-      onClick={(e) => {
-        // Мышь/клавиатура: жеста не было — обычное переключение.
-        if (e.detail === 0 || !movedRef.current) props.onTap();
+      onClick={() => {
+        // Клавиатура (Enter/Space) — единственный путь без pointer-последовательности.
+        if (pointerHandledRef.current) {
+          pointerHandledRef.current = false;
+          return;
+        }
+        props.onTap();
       }}
     >
       {props.label}
@@ -124,7 +139,15 @@ export function ChromeHandleRail() {
   const sectionsOpen = !chrome.state.hidden.sections;
 
   return (
-    <div className="mx-chrome-rail" aria-hidden={false}>
+    <>
+      {/* Скрим — СИБЛИНГ рейла, а не его потомок: у рейла свой stacking context
+          (position:fixed + z-index), внутри которого z-index скрима считается
+          относительно рейла, и скрим накрыл бы саму выдвижную панель — тап по
+          разделу закрывал бы её вместо выбора. */}
+      {sectionsOpen && (
+        <div className="mx-scrim" role="presentation" onPointerDown={() => chrome.hide('sections')} />
+      )}
+      <div className="mx-chrome-rail" aria-hidden={false}>
       <Handle
         className="mx-rail-top"
         title={topHidden ? 'Показать панели (свайп вниз)' : 'Убрать панели ради данных'}
@@ -169,13 +192,7 @@ export function ChromeHandleRail() {
           }, 0);
         }}
       />
-      {sectionsOpen && (
-        <div
-          className="mx-scrim"
-          role="presentation"
-          onPointerDown={() => chrome.hide('sections')}
-        />
-      )}
-    </div>
+      </div>
+    </>
   );
 }

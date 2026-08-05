@@ -41,13 +41,20 @@ describe('состояние по умолчанию', () => {
     expect(hiddenLayersAttr(s)).toBe('');
   });
 
-  it('при включении хром на месте, разделы закрыты, футер убран', () => {
+  it('при включении хром на месте, закрыта только выдвижная панель разделов', () => {
     const s = on();
     expect(s.hidden.appHeader).toBe(false);
     expect(s.hidden.tabStrip).toBe(false);
+    expect(s.hidden.pageFooter).toBe(false);
     expect(s.hidden.sections).toBe(true);
+    expect(hiddenLayersAttr(s)).toBe('sections');
+  });
+
+  it('футер уходит и возвращается вместе с верхним этажом — «спрятать навсегда» нельзя', () => {
+    let s = scrollDown(on(0), 1000);
     expect(s.hidden.pageFooter).toBe(true);
-    expect(hiddenLayersAttr(s)).toBe('sections pageFooter');
+    s = chromeReducer(s, { type: 'show', now: 2000 });
+    expect(s.hidden.pageFooter).toBe(false);
   });
 });
 
@@ -97,6 +104,23 @@ describe('ручное управление и удержание', () => {
     expect(s.hidden.appHeader).toBe(false);
     s = scrollDown(s, 2000 + MANUAL_HOLD_MS + 100);
     expect(s.hidden.appHeader).toBe(true);
+  });
+
+  it('ручное скрытие не отменяется прокруткой у верха списка', () => {
+    // Обратная связь: хром убрали → список стал выше → браузер поджал scrollTop к нулю
+    // → «мы у верха, показать хром» → список сжался. Без удержания это мигало бы вечно.
+    let s = chromeReducer(on(0), { type: 'hide', now: 1000 });
+    expect(s.hidden.appHeader).toBe(true);
+    s = chromeReducer(s, { type: 'scroll', delta: -300, scrollTop: 0, now: 1100 });
+    expect(s.hidden.appHeader).toBe(true);
+    s = chromeReducer(s, { type: 'scroll', delta: -300, scrollTop: 0, now: 1000 + MANUAL_HOLD_MS + 100 });
+    expect(s.hidden.appHeader).toBe(false);
+  });
+
+  it('смена контекста снимает залипший замок ввода', () => {
+    let s = chromeReducer(on(0), { type: 'inputFocus' });
+    s = chromeReducer(s, { type: 'route', now: 1000 });
+    expect(s.locked).toBe(false);
   });
 
   it('toggle отдельного слоя не трогает соседние', () => {

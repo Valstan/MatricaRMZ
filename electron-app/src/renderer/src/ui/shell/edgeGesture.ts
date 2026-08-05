@@ -76,7 +76,11 @@ export function createEdgeGesture(config: EdgeGestureConfig): EdgeGesture {
 
   function track(point: GesturePoint): void {
     const tail = history[history.length - 1];
-    if (tail && tail.t === point.t && tail.x === point.x && tail.y === point.y) return;
+    // Отсекаем отсчёты БЕЗ движения (pointerup обычно повторяет координаты последнего
+    // pointermove, только позже по времени): иначе последняя пара даёт нулевое
+    // перемещение за ненулевое время, и скорость флика всегда выходит нулевой —
+    // быстрый короткий свайп молча откатывался бы.
+    if (tail && tail.x === point.x && tail.y === point.y) return;
     history.push(point);
     if (history.length > 4) history.shift();
   }

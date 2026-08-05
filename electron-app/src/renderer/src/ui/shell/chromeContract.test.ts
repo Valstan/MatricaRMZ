@@ -23,7 +23,7 @@ const CASES: Array<{ file: string; anchors: string[] }> = [
   { file: '../pages/WorkOrdersPage.tsx', anchors: ['mx-page-toolbar'] },
   { file: '../pages/StockDocumentsPage.tsx', anchors: ['mx-page-toolbar', 'mx-page-footer'] },
   { file: '../pages/RepairFundAuditPage.tsx', anchors: ['mx-page-toolbar', 'mx-page-footer'] },
-  { file: '../components/EntityCardShell.tsx', anchors: ['entity-card-shell', 'ui-section-header'] },
+  { file: '../components/EntityCardShell.tsx', anchors: ['entity-card-shell', 'ui-section-header', 'mx-card-title'] },
   { file: '../components/CardActionBar.tsx', anchors: ['card-action-bar'] },
 ];
 
@@ -59,10 +59,13 @@ describe('правила скрытия покрывают все якоря', (
     for (const anchor of ['mx-chrome-slot--header', 'v3-tab-strip', 'mx-page-toolbar', 'mx-page-footer', 'ui-section-header']) {
       expect(css).toContain(anchor);
     }
-    // Панель действий карточки не должна попасть под скрытие ни одним правилом.
+    // Работа оператора не скрывается ничем: ни панель действий карточки, ни строка
+    // заголовка ЦЕЛИКОМ (в ней же живут actions и статус «Ошибка: …» — скрыть их
+    // означало бы молча потерянные правки; прячется только .mx-card-title).
     for (const block of css.split('}')) {
       if (!block.includes('display: none')) continue;
       expect(block).not.toContain('card-action-bar');
+      if (block.includes('ui-section-header')) expect(block).toContain('.mx-card-title');
     }
   });
 });
