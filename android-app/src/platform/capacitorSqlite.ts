@@ -50,6 +50,17 @@ export function createCapacitorAsyncSqlite(conn: CapacitorDbConnection): AsyncSq
 
   const self: AsyncSqlite = {
     async exec(sql: string): Promise<void> {
+      const plan = planQuery(sql);
+      // Android: execute() не умеет statements, возвращающие строки, — execSQL
+      // бросает «Queries can be performed using SQLiteDatabase query or rawQuery
+      // methods only.» (документация плагина, Limitations → Android). Так ведут
+      // себя PRAGMA journal_mode и прочие returnable-прагмы; non-returning
+      // (foreign_keys, optimize) query() тоже переживает. Multi-statement
+      // (несколько ';') query() не переварит — оставляем на execute().
+      if (plan.kind === 'raw' && (sql.match(/;/g) ?? []).length <= 1) {
+        await objectRows(sql);
+        return;
+      }
       await conn.execute(sql, false);
     },
 
