@@ -70,6 +70,8 @@
 | M58 | Обновление «не находится и не скачивается», хотя прод раздаёт и delta считается: в логе `stale update lock removed` | updater / delta-кэш |
 | M59 | Установщик отработал, файлы новые — а у оператора прежняя версия (старый процесс пережил установку) | installer / ручная установка |
 | M60 | Новый workflow смержен в main, но `gh workflow run` отвечает 404 «not found on the default branch» | CI / GitHub Actions |
+| M61 | Android: boot падает «Queries can be performed using SQLiteDatabase query or rawQuery methods only», хотя все тесты зелёные | android-app / @capacitor-community/sqlite |
+| M62 | Планшет/встраиваемый клиент «нет связи» с сервером, а по curl всё отвечает | CORS / прод-env / WebView-origin |
 
 ---
 
@@ -486,3 +488,21 @@
 - **Лечение:** дать workflow триггер, который выстрелит сам. Практичнее всего `pull_request` с фильтром по путям — он берёт файл с ветки PR, поэтому срабатывает ещё до всякой индексации дефолтной ветки; после первого прогона workflow появляется в списке и `workflow_dispatch` начинает работать. Ждать «пока проиндексируется» бесполезно — 20 минут не помогли.
 - **Правило:** не закладывайся на `workflow_dispatch` как на единственный триггер нового workflow: до первого запуска дёрнуть его нечем.
 - **Поймано:** 2026-08-04, ввод `android-apk-build.yml` (сборка APK планшетного клиента).
+
+## M61 — Android: boot падает «Queries can be performed using SQLiteDatabase query or rawQuery methods only», при зелёных тестах
+
+- **Симптом:** планшетный клиент на старте выводит текст ошибки (красный экран `reportBootFailure`): `Execute: unknown error … Queries can be performed using SQLiteDatabase query or rawQuery methods only`. На эмуляторе/в unit-тестах (`better-sqlite3`-стенд) ничего не падает.
+- **Корень:** `PRAGMA journal_mode = WAL` (первый оператор boot) шёл через `conn.execute()`. `@capacitor-community/sqlite` реализует `execute` через `execSQL`, который **не умеет statements, возвращающие строки** (PRAGMA возвращает результат) — плагин бросает именно это исключение. Ограничение заявлено в `Limitations` плагина, но его легко пропустить: `execute` на desktop-стенде работает, и юнит-тесты адаптера все зелёные.
+- **Диагностика:** найти в адаптере все вызовы `execute` и проверить, не попадает ли туда row-returning SQL (PRAGMA, SELECT). Android-стек выдаёт ошибку только на устройстве; эмулятор то же самое — диагностировать через текст boot-ошибки на экране.
+- **Лечение:** в `exec()` маршрутизировать одиночные row-returning statements через `conn.query()` (у нас: `planQuery(sql).kind === 'raw'` и `(sql.match(/;/g) ?? []).length <= 1` → `objectRows` через `query`, иначе `execute`). Регресс-тест: `android-app/src/platform/capacitorSqlite.test.ts` — PRAGMA уходит в query, BEGIN/COMMIT/multi-statement — в execute.
+- **Правило:** для android-адаптера считай `execute` пригодным только для non-returning statements; любую PRAGMA/SELECT — только через query-путь.
+- **Поймано:** 2026-08-05, первый живой boot планшетного APK 2026.805.1128 (PR #481).
+
+## M62 — Планшет «нет связи»: CORS allow-list прода режет Origin встроенного WebView
+
+- **Симптом:** Android-клиент (Capacitor WebView) открывает экран входа и показывает «сервер: нет связи», хотя `https://<домен>/health` из браузера/curl отвечает 200.
+- **Корень:** WebView шлёт `Origin: capacitor://localhost` (или `https://localhost` при `androidScheme: 'https'`), а прод-бэкенд держит строгий CORS allow-list `MATRICA_CORS_ORIGINS` (CSV). Чуждый Origin → `500 {"error":"CORS: origin not allowed: capacitor://localhost"}` на **каждый** запрос (health/auth/sync). Правка `.env` на сервере легко теряется: переменная не была задокументирована в `.env.example`, а при пересоздании env без неё клиенты снова отваливаются.
+- **Диагностика:** `curl -i -H "Origin: capacitor://localhost" https://<домен>/health` → смотреть статус и текст ошибки (воспроизводится и с `https://localhost`). Проверить фактический `.env` на сервере (`dotenv/config` грузит локальный `backend-api/.env`, а не только systemd EnvironmentFile).
+- **Лечение:** добавить origin'ы WebView в `MATRICA_CORS_ORIGINS` (`<домен>,capacitor://localhost,https://localhost`) в прод-`.env`, рестарт сервисов, проверить `/health` с обоими Origin. Документирование — `backend-api/.env.example`.
+- **Правило:** любой новый тип клиента со своим origin (встраиваемый WebView, Electron, скрипты) — проверь его Origin-заголовок против CORS allow-list до переноса на прод.
+- **Поймано:** 2026-08-05, первый живой синк планшета (PR #482, фикс — правка прод-env).
