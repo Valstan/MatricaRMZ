@@ -399,6 +399,48 @@ body {
   font-size: 15px;
 }
 
+/* ── Планшет: горизонтальный скролл списков ─────────────────────────────────
+   На планшете колонки часто шире экрана. Каждая страница оборачивает <table> в
+   <div style="overflow:clip"> — этот clip-барьер мешает и скроллу, и расширению
+   div'а до ширины таблицы. :has(> table.list-table) точечно снимает clip и даёт
+   обёртке расти (width:max-content) — тогда родительский контейнер с overflow:auto
+   показывает горизонтальную полосу прокрутки.
+   Pinch-zoom из MainActivity.java даёт общий масштаб; скролл — доступ к крайним
+   колонкам без уменьшения всего интерфейса. */
+:root[data-ui-mode='tablet'] div:has(> table.list-table) {
+  width: max-content !important;
+  min-width: 100% !important;
+  overflow: visible !important;
+}
+:root[data-ui-mode='tablet'] .list-table-wrap {
+  width: max-content !important;
+  min-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Планшет: одноэтажные шапки колонок ─────────────────────────────────────
+   Шапки не переносятся, обрезаются «…», шрифт мельче. Заголовок остаётся
+   читаемым через title (listHeaderKindProps на narrow-колонках) и через hover.
+   padding снижен — высота шапки минимальна, больше места строкам данных. */
+:root[data-ui-mode='tablet'] table.list-table th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.7rem;
+  padding: 3px 5px;
+  line-height: 1.2;
+}
+:root[data-ui-mode='tablet'] table.list-table td {
+  font-size: 0.78rem;
+  padding: 3px 5px;
+}
+:root[data-ui-mode='tablet'] table.list-table--single-mode th,
+:root[data-ui-mode='tablet'] table.list-table--single-mode td {
+  font-size: 0.78rem;
+  padding: 4px 6px;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--text);

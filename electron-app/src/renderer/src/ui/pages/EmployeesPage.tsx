@@ -4,6 +4,7 @@ import { formatEmploymentStatusAttrForUi } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -31,6 +32,7 @@ import {
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { tabletColumnLabel } from '../platform.js';
 
 type Row = {
   id: string;
@@ -252,11 +254,12 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         ),
       },
       { id: 'position', label: 'Должность', sortKey: 'position', kind: 'name', render: (row) => row.position || '—' },
-      { id: 'departmentName', label: 'Подразделение', sortKey: 'departmentName', kind: 'name', render: (row) => row.departmentName || '—' },
+      { id: 'departmentName', label: 'Подразделение', tabletLabel: 'Подразд.', sortKey: 'departmentName', kind: 'name', render: (row) => row.departmentName || '—' },
       { id: 'employmentStatus', label: 'Статус', sortKey: 'employmentStatus', kind: 'flag', render: (row) => formatEmploymentStatusAttrForUi(row.employmentStatus) },
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortKey: 'updatedAt',
         kind: 'date',
         render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
@@ -289,17 +292,41 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only derives from columnLayout.hidden, which is tracked; useColumnLayout returns a fresh object every render, so depending on columnLayout itself would defeat the memo
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is EmployeeColumn => Boolean(col));
     return (
       <thead>
         <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-          {visibleColumns.map((col) => (
-            <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={col.width ? { ...headerCellStyle, width: col.width, textAlign: col.cellAlign ?? 'left' } : headerCellStyle}>
-              {col.sortKey ? renderSortLabel(col.label, col.sortKey) : col.label}
-            </th>
-          ))}
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
+            return (
+              <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={col.width ? { ...headerCellStyle, width: col.width, textAlign: col.cellAlign ?? 'left' } : headerCellStyle}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{col.sortKey ? renderSortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey) : tabletColumnLabel(col.label, col.tabletLabel)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+              </th>
+            );
+          })}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>

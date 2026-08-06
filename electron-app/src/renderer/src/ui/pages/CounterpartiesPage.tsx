@@ -4,6 +4,7 @@ import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -30,6 +31,7 @@ import {
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { tabletColumnLabel } from '../platform.js';
 
 type Row = {
   id: string;
@@ -248,7 +250,7 @@ export function CounterpartiesPage(props: {
     () => [
       { id: 'displayName', label: 'Название', sortKey: 'displayName', kind: 'name', render: (row) => <span style={{ color: '#111827' }}>{row.displayName || '(без названия)'}</span> },
       { id: 'inn', label: 'ИНН', sortKey: 'inn', kind: 'name', render: (row) => row.inn || '—' },
-      { id: 'updatedAt', label: 'Дата изменения', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
+      { id: 'updatedAt', label: 'Дата изменения', tabletLabel: 'Изм.', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
       { id: 'previews', label: 'Превью', cellAlign: 'right', kind: 'thumbs', requireShowPreviews: true, render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} /> },
     ],
     [],
@@ -266,23 +268,47 @@ export function CounterpartiesPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render, so depending on `columnLayout` (demanded only because `isVisible` is called as a method) would defeat this memo; `columnLayout.hidden` is the Set `isVisible` reads, so the listed deps already cover every input
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is CounterpartyColumn => Boolean(col));
     return (
       <thead>
         <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-          {visibleColumns.map((col) => (
-            <th
-              key={col.id}
-              {...listHeaderKindProps(col.kind, col.label)}
-              style={{ padding: '10px 12px', textAlign: col.cellAlign ?? 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
-              onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
-            >
-              {col.label}
-              {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
-            </th>
-          ))}
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
+            return (
+              <th
+                key={col.id}
+                {...listHeaderKindProps(col.kind, col.label)}
+                style={{ padding: '10px 12px', textAlign: col.cellAlign ?? 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
+                onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{tabletColumnLabel(col.label, col.tabletLabel)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+                {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
+              </th>
+            );
+          })}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>

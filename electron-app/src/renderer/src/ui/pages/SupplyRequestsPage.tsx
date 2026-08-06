@@ -4,6 +4,7 @@ import type { SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -15,6 +16,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { tabletColumnLabel } from '../platform.js';
 
 type Row = {
   id: string;
@@ -137,15 +139,16 @@ export function SupplyRequestsPage(props: {
   const allColumns = useMemo<RequestColumn[]>(
     () => [
       { id: 'requestNumber', label: 'Номер', sortKey: 'requestNumber', kind: 'name', render: (r) => r.requestNumber || r.id },
-      { id: 'title', label: 'Описание заявки', kind: 'text', render: (r) => r.title || '-' },
-      { id: 'itemsCount', label: 'Кол-во пунктов', sortKey: 'itemsCount', kind: 'num', render: (r) => r.itemsCount },
-      { id: 'compiledAt', label: 'Дата создания', sortKey: 'compiledAt', kind: 'date', render: (r) => (r.compiledAt ? formatMoscowDate(r.compiledAt) : '-') },
-      { id: 'sentAt', label: 'Дата отправки', sortKey: 'sentAt', kind: 'date', render: (r) => (r.sentAt ? formatMoscowDate(r.sentAt) : '-') },
-      { id: 'arrivedAt', label: 'Дата поступления', sortKey: 'arrivedAt', kind: 'date', render: (r) => (r.arrivedAt ? formatMoscowDate(r.arrivedAt) : '-') },
+      { id: 'title', label: 'Описание заявки', tabletLabel: 'Описание', kind: 'text', render: (r) => r.title || '-' },
+      { id: 'itemsCount', label: 'Кол-во пунктов', tabletLabel: 'Пунктов', sortKey: 'itemsCount', kind: 'num', render: (r) => r.itemsCount },
+      { id: 'compiledAt', label: 'Дата создания', tabletLabel: 'Создана', sortKey: 'compiledAt', kind: 'date', render: (r) => (r.compiledAt ? formatMoscowDate(r.compiledAt) : '-') },
+      { id: 'sentAt', label: 'Дата отправки', tabletLabel: 'Отпр.', sortKey: 'sentAt', kind: 'date', render: (r) => (r.sentAt ? formatMoscowDate(r.sentAt) : '-') },
+      { id: 'arrivedAt', label: 'Дата поступления', tabletLabel: 'Пост.', sortKey: 'arrivedAt', kind: 'date', render: (r) => (r.arrivedAt ? formatMoscowDate(r.arrivedAt) : '-') },
       { id: 'status', label: 'Статус', sortKey: 'status', render: (r) => statusLabel(r.status) },
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortKey: 'updatedAt',
         kind: 'date',
         render: (r) => (r.updatedAt ? formatMoscowDateTime(r.updatedAt) : '—'),
@@ -167,23 +170,47 @@ export function SupplyRequestsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render, so depending on `columnLayout` (demanded only because `isVisible` is called as a method) would defeat this memo; `columnLayout.hidden` is the Set `isVisible` reads, so the listed deps already cover every input
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is RequestColumn => Boolean(col));
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
-          {visibleColumns.map((col) => (
-            <th
-              key={col.id}
-              {...listHeaderKindProps(col.kind, col.label)}
-              style={{ textAlign: col.cellAlign ?? 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
-              onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
-            >
-              {col.label}
-              {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
-            </th>
-          ))}
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
+            return (
+              <th
+                key={col.id}
+                {...listHeaderKindProps(col.kind, col.label)}
+                style={{ textAlign: col.cellAlign ?? 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
+                onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{tabletColumnLabel(col.label, col.tabletLabel)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+                {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
+              </th>
+            );
+          })}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>

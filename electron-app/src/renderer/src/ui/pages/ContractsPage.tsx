@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -37,6 +38,7 @@ import {
 } from '../utils/listContextActions.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { tabletColumnLabel } from '../platform.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 type Row = {
@@ -496,6 +498,7 @@ export function ContractsPage(props: {
       {
         id: 'number',
         label: 'Номер контракта',
+        tabletLabel: '№ контр.',
         sortable: true,
         sortKey: 'number',
         kind: 'name',
@@ -504,6 +507,7 @@ export function ContractsPage(props: {
       {
         id: 'internalNumber',
         label: 'Внутренний номер контракта',
+        tabletLabel: 'Вн.№ контр.',
         sortable: true,
         sortKey: 'internalNumber',
         kind: 'name',
@@ -520,6 +524,7 @@ export function ContractsPage(props: {
       {
         id: 'dateMs',
         label: 'Дата заключения',
+        tabletLabel: 'Заключён',
         sortable: true,
         sortKey: 'dateMs',
         kind: 'date',
@@ -528,6 +533,7 @@ export function ContractsPage(props: {
       {
         id: 'dueDateMs',
         label: 'Дата исполнения',
+        tabletLabel: 'Исполн.',
         sortable: true,
         sortKey: 'dueDateMs',
         kind: 'date',
@@ -536,6 +542,7 @@ export function ContractsPage(props: {
       {
         id: 'daysLeft',
         label: 'Дней до исполнения',
+        tabletLabel: 'Дней',
         sortable: true,
         sortKey: 'daysLeft',
         headerAlign: 'right',
@@ -547,6 +554,7 @@ export function ContractsPage(props: {
       {
         id: 'amount',
         label: 'Сумма контракта (контракт плюс ДС)',
+        tabletLabel: 'Сумма',
         sortable: true,
         sortKey: 'amount',
         headerAlign: 'right',
@@ -557,6 +565,7 @@ export function ContractsPage(props: {
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortable: true,
         sortKey: 'updatedAt',
         kind: 'date',
@@ -565,6 +574,7 @@ export function ContractsPage(props: {
       {
         id: 'enginesPlanned',
         label: 'Двигателей по контракту',
+        tabletLabel: 'Дв.план',
         sortable: true,
         sortKey: 'enginesPlanned',
         headerAlign: 'right',
@@ -576,6 +586,7 @@ export function ContractsPage(props: {
       {
         id: 'enginesAccepted',
         label: 'Двигателей исполнено',
+        tabletLabel: 'Дв.факт',
         sortable: true,
         sortKey: 'enginesAccepted',
         headerAlign: 'right',
@@ -592,6 +603,7 @@ export function ContractsPage(props: {
       {
         id: 'enginesAtFactory',
         label: 'Двигателей на заводе',
+        tabletLabel: 'Дв.з-д',
         sortable: true,
         sortKey: 'enginesAtFactory',
         headerAlign: 'right',
@@ -603,6 +615,7 @@ export function ContractsPage(props: {
       {
         id: 'partsCompleted',
         label: 'Запчасти исполнено',
+        tabletLabel: 'Запч.',
         sortable: true,
         sortKey: 'partsCompleted',
         headerAlign: 'right',
@@ -619,6 +632,7 @@ export function ContractsPage(props: {
       {
         id: 'burningEngines',
         label: 'Горящие двигатели',
+        tabletLabel: 'Горит',
         sortable: true,
         sortKey: 'burningEngines',
         headerAlign: 'right',
@@ -694,7 +708,7 @@ export function ContractsPage(props: {
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(
-    () => allColumns.map((col) => ({ id: col.id, label: col.label })),
+    () => allColumns.map((col) => ({ id: col.id, label: col.label, ...(col.tabletLabel ? { tabletLabel: col.tabletLabel } : {}) })),
     [allColumns],
   );
 
@@ -769,10 +783,24 @@ export function ContractsPage(props: {
   };
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is ColumnDef => Boolean(col));
     return (
       <thead>
         <tr style={{ background: '#f9fafb', color: '#111827' }}>
-          {visibleColumns.map((col) => {
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
             const align = col.headerAlign ?? 'left';
             const baseStyle: React.CSSProperties = {
               ...headerThBase,
@@ -788,7 +816,15 @@ export function ContractsPage(props: {
                 style={baseStyle}
                 onClick={col.sortable && col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
               >
-                {col.label}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{tabletColumnLabel(col.label, col.tabletLabel)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
                 {arrow ? ` ${arrow}` : ''}
               </th>
             );

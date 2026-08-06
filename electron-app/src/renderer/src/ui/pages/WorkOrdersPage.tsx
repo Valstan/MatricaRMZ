@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { tabletColumnLabel } from '../platform.js';
 import {
   WORK_ORDER_KIND_LABELS,
   engineInternalNumberSortKeyFromFull,
@@ -13,6 +14,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -328,16 +330,17 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   };
   const allColumns = useMemo<WorkOrderColumn[]>(
     () => [
-      { id: 'date', label: 'Дата создания наряда', sortKey: 'date', kind: 'date', render: (row) => (row.orderDate ? formatMoscowDate(row.orderDate) : '-') },
-      { id: 'start', label: 'Начало работ', sortKey: 'start', kind: 'date', render: (row) => (row.startDate ? formatMoscowDate(row.startDate) : '-') },
-      { id: 'number', label: '№ наряда', sortKey: 'number', kind: 'name', render: (row) => row.workOrderNumber },
+      { id: 'date', label: 'Дата создания наряда', tabletLabel: 'Создан', sortKey: 'date', kind: 'date', render: (row) => (row.orderDate ? formatMoscowDate(row.orderDate) : '-') },
+      { id: 'start', label: 'Начало работ', tabletLabel: 'Начало', sortKey: 'start', kind: 'date', render: (row) => (row.startDate ? formatMoscowDate(row.startDate) : '-') },
+      { id: 'number', label: '№ наряда', tabletLabel: '№', sortKey: 'number', kind: 'name', render: (row) => row.workOrderNumber },
       { id: 'due', label: 'Срок', sortKey: 'due', kind: 'date', render: (row) => (row.dueDate ? formatMoscowDate(row.dueDate) : '-') },
-      { id: 'part', label: 'Виды работ', sortKey: 'part', kind: 'text', render: (row) => row.workType || '-' },
-      { id: 'brand', label: 'Марка дв.', sortKey: 'brand', kind: 'text', render: (row) => row.engineBrand || '-' },
+      { id: 'part', label: 'Виды работ', tabletLabel: 'Работы', sortKey: 'part', kind: 'text', render: (row) => row.workType || '-' },
+      { id: 'brand', label: 'Марка дв.', tabletLabel: 'Марка', sortKey: 'brand', kind: 'text', render: (row) => row.engineBrand || '-' },
       { id: 'engineNo', label: '№ дв.', sortKey: 'engineNo', kind: 'text', render: (row) => row.engineNumber || '-' },
       {
         id: 'engineInternalNo',
         label: 'Внутр. №',
+        tabletLabel: 'Вн.№',
         sortKey: 'engineInternalNo',
         kind: 'text',
         render: (row) => row.engineInternalNumber || '-',
@@ -345,6 +348,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       {
         id: 'completed',
         label: 'Завершён',
+        tabletLabel: 'Готов',
         sortKey: 'completed',
         kind: 'date',
         render: (row) => {
@@ -360,6 +364,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       {
         id: 'performers',
         label: 'Исполнители',
+        tabletLabel: 'Исполн.',
         sortKey: 'performers',
         kind: 'name',
         tdStyle: { width: 200, maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
@@ -371,6 +376,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortKey: 'updatedAt',
         kind: 'date',
         render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
@@ -390,23 +396,47 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only reads columnLayout.hidden, which is a dep; useColumnLayout returns a fresh object/isVisible closure each render, so listing columnLayout would recompute this memo on every render
     [columnLayout.order, columnLayout.hidden, columnsById],
   );
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is WorkOrderColumn => Boolean(col));
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #065f46 0%, #0f766e 120%)', color: '#fff' }}>
-          {visibleColumns.map((col) => (
-            <th
-              key={col.id}
-              {...listHeaderKindProps(col.kind, col.label)}
-              style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
-              onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
-            >
-              {col.label}
-              {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
-            </th>
-          ))}
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
+            return (
+              <th
+                key={col.id}
+                {...listHeaderKindProps(col.kind, col.label)}
+                style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
+                onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{tabletColumnLabel(col.label, col.tabletLabel)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+                {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
+              </th>
+            );
+          })}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>
