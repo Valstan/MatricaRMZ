@@ -4,6 +4,7 @@ import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { Stock1cImportDialog } from '../components/Stock1cImportDialog.js';
 import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
 import { Input } from '../components/Input.js';
@@ -16,6 +17,7 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { tabletColumnLabel } from '../platform.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseDocumentsAllPages } from '../utils/warehousePagedFetch.js';
 import {
@@ -185,6 +187,7 @@ export function StockDocumentsPage(props: {
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortKey: 'updatedAt',
         kind: 'date',
         render: (row) => (row.updatedAt ? formatListDateTime(Number(row.updatedAt)) : '—'),
@@ -204,17 +207,41 @@ export function StockDocumentsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object (and a fresh isVisible closure) on every render, so depending on columnLayout would recompute this memo every render; isVisible only reads columnLayout.hidden, which is already listed
     [columnLayout.order, columnLayout.hidden, columnsById],
   );
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is DocColumn => Boolean(col));
     return (
       <thead>
         <tr>
-          {visibleColumns.map((col) => (
-            <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort(col.sortKey)}>
-              {sortLabel(col.label, col.sortKey)}
-            </th>
-          ))}
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
+            return (
+              <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort(col.sortKey)}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+              </th>
+            );
+          })}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>

@@ -16,3 +16,8 @@ export function matricaPlatform(): MatricaPlatform {
 export function isAndroidPlatform(): boolean {
   return matricaPlatform() === 'android';
 }
+
+/** Заголовок колонки: на планшете — сокращённая версия, на десктопе — полная. */
+export function tabletColumnLabel(label: string, tabletLabel?: string): string {
+  return isAndroidPlatform() && tabletLabel ? tabletLabel : label;
+}

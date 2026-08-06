@@ -12,6 +12,7 @@ import type { EngineListItem } from '@matricarmz/shared';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
@@ -27,7 +28,7 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
 import { openPrintPreview, escapeHtml } from '../utils/printPreview.js';
-import { isAndroidPlatform } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 
 
 type EngineRow = EngineListItem & {
@@ -683,6 +684,7 @@ export function EnginesPage(props: {
       {
         id: 'internalNumber',
         label: 'Внутр. №',
+        tabletLabel: 'Вн.№',
         sortable: true,
         sortKey: 'internalNumber',
         kind: 'name',
@@ -701,6 +703,7 @@ export function EnginesPage(props: {
       {
         id: 'completenessAct',
         label: 'Акт компл.',
+        tabletLabel: 'Акт',
         sortable: true,
         sortKey: 'completenessAct',
         kind: 'name',
@@ -715,11 +718,12 @@ export function EnginesPage(props: {
             </span>
           ),
       },
-      { id: 'arrivalDate', label: 'Дата прихода', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
-      { id: 'shippingDate', label: 'Дата отгрузки', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
+      { id: 'arrivalDate', label: 'Дата прихода', tabletLabel: 'Приход', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
+      { id: 'shippingDate', label: 'Дата отгрузки', tabletLabel: 'Отгр.', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortable: true,
         sortKey: 'updatedAt',
         kind: 'date',
@@ -751,36 +755,60 @@ export function EnginesPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object/isVisible every render; the data isVisible reads (order/hidden) is already in deps, adding columnLayout would recompute the memo on every render
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
-  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label })), [allColumns]);
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
 
   const openEngine = (id: string) => {
     void props.onOpen(id);
   };
 
   function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is EngineColumn => Boolean(col));
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
-          {visibleColumns.map((col) => (
-            <th
-              key={col.id}
-              {...listHeaderKindProps(col.kind, col.label)}
-              style={{
-                textAlign: col.headerAlign ?? 'left',
-                borderBottom: '1px solid rgba(255,255,255,0.25)',
-                padding: 8,
-                position: 'sticky',
-                top: 0,
-                zIndex: 2,
-                cursor: col.sortable ? 'pointer' : 'default',
-                ...(col.width ? { width: col.width } : {}),
-              }}
-              onClick={col.sortable && col.sortKey ? () => toggleSort(col.sortKey as typeof sortKey) : undefined}
-            >
-              {col.label}
-              {col.sortable && col.sortKey && sortArrow(col.sortKey as typeof sortKey) ? ` ${sortArrow(col.sortKey as typeof sortKey)}` : ''}
-            </th>
-          ))}
+          {allInOrder.map((col) => {
+            const visible = columnLayout.isVisible(col.id);
+            if (!visible) {
+              return (
+                <HiddenColumnMarker
+                  key={col.id}
+                  colId={col.id}
+                  label={col.label}
+                  onShow={() => columnLayout.setVisible(col.id, true)}
+                />
+              );
+            }
+            return (
+              <th
+                key={col.id}
+                {...listHeaderKindProps(col.kind, col.label)}
+                style={{
+                  textAlign: col.headerAlign ?? 'left',
+                  borderBottom: '1px solid rgba(255,255,255,0.25)',
+                  padding: 8,
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 2,
+                  cursor: col.sortable ? 'pointer' : 'default',
+                  ...(col.width ? { width: col.width } : {}),
+                }}
+                onClick={col.sortable && col.sortKey ? () => toggleSort(col.sortKey as typeof sortKey) : undefined}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{tabletColumnLabel(col.label, col.tabletLabel)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+                {col.sortable && col.sortKey && sortArrow(col.sortKey as typeof sortKey) ? ` ${sortArrow(col.sortKey as typeof sortKey)}` : ''}
+              </th>
+            );
+          })}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>

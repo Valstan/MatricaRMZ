@@ -3,6 +3,7 @@ import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, typ
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -15,6 +16,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
+import { tabletColumnLabel } from '../platform.js';
 
 type CreateConfig = {
   codePrefix: string;
@@ -258,8 +260,9 @@ export function NomenclatureDirectoryPage(props: {
   type ServiceColumnDef = {
     id: string;
     label: string;
+    tabletLabel?: string;
     sortKey: SortKey;
-    align?: 'left' | 'right';
+    align?: 'left' | 'right' | 'center';
     kind?: ListColumnKind;
     render: (row: WarehouseNomenclatureListItem) => React.ReactNode;
   };
@@ -278,6 +281,7 @@ export function NomenclatureDirectoryPage(props: {
       {
         id: 'brands',
         label: 'Марки двигателей',
+        tabletLabel: 'Марки',
         sortKey: 'brands',
         kind: 'text',
         render: (row) => {
@@ -292,6 +296,7 @@ export function NomenclatureDirectoryPage(props: {
       {
         id: 'unit',
         label: 'Ед. измерения',
+        tabletLabel: 'Ед.',
         sortKey: 'unit',
         render: (row) => serviceUnits[String(row.id)] || '—',
       },
@@ -322,6 +327,7 @@ export function NomenclatureDirectoryPage(props: {
       {
         id: 'updatedAt',
         label: 'Дата изменения',
+        tabletLabel: 'Изм.',
         sortKey: 'updatedAt',
         kind: 'date',
         render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
@@ -347,6 +353,7 @@ export function NomenclatureDirectoryPage(props: {
       serviceColumns.map((c) => ({
         id: c.id,
         label: c.label,
+        ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}),
         ...(c.id === 'name' ? { alwaysVisible: true } : {}),
       })),
     [serviceColumns],
@@ -483,16 +490,42 @@ export function NomenclatureDirectoryPage(props: {
     <thead>
       {props.directoryKind === 'service' ? (
         <tr>
-          {visibleServiceColumns.map((col) => (
-            <th
-              key={col.id}
-              {...listHeaderKindProps(col.kind, col.label)}
-              style={{ textAlign: col.align ?? 'left', cursor: 'pointer' }}
-              onClick={() => onSort(col.sortKey)}
-            >
-              {sortLabel(col.label, col.sortKey)}
-            </th>
-          ))}
+          {(() => {
+            const allInOrder = serviceColumnLayout.order
+              .map((id) => serviceColumnsById.get(id))
+              .filter((col): col is ServiceColumnDef => Boolean(col));
+            return allInOrder.map((col) => {
+              const visible = serviceColumnLayout.isVisible(col.id);
+              if (!visible) {
+                return (
+                  <HiddenColumnMarker
+                    key={col.id}
+                    colId={col.id}
+                    label={col.label}
+                    onShow={() => serviceColumnLayout.setVisible(col.id, true)}
+                  />
+                );
+              }
+              return (
+                <th
+                  key={col.id}
+                  {...listHeaderKindProps(col.kind, col.label)}
+                  style={{ textAlign: col.align ?? 'left', cursor: 'pointer' }}
+                  onClick={() => onSort(col.sortKey)}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                    <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
+                    <ColumnToggleButton
+                      colId={col.id}
+                      visible
+                      alwaysVisible={col.id === 'name'}
+                      onToggle={() => serviceColumnLayout.setVisible(col.id, false)}
+                    />
+                  </span>
+                </th>
+              );
+            });
+          })()}
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       ) : (

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { isAndroidPlatform } from '../platform.js';
 import { Button } from './Button.js';
 
 export type ColumnDescriptor = {
   id: string;
   label: string;
+  tabletLabel?: string;
   alwaysVisible?: boolean;
 };
 
@@ -106,7 +108,7 @@ export function ColumnSettingsButton(props: {
                     onChange={(e) => props.onToggleVisible(col.id, e.target.checked)}
                     title={disableHide ? 'Эту колонку нельзя скрыть' : visible ? 'Скрыть колонку' : 'Показать колонку'}
                   />
-                  <span style={{ flex: 1, opacity: visible ? 1 : 0.55 }}>{col.label}</span>
+                  <span style={{ flex: 1, opacity: visible ? 1 : 0.55 }}>{isAndroidPlatform() ? (col.tabletLabel ?? col.label) : col.label}</span>
                   <Button
                     variant="ghost"
                     onClick={() => props.onMove(col.id, -1)}
