@@ -33,7 +33,10 @@ export function EntityCardShell(props: {
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ margin: 0, flex: '1 1 320px', minWidth: 0, fontSize: 'var(--ui-title-size)', fontWeight: 800 }}>{props.title}</div>
+          {/* Заголовок — отдельным узлом: планшетный режим прячет ТОЛЬКО его. В этой же
+              строке живут actions и status (в т.ч. «Ошибка: …» при сохранении) — их
+              скрывать нельзя, иначе оператор не увидит, что правки не сохранились. */}
+          <div className="mx-card-title" style={{ margin: 0, flex: '1 1 320px', minWidth: 0, fontSize: 'var(--ui-title-size)', fontWeight: 800 }}>{props.title}</div>
           {props.actions}
           {props.status}
         </div>

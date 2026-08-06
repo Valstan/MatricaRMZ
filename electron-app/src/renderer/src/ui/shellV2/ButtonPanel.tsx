@@ -12,6 +12,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 
 import type { MenuTabId } from '../layout/Tabs.js';
+import { isAndroidPlatform } from '../platform.js';
 import type { V2ButtonDescriptor, V2Buttons } from './v2ButtonCatalog.js';
 // Стили панели живут рядом с компонентом, а не в оболочке: прежний общий shellV2.css
 // импортировался снесённой v2-оболочкой и после её удаления (#398) осиротел — панель
@@ -35,7 +36,13 @@ function SortableMenuButton(props: {
       ref={setNodeRef}
       className="v2-menu-row"
       data-dragging={isDragging ? '1' : undefined}
-      style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined }}
+      // На планшете строка обязана прокручиваться пальцем: `touch-action: none` из
+      // buttonPanel.css нужен только перетаскиванию, а его на Android нет (см. sensors).
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: transition ?? undefined,
+        ...(isAndroidPlatform() ? { touchAction: 'pan-y' as const } : {}),
+      }}
       {...attributes}
       {...listeners}
     >
@@ -80,7 +87,11 @@ export function ButtonPanel(props: {
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Перетаскивание разделов — только мышью. На планшете сенсор отключён: он держит
+  // строку под `touch-action: none`, и панель перестаёт скроллиться пальцем, а сама
+  // панель там выдвижная (свайп по ней закрывает её, а не тащит кнопку).
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
+  const sensors = useSensors(...(isAndroidPlatform() ? [] : [pointerSensor]));
 
   const pinnedIds = useMemo(() => props.buttons.pinned.map((b) => b.id), [props.buttons.pinned]);
   const mainIds = useMemo(() => props.buttons.main.map((b) => b.id), [props.buttons.main]);

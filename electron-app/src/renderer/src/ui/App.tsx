@@ -44,6 +44,7 @@ import {
 import { Page } from './layout/Page.js';
 import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, GROUP_LABELS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
 import { isAndroidPlatform } from './platform.js';
+import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 // «Доступ по разделам» (Ф1): таб меню → раздел. Табы вне разделов (заметки, история,
@@ -1124,6 +1125,18 @@ export function App() {
   useEffect(() => {
     if (isV3 && !V2_LIST_TABS.has(tab)) setV3PinnedFocus(false);
   }, [isV3, tab, v3FocusedCardKey]);
+
+  // Планшет: смена раздела/карточки возвращает вспомогательные панели на пару секунд —
+  // иначе после перехода оператор смотрит на голые данные и не видит, куда попал.
+  // Через ref, потому что api пересоздаётся на каждое изменение состояния хрома.
+  const chromeApi = useChromeVisibility();
+  const chromeRouteRef = useRef(chromeApi.route);
+  useEffect(() => {
+    chromeRouteRef.current = chromeApi.route;
+  }, [chromeApi.route]);
+  useEffect(() => {
+    chromeRouteRef.current();
+  }, [tab, v3FocusedCardKey]);
 
   // V2: «Закрыть карточку» закрывает и её вкладку (инвариант: любой путь, снимающий карточку
   // с рабочей области, удаляет её дескриптор из v2OpenCards — иначе зависшая вкладка переоткрывает

@@ -6,6 +6,8 @@ import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { ButtonPanel } from '../shellV2/ButtonPanel.js';
 import type { V2ButtonLayout } from '@matricarmz/shared';
 import { V2_LIST_TABS, buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
+import { ChromeDrawer } from '../shell/ChromeDrawer.js';
+import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import './shellV3.css';
 
 /**
@@ -112,6 +114,43 @@ export function V3TabShell(props: {
     <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(workspaceTab)}</React.Suspense>
   );
 
+  // Планшетный режим: «РАЗДЕЛЫ» перестают быть колонкой сплита и становятся выдвижной
+  // панелью поверх данных — список занимает всю ширину, а разделы доступны и из карточки
+  // (в сплит-раскладке они прячутся вместе с ним). Сплит с Group/Panel остаётся ровно
+  // прежним на десктопе: ветки соседние, десктопная не переписывается.
+  const chrome = useChromeVisibility();
+  const setShellMounted = chrome.setShellMounted;
+  // useLayoutEffect, а не useEffect: режим включается до первой отрисовки, иначе
+  // сплит-раскладка успевает мигнуть перед переходом на выдвижную панель.
+  React.useLayoutEffect(() => {
+    setShellMounted(true);
+    return () => setShellMounted(false);
+  }, [setShellMounted]);
+  const drawerSections = chrome.enabled;
+
+  const sectionsPanel = (
+    <ButtonPanel
+      buttons={buttons}
+      layout={props.buttonLayout}
+      onLayoutChange={props.onButtonLayoutChange}
+      activeMenuTab={activeMenuTab}
+      listOpenTab={listOpenTab}
+      onTab={(t) => {
+        if (drawerSections) chrome.hide('sections');
+        props.onMenuTab(t);
+      }}
+    />
+  );
+
+  const listBody = listTab ? (
+    <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(listTab)}</React.Suspense>
+  ) : (
+    <div className="v3-list-empty">
+      <div style={{ fontSize: 34 }}>🗂️</div>
+      <div>Выберите раздел слева — список откроется здесь.</div>
+    </div>
+  );
+
   return (
     <div className="v3-shell">
       <div className="v3-tab-strip" role="tablist">
@@ -197,8 +236,18 @@ export function V3TabShell(props: {
           </div>
         ) : null}
       </div>
+      {drawerSections && (
+        <ChromeDrawer open={!chrome.state.hidden.sections}>
+          <div className="v3-split-sections">{sectionsPanel}</div>
+        </ChromeDrawer>
+      )}
       {/* Сплит «РАЗДЕЛЫ | Список» всегда смонтирован — скрывается, когда активна карточка.
           Разделитель тянется мышкой, ширина запоминается. */}
+      {drawerSections ? (
+        <div className="v3-split" style={cardActive ? { display: 'none' } : undefined}>
+          <div className="v3-split-list">{listBody}</div>
+        </div>
+      ) : (
       <div className="v3-split" style={cardActive ? { display: 'none' } : undefined}>
         <Group orientation="horizontal" className="v3-split-group"
           onLayoutChanged={(layout: Layout, meta: LayoutChangedMeta) => {
@@ -210,32 +259,15 @@ export function V3TabShell(props: {
           }}
         >
           <Panel id="v3-sections" className="v3-panel-body" minSize="150px" defaultSize={sectionsDefaultSize}>
-            <div className="v3-split-sections">
-              <ButtonPanel
-                buttons={buttons}
-                layout={props.buttonLayout}
-                onLayoutChange={props.onButtonLayoutChange}
-                activeMenuTab={activeMenuTab}
-                listOpenTab={listOpenTab}
-                onTab={props.onMenuTab}
-              />
-            </div>
+            <div className="v3-split-sections">{sectionsPanel}</div>
           </Panel>
           <Separator className="v3-resize-handle" />
           <Panel id="v3-list" className="v3-panel-body" minSize={240}>
-            <div className="v3-split-list">
-              {listTab ? (
-                <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(listTab)}</React.Suspense>
-              ) : (
-                <div className="v3-list-empty">
-                  <div style={{ fontSize: 34 }}>🗂️</div>
-                  <div>Выберите раздел слева — список откроется здесь.</div>
-                </div>
-              )}
-            </div>
+            <div className="v3-split-list">{listBody}</div>
           </Panel>
         </Group>
       </div>
+      )}
       {workspaceTab && (
         secondary ? (
           /* Сравнение «2 рядом»: активная карточка слева, закреплённая ⑃ справа, дефолт пополам. */

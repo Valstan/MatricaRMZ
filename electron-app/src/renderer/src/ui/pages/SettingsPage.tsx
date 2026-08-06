@@ -6,6 +6,8 @@ import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useTabletDevice } from '../hooks/useUiMode.js';
+import { isAndroidPlatform } from '../platform.js';
+import { readChromeAutoHidePref, writeChromeAutoHidePref } from '../shell/ChromeVisibilityContext.js';
 
 type CriticalEventItem = {
   id: string;
@@ -48,6 +50,8 @@ export function SettingsPage(props: {
   const [uiTheme, setUiTheme] = useState<'auto' | 'light' | 'dark' | 'warm'>(props.uiPrefs.theme);
   const [chatSide, setChatSide] = useState<'left' | 'right'>(props.uiPrefs.chatSide);
   const [enterAsTab, setEnterAsTab] = useState<boolean>(props.uiPrefs.enterAsTab === true);
+  // Планшетный режим «данные на весь экран» — машинно-локальный флаг, как «Это планшет».
+  const [chromeAutoHide, setChromeAutoHide] = useState<boolean>(readChromeAutoHidePref);
   // «Это планшет» — машинно-локальный флаг (localStorage), применяется сразу, не через «Сохранить».
   const { isTabletDevice, setIsTabletDevice } = useTabletDevice();
   const [pwCurrent, setPwCurrent] = useState<string>('');
@@ -645,6 +649,38 @@ export function SettingsPage(props: {
                 интерфейса под палец. Применяется сразу и хранится на этом устройстве.
               </div>
             </div>
+            {isAndroidPlatform() && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Убирать панели ради данных</div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <Button
+                      variant={chromeAutoHide ? 'primary' : 'ghost'}
+                      onClick={() => {
+                        writeChromeAutoHidePref(true);
+                        setChromeAutoHide(true);
+                      }}
+                    >
+                      Да (на весь экран)
+                    </Button>
+                    <Button
+                      variant={!chromeAutoHide ? 'primary' : 'ghost'}
+                      onClick={() => {
+                        writeChromeAutoHidePref(false);
+                        setChromeAutoHide(false);
+                      }}
+                    >
+                      Нет (всё видно всегда)
+                    </Button>
+                  </div>
+                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    Шапка, вкладки, кнопки списка и разделы уезжают за край, когда вы листаете
+                    данные, — и возвращаются свайпом от язычка у края экрана или нажатием на него.
+                    Кнопки сохранения не прячутся никогда.
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
             <Button variant="ghost" onClick={() => void handleSaveUiPrefs()}>

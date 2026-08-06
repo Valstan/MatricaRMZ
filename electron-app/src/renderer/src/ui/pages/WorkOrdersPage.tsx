@@ -492,7 +492,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+      {/* mx-page-toolbar — планшетный режим убирает ряд при прокрутке списка. */}
+      <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
         {props.canCreate && (
           <Button
             disabled={creating}

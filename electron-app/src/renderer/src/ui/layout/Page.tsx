@@ -114,7 +114,10 @@ export function Page(props: {
           overflow: 'hidden',
         }}
       >
+        {/* mx-chrome-slot--header — якорь планшетного режима «данные на весь экран»:
+            на Android шапка уезжает целиком (display:none), на десктопе класс без правил. */}
         <div
+          className="mx-chrome-slot mx-chrome-slot--header"
           style={{
             display: 'flex',
             alignItems: 'center',

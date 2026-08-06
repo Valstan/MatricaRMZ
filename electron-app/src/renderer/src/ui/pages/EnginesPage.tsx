@@ -853,7 +853,9 @@ export function EnginesPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap' }}>
+      {/* mx-page-toolbar — на планшете ряд уезжает, когда оператор листает список
+          (возврат: язычок 🔍 у левого края, он же ставит курсор в поиск). */}
+      <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap' }}>
         {props.onOpenReport && (
           <Button variant="ghost" onClick={() => props.onOpenReport?.()} title="Гибкие отчёты по двигателям: фильтры, выбор колонок, шаблоны, печать">
             Отчёт по двигателям
