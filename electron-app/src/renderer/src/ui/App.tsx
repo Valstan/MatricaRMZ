@@ -1066,7 +1066,7 @@ export function App() {
       }
     }
     requestTabSwitch(nextTab);
-  }, [requestTabSwitch, isV2, isV3, isCardTab, tab, v2OpenCards]);
+  }, [requestTabSwitch, isV3, isCardTab, tab, v2OpenCards]);
 
   // V2: список виден рядом с открытой карточкой, поэтому клик по другой строке того же
   // списка меняет selectedXId БЕЗ смены таба — requestTabSwitch не сработает, и key-ремоунт
