@@ -42,7 +42,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type MenuGroupId, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, GROUP_LABELS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
+import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
 import { isAndroidPlatform } from './platform.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { deriveUiCaps } from './auth/permissions.js';
@@ -58,12 +58,10 @@ import { ChatPanel } from './components/ChatPanel.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
 import { ListContextMenu } from './components/ListContextMenu.js';
 import { useConfirm } from './components/ConfirmContext.js';
-import { IvanychFigure } from './components/IvanychFigure.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { GlobalInputAssist } from './components/GlobalInputAssist.js';
 import { GlobalSearchOverlay } from './components/GlobalSearchOverlay.js';
 import { AiAgentChat, type AiAgentChatHandle } from './components/AiAgentChat.js';
-import { ListColumnsToggle } from './components/ListColumnsToggle.js';
 import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
@@ -79,19 +77,13 @@ import { logUiUsage } from './utils/uiUsageLog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
+import type { ActionButtonId } from './shellV2/menuActions.js';
 import { V3TabShell } from './shellV3/V3TabShell.js';
 
 // Цветовые гаммы (план ui-themes-ergonomics-2026-07): оверрайды акцентных токенов
 // в global.css по data-palette; 'classic' = текущая синяя (без оверрайда).
 const UI_PALETTE_IDS = ['classic', 'emerald', 'terracotta', 'lilac', 'graphite'] as const;
 type UiPaletteId = (typeof UI_PALETTE_IDS)[number];
-const UI_PALETTE_LABELS: Record<UiPaletteId, string> = {
-  classic: 'Классика (синяя)',
-  emerald: 'Изумруд',
-  terracotta: 'Терракота',
-  lilac: 'Сирень',
-  graphite: 'Графит',
-};
 
 type RecentVisitEntry = {
   id: string;
@@ -692,7 +684,7 @@ export function App() {
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   useAutoGrowInputs();
   useAdaptiveListTables();
-  const { isMultiColumn, toggle: toggleListColumnsMode } = useListColumnsMode();
+  const { toggle: toggleListColumnsMode } = useListColumnsMode();
   // Планшетный режим (Ф1a): isTabletDevice — «эта машина цеховой планшет» (гейт видимости
   // кнопки, машинно-локально, сеётся эвристикой один раз); isTabletUi — живой touch-layout,
   // что переключает большая кнопка «Комп/Планшет» в шапке.
@@ -716,6 +708,7 @@ export function App() {
   const V2_MAX_OPEN_CARDS = 3;
   // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
   const [v3PinnedFocus, setV3PinnedFocus] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
   // V3: лимит 10 вкладок — открытие 11-й блокируется с красным уведомлением (авто-гаснет).
   const [v3LimitNotice, setV3LimitNotice] = useState(false);
   // Обход гейта лимита для рефокуса УЖЕ открытой карточки и session-restore (selected-id
@@ -1692,6 +1685,54 @@ export function App() {
     }
   }
 
+  function handleMenuAction(id: ActionButtonId) {
+    switch (id) {
+      case 'theme':
+        void persistTheme(uiPrefs.theme === 'auto' ? 'light' : uiPrefs.theme === 'light' ? 'dark' : uiPrefs.theme === 'dark' ? 'warm' : 'auto');
+        break;
+      case 'decor':
+        void persistDecor(uiPrefs.decor === 'fancy' ? 'strict' : 'fancy');
+        break;
+      case 'palette': {
+        const current = uiPrefs.palette ?? 'classic';
+        const idx = UI_PALETTE_IDS.indexOf(current);
+        const next = UI_PALETTE_IDS[(idx + 1) % UI_PALETTE_IDS.length] ?? 'classic';
+        void persistPalette(next);
+        break;
+      }
+      case 'search':
+        setGlobalSearchOpen(true);
+        break;
+      case 'basket':
+        setTrashOpen((v) => !v);
+        break;
+      case 'column_mode':
+        toggleListColumnsMode();
+        break;
+      case 'chat_link':
+        void sendCurrentPositionToChat();
+        break;
+      case 'notes_link':
+        void saveCurrentPositionToNotes();
+        break;
+      case 'sync':
+        void runSyncNow();
+        break;
+      case 'user':
+        setTab(userTab);
+        break;
+      case 'ai_chat':
+        setAiChatOpen((v) => !v);
+        break;
+      case 'chat':
+        setChatOpen((v) => !v);
+        break;
+      case 'tablet_mode':
+        toggleUiMode();
+        break;
+    }
+  }
+
   function resetUserScopedState() {
     setEngines([]);
     setEngineDetails(null);
@@ -2357,50 +2398,6 @@ export function App() {
       return nextForSave;
     });
     await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
-  }
-
-  function updateHiddenTabs(nextHidden: MenuTabId[]) {
-    void persistTabsLayout({
-      order: menuState.order,
-      hidden: nextHidden,
-      trashIndex: menuState.trashIndex,
-      ...(tabsLayout?.groupOrder ? { groupOrder: tabsLayout.groupOrder } : {}),
-      ...(tabsLayout?.hiddenGroups ? { hiddenGroups: tabsLayout.hiddenGroups } : {}),
-      ...(tabsLayout?.collapsedGroups ? { collapsedGroups: tabsLayout.collapsedGroups } : {}),
-      ...(tabsLayout?.activeGroup != null ? { activeGroup: tabsLayout.activeGroup } : {}),
-    });
-  }
-
-  function updateHiddenGroups(nextHiddenGroups: MenuGroupId[]) {
-    void persistTabsLayout({
-      order: menuState.order,
-      hidden: menuState.hidden,
-      trashIndex: menuState.trashIndex,
-      ...(tabsLayout?.groupOrder ? { groupOrder: tabsLayout.groupOrder } : {}),
-      ...(nextHiddenGroups.length > 0 ? { hiddenGroups: nextHiddenGroups } : {}),
-      ...(tabsLayout?.collapsedGroups ? { collapsedGroups: tabsLayout.collapsedGroups } : {}),
-      ...(tabsLayout?.activeGroup != null ? { activeGroup: tabsLayout.activeGroup } : {}),
-    });
-  }
-
-  function restoreHiddenTab(id: MenuTabId) {
-    const nextHidden = menuState.hidden.filter((x) => x !== id);
-    updateHiddenTabs(nextHidden);
-  }
-
-  function restoreAllHiddenTabs() {
-    if (menuState.hidden.length === 0) return;
-    updateHiddenTabs([]);
-  }
-
-  function restoreHiddenGroup(id: MenuGroupId) {
-    const nextHiddenGroups = menuState.hiddenGroups.filter((x) => x !== id);
-    updateHiddenGroups(nextHiddenGroups);
-  }
-
-  function restoreAllHiddenGroups() {
-    if (menuState.hiddenGroups.length === 0) return;
-    updateHiddenGroups([]);
   }
 
   async function persistChatSide(next: 'left' | 'right') {
@@ -4231,24 +4228,6 @@ export function App() {
 
   const headerInlineStatusText = postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? postLoginSyncMsg : '';
 
-  const edgeSide = uiPrefs.chatSide;
-  const edgeButtonStyle: React.CSSProperties = {
-    writingMode: 'vertical-rl',
-    textOrientation: 'mixed',
-    padding: '6px 4px',
-    minWidth: 26,
-    fontSize: 11,
-    fontWeight: 700,
-  };
-  const edgeMoveButtonStyle: React.CSSProperties = {
-    ...edgeButtonStyle,
-    writingMode: 'horizontal-tb',
-    textOrientation: 'mixed',
-    padding: '6px 8px',
-    minWidth: 36,
-    fontSize: 14,
-    lineHeight: '14px',
-  };
   const quickStartRatings = useMemo(
     () => projectQuickStartRatings(quickStartScores),
     [quickStartScores],
@@ -5195,228 +5174,14 @@ export function App() {
         title={pageTitle}
         uiTheme={resolvedTheme}
         right={
-        <>
-          {/* Крупная кнопка режима «Комп/Планшет» (Ф1a). Появляется ТОЛЬКО когда машина помечена
-              планшетом (Настройки → «Это планшет»), на всех страницах обеих оболочек. Палец-таргет
-              ~48px. На обычном ПК кнопки нет вовсе. */}
-          {authStatus.loggedIn && isTabletDevice && (
-            <Button
-              variant={isTabletUi ? 'primary' : 'ghost'}
-              onClick={() => toggleUiMode()}
-              title={isTabletUi
-                ? 'Планшетный режим включён (крупные элементы для пальца). Нажмите для режима компьютера.'
-                : 'Режим компьютера (обычные размеры). Нажмите для планшетного режима.'}
-              aria-label={isTabletUi ? 'Режим: Планшет' : 'Режим: Комп'}
-              style={{ minHeight: 48, padding: '10px 18px', fontSize: 16, fontWeight: 600 }}
-            >
-              {isTabletUi ? '📱' : '💻'}
-              <span data-hdr-label="2">{isTabletUi ? ' Планшет' : ' Комп'}</span>
-            </Button>
-          )}
-          {/* Переключатель темы интерфейса — всегда виден в верхней панели (в т.ч. до входа).
-              Тема глобальная и применяется мгновенно; выбранная подсвечивается primary. */}
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} title="Тема интерфейса">
-            {([
-              { key: 'auto', icon: '🌗', label: 'Авто (по системе)' },
-              { key: 'light', icon: '☀️', label: 'Светлая' },
-              { key: 'dark', icon: '🌙', label: 'Тёмная' },
-              { key: 'warm', icon: '🔥', label: 'Тёплая (цеховая)' },
-            ] as const).map((o) => (
-              <Button
-                key={o.key}
-                size="sm"
-                variant={uiPrefs.theme === o.key ? 'primary' : 'ghost'}
-                title={`Тема: ${o.label}`}
-                aria-label={`Тема: ${o.label}`}
-                onClick={() => void persistTheme(o.key)}
-              >
-                {o.icon}
-              </Button>
-            ))}
-          </div>
-          {/* Оформление «Строго/Красиво» + цветовая гамма (ортогональны теме яркости). */}
-          <Button
-            size="sm"
-            variant={uiPrefs.decor === 'fancy' ? 'primary' : 'ghost'}
-            onClick={() => void persistDecor(uiPrefs.decor === 'fancy' ? 'strict' : 'fancy')}
-            title={uiPrefs.decor === 'fancy' ? 'Украшенное оформление (нажмите для строгого)' : 'Строгое оформление (нажмите для украшенного)'}
-            aria-label="Оформление: строго/красиво"
-          >
-            {uiPrefs.decor === 'fancy' ? '❀' : '▦'}
-            <span data-hdr-label="3">{uiPrefs.decor === 'fancy' ? ' Красиво' : ' Строго'}</span>
-          </Button>
-          <select
-            value={uiPrefs.palette}
-            onChange={(e) => void persistPalette(e.target.value as UiPaletteId)}
-            title="Цветовая гамма"
-            aria-label="Цветовая гамма"
-            data-hdr-compact="46"
-            style={{ padding: '3px 6px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12, maxWidth: 148 }}
-          >
-            {UI_PALETTE_IDS.map((p) => (
-              <option key={p} value={p}>
-                🎨 {UI_PALETTE_LABELS[p]}
-              </option>
-            ))}
-          </select>
-          {authStatus.loggedIn && (
-            <Button variant="ghost" onClick={() => setGlobalSearchOpen(true)} title="Глобальный поиск (Ctrl+K)">
-              🔍<span data-hdr-label="6"> Поиск</span>
-            </Button>
-          )}
-          {authStatus.loggedIn && (
-            <div ref={trashButtonRef} style={{ position: 'relative' }}>
-              <Button
-                variant="ghost"
-                onClick={() => setTrashOpen((prev) => !prev)}
-                title="Корзина кнопок"
-              >
-                🗑<span data-hdr-label="7"> Корзина</span>
-              </Button>
-              {trashOpen && (
-                <div
-                  ref={trashPopupRef}
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 6px)',
-                    right: 0,
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 10,
-                    boxShadow: '0 16px 40px rgba(15,23,42,0.18)',
-                    padding: 8,
-                    zIndex: 1900,
-                    minWidth: 220,
-                    maxWidth: 320,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div style={{ fontWeight: 700 }}>Скрытые кнопки</div>
-                    <Button variant="ghost" onClick={restoreAllHiddenTabs} disabled={menuState.hidden.length === 0}>
-                      Восстановить
-                    </Button>
-                  </div>
-                  {menuState.hiddenVisible.length === 0 ? (
-                    <div style={{ color: 'var(--muted)' }}>Нет скрытых кнопок</div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {menuState.hiddenVisible.map((id) => (
-                        <Button
-                          key={id}
-                          variant="ghost"
-                          onClick={() => {
-                            restoreHiddenTab(id);
-                          }}
-                        >
-                          {menuLabels[id] ?? id}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 6 }}>
-                    <div style={{ fontWeight: 700 }}>Скрытые отделы</div>
-                    <Button variant="ghost" onClick={restoreAllHiddenGroups} disabled={menuState.hiddenGroups.length === 0}>
-                      Восстановить
-                    </Button>
-                  </div>
-                  {menuState.hiddenGroupsVisible.length === 0 ? (
-                    <div style={{ color: 'var(--muted)' }}>Нет скрытых отделов</div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {menuState.hiddenGroupsVisible.map((id) => (
-                        <Button
-                          key={`group-${id}`}
-                          variant="ghost"
-                          onClick={() => {
-                            restoreHiddenGroup(id);
-                          }}
-                        >
-                          {GROUP_LABELS[id] ?? id}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {authStatus.loggedIn && !viewMode && (
-            <>
-              <ListColumnsToggle isMultiColumn={isMultiColumn} onToggle={toggleListColumnsMode} />
-              <Button
-                variant="ghost"
-                onClick={() => void sendCurrentPositionToChat()}
-                title="Отправить ссылку на текущий раздел в чат"
-              >
-                💬<span data-hdr-label="9"> Ссылку в чат</span>
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => void saveCurrentPositionToNotes()}
-                title="Сохранить ссылку на текущий раздел в заметки"
-              >
-                📝<span data-hdr-label="10"> Ссылку в заметки</span>
-              </Button>
-            </>
-          )}
-          {/* Ошибка входной синхронизации — единственное, что осталось от прежней
-              центральной полосы: место в шапке она занимает только когда есть что сказать. */}
-          {headerInlineStatusText ? (
+          headerInlineStatusText ? (
             <span
               title={headerInlineStatusText}
               style={{ fontSize: 12, color: '#fecaca', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {headerInlineStatusText}
             </span>
-          ) : null}
-          {authStatus.loggedIn && caps.canUseSync && !viewMode && (
-            <Button
-              variant="ghost"
-                onClick={() => void runSyncNow()}
-              disabled={syncStatus?.state === 'syncing'}
-              title="Запустить синхронизацию вручную"
-              aria-label="Синхронизировать сейчас"
-              style={{
-                background: '#90ee90',
-                color: '#000000',
-                border: '1px solid #4b8a4b',
-                boxShadow: 'none',
-                fontWeight: 700,
-                width: 28,
-                height: 28,
-                minWidth: 28,
-                minHeight: 28,
-                padding: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 16,
-                lineHeight: 1,
-              }}
-            >
-              ↻
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              if (!authStatus.loggedIn) {
-                setTab(userTab);
-                return;
-              }
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setAccountMenuPos({ x: rect.left, y: rect.bottom + 4 });
-            }}
-            style={{
-              border: tab === userTab ? '1px solid #1e40af' : '1px solid rgba(15, 23, 42, 0.22)',
-              background: tab === userTab ? '#e2e8f0' : '#f8fafc',
-              color: '#0f172a',
-              fontWeight: 700,
-            }}
-          >
-            {userLabel?.trim() ? userLabel.trim() : 'Вход'}
-          </Button>
-        </>
+          ) : null
         }
       >
         {renderReleaseWelcomeModal()}
@@ -5539,6 +5304,9 @@ export function App() {
               tab={tab}
               activeListTab={v2ActiveListTab}
               onMenuTab={handleMenuTab}
+              onAction={handleMenuAction}
+              collapsedSections={collapsedSections}
+              onCollapsedSectionsChange={setCollapsedSections}
               renderTabContent={renderTabContent}
               openCards={v2OpenCards}
               focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
@@ -5632,81 +5400,8 @@ export function App() {
           </div>
         )}
       </div>
-      {authStatus.loggedIn && canChat && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            zIndex: 6,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            left: edgeSide === 'left' ? 0 : 'auto',
-            right: edgeSide === 'right' ? 0 : 'auto',
-          }}
-        >
-          <Button
-            variant="ghost"
-            onClick={() => void persistChatSide(edgeSide === 'left' ? 'right' : 'left')}
-            title="Переместить чат"
-            style={edgeMoveButtonStyle}
-          >
-            {edgeSide === 'left' ? '→' : '←'}
-          </Button>
-          {chatOpen ? (
-            <Button variant="ghost" onClick={() => setChatOpen(false)} title="Свернуть чат" style={edgeButtonStyle}>
-              Свернуть чат
-            </Button>
-          ) : (
-            <Button variant="primary" onClick={() => setChatOpen(true)} title="Открыть чат" style={edgeButtonStyle}>
-              {`Открыть чат${chatUnreadTotal > 0 ? ` (${chatUnreadTotal})` : ''}`}
-            </Button>
-          )}
-        </div>
-      )}
       </div>
 
-      {canAiAgent && (
-        <>
-          {aiChatOpen ? (
-            <AiAgentChat
-              ref={aiChatRef}
-              visible={aiChatOpen}
-              context={aiContext}
-              lastEvent={aiLastEvent}
-              recentEvents={aiRecentEvents}
-              onClose={() => setAiChatOpen(false)}
-            />
-          ) : (
-            <button
-              onClick={() => setAiChatOpen(true)}
-              style={{
-                position: 'fixed',
-                right: 16,
-                bottom: 16,
-                borderRadius: 999,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                padding: '6px 14px 6px 8px',
-                fontWeight: 700,
-                boxShadow: '0 12px 30px rgba(0,0,0,0.2)',
-                cursor: 'pointer',
-                zIndex: 20,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-              title="Позвать ИИваныча — он знает про завод, двигатели и детали"
-            >
-              <IvanychFigure size={26} />
-              ИИваныч
-            </button>
-          )}
-        </>
-      )}
-      <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
       <GlobalSearchOverlay
         open={globalSearchOpen}
         onClose={() => setGlobalSearchOpen(false)}
@@ -5718,6 +5413,8 @@ export function App() {
           void navigateToRoute({ kind: 'tab', id: tabId });
         }}
       />
+      {aiChatOpen && <AiAgentChat ref={aiChatRef} visible={aiChatOpen} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} onClose={() => setAiChatOpen(false)} />}
+      <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
     </Page>
     </ErrorBoundary>
   );

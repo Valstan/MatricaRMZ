@@ -7,16 +7,11 @@ import {
   TAB_VISUALS,
   TABLET_OPERATOR_TABS,
   groupForTab,
-  type MenuGroupId,
   type MenuTabId,
   type TabId,
 } from '../layout/Tabs.js';
+import { type ActionButtonDescriptor, ACTION_BUTTONS, ACTION_GROUP_LABELS, ACTION_GROUP_ORDER } from './menuActions.js';
 
-/**
- * V2: какие табы — «списки» (живут во 2-й колонке). Всё остальное (страницы-документы,
- * карточки) рендерится в рабочей области (3-я колонка). Карточные табы (engine, work_order…)
- * в меню не показываются и классификации не требуют.
- */
 export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'engines',
   'engine_brands',
@@ -45,26 +40,36 @@ export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'user_screens',
 ]);
 
-export type V2ButtonDescriptor = {
-  id: MenuTabId;
+export type MenuButtonKind = 'nav' | 'action';
+
+export type MenuButtonDescriptor = {
+  id: string;
   label: string;
   icon: string;
-  group: MenuGroupId;
+  group: string;
   groupLabel: string;
-  isList: boolean;
+  kind: MenuButtonKind;
+  isList?: boolean;
+};
+
+export type MenuSection = {
+  id: string;
+  label: string;
+  icon: string;
+  items: MenuButtonDescriptor[];
 };
 
 export type V2Buttons = {
-  pinned: V2ButtonDescriptor[];
-  main: V2ButtonDescriptor[];
-  hidden: V2ButtonDescriptor[];
+  pinned: MenuButtonDescriptor[];
+  sections: MenuSection[];
+  hidden: MenuButtonDescriptor[];
 };
 
 function defaultFlatOrder(): MenuTabId[] {
   return DEFAULT_GROUP_ORDER.flatMap((g) => DEFAULT_GROUP_TABS[g]);
 }
 
-function toDescriptor(id: MenuTabId, menuLabels: Partial<Record<MenuTabId, string>>): V2ButtonDescriptor {
+function toDescriptor(id: MenuTabId, menuLabels: Partial<Record<MenuTabId, string>>): MenuButtonDescriptor {
   const group = groupForTab(id);
   return {
     id,
@@ -72,50 +77,109 @@ function toDescriptor(id: MenuTabId, menuLabels: Partial<Record<MenuTabId, strin
     icon: TAB_VISUALS[id]?.icon ?? '▫️',
     group,
     groupLabel: GROUP_LABELS[group] ?? group,
+    kind: 'nav',
     isList: V2_LIST_TABS.has(id),
   };
 }
 
+function toActionDescriptor(a: ActionButtonDescriptor): MenuButtonDescriptor {
+  return {
+    id: a.id,
+    label: a.label,
+    icon: a.icon,
+    group: a.group,
+    groupLabel: ACTION_GROUP_LABELS[a.group] ?? a.group,
+    kind: 'action',
+  };
+}
+
+function sectionId(group: string): string {
+  return `group:${group}`;
+}
+
 /**
- * Собирает кнопки панели: закреплённые сверху (в порядке pinned), затем основной
- * список в пользовательском порядке (неизвестные новые табы — на их дефолтном месте),
- * скрытые — отдельно (для восстановления).
+ * Собирает кнопки панели в секции: закреплённые сверху (в порядке pinned — это копии,
+ * оригиналы остаются в своих секциях), затем секции по группам с возможностью сворачивания.
  */
 export function buildV2Buttons(
   availableTabs: MenuTabId[],
   menuLabels: Partial<Record<MenuTabId, string>>,
   layout: V2ButtonLayout,
-  /** Режим «Планшет»: меню сужается до операторского пресета, раскладка не трогается. */
   tabletOperatorMenu = false,
 ): V2Buttons {
-  // Сужаем именно ДОСТУПНЫЕ табы, а не `hidden`: иначе закреплённый бухгалтерский
-  // раздел пролез бы в pinned, а спрятанные всплыли бы в списке «восстановить».
   const visibleTabs = tabletOperatorMenu
     ? availableTabs.filter((id) => TABLET_OPERATOR_TABS.includes(id))
     : availableTabs;
   const available = new Set(visibleTabs);
   const hiddenSet = new Set(layout.hidden.filter((id) => available.has(id as MenuTabId)));
   const pinnedIds = layout.pinned.filter((id): id is MenuTabId => available.has(id as MenuTabId) && !hiddenSet.has(id));
-  const pinnedSet = new Set(pinnedIds);
 
   const savedOrder = layout.order.filter((id): id is MenuTabId => available.has(id as MenuTabId));
   const order: MenuTabId[] = [...savedOrder];
   const defaults = defaultFlatOrder().filter((id) => available.has(id));
   for (const id of defaults) {
     if (order.includes(id)) continue;
-    // Новый (не сохранённый) таб — вставляем после его дефолтного предшественника.
     const defIdx = defaults.indexOf(id);
     const pred = defIdx > 0 ? defaults[defIdx - 1] : undefined;
     const at = pred ? order.indexOf(pred) : -1;
     if (at >= 0) order.splice(at + 1, 0, id);
     else order.push(id);
   }
-  // Доступные табы вне дефолтного каталога (на всякий случай) — в конец.
   for (const id of visibleTabs) if (!order.includes(id)) order.push(id);
 
+  const mainIds = order.filter((id) => !hiddenSet.has(id));
+  const allNav = mainIds.map((id) => toDescriptor(id, menuLabels));
+
+  const allActions = ACTION_BUTTONS.map(toActionDescriptor);
+
+  const pinnedDescs = pinnedIds.map((id) => toDescriptor(id, menuLabels));
+  const pinnedActionIds = layout.pinned.filter((id) => !available.has(id as MenuTabId));
+  for (const aid of pinnedActionIds) {
+    const ad = ACTION_BUTTONS.find((a) => a.id === aid);
+    if (ad && !hiddenSet.has(aid as any)) pinnedDescs.push(toActionDescriptor(ad));
+  }
+
+  const navGroups = new Map<string, MenuButtonDescriptor[]>();
+  for (const btn of allNav) {
+    const list = navGroups.get(btn.group) ?? [];
+    list.push(btn);
+    navGroups.set(btn.group, list);
+  }
+
+  const sections: MenuSection[] = [];
+
+  for (const gid of DEFAULT_GROUP_ORDER) {
+    const items = navGroups.get(gid);
+    if (!items || items.length === 0) continue;
+    sections.push({
+      id: sectionId(gid),
+      label: GROUP_LABELS[gid] ?? gid,
+      icon: '',
+      items,
+    });
+  }
+
+  const actionGroups = new Map<string, MenuButtonDescriptor[]>();
+  for (const btn of allActions) {
+    const list = actionGroups.get(btn.group) ?? [];
+    list.push(btn);
+    actionGroups.set(btn.group, list);
+  }
+
+  for (const gid of ACTION_GROUP_ORDER) {
+    const items = actionGroups.get(gid);
+    if (!items || items.length === 0) continue;
+    sections.push({
+      id: sectionId(gid),
+      label: ACTION_GROUP_LABELS[gid] ?? gid,
+      icon: '',
+      items,
+    });
+  }
+
   return {
-    pinned: pinnedIds.map((id) => toDescriptor(id, menuLabels)),
-    main: order.filter((id) => !pinnedSet.has(id) && !hiddenSet.has(id)).map((id) => toDescriptor(id, menuLabels)),
+    pinned: pinnedDescs,
+    sections,
     hidden: order.filter((id) => hiddenSet.has(id)).map((id) => toDescriptor(id, menuLabels)),
   };
 }
