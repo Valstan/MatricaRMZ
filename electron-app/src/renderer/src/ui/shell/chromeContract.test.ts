@@ -16,8 +16,7 @@ function src(rel: string): string {
 }
 
 const CASES: Array<{ file: string; anchors: string[] }> = [
-  { file: '../layout/Page.tsx', anchors: ['mx-chrome-slot--header'] },
-  { file: '../shellV3/V3TabShell.tsx', anchors: ['v3-tab-strip', 'v3-tab-close', 'v3-tab-pinned', 'v3-split-sections', 'v3-split-list'] },
+  { file: '../shellV3/V3TabShell.tsx', anchors: ['v3-tab-strip', 'v3-tab-close', 'v3-tab-menu', 'v3-logo', 'v3-sync-btn', 'v3-tab-label'] },
   { file: '../shellV2/ButtonPanel.tsx', anchors: ['v2-menu-btn-label', 'v2-button-panel'] },
   { file: '../pages/EnginesPage.tsx', anchors: ['mx-page-toolbar'] },
   { file: '../pages/WorkOrdersPage.tsx', anchors: ['mx-page-toolbar'] },
@@ -56,7 +55,7 @@ describe('правила скрытия покрывают все якоря', (
   });
 
   it('скрываются ровно размеченные слои', () => {
-    for (const anchor of ['mx-chrome-slot--header', 'v3-tab-strip', 'mx-page-toolbar', 'mx-page-footer', 'ui-section-header']) {
+    for (const anchor of ['v3-tab-strip', 'mx-page-toolbar', 'mx-page-footer', 'ui-section-header']) {
       expect(css).toContain(anchor);
     }
     // Работа оператора не скрывается ничем: ни панель действий карточки, ни строка

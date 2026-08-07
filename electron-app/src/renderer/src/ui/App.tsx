@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   AuthStatus,
@@ -76,9 +76,9 @@ import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
-import { V2_LIST_TABS } from './shellV2/v2ButtonCatalog.js';
+import { V2_LIST_TABS, buildV2Buttons } from './shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from './shellV2/menuActions.js';
-import { V3TabShell } from './shellV3/V3TabShell.js';
+import { V3TabShell, type OpenTab } from './shellV3/V3TabShell.js';
 
 // Цветовые гаммы (план ui-themes-ergonomics-2026-07): оверрайды акцентных токенов
 // в global.css по data-palette; 'classic' = текущая синяя (без оверрайда).
@@ -707,10 +707,25 @@ export function App() {
   const [v2OpenCards, setV2OpenCards] = useState<Array<{ kind: TabId; entityId: string; title: string }>>([]);
   const V2_MAX_OPEN_CARDS = 3;
   // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
-  const [v3PinnedFocus, setV3PinnedFocus] = useState(false);
+  const [_v3PinnedFocus, setV3PinnedFocus] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
+  // При первом логине сворачиваем все секции МЕНЮ по умолчанию
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    if (collapsedSections.length > 0) return;
+    const btns = buildV2Buttons(sectionGatedTabs, menuLabels, DEFAULT_UI_SHELL_PREFS.v2.buttonLayout, tabletActive && userRole !== 'superadmin');
+    const ids = btns.sections.map((s) => s.id);
+    if (ids.length > 0) setCollapsedSections(ids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus.loggedIn]);
   // V3: лимит 10 вкладок — открытие 11-й блокируется с красным уведомлением (авто-гаснет).
-  const [v3LimitNotice, setV3LimitNotice] = useState(false);
+  const [_v3LimitNotice, setV3LimitNotice] = useState(false);
+  // Sync indicator state
+  const [syncIndicator, setSyncIndicator] = useState<{
+    state: 'idle' | 'syncing' | 'done';
+    progress: number | null;
+    summary: string | null;
+  }>({ state: 'idle', progress: null, summary: null });
   // Обход гейта лимита для рефокуса УЖЕ открытой карточки и session-restore (selected-id
   // в момент setTab ещё не закоммичен — по нему «уже открыта?» не определить).
   const v3BypassLimitRef = useRef(false);
@@ -1036,6 +1051,7 @@ export function App() {
     [isCardTab, tab, closeCardSession, setTabState],
   );
 
+
   const setTab = useCallback((nextTab: TabId) => {
     // V2: кнопка-список раскрывает колонку списков, не трогая рабочую область
     // (открытую карточку/страницу). Обычный переход — только когда фокус уже на списке.
@@ -1321,14 +1337,27 @@ export function App() {
     const unsubscribe = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
       if (!evt) return;
       if (evt.mode === 'incremental') {
-        // Полоса прогресса инкрементального синка из шапки убрана — от события нужны
-        // только подтягивания данных на экран. Заодно ушёл setState на каждый тик
-        // прогресса (перерисовывал всё приложение ради полоски).
+        if (evt.state === 'start') {
+          setSyncIndicator({ state: 'syncing', progress: null, summary: null });
+        }
         if (evt.state === 'progress' && !evt.coreReady) return;
-        // Progressive fill: EAV-ядро + ERP применены — показываем данные, не дожидаясь хвоста.
-        if (evt.state === 'progress' || (evt.state === 'done' && Number(evt.pulled ?? 0) > 0)) {
+        if (evt.state === 'progress') {
+          setSyncIndicator({ state: 'syncing', progress: evt.progress != null ? Math.round(evt.progress * 100) : null, summary: null });
           void refreshEngines();
           if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
+        }
+        if (evt.state === 'done') {
+          const pulled = Number(evt.pulled ?? 0);
+          setSyncIndicator({ state: 'done', progress: null, summary: pulled > 0 ? `Обновилось ${pulled} док.` : 'Синхронизировано' });
+          if (pulled > 0) {
+            void refreshEngines();
+            if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
+          }
+          setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 4000);
+        }
+        if (evt.state === 'error') {
+          setSyncIndicator({ state: 'idle', progress: null, summary: 'Ошибка синхронизации' });
+          setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 5000);
         }
         return;
       }
@@ -2349,7 +2378,7 @@ export function App() {
 
   // Закрыть эфемерную вкладку-страницу (Настройки/История/…): вернуться к открытому
   // списку; если список не открыт — к первому доступному разделу-списку.
-  function closeV3PageTab() {
+  function _closeV3PageTab() {
     const fallback = sectionGatedTabs.find((t) => V2_LIST_TABS.has(t as TabId)) as TabId | undefined;
     const target = v2ActiveListTab ?? fallback ?? null;
     if (target) setTabState(target);
@@ -2400,7 +2429,7 @@ export function App() {
     await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
   }
 
-  async function persistChatSide(next: 'left' | 'right') {
+  async function _persistChatSide(next: 'left' | 'right') {
     setUiPrefs((prev) => ({ ...prev, chatSide: next }));
     const userId = authStatus.user?.id;
     if (!userId) return;
@@ -3597,92 +3626,6 @@ export function App() {
     setEmployeesRefreshKey((prev) => prev + 1);
   }
 
-  const pageTitle =
-    tab === 'history'
-      ? 'Матрица РМЗ — Мой круг'
-    : tab === 'engines'
-      ? 'Матрица РМЗ — Двигатели'
-      : tab === 'engine_brands'
-        ? 'Матрица РМЗ — Марки двигателей'
-      : tab === 'engine'
-        ? 'Матрица РМЗ — Карточка двигателя'
-        : tab === 'engine_brand'
-          ? 'Матрица РМЗ — Карточка марки двигателя'
-        : tab === 'product'
-            ? 'Матрица РМЗ — Карточка товара'
-            : tab === 'service'
-              ? 'Матрица РМЗ — Карточка услуги'
-              : tab === 'tool_accounting'
-                ? 'Матрица РМЗ — Учёт инструментов'
-                : tab === 'nomenclature'
-                  ? 'Матрица РМЗ — Номенклатура'
-                  : tab === 'nomenclature_item'
-                    ? 'Матрица РМЗ — Карточка номенклатуры'
-                    : tab === 'engine_assembly_bom'
-                      ? 'Матрица РМЗ — BOM двигателей'
-                    : tab === 'repair_norms'
-                      ? 'Матрица РМЗ — Нормы ремонта'
-                      : tab === 'engine_assembly_bom_item'
-                        ? 'Матрица РМЗ — Карточка BOM двигателя'
-                    : tab === 'stock_balances'
-                      ? 'Матрица РМЗ — Остатки склада'
-                      : tab === 'stock_receipts'
-                        ? 'Матрица РМЗ — Склад: Приход'
-                        : tab === 'stock_issues'
-                          ? 'Матрица РМЗ — Склад: Расход'
-                          : tab === 'stock_transfers'
-                            ? 'Матрица РМЗ — Склад: Перемещения'
-                            : tab === 'stock_documents'
-                              ? 'Матрица РМЗ — Складские документы'
-                              : tab === 'stock_document'
-                                ? 'Матрица РМЗ — Карточка складского документа'
-                                : tab === 'stock_inventory'
-                                  ? 'Матрица РМЗ — Инвентаризация'
-        : tab === 'counterparties'
-          ? 'Матрица РМЗ — Контрагенты'
-          : tab === 'counterparty'
-            ? 'Матрица РМЗ — Карточка контрагента'
-        : tab === 'changes'
-          ? 'Матрица РМЗ — Изменения'
-        : tab === 'requests'
-          ? 'Матрица РМЗ — Заявки'
-          : tab === 'request'
-            ? 'Матрица РМЗ — Заявка'
-          : tab === 'work_orders'
-            ? 'Матрица РМЗ — Наряды'
-            : tab === 'work_order'
-              ? 'Матрица РМЗ — Карточка наряда'
-          : tab === 'parts'
-            ? 'Матрица РМЗ — Детали'
-                : tab === 'tools'
-                  ? 'Матрица РМЗ — Инструменты'
-                  : tab === 'tool_properties'
-                    ? 'Матрица РМЗ — Свойства инструментов'
-                    : tab === 'tool_property'
-                      ? 'Матрица РМЗ — Свойство инструмента'
-                      : tab === 'tool'
-                        ? 'Матрица РМЗ — Карточка инструмента'
-          : tab === 'contracts'
-            ? 'Матрица РМЗ — Контракты'
-            : tab === 'contract'
-              ? 'Матрица РМЗ — Карточка контракта'
-            : tab === 'employees'
-              ? 'Матрица РМЗ — Сотрудники'
-              : tab === 'employee'
-                ? 'Матрица РМЗ — Карточка сотрудника'
-        : tab === 'auth'
-          ? 'Матрица РМЗ — Вход'
-        : tab === 'settings'
-          ? 'Матрица РМЗ — Настройки'
-        : tab === 'reports'
-          ? 'Матрица РМЗ — Отчёты'
-          : tab === 'report_preset'
-            ? 'Матрица РМЗ — Шаблон отчёта'
-          : tab === 'masterdata'
-            ? 'Матрица РМЗ — Справочники'
-            : tab === 'admin'
-              ? 'Матрица РМЗ — Админ'
-          : 'Матрица РМЗ — Журнал';
 
   function recordFatalError(error: Error, info?: React.ErrorInfo | null) {
     const message = error?.message || String(error);
@@ -4226,7 +4169,7 @@ export function App() {
     );
   }
 
-  const headerInlineStatusText = postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? postLoginSyncMsg : '';
+  const _headerInlineStatusText = postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? postLoginSyncMsg : '';
 
   const quickStartRatings = useMemo(
     () => projectQuickStartRatings(quickStartScores),
@@ -5168,22 +5111,113 @@ export function App() {
     </>
   );
 
+  const closeTabById = (id: string) => {
+    if (id.startsWith('card:')) {
+      const [, kind, entityId] = id.split(':');
+      const card = v2OpenCards.find(c => c.kind === kind && c.entityId === entityId);
+      if (card) closeV2Card(card);
+    } else if (id === 'chat') {
+      setChatOpen(false);
+    } else if (id === 'ai_chat') {
+      setAiChatOpen(false);
+    } else if (id === 'settings') {
+      setTabState('history');
+    }
+  };
+
+  const selectTab = (id: string) => {
+    if (id === 'menu' || id === 'chat' || id === 'ai_chat' || id === 'settings') return;
+    if (id.startsWith('card:')) {
+      const [, kind, entityId] = id.split(':');
+      focusV2Card({ kind: kind as TabId, entityId: entityId ?? '' });
+    }
+  };
+
+  const tabList: OpenTab[] = (() => {
+    const tabs: OpenTab[] = [{ id: "menu", kind: "menu", label: "МЕНЮ", canClose: false }];
+    if (chatOpen && authStatus.loggedIn && canChat) {
+      tabs.push({ id: "chat", kind: "chat", label: "Чат", canClose: true });
+    }
+    if (aiChatOpen) {
+      tabs.push({ id: "ai_chat", kind: "ai_chat", label: "ИИваныч", canClose: true });
+    }
+    for (const card of v2OpenCards) {
+      tabs.push({
+        id: `card:${card.kind}:${card.entityId}`,
+        kind: "card",
+        label: card.title,
+        tabId: card.kind as TabId,
+        entityId: card.entityId,
+        cardKind: card.kind as TabId,
+        canClose: true,
+      });
+    }
+    return tabs;
+  })();
+
+  let activeTabKey = "menu";
+  if (aiChatOpen) activeTabKey = "ai_chat";
+  else if (chatOpen) activeTabKey = "chat";
+  else {
+    const idn = v2CurrentCardIdentity();
+    if (idn) activeTabKey = `card:${idn.kind}:${idn.entityId}`;
+  }
+
+  const secondaryCardTab: OpenTab | null = v2SecondaryCard ? {
+    id: `card:${v2SecondaryCard.kind}:${v2SecondaryCard.entityId}`,
+    kind: "card",
+    label: v2SecondaryCard.title,
+    tabId: v2SecondaryCard.kind as TabId,
+    entityId: v2SecondaryCard.entityId,
+    cardKind: v2SecondaryCard.kind as TabId,
+    canClose: true,
+  } : null;
+
+  const renderChatTabContent = () => (
+    <ChatPanel
+      meUserId={authStatus.user?.id ?? ""}
+      meRole={authStatus.user?.role ?? ""}
+      canExport={canChatExport}
+      canAdminViewAll={canChatAdminView}
+      viewMode={viewMode}
+      chatSide="left"
+      onHide={() => setChatOpen(false)}
+      onToggleSide={() => {}}
+      onChatContextChange={handleChatContextChange}
+      onNavigate={(link) => { void navigateDeepLink(link); }}
+    />
+  );
+
+  const renderAiChatTabContent = () => (
+    <AiAgentChat ref={aiChatRef} visible={true} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} onClose={() => setAiChatOpen(false)} />
+  );
+
+  const renderSettingsTabContent = () => {
+    const onPrefsChanged = (prefs: { theme: 'auto' | 'light' | 'dark' | 'warm'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs }) => {
+      setUiPrefs((prev) => ({ ...prev, ...prefs }));
+      const userId = authStatus.user?.id;
+      if (userId) {
+        window.matrica.settings.uiSet({ userId, ...prefs }).catch(() => {});
+      }
+    };
+    return (
+      <SettingsPage
+        uiPrefs={{ theme: uiPrefs.theme, decor: uiPrefs.decor, palette: uiPrefs.palette, chatSide: uiPrefs.chatSide, enterAsTab: uiPrefs.enterAsTab, displayPrefs: uiPrefs.displayPrefs }}
+        onUiPrefsChange={onPrefsChanged}
+        onLogout={() => { void (async () => { await window.matrica.auth.logout({}).catch(() => {}); const s = await window.matrica.auth.status(); setAuthStatus(s); setTabState("auth"); })(); }}
+        decor={uiPrefs.decor}
+        palette={uiPrefs.palette}
+        onDecorChange={((decor: 'strict' | 'fancy') => { void persistDecor(decor); })}
+        onPaletteChange={((palette: string) => { void persistPalette(palette as UiPaletteId); })}
+        onTabletToggle={isTabletDevice ? toggleUiMode : undefined}
+        tabletActive={isTabletDevice ? tabletActive : undefined}
+      />
+    );
+  };
+
   return (
     <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
-      <Page
-        title={pageTitle}
-        uiTheme={resolvedTheme}
-        right={
-          headerInlineStatusText ? (
-            <span
-              title={headerInlineStatusText}
-              style={{ fontSize: 12, color: '#fecaca', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {headerInlineStatusText}
-            </span>
-          ) : null
-        }
-      >
+      <Page uiTheme={resolvedTheme}>
         {renderReleaseWelcomeModal()}
         {renderFullSyncModal()}
         {renderFatalModal()}
@@ -5196,242 +5230,112 @@ export function App() {
             y={accountMenuPos.y}
             onClose={() => setAccountMenuPos(null)}
             items={[
-              { id: 'settings', label: '⚙️ Настройки', onClick: () => setTab('settings') },
-              { id: 'switch', label: '👥 Смена аккаунта', onClick: () => setAccountSwitchOpen(true) },
-              {
-                id: 'logout',
-                label: '⏻ Выйти',
-                danger: true,
-                onClick: () => {
-                  void (async () => {
-                    await window.matrica.auth.logout({}).catch(() => {});
-                    const s = await window.matrica.auth.status();
-                    setAuthStatus(s);
-                    setTab('auth');
-                  })();
-                },
-              },
+              { id: "settings", label: "⚙️ Настройки", onClick: () => setTabState("settings") },
+              { id: "switch", label: "👥 Смена аккаунта", onClick: () => setAccountSwitchOpen(true) },
+              { id: "logout", label: "⏻ Выйти", danger: true, onClick: () => { void (async () => { await window.matrica.auth.logout({}).catch(() => {}); const s = await window.matrica.auth.status(); setAuthStatus(s); setTabState("auth"); })(); } },
             ]}
           />
         )}
         <AccountSwitchDialog
           open={accountSwitchOpen}
-          currentLogin={authStatus.user?.username ?? ''}
+          currentLogin={authStatus.user?.username ?? ""}
           onClose={() => setAccountSwitchOpen(false)}
-          onSwitched={(s) => {
-            setAuthStatus(s);
-            if (s.loggedIn) setTab('history');
-          }}
+          onSwitched={(s) => { setAuthStatus(s); if (s.loggedIn) setTabState("history"); }}
         />
-      <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 6, height: '100%', minHeight: 0 }}>
-        {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide === 'left' && (
-          <div
-            style={{
-              flex: '0 0 25%',
-              minWidth: 320,
-              borderRight: '1px solid var(--border)',
-              overflow: 'hidden',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <ChatPanel
-              meUserId={authStatus.user?.id ?? ''}
-              meRole={authStatus.user?.role ?? ''}
-              canExport={canChatExport}
-              canAdminViewAll={canChatAdminView}
-              viewMode={viewMode}
-              chatSide="left"
-              onHide={() => setChatOpen(false)}
-              onToggleSide={() => void persistChatSide('right')}
-              onChatContextChange={handleChatContextChange}
-              onNavigate={(link) => {
-                void navigateDeepLink(link);
-              }}
-            />
-          </div>
-        )}
-        <div
-          style={{
-            flex: chatOpen && authStatus.loggedIn && canChat ? '0 0 75%' : '1 1 auto',
-            minWidth: 0,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            paddingRight: 2,
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
           {viewMode && (
-            <div
-              style={{
-                marginBottom: 10,
-                padding: 10,
-                borderRadius: 12,
-                border: '1px solid rgba(248, 113, 113, 0.5)',
-                background: 'rgba(248, 113, 113, 0.16)',
-                color: 'var(--danger)',
-                fontWeight: 800,
-              }}
-            >
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(248, 113, 113, 0.5)", background: "rgba(248, 113, 113, 0.16)", color: "var(--danger)", fontWeight: 800 }}>
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
-          {/* Ф2: часть правок не уехала — двигатель занят. Отдельным блоком, а НЕ через
-              postLoginSyncMsg: тот рисуется только при матче регекспа на текст ошибки. */}
           {syncStatus?.lastResult?.reservedSkipped ? (
-            <div
-              style={{
-                marginBottom: 10,
-                padding: 10,
-                borderRadius: 12,
-                border: '1px solid #fde68a',
-                background: '#fffbeb',
-                color: '#b45309',
-              }}
-            >
-              {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(', ') || 'другой сотрудник'}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fde68a", background: "#fffbeb", color: "#b45309" }}>
+              {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(", ") || "другой сотрудник"}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
             </div>
           ) : null}
           {syncStatus?.lastResult?.dependencySkipped ? (
-            <div
-              style={{
-                marginBottom: 10,
-                padding: 10,
-                borderRadius: 12,
-                border: '1px solid #fca5a5',
-                background: '#fef2f2',
-                color: '#991b1b',
-              }}
-            >
-              {`${syncStatus.lastResult.dependencySkipped} ${syncStatus.lastResult.dependencySkipped === 1 ? 'строка не принята' : 'строк не принято'} сервером — проверьте данные (возможно, операция ссылается на удалённый двигатель). При следующей синхронизации попробуем снова.`}
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b" }}>
+              {`${syncStatus.lastResult.dependencySkipped} ${syncStatus.lastResult.dependencySkipped === 1 ? "строка не принята" : "строк не принято"} сервером — проверьте данные (возможно, операция ссылается на удалённый двигатель). При следующей синхронизации попробуем снова.`}
             </div>
           ) : null}
           {isV3 ? (
             <V3TabShell
               availableTabs={sectionGatedTabs}
-              tabletOperatorMenu={tabletActive && userRole !== 'superadmin'}
+              tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
               menuLabels={menuLabels}
               buttonLayout={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2.buttonLayout}
               onButtonLayoutChange={(next) => updateV2Prefs({ ...(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2, buttonLayout: next })}
-              tab={tab}
-              activeListTab={v2ActiveListTab}
-              onMenuTab={handleMenuTab}
-              onAction={handleMenuAction}
               collapsedSections={collapsedSections}
               onCollapsedSectionsChange={setCollapsedSections}
-              renderTabContent={renderTabContent}
-              openCards={v2OpenCards}
-              focusedCardKey={(() => { const idn = v2CurrentCardIdentity(); return idn ? `${idn.kind}:${idn.entityId}` : null; })()}
-              onFocusCard={focusV2Card}
-              onCloseCard={closeV2Card}
-              limitNotice={v3LimitNotice}
-              pinnedFocus={v3PinnedFocus}
-              onFocusPinned={() => setV3PinnedFocus(true)}
-              onFocusPage={() => setV3PinnedFocus(false)}
-              onClosePage={closeV3PageTab}
-              secondaryCard={v2SecondaryCard}
+              onMenuTab={handleMenuTab}
+              onAction={handleMenuAction}
+              openTabs={tabList}
+              activeTabId={activeTabKey}
+              onSelectTab={selectTab}
+              onCloseTab={closeTabById}
+              secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}
-              onSplitCard={openSecondaryCard}
               onCloseSecondary={closeSecondaryCard}
-              sectionsPct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.sectionsPct}
-              onSectionsPctChange={(pct) => updateV3Pcts({ sectionsPct: pct })}
               comparePct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.comparePct}
               onComparePctChange={(pct) => updateV3Pcts({ comparePct: pct })}
+              renderTabContent={renderTabContent}
+              renderChatTab={renderChatTabContent}
+              renderAiChatTab={renderAiChatTabContent}
+              renderSettingsTab={renderSettingsTabContent}
+              syncState={syncIndicator.state}
+              syncProgress={syncIndicator.progress}
+              syncSummary={syncIndicator.summary}
+              onSyncClick={async () => {
+                setSyncIndicator({ state: "syncing", progress: null, summary: null });
+                try { await runSyncNow(); } catch { /* ignore */ }
+                const pulled = syncStatus?.lastResult?.pulled ?? 0;
+                setSyncIndicator({ state: "done", progress: null, summary: `Обновилось ${pulled} док.` });
+                setTimeout(() => setSyncIndicator({ state: "idle", progress: null, summary: null }), 4000);
+              }}
             />
           ) : (
-            /* До логина — минимальный каркас: полоса вкладок v1 и экран входа. */
             <>
-          <div style={{ flex: '0 0 auto' }}>
-            <Tabs
-              tab={tab}
-              onTab={handleMenuTab}
-              availableTabs={sectionGatedTabs}
-              layout={tabsLayout}
-              onLayoutChange={persistTabsLayout}
-              userLabel={userLabel}
-              userTab={userTab}
-              displayPrefs={uiPrefs.displayPrefs}
-              canGoBack={canGoBack}
-              canGoForward={canGoForward}
-              onBack={goBack}
-              onForward={goForward}
-              {...(presence ? { authStatus: { online: presence.online } } : {})}
-              notesAlertCount={notesAlertCount}
-              historyAlertCount={historyAlertCount}
-              pinnedShortcuts={pinnedShortcuts}
-              onAddShortcut={addPinnedShortcut}
-              onRemoveShortcut={removePinnedShortcut}
-            />
-          </div>
-
-          <div className="ui-content-viewport" style={{ marginTop: 6, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-            {!authStatus.loggedIn && tab !== 'auth' && (
-              <div style={{ color: 'var(--muted)' }}>Требуется вход.</div>
-            )}
-
-            <React.Suspense
-              fallback={
-                <div style={{ padding: 16, color: 'var(--muted)' }}>
-                  Загрузка раздела...
-                </div>
-              }
-            >
-              {renderTabContent(tab)}
-            </React.Suspense>
-          </div>
+              <div style={{ flex: "0 0 auto" }}>
+                <Tabs
+                  tab={tab}
+                  onTab={handleMenuTab}
+                  availableTabs={sectionGatedTabs}
+                  layout={tabsLayout}
+                  onLayoutChange={persistTabsLayout}
+                  userLabel={userLabel}
+                  userTab={userTab}
+                  displayPrefs={uiPrefs.displayPrefs}
+                  canGoBack={canGoBack}
+                  canGoForward={canGoForward}
+                  onBack={goBack}
+                  onForward={goForward}
+                  {...(presence ? { authStatus: { online: presence.online } } : {})}
+                  notesAlertCount={notesAlertCount}
+                  historyAlertCount={historyAlertCount}
+                  pinnedShortcuts={pinnedShortcuts}
+                  onAddShortcut={addPinnedShortcut}
+                  onRemoveShortcut={removePinnedShortcut}
+                />
+              </div>
+              <div className="ui-content-viewport" style={{ marginTop: 6, flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
+                {!authStatus.loggedIn && tab !== "auth" && (
+                  <div style={{ color: "var(--muted)" }}>Требуется вход.</div>
+                )}
+                <React.Suspense fallback={<div style={{ padding: 16, color: "var(--muted)" }}>Загрузка раздела...</div>}>
+                  {renderTabContent(tab)}
+                </React.Suspense>
+              </div>
             </>
           )}
         </div>
-
-        {chatOpen && authStatus.loggedIn && canChat && uiPrefs.chatSide !== 'left' && (
-          <div
-            style={{
-              flex: '0 0 25%',
-              minWidth: 320,
-              borderLeft: '1px solid rgba(0,0,0,0.08)',
-              overflow: 'hidden',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <ChatPanel
-              meUserId={authStatus.user?.id ?? ''}
-              meRole={authStatus.user?.role ?? ''}
-              canExport={canChatExport}
-              canAdminViewAll={canChatAdminView}
-              viewMode={viewMode}
-              chatSide="right"
-              onHide={() => setChatOpen(false)}
-              onToggleSide={() => void persistChatSide('left')}
-              onChatContextChange={handleChatContextChange}
-              onNavigate={(link) => {
-                void navigateDeepLink(link);
-              }}
-            />
-          </div>
-        )}
-      </div>
-      </div>
-
-      <GlobalSearchOverlay
-        open={globalSearchOpen}
-        onClose={() => setGlobalSearchOpen(false)}
-        onSelect={(hit) => {
-          setGlobalSearchOpen(false);
-          void navigateToRoute(searchHitToRoute(hit));
-        }}
-        onNavigateTab={(tabId) => {
-          void navigateToRoute({ kind: 'tab', id: tabId });
-        }}
-      />
-      {aiChatOpen && <AiAgentChat ref={aiChatRef} visible={aiChatOpen} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} onClose={() => setAiChatOpen(false)} />}
-      <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
-    </Page>
+        <GlobalSearchOverlay
+          open={globalSearchOpen}
+          onClose={() => setGlobalSearchOpen(false)}
+          onSelect={(hit) => { setGlobalSearchOpen(false); void navigateToRoute(searchHitToRoute(hit)); }}
+          onNavigateTab={(tabId) => { void navigateToRoute({ kind: "tab", id: tabId }); }}
+        />
+        <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
+      </Page>
     </ErrorBoundary>
   );
 }
-
-

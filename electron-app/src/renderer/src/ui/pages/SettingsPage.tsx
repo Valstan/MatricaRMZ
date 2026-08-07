@@ -25,13 +25,19 @@ type CriticalEventItem = {
 };
 
 export function SettingsPage(props: {
-  uiPrefs: { theme: 'auto' | 'light' | 'dark' | 'warm'; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
+  uiPrefs: { theme: 'auto' | 'light' | 'dark' | 'warm'; decor?: 'strict' | 'fancy'; palette?: string; chatSide: 'left' | 'right'; enterAsTab: boolean; displayPrefs: UiDisplayPrefs };
   onUiPrefsChange: (prefs: {
     theme: 'auto' | 'light' | 'dark' | 'warm';
     chatSide: 'left' | 'right';
     enterAsTab: boolean;
     displayPrefs: UiDisplayPrefs;
   }) => void;
+  onDecorChange?: (decor: 'strict' | 'fancy') => void;
+  onPaletteChange?: (palette: string) => void;
+  onTabletToggle?: () => void;
+  decor?: 'strict' | 'fancy';
+  palette?: string;
+  tabletActive?: boolean;
   onLogout: () => void;
 }) {
   const { confirm: confirmModal } = useConfirm();
@@ -634,6 +640,33 @@ export function SettingsPage(props: {
                 Enter — переход к следующему полю, Shift+Enter — к предыдущему.
               </div>
             </div>
+            <div style={{ color: 'var(--muted)' }}>Оформление</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant={props.decor === 'strict' ? 'primary' : 'ghost'} onClick={() => props.onDecorChange?.('strict')}>
+                Простое
+              </Button>
+              <Button variant={props.decor === 'fancy' ? 'primary' : 'ghost'} onClick={() => props.onDecorChange?.('fancy')}>
+                Объёмное
+              </Button>
+            </div>
+            <div style={{ color: 'var(--muted)' }}>Палитра</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant={props.palette === 'classic' ? 'primary' : 'ghost'} onClick={() => props.onPaletteChange?.('classic')}>Синяя</Button>
+              <Button variant={props.palette === 'emerald' ? 'primary' : 'ghost'} onClick={() => props.onPaletteChange?.('emerald')}>Изумрудная</Button>
+              <Button variant={props.palette === 'terracotta' ? 'primary' : 'ghost'} onClick={() => props.onPaletteChange?.('terracotta')}>Терракотовая</Button>
+              <Button variant={props.palette === 'lilac' ? 'primary' : 'ghost'} onClick={() => props.onPaletteChange?.('lilac')}>Сиреневая</Button>
+              <Button variant={props.palette === 'graphite' ? 'primary' : 'ghost'} onClick={() => props.onPaletteChange?.('graphite')}>Графитовая</Button>
+            </div>
+            {props.onTabletToggle != null && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Режим планшета</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button variant={props.tabletActive ? 'primary' : 'ghost'} onClick={() => props.onTabletToggle?.()}>
+                    {props.tabletActive ? 'Включён (коснись для выкл)' : 'Выключен (коснись для вкл)'}
+                  </Button>
+                </div>
+              </>
+            )}
             <div style={{ color: 'var(--muted)' }}>Это планшет</div>
             <div style={{ display: 'grid', gap: 6 }}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
