@@ -5294,6 +5294,20 @@ export function App() {
               {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(', ') || 'другой сотрудник'}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
             </div>
           ) : null}
+          {syncStatus?.lastResult?.dependencySkipped ? (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 12,
+                border: '1px solid #fca5a5',
+                background: '#fef2f2',
+                color: '#991b1b',
+              }}
+            >
+              {`${syncStatus.lastResult.dependencySkipped} ${syncStatus.lastResult.dependencySkipped === 1 ? 'строка не принята' : 'строк не принято'} сервером — проверьте данные (возможно, операция ссылается на удалённый двигатель). При следующей синхронизации попробуем снова.`}
+            </div>
+          ) : null}
           {isV3 ? (
             <V3TabShell
               availableTabs={sectionGatedTabs}
