@@ -19,10 +19,15 @@
   gap: 3px;
 }
 
-/* Закреплённая группа: тот же список, лёгкая подложка — видно, что это «шапка». */
+/* Закреплённая группа: тот же список, лёгкая подложка — видно, что это «шапка».
+   Закреплена при прокрутке МЕНЮ — не уезжает вверх. */
 .v2-button-section-pinned {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface, #fff);
   border-radius: 10px;
-  background: rgba(37, 99, 235, 0.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
   padding: 3px;
 }
 

@@ -1,4 +1,4 @@
-/* V3 shell («Вкладки»): панель вкладок + сплит ¼/¾ + карточка на весь экран. */
+/* V3 shell («Вкладки»): полоса вкладок с логотипом + контент на весь экран. */
 
 .v3-shell {
   display: flex;
@@ -7,15 +7,26 @@
   min-height: 0;
 }
 
-/* Шапки вкладок: ширина — по названию; сжимаются только когда не влезают. */
+/* Логотип слева от вкладки МЕНЮ */
+.v3-logo {
+  height: 18px;
+  width: auto;
+  object-fit: contain;
+  flex: 0 0 auto;
+  margin: 0 6px 0 4px;
+}
+
+/* Полоса вкладок — сжимаются с переполнением */
 .v3-tab-strip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex: 0 0 auto;
   min-width: 0;
   padding: 2px 2px 0;
   border-bottom: 1px solid var(--border, #d1d5db);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .v3-tab {
@@ -23,26 +34,19 @@
   align-items: center;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 100%;
+  max-width: 220px;
   border: 1px solid var(--border, #d1d5db);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
   background: var(--surface-2, #f3f4f6);
   font-size: 13px;
   line-height: 1;
-  cursor: pointer;
   white-space: nowrap;
 }
 
-.v3-tab-pinned {
+.v3-tab-menu {
   flex-shrink: 0;
-  padding: 7px 12px;
   font-weight: 700;
-}
-
-/* Эфемерная вкладка страницы (Настройки/История/…): как карточка, с крестиком. */
-.v3-tab-page {
-  overflow: hidden;
 }
 
 .v3-tab[data-active='1'] {
@@ -54,7 +58,7 @@
   font-weight: 700;
 }
 
-.v3-tab-card .v3-tab-label {
+.v3-tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -65,19 +69,6 @@
   font: inherit;
   color: inherit;
   cursor: pointer;
-}
-
-.v3-tab-split {
-  flex: 0 0 auto;
-  padding: 4px 2px;
-  background: none;
-  border: none;
-  color: var(--muted, #6b7280);
-  cursor: pointer;
-}
-
-.v3-tab-split:hover {
-  color: var(--accent, #2563eb);
 }
 
 .v3-tab-close {
@@ -93,61 +84,93 @@
   color: var(--danger, #dc2626);
 }
 
+/* Растяжка между вкладками и кнопкой синка */
+.v3-tab-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+/* Кнопка синхронизации */
+.v3-sync {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding-right: 6px;
+}
+
+.v3-sync-btn {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted, #6b7280);
+  transition: color 150ms;
+}
+
+.v3-sync-btn:hover {
+  color: var(--accent, #2563eb);
+}
+
+.v3-sync-spinning {
+  color: var(--accent, #2563eb);
+  animation: v3-sync-spin 1s linear infinite;
+}
+
+.v3-sync-done {
+  color: #16a34a;
+}
+
+@keyframes v3-sync-spin {
+  to { transform: rotate(360deg); }
+}
+
+.v3-sync-pct {
+  font-size: 12px;
+  color: var(--accent, #2563eb);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.v3-sync-done-text {
+  font-size: 12px;
+  color: #16a34a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Предупреждения */
 .v3-tabs-warning {
-  flex: 1 0 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 200px;
   padding: 4px 8px;
   color: var(--danger, #dc2626);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   white-space: normal;
+  line-height: 1.2;
 }
 
-/* Сплит закреплённых вкладок: «РАЗДЕЛЫ» | «Список …» — разделитель тянется мышкой. */
-.v3-split {
-  display: flex;
+/* Тело вкладки — весь остаток высоты */
+.v3-tab-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
-.v3-split-group {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.v3-resize-handle {
-  width: 6px;
-  border-radius: 3px;
-  background: transparent;
-  transition: background 120ms ease;
-  cursor: col-resize;
-}
-.v3-resize-handle:hover,
-.v3-resize-handle:active {
-  background: rgba(37, 99, 235, 0.45);
-}
-
-/* Внутренний контейнер Panel (className вешается на вложенный div). */
-.v3-panel-body {
+/* Контент вкладки МЕНЮ */
+.v3-tab-content-menu {
   height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.v3-split-sections {
-  flex: 1 1 auto;
-  min-height: 0;
-  border-right: 1px solid var(--border, #d1d5db);
   overflow: auto;
-  display: flex;
-  flex-direction: column;
 }
 
-.v3-split-list {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
+/* Контент прочих вкладок */
+.v3-tab-content {
+  height: 100%;
   overflow: auto;
   padding: 6px;
 }
@@ -162,11 +185,36 @@
   color: var(--muted, #6b7280);
 }
 
-/* Сравнение «2 рядом»: активная карточка слева, ⑃-закреплённая справа. */
+/* Разделитель для сравнения */
+.v3-resize-handle {
+  width: 6px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 120ms ease;
+  cursor: col-resize;
+}
+.v3-resize-handle:hover,
+.v3-resize-handle:active {
+  background: rgba(37, 99, 235, 0.45);
+}
+
+.v3-panel-body {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Сравнение «2 рядом» */
 .v3-card-compare {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.v3-split-group {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .v3-compare-pane {
@@ -174,10 +222,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.v3-compare-pane > .v3-card-body {
-  flex: 1 1 auto;
 }
 
 .v3-compare-secondary {
@@ -204,15 +248,12 @@
   white-space: nowrap;
 }
 
-/* Карточка на весь экран. */
+/* Карточка на весь экран */
 .v3-card-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 6px;
-  /* Этап 4: резиновые карточки — поля тянутся на всю доступную ширину, потолки
-     контента сняты; вертикаль компактнее (межстрочные зазоры меньше). Скоуп —
-     только v3, v1/v2 не трогаем. */
   --ui-content-max-width: 100%;
   --ui-content-block-max-width: 100%;
   --card-row-gap: 2px;
@@ -220,7 +261,6 @@
   --ui-space-5: 12px;
 }
 
-/* Инлайновые потолки ширины конкретных карточек (820/900px) перебиваем только в v3. */
 .v3-card-body .entity-card-shell {
   width: 100% !important;
   max-width: 100% !important;
