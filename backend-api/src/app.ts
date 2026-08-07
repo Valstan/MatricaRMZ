@@ -56,6 +56,9 @@ import { errorHandler } from './middleware/errorHandler.js';
  * MATRICA_CORS_ORIGINS — CSV: 'https://admin.example.com,https://web.example.com'.
  * Пустое значение / отсутствие переменной = разрешать любой Origin (legacy-режим, для миграции).
  * '*' — явно разрешить все. Любое другое значение — строгий allow-list.
+ *
+ * capacitor://localhost и https://localhost всегда разрешены: Android WebView
+ * шлёт запросы с этих origin'ов (а Capacitor использует свой scheme).
  */
 function buildCorsMiddleware() {
   const raw = String(process.env.MATRICA_CORS_ORIGINS ?? '').trim();
@@ -63,9 +66,11 @@ function buildCorsMiddleware() {
     return cors();
   }
   const allow = new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
+  const alwaysAllowed = new Set(['capacitor://localhost', 'https://localhost']);
   return cors({
     origin(origin, cb) {
       if (!origin) return cb(null, true);
+      if (alwaysAllowed.has(origin)) return cb(null, true);
       if (allow.has(origin)) return cb(null, true);
       return cb(new Error(`CORS: origin not allowed: ${origin}`));
     },
