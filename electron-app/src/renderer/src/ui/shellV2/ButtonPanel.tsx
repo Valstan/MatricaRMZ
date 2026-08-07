@@ -13,16 +13,14 @@ import { CSS } from '@dnd-kit/utilities';
 
 import type { MenuTabId } from '../layout/Tabs.js';
 import { isAndroidPlatform } from '../platform.js';
-import type { V2ButtonDescriptor, V2Buttons } from './v2ButtonCatalog.js';
-// Стили панели живут рядом с компонентом, а не в оболочке: прежний общий shellV2.css
-// импортировался снесённой v2-оболочкой и после её удаления (#398) осиротел — панель
-// полсуток рендерилась голыми браузерными кнопками.
+import type { ActionButtonId } from './menuActions.js';
+import type { MenuButtonDescriptor, MenuSection, V2Buttons } from './v2ButtonCatalog.js';
 import './buttonPanel.css';
 
-type ButtonMenuState = { id: MenuTabId; x: number; y: number; pinned: boolean } | null;
+type ButtonMenuState = { id: string; x: number; y: number; pinned: boolean } | null;
 
 function SortableMenuButton(props: {
-  btn: V2ButtonDescriptor;
+  btn: MenuButtonDescriptor;
   active: boolean;
   listOpen: boolean;
   pinned: boolean;
@@ -36,8 +34,6 @@ function SortableMenuButton(props: {
       ref={setNodeRef}
       className="v2-menu-row"
       data-dragging={isDragging ? '1' : undefined}
-      // На планшете строка обязана прокручиваться пальцем: `touch-action: none` из
-      // buttonPanel.css нужен только перетаскиванию, а его на Android нет (см. sensors).
       style={{
         transform: CSS.Transform.toString(transform),
         transition: transition ?? undefined,
@@ -71,34 +67,27 @@ function SortableMenuButton(props: {
   );
 }
 
-/**
- * Колонка «РАЗДЕЛЫ»: вертикальный список кнопок одинаковой ширины. Перетаскивание
- * (dnd-kit) меняет личный порядок — отдельно в закреплённой группе сверху и отдельно
- * в основной; 📌 закрепляет/открепляет, правый клик — то же плюс «скрыть».
- * Раскладка персистится в аккаунте оператора (ui:prefs, ключ — userId).
- */
 export function ButtonPanel(props: {
   buttons: V2Buttons;
   layout: V2ButtonLayout;
+  collapsedSections: string[];
+  onCollapsedSectionsChange: (next: string[]) => void;
   onLayoutChange: (next: V2ButtonLayout) => void;
   activeMenuTab: MenuTabId | null;
   listOpenTab: MenuTabId | null;
   onTab: (id: MenuTabId) => void;
+  onAction: (id: ActionButtonId) => void;
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
-  // Перетаскивание разделов — только мышью. На планшете сенсор отключён: он держит
-  // строку под `touch-action: none`, и панель перестаёт скроллиться пальцем, а сама
-  // панель там выдвижная (свайп по ней закрывает её, а не тащит кнопку).
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
   const sensors = useSensors(...(isAndroidPlatform() ? [] : [pointerSensor]));
 
   const pinnedIds = useMemo(() => props.buttons.pinned.map((b) => b.id), [props.buttons.pinned]);
-  const mainIds = useMemo(() => props.buttons.main.map((b) => b.id), [props.buttons.main]);
 
   const closeMenu = () => setMenu(null);
 
-  function reorder(ids: MenuTabId[], activeId: MenuTabId, overId: MenuTabId): MenuTabId[] | null {
+  function reorder<T>(ids: T[], activeId: T, overId: T): T[] | null {
     const from = ids.indexOf(activeId);
     const to = ids.indexOf(overId);
     if (from < 0 || to < 0) return null;
@@ -109,84 +98,127 @@ export function ButtonPanel(props: {
     return next;
   }
 
-  // Сохраняемый порядок включает закреплённые в начале: открепление возвращает
-  // кнопку наверх списка, а не на дефолтное место.
-  function fullOrder(pinned: string[], main: string[]): string[] {
-    return [...pinned, ...main];
+  function isPinnedId(id: string): boolean {
+    return props.layout.pinned.includes(id);
   }
 
-  function onMainDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const next = reorder(mainIds, active.id as MenuTabId, over.id as MenuTabId);
-    if (next) props.onLayoutChange({ ...props.layout, order: fullOrder(pinnedIds, next) });
-  }
-
-  function onPinnedDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const next = reorder(pinnedIds, active.id as MenuTabId, over.id as MenuTabId);
-    if (next) props.onLayoutChange({ ...props.layout, pinned: next, order: fullOrder(next, mainIds) });
-  }
-
-  function togglePinned(id: MenuTabId) {
+  function togglePin(id: string) {
     const pinned = props.layout.pinned.includes(id)
       ? props.layout.pinned.filter((x) => x !== id)
       : [...props.layout.pinned, id];
-    // Порядок пишем по текущему видимому (закреплённые + основные): открепление
-    // возвращает кнопку наверх основного списка, а не на дефолтное место.
-    props.onLayoutChange({ ...props.layout, pinned, order: fullOrder(pinnedIds, mainIds) });
+    props.onLayoutChange({ ...props.layout, pinned });
   }
 
-  function hideButton(id: MenuTabId) {
+  function hideButton(id: string) {
     if (props.layout.hidden.includes(id)) return;
     props.onLayoutChange({
       ...props.layout,
       hidden: [...props.layout.hidden, id],
       pinned: props.layout.pinned.filter((x) => x !== id),
-      order: fullOrder(pinnedIds, mainIds),
     });
   }
 
-  function restoreButton(id: MenuTabId) {
+  function restoreButton(id: string) {
     props.onLayoutChange({ ...props.layout, hidden: props.layout.hidden.filter((x) => x !== id) });
   }
 
-  const renderButton = (btn: V2ButtonDescriptor, opts: { pinned: boolean }) => (
+  function onPinnedDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const next = reorder(pinnedIds, active.id as string, over.id as string);
+    if (next) props.onLayoutChange({ ...props.layout, pinned: next });
+  }
+
+  function onSectionDragEnd(sectionId: string) {
+    return (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const section = props.buttons.sections.find((s) => s.id === sectionId);
+      if (!section) return;
+      const ids = section.items.map((b) => b.id);
+      const nextIds = reorder(ids, active.id as string, over.id as string);
+      if (!nextIds) return;
+      const nextSection: MenuSection = { ...section, items: nextIds.map((id) => section.items.find((b) => b.id === id)!).filter(Boolean) };
+      const nextSections = props.buttons.sections.map((s) => (s.id === sectionId ? nextSection : s));
+      const newOrder = nextSections.flatMap((s) => s.items.map((b) => b.id));
+      props.onLayoutChange({ ...props.layout, order: newOrder });
+    };
+  }
+
+  function toggleSection(id: string) {
+    const next = props.collapsedSections.includes(id)
+      ? props.collapsedSections.filter((s) => s !== id)
+      : [...props.collapsedSections, id];
+    props.onCollapsedSectionsChange(next);
+  }
+
+  const renderButton = (btn: MenuButtonDescriptor, pinned: boolean) => (
     <SortableMenuButton
       key={btn.id}
       btn={btn}
-      active={props.activeMenuTab === btn.id}
-      listOpen={props.listOpenTab === btn.id}
-      pinned={opts.pinned}
-      onClick={() => props.onTab(btn.id)}
-      onTogglePin={() => togglePinned(btn.id)}
+      active={btn.kind === 'nav' && props.activeMenuTab === btn.id}
+      listOpen={btn.kind === 'nav' && props.listOpenTab === btn.id}
+      pinned={pinned}
+      onClick={() => {
+        if (btn.kind === 'nav') props.onTab(btn.id as MenuTabId);
+        else props.onAction(btn.id as ActionButtonId);
+      }}
+      onTogglePin={() => togglePin(btn.id)}
       onContextMenu={(e) => {
         e.preventDefault();
-        setMenu({ id: btn.id, x: e.clientX, y: e.clientY, pinned: opts.pinned });
+        setMenu({ id: btn.id, x: e.clientX, y: e.clientY, pinned: isPinnedId(btn.id) });
       }}
     />
   );
 
   return (
     <div className="v2-button-panel" onClick={() => { if (menu) closeMenu(); }}>
+      {/* Закреплённая область — всегда видна, не сворачивается, свой DndContext */}
       {props.buttons.pinned.length > 0 && (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onPinnedDragEnd}>
-          <SortableContext items={pinnedIds} strategy={verticalListSortingStrategy}>
-            <div className="v2-button-section v2-button-section-pinned">
-              {props.buttons.pinned.map((btn) => renderButton(btn, { pinned: true }))}
-            </div>
-          </SortableContext>
-        </DndContext>
-      )}
-      {props.buttons.pinned.length > 0 && <div className="v2-button-divider" />}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onMainDragEnd}>
-        <SortableContext items={mainIds} strategy={verticalListSortingStrategy}>
-          <div className="v2-button-section v2-button-section-main">
-            {props.buttons.main.map((btn) => renderButton(btn, { pinned: false }))}
+        <>
+          <div className="v2-section-header v2-section-pinned-header" data-pinned="1">
+            <span className="v2-section-header-label">Закреплённые</span>
           </div>
-        </SortableContext>
-      </DndContext>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onPinnedDragEnd}>
+            <SortableContext items={pinnedIds} strategy={verticalListSortingStrategy}>
+              <div className="v2-button-section v2-button-section-pinned">
+                {props.buttons.pinned.map((btn) => renderButton(btn, true))}
+              </div>
+            </SortableContext>
+          </DndContext>
+          <div className="v2-button-divider" />
+        </>
+      )}
+
+      {/* Секции навигации и действий — каждая сворачивается */}
+      {props.buttons.sections.map((section) => {
+        const collapsed = props.collapsedSections.includes(section.id);
+        const sectionIds = section.items.map((b) => b.id);
+        return (
+          <div key={section.id} className="v2-menu-section" data-collapsed={collapsed ? '1' : undefined}>
+            <button
+              type="button"
+              className="v2-section-header"
+              onClick={() => toggleSection(section.id)}
+              title={collapsed ? 'Развернуть' : 'Свернуть'}
+            >
+              <span className="v2-section-chevron">{collapsed ? '▸' : '▾'}</span>
+              <span className="v2-section-header-label">{section.label}</span>
+              <span className="v2-section-count">{section.items.length}</span>
+            </button>
+            {!collapsed && section.items.length > 0 && (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd(section.id)}>
+                <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
+                  <div className="v2-button-section">
+                    {section.items.map((btn) => renderButton(btn, isPinnedId(btn.id)))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
+        );
+      })}
+
       <div className="v2-button-footer">
         {props.buttons.hidden.length > 0 && (
           <button type="button" className="v2-footer-btn" onClick={() => setRestoreOpen((v) => !v)}>
@@ -209,7 +241,7 @@ export function ButtonPanel(props: {
             type="button"
             className="v2-footer-btn"
             onClick={() => {
-              togglePinned(menu.id);
+              togglePin(menu.id);
               closeMenu();
             }}
           >

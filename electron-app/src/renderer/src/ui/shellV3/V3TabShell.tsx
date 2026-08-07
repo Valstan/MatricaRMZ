@@ -6,6 +6,7 @@ import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { ButtonPanel } from '../shellV2/ButtonPanel.js';
 import type { V2ButtonLayout } from '@matricarmz/shared';
 import { V2_LIST_TABS, buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
+import type { ActionButtonId } from '../shellV2/menuActions.js';
 import { ChromeDrawer } from '../shell/ChromeDrawer.js';
 import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import './shellV3.css';
@@ -28,7 +29,7 @@ function suspenseFallback() {
 
 /**
  * V3 shell («Вкладки»): одно окно с панелью вкладок.
- * Две закреплённые вкладки — «РАЗДЕЛЫ» и «Список …» — делят экран в сплит-режиме
+ * Две закреплённые вкладки — «МЕНЮ» и «Список …» — делят экран в сплит-режиме
  * (разделитель тянется мышкой, ширина персистится); карточка открывается собственной
  * вкладкой на весь экран, при этом сплит остаётся смонтированным (display:none) и не
  * теряет наполнение/скролл/фокус. Кнопка ⑃ на вкладке карточки открывает её второй
@@ -43,6 +44,9 @@ export function V3TabShell(props: {
   tab: TabId;
   activeListTab: TabId | null;
   onMenuTab: (t: MenuTabId) => void;
+  onAction: (id: ActionButtonId) => void;
+  collapsedSections: string[];
+  onCollapsedSectionsChange: (next: string[]) => void;
   renderTabContent: (t: TabId) => React.ReactNode;
   openCards: Array<{ kind: TabId; entityId: string; title: string }>;
   focusedCardKey: string | null;
@@ -132,6 +136,8 @@ export function V3TabShell(props: {
     <ButtonPanel
       buttons={buttons}
       layout={props.buttonLayout}
+      collapsedSections={props.collapsedSections}
+      onCollapsedSectionsChange={props.onCollapsedSectionsChange}
       onLayoutChange={props.onButtonLayoutChange}
       activeMenuTab={activeMenuTab}
       listOpenTab={listOpenTab}
@@ -139,6 +145,7 @@ export function V3TabShell(props: {
         if (drawerSections) chrome.hide('sections');
         props.onMenuTab(t);
       }}
+      onAction={props.onAction}
     />
   );
 
@@ -159,9 +166,9 @@ export function V3TabShell(props: {
           className="v3-tab v3-tab-pinned"
           data-active={!cardActive ? '1' : undefined}
           onClick={props.onFocusPinned}
-          title="Разделы программы"
+          title="Меню программы"
         >
-          РАЗДЕЛЫ
+          МЕНЮ
         </button>
         <button
           type="button"
