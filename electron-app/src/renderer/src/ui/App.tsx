@@ -1053,14 +1053,6 @@ export function App() {
 
 
   const setTab = useCallback((nextTab: TabId) => {
-    // V2: кнопка-список раскрывает колонку списков, не трогая рабочую область
-    // (открытую карточку/страницу). Обычный переход — только когда фокус уже на списке.
-    if (isV2 && V2_LIST_TABS.has(nextTab) && nextTab !== tab && !V2_LIST_TABS.has(tab)) {
-      // V2: списки живут в колонке и не меняют tab — визит логируем здесь же (задача E).
-      logUiUsage('ui.visit', nextTab);
-      setV2ActiveListTab(nextTab);
-      return;
-    }
     // V3: лимит вкладок — 11-я карточка НЕ открывается (selected-id уже мог смениться,
     // но без смены tab upsert-эффект вкладку не заведёт). Рефокус открытой карточки и
     // session-restore идут с bypass-флагом.
@@ -5139,9 +5131,13 @@ export function App() {
     if (id === 'menu') {
       setChatOpen(false);
       setAiChatOpen(false);
-      if (v2CurrentCardIdentity()) {
-        const fallback = v2OpenCards.length > 0 ? v2OpenCards[0] : null;
-        if (fallback) focusV2Card({ kind: fallback.kind as TabId, entityId: fallback.entityId });
+      const idn = v2CurrentCardIdentity();
+      if (idn) {
+        const card = v2OpenCards.find(c => c.kind === idn.kind && c.entityId === idn.entityId);
+        if (card) closeV2Card(card);
+      }
+      if (V2_LIST_TABS.has(tab)) {
+        setTabState('history');
       }
       return;
     }
@@ -5198,6 +5194,7 @@ export function App() {
       });
     }
     for (const lt of openedListTabs) {
+      if (!lt) continue;
       const label = menuLabels[lt as keyof typeof menuLabels] ?? String(lt);
       tabs.push({ id: `list:${lt}`, kind: "list", label, tabId: lt as TabId, canClose: true });
     }
