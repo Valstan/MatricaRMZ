@@ -65,6 +65,7 @@ export async function bootAndroidCore(cfg: AndroidCoreConfig): Promise<AndroidCo
     apiBaseUrl,
     cfg.onSyncProgress ? { onProgress: cfg.onSyncProgress } : {},
   );
+  syncManager.startAuto(5 * 60_000);
 
   const startHeartbeat = () =>
     startClientSettingsPolling({
