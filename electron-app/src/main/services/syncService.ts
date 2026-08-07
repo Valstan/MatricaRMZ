@@ -3199,6 +3199,7 @@ export async function runSync(
       // sync_status не заводим (режим отказа «строки не уедут никогда»).
       let reservedSkippedCount = 0;
       const reservedSkippedHolders = new Set<string>();
+      let dependencySkippedCount = 0;
 
       if (upserts.length > 0) {
         try {
@@ -3425,9 +3426,12 @@ export async function runSync(
             logSync(`push skipped rows count=${json.skipped.length} sample=${sample}`);
             for (const row of json.skipped) {
               const reserved = parseEngineReservationSkipReason(String(row?.reason ?? ''));
-              if (!reserved) continue;
-              reservedSkippedCount += 1;
-              if (reserved.holderLogin) reservedSkippedHolders.add(reserved.holderLogin);
+              if (reserved) {
+                reservedSkippedCount += 1;
+                if (reserved.holderLogin) reservedSkippedHolders.add(reserved.holderLogin);
+              } else {
+                dependencySkippedCount += 1;
+              }
             }
           }
 
@@ -3566,6 +3570,10 @@ export async function runSync(
         reservedSkippedCount > 0
           ? { reservedSkipped: { count: reservedSkippedCount, holders: [...reservedSkippedHolders] } }
           : {};
+      const dependencySkippedField =
+        dependencySkippedCount > 0
+          ? { dependencySkipped: dependencySkippedCount }
+          : {};
       emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled }, etaMs: 0 });
       logSync(`sync.run.done id=${syncRunId} ok=${finalError ? 0 : 1} pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
       if (finalError) {
@@ -3577,6 +3585,7 @@ export async function runSync(
           serverLastSeq,
           error: finalError,
           ...reservedSkippedField,
+          ...dependencySkippedField,
         };
       }
       return {
@@ -3586,6 +3595,7 @@ export async function runSync(
         serverCursor: pullJson.server_cursor,
         serverLastSeq,
         ...reservedSkippedField,
+        ...dependencySkippedField,
       };
     } catch (e) {
       const err = formatError(e);

@@ -255,6 +255,8 @@ export type SyncRunResult = {
   error?: string;
   /** Строки, отбитые чужим резервом двигателя (Ф2): остаются pending и уедут, когда замок снимут. */
   reservedSkipped?: { count: number; holders: string[] };
+  /** Строки, отбитые сервером из-за отсутствия зависимости (напр. операция без двигателя). */
+  dependencySkipped?: number;
 };
 
 export type SyncStatus = {
