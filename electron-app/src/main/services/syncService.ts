@@ -2020,7 +2020,10 @@ async function applyPulledChanges(
   groups[SyncTableName.ErpEngineAssemblyBomBrandLinks] = dedupById(
     groups[SyncTableName.ErpEngineAssemblyBomBrandLinks],
   );
-  const dedupWarehouseNomenclature = dedupById(warehouseNomenclatureRows);
+  const dedupWarehouseNomenclature = dedupByKey(
+    dedupById(warehouseNomenclatureRows),
+    (row: any) => String(row.code ?? ''),
+  );
   const dedupWarehouseBalances = dedupById(warehouseBalanceRows);
   const dedupWarehouseMovements = dedupById(warehouseMovementRows);
 
@@ -2539,7 +2542,7 @@ async function applyPulledChanges(
 
   if (dedupWarehouseNomenclature.length > 0) {
     emitApplyRaw('erp_nomenclature', dedupWarehouseNomenclature.length);
-    await upsertPulledRowsInChunks(db, erpNomenclature, dedupWarehouseNomenclature, erpNomenclature.id, {
+    const nomSet: Record<string, unknown> = {
       code: sql`excluded.code`,
       name: sql`excluded.name`,
       itemType: sql`excluded.item_type`,
@@ -2553,7 +2556,30 @@ async function applyPulledChanges(
       isActive: sql`excluded.is_active`,
       updatedAt: sql`excluded.updated_at`,
       deletedAt: sql`excluded.deleted_at`,
-    });
+    };
+    try {
+      await upsertPulledRowsInChunks(db, erpNomenclature, dedupWarehouseNomenclature, erpNomenclature.id, nomSet);
+    } catch (e) {
+      if (/UNIQUE.*code|code.*UNIQUE/i.test(String(e))) {
+        logSync(`pull erp_nomenclature code dedup fallback: batch upsert hit UNIQUE, retrying row-by-row count=${dedupWarehouseNomenclature.length}`);
+        let ok = 0;
+        for (const row of dedupWarehouseNomenclature) {
+          try {
+            await upsertPulledRowsInChunks(db, erpNomenclature, [row], erpNomenclature.id, nomSet);
+            ok += 1;
+          } catch (rowErr) {
+            if (/UNIQUE.*code|code.*UNIQUE/i.test(String(rowErr))) {
+              logSync(`pull erp_nomenclature skip duplicate code="${String(row.code ?? '')}" id=${String(row.id ?? '')}`);
+            } else {
+              throw rowErr;
+            }
+          }
+        }
+        logSync(`pull erp_nomenclature code dedup fallback done: ok=${ok} skipped=${dedupWarehouseNomenclature.length - ok}`);
+      } else {
+        throw e;
+      }
+    }
     await maybeYieldAfterBatch(dedupWarehouseNomenclature.length);
   }
 
