@@ -5122,16 +5122,61 @@ export function App() {
       setAiChatOpen(false);
     } else if (id === 'settings') {
       setTabState('history');
+    } else if (id.startsWith('list:')) {
+      const listTabId = id.slice(5);
+      setOpenedListTabs(prev => {
+        const next = new Set(prev);
+        next.delete(listTabId);
+        return next;
+      });
+      if (`list:${tab}` === id || !openedListTabs.has(tab)) {
+        setTabState('history');
+      }
     }
   };
 
   const selectTab = (id: string) => {
-    if (id === 'menu' || id === 'chat' || id === 'ai_chat' || id === 'settings') return;
+    if (id === 'menu') {
+      setChatOpen(false);
+      setAiChatOpen(false);
+      if (v2CurrentCardIdentity()) {
+        const fallback = v2OpenCards.length > 0 ? v2OpenCards[0] : null;
+        if (fallback) focusV2Card({ kind: fallback.kind as TabId, entityId: fallback.entityId });
+      }
+      return;
+    }
+    if (id === 'chat') { setChatOpen(true); setAiChatOpen(false); return; }
+    if (id === 'ai_chat') { setAiChatOpen(true); setChatOpen(false); return; }
+    if (id === 'settings') { setTabState('settings'); setChatOpen(false); setAiChatOpen(false); return; }
+    if (id.startsWith('list:')) {
+      const listTabId = id.slice(5) as TabId;
+      setTabState(listTabId);
+      setChatOpen(false);
+      setAiChatOpen(false);
+      return;
+    }
     if (id.startsWith('card:')) {
       const [, kind, entityId] = id.split(':');
       focusV2Card({ kind: kind as TabId, entityId: entityId ?? '' });
+      setChatOpen(false);
+      setAiChatOpen(false);
     }
   };
+
+  // Открытые списочные вкладки (идентификаторы TabId)
+  const [openedListTabs, setOpenedListTabs] = useState<Set<string>>(new Set());
+
+  // При смене tab на списочную вкладку — добавляем в openedListTabs
+  useEffect(() => {
+    if (V2_LIST_TABS.has(tab) && tab !== 'auth') {
+      setOpenedListTabs(prev => {
+        if (prev.has(tab)) return prev;
+        const next = new Set(prev);
+        next.add(tab);
+        return next;
+      });
+    }
+  }, [tab]);
 
   const tabList: OpenTab[] = (() => {
     const tabs: OpenTab[] = [{ id: "menu", kind: "menu", label: "МЕНЮ", canClose: false }];
@@ -5152,6 +5197,10 @@ export function App() {
         canClose: true,
       });
     }
+    for (const lt of openedListTabs) {
+      const label = menuLabels[lt as keyof typeof menuLabels] ?? String(lt);
+      tabs.push({ id: `list:${lt}`, kind: "list", label, tabId: lt as TabId, canClose: true });
+    }
     return tabs;
   })();
 
@@ -5161,6 +5210,7 @@ export function App() {
   else {
     const idn = v2CurrentCardIdentity();
     if (idn) activeTabKey = `card:${idn.kind}:${idn.entityId}`;
+    else if (V2_LIST_TABS.has(tab) && tab !== 'auth') activeTabKey = `list:${tab}`;
   }
 
   const secondaryCardTab: OpenTab | null = v2SecondaryCard ? {
