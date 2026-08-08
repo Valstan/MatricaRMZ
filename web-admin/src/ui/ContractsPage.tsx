@@ -10,7 +10,6 @@ import {
   listEntityTypes,
   upsertAttributeDef,
   upsertEntityType,
-  createEntity,
   getEntity,
 } from '../api/masterdata.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from './utils/dateUtils.js';
@@ -90,7 +89,6 @@ export function ContractsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [query, setQuery] = useState<string>('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [contractTypeId, setContractTypeId] = useState<string>('');
 
   async function ensureContractSchema() {
     const typesRes = await listEntityTypes();
@@ -105,7 +103,6 @@ export function ContractsPage(props: {
     }
     if (!contractType?.id) return null;
     const typeId = String(contractType.id);
-    setContractTypeId(typeId);
     const defsRes = await listAttributeDefs(typeId);
     if (!defsRes?.ok) return typeId;
     const defs = defsRes.rows ?? [];
@@ -231,24 +228,8 @@ export function ContractsPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
-        {props.canEditMasterData && (
-          <Button
-            onClick={async () => {
-              if (!contractTypeId) return;
-              setStatus('Создание контракта…');
-              const r = await createEntity(contractTypeId);
-              if (!r?.ok || !r?.id) {
-                setStatus(`Ошибка: ${r?.error ?? 'create failed'}`);
-                return;
-              }
-              setStatus('');
-              await loadContracts();
-              setSelectedId(String(r.id));
-            }}
-          >
-            Создать контракт
-          </Button>
-        )}
+        {/* Создание контрактов из web-admin отключено вместе с редактированием (R6-PR1):
+            браузерная карточка не умеет секции/слоты — пустая сущность останется мёртвой. */}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по всем данным контракта…" />
         </div>
