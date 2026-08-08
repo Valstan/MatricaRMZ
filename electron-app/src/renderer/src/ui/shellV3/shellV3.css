@@ -90,6 +90,37 @@
   min-width: 4px;
 }
 
+/* Кнопка аккаунта (под каким логином работаем) — слева от синка */
+.v3-account-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  margin-right: 4px;
+  background: none;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted, #6b7280);
+  transition: color 150ms, border-color 150ms;
+  white-space: nowrap;
+}
+
+.v3-account-btn:hover {
+  color: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+}
+
+.v3-account-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Кнопка синхронизации */
 .v3-sync {
   display: flex;

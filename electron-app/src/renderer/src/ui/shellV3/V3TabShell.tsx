@@ -60,6 +60,8 @@ export function V3TabShell(props: {
   syncProgress: number | null;
   syncSummary: string | null;
   onSyncClick: () => void;
+  userLabel?: string | null;
+  onAccountClick?: (pos: { x: number; y: number }) => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
   const activeMenuTab = resolveMenuTab(props.openTabs.find(t => t.kind === 'list')?.tabId ?? 'engines');
@@ -179,6 +181,17 @@ export function V3TabShell(props: {
           </div>
         ) : null}
         <div className="v3-tab-spacer" />
+        {props.userLabel ? (
+          <button
+            type="button"
+            className="v3-account-btn"
+            title="Аккаунт: настройки, смена, выход"
+            onClick={(e) => props.onAccountClick?.({ x: e.clientX, y: e.clientY })}
+          >
+            <span aria-hidden="true">👤</span>
+            <span className="v3-account-name">{props.userLabel}</span>
+          </button>
+        ) : null}
         <div className="v3-sync" title={props.syncSummary ?? 'Синхронизация'}>
           <button
             type="button"

@@ -42,7 +42,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS, deriveMenuState } from './layout/Tabs.js';
+import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS } from './layout/Tabs.js';
 import { isAndroidPlatform } from './platform.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { deriveUiCaps } from './auth/permissions.js';
@@ -718,8 +718,21 @@ export function App() {
     if (ids.length > 0) setCollapsedSections(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus.loggedIn]);
-  // V3: лимит 10 вкладок — открытие 11-й блокируется с красным уведомлением (авто-гаснет).
-  const [_v3LimitNotice, setV3LimitNotice] = useState(false);
+  // V3: лимит карточек — открытие сверх лимита блокируется с красным уведомлением (авто-гаснет).
+  const [v3LimitNotice, setV3LimitNotice] = useState(false);
+  // V3: явный фокус вкладки МЕНЮ. Нужен, когда активен раздел, чей tab совпадает с
+  // нейтральным 'history': один tab не может выразить «МЕНЮ поверх открытого раздела».
+  const [menuFocused, setMenuFocused] = useState(false);
+  const prevTabForMenuFocusRef = useRef<TabId | null>(null);
+  useEffect(() => {
+    if (prevTabForMenuFocusRef.current !== tab) {
+      prevTabForMenuFocusRef.current = tab;
+      // Переход НА нейтральный 'history' — это и есть «фокус на МЕНЮ» (уход с карточки
+      // по клику МЕНЮ, fallback закрытий) — флаг не сбрасываем, иначе при открытой
+      // вкладке «История» фокус утёк бы на неё.
+      if (tab !== 'history') setMenuFocused(false);
+    }
+  }, [tab]);
   // Sync indicator state
   const [syncIndicator, setSyncIndicator] = useState<{
     state: 'idle' | 'syncing' | 'done';
@@ -2040,9 +2053,7 @@ export function App() {
   const sectionGatedTabs = isAndroidPlatform()
     ? sectionGatedTabsFull.filter((t) => ANDROID_TABS.includes(t))
     : sectionGatedTabsFull;
-  const menuState = deriveMenuState(sectionGatedTabs, tabsLayout);
-  const visibleTabs = menuState.visibleOrdered;
-  const visibleTabsKey = visibleTabs.join('|');
+  const sectionGatedTabsKey = sectionGatedTabs.join('|');
   const userTab: Exclude<
     TabId,
     | 'engine'
@@ -2339,10 +2350,12 @@ export function App() {
       tab === 'user_screen'
     )
       return;
-    if (visibleTabs.includes(tab) || tab === userTab) return;
-    setTab(visibleTabs[0] ?? 'auth');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the visibleTabsKey string signature because the visibleTabs array identity is not stable across renders; setTab varies with tab/v2OpenCards and re-running on it would add no new information
-  }, [tab, visibleTabsKey, userTab]);
+    // Гейт только по правам (sectionGatedTabs): скрытие кнопки в МЕНЮ (tabsLayout/buttonLayout)
+    // не повод выкидывать из уже открытого раздела. 'history' — нейтральный «дом» МЕНЮ.
+    if (sectionGatedTabs.includes(tab as MenuTabId) || tab === userTab || tab === 'history' || tab === 'auth') return;
+    setTab(sectionGatedTabs[0] ?? 'auth');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the sectionGatedTabsKey string signature because the sectionGatedTabs array identity is not stable across renders; setTab varies with tab/v2OpenCards and re-running on it would add no new information
+  }, [tab, sectionGatedTabsKey, userTab]);
 
   async function persistTabsLayout(next: TabsLayoutPrefs) {
     setTabsLayout(next);
@@ -2385,11 +2398,23 @@ export function App() {
       setTab('auth');
       return;
     }
-    if (!visibleTabs.includes(t) && !isUserTab) return;
+    // Гейт по правам (sectionGatedTabs); скрытия кнопок МЕНЮ живут в buttonLayout.hidden —
+    // второй, независимый список скрытий (tabsLayout) здесь больше не участвует: из-за него
+    // видимая кнопка молча «не работала».
+    if (!sectionGatedTabs.includes(t) && !isUserTab) return;
     if (t === 'assembly_forecast') {
       openReportPreset('assembly_forecast_7d');
       return;
     }
+    if (t !== 'auth' && !isCardTab(t)) {
+      setOpenedListTabs((prev) => {
+        if (prev.has(t)) return prev;
+        const next = new Set(prev);
+        next.add(t);
+        return next;
+      });
+    }
+    setMenuFocused(false);
     setTab(t);
   }
 
@@ -5113,7 +5138,12 @@ export function App() {
     } else if (id === 'ai_chat') {
       setAiChatOpen(false);
     } else if (id === 'settings') {
-      setTabState('history');
+      setOpenedListTabs(prev => {
+        const next = new Set(prev);
+        next.delete('settings');
+        return next;
+      });
+      if (tab === 'settings') setTabState('history');
     } else if (id.startsWith('list:')) {
       const listTabId = id.slice(5);
       setOpenedListTabs(prev => {
@@ -5121,7 +5151,9 @@ export function App() {
         next.delete(listTabId);
         return next;
       });
-      if (`list:${tab}` === id || !openedListTabs.has(tab)) {
+      // Фокус уводим на МЕНЮ только если закрыли АКТИВНУЮ вкладку; закрытие фоновой
+      // вкладки из карточки/другого списка фокус не трогает.
+      if (`list:${tab}` === id) {
         setTabState('history');
       }
     }
@@ -5131,28 +5163,28 @@ export function App() {
     if (id === 'menu') {
       setChatOpen(false);
       setAiChatOpen(false);
-      const idn = v2CurrentCardIdentity();
-      if (idn) {
-        const card = v2OpenCards.find(c => c.kind === idn.kind && c.entityId === idn.entityId);
-        if (card) closeV2Card(card);
-      }
-      if (V2_LIST_TABS.has(tab)) {
-        setTabState('history');
-      }
+      // МЕНЮ фокусируется, НИЧЕГО не закрывая: карточка/список остаются «закладками».
+      // С карточки уходим штатным requestTabSwitch (dirty-guard); на списке достаточно
+      // флага — tab не трогаем, вкладка раздела остаётся открытой.
+      setMenuFocused(true);
+      if (isCardTab(tab)) requestTabSwitch('history');
       return;
     }
-    if (id === 'chat') { setChatOpen(true); setAiChatOpen(false); return; }
-    if (id === 'ai_chat') { setAiChatOpen(true); setChatOpen(false); return; }
-    if (id === 'settings') { setTabState('settings'); setChatOpen(false); setAiChatOpen(false); return; }
+    if (id === 'chat') { setMenuFocused(false); setChatOpen(true); setAiChatOpen(false); return; }
+    if (id === 'ai_chat') { setMenuFocused(false); setAiChatOpen(true); setChatOpen(false); return; }
+    if (id === 'settings') { setMenuFocused(false); setTab('settings'); setChatOpen(false); setAiChatOpen(false); return; }
     if (id.startsWith('list:')) {
       const listTabId = id.slice(5) as TabId;
-      setTabState(listTabId);
+      setMenuFocused(false);
+      // setTab (не setTabState): переход с карточки обязан пройти dirty-guard.
+      setTab(listTabId);
       setChatOpen(false);
       setAiChatOpen(false);
       return;
     }
     if (id.startsWith('card:')) {
       const [, kind, entityId] = id.split(':');
+      setMenuFocused(false);
       focusV2Card({ kind: kind as TabId, entityId: entityId ?? '' });
       setChatOpen(false);
       setAiChatOpen(false);
@@ -5162,9 +5194,10 @@ export function App() {
   // Открытые списочные вкладки (идентификаторы TabId)
   const [openedListTabs, setOpenedListTabs] = useState<Set<string>>(new Set());
 
-  // При смене tab на списочную вкладку — добавляем в openedListTabs
+  // При смене tab на любой не-карточный раздел — добавляем в openedListTabs.
+  // 'history' исключён: это нейтральный «дом» вкладки МЕНЮ (открывается явно из handleMenuTab).
   useEffect(() => {
-    if (V2_LIST_TABS.has(tab) && tab !== 'auth') {
+    if (tab !== 'auth' && tab !== 'history' && !isCardTab(tab)) {
       setOpenedListTabs(prev => {
         if (prev.has(tab)) return prev;
         const next = new Set(prev);
@@ -5172,7 +5205,7 @@ export function App() {
         return next;
       });
     }
-  }, [tab]);
+  }, [tab, isCardTab]);
 
   const tabList: OpenTab[] = (() => {
     const tabs: OpenTab[] = [{ id: "menu", kind: "menu", label: "МЕНЮ", canClose: false }];
@@ -5181,6 +5214,9 @@ export function App() {
     }
     if (aiChatOpen) {
       tabs.push({ id: "ai_chat", kind: "ai_chat", label: "ИИваныч", canClose: true });
+    }
+    if (openedListTabs.has('settings')) {
+      tabs.push({ id: "settings", kind: "settings", label: "Настройки", canClose: true });
     }
     for (const card of v2OpenCards) {
       tabs.push({
@@ -5194,7 +5230,7 @@ export function App() {
       });
     }
     for (const lt of openedListTabs) {
-      if (!lt) continue;
+      if (!lt || lt === 'settings') continue;
       const label = menuLabels[lt as keyof typeof menuLabels] ?? String(lt);
       tabs.push({ id: `list:${lt}`, kind: "list", label, tabId: lt as TabId, canClose: true });
     }
@@ -5202,12 +5238,16 @@ export function App() {
   })();
 
   let activeTabKey = "menu";
-  if (aiChatOpen) activeTabKey = "ai_chat";
-  else if (chatOpen) activeTabKey = "chat";
+  if (menuFocused) activeTabKey = "menu";
+  else if (aiChatOpen) activeTabKey = "ai_chat";
+  // Гейт как у вкладки чата в tabList: без права чата ключ 'chat' указывал бы
+  // на несуществующую вкладку → пустой экран.
+  else if (chatOpen && authStatus.loggedIn && canChat) activeTabKey = "chat";
   else {
     const idn = v2CurrentCardIdentity();
     if (idn) activeTabKey = `card:${idn.kind}:${idn.entityId}`;
-    else if (V2_LIST_TABS.has(tab) && tab !== 'auth') activeTabKey = `list:${tab}`;
+    else if (tab === 'settings' && openedListTabs.has('settings')) activeTabKey = "settings";
+    else if (tab !== 'auth' && openedListTabs.has(tab)) activeTabKey = `list:${tab}`;
   }
 
   const secondaryCardTab: OpenTab | null = v2SecondaryCard ? {
@@ -5271,13 +5311,34 @@ export function App() {
         {renderCardCloseModal()}
         {renderRecoveryModal()}
         {renderAppCloseSyncOverlay()}
+        {v3LimitNotice && (
+          <div
+            role="alert"
+            style={{
+              position: "fixed",
+              top: 14,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 3000,
+              padding: "10px 16px",
+              borderRadius: 12,
+              border: "1px solid rgba(248, 113, 113, 0.6)",
+              background: "#fef2f2",
+              color: "#991b1b",
+              fontWeight: 700,
+              boxShadow: "0 6px 24px rgba(0, 0, 0, 0.18)",
+            }}
+          >
+            Открыто слишком много карточек — закройте ненужную вкладку и повторите.
+          </div>
+        )}
         {accountMenuPos && (
           <ListContextMenu
             x={accountMenuPos.x}
             y={accountMenuPos.y}
             onClose={() => setAccountMenuPos(null)}
             items={[
-              { id: "settings", label: "⚙️ Настройки", onClick: () => setTabState("settings") },
+              { id: "settings", label: "⚙️ Настройки", onClick: () => { setMenuFocused(false); setTab("settings"); } },
               { id: "switch", label: "👥 Смена аккаунта", onClick: () => setAccountSwitchOpen(true) },
               { id: "logout", label: "⏻ Выйти", danger: true, onClick: () => { void (async () => { await window.matrica.auth.logout({}).catch(() => {}); const s = await window.matrica.auth.status(); setAuthStatus(s); setTabState("auth"); })(); } },
             ]}
@@ -5329,6 +5390,8 @@ export function App() {
               renderChatTab={renderChatTabContent}
               renderAiChatTab={renderAiChatTabContent}
               renderSettingsTab={renderSettingsTabContent}
+              userLabel={authStatus.loggedIn ? userLabel : null}
+              onAccountClick={(pos) => setAccountMenuPos(pos)}
               syncState={syncIndicator.state}
               syncProgress={syncIndicator.progress}
               syncSummary={syncIndicator.summary}
