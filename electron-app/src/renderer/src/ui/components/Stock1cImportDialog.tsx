@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   STOCK_1C_IMPORT_SOURCE,
   canonical1cNomenclature,
@@ -73,6 +73,10 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
   const [createMissing, setCreateMissing] = useState(true);
   const [creatingFor, setCreatingFor] = useState<number | null>(null);
   const [newWhName, setNewWhName] = useState('');
+  // Заведённые в ЭТОМ открытии диалога позиции (ключ артикул‖имя → id). Ref, а не локальная
+  // переменная post(): повторное нажатие «Провести» после обрыва не должно заводить их заново
+  // (у позиций с пустым артикулом нет unique-стража — дубль никто не поймает).
+  const createdByKeyRef = useRef(new Map<string, string>());
 
   const api = window.matrica as unknown as {
     warehouseLocations: {
@@ -135,8 +139,58 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     };
   }, [props.open, api.warehouse, api.warehouseLocations]);
 
-  // Остатки + прошлый 1С-импорт по каждому сопоставленному складу программы
-  // (снапшот прошлого импорта — в payload документа; по нему обнуляются пропавшие).
+  // Остатки + прошлый 1С-импорт одного склада программы (снапшот прошлого импорта —
+  // в payload документа; по нему обнуляются пропавшие). Вынесено из эффекта: post()
+  // перечитывает то же самое СВЕЖИМ перед проводкой каждого склада — иначе повторное
+  // «Провести» в том же окне применяет дельту к доимпортным остаткам второй раз.
+  const loadLocStateFor = useCallback(async (locId: string): Promise<LocState> => {
+    const bal: Stock1cSnapshotEntry[] = [];
+    try {
+      for (let offset = 0; offset < 100_000; offset += 1000) {
+        const r = (await api.warehouse.stockList({ warehouseId: locId, limit: 1000, offset })) as {
+          ok?: boolean;
+          rows?: Array<{ nomenclatureId?: string; qty?: number }>;
+          hasMore?: boolean;
+        };
+        const rows = r.rows ?? [];
+        for (const row of rows) {
+          if (row.nomenclatureId) bal.push({ nomenclatureId: String(row.nomenclatureId), qty: Number(row.qty ?? 0) });
+        }
+        if (!r.hasMore || rows.length === 0) break;
+      }
+    } catch {
+      /* пустой склад / ошибка чтения — считаем без остатков */
+    }
+    let prev: PrevImport = null;
+    try {
+      const listRaw = (await api.warehouse.documentsList({ docType: 'stock_inventory', statusIn: ['posted'], warehouseId: locId, limit: 60 })) as {
+        rows?: Array<{ id: string; docNo?: string; docDate?: number }>;
+        items?: Array<{ id: string; docNo?: string; docDate?: number }>;
+      };
+      const rows = (listRaw.rows ?? listRaw.items ?? []).slice().sort((a, b) => Number(b.docDate ?? 0) - Number(a.docDate ?? 0));
+      for (const row of rows) {
+        const d = (await api.warehouse.documentGet(String(row.id))) as {
+          document?: { header?: { payloadJson?: string | null } };
+          header?: { payloadJson?: string | null };
+        };
+        const rawPayload = d.document?.header?.payloadJson ?? d.header?.payloadJson ?? null;
+        if (!rawPayload) continue;
+        try {
+          const p = JSON.parse(String(rawPayload)) as { source?: string; importSnapshot?: Stock1cSnapshotEntry[] };
+          if (p.source === STOCK_1C_IMPORT_SOURCE && Array.isArray(p.importSnapshot)) {
+            prev = { docId: String(row.id), docNo: String(row.docNo ?? ''), docDate: Number(row.docDate ?? 0), snapshot: p.importSnapshot };
+            break;
+          }
+        } catch {
+          /* не наш payload */
+        }
+      }
+    } catch {
+      /* нет истории — первый импорт */
+    }
+    return { balances: bal, prev };
+  }, [api.warehouse]);
+
   useEffect(() => {
     if (!props.open) return;
     const need = [...new Set(Object.values(mapping).filter(Boolean))].filter((id) => !(id in locState));
@@ -144,59 +198,16 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     let alive = true;
     void (async () => {
       for (const locId of need) {
-        const bal: Stock1cSnapshotEntry[] = [];
-        try {
-          for (let offset = 0; offset < 100_000; offset += 1000) {
-            const r = (await api.warehouse.stockList({ warehouseId: locId, limit: 1000, offset })) as {
-              ok?: boolean;
-              rows?: Array<{ nomenclatureId?: string; qty?: number }>;
-              hasMore?: boolean;
-            };
-            const rows = r.rows ?? [];
-            for (const row of rows) {
-              if (row.nomenclatureId) bal.push({ nomenclatureId: String(row.nomenclatureId), qty: Number(row.qty ?? 0) });
-            }
-            if (!r.hasMore || rows.length === 0) break;
-          }
-        } catch {
-          /* пустой склад / ошибка чтения — считаем без остатков */
-        }
-        let prev: PrevImport = null;
-        try {
-          const listRaw = (await api.warehouse.documentsList({ docType: 'stock_inventory', statusIn: ['posted'], warehouseId: locId, limit: 60 })) as {
-            rows?: Array<{ id: string; docNo?: string; docDate?: number }>;
-            items?: Array<{ id: string; docNo?: string; docDate?: number }>;
-          };
-          const rows = (listRaw.rows ?? listRaw.items ?? []).slice().sort((a, b) => Number(b.docDate ?? 0) - Number(a.docDate ?? 0));
-          for (const row of rows) {
-            const d = (await api.warehouse.documentGet(String(row.id))) as {
-              document?: { header?: { payloadJson?: string | null } };
-              header?: { payloadJson?: string | null };
-            };
-            const rawPayload = d.document?.header?.payloadJson ?? d.header?.payloadJson ?? null;
-            if (!rawPayload) continue;
-            try {
-              const p = JSON.parse(String(rawPayload)) as { source?: string; importSnapshot?: Stock1cSnapshotEntry[] };
-              if (p.source === STOCK_1C_IMPORT_SOURCE && Array.isArray(p.importSnapshot)) {
-                prev = { docId: String(row.id), docNo: String(row.docNo ?? ''), docDate: Number(row.docDate ?? 0), snapshot: p.importSnapshot };
-                break;
-              }
-            } catch {
-              /* не наш payload */
-            }
-          }
-        } catch {
-          /* нет истории — первый импорт */
-        }
+        const st = await loadLocStateFor(locId);
         if (!alive) return;
-        setLocState((prevState) => ({ ...prevState, [locId]: { balances: bal, prev } }));
+        setLocState((prevState) => ({ ...prevState, [locId]: st }));
       }
     })();
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- this effect writes locState (setLocState per warehouse), so depending on it would cancel and restart the fetch loop after every write; locState is read only as an "already fetched" guard, and the real triggers (props.open, mapping) are deps
-  }, [props.open, mapping]);
+  }, [props.open, mapping, loadLocStateFor]);
 
   async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
     setError('');
@@ -291,14 +302,66 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
     return keys.size;
   }, [activePlans]);
 
+  // Поиск позиции на сервере по артикулу/имени: страховка на случай, когда создание
+  // оборвалось транспортом (502/timeout), но сервер успел применить запись.
+  async function findExistingOnServer(c: { name: string; article: string }): Promise<string | null> {
+    try {
+      const searchTerm = c.article.trim() || c.name.trim();
+      if (!searchTerm) return null;
+      const r = (await api.warehouse.nomenclatureList({ search: searchTerm, limit: 100 })) as { rows?: Array<Record<string, unknown>> };
+      const rows = (r.rows ?? []).map((row) => ({
+        id: String(row.id ?? ''),
+        name: String(row.name ?? ''),
+        article: String(row.code ?? row.sku ?? ''),
+      })).filter((row) => row.id);
+      const art = c.article.trim().toLowerCase();
+      if (art) {
+        const byArticle = rows.find((row) => row.article.trim().toLowerCase() === art);
+        if (byArticle) return byArticle.id;
+      }
+      const canonName = canonical1cNomenclature(c.article, c.name).name.toLowerCase();
+      if (canonName) {
+        const byName = rows.find((row) => canonical1cNomenclature(row.article, row.name).name.toLowerCase() === canonName);
+        if (byName) return byName.id;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Создание позиции с восстановлением: транспортный обрыв или дубль-конфликт →
+  // проверяем, не появилась ли позиция на сервере, и переиспользуем её id.
+  async function createWithRecovery(
+    payload: Record<string, unknown>,
+    c: { name: string; article: string },
+  ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+    let lastErr = 'неизвестная ошибка';
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const r = await api.warehouse.nomenclatureUpsert(payload);
+      if (r.ok && r.id) return { ok: true, id: String(r.id) };
+      lastErr = String(r.error ?? 'неизвестная ошибка');
+      const transient = /\b50[234]\b|bad gateway|timeout|network|socket hang up|offline|econn|fetch failed|prematurely/i.test(lastErr);
+      const duplicate = /uniq|duplicat|уже существует|уже заведен/i.test(lastErr);
+      if (transient || duplicate) {
+        const existing = await findExistingOnServer(c);
+        if (existing) return { ok: true, id: existing };
+      }
+      if (!transient || attempt === 3) return { ok: false, error: lastErr };
+      await new Promise((res) => setTimeout(res, 1200 * attempt));
+    }
+    return { ok: false, error: lastErr };
+  }
+
   async function post() {
     if (!plans || !allReady || duplicateTarget) return;
     setError('');
     setNotice('');
     const postedDocs: string[] = [];
     try {
-      // Шаблоны номенклатуры — один раз на весь заход.
-      const createdByKey = new Map<string, string>();
+      // Шаблоны номенклатуры — один раз на весь заход; заведённые позиции помнит
+      // createdByKeyRef (переживает повторное «Провести» в этом же окне).
+      const createdByKey = createdByKeyRef.current;
       let templateFor: ((kind: string) => string | null) | null = null;
       if (createMissing && uniqueCreateCount > 0) {
         const templatesRes = await api.warehouse.nomenclatureTemplatesList();
@@ -328,7 +391,11 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
       for (const p of active) {
         blockNo += 1;
         const whLabel = `«${p.block.warehouseName || '(без названия)'}» (${blockNo} из ${active.length})`;
-        const st = locState[p.locId]!;
+        // Свежие остатки и прошлый снапшот прямо перед проводкой: state открытия окна
+        // мог устареть (повторное «Провести» после обрыва — иначе двойная дельта).
+        setBusy(`${whLabel}: сверяем текущие остатки...`);
+        const st = await loadLocStateFor(p.locId);
+        setLocState((prevState) => ({ ...prevState, [p.locId]: st }));
 
         // 1. Заведение ненайденных позиций (если включено); уже заведённые в этом
         // заходе (другим складом) переиспользуются по ключу.
@@ -354,7 +421,7 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
                 setError(`Не найдены единица измерения или группа номенклатуры по умолчанию (Склад → Номенклатура). ${postedDocs.length > 0 ? `Уже проведено складов: ${postedDocs.length}.` : 'Импорт не проведён.'}`);
                 return;
               }
-              const r = await api.warehouse.nomenclatureUpsert({
+              const r = await createWithRecovery({
                 code: c.article,
                 name: c.name,
                 itemType: kind,
@@ -363,12 +430,12 @@ export function Stock1cImportDialog(props: { open: boolean; onClose: () => void;
                 unitId,
                 specJson: JSON.stringify({ templateId, propertyValues: {} }),
                 isActive: true,
-              });
-              if (!r.ok || !r.id) {
-                setError(`${whLabel}: не удалось завести «${c.name}»: ${r.error ?? 'неизвестная ошибка'}. ${postedDocs.length > 0 ? `Уже проведено складов: ${postedDocs.length}, остальные не тронуты.` : 'Импорт не проведён.'}`);
+              }, c);
+              if (!r.ok) {
+                setError(`${whLabel}: не удалось завести «${c.name}»: ${r.error}. ${postedDocs.length > 0 ? `Уже проведено складов: ${postedDocs.length}, остальные не тронуты.` : 'Импорт не проведён.'} Повторное нажатие «Провести импорт» безопасно продолжит с этого места.`);
                 return;
               }
-              id = String(r.id);
+              id = r.id;
               createdByKey.set(c.key, id);
             }
             createdEntries.push({ nomenclatureId: id, qty: c.qty });
