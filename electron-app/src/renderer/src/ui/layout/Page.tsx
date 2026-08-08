@@ -37,7 +37,9 @@ export function Page(props: {
         }}
       >
         {props.topBanner ? <div style={{ marginTop: 8 }}>{props.topBanner}</div> : null}
-        <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>{props.children}</div>
+        {/* flex-контейнер обязателен: дочерняя колонка App полагается на flex:1 1 auto,
+            в блочном родителе она теряет определённую высоту и скролл списков умирает */}
+        <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>{props.children}</div>
       </div>
     </div>
   );

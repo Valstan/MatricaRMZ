@@ -10,7 +10,16 @@ import {
   type MenuTabId,
   type TabId,
 } from '../layout/Tabs.js';
-import { type ActionButtonDescriptor, ACTION_BUTTONS, ACTION_GROUP_LABELS, ACTION_GROUP_ORDER } from './menuActions.js';
+import { type ActionButtonDescriptor, type ActionButtonId, ACTION_BUTTONS, ACTION_GROUP_LABELS, ACTION_GROUP_ORDER } from './menuActions.js';
+import { isAndroidPlatform } from '../platform.js';
+
+// На Android-планшете чат-каналы моста не зарегистрированы — кнопки без функции прячем,
+// иначе «Чат» даёт пустой экран, а «Ссылка в чат» — мягкий отказ.
+const ANDROID_HIDDEN_ACTIONS: ReadonlySet<ActionButtonId> = new Set<ActionButtonId>(['chat', 'ai_chat', 'chat_link']);
+
+function actionVisibleOnPlatform(id: ActionButtonId): boolean {
+  return !isAndroidPlatform() || !ANDROID_HIDDEN_ACTIONS.has(id);
+}
 
 export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'engines',
@@ -130,13 +139,13 @@ export function buildV2Buttons(
   const mainIds = order.filter((id) => !hiddenSet.has(id));
   const allNav = mainIds.map((id) => toDescriptor(id, menuLabels));
 
-  const allActions = ACTION_BUTTONS.map(toActionDescriptor);
+  const allActions = ACTION_BUTTONS.filter((a) => actionVisibleOnPlatform(a.id)).map(toActionDescriptor);
 
   const pinnedDescs = pinnedIds.map((id) => toDescriptor(id, menuLabels));
   const pinnedActionIds = layout.pinned.filter((id) => !available.has(id as MenuTabId));
   for (const aid of pinnedActionIds) {
     const ad = ACTION_BUTTONS.find((a) => a.id === aid);
-    if (ad && !hiddenSet.has(aid as any)) pinnedDescs.push(toActionDescriptor(ad));
+    if (ad && !hiddenSet.has(aid as any) && actionVisibleOnPlatform(ad.id)) pinnedDescs.push(toActionDescriptor(ad));
   }
 
   const navGroups = new Map<string, MenuButtonDescriptor[]>();
