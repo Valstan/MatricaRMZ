@@ -3060,9 +3060,16 @@ export function App() {
       setV2CardEpoch((e) => e + 1);
       dispatchTabs({ type: 'CLOSE', id: closingId });
       // Сосед слева у карточки — либо другая карточка (канонический порядок держит их
-      // подряд), либо служебная вкладка; во втором случае возвращаемся на родительский
-      // список, как и раньше, а не бросаем оператора в чат.
-      if (nextFocus?.kind === 'card') reopenV2Card(nextFocus.cardKind as TabId, nextFocus.entityId);
+      // подряд), либо служебная вкладка. Во втором случае (закрыли САМУЮ ЛЕВУЮ карточку)
+      // остаёмся среди карточек, как было до рефакторинга, и лишь когда их не осталось —
+      // возвращаемся на родительский список, а не бросаем оператора в чат.
+      if (nextFocus?.kind === 'card') {
+        reopenV2Card(nextFocus.cardKind as TabId, nextFocus.entityId);
+        return;
+      }
+      const remaining = cardTabs(tabsState).filter((c) => c.id !== closingId);
+      const last = remaining[remaining.length - 1];
+      if (last) reopenV2Card(last.cardKind as TabId, last.entityId);
       else setTabState(CARD_PARENT_TAB[card.kind] ?? 'history');
     };
     const actions = cardCloseActionsRef.current;
