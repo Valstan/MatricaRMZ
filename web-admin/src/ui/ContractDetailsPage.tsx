@@ -101,6 +101,11 @@ export function ContractDetailsPage(props: {
   canUploadFiles: boolean;
   onClose: () => void;
 }) {
+  // Контракты в web-admin — ТОЛЬКО просмотр (R6-PR1 grand-refactor-2026-08): этот
+  // редактор живёт на легаси-скалярах (одна марка/цена/сумма) и не знает
+  // contract_sections/слотов/платежей — его запись конфликтует с клиентом и перетёрла бы
+  // ретро-фикс слотов. Правки контрактов — в клиенте МатрицаРМЗ.
+  const canEditMasterData = false;
   const [contract, setContract] = useState<ContractEntity | null>(null);
   const [defs, setDefs] = useState<AttributeDef[]>([]);
   const [status, setStatus] = useState<string>('');
@@ -233,7 +238,7 @@ export function ContractDetailsPage(props: {
   }, [contract?.id, contract?.updatedAt]);
 
   async function saveAttr(code: string, value: unknown) {
-    if (!props.canEditMasterData) return;
+    if (!canEditMasterData) return;
     try {
       setStatus('Сохранение…');
       const r = await setEntityAttr(props.contractId, code, value);
@@ -250,14 +255,14 @@ export function ContractDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
-    if (props.canEditMasterData) {
+    if (canEditMasterData) {
       await saveCore();
     }
     props.onClose();
   }
 
   async function handleDelete() {
-    if (!props.canEditMasterData) return;
+    if (!canEditMasterData) return;
     if (!confirm('Удалить контракт?')) return;
     try {
       setStatus('Удаление…');
@@ -281,7 +286,7 @@ export function ContractDetailsPage(props: {
   }
 
   async function saveCore() {
-    if (!props.canEditMasterData) return;
+    if (!canEditMasterData) return;
     await saveAttr('number', number);
     await saveAttr('internal_number', internalNumber);
     await saveAttr('date', fromInputDate(date));
@@ -292,7 +297,7 @@ export function ContractDetailsPage(props: {
   }
 
   async function createMasterDataItem(typeCode: string, label: string): Promise<string | null> {
-    if (!props.canEditMasterData) return null;
+    if (!canEditMasterData) return null;
     const typeId = entityTypes.find((t) => String(t.code) === typeCode)?.id ?? null;
     if (!typeId) return null;
     const created = await createEntity(String(typeId));
@@ -342,7 +347,7 @@ export function ContractDetailsPage(props: {
   }, [contract?.id, contract?.updatedAt, defs.length, linkOptionsByCode, linkLoadingByCode, entityTypes.length]);
 
   async function createNewField() {
-    if (!props.canEditMasterData) return;
+    if (!canEditMasterData) return;
     try {
       const code = newFieldCode.trim();
       const name = newFieldName.trim();
@@ -433,12 +438,12 @@ export function ContractDetailsPage(props: {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: 20, fontWeight: 800, flex: 1 }}>{headerTitle}</div>
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{status}</div>}
-        {props.canEditMasterData && (
+        {canEditMasterData && (
           <Button variant="ghost" onClick={() => void saveAllAndClose()}>
             Сохранить
           </Button>
         )}
-        {props.canEditMasterData && (
+        {canEditMasterData && (
           <Button variant="ghost" onClick={() => void handleDelete()} style={{ color: '#b91c1c' }}>
             Удалить
           </Button>
@@ -448,13 +453,18 @@ export function ContractDetailsPage(props: {
         </Button>
       </div>
 
+      <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 13 }}>
+        Контракт здесь доступен только для просмотра: браузерная карточка не знает секций, слотов и платежей.
+        Все правки контрактов — в программе МатрицаРМЗ.
+      </div>
+
       <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', paddingTop: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 10 }}>
         <div className="card">
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <strong>Основное</strong>
             <span style={{ flex: 1 }} />
-            {props.canEditMasterData && (
+            {canEditMasterData && (
               <Button variant="ghost" onClick={() => void saveCore()}>
                 Сохранить
               </Button>
@@ -462,19 +472,19 @@ export function ContractDetailsPage(props: {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 10, alignItems: 'center' }}>
             <div style={{ color: '#6b7280' }}>Номер контракта</div>
-            <Input value={number} disabled={!props.canEditMasterData} onChange={(e) => setNumber(e.target.value)} onBlur={() => void saveAttr('number', number)} />
+            <Input value={number} disabled={!canEditMasterData} onChange={(e) => setNumber(e.target.value)} onBlur={() => void saveAttr('number', number)} />
 
             <div style={{ color: '#6b7280' }}>Дата контракта</div>
             <Input
               type="date"
               value={date}
-              disabled={!props.canEditMasterData}
+              disabled={!canEditMasterData}
               onChange={(e) => setDate(e.target.value)}
               onBlur={() => void saveAttr('date', fromInputDate(date))}
             />
 
             <div style={{ color: '#6b7280' }}>Внутренний номер</div>
-            <Input value={internalNumber} disabled={!props.canEditMasterData} onChange={(e) => setInternalNumber(e.target.value)} onBlur={() => void saveAttr('internal_number', internalNumber)} />
+            <Input value={internalNumber} disabled={!canEditMasterData} onChange={(e) => setInternalNumber(e.target.value)} onBlur={() => void saveAttr('internal_number', internalNumber)} />
 
           <div style={{ color: '#6b7280' }}>Марка двигателя</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -482,13 +492,13 @@ export function ContractDetailsPage(props: {
               <SearchSelect
                 value={engineBrandId || null}
                 options={engineBrandOptions}
-                disabled={!props.canEditMasterData}
+                disabled={!canEditMasterData}
                 onChange={(next) => {
                   const v = next ?? '';
                   setEngineBrandId(v);
                   void saveAttr('engine_brand_id', next ?? null);
                 }}
-                onCreate={props.canEditMasterData ? async (label) => createMasterDataItem('engine_brand', label) : undefined}
+                onCreate={canEditMasterData ? async (label) => createMasterDataItem('engine_brand', label) : undefined}
                 createLabel="Новая марка двигателя"
               />
             </div>
@@ -501,7 +511,7 @@ export function ContractDetailsPage(props: {
             <Input
               type="number"
               value={contractAmount}
-              disabled={!props.canEditMasterData}
+              disabled={!canEditMasterData}
               onChange={(e) => setContractAmount(e.target.value)}
               onBlur={() => void saveAttr('contract_amount_rub', contractAmount ? Number(contractAmount) : null)}
             />
@@ -510,7 +520,7 @@ export function ContractDetailsPage(props: {
             <Input
               type="number"
               value={unitPrice}
-              disabled={!props.canEditMasterData}
+              disabled={!canEditMasterData}
               onChange={(e) => setUnitPrice(e.target.value)}
               onBlur={() => void saveAttr('unit_price_rub', unitPrice ? Number(unitPrice) : null)}
             />
@@ -521,7 +531,7 @@ export function ContractDetailsPage(props: {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
             <strong>Количество двигателей</strong>
             <span style={{ flex: 1 }} />
-            {props.canEditMasterData && (
+            {canEditMasterData && (
               <Button variant="ghost" onClick={() => void saveEngineCounts(engineCountItems)}>
                 Сохранить
               </Button>
@@ -532,7 +542,7 @@ export function ContractDetailsPage(props: {
               <div key={`${idx}-${item.label}`} style={{ display: 'grid', gridTemplateColumns: '1fr 140px 80px', gap: 8 }}>
                 <Input
                   value={item.label}
-                  disabled={!props.canEditMasterData}
+                  disabled={!canEditMasterData}
                   placeholder="Описание (например: Допсоглашение №45)"
                   onChange={(e) => {
                     const next = [...engineCountItems];
@@ -544,7 +554,7 @@ export function ContractDetailsPage(props: {
                 <Input
                   type="number"
                   value={String(item.count ?? 0)}
-                  disabled={!props.canEditMasterData}
+                  disabled={!canEditMasterData}
                   onChange={(e) => {
                     const next = [...engineCountItems];
                     next[idx] = { ...next[idx], count: Number(e.target.value) || 0 };
@@ -555,7 +565,7 @@ export function ContractDetailsPage(props: {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    if (!props.canEditMasterData) return;
+                    if (!canEditMasterData) return;
                     const next = engineCountItems.filter((_, i) => i !== idx);
                     const fallback = next.length ? next : [{ label: 'Количество двигателей по первоначальному контракту', count: 0 }];
                     setEngineCountItems(fallback);
@@ -566,7 +576,7 @@ export function ContractDetailsPage(props: {
                 </Button>
               </div>
             ))}
-            {props.canEditMasterData && (
+            {canEditMasterData && (
               <Button variant="ghost" onClick={() => setEngineCountItems((prev) => [...prev, { label: '', count: 0 }])}>
                 + Добавить строку
               </Button>
@@ -624,7 +634,7 @@ export function ContractDetailsPage(props: {
             title="Вложения к контракту"
             value={contract.attributes?.attachments}
             canView={props.canViewFiles}
-            canUpload={props.canUploadFiles && props.canEditMasterData}
+            canUpload={props.canUploadFiles && canEditMasterData}
             scope={{ ownerType: 'contract', ownerId: contract.id, category: 'attachments' }}
             onChange={async (next) => {
               try {
@@ -648,7 +658,7 @@ export function ContractDetailsPage(props: {
                   title={def.name}
                   value={contract.attributes?.[def.code]}
                   canView={props.canViewFiles}
-                  canUpload={props.canUploadFiles && props.canEditMasterData}
+                  canUpload={props.canUploadFiles && canEditMasterData}
                   scope={{ ownerType: 'contract', ownerId: contract.id, category }}
                   onChange={async (next) => {
                     try {
@@ -671,7 +681,7 @@ export function ContractDetailsPage(props: {
             {addFieldStatus && (
               <span style={{ color: addFieldStatus.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', fontSize: 12 }}>{addFieldStatus}</span>
             )}
-            {props.canEditMasterData && (
+            {canEditMasterData && (
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -684,7 +694,7 @@ export function ContractDetailsPage(props: {
             )}
           </div>
 
-          {addFieldOpen && props.canEditMasterData && (
+          {addFieldOpen && canEditMasterData && (
             <div style={{ marginBottom: 14, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Новое поле для контрактов (появится в карточке у всех контрактов).</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8, alignItems: 'center' }}>
@@ -759,22 +769,22 @@ export function ContractDetailsPage(props: {
                       <span style={{ color: '#6b7280', fontWeight: 400 }}> ({def.code})</span>
                       {def.isRequired && <span style={{ color: '#b91c1c' }}> *</span>}
                     </label>
-                    {!props.canEditMasterData || !isEditing ? (
+                    {!canEditMasterData || !isEditing ? (
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <div
                           style={{
                           padding: '10px 12px',
                           border: '1px solid #e5e7eb',
                           borderRadius: 8,
-                          backgroundColor: props.canEditMasterData ? '#f9fafb' : '#ffffff',
+                          backgroundColor: canEditMasterData ? '#f9fafb' : '#ffffff',
                           fontSize: 14,
                           color: '#111827',
-                          cursor: props.canEditMasterData ? 'pointer' : 'default',
+                          cursor: canEditMasterData ? 'pointer' : 'default',
                           whiteSpace: 'pre-wrap',
                             flex: 1,
                           }}
                           onClick={() => {
-                            if (props.canEditMasterData) setEditingAttr({ ...editingAttr, [def.code]: value });
+                            if (canEditMasterData) setEditingAttr({ ...editingAttr, [def.code]: value });
                           }}
                         >
                           {value === null || value === undefined ? (
@@ -811,7 +821,7 @@ export function ContractDetailsPage(props: {
                                 value={typeof value === 'string' && value ? value : null}
                                 options={linkOptionsByCode[def.code] ?? []}
                                 placeholder="Выберите значение"
-                                disabled={!props.canEditMasterData || linkLoadingByCode[def.code]}
+                                disabled={!canEditMasterData || linkLoadingByCode[def.code]}
                                 onChange={(next) => setEditingAttr({ ...editingAttr, [def.code]: next })}
                               />
                             </div>
