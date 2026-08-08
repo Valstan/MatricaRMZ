@@ -5254,12 +5254,22 @@ export function App() {
       return;
     }
     if (parsed.kind === 'chat' || parsed.kind === 'ai_chat' || parsed.kind === 'settings') {
-      if (parsed.kind === 'settings') { setTab('settings'); return; }
-      if (isCardTab(tab)) deferFocus(id);
-      else dispatchTabs({ type: 'FOCUS', id });
+      if (isCardTab(tab)) {
+        // С карточки — только через dirty-guard; фокус приедет следом.
+        if (parsed.kind === 'settings') setTab('settings');
+        else deferFocus(id);
+        return;
+      }
+      // FOCUS обязателен и здесь: при tab === 'settings' setTab делает no-op
+      // (requestTabSwitch выходит на равном табе), и клик по вкладке был бы «мёртвым».
+      dispatchTabs({ type: 'FOCUS', id });
+      if (parsed.kind === 'settings') setTab('settings');
       return;
     }
     if (parsed.kind === 'list') {
+      // Фокус ставим явно: если App.tab уже равен этому разделу (ушли на МЕНЮ со списка —
+      // tab при этом не менялся), requestTabSwitch выйдет no-op'ом и вкладка не активируется.
+      if (!isCardTab(tab)) dispatchTabs({ type: 'FOCUS', id });
       // setTab (не setTabState): переход с карточки обязан пройти dirty-guard.
       setTab(parsed.tabId as TabId);
       return;
