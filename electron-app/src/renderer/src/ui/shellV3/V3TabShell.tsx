@@ -1,6 +1,6 @@
 ﻿import React, { useMemo } from 'react';
 import { Group, Panel, Separator, type Layout, type LayoutChangedMeta } from 'react-resizable-panels';
-import { v3ShowTabsWarning } from '@matricarmz/shared';
+import { shouldWarnTabsCount } from '@matricarmz/shared';
 
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { ButtonPanel } from '../shellV2/ButtonPanel.js';
@@ -44,6 +44,8 @@ export function V3TabShell(props: {
   onAction: (id: ActionButtonId) => void;
   openTabs: OpenTab[];
   activeTabId: string;
+  /** Раздел, который подсвечивается в панели МЕНЮ: «где оператор был», а не активная вкладка. */
+  activeSectionTabId: TabId;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onSplitCard?: (card: OpenTab) => void;
@@ -64,7 +66,11 @@ export function V3TabShell(props: {
   onAccountClick?: (pos: { x: number; y: number }) => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
-  const activeMenuTab = resolveMenuTab(props.openTabs.find(t => t.kind === 'list')?.tabId ?? 'engines');
+  // Панель МЕНЮ видна только когда активна вкладка МЕНЮ, поэтому подсвечивать надо раздел,
+  // НА КОТОРОМ оператор находится (App.tab), а не активную вкладку — иначе подсветка всегда
+  // указывала бы на фолбэк. Раньше бралась первая list-вкладка: на карточке или другом
+  // разделе подсвечивался чужой пункт.
+  const activeMenuTab = resolveMenuTab(props.activeSectionTabId);
 
   const chrome = useChromeVisibility();
   const setShellMounted = chrome.setShellMounted;
@@ -119,17 +125,26 @@ export function V3TabShell(props: {
             <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(tab.tabId)}</React.Suspense>
           </div>
         ) : null;
+      // Suspense обязателен всем трём: страницы ленивые (lazyPage), и без границы React
+      // отвечает «A component suspended while responding to synchronous input» и сносит
+      // всё дерево — оператор видит белый экран (ловилось на «⚙️ Настройки» меню аккаунта).
       case 'chat':
         return props.renderChatTab ? (
-          <div className="v3-tab-content">{props.renderChatTab()}</div>
+          <div className="v3-tab-content">
+            <React.Suspense fallback={suspenseFallback()}>{props.renderChatTab()}</React.Suspense>
+          </div>
         ) : null;
       case 'ai_chat':
         return props.renderAiChatTab ? (
-          <div className="v3-tab-content">{props.renderAiChatTab()}</div>
+          <div className="v3-tab-content">
+            <React.Suspense fallback={suspenseFallback()}>{props.renderAiChatTab()}</React.Suspense>
+          </div>
         ) : null;
       case 'settings':
         return props.renderSettingsTab ? (
-          <div className="v3-tab-content">{props.renderSettingsTab()}</div>
+          <div className="v3-tab-content">
+            <React.Suspense fallback={suspenseFallback()}>{props.renderSettingsTab()}</React.Suspense>
+          </div>
         ) : null;
       default:
         return null;
@@ -175,7 +190,7 @@ export function V3TabShell(props: {
             </div>
           );
         })}
-        {v3ShowTabsWarning(props.openTabs.length) ? (
+        {shouldWarnTabsCount(props.openTabs.length) ? (
           <div className="v3-tabs-warning" role="alert">
             ⚠ Много вкладок — закройте отработанные.
           </div>

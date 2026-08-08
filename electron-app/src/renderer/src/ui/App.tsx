@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type {
   AuthStatus,
@@ -37,8 +37,23 @@ import {
   sanitizeUiPresetId,
   uiControlToDisplayPrefs,
   withUiControlPresetApplied,
-  V3_MAX_CARD_TABS,
   REPORT_PRESET_DEFINITIONS,
+  MENU_TAB_ID,
+  activeCardTab,
+  canOpenCardTab,
+  cardTabId,
+  cardTabs,
+  createTabsState,
+  focusAfterClose,
+  focusedCardKey,
+  hasTab,
+  parseTabId,
+  sessionCards,
+  sessionSecondaryCard,
+  tabIdFromSessionKey,
+  tabsReducer,
+  type CardRef,
+  type WorkTab,
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
@@ -504,6 +519,68 @@ function appTabTitle(tab: string): string {
   return labels[tab] ?? tab;
 }
 
+// Подписи разделов. Модульная константа, а не переменная компонента: её читает
+// setTabState-адаптер, объявленный выше по телу рендера (иначе TDZ на первом же вызове).
+const MENU_LABELS: Record<MenuTabId, string> = {
+  history: 'История',
+  user_screens: 'Мои экраны',
+  masterdata: 'Справочники',
+  contracts: 'Контракты',
+  changes: 'Изменения',
+  engines: 'Двигатели',
+  assembly_forecast: 'Прогноз сборки',
+  engine_brands: 'Марки двигателей',
+  engine_brand_groups: 'Группы марок',
+  counterparties: 'Контрагенты',
+  requests: 'Заявки',
+  work_orders: 'Наряды',
+  work_order_templates: 'Шаблоны нарядов',
+  parts: 'Детали',
+  tools: 'Инструменты',
+  tool_accounting: 'Учёт инструментов',
+  products: 'Товары',
+  services: 'Услуги',
+  services_by_brand: 'Услуги по маркам',
+  nomenclature: 'Номенклатура',
+  parts_dedupe: 'Дубли номенклатуры',
+  empty_cards: 'Пустые карточки',
+  drafts: 'Черновики',
+  engine_assembly_bom: 'BOM двигателей',
+  repair_norms: 'Нормы ремонта',
+  stock_balances: 'Остатки',
+  stock_documents: 'Документы',
+  stock_receipts: 'Приход',
+  stock_issues: 'Расход',
+  stock_transfers: 'Перемещения',
+  stock_inventory: 'Инвентаризация',
+  repair_fund_audit: 'Ревизия ремфонда',
+  warehouse_analytics: 'Аналитика выпуска',
+  workshop_stats: 'Статистика цехов',
+  employees: 'Сотрудники',
+  timesheets: 'Табель',
+  access_sections: 'Доступы по разделам',
+  reports: 'Отчёты',
+  custom_reports: 'Мои отчёты',
+  audit: 'Журнал',
+  admin: 'Админ',
+  auth: 'Вход',
+  notes: 'Заметки',
+  settings: 'Настройки',
+  workshops: 'Цеха',
+  warehouses_admin: 'Склады и цеха',
+  warehouse_locations: 'Локации',
+};
+
+/** Подпись вкладки раздела: у карточных TabId подписи нет — там ярлык даёт v2CardTitle. */
+function sectionTabLabel(tabId: TabId): string {
+  return MENU_LABELS[tabId as MenuTabId] ?? String(tabId);
+}
+
+/** Фолбэк-заголовок «Вид · id6» — маркер, что человекопонятное имя ещё не резолвнуто. */
+function isFallbackCardTitle(t: string): boolean {
+  return / · [0-9a-f]{6}$/i.test(t);
+}
+
 const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   engine: 'engines',
   engine_brand: 'engine_brands',
@@ -581,7 +658,22 @@ export function App() {
   const [accountMenuPos, setAccountMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [accountSwitchOpen, setAccountSwitchOpen] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
-  const [tab, setTabState] = useState<TabId>('history');
+  const [tab, setTabRaw] = useState<TabId>('history');
+  // Полоса вкладок — явное состояние (shared/src/domain/tabsModel.ts). Раньше она
+  // выводилась из шести независимых стейтов и расходилась с активным ключом.
+  const [tabsState, dispatchTabs] = useReducer(tabsReducer, undefined, () => createTabsState('МЕНЮ'));
+  // Актуальный снимок для гейта лимита: открытие карточки может выполниться ОТЛОЖЕННО
+  // (pendingCardOpenRef после dirty-диалога), и снимок того рендера к тому моменту протух.
+  const tabsStateRef = useRef(tabsState);
+  tabsStateRef.current = tabsState;
+  // Вкладка, которую нужно сфокусировать ПОСЛЕ того, как отработает dirty-guard карточки.
+  // Чат/ИИваныч/МЕНЮ не имеют TabId, поэтому сами дождаться перехода не могут.
+  const pendingFocusRef = useRef<string | null>(null);
+  // Карточка, чьё открытие отложено dirty-диалогом: по ней убираем вкладку, если открытие сорвалось.
+  const pendingCardTabRef = useRef<{ kind: TabId; entityId: string } | null>(null);
+  // v2CardTitle объявлена ниже по телу рендера и пересоздаётся каждый рендер: держим её
+  // в ref, чтобы openCardTab остался стабильным useCallback без ложных зависимостей.
+  const cardTitleFnRef = useRef<(kind: TabId, entityId: string) => string>(() => '');
   // Latest-value ref for the mount-only sync-progress subscription below.
   const tabRef = useRef(tab);
   tabRef.current = tab;
@@ -644,7 +736,8 @@ export function App() {
   // UI builder: 'new' = создание нового экрана в редакторе (карточный tab требует непустой id).
   const [selectedUserScreenId, setSelectedUserScreenId] = useState<string | null>(null);
   const [userScreenEditMode, setUserScreenEditMode] = useState<boolean>(false);
-  const [chatOpen, setChatOpen] = useState<boolean>(true);
+  // Чат — обычная вкладка полосы, а не отдельный булев стейт (раньше их было два и они расходились).
+  const chatOpen = hasTab(tabsState, 'chat');
   const [globalSearchOpen, setGlobalSearchOpen] = useState<boolean>(false);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
     selectedUserId: null,
@@ -661,7 +754,7 @@ export function App() {
   const chatPendingSoundTimerRef = useRef<number | null>(null);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
-  const [aiChatOpen, setAiChatOpen] = useState<boolean>(true);
+  const aiChatOpen = hasTab(tabsState, 'ai_chat');
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
   const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
   const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
@@ -704,8 +797,6 @@ export function App() {
   const [v2CardEpoch, setV2CardEpoch] = useState(0);
   // Фаза 3: вкладки открытых карточек в рабочей области (до 3, single-mount — активна одна,
   // остальные — «закладки» для быстрого возврата). Дедуп по kind+entityId. Не используется в v1.
-  const [v2OpenCards, setV2OpenCards] = useState<Array<{ kind: TabId; entityId: string; title: string }>>([]);
-  const V2_MAX_OPEN_CARDS = 3;
   // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
   const [_v3PinnedFocus, setV3PinnedFocus] = useState(false);
   // Свёрнутость секций МЕНЮ — машинно-локальная и переживает перезапуск: раньше каждая
@@ -736,30 +827,12 @@ export function App() {
     if (ids.length > 0) setCollapsedSections(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus.loggedIn]);
-  // V3: лимит карточек — открытие сверх лимита блокируется с красным уведомлением (авто-гаснет).
-  const [v3LimitNotice, setV3LimitNotice] = useState(false);
-  // V3: явный фокус вкладки МЕНЮ. Нужен, когда активен раздел, чей tab совпадает с
-  // нейтральным 'history': один tab не может выразить «МЕНЮ поверх открытого раздела».
-  const [menuFocused, setMenuFocused] = useState(false);
-  const prevTabForMenuFocusRef = useRef<TabId | null>(null);
-  useEffect(() => {
-    if (prevTabForMenuFocusRef.current !== tab) {
-      prevTabForMenuFocusRef.current = tab;
-      // Переход НА нейтральный 'history' — это и есть «фокус на МЕНЮ» (уход с карточки
-      // по клику МЕНЮ, fallback закрытий) — флаг не сбрасываем, иначе при открытой
-      // вкладке «История» фокус утёк бы на неё.
-      if (tab !== 'history') setMenuFocused(false);
-    }
-  }, [tab]);
   // Sync indicator state
   const [syncIndicator, setSyncIndicator] = useState<{
     state: 'idle' | 'syncing' | 'done';
     progress: number | null;
     summary: string | null;
   }>({ state: 'idle', progress: null, summary: null });
-  // Обход гейта лимита для рефокуса УЖЕ открытой карточки и session-restore (selected-id
-  // в момент setTab ещё не закоммичен — по нему «уже открыта?» не определить).
-  const v3BypassLimitRef = useRef(false);
   // Split «2 рядом»: вторая карточка, смонтированная одновременно с primary (справа).
   // Своё состояние загрузки двигателя (engine — единственная не-self-load карточка) и
   // свой close-actions ref (backstop сохранения работает по обеим панелям).
@@ -832,6 +905,31 @@ export function App() {
 
   const isCardTab = useCallback((nextTab: TabId) => CARD_DETAIL_TABS.includes(nextTab), []);
 
+  // Единственная точка, где смена раздела становится вкладкой. Имя и сигнатура прежние,
+  // поэтому все 24 существующих вызова setTabState (в т.ч. возвраты из closeCardSession и
+  // finalizeCardClose) правки не требуют — «страница без вкладки» становится невозможной.
+  //
+  // 'history' — раздел с двойной ролью: собственная вкладка «История» (открывается из МЕНЮ)
+  // и нейтральный «дом» после закрытия карточки. Здесь работает вторая роль: FOCUS_SECTION
+  // уводит на вкладку раздела, если она открыта, иначе на МЕНЮ — ровно как прежний каскад
+  // activeTabKey. Саму вкладку заводит только явный клик в МЕНЮ (handleMenuTab).
+  const setTabState = useCallback((nextTab: TabId) => {
+    setTabRaw(nextTab);
+    const pendingFocus = pendingFocusRef.current;
+    pendingFocusRef.current = null;
+    if (CARD_DETAIL_TABS.includes(nextTab)) return;
+    if (nextTab === 'auth') {
+      dispatchTabs({ type: 'FOCUS', id: MENU_TAB_ID });
+      return;
+    }
+    if (nextTab === 'history') {
+      if (pendingFocus !== null) dispatchTabs({ type: 'FOCUS', id: pendingFocus });
+      else dispatchTabs({ type: 'FOCUS_SECTION', tabId: 'history' });
+      return;
+    }
+    dispatchTabs({ type: 'OPEN_LIST', tabId: nextTab, label: sectionTabLabel(nextTab), focus: true });
+  }, []);
+
   // v3 «Вкладки» — надстройка над механикой v2 (openCards/списки/session): все v2-гейты
   // работают и в v3, различается только рендер оболочки (V3TabShell vs V2Shell).
   // v3 «Вкладки» — единственная оболочка (этап 6, 2026-07-28): v1/v2 снесены,
@@ -881,6 +979,9 @@ export function App() {
   const clearSecondaryPaneState = useCallback(() => {
     secondaryCloseRef.current = null;
     setV2SecondaryCard(null);
+    // Без этого закрытая правая панель остаётся в персисте сессии и воскресает
+    // при следующем запуске — «2 рядом» возвращается сама.
+    dispatchTabs({ type: 'SET_SECONDARY', card: null });
     setSecondaryEngineDetails(null);
     setSecondaryEngineLoading(false);
   }, []);
@@ -956,6 +1057,7 @@ export function App() {
           const pendingOpen = pendingCardOpenRef.current;
           if (pendingOpen) {
             pendingCardOpenRef.current = null;
+            pendingCardTabRef.current = null;
             pendingOpen();
           } else if (targetTab) {
             setTabState(targetTab);
@@ -1036,6 +1138,12 @@ export function App() {
         setCardCloseStatus(`Ошибка сохранения: ${String(e)}`);
         cardCloseInProgressRef.current = false;
         pendingCardOpenRef.current = null;
+        pendingFocusRef.current = null;
+        // Открытие сорвалось — вкладка, заведённая под него, не должна остаться в полосе
+        // (и уехать в персист сессии) без карточки.
+        const ghost = pendingCardTabRef.current;
+        pendingCardTabRef.current = null;
+        if (ghost) dispatchTabs({ type: 'CLOSE_CARD', cardKind: ghost.kind, entityId: ghost.entityId });
         clearQueuedHistoryReplay(true);
         return;
       }
@@ -1045,6 +1153,7 @@ export function App() {
       const pendingOpen = pendingCardOpenRef.current;
       if (pendingOpen) {
         pendingCardOpenRef.current = null;
+        pendingCardTabRef.current = null;
         pendingOpen();
         if (fromApp) {
           respondAppClose();
@@ -1083,21 +1192,51 @@ export function App() {
   );
 
 
+  // Лимит карточек теперь гейтится в openCardTab — ДО записи selected*Id, поэтому здесь
+  // гейта нет: молчаливый `return` после смены сущности (дефект F) стал невозможен.
   const setTab = useCallback((nextTab: TabId) => {
-    // V3: лимит вкладок — 11-я карточка НЕ открывается (selected-id уже мог смениться,
-    // но без смены tab upsert-эффект вкладку не заведёт). Рефокус открытой карточки и
-    // session-restore идут с bypass-флагом.
-    if (isV3 && isCardTab(nextTab) && nextTab !== tab) {
-      const bypass = v3BypassLimitRef.current;
-      v3BypassLimitRef.current = false;
-      if (!bypass && v2OpenCards.length >= V3_MAX_CARD_TABS) {
-        setV3LimitNotice(true);
-        window.setTimeout(() => setV3LimitNotice(false), 5000);
-        return;
-      }
-    }
     requestTabSwitch(nextTab);
-  }, [requestTabSwitch, isV3, isCardTab, tab, v2OpenCards]);
+  }, [requestTabSwitch]);
+
+  const openSectionTab = useCallback((t: TabId) => {
+    if (t !== 'auth' && !CARD_DETAIL_TABS.includes(t)) {
+      dispatchTabs({
+        type: 'OPEN_LIST',
+        tabId: t,
+        label: sectionTabLabel(t),
+        focus: !CARD_DETAIL_TABS.includes(tabRef.current),
+      });
+    }
+    setTab(t);
+  }, [setTab]);
+
+  // Заводит вкладку карточки и отвечает вызывающему, разрешено ли открытие. Фокус даёт не
+  // здесь, а пост-коммитный эффект — то есть уже ПОСЛЕ dirty-guard: при single-mount смена
+  // активной вкладки размонтировала бы грязную карточку раньше, чем оператор ответил диалогу.
+  const openCardTab = useCallback((kind: TabId, entityId: string): boolean => {
+    const id = String(entityId ?? '').trim();
+    if (!id) return true;
+    const title = cardTitleFnRef.current(kind, id);
+    // Снимок берём из ref, а не из замыкания рендера: при грязной карточке открытие
+    // выполняется отложенно (pendingCardOpenRef) и состояние вкладок к тому моменту иное.
+    const allowed = canOpenCardTab(tabsStateRef.current, kind, id);
+    dispatchTabs({
+      type: 'OPEN_CARD',
+      cardKind: kind,
+      entityId: id,
+      title,
+      titleIsFallback: isFallbackCardTitle(title),
+      focus: false,
+    });
+    return allowed;
+  }, []);
+
+  // Баннер отказа гаснет сам. Таймер живёт здесь, а не в редьюсере: домен без часов.
+  useEffect(() => {
+    if (!tabsState.notice) return;
+    const t = window.setTimeout(() => dispatchTabs({ type: 'DISMISS_NOTICE' }), 5000);
+    return () => window.clearTimeout(t);
+  }, [tabsState.notice]);
 
   // V2: список виден рядом с открытой карточкой, поэтому клик по другой строке того же
   // списка меняет selectedXId БЕЗ смены таба — requestTabSwitch не сработает, и key-ремоунт
@@ -1111,8 +1250,12 @@ export function App() {
   }, [tab, authStatus.loggedIn]);
 
   const v2OpenCardGuarded = useCallback(
-    (kind: TabId, run: () => void) => {
+    (kind: TabId, entityId: string, run: () => void) => {
       logUiUsage('ui.card_open', kind);
+      // Лимит проверяем ДО всего остального: при отказе ни сущность, ни tab не меняются
+      // (раньше сущность выбиралась, а вкладка молча нет), и оператор не проходит зря
+      // dirty-диалог, отказавшись от правок в обмен на карточку, которую не получит.
+      if (!openCardTab(kind, entityId)) return;
       if (!isV2 || tab !== kind) {
         run();
         return;
@@ -1130,13 +1273,16 @@ export function App() {
         run();
         return;
       }
+      // Дескриптор нужен, чтобы убрать вкладку-призрак, если отложенное открытие так и не
+      // состоится (сохранение упало — finalizeCardClose выходит по ошибке).
+      pendingCardTabRef.current = { kind, entityId: String(entityId ?? '').trim() };
       pendingCardOpenRef.current = () => {
         setV2CardEpoch((e) => e + 1);
         run();
       };
       void closeCardSession({ targetTab: null, appClose: false });
     },
-    [isV2, tab, closeCardSession],
+    [isV2, tab, closeCardSession, openCardTab],
   );
 
   // V2: фокус на списке — синхронизируем колонку списков (в т.ч. возврат из карточки
@@ -1171,13 +1317,13 @@ export function App() {
   }, [tab, v3FocusedCardKey]);
 
   // V2: «Закрыть карточку» закрывает и её вкладку (инвариант: любой путь, снимающий карточку
-  // с рабочей области, удаляет её дескриптор из v2OpenCards — иначе зависшая вкладка переоткрывает
+  // с рабочей области, закрывает её вкладку — иначе зависшая вкладка переоткрывает
   // устаревшее состояние карточки). closeV2Card содержит dirty-guard и выбор следующего фокуса.
   function requestCardClose() {
     if (isV2) {
-      const idn = v2CurrentCardIdentity();
-      if (idn) {
-        closeV2Card(idn);
+      const active = activeCardTab(tabsState);
+      if (active) {
+        closeV2Card({ kind: active.cardKind as TabId, entityId: active.entityId });
         return;
       }
     }
@@ -1771,13 +1917,15 @@ export function App() {
         void runSyncNow();
         break;
       case 'user':
-        setTab(userTab);
+        openSectionTab(userTab);
         break;
       case 'ai_chat':
-        setAiChatOpen((v) => !v);
+        if (aiChatOpen) dispatchTabs({ type: 'CLOSE', id: 'ai_chat' });
+        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: true });
         break;
       case 'chat':
-        setChatOpen((v) => !v);
+        if (chatOpen) dispatchTabs({ type: 'CLOSE', id: 'chat' });
+        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: true });
         break;
       case 'tablet_mode':
         toggleUiMode();
@@ -1812,14 +1960,18 @@ export function App() {
     isApplyingHistoryRef.current = false;
     queuedHistoryReplayRef.current = null;
     setV2ActiveListTab(null);
-    setV2OpenCards([]);
     setV2SecondaryCard(null);
     setSecondaryEngineDetails(null);
     setSecondaryEngineLoading(false);
     secondaryCloseRef.current = null;
     pendingCardOpenRef.current = null;
     setEmployeesRefreshKey((k) => k + 1);
-    setAiChatOpen(true);
+    // Полоса вкладок принадлежит пользователю: чужие вкладки не должны пережить смену.
+    // Чат и ИИваныч возвращаются открытыми (как прежний useState(true)), но БЕЗ фокуса —
+    // иначе они перебивают восстановление сессии карточек.
+    dispatchTabs({ type: 'RESET' });
+    chatTabSeededRef.current = '';
+    aiTabSeededRef.current = '';
   }
 
   // When user changes (logout or login as another user), reset state and sync.
@@ -2093,55 +2245,7 @@ export function App() {
     | 'report_preset'
   > = authStatus.loggedIn ? 'settings' : 'auth';
   const userLabel = authStatus.loggedIn ? authStatus.user?.username ?? 'Пользователь' : 'Вход';
-  const menuLabels: Record<MenuTabId, string> = {
-    history: 'История',
-    user_screens: 'Мои экраны',
-    masterdata: 'Справочники',
-    contracts: 'Контракты',
-    changes: 'Изменения',
-    engines: 'Двигатели',
-    assembly_forecast: 'Прогноз сборки',
-    engine_brands: 'Марки двигателей',
-    engine_brand_groups: 'Группы марок',
-    counterparties: 'Контрагенты',
-    requests: 'Заявки',
-    work_orders: 'Наряды',
-    work_order_templates: 'Шаблоны нарядов',
-    parts: 'Детали',
-    tools: 'Инструменты',
-    tool_accounting: 'Учёт инструментов',
-    products: 'Товары',
-    services: 'Услуги',
-    services_by_brand: 'Услуги по маркам',
-    nomenclature: 'Номенклатура',
-    parts_dedupe: 'Дубли номенклатуры',
-    empty_cards: 'Пустые карточки',
-    drafts: 'Черновики',
-    engine_assembly_bom: 'BOM двигателей',
-    repair_norms: 'Нормы ремонта',
-    stock_balances: 'Остатки',
-    stock_documents: 'Документы',
-    stock_receipts: 'Приход',
-    stock_issues: 'Расход',
-    stock_transfers: 'Перемещения',
-    stock_inventory: 'Инвентаризация',
-    repair_fund_audit: 'Ревизия ремфонда',
-    warehouse_analytics: 'Аналитика выпуска',
-    workshop_stats: 'Статистика цехов',
-    employees: 'Сотрудники',
-    timesheets: 'Табель',
-    access_sections: 'Доступы по разделам',
-    reports: 'Отчёты',
-    custom_reports: 'Мои отчёты',
-    audit: 'Журнал',
-    admin: 'Админ',
-    auth: 'Вход',
-    notes: 'Заметки',
-    settings: 'Настройки',
-    workshops: 'Цеха',
-    warehouses_admin: 'Склады и цеха',
-    warehouse_locations: 'Локации',
-  };
+  const menuLabels = MENU_LABELS;
 
   // Gate: без входа показываем только вкладку "Вход".
   useEffect(() => {
@@ -2152,14 +2256,32 @@ export function App() {
     if (authStatus.loggedIn && tab === 'auth') setTab('history');
   }, [authStatus.loggedIn, tab, setTab]);
 
-  // Gate: chat requires auth + permission.
+  // Вкладки Чат/ИИваныч: право есть — вкладка появляется один раз на пользователя (закрыл
+  // сам — не навязываем), права нет — вкладки нет. Раньше стартовый useState(true) гасился
+  // гейтом ещё до загрузки прав, и вкладка не возвращалась уже никогда.
+  const chatTabSeededRef = useRef('');
   useEffect(() => {
-    if (!authStatus.loggedIn || !canChat) setChatOpen(false);
-  }, [authStatus.loggedIn, canChat]);
+    const uid = String(authStatus.user?.id ?? '').trim();
+    if (!authStatus.loggedIn || !canChat) {
+      dispatchTabs({ type: 'CLOSE', id: 'chat' });
+      return;
+    }
+    if (!uid || chatTabSeededRef.current === uid) return;
+    chatTabSeededRef.current = uid;
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: false });
+  }, [authStatus.loggedIn, canChat, authStatus.user?.id]);
 
+  const aiTabSeededRef = useRef('');
   useEffect(() => {
-    if (!canAiAgent) setAiChatOpen(false);
-  }, [canAiAgent]);
+    const uid = String(authStatus.user?.id ?? '').trim();
+    if (!authStatus.loggedIn || !canAiAgent) {
+      dispatchTabs({ type: 'CLOSE', id: 'ai_chat' });
+      return;
+    }
+    if (!uid || aiTabSeededRef.current === uid) return;
+    aiTabSeededRef.current = uid;
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: false });
+  }, [authStatus.loggedIn, canAiAgent, authStatus.user?.id]);
 
   useEffect(() => {
     if (!trashOpen) return;
@@ -2176,7 +2298,7 @@ export function App() {
   // For pending users: open chat automatically.
   useEffect(() => {
     const role = String(authStatus.user?.role ?? '').toLowerCase();
-    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) setChatOpen(true);
+    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: true });
   }, [authStatus.loggedIn, authStatus.user?.role, canChat, chatOpen]);
 
   function resolveChatSoundUrl(fileName: string) {
@@ -2372,7 +2494,7 @@ export function App() {
     // не повод выкидывать из уже открытого раздела. 'history' — нейтральный «дом» МЕНЮ.
     if (sectionGatedTabs.includes(tab as MenuTabId) || tab === userTab || tab === 'history' || tab === 'auth') return;
     setTab(sectionGatedTabs[0] ?? 'auth');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the sectionGatedTabsKey string signature because the sectionGatedTabs array identity is not stable across renders; setTab varies with tab/v2OpenCards and re-running on it would add no new information
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the sectionGatedTabsKey string signature because the sectionGatedTabs array identity is not stable across renders; setTab is stable and re-running on it would add no new information
   }, [tab, sectionGatedTabsKey, userTab]);
 
   async function persistTabsLayout(next: TabsLayoutPrefs) {
@@ -2424,16 +2546,7 @@ export function App() {
       openReportPreset('assembly_forecast_7d');
       return;
     }
-    if (t !== 'auth' && !isCardTab(t)) {
-      setOpenedListTabs((prev) => {
-        if (prev.has(t)) return prev;
-        const next = new Set(prev);
-        next.add(t);
-        return next;
-      });
-    }
-    setMenuFocused(false);
-    setTab(t);
+    openSectionTab(t);
   }
 
   async function addPinnedShortcut(shortcutId: string) {
@@ -2527,7 +2640,7 @@ export function App() {
   }
 
   async function openEngine(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' | 'payments' }) {
-    v2OpenCardGuarded('engine', () => {
+    v2OpenCardGuarded('engine', id, () => {
       void openEngineNow(id, opts);
     });
   }
@@ -2555,7 +2668,7 @@ export function App() {
   }
 
   async function openRequest(id: string, opts?: { initialPayload?: SupplyRequestPayload }) {
-    v2OpenCardGuarded('request', () => {
+    v2OpenCardGuarded('request', id, () => {
       setNewRequestSeed(opts?.initialPayload ? { id, payload: opts.initialPayload } : null);
       setSelectedRequestId(id);
       setTab('request');
@@ -2563,7 +2676,7 @@ export function App() {
   }
 
   async function openWorkOrder(id: string, opts?: { initialPayload?: WorkOrderPayload }) {
-    v2OpenCardGuarded('work_order', () => {
+    v2OpenCardGuarded('work_order', id, () => {
       setNewWorkOrderSeed(opts?.initialPayload ? { id, payload: opts.initialPayload } : null);
       setSelectedWorkOrderId(id);
       setTab('work_order');
@@ -2571,21 +2684,21 @@ export function App() {
   }
 
   async function openEngineBrand(id: string) {
-    v2OpenCardGuarded('engine_brand', () => {
+    v2OpenCardGuarded('engine_brand', id, () => {
       setSelectedEngineBrandId(id);
       setTab('engine_brand');
     });
   }
 
   async function openEngineBrandGroup(id: string) {
-    v2OpenCardGuarded('engine_brand_group', () => {
+    v2OpenCardGuarded('engine_brand_group', id, () => {
       setSelectedEngineBrandGroupId(id);
       setTab('engine_brand_group');
     });
   }
 
   async function openContract(id: string) {
-    v2OpenCardGuarded('contract', () => {
+    v2OpenCardGuarded('contract', id, () => {
       setSelectedContractId(id);
       setTab('contract');
     });
@@ -2599,35 +2712,35 @@ export function App() {
   }
 
   async function openTool(id: string) {
-    v2OpenCardGuarded('tool', () => {
+    v2OpenCardGuarded('tool', id, () => {
       setSelectedToolId(id);
       setTab('tool');
     });
   }
 
   async function openToolProperty(id: string) {
-    v2OpenCardGuarded('tool_property', () => {
+    v2OpenCardGuarded('tool_property', id, () => {
       setSelectedToolPropertyId(id);
       setTab('tool_property');
     });
   }
 
   async function openEmployee(id: string) {
-    v2OpenCardGuarded('employee', () => {
+    v2OpenCardGuarded('employee', id, () => {
       setSelectedEmployeeId(id);
       setTab('employee');
     });
   }
 
   async function openProduct(id: string) {
-    v2OpenCardGuarded('product', () => {
+    v2OpenCardGuarded('product', id, () => {
       setSelectedProductId(id);
       setTab('product');
     });
   }
 
   async function openService(id: string, opts?: { from?: TabId }) {
-    v2OpenCardGuarded('service', () => {
+    v2OpenCardGuarded('service', id, () => {
       setSelectedServiceId(id);
       setServiceOriginTab(opts?.from ?? null);
       setTab('service');
@@ -2635,7 +2748,7 @@ export function App() {
   }
 
   async function openNomenclature(id: string, opts?: { from?: TabId }) {
-    v2OpenCardGuarded('nomenclature_item', () => {
+    v2OpenCardGuarded('nomenclature_item', id, () => {
       setSelectedNomenclatureId(id);
       setNomenclatureOriginTab(opts?.from ?? null);
       setTab('nomenclature_item');
@@ -2643,7 +2756,7 @@ export function App() {
   }
 
   function openUserScreen(id: string) {
-    v2OpenCardGuarded('user_screen', () => {
+    v2OpenCardGuarded('user_screen', id, () => {
       setSelectedUserScreenId(id);
       setUserScreenEditMode(false);
       setTab('user_screen');
@@ -2651,7 +2764,7 @@ export function App() {
   }
 
   function editUserScreen(id: string | null) {
-    v2OpenCardGuarded('user_screen', () => {
+    v2OpenCardGuarded('user_screen', id ?? 'new', () => {
       setSelectedUserScreenId(id ?? 'new');
       setUserScreenEditMode(true);
       setTab('user_screen');
@@ -2659,14 +2772,14 @@ export function App() {
   }
 
   async function openEngineAssemblyBom(id: string) {
-    v2OpenCardGuarded('engine_assembly_bom_item', () => {
+    v2OpenCardGuarded('engine_assembly_bom_item', id, () => {
       setSelectedEngineAssemblyBomId(id);
       setTab('engine_assembly_bom_item');
     });
   }
 
   async function openStockDocument(id: string, parentTab: StockDocumentParentTab = 'stock_documents') {
-    v2OpenCardGuarded('stock_document', () => {
+    v2OpenCardGuarded('stock_document', id, () => {
       setStockDocumentParentTab(parentTab);
       setSelectedStockDocumentId(id);
       setTab('stock_document');
@@ -2674,7 +2787,7 @@ export function App() {
   }
 
   async function openCounterparty(id: string) {
-    v2OpenCardGuarded('counterparty', () => {
+    v2OpenCardGuarded('counterparty', id, () => {
       setSelectedCounterpartyId(id);
       setTab('counterparty');
     });
@@ -2738,7 +2851,7 @@ export function App() {
 
   function openReportPreset(presetId: ReportPresetId) {
     logUiUsage('ui.report_open', presetId);
-    v2OpenCardGuarded('report_preset', () => {
+    v2OpenCardGuarded('report_preset', presetId, () => {
       setSelectedReportPresetId(presetId);
       setTab('report_preset');
     });
@@ -2799,7 +2912,7 @@ export function App() {
 
   // V2: закрытие карточки любым путём (onClose после «Сохранить и закрыть» / черновика /
   // удаления) зануляет её selected-id — по этому переходу id→null убираем вкладку из
-  // v2OpenCards, иначе зависшая вкладка переоткрывает устаревшее состояние карточки.
+  // полосы вкладок, иначе зависшая вкладка переоткрывает устаревшее состояние карточки.
   const v2SelectedByKind: Partial<Record<TabId, string | null>> = {
     engine: selectedEngineId,
     engine_brand: selectedEngineBrandId,
@@ -2820,7 +2933,8 @@ export function App() {
     user_screen: selectedUserScreenId,
   };
   const v2PrevSelectedRef = useRef<Partial<Record<TabId, string | null>>>({});
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional every-render diff against v2PrevSelectedRef; the suggested dep v2SelectedByKind is a fresh object each render so a deps array would not reduce runs, and the ref comparison already prevents setState loops
+  // Намеренно без массива зависимостей: диффим каждый рендер против ref. Переход id→null —
+  // это и есть «карточку закрыли» (сохранение, удаление, черновик), и вкладка обязана уйти.
   useEffect(() => {
     const prev = v2PrevSelectedRef.current;
     const next: Partial<Record<TabId, string | null>> = {};
@@ -2829,7 +2943,7 @@ export function App() {
       next[kind] = id;
       const before = prev[kind];
       if (isV2 && before && !id) {
-        setV2OpenCards((cards) => cards.filter((c) => !(c.kind === kind && c.entityId === before)));
+        dispatchTabs({ type: 'CLOSE_CARD', cardKind: kind, entityId: before });
       }
     }
     v2PrevSelectedRef.current = next;
@@ -2849,9 +2963,7 @@ export function App() {
     }
     return `${appTabTitle(kind)} · ${entityId.slice(0, 6)}`;
   }
-
-  // Фолбэк-заголовок «Вид · id6» — маркер, что человекопонятное имя ещё не резолвнуто.
-  const isFallbackCardTitle = (t: string) => / · [0-9a-f]{6}$/i.test(t);
+  cardTitleFnRef.current = v2CardTitle;
 
   // Асинхронный резолв человекопонятных заголовков вкладок: EAV-сущности — по атрибутам
   // (name/full_name/…), наряды и складские документы — по своим bridge-get. Ошибки
@@ -2895,16 +3007,17 @@ export function App() {
   const cardTitleResolvedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!isV2) return;
-    for (const c of v2OpenCards) {
-      const key = `${c.kind}:${c.entityId}`;
-      if (!isFallbackCardTitle(c.title) || cardTitleResolvedRef.current.has(key)) continue;
+    for (const c of cardTabs(tabsState)) {
+      const key = `${c.cardKind}:${c.entityId}`;
+      if (!c.titleIsFallback || cardTitleResolvedRef.current.has(key)) continue;
       cardTitleResolvedRef.current.add(key);
-      void resolveCardTitle(c.kind, c.entityId).then((t) => {
+      void resolveCardTitle(c.cardKind as TabId, c.entityId).then((t) => {
         if (!t) return;
-        setV2OpenCards((prev) => prev.map((x) => (x.kind === c.kind && x.entityId === c.entityId ? { ...x, title: t } : x)));
+        dispatchTabs({ type: 'RETITLE', id: c.id, title: t, titleIsFallback: false });
       });
     }
-  }, [isV2, v2OpenCards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveCardTitle is a render-scoped helper recreated every render; the effect is idempotent per card thanks to cardTitleResolvedRef
+  }, [isV2, tabsState.tabs]);
 
   // Переоткрыть карточку по дескриптору (переиспользует open*-хелперы, включая dirty-guard).
   function reopenV2Card(kind: TabId, entityId: string) {
@@ -2932,12 +3045,12 @@ export function App() {
 
   function focusV2Card(card: { kind: TabId; entityId: string }) {
     setV3PinnedFocus(false);
-    v3BypassLimitRef.current = true;
     // Не держать одну и ту же карточку и слева, и справа: если фокусируем ту, что сейчас
     // в secondary, — закрываем правую панель (пользователь сам увёл её в primary).
     if (v2SecondaryCard && v2SecondaryCard.kind === card.kind && v2SecondaryCard.entityId === card.entityId) {
       secondaryCloseRef.current = null;
       setV2SecondaryCard(null);
+      dispatchTabs({ type: 'SET_SECONDARY', card: null });
       setSecondaryEngineDetails(null);
       setSecondaryEngineLoading(false);
     }
@@ -2945,23 +3058,33 @@ export function App() {
   }
 
   // Закрыть вкладку карточки. Фокусную закрываем через dirty-guard; фоновую (single-mount:
-  // не смонтирована, значит без несохранённого) — просто убираем из списка.
+  // не смонтирована, значит без несохранённого) — просто убираем из полосы.
   function closeV2Card(card: { kind: TabId; entityId: string }) {
-    const nextCards = v2OpenCards.filter((c) => !(c.kind === card.kind && c.entityId === card.entityId));
-    const idn = v2CurrentCardIdentity();
-    const isFocused = !!idn && idn.kind === card.kind && idn.entityId === card.entityId;
+    const closingId = cardTabId(card.kind, card.entityId);
+    const isFocused = tabsState.activeId === closingId;
     if (!isFocused) {
-      setV2OpenCards(nextCards);
+      dispatchTabs({ type: 'CLOSE', id: closingId });
       return;
     }
-    const nextFocus = nextCards[nextCards.length - 1] ?? null;
+    // Куда уедет фокус — спрашиваем редьюсер, а не считаем отдельно: иначе tab и активная
+    // вкладка разъезжаются (карточка смонтирована, а dirty-guard уже смотрит на список).
+    const nextFocusId = focusAfterClose(tabsState, closingId);
+    const nextFocus = parseTabId(nextFocusId);
     const doAfter = () => {
       setV2CardEpoch((e) => e + 1);
-      setV2OpenCards(nextCards);
-      if (nextFocus) {
-        v3BypassLimitRef.current = true;
-        reopenV2Card(nextFocus.kind, nextFocus.entityId);
-      } else setTabState(CARD_PARENT_TAB[card.kind] ?? 'history');
+      dispatchTabs({ type: 'CLOSE', id: closingId });
+      // Сосед слева у карточки — либо другая карточка (канонический порядок держит их
+      // подряд), либо служебная вкладка. Во втором случае (закрыли САМУЮ ЛЕВУЮ карточку)
+      // остаёмся среди карточек, как было до рефакторинга, и лишь когда их не осталось —
+      // возвращаемся на родительский список, а не бросаем оператора в чат.
+      if (nextFocus?.kind === 'card') {
+        reopenV2Card(nextFocus.cardKind as TabId, nextFocus.entityId);
+        return;
+      }
+      const remaining = cardTabs(tabsState).filter((c) => c.id !== closingId);
+      const last = remaining[remaining.length - 1];
+      if (last) reopenV2Card(last.cardKind as TabId, last.entityId);
+      else setTabState(CARD_PARENT_TAB[card.kind] ?? 'history');
     };
     const actions = cardCloseActionsRef.current;
     let dirty = false;
@@ -2977,6 +3100,7 @@ export function App() {
       doAfter();
       return;
     }
+    pendingCardTabRef.current = null;
     pendingCardOpenRef.current = doAfter;
     void closeCardSession({ targetTab: null, appClose: false });
   }
@@ -2999,6 +3123,15 @@ export function App() {
   function openSecondaryCard(card: { kind: TabId; entityId: string; title: string }) {
     setV2SecondaryEpoch((e) => e + 1);
     setV2SecondaryCard(card);
+    dispatchTabs({
+      type: 'SET_SECONDARY',
+      card: {
+        cardKind: card.kind,
+        entityId: card.entityId,
+        title: card.title,
+        titleIsFallback: isFallbackCardTitle(card.title),
+      },
+    });
     if (card.kind === 'engine') void loadSecondaryEngine(card.entityId);
     else {
       setSecondaryEngineDetails(null);
@@ -3011,28 +3144,16 @@ export function App() {
     void closeCardSession({ targetTab: null, appClose: false, panes: ['secondary'] });
   }
 
-  // Учёт открытых карточек: при фокусе на карточке — upsert дескриптора (дедуп, кап 3).
+  // Фокус карточки. Вкладку заводит openCardTab (до записи selected*Id), здесь только фокус —
+  // и ТОЛЬКО по факту навигации (смена tab / selected-id). Зависимости намеренно НЕ включают
+  // tabsState: иначе любое изменение полосы (открылась фоновая вкладка, приехал заголовок)
+  // возвращало бы фокус на карточку и делало недостижимыми Чат/ИИваныч/МЕНЮ.
   useEffect(() => {
     if (!isV2) return;
     const idn = v2CurrentCardIdentity();
     if (!idn) return;
-    const title = v2CardTitle(idn.kind, idn.entityId);
-    setV2OpenCards((prev) => {
-      const i = prev.findIndex((c) => c.kind === idn.kind && c.entityId === idn.entityId);
-      if (i >= 0) {
-        // Не затирать асинхронно-резолвнутый человекопонятный заголовок фолбэком «Вид · id6».
-        const existing = prev[i]?.title ?? '';
-        if (existing === title || (isFallbackCardTitle(title) && existing && !isFallbackCardTitle(existing))) return prev;
-        const next = [...prev];
-        next[i] = { kind: idn.kind, entityId: idn.entityId, title };
-        return next;
-      }
-      const next = [...prev, { kind: idn.kind, entityId: idn.entityId, title }];
-      const maxOpen = isV3 ? V3_MAX_CARD_TABS : V2_MAX_OPEN_CARDS;
-      while (next.length > maxOpen) next.shift();
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on tab+selected ids which fully drive the focused-card identity; v2CardTitle/v2CurrentCardIdentity are render-scoped helpers recreated every render, and isV3 is defined as equal to isV2 which is already a dep
+    dispatchTabs({ type: 'FOCUS', id: cardTabId(idn.kind, idn.entityId) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on tab+selected ids which fully drive the focused-card identity; v2CurrentCardIdentity is a render-scoped helper recreated every render
   }, [
     isV2,
     tab,
@@ -3052,8 +3173,20 @@ export function App() {
     selectedEngineAssemblyBomId,
     selectedStockDocumentId,
     selectedReportPresetId,
-    engines,
+    selectedUserScreenId,
   ]);
+
+  // Заголовок вкладки двигателя собирается из подгружаемого списка engines, поэтому живёт
+  // в отдельном эффекте: фокус он не трогает. Фолбэк «Вид · id6» не затирает уже
+  // резолвнутое имя — это правило держит сам редьюсер (withCardTitle).
+  useEffect(() => {
+    if (!isV2) return;
+    for (const t of cardTabs(tabsState)) {
+      const title = v2CardTitle(t.cardKind as TabId, t.entityId);
+      dispatchTabs({ type: 'RETITLE', id: t.id, title, titleIsFallback: isFallbackCardTitle(title) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- v2CardTitle is a render-scoped helper recreated every render; RETITLE is idempotent (equal title returns the same state reference), so the effect settles in one pass
+  }, [isV2, engines, tabsState.tabs]);
 
   // ── Фаза 4: session-restore открытых карточек между запусками ──────────────────
   // Персист сессии рабочей области (вкладки/фокус/split) в shellPrefs.v2.session.
@@ -3061,13 +3194,12 @@ export function App() {
   const v2SessionSigRef = useRef('');
   useEffect(() => {
     if (!isV2 || !shellPrefs) return;
-    const idn = v2CurrentCardIdentity();
+    // Весь снимок выводится из одного состояния — список из 16 selected*Id в зависимостях
+    // больше не нужен (и не мог быть полным: user_screen в нём отсутствовал).
     const session: V2Session = {
-      openCards: v2OpenCards.map((c) => ({ kind: String(c.kind), entityId: c.entityId, title: c.title })),
-      focusedKey: idn ? `${idn.kind}:${idn.entityId}` : null,
-      secondary: v2SecondaryCard
-        ? { kind: String(v2SecondaryCard.kind), entityId: v2SecondaryCard.entityId, title: v2SecondaryCard.title }
-        : null,
+      openCards: sessionCards(tabsState),
+      focusedKey: focusedCardKey(tabsState),
+      secondary: sessionSecondaryCard(tabsState),
     };
     const sig = JSON.stringify(session);
     if (sig === v2SessionSigRef.current) return;
@@ -3077,30 +3209,8 @@ export function App() {
       void persistShellPrefs({ ...base, v2: { ...base.v2, session } });
     }, 800);
     return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced session persist; persistShellPrefs/v2CurrentCardIdentity are render-scoped functions recreated every render, adding them would restart the 800ms debounce on each render and never let it settle
-  }, [
-    isV2,
-    shellPrefs,
-    v2OpenCards,
-    v2SecondaryCard,
-    tab,
-    selectedEngineId,
-    selectedEngineBrandId,
-    selectedEngineBrandGroupId,
-    selectedRequestId,
-    selectedWorkOrderId,
-    selectedToolId,
-    selectedToolPropertyId,
-    selectedEmployeeId,
-    selectedContractId,
-    selectedCounterpartyId,
-    selectedProductId,
-    selectedServiceId,
-    selectedNomenclatureId,
-    selectedEngineAssemblyBomId,
-    selectedStockDocumentId,
-    selectedReportPresetId,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced session persist; persistShellPrefs is a render-scoped function recreated every render, adding it would restart the 800ms debounce on each render and never let it settle
+  }, [isV2, shellPrefs, tabsState]);
 
   // Восстановление сессии: один раз на пользователя после загрузки prefs в v2.
   // Битые/удалённые сущности не страшны: карточка откроется своим error/empty-состоянием.
@@ -3116,12 +3226,20 @@ export function App() {
       .map((c) => ({ kind: c.kind as TabId, entityId: c.entityId, title: c.title }));
     if (cards.length === 0) return;
     v2SessionSigRef.current = JSON.stringify(session);
-    setV2OpenCards(cards);
     const focused = cards.find((c) => `${c.kind}:${c.entityId}` === session.focusedKey) ?? cards[cards.length - 1];
-    if (focused) {
-      v3BypassLimitRef.current = true;
-      reopenV2Card(focused.kind, focused.entityId);
-    }
+    const restored: CardRef[] = cards.map((c) => ({
+      cardKind: c.kind,
+      entityId: c.entityId,
+      title: c.title,
+      titleIsFallback: isFallbackCardTitle(c.title),
+    }));
+    dispatchTabs({
+      type: 'RESTORE',
+      cards: restored,
+      focusedCardId: session.focusedKey ? tabIdFromSessionKey(session.focusedKey) : null,
+      secondary: null,
+    });
+    if (focused) reopenV2Card(focused.kind, focused.entityId);
     const sec = session.secondary && isCardTab(session.secondary.kind as TabId) ? session.secondary : null;
     if (sec && !(focused && sec.kind === focused.kind && sec.entityId === focused.entityId)) {
       openSecondaryCard({ kind: sec.kind as TabId, entityId: sec.entityId, title: sec.title });
@@ -3135,7 +3253,7 @@ export function App() {
   }
 
   function openChatFromHistory() {
-    setChatOpen(true);
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: true });
   }
 
   async function navigateToRoute(route: DeepLinkRoute) {
@@ -5147,126 +5265,90 @@ export function App() {
   );
 
   const closeTabById = (id: string) => {
-    if (id.startsWith('card:')) {
-      const [, kind, entityId] = id.split(':');
-      const card = v2OpenCards.find(c => c.kind === kind && c.entityId === entityId);
-      if (card) closeV2Card(card);
-    } else if (id === 'chat') {
-      setChatOpen(false);
-    } else if (id === 'ai_chat') {
-      setAiChatOpen(false);
-    } else if (id === 'settings') {
-      setOpenedListTabs(prev => {
-        const next = new Set(prev);
-        next.delete('settings');
-        return next;
-      });
-      if (tab === 'settings') setTabState('history');
-    } else if (id.startsWith('list:')) {
-      const listTabId = id.slice(5);
-      setOpenedListTabs(prev => {
-        const next = new Set(prev);
-        next.delete(listTabId);
-        return next;
-      });
-      // Фокус уводим на МЕНЮ только если закрыли АКТИВНУЮ вкладку; закрытие фоновой
-      // вкладки из карточки/другого списка фокус не трогает.
-      if (`list:${tab}` === id) {
-        setTabState('history');
-      }
+    const parsed = parseTabId(id);
+    if (!parsed) return;
+    if (parsed.kind === 'card') {
+      // Разбор через parseTabId, а не split(':') — entityId с двоеточием больше не теряет хвост.
+      closeV2Card({ kind: parsed.cardKind as TabId, entityId: parsed.entityId });
+      return;
     }
+    if (parsed.kind === 'menu') return;
+    const wasActive = tabsState.activeId === id;
+    const nextFocusId = focusAfterClose(tabsState, id);
+    dispatchTabs({ type: 'CLOSE', id });
+    if (!wasActive) {
+      // Вкладки раздела больше нет — App.tab не должен на неё указывать, иначе повторное
+      // открытие того же раздела (меню аккаунта → «Настройки», кнопка «Профиль») придёт в
+      // requestTabSwitch с nextTab === tab и молча ничего не сделает.
+      const closedSection = parsed.kind === 'list' ? parsed.tabId : parsed.kind;
+      if (tab === closedSection) setTabRaw('history');
+      return;
+    }
+    // tab обязан догнать выбор редьюсера, иначе карточка остаётся смонтированной, а
+    // dirty-guard уже смотрит на список: несохранённое теряется молча.
+    const nextFocus = parseTabId(nextFocusId);
+    if (nextFocus?.kind === 'card') reopenV2Card(nextFocus.cardKind as TabId, nextFocus.entityId);
+    else if (nextFocus?.kind === 'list') setTabRaw(nextFocus.tabId as TabId);
+    else setTabRaw('history');
   };
 
   const selectTab = (id: string) => {
-    if (id === 'menu') {
-      setChatOpen(false);
-      setAiChatOpen(false);
+    const parsed = parseTabId(id);
+    if (!parsed) return;
+    // Железное правило: с КАРТОЧКИ фокус не уезжает раньше dirty-guard. При single-mount
+    // смена активной вкладки размонтирует карточку и обнулит cardCloseActionsRef — кнопка
+    // «Сохранить» в диалоге не сохранит ничего. Поэтому фокус откладывается до перехода.
+    const deferFocus = (target: string) => {
+      pendingFocusRef.current = target;
+      requestTabSwitch('history');
+    };
+    if (parsed.kind === 'menu') {
       // МЕНЮ фокусируется, НИЧЕГО не закрывая: карточка/список остаются «закладками».
-      // С карточки уходим штатным requestTabSwitch (dirty-guard); на списке достаточно
-      // флага — tab не трогаем, вкладка раздела остаётся открытой.
-      setMenuFocused(true);
-      if (isCardTab(tab)) requestTabSwitch('history');
+      if (isCardTab(tab)) deferFocus(MENU_TAB_ID);
+      else dispatchTabs({ type: 'FOCUS', id: MENU_TAB_ID });
       return;
     }
-    if (id === 'chat') { setMenuFocused(false); setChatOpen(true); setAiChatOpen(false); return; }
-    if (id === 'ai_chat') { setMenuFocused(false); setAiChatOpen(true); setChatOpen(false); return; }
-    if (id === 'settings') { setMenuFocused(false); setTab('settings'); setChatOpen(false); setAiChatOpen(false); return; }
-    if (id.startsWith('list:')) {
-      const listTabId = id.slice(5) as TabId;
-      setMenuFocused(false);
+    if (parsed.kind === 'chat' || parsed.kind === 'ai_chat' || parsed.kind === 'settings') {
+      if (isCardTab(tab)) {
+        // С карточки — только через dirty-guard; фокус приедет следом.
+        if (parsed.kind === 'settings') setTab('settings');
+        else deferFocus(id);
+        return;
+      }
+      // FOCUS обязателен и здесь: при tab === 'settings' setTab делает no-op
+      // (requestTabSwitch выходит на равном табе), и клик по вкладке был бы «мёртвым».
+      dispatchTabs({ type: 'FOCUS', id });
+      if (parsed.kind === 'settings') setTab('settings');
+      return;
+    }
+    if (parsed.kind === 'list') {
+      // Фокус ставим явно: если App.tab уже равен этому разделу (ушли на МЕНЮ со списка —
+      // tab при этом не менялся), requestTabSwitch выйдет no-op'ом и вкладка не активируется.
+      if (!isCardTab(tab)) dispatchTabs({ type: 'FOCUS', id });
       // setTab (не setTabState): переход с карточки обязан пройти dirty-guard.
-      setTab(listTabId);
-      setChatOpen(false);
-      setAiChatOpen(false);
+      setTab(parsed.tabId as TabId);
       return;
     }
-    if (id.startsWith('card:')) {
-      const [, kind, entityId] = id.split(':');
-      setMenuFocused(false);
-      focusV2Card({ kind: kind as TabId, entityId: entityId ?? '' });
-      setChatOpen(false);
-      setAiChatOpen(false);
-    }
+    focusV2Card({ kind: parsed.cardKind as TabId, entityId: parsed.entityId });
   };
 
-  // Открытые списочные вкладки (идентификаторы TabId)
-  const [openedListTabs, setOpenedListTabs] = useState<Set<string>>(new Set());
-
-  // При смене tab на любой не-карточный раздел — добавляем в openedListTabs.
-  // 'history' исключён: это нейтральный «дом» вкладки МЕНЮ (открывается явно из handleMenuTab).
-  useEffect(() => {
-    if (tab !== 'auth' && tab !== 'history' && !isCardTab(tab)) {
-      setOpenedListTabs(prev => {
-        if (prev.has(tab)) return prev;
-        const next = new Set(prev);
-        next.add(tab);
-        return next;
-      });
-    }
-  }, [tab, isCardTab]);
-
-  const tabList: OpenTab[] = (() => {
-    const tabs: OpenTab[] = [{ id: "menu", kind: "menu", label: "МЕНЮ", canClose: false }];
-    if (chatOpen && authStatus.loggedIn && canChat) {
-      tabs.push({ id: "chat", kind: "chat", label: "Чат", canClose: true });
-    }
-    if (aiChatOpen) {
-      tabs.push({ id: "ai_chat", kind: "ai_chat", label: "ИИваныч", canClose: true });
-    }
-    if (openedListTabs.has('settings')) {
-      tabs.push({ id: "settings", kind: "settings", label: "Настройки", canClose: true });
-    }
-    for (const card of v2OpenCards) {
-      tabs.push({
-        id: `card:${card.kind}:${card.entityId}`,
-        kind: "card",
-        label: card.title,
-        tabId: card.kind as TabId,
-        entityId: card.entityId,
-        cardKind: card.kind as TabId,
-        canClose: true,
-      });
-    }
-    for (const lt of openedListTabs) {
-      if (!lt || lt === 'settings') continue;
-      const label = menuLabels[lt as keyof typeof menuLabels] ?? String(lt);
-      tabs.push({ id: `list:${lt}`, kind: "list", label, tabId: lt as TabId, canClose: true });
-    }
-    return tabs;
-  })();
-
-  let activeTabKey = "menu";
-  if (menuFocused) activeTabKey = "menu";
-  else if (aiChatOpen) activeTabKey = "ai_chat";
-  // Гейт как у вкладки чата в tabList: без права чата ключ 'chat' указывал бы
-  // на несуществующую вкладку → пустой экран.
-  else if (chatOpen && authStatus.loggedIn && canChat) activeTabKey = "chat";
-  else {
-    const idn = v2CurrentCardIdentity();
-    if (idn) activeTabKey = `card:${idn.kind}:${idn.entityId}`;
-    else if (tab === 'settings' && openedListTabs.has('settings')) activeTabKey = "settings";
-    else if (tab !== 'auth' && openedListTabs.has(tab)) activeTabKey = `list:${tab}`;
+  function toOpenTab(t: WorkTab): OpenTab {
+    return {
+      id: t.id,
+      kind: t.kind,
+      label: t.label,
+      canClose: t.kind !== 'menu',
+      ...(t.kind === 'list' ? { tabId: t.tabId as TabId } : {}),
+      ...(t.kind === 'card'
+        ? { tabId: t.cardKind as TabId, cardKind: t.cardKind as TabId, entityId: t.entityId }
+        : {}),
+    };
   }
+
+  // Полоса и активный ключ — одно состояние: рассинхрон «активная вкладка не существует»
+  // (пустой экран) стал невозможен по построению.
+  const tabList: OpenTab[] = tabsState.tabs.map(toOpenTab);
+  const activeTabKey = tabsState.activeId;
 
   const secondaryCardTab: OpenTab | null = v2SecondaryCard ? {
     id: `card:${v2SecondaryCard.kind}:${v2SecondaryCard.entityId}`,
@@ -5286,7 +5368,7 @@ export function App() {
       canAdminViewAll={canChatAdminView}
       viewMode={viewMode}
       chatSide="left"
-      onHide={() => setChatOpen(false)}
+      onHide={() => dispatchTabs({ type: 'CLOSE', id: 'chat' })}
       onToggleSide={() => {}}
       onChatContextChange={handleChatContextChange}
       onNavigate={(link) => { void navigateDeepLink(link); }}
@@ -5294,7 +5376,7 @@ export function App() {
   );
 
   const renderAiChatTabContent = () => (
-    <AiAgentChat ref={aiChatRef} visible={true} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} onClose={() => setAiChatOpen(false)} />
+    <AiAgentChat ref={aiChatRef} visible={true} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} onClose={() => dispatchTabs({ type: 'CLOSE', id: 'ai_chat' })} />
   );
 
   const renderSettingsTabContent = () => {
@@ -5329,7 +5411,7 @@ export function App() {
         {renderCardCloseModal()}
         {renderRecoveryModal()}
         {renderAppCloseSyncOverlay()}
-        {v3LimitNotice && (
+        {tabsState.notice?.code === 'card_limit' && (
           <div
             role="alert"
             style={{
@@ -5356,7 +5438,7 @@ export function App() {
             y={accountMenuPos.y}
             onClose={() => setAccountMenuPos(null)}
             items={[
-              { id: "settings", label: "⚙️ Настройки", onClick: () => { setMenuFocused(false); setTab("settings"); } },
+              { id: "settings", label: "⚙️ Настройки", onClick: () => { openSectionTab("settings"); } },
               { id: "switch", label: "👥 Смена аккаунта", onClick: () => setAccountSwitchOpen(true) },
               { id: "logout", label: "⏻ Выйти", danger: true, onClick: () => { void (async () => { await window.matrica.auth.logout({}).catch(() => {}); const s = await window.matrica.auth.status(); setAuthStatus(s); setTabState("auth"); })(); } },
             ]}
@@ -5395,6 +5477,7 @@ export function App() {
               onCollapsedSectionsChange={setCollapsedSections}
               onMenuTab={handleMenuTab}
               onAction={handleMenuAction}
+              activeSectionTabId={tab}
               openTabs={tabList}
               activeTabId={activeTabKey}
               onSelectTab={selectTab}

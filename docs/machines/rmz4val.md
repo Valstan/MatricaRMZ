@@ -87,6 +87,29 @@
 - **Таймеры рендерера в hidden-окне троттлятся до минут (выучено 2026-07-28):** `await cdp.eval('__V.sleep(1000)')` (awaitPromise на renderer-`setTimeout`) висит до 60s-таймаута CDP. **Все паузы в смоуках держать на стороне Node** (`await new Promise(r => setTimeout(r, ms))` в драйвере), eval'ы — только мгновенные. Туда же: дебаунс-персисты в renderer (setTimeout 400мс) на скрытом окне доезжают с задержкой до минуты — поллить результат, не ждать фикс-время.
 - **react-resizable-panels: `onLayoutChanged.meta.isUserInteraction` НЕ взводится на синтетических PointerEvent** (панели двигаются, колбэк с меткой не приходит). Для персиста слушать сырой `onLayoutChange` + guard от echo (сравнение с текущим prefs-значением). Синтетический drag разделителя работает: pointerdown на `.v3-resize-handle` → серия pointermove (короткими eval'ами) → pointerup.
 
+## Ребилд натива: EPERM = его держит залипший dev-стенд (выучено 2026-08-08)
+- `@electron/rebuild@4.0.4` **есть** и знает Electron 43 (более ранняя запись профиля про «реально установлен 3.6.1» устарела — сейчас в сторе обе версии, брать путь `@electron+rebuild@4.0.4`). Рабочая команда из `electron-app/`:
+  ```bash
+  node ../node_modules/.pnpm/@electron+rebuild@4.0.4/node_modules/@electron/rebuild/lib/cli.js --force --version 43.0.0 --arch x64 --only better-sqlite3-multiple-ciphers,better-sqlite3
+  ```
+- **Симптом `EPERM: operation not permitted, unlink … better_sqlite3.node`** — это НЕ права и не антивирус: файл держит **живой `electron.exe` прошлой сессии** (стенд переживает закрытие сессии агента). Лечение — снести только dev-процессы, не трогая установленный релиз-клиент:
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object { $_.CommandLine -like '*MatricaRMZ\node_modules*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+  ```
+  Фильтр по `MatricaRMZ\node_modules` обязателен: без него снесётся и реальный клиент из `%LOCALAPPDATA%\Programs\@matricarmzelectron-app\`.
+- Dev-backend на :3001 от прошлой сессии тоже переживает — он не мешает (стенд переиспользуется), но `/health` может показывать старую версию. Проверять живость **логином** (`POST /auth/login` с `verify`/`verify123`), а не `/health`.
+
+## Оболочка v3: как драйвить полосу вкладок в CDP (выучено 2026-08-08)
+- Полоса: `.v3-tab-strip` → `.v3-tab` с `data-active="1"` у активной; подпись — `.v3-tab-label`, крестик — `.v3-tab-close`. Идентификатор вкладки в DOM **не выводится** — матчить по тексту подписи.
+- **Панель разделов МЕНЮ рендерится ТОЛЬКО когда активна вкладка МЕНЮ** (single-mount): чтобы кликнуть второй раздел подряд, надо сначала кликнуть вкладку `🧱 МЕНЮ`. Иначе кнопок разделов просто нет в DOM и драйвер «не находит кнопку».
+- Секции МЕНЮ (`.v2-section-header`, префикс `▸`/`▾`) разворачиваются кликом, но новый DOM появляется только после ре-рендера → «развернуть → найти → кликнуть» крутить циклом с **паузами на стороне Node**, каждый eval мгновенный.
+- **«Настройки» в МЕНЮ нет** — они в меню аккаунта (`.v3-account-btn`). Разделы, удобные для проверки «вкладку получает любой раздел»: `🛠️Ревизия ремфонда` (Склад), `🎯История` (Мой круг), `📝Заметки` (Контроль и аналитика).
+- Готовые смоуки (gitignored): `.verifier-electron/_r3-cdp.mjs` (обвязка), `_smoke-r3-tabs.mjs` (состав полосы, C/D/G/O), `_smoke-r3-guard.mjs` (лимит карточек + dirty-guard), `_smoke-r3-refocus.mjs` (возврат фокуса на вкладку раздела).
+
+## HMR: добавил/убрал хук — жди белый экран, не отлаживай (выучено 2026-08-08)
+- Правка `App.tsx`, меняющая **число или порядок хуков** (новый `useRef`/`useEffect`), при горячей замене ломает React: корневой узел пустеет, консоль ругается на хуки. Это артефакт HMR, а не дефект кода — **сразу перезапускай electron**, не ищи баг. Проверка «настоящая ли поломка» — чистый рестарт стенда.
+- После рестарта нативный ABI не трогается, но **порядок ABI-качели помнить**: `pnpm -F electron-app test` (vitest, Node ABI 137) и Electron-стенд (ABI 148) взаимно исключают друг друга. Если после ребилда под Electron 43 гонишь vitest — получишь ~28 падений с `NODE_MODULE_VERSION 148 … requires 137`; это не регресс, в CI сборка своя. Для юнит-тестов вернуть Node-ABI: `corepack pnpm rebuild better-sqlite3`.
+
 ## CDP-стенд: грабли (2026-07-09)
 - **`Page.reload` по renderer-таргету на этом стенде ВАЛИТ/вешает electron** (нав-гарды hardening?): CDP-эндпойнт 9222 перестаёт отвечать (listen висит, HTTP timeout) либо `pnpm dev` умирает. Симптом: «no renderer target» после reload. **Лечение:** не делать reload в драйверах; для проверки restore/чистой загрузки — убить `electron.exe` (`Get-Process electron | Stop-Process -Force`) и перезапустить `pnpm dev` фоновой задачей (бэкенд не трогать).
 - **Окно verifier-клиента реально hidden** → `document.visibilityState === 'hidden'` весь прогон: visibility-gated поллы честно спят. В пробах форсить видимость override'ом (`Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'visible'})` + `visibilitychange`).
