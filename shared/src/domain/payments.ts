@@ -230,9 +230,12 @@ export type PlannedSectionBrand = {
 
 /**
  * Сверка слотов с планом контракта и привязанными двигателями. Идемпотентна.
- * — по каждой (секция, марка) доводит число слотов до плановой qty;
+ * — по каждой (секция, марка) доводит число слотов до плановой qty, где qty —
+ *   СУММА по всем строкам плана этой марки (в секции легально несколько строк одной
+ *   марки с разными ценами: «10 шт по A + 5 шт по B»);
  * — лишние ПУСТЫЕ слоты (без платежей и двигателя) убирает; слоты с деньгами/двигателем — никогда;
- * — сеет contractPriceKop из unitPrice, если цена слота не задана вручную;
+ * — сеет contractPriceKop из unitPrice ПОЗИЦИОННО по строкам плана (первые qty₁ слотов
+ *   получают цену первой строки, следующие qty₂ — второй, …), если цена слота не задана;
  * — привязывает двигатели к свободным слотам секции (сначала слоты с платежами — деньги
  *   «встречают» приехавший двигатель), отвязывает уехавшие (платежи остаются на слоте).
  */
@@ -244,15 +247,28 @@ export function syncSlotsWithPlan(
 ): ContractPayments {
   const slots = cp.slots.map((s) => ({ ...s, payments: [...s.payments] }));
 
-  // 1. Слоты по плану.
+  // 1. Слоты по плану. Строки агрегируются по (секция, марка): раньше вторая строка
+  // той же марки не суммировала qty, а «подгоняла» число слотов под своё — слоты
+  // оставались только по последней строке (баг «слоты под последнюю марку»).
+  const groups = new Map<string, { sectionKey: string; engineBrandId: string; qty: number; pricesKop: number[] }>();
   for (const plan of planned) {
-    const matching = slots.filter((s) => s.sectionKey === plan.sectionKey && s.engineBrandId === plan.engineBrandId);
+    const key = `${plan.sectionKey} ${plan.engineBrandId}`;
+    const g = groups.get(key) ?? { sectionKey: plan.sectionKey, engineBrandId: plan.engineBrandId, qty: 0, pricesKop: [] };
     const priceKop = Math.round(plan.unitPrice * 100);
-    for (const s of matching) {
+    for (let i = 0; i < plan.qty; i += 1) g.pricesKop.push(priceKop);
+    g.qty += plan.qty;
+    groups.set(key, g);
+  }
+  for (const plan of groups.values()) {
+    const matching = slots.filter((s) => s.sectionKey === plan.sectionKey && s.engineBrandId === plan.engineBrandId);
+    // Позиционные цены: слот №i группы ← цена строки, «владеющей» позицией i.
+    matching.forEach((s, idx) => {
+      const priceKop = plan.pricesKop[idx] ?? 0;
       if (s.contractPriceKop == null && priceKop > 0) s.contractPriceKop = priceKop;
-    }
+    });
     if (matching.length < plan.qty) {
       for (let i = matching.length; i < plan.qty; i += 1) {
+        const priceKop = plan.pricesKop[i] ?? 0;
         slots.push({
           id: newId(),
           sectionKey: plan.sectionKey,
@@ -312,49 +328,12 @@ export function syncSlotsWithPlan(
 }
 
 /**
- * Равномерно распределить сумму по первым `slotCount` слотам секции
- * (по умолчанию — по всем). Остаток копеек — первому слоту.
- * Каждый созданный платёж — стартовый для отсчёта, если стартового у слота ещё нет.
- */
-export function distributeAmount(
-  cp: ContractPayments,
-  sectionKey: string,
-  amountKop: number,
-  kind: PaymentKind,
-  date: string,
-  newId: () => string,
-  slotCount?: number,
-): ContractPayments {
-  const sectionSlots = cp.slots.filter((s) => s.sectionKey === sectionKey);
-  const targets = slotCount != null && slotCount > 0 ? sectionSlots.slice(0, slotCount) : sectionSlots;
-  if (targets.length === 0 || !Number.isFinite(amountKop) || amountKop <= 0) return cp;
-  const per = Math.floor(amountKop / targets.length);
-  const remainder = amountKop - per * targets.length;
-  const targetIds = new Set(targets.map((s) => s.id));
-  let first = true;
-  const slots = cp.slots.map((s) => {
-    if (!targetIds.has(s.id)) return s;
-    const amount = per + (first ? remainder : 0);
-    first = false;
-    const hasStart = s.payments.some((p) => p.countdownStart);
-    const row: PaymentRow = {
-      id: newId(),
-      date,
-      amountKop: amount,
-      kind,
-      ...(!hasStart && (kind === 'advance' || kind === 'extra_advance') ? { countdownStart: true } : {}),
-    };
-    return { ...s, payments: [...s.payments, row] };
-  });
-  return { version: 1, slots };
-}
-
-/**
  * Разнести сумму по ЯВНО выбранным слотам (галочки в карточке контракта).
  *
- * Отличие от `distributeAmount`: та берёт первые N слотов секции в порядке массива, поэтому
- * «аванс только по марке А» в контракте с двумя марками ей недоступен. Здесь цели заданы
- * списком `slotIds` — секция не при чём, можно смешивать марки и ДС.
+ * Legacy `distributeAmount` («первые N слотов секции в порядке массива») снесена 2026-08-08:
+ * в приложении не вызывалась, а её семантика — источник жалобы владельца «любой аванс
+ * ложится с 1-го по N-й». Здесь цели заданы списком `slotIds` — секция не при чём,
+ * можно смешивать марки и ДС.
  *
  * Остаток копеек — первому слоту в порядке `cp.slots` (а не в порядке `slotIds`), чтобы
  * повторный вызов с той же выборкой дал тот же результат независимо от порядка кликов.

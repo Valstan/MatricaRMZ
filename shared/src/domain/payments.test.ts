@@ -6,7 +6,6 @@ import {
   burningEnginesCount,
   collectContractPaymentsEngineIds,
   countdownStatus,
-  distributeAmount,
   distributeAmountToSlots,
   emptyContractPayments,
   findSlotForEngine,
@@ -336,38 +335,63 @@ describe('distributeAmountToSlots', () => {
   });
 });
 
-describe('distributeAmount', () => {
-  function threeSlots(): ContractPayments {
+describe('дубль-строки одной марки в плане (баг «слоты под последнюю марку»)', () => {
+  // Кейс владельца: «10 шт по цене A + 5 шт по цене B» одной маркой двумя строками.
+  const duplicateRows = [
+    { sectionKey: 'primary', engineBrandId: 'brand-1', qty: 3, unitPrice: 1000 },
+    { sectionKey: 'primary', engineBrandId: 'brand-1', qty: 2, unitPrice: 2000 },
+  ];
+
+  it('qty суммируется по строкам, а не берётся из последней', () => {
     seq = 0;
-    return syncSlotsWithPlan(
+    const cp = syncSlotsWithPlan(emptyContractPayments(), duplicateRows, [], nextId);
+    expect(cp.slots).toHaveLength(5);
+  });
+
+  it('цены сеются позиционно: первые qty₁ слотов — цена первой строки, дальше — второй', () => {
+    seq = 0;
+    const cp = syncSlotsWithPlan(emptyContractPayments(), duplicateRows, [], nextId);
+    expect(cp.slots.map((s) => s.contractPriceKop)).toEqual([100_000, 100_000, 100_000, 200_000, 200_000]);
+  });
+
+  it('идемпотентна: повторная сверка не съедает и не плодит слоты', () => {
+    seq = 0;
+    const cp1 = syncSlotsWithPlan(emptyContractPayments(), duplicateRows, [], nextId);
+    const cp2 = syncSlotsWithPlan(cp1, duplicateRows, [], nextId);
+    expect(cp2).toEqual(cp1);
+  });
+
+  it('слоты, созданные ДО фикса первой строкой, не удаляются второй (ретро-сценарий)', () => {
+    seq = 0;
+    // Состояние старого бага: слоты только по последней строке (qty 2, цена второй строки).
+    const legacy = syncSlotsWithPlan(
       emptyContractPayments(),
-      [{ sectionKey: 'primary', engineBrandId: 'b', qty: 3, unitPrice: 0 }],
+      [{ sectionKey: 'primary', engineBrandId: 'brand-1', qty: 2, unitPrice: 2000 }],
       [],
       nextId,
     );
-  }
-
-  it('splits evenly, kopeck remainder to the first slot', () => {
-    const cp = distributeAmount(threeSlots(), 'primary', 100_00, 'advance', '2026-07-01', nextId);
-    const amounts = cp.slots.map((s) => s.payments[0]?.amountKop);
-    expect(amounts).toEqual([33_34, 33_33, 33_33]);
-    expect(amounts.reduce((a, b) => (a ?? 0) + (b ?? 0), 0)).toBe(100_00);
+    const healed = syncSlotsWithPlan(legacy, duplicateRows, [], nextId);
+    expect(healed.slots).toHaveLength(5); // досоздали до суммы
+    // Ранее посеянные цены не перетираются (ручные значения неотличимы) — чинит ретро-скрипт.
+    expect(healed.slots.filter((s) => s.contractPriceKop === 200_000).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('respects slotCount and marks countdown start once per slot', () => {
-    const cp = distributeAmount(threeSlots(), 'primary', 100_00, 'advance', '2026-07-01', nextId, 2);
-    expect(cp.slots[0]?.payments).toHaveLength(1);
-    expect(cp.slots[2]?.payments).toHaveLength(0);
-    expect(cp.slots[0]?.payments[0]?.countdownStart).toBe(true);
-    const again = distributeAmount(cp, 'primary', 50_00, 'extra_advance', '2026-08-01', nextId, 2);
-    // старт уже есть — второй платёж флага не получает
-    expect(again.slots[0]?.payments[1]?.countdownStart).toBeUndefined();
-  });
-
-  it('no-op on empty section or bad amount', () => {
-    const cp = threeSlots();
-    expect(distributeAmount(cp, 'ДС 9', 100, 'advance', '2026-07-01', nextId)).toBe(cp);
-    expect(distributeAmount(cp, 'primary', 0, 'advance', '2026-07-01', nextId)).toBe(cp);
+  it('уменьшение qty одной из строк убирает только пустые лишние слоты', () => {
+    seq = 0;
+    let cp = syncSlotsWithPlan(emptyContractPayments(), duplicateRows, [], nextId);
+    cp = addPayment(cp, cp.slots[4]!.id, { id: 'p1', date: '2026-07-01', amountKop: 1, kind: 'advance' });
+    const shrunk = syncSlotsWithPlan(
+      cp,
+      [
+        { sectionKey: 'primary', engineBrandId: 'brand-1', qty: 1, unitPrice: 1000 },
+        { sectionKey: 'primary', engineBrandId: 'brand-1', qty: 1, unitPrice: 2000 },
+      ],
+      [],
+      nextId,
+    );
+    // план 2: слот с деньгами занимает плановое место, пустые лишние удалены
+    expect(shrunk.slots).toHaveLength(2);
+    expect(shrunk.slots.some((s) => s.payments.length > 0)).toBe(true);
   });
 });
 
