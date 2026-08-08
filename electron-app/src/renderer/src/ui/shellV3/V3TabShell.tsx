@@ -125,17 +125,26 @@ export function V3TabShell(props: {
             <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(tab.tabId)}</React.Suspense>
           </div>
         ) : null;
+      // Suspense обязателен всем трём: страницы ленивые (lazyPage), и без границы React
+      // отвечает «A component suspended while responding to synchronous input» и сносит
+      // всё дерево — оператор видит белый экран (ловилось на «⚙️ Настройки» меню аккаунта).
       case 'chat':
         return props.renderChatTab ? (
-          <div className="v3-tab-content">{props.renderChatTab()}</div>
+          <div className="v3-tab-content">
+            <React.Suspense fallback={suspenseFallback()}>{props.renderChatTab()}</React.Suspense>
+          </div>
         ) : null;
       case 'ai_chat':
         return props.renderAiChatTab ? (
-          <div className="v3-tab-content">{props.renderAiChatTab()}</div>
+          <div className="v3-tab-content">
+            <React.Suspense fallback={suspenseFallback()}>{props.renderAiChatTab()}</React.Suspense>
+          </div>
         ) : null;
       case 'settings':
         return props.renderSettingsTab ? (
-          <div className="v3-tab-content">{props.renderSettingsTab()}</div>
+          <div className="v3-tab-content">
+            <React.Suspense fallback={suspenseFallback()}>{props.renderSettingsTab()}</React.Suspense>
+          </div>
         ) : null;
       default:
         return null;

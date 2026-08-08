@@ -669,6 +669,8 @@ export function App() {
   // Вкладка, которую нужно сфокусировать ПОСЛЕ того, как отработает dirty-guard карточки.
   // Чат/ИИваныч/МЕНЮ не имеют TabId, поэтому сами дождаться перехода не могут.
   const pendingFocusRef = useRef<string | null>(null);
+  // Карточка, чьё открытие отложено dirty-диалогом: по ней убираем вкладку, если открытие сорвалось.
+  const pendingCardTabRef = useRef<{ kind: TabId; entityId: string } | null>(null);
   // v2CardTitle объявлена ниже по телу рендера и пересоздаётся каждый рендер: держим её
   // в ref, чтобы openCardTab остался стабильным useCallback без ложных зависимостей.
   const cardTitleFnRef = useRef<(kind: TabId, entityId: string) => string>(() => '');
@@ -1055,6 +1057,7 @@ export function App() {
           const pendingOpen = pendingCardOpenRef.current;
           if (pendingOpen) {
             pendingCardOpenRef.current = null;
+            pendingCardTabRef.current = null;
             pendingOpen();
           } else if (targetTab) {
             setTabState(targetTab);
@@ -1136,6 +1139,11 @@ export function App() {
         cardCloseInProgressRef.current = false;
         pendingCardOpenRef.current = null;
         pendingFocusRef.current = null;
+        // Открытие сорвалось — вкладка, заведённая под него, не должна остаться в полосе
+        // (и уехать в персист сессии) без карточки.
+        const ghost = pendingCardTabRef.current;
+        pendingCardTabRef.current = null;
+        if (ghost) dispatchTabs({ type: 'CLOSE_CARD', cardKind: ghost.kind, entityId: ghost.entityId });
         clearQueuedHistoryReplay(true);
         return;
       }
@@ -1145,6 +1153,7 @@ export function App() {
       const pendingOpen = pendingCardOpenRef.current;
       if (pendingOpen) {
         pendingCardOpenRef.current = null;
+        pendingCardTabRef.current = null;
         pendingOpen();
         if (fromApp) {
           respondAppClose();
@@ -1189,6 +1198,18 @@ export function App() {
     requestTabSwitch(nextTab);
   }, [requestTabSwitch]);
 
+  const openSectionTab = useCallback((t: TabId) => {
+    if (t !== 'auth' && !CARD_DETAIL_TABS.includes(t)) {
+      dispatchTabs({
+        type: 'OPEN_LIST',
+        tabId: t,
+        label: sectionTabLabel(t),
+        focus: !CARD_DETAIL_TABS.includes(tabRef.current),
+      });
+    }
+    setTab(t);
+  }, [setTab]);
+
   // Заводит вкладку карточки и отвечает вызывающему, разрешено ли открытие. Фокус даёт не
   // здесь, а пост-коммитный эффект — то есть уже ПОСЛЕ dirty-guard: при single-mount смена
   // активной вкладки размонтировала бы грязную карточку раньше, чем оператор ответил диалогу.
@@ -1231,16 +1252,12 @@ export function App() {
   const v2OpenCardGuarded = useCallback(
     (kind: TabId, entityId: string, run: () => void) => {
       logUiUsage('ui.card_open', kind);
-      // Вкладку заводим в ТОТ ЖЕ момент, когда реально открываем карточку, и всегда ДО
-      // записи selected*Id: при отказе по лимиту ни сущность, ни tab не меняются (раньше
-      // сущность выбиралась, а вкладка молча нет). Если открытие отложено дирти-диалогом
-      // и так и не состоялось (ошибка сохранения) — вкладки-призрака тоже не остаётся.
-      const openTabThenRun = () => {
-        if (!openCardTab(kind, entityId)) return;
-        run();
-      };
+      // Лимит проверяем ДО всего остального: при отказе ни сущность, ни tab не меняются
+      // (раньше сущность выбиралась, а вкладка молча нет), и оператор не проходит зря
+      // dirty-диалог, отказавшись от правок в обмен на карточку, которую не получит.
+      if (!openCardTab(kind, entityId)) return;
       if (!isV2 || tab !== kind) {
-        openTabThenRun();
+        run();
         return;
       }
       const actions = cardCloseActionsRef.current;
@@ -1253,12 +1270,15 @@ export function App() {
         }
       }
       if (!dirty) {
-        openTabThenRun();
+        run();
         return;
       }
+      // Дескриптор нужен, чтобы убрать вкладку-призрак, если отложенное открытие так и не
+      // состоится (сохранение упало — finalizeCardClose выходит по ошибке).
+      pendingCardTabRef.current = { kind, entityId: String(entityId ?? '').trim() };
       pendingCardOpenRef.current = () => {
         setV2CardEpoch((e) => e + 1);
-        openTabThenRun();
+        run();
       };
       void closeCardSession({ targetTab: null, appClose: false });
     },
@@ -1897,7 +1917,7 @@ export function App() {
         void runSyncNow();
         break;
       case 'user':
-        setTab(userTab);
+        openSectionTab(userTab);
         break;
       case 'ai_chat':
         if (aiChatOpen) dispatchTabs({ type: 'CLOSE', id: 'ai_chat' });
@@ -2526,13 +2546,7 @@ export function App() {
       openReportPreset('assembly_forecast_7d');
       return;
     }
-    // Явный OPEN_LIST, а не только setTab: при t === tab requestTabSwitch делает no-op,
-    // и повторный клик по разделу, вкладку которого закрыли крестиком, её бы не вернул.
-    // Фокус здесь не забираем, если открыта карточка — его отдаст dirty-guard через setTab.
-    if (t !== 'auth' && !isCardTab(t)) {
-      dispatchTabs({ type: 'OPEN_LIST', tabId: t, label: sectionTabLabel(t), focus: !isCardTab(tab) });
-    }
-    setTab(t);
+    openSectionTab(t);
   }
 
   async function addPinnedShortcut(shortcutId: string) {
@@ -3086,6 +3100,7 @@ export function App() {
       doAfter();
       return;
     }
+    pendingCardTabRef.current = null;
     pendingCardOpenRef.current = doAfter;
     void closeCardSession({ targetTab: null, appClose: false });
   }
@@ -5261,7 +5276,14 @@ export function App() {
     const wasActive = tabsState.activeId === id;
     const nextFocusId = focusAfterClose(tabsState, id);
     dispatchTabs({ type: 'CLOSE', id });
-    if (!wasActive) return;
+    if (!wasActive) {
+      // Вкладки раздела больше нет — App.tab не должен на неё указывать, иначе повторное
+      // открытие того же раздела (меню аккаунта → «Настройки», кнопка «Профиль») придёт в
+      // requestTabSwitch с nextTab === tab и молча ничего не сделает.
+      const closedSection = parsed.kind === 'list' ? parsed.tabId : parsed.kind;
+      if (tab === closedSection) setTabRaw('history');
+      return;
+    }
     // tab обязан догнать выбор редьюсера, иначе карточка остаётся смонтированной, а
     // dirty-guard уже смотрит на список: несохранённое теряется молча.
     const nextFocus = parseTabId(nextFocusId);
@@ -5416,7 +5438,7 @@ export function App() {
             y={accountMenuPos.y}
             onClose={() => setAccountMenuPos(null)}
             items={[
-              { id: "settings", label: "⚙️ Настройки", onClick: () => { setTab("settings"); } },
+              { id: "settings", label: "⚙️ Настройки", onClick: () => { openSectionTab("settings"); } },
               { id: "switch", label: "👥 Смена аккаунта", onClick: () => setAccountSwitchOpen(true) },
               { id: "logout", label: "⏻ Выйти", danger: true, onClick: () => { void (async () => { await window.matrica.auth.logout({}).catch(() => {}); const s = await window.matrica.auth.status(); setAuthStatus(s); setTabState("auth"); })(); } },
             ]}
