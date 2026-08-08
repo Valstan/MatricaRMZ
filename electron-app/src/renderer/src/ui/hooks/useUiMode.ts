@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { isAndroidPlatform } from '../platform.js';
+
 // Планшетный режим клиента (Ф1a). Два независимых машинно-локальных флага в
 // localStorage (как useListColumnsMode — не синкается, не per-user; планшет — свойство
 // рабочего места, а не пользователя):
@@ -40,6 +42,10 @@ export function detectTabletHeuristic(): boolean {
 }
 
 function readDeviceIsTablet(): boolean {
+  // Android-клиент — планшет ПО ОПРЕДЕЛЕНИЮ: экранная эвристика (порог 2200 физ. px)
+  // на пилотном DIGMA балансирует ровно на границе и может промахнуться, а вместе с ней
+  // умирает кнопка «Планшет» и touch-layout.
+  if (isAndroidPlatform()) return true;
   try {
     const raw = window?.localStorage?.getItem(DEVICE_IS_TABLET_KEY);
     if (raw === 'true') return true;

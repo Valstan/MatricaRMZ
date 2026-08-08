@@ -23,6 +23,7 @@ import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
 import { resolveEngineLabels, type EngineLabel } from './engineService.js';
 
 import { auditLog, entities, entityTypes, erpNomenclature, operations } from '../database/schema.js';
+import { collectChunked } from '../utils/sqlChunks.js';
 
 const WORK_ORDERS_CONTAINER_ID = SystemIds.WorkOrdersContainerEntityId;
 const WORK_ORDERS_OPERATION_TYPE = 'work_order';
@@ -529,19 +530,22 @@ async function loadWorkOrderSummaries(db: BetterSQLite3Database): Promise<WorkOr
     .map((head) => String(head.id));
 
   // Шаг 2 — тяжёлый payload читаем и разбираем только у изменившихся строк.
+  // На холодном кэше staleIds — до 5000 id: чанкуем под 999-парамный кап Android SQLite.
   if (staleIds.length > 0) {
-    const bodies = await db
-      .select({
-        id: operations.id,
-        status: operations.status,
-        note: operations.note,
-        performedBy: operations.performedBy,
-        metaJson: operations.metaJson,
-        createdAt: operations.createdAt,
-        updatedAt: operations.updatedAt,
-      })
-      .from(operations)
-      .where(inArray(operations.id, staleIds));
+    const bodies = await collectChunked(staleIds, (idsChunk) =>
+      db
+        .select({
+          id: operations.id,
+          status: operations.status,
+          note: operations.note,
+          performedBy: operations.performedBy,
+          metaJson: operations.metaJson,
+          createdAt: operations.createdAt,
+          updatedAt: operations.updatedAt,
+        })
+        .from(operations)
+        .where(inArray(operations.id, idsChunk)),
+    );
     for (const body of bodies) {
       const summary = buildWorkOrderSummary(body);
       if (summary) cache.set(String(body.id), summary);

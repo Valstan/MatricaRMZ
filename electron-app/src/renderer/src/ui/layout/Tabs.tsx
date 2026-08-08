@@ -302,6 +302,8 @@ export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'engine_assembly_bom',
   'repair_norms',
   'stock_balances',
+  // Документы склада — в рамке владельца (ANDROID_TABS) и обязаны быть у оператора-планшетника.
+  'stock_documents',
   'requests',
   'repair_fund_audit',
 ];

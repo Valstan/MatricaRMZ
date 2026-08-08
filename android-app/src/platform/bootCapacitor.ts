@@ -35,5 +35,16 @@ export async function bootCapacitorClient(): Promise<AndroidCore> {
 
   await installAndroidBridge(core);
   core.startHeartbeat();
+
+  // startAuto ядра планирует ПЕРВЫЙ тик только через интервал — на планшете после
+  // холодного старта это выглядело как «наряды не грузятся» до 5 минут. Пинаем синк
+  // сразу (при восстановленной сессии подтянет данные; без сессии тихо откажет) и при
+  // появлении сети — аналог onNetworkChange десктопного registerIpc, не переехавшего
+  // в порт. Здесь, а не в ядре: boot-тесты ядра полагаются на «тихий» старт.
+  void core.syncManager.runOnce().catch(() => {});
+  globalThis.addEventListener?.('online', () => {
+    void core.syncManager.runOnce().catch(() => {});
+  });
+
   return core;
 }

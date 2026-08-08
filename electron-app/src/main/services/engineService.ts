@@ -26,6 +26,7 @@ import {
 } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import { collectChunked } from '../utils/sqlChunks.js';
 import { listEntitiesByType } from './entityService.js';
 import type {
   EngineDetails,
@@ -222,17 +223,21 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
   const result = new Map<string, EngineInventoryFlags>();
   if (engineIds.length === 0) return result;
 
-  const heads = await db
-    .select({ id: operations.id, engineEntityId: operations.engineEntityId, updatedAt: operations.updatedAt })
-    .from(operations)
-    .where(
-      and(
-        inArray(operations.engineEntityId, engineIds),
-        eq(operations.operationType, ENGINE_INVENTORY_STAGE),
-        isNull(operations.deletedAt),
-      ),
-    )
-    .orderBy(desc(operations.updatedAt));
+  // engineIds на проде ~1600 — чанкуем под 999-парамный кап Android SQLite. Per-engine
+  // порядок «новые первыми» сохраняется: все акты одного двигателя живут в одном чанке.
+  const heads = await collectChunked(engineIds, (idsChunk) =>
+    db
+      .select({ id: operations.id, engineEntityId: operations.engineEntityId, updatedAt: operations.updatedAt })
+      .from(operations)
+      .where(
+        and(
+          inArray(operations.engineEntityId, idsChunk),
+          eq(operations.operationType, ENGINE_INVENTORY_STAGE),
+          isNull(operations.deletedAt),
+        ),
+      )
+      .orderBy(desc(operations.updatedAt)),
+  );
 
   const seen = new Set<string>();
   const stale: Array<{ id: string; engineId: string; updatedAt: number }> = [];
@@ -251,10 +256,12 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
   }
 
   if (stale.length > 0) {
-    const bodies = await db
-      .select({ id: operations.id, metaJson: operations.metaJson })
-      .from(operations)
-      .where(inArray(operations.id, stale.map((s) => s.id)));
+    const bodies = await collectChunked(stale.map((s) => s.id), (idsChunk) =>
+      db
+        .select({ id: operations.id, metaJson: operations.metaJson })
+        .from(operations)
+        .where(inArray(operations.id, idsChunk)),
+    );
     const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
     for (const item of stale) {
       const flags = computeEngineInventoryFlags(safeJsonParse(metaById.get(item.id) ?? ''));
@@ -391,25 +398,29 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   ].filter(Boolean) as string[];
   const attrDefIds = [...new Set([...baseDefIds, ...statusDefIds, ...statusDateDefIds])];
 
+  // Чанкуем engineIds (весь каталог, ~1600) под 999-парамный кап Android SQLite;
+  // per-entity порядок цел — двигатель целиком в одном чанке.
   const valueRows =
     engineIds.length > 0 && attrDefIds.length > 0
-      ? await db
-          .select({
-            entityId: attributeValues.entityId,
-            attributeDefId: attributeValues.attributeDefId,
-            valueJson: attributeValues.valueJson,
-          })
-          .from(attributeValues)
-          .where(
-            and(
-              inArray(attributeValues.entityId, engineIds),
-              inArray(attributeValues.attributeDefId, attrDefIds),
-              isNull(attributeValues.deletedAt),
-            ),
-          )
-          // Oldest→newest so the per-(entity,def) map keeps the NEWEST value if stray
-          // duplicate rows exist (defensive; setEntityAttribute now collapses them).
-          .orderBy(asc(attributeValues.updatedAt))
+      ? await collectChunked(engineIds, (idsChunk) =>
+          db
+            .select({
+              entityId: attributeValues.entityId,
+              attributeDefId: attributeValues.attributeDefId,
+              valueJson: attributeValues.valueJson,
+            })
+            .from(attributeValues)
+            .where(
+              and(
+                inArray(attributeValues.entityId, idsChunk),
+                inArray(attributeValues.attributeDefId, attrDefIds),
+                isNull(attributeValues.deletedAt),
+              ),
+            )
+            // Oldest→newest so the per-(entity,def) map keeps the NEWEST value if stray
+            // duplicate rows exist (defensive; setEntityAttribute now collapses them).
+            .orderBy(asc(attributeValues.updatedAt)),
+        )
       : [];
 
   const valuesByEntity = new Map<string, Map<string, string | null>>();
@@ -853,21 +864,23 @@ export async function findEngineDuplicateCandidates(
   if (engineIds.length === 0) return { exact: [], similar: [] };
 
   const wantedDefIds = [numberDefId, brandDefId].filter(Boolean) as string[];
-  const valueRows = await db
-    .select({
-      entityId: attributeValues.entityId,
-      attributeDefId: attributeValues.attributeDefId,
-      valueJson: attributeValues.valueJson,
-    })
-    .from(attributeValues)
-    .where(
-      and(
-        inArray(attributeValues.entityId, engineIds),
-        inArray(attributeValues.attributeDefId, wantedDefIds),
-        isNull(attributeValues.deletedAt),
-      ),
-    )
-    .limit(500_000);
+  const valueRows = await collectChunked(engineIds, (idsChunk) =>
+    db
+      .select({
+        entityId: attributeValues.entityId,
+        attributeDefId: attributeValues.attributeDefId,
+        valueJson: attributeValues.valueJson,
+      })
+      .from(attributeValues)
+      .where(
+        and(
+          inArray(attributeValues.entityId, idsChunk),
+          inArray(attributeValues.attributeDefId, wantedDefIds),
+          isNull(attributeValues.deletedAt),
+        ),
+      )
+      .limit(500_000),
+  );
 
   const numberById = new Map<string, string>();
   const brandById = new Map<string, string>();
