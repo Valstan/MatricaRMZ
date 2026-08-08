@@ -106,6 +106,10 @@
 - **«Настройки» в МЕНЮ нет** — они в меню аккаунта (`.v3-account-btn`). Разделы, удобные для проверки «вкладку получает любой раздел»: `🛠️Ревизия ремфонда` (Склад), `🎯История` (Мой круг), `📝Заметки` (Контроль и аналитика).
 - Готовые смоуки (gitignored): `.verifier-electron/_r3-cdp.mjs` (обвязка), `_smoke-r3-tabs.mjs` (состав полосы, C/D/G/O), `_smoke-r3-guard.mjs` (лимит карточек + dirty-guard), `_smoke-r3-refocus.mjs` (возврат фокуса на вкладку раздела).
 
+## HMR: добавил/убрал хук — жди белый экран, не отлаживай (выучено 2026-08-08)
+- Правка `App.tsx`, меняющая **число или порядок хуков** (новый `useRef`/`useEffect`), при горячей замене ломает React: корневой узел пустеет, консоль ругается на хуки. Это артефакт HMR, а не дефект кода — **сразу перезапускай electron**, не ищи баг. Проверка «настоящая ли поломка» — чистый рестарт стенда.
+- После рестарта нативный ABI не трогается, но **порядок ABI-качели помнить**: `pnpm -F electron-app test` (vitest, Node ABI 137) и Electron-стенд (ABI 148) взаимно исключают друг друга. Если после ребилда под Electron 43 гонишь vitest — получишь ~28 падений с `NODE_MODULE_VERSION 148 … requires 137`; это не регресс, в CI сборка своя. Для юнит-тестов вернуть Node-ABI: `corepack pnpm rebuild better-sqlite3`.
+
 ## CDP-стенд: грабли (2026-07-09)
 - **`Page.reload` по renderer-таргету на этом стенде ВАЛИТ/вешает electron** (нав-гарды hardening?): CDP-эндпойнт 9222 перестаёт отвечать (listen висит, HTTP timeout) либо `pnpm dev` умирает. Симптом: «no renderer target» после reload. **Лечение:** не делать reload в драйверах; для проверки restore/чистой загрузки — убить `electron.exe` (`Get-Process electron | Stop-Process -Force`) и перезапустить `pnpm dev` фоновой задачей (бэкенд не трогать).
 - **Окно verifier-клиента реально hidden** → `document.visibilityState === 'hidden'` весь прогон: visibility-gated поллы честно спят. В пробах форсить видимость override'ом (`Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'visible'})` + `visibilitychange`).
