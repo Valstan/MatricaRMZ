@@ -845,12 +845,19 @@ export async function warehouseNomenclatureUpsert(
   args: Record<string, unknown>,
 ) {
   const path = '/warehouse/nomenclature';
+  // id есть → сервер делает идемпотентный upsert по id: безопасно ретраить и таймауты,
+  // и гейтвейные 502/503/504. Без id это СОЗДАНИЕ — слепой ретрай по таймауту может
+  // задвоить позицию (у пустых артикулов нет unique-стража), поэтому ровно 1 попытка;
+  // восстановление после обрыва делает вызывающий (импорт 1С ищет позицию по артикулу).
+  const httpOpts = args.id
+    ? { attempts: 3, retryOnStatuses: [502, 503, 504] }
+    : { attempts: 1 };
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(args),
-    });
+    }, httpOpts);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
     return { ok: true as const, id: String(r.json.id) };

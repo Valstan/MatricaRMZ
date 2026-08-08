@@ -22,13 +22,20 @@ async function readBody(r: Response): Promise<Pick<HttpResult, 'json' | 'text'>>
   return { text: await r.text().catch(() => '') };
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, attempts = 3): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  attempts = 3,
+  retryOnStatuses?: number[],
+): Promise<Response> {
   return await fetchWithRetry(url, init, {
     attempts,
     timeoutMs,
     backoffMs: 500,
     maxBackoffMs: 4000,
     jitterMs: 200,
+    ...(retryOnStatuses ? { retryOnStatuses } : {}),
   });
 }
 
@@ -39,7 +46,8 @@ export async function httpAuthed(
   init: RequestInit,
   // attempts: set to 1 for non-idempotent mutations (merge etc.) so a slow first
   // request is not auto-retried into a double-apply. Default 3 for reads.
-  opts?: { timeoutMs?: number; attempts?: number },
+  // retryOnStatuses: opt-in gateway retry (502/503/504) — ONLY for idempotent calls.
+  opts?: { timeoutMs?: number; attempts?: number; retryOnStatuses?: number[] },
 ): Promise<HttpResult> {
   const url = joinUrl(apiBaseUrl, path);
   const timeoutMs = opts?.timeoutMs ?? 30_000;
@@ -51,7 +59,7 @@ export async function httpAuthed(
   const headers = new Headers(init.headers ?? {});
   headers.set('Authorization', `Bearer ${session.accessToken}`);
 
-  const r1 = await fetchWithTimeout(url, { ...init, headers }, timeoutMs, attempts);
+  const r1 = await fetchWithTimeout(url, { ...init, headers }, timeoutMs, attempts, opts?.retryOnStatuses);
   if (r1.status !== 401 && r1.status !== 403) {
     const body = await readBody(r1);
     return { ok: r1.ok, status: r1.status, ...body };
@@ -68,7 +76,7 @@ export async function httpAuthed(
 
     const headers2 = new Headers(init.headers ?? {});
     headers2.set('Authorization', `Bearer ${refreshed.accessToken}`);
-    const r2 = await fetchWithTimeout(url, { ...init, headers: headers2 }, timeoutMs, attempts);
+    const r2 = await fetchWithTimeout(url, { ...init, headers: headers2 }, timeoutMs, attempts, opts?.retryOnStatuses);
     const body2 = await readBody(r2);
     return { ok: r2.ok, status: r2.status, ...body2 };
   }
