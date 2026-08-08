@@ -101,6 +101,35 @@ async function bootstrap() {
   const server = app.listen(port, host, () => {
     logInfo(`listening on ${host}:${port}`, { host, port, instanceRole: instanceRole || 'primary', runBackgroundJobs }, { critical: true });
   });
+  // nginx держит keepalive-пул к upstream с idle 60s; дефолтные 5s Node закрывали сокет
+  // первым, и nginx получал «upstream prematurely closed» → спорадические 502 на POST
+  // (не ретраятся). Серверные таймауты обязаны быть ДЛИННЕЕ nginx'овских.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+
+  // systemd restart шлёт SIGTERM; без обработчика процесс умирает мгновенно и все
+  // in-flight запросы обрываются 502-ми у клиентов. Дорабатываем начатое и выходим.
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logInfo('graceful shutdown: draining in-flight requests', { signal }, { critical: true });
+    const force = setTimeout(() => {
+      logError('graceful shutdown: drain timed out, exiting', { signal });
+      process.exit(0);
+    }, 15_000);
+    force.unref();
+    server.close(() => {
+      logInfo('graceful shutdown: server closed', { signal }, { critical: true });
+      process.exit(0);
+    });
+    // Idle keep-alive сокеты не держат close() в Node 18+ (closeIdleConnections внутри),
+    // но на всякий случай подталкиваем.
+    server.closeIdleConnections?.();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       logError(`fatal: port ${port} is already in use on ${host}. Check for duplicate backend processes.`, {
