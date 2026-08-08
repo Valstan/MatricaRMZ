@@ -44,6 +44,8 @@ export function V3TabShell(props: {
   onAction: (id: ActionButtonId) => void;
   openTabs: OpenTab[];
   activeTabId: string;
+  /** Раздел, который подсвечивается в панели МЕНЮ: «где оператор был», а не активная вкладка. */
+  activeSectionTabId: TabId;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onSplitCard?: (card: OpenTab) => void;
@@ -64,10 +66,11 @@ export function V3TabShell(props: {
   onAccountClick?: (pos: { x: number; y: number }) => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
-  // Подсветка раздела в МЕНЮ идёт за АКТИВНОЙ вкладкой. Раньше бралась первая list-вкладка,
-  // поэтому на карточке или другом разделе подсвечивался чужой пункт.
-  const activeForMenu = props.openTabs.find(t => t.id === props.activeTabId);
-  const activeMenuTab = resolveMenuTab(activeForMenu?.cardKind ?? activeForMenu?.tabId ?? 'engines');
+  // Панель МЕНЮ видна только когда активна вкладка МЕНЮ, поэтому подсвечивать надо раздел,
+  // НА КОТОРОМ оператор находится (App.tab), а не активную вкладку — иначе подсветка всегда
+  // указывала бы на фолбэк. Раньше бралась первая list-вкладка: на карточке или другом
+  // разделе подсвечивался чужой пункт.
+  const activeMenuTab = resolveMenuTab(props.activeSectionTabId);
 
   const chrome = useChromeVisibility();
   const setShellMounted = chrome.setShellMounted;

@@ -977,6 +977,9 @@ export function App() {
   const clearSecondaryPaneState = useCallback(() => {
     secondaryCloseRef.current = null;
     setV2SecondaryCard(null);
+    // Без этого закрытая правая панель остаётся в персисте сессии и воскресает
+    // при следующем запуске — «2 рядом» возвращается сама.
+    dispatchTabs({ type: 'SET_SECONDARY', card: null });
     setSecondaryEngineDetails(null);
     setSecondaryEngineLoading(false);
   }, []);
@@ -1228,11 +1231,16 @@ export function App() {
   const v2OpenCardGuarded = useCallback(
     (kind: TabId, entityId: string, run: () => void) => {
       logUiUsage('ui.card_open', kind);
-      // Вкладку заводим ДО любых сайд-эффектов открытия: при отказе по лимиту ни
-      // selected*Id, ни tab не меняются — раньше сущность выбиралась, а вкладка молча нет.
-      if (!openCardTab(kind, entityId)) return;
-      if (!isV2 || tab !== kind) {
+      // Вкладку заводим в ТОТ ЖЕ момент, когда реально открываем карточку, и всегда ДО
+      // записи selected*Id: при отказе по лимиту ни сущность, ни tab не меняются (раньше
+      // сущность выбиралась, а вкладка молча нет). Если открытие отложено дирти-диалогом
+      // и так и не состоялось (ошибка сохранения) — вкладки-призрака тоже не остаётся.
+      const openTabThenRun = () => {
+        if (!openCardTab(kind, entityId)) return;
         run();
+      };
+      if (!isV2 || tab !== kind) {
+        openTabThenRun();
         return;
       }
       const actions = cardCloseActionsRef.current;
@@ -1245,12 +1253,12 @@ export function App() {
         }
       }
       if (!dirty) {
-        run();
+        openTabThenRun();
         return;
       }
       pendingCardOpenRef.current = () => {
         setV2CardEpoch((e) => e + 1);
-        run();
+        openTabThenRun();
       };
       void closeCardSession({ targetTab: null, appClose: false });
     },
@@ -1942,8 +1950,8 @@ export function App() {
     // Чат и ИИваныч возвращаются открытыми (как прежний useState(true)), но БЕЗ фокуса —
     // иначе они перебивают восстановление сессии карточек.
     dispatchTabs({ type: 'RESET' });
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: false });
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: false });
+    chatTabSeededRef.current = '';
+    aiTabSeededRef.current = '';
   }
 
   // When user changes (logout or login as another user), reset state and sync.
@@ -2228,14 +2236,32 @@ export function App() {
     if (authStatus.loggedIn && tab === 'auth') setTab('history');
   }, [authStatus.loggedIn, tab, setTab]);
 
-  // Gate: chat requires auth + permission.
+  // Вкладки Чат/ИИваныч: право есть — вкладка появляется один раз на пользователя (закрыл
+  // сам — не навязываем), права нет — вкладки нет. Раньше стартовый useState(true) гасился
+  // гейтом ещё до загрузки прав, и вкладка не возвращалась уже никогда.
+  const chatTabSeededRef = useRef('');
   useEffect(() => {
-    if (!authStatus.loggedIn || !canChat) dispatchTabs({ type: 'CLOSE', id: 'chat' });
-  }, [authStatus.loggedIn, canChat]);
+    const uid = String(authStatus.user?.id ?? '').trim();
+    if (!authStatus.loggedIn || !canChat) {
+      dispatchTabs({ type: 'CLOSE', id: 'chat' });
+      return;
+    }
+    if (!uid || chatTabSeededRef.current === uid) return;
+    chatTabSeededRef.current = uid;
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: false });
+  }, [authStatus.loggedIn, canChat, authStatus.user?.id]);
 
+  const aiTabSeededRef = useRef('');
   useEffect(() => {
-    if (!canAiAgent) dispatchTabs({ type: 'CLOSE', id: 'ai_chat' });
-  }, [canAiAgent]);
+    const uid = String(authStatus.user?.id ?? '').trim();
+    if (!authStatus.loggedIn || !canAiAgent) {
+      dispatchTabs({ type: 'CLOSE', id: 'ai_chat' });
+      return;
+    }
+    if (!uid || aiTabSeededRef.current === uid) return;
+    aiTabSeededRef.current = uid;
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: false });
+  }, [authStatus.loggedIn, canAiAgent, authStatus.user?.id]);
 
   useEffect(() => {
     if (!trashOpen) return;
@@ -5422,6 +5448,7 @@ export function App() {
               onCollapsedSectionsChange={setCollapsedSections}
               onMenuTab={handleMenuTab}
               onAction={handleMenuAction}
+              activeSectionTabId={tab}
               openTabs={tabList}
               activeTabId={activeTabKey}
               onSelectTab={selectTab}
