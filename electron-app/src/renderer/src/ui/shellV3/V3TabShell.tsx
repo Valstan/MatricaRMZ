@@ -1,6 +1,6 @@
 ﻿import React, { useMemo } from 'react';
 import { Group, Panel, Separator, type Layout, type LayoutChangedMeta } from 'react-resizable-panels';
-import { v3ShowTabsWarning } from '@matricarmz/shared';
+import { shouldWarnTabsCount } from '@matricarmz/shared';
 
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { ButtonPanel } from '../shellV2/ButtonPanel.js';
@@ -64,7 +64,10 @@ export function V3TabShell(props: {
   onAccountClick?: (pos: { x: number; y: number }) => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
-  const activeMenuTab = resolveMenuTab(props.openTabs.find(t => t.kind === 'list')?.tabId ?? 'engines');
+  // Подсветка раздела в МЕНЮ идёт за АКТИВНОЙ вкладкой. Раньше бралась первая list-вкладка,
+  // поэтому на карточке или другом разделе подсвечивался чужой пункт.
+  const activeForMenu = props.openTabs.find(t => t.id === props.activeTabId);
+  const activeMenuTab = resolveMenuTab(activeForMenu?.cardKind ?? activeForMenu?.tabId ?? 'engines');
 
   const chrome = useChromeVisibility();
   const setShellMounted = chrome.setShellMounted;
@@ -175,7 +178,7 @@ export function V3TabShell(props: {
             </div>
           );
         })}
-        {v3ShowTabsWarning(props.openTabs.length) ? (
+        {shouldWarnTabsCount(props.openTabs.length) ? (
           <div className="v3-tabs-warning" role="alert">
             ⚠ Много вкладок — закройте отработанные.
           </div>
