@@ -445,6 +445,12 @@ function SectionBlock(props: {
    * пустые слоты: деньги часто приходят раньше двигателей.
    */
   slotSelection?: ReadonlySet<string>;
+  /**
+   * Выбранные слоты ПО ВСЕМ секциям (страница считает по общему slotSelection).
+   * «Разнести аванс» работает по этому списку: галочки в соседней секции/ДС раньше
+   * молча выпадали из разнесения — секция-скоуп был иллюзией одного набора галочек.
+   */
+  globalSelectedSlotIds?: readonly string[];
   onToggleSlots?: (slotIds: readonly string[], checked: boolean) => void;
   onDistributeToSlots?: (slotIds: readonly string[], amountKop: number, kind: PaymentKind, date: string, note: string) => void | Promise<void>;
   onRemoveSlotPayment?: (slotId: string, paymentId: string) => void | Promise<void>;
@@ -528,18 +534,17 @@ function SectionBlock(props: {
   const slotPayments = (slot: PaymentSlot) => slot.payments.filter((p) => p.kind !== 'contract_price');
   const paymentColumnCount = slotRows.reduce((max, r) => Math.max(max, slotPayments(r.slot).length), 0);
   const selectedSlotIds = slotRows.filter((r) => props.slotSelection?.has(r.slot.id)).map((r) => r.slot.id);
+  // Для разнесения — общий выбор по всем секциям (fallback на секционный для старых вызовов).
+  const distributeSlotIds = props.globalSelectedSlotIds ?? selectedSlotIds;
 
   const update = (patch: Partial<ContractPrimarySection | ContractAddonSection>) => {
     onChange({ ...section, ...patch });
   };
 
   const addEngineBrand = () => {
-    const last = section.engineBrands[section.engineBrands.length - 1];
-    const next: ContractEngineBrandRow = {
-      engineBrandId: last?.engineBrandId ?? '',
-      qty: last?.qty ?? 1,
-      unitPrice: last?.unitPrice ?? 0,
-    };
+    // Марку НЕ предзаполняем прошлой строкой: «➕ Строка» с копией марки массово плодила
+    // дубли одной марки в плане, и сверка слотов вела себя «по последней строке».
+    const next: ContractEngineBrandRow = { engineBrandId: '', qty: 1, unitPrice: 0 };
     update({ engineBrands: [...section.engineBrands, next] });
   };
 
@@ -962,8 +967,8 @@ function SectionBlock(props: {
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={selectedSlotIds.length === 0}
-                    title={selectedSlotIds.length === 0 ? 'Отметьте галочками, на какие двигатели разнести аванс' : undefined}
+                    disabled={distributeSlotIds.length === 0}
+                    title={distributeSlotIds.length === 0 ? 'Отметьте галочками, на какие двигатели разнести аванс' : undefined}
                     onClick={() => setDistributeOpen(true)}
                   >
                     Разнести аванс…
@@ -978,9 +983,9 @@ function SectionBlock(props: {
             </div>
             {distributeOpen && props.onDistributeToSlots ? (
               <DistributeToSelectedForm
-                selectedCount={selectedSlotIds.length}
+                selectedCount={distributeSlotIds.length}
                 onApply={(amountKop, kind, date, note) => {
-                  void props.onDistributeToSlots?.(selectedSlotIds, amountKop, kind, date, note);
+                  void props.onDistributeToSlots?.(distributeSlotIds, amountKop, kind, date, note);
                   setDistributeOpen(false);
                 }}
                 onCancel={() => setDistributeOpen(false)}
@@ -1837,6 +1842,13 @@ export function ContractDetailsPage(props: {
     // syncKey-гард выше делает лишние прогоны no-op — деп на пересоздаваемый contractTypeId безопасен.
   }, [contract, relatedEngines, props.canEdit, props.contractId, contractTypeId]);
 
+  // Выбранные слоты по ВСЕМ секциям (для «Разнести аванс»): один набор галочек — одно
+  // действие; фильтр против живых слотов отсеивает устаревшие id после сверки плана.
+  const globalSelectedSlotIds = React.useMemo(() => {
+    if (slotSelection.size === 0) return [] as string[];
+    return contractPayments.slots.filter((s) => slotSelection.has(s.id)).map((s) => s.id);
+  }, [contractPayments, slotSelection]);
+
   async function distributeToSlots(
     slotIds: readonly string[],
     amountKop: number,
@@ -1848,6 +1860,8 @@ export function ContractDetailsPage(props: {
     await mutatePayments((current) =>
       distributeAmountToSlots(current, slotIds, amountKop, kind, date, () => crypto.randomUUID(), note),
     );
+    // Сброс галочек: иначе повторный клик «Разнести» молча кладёт деньги на те же слоты.
+    setSlotSelection(new Set());
   }
 
   async function removeSlotPayment(slotId: string, paymentId: string) {
@@ -2278,6 +2292,7 @@ export function ContractDetailsPage(props: {
             onDistributeToSlots={distributeToSlots}
             onRemoveSlotPayment={removeSlotPayment}
             slotSelection={slotSelection}
+            globalSelectedSlotIds={globalSelectedSlotIds}
             onToggleSlots={toggleSlots}
             onOpenCounterparty={props.onOpenCounterparty}
             {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
@@ -2306,6 +2321,7 @@ export function ContractDetailsPage(props: {
               onDistributeToSlots={distributeToSlots}
               onRemoveSlotPayment={removeSlotPayment}
               slotSelection={slotSelection}
+              globalSelectedSlotIds={globalSelectedSlotIds}
               onToggleSlots={toggleSlots}
               {...(props.onOpenPart ? { onOpenPart: props.onOpenPart } : {})}
               {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
