@@ -708,11 +708,29 @@ export function App() {
   const V2_MAX_OPEN_CARDS = 3;
   // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
   const [_v3PinnedFocus, setV3PinnedFocus] = useState(false);
-  const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
-  // При первом логине сворачиваем все секции МЕНЮ по умолчанию
+  // Свёрнутость секций МЕНЮ — машинно-локальная и переживает перезапуск: раньше каждая
+  // загрузка клиента (на планшете — каждый старт приложения) сворачивала всё заново.
+  const collapsedSectionsStoredRef = useRef(false);
+  const [collapsedSections, setCollapsedSectionsState] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('matrica:menuCollapsedSections');
+      if (raw != null) {
+        collapsedSectionsStoredRef.current = true;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      }
+    } catch { /* ignore */ }
+    return [];
+  });
+  const setCollapsedSections = useCallback((next: string[]) => {
+    collapsedSectionsStoredRef.current = true;
+    setCollapsedSectionsState(next);
+    try { window.localStorage.setItem('matrica:menuCollapsedSections', JSON.stringify(next)); } catch { /* ignore */ }
+  }, []);
+  // При САМОМ первом логине (нет сохранённого состояния) сворачиваем все секции по умолчанию.
   useEffect(() => {
     if (!authStatus.loggedIn) return;
-    if (collapsedSections.length > 0) return;
+    if (collapsedSectionsStoredRef.current || collapsedSections.length > 0) return;
     const btns = buildV2Buttons(sectionGatedTabs, menuLabels, DEFAULT_UI_SHELL_PREFS.v2.buttonLayout, tabletActive && userRole !== 'superadmin');
     const ids = btns.sections.map((s) => s.id);
     if (ids.length > 0) setCollapsedSections(ids);

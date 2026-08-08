@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:cap": "vite build && npx cap sync android",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
