@@ -64,15 +64,17 @@ jobs:
       - name: Capacitor sync
         run: pnpm -C android-app exec cap sync android
 
-      # Хранилище ключа не касается рабочего дерева: репо публичный. Ключа может
-      # не быть (секрет ещё не заведён) — тогда собираем НЕПОДПИСАННЫЙ APK и
-      # говорим об этом вслух; на тег такая сборка не проходит (шаг ниже).
+      # Хранилище ключа не касается рабочего дерева: репо публичный. Ключ нужен
+      # только тег-сборкам (release): НЕ-тег собирается в debug и подписывается
+      # штатным debug-ключом Android (см. ниже). Ключа может не быть (секрет ещё
+      # не заведён) — на теге такая сборка падает намеренно, шаг следом.
       - name: Decode keystore
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "::warning::ANDROID_KEYSTORE_BASE64 не задан — APK будет НЕПОДПИСАННЫМ и на планшет не встанет"
+            echo "::warning::ANDROID_KEYSTORE_BASE64 не задан — релизный APK будет НЕПОДПИСАННЫМ"
             exit 0
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/matricarmz-release.keystore"
@@ -86,7 +88,8 @@ jobs:
 
       # Подпись подхватывается signingConfig'ом в android-app/android/app/build.gradle
       # по переменным окружения (ANDROID_KEYSTORE_FILE проброшен через GITHUB_ENV).
-      - name: Assemble release APK
+      - name: Assemble release APK (tag builds)
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -94,12 +97,37 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
         working-directory: android-app/android
 
-      - name: Report APK
-        run: ls -la android-app/android/app/build/outputs/apk/release/
+      # НЕ-тег (PR, workflow_dispatch с ветки) собираем в DEBUG. Release без
+      # ключа даёт `app-release-unsigned.apk`, который на устройство не встаёт, —
+      # то есть приёмка планшетных фич по такому артефакту невозможна (поймано на
+      # прогоне PR #516, см. docs/PENDING_FOLLOWUPS.md §«Большой рефакторинг»).
+      # Debug подписывается штатным debug-ключом Android (AGP генерирует
+      # ~/.android/debug.keystore сам) и ставится sideload'ом без секретов.
+      - name: Assemble debug APK (non-tag builds)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: android-app/android
 
-      # На теге android-v* — GitHub Release с APK (раздача sideload'ом,
-      # см. docs/plans/android-tablet-client-2026-08.md §Ф4). На ручном запуске
-      # с ветки — только артефакт для проверки на планшете, ничего не публикуем.
+      - name: Report APK
+        run: ls -la android-app/android/app/build/outputs/apk/*/
+
+      # Главная грабля прошлого захода была не в том, что APK неподписанный, а в
+      # том, что по зелёному логу это не видно. Проверяем подпись явно: шаг
+      # краснеет ровно тогда, когда артефакт на планшет не встанет.
+      - name: Verify APK signature
+        run: |
+          apk=$(ls android-app/android/app/build/outputs/apk/*/*.apk | head -1)
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$apksigner" ]; then
+            echo "::warning::apksigner не найден в $ANDROID_HOME/build-tools — проверку подписи пропускаем"
+            exit 0
+          fi
+          "$apksigner" verify --print-certs "$apk"
+
+      # На теге android-v* — GitHub Release с подписанным release-APK (раздача
+      # sideload'ом, см. docs/plans/android-tablet-client-2026-08.md §Ф4). На PR и
+      # ручном запуске с ветки — только debug-артефакт для проверки на планшете,
+      # ничего не публикуем.
       - name: Publish release (tag builds)
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         env:
@@ -110,10 +138,14 @@ jobs:
             --notes "Планшетный клиент MatricaRMZ (APK для установки вручную)" \
             android-app/android/app/build/outputs/apk/release/*.apk
 
-      - name: Upload test APK artifact (non-tag builds)
+      # Имя артефакта говорит, что внутри debug: applicationId тот же
+      # (ru.matricarmz.tablet), а ключ другой — поверх APK, подписанного иным
+      # ключом (локальная сборка, будущий release), он не встанет, нужно сначала
+      # удалить приложение с планшета.
+      - name: Upload debug APK artifact (non-tag builds)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: matricarmz-android-apk-test
-          path: android-app/android/app/build/outputs/apk/release/*.apk
+          name: matricarmz-android-apk-debug
+          path: android-app/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
