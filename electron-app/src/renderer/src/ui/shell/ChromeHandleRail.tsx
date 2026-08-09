@@ -9,8 +9,12 @@ import { createEdgeGesture, type GesturePoint } from './edgeGesture.js';
 //
 // Хэндлы стоят с ОТСТУПОМ от физического края (--mx-rail-inset): полосу 0..20dp у
 // боковых краёв держит системный жест, отобрать её из JS нельзя.
+//
+// Хэндлов два — ▾/▴ (весь «верхний этаж») и 🔍 (тулбар списка). Третий, ☰ «РАЗДЕЛЫ»,
+// снесён вместе с выдвижной панелью: с #494 разделы живут обычной вкладкой МЕНЮ, а
+// панель не рендерилась нигде — тап по язычку выдавал бы в цех пустое затемнение
+// поверх данных, снимаемое только вторым тапом.
 
-const DRAWER_SELECTOR = '.mx-drawer--left';
 /** Ход верхнего слоя для распознавания свайпа (высота шапки + полосы вкладок, грубо). */
 const TOP_LAYER_TRAVEL_PX = 120;
 
@@ -31,38 +35,18 @@ function Handle(props: {
   direction: 1 | -1;
   travel: number;
   open: boolean;
-  /** Элемент, который следует за пальцем (выдвижная панель). Нет — жест только распознаётся. */
-  followSelector?: string;
   onCommit: (open: boolean) => void;
   onTap: () => void;
 }) {
   const gestureRef = React.useRef<ReturnType<typeof createEdgeGesture> | null>(null);
-  const followRef = React.useRef<HTMLElement | null>(null);
   const movedRef = React.useRef(false);
   // За настоящим тапом браузер шлёт И pointerup, И click. Без этой отметки слой
   // переключался бы дважды подряд, то есть возвращался в исходное — язычок «не работает».
   const pointerHandledRef = React.useRef(false);
 
-  const paint = React.useCallback((progress: number | null) => {
-    const el = followRef.current;
-    if (!el) return;
-    if (progress == null) {
-      delete el.dataset.mxDragging;
-      el.style.removeProperty('--mx-drawer-progress');
-      return;
-    }
-    el.dataset.mxDragging = '1';
-    // Пишем ТОЛЬКО в style самой панели: запись в :root.style будит глобальный
-    // MutationObserver автоподгонки полей (useAutoGrowInputs) на каждом кадре драга.
-    el.style.setProperty('--mx-drawer-progress', String(progress));
-  }, []);
-
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === 'mouse') return;
     movedRef.current = false;
-    followRef.current = props.followSelector
-      ? document.querySelector<HTMLElement>(props.followSelector)
-      : null;
     gestureRef.current = createEdgeGesture({
       axis: props.axis,
       size: props.travel,
@@ -81,15 +65,12 @@ function Handle(props: {
     movedRef.current = true;
     // preventDefault только ПОСЛЕ захвата: до него палец должен уметь прокручивать.
     e.preventDefault();
-    paint(s.progress);
   };
 
   const finish = (e: React.PointerEvent, cancelled: boolean) => {
     const g = gestureRef.current;
     gestureRef.current = null;
     if (!g) return;
-    paint(null);
-    followRef.current = null;
     pointerHandledRef.current = true;
     if (cancelled) {
       // Систему перебить нельзя (свайп «назад» Android забирает жест) — просто
@@ -136,18 +117,9 @@ export function ChromeHandleRail() {
   if (!chrome.enabled) return null;
 
   const topHidden = chrome.state.hidden.tabStrip || chrome.state.hidden.appHeader;
-  const sectionsOpen = !chrome.state.hidden.sections;
 
   return (
-    <>
-      {/* Скрим — СИБЛИНГ рейла, а не его потомок: у рейла свой stacking context
-          (position:fixed + z-index), внутри которого z-index скрима считается
-          относительно рейла, и скрим накрыл бы саму выдвижную панель — тап по
-          разделу закрывал бы её вместо выбора. */}
-      {sectionsOpen && (
-        <div className="mx-scrim" role="presentation" onPointerDown={() => chrome.hide('sections')} />
-      )}
-      <div className="mx-chrome-rail" aria-hidden={false}>
+    <div className="mx-chrome-rail" aria-hidden={false}>
       <Handle
         className="mx-rail-top"
         title={topHidden ? 'Показать панели (свайп вниз)' : 'Убрать панели ради данных'}
@@ -158,18 +130,6 @@ export function ChromeHandleRail() {
         open={!topHidden}
         onCommit={(open) => (open ? chrome.show() : chrome.hide())}
         onTap={() => (topHidden ? chrome.show() : chrome.hide())}
-      />
-      <Handle
-        className="mx-rail-left"
-        title={sectionsOpen ? 'Скрыть разделы' : 'Разделы (свайп вправо)'}
-        label="☰"
-        axis="x"
-        direction={1}
-        travel={320}
-        open={sectionsOpen}
-        followSelector={DRAWER_SELECTOR}
-        onCommit={(open) => (open ? chrome.show('sections') : chrome.hide('sections'))}
-        onTap={() => chrome.toggle('sections')}
       />
       <Handle
         className="mx-rail-search"
@@ -192,7 +152,6 @@ export function ChromeHandleRail() {
           }, 0);
         }}
       />
-      </div>
-    </>
+    </div>
   );
 }

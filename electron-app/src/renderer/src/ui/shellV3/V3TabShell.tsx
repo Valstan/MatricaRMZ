@@ -95,7 +95,6 @@ export function V3TabShell(props: {
     setShellMounted(true);
     return () => setShellMounted(false);
   }, [setShellMounted]);
-  const drawerSections = chrome.enabled;
 
   const menuPanel = (
     <ButtonPanel
@@ -106,10 +105,7 @@ export function V3TabShell(props: {
       onLayoutChange={props.onButtonLayoutChange}
       activeMenuTab={activeMenuTab}
       listOpenTab={null}
-      onTab={(t) => {
-        if (drawerSections) chrome.hide('sections');
-        props.onMenuTab(t);
-      }}
+      onTab={(t) => props.onMenuTab(t)}
       onAction={props.onAction}
     />
   );

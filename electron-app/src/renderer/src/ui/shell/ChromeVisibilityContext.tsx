@@ -13,6 +13,7 @@ import {
   type ChromeState,
 } from './chromeVisibility.js';
 import { isDataScrollTarget } from './chromeScrollTargets.js';
+import { REQUIRED_ANCHORS } from './chromeAnchors.js';
 import './chromeShell.css';
 
 // Провайдер режима «данные на весь экран» (Android-планшет). Вся логика — в чистом
@@ -89,9 +90,6 @@ function isTextEntry(target: EventTarget | null): boolean {
   const tag = target.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
-
-/** Якоря разметки: нет их — режим выключается целиком (fail-open), планшет работает как раньше. */
-const REQUIRED_ANCHORS = ['.mx-chrome-slot--header', '.v3-tab-strip'];
 
 export function ChromeVisibilityProvider(props: { children: React.ReactNode }) {
   const [prefEnabled, setPrefEnabled] = React.useState(readChromeAutoHidePref);
