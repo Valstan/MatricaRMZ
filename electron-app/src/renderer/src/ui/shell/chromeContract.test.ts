@@ -51,7 +51,7 @@ describe('fail-open планшетного режима', () => {
 
   it('каждый якорь ставится живым компонентом', () => {
     for (const anchor of REQUIRED_ANCHORS) {
-      const owner = ANCHOR_OWNERS[anchor];
+      const owner = ANCHOR_OWNERS[anchor] ?? '';
       expect(owner, `для якоря ${anchor} не назначен владелец разметки`).toBeTruthy();
       expect(src(owner), `${owner} больше не ставит ${anchor}`).toContain(anchor.slice(1));
     }
