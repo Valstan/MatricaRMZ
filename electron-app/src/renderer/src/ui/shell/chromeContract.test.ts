@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { REQUIRED_ANCHORS } from './chromeAnchors.js';
+
 // Планшетный режим прячет хром по КЛАССАМ-якорям, а не по структуре DOM: разметку и CSS
 // связывает только строка. Обычный рефакторинг («перепишу инлайн-стили», «переименую
 // обёртку») способен молча снять якорь — экран останется рабочим, а фича тихо перестанет
@@ -28,6 +30,33 @@ const CASES: Array<{ file: string; anchors: string[] }> = [
   { file: '../components/EntityCardShell.tsx', anchors: ['entity-card-shell', 'ui-section-header', 'mx-card-title'] },
   { file: '../components/CardActionBar.tsx', anchors: ['card-action-bar'] },
 ];
+
+// Кто рендерит каждый якорь fail-open. Проверяется не «класс где-то встречается», а
+// «класс есть в ТОМ файле, который обязан его ставить»: якорь, переехавший в чужой
+// компонент, — это и есть та тихая расстыковка, ради которой список существует.
+const ANCHOR_OWNERS: Record<string, string> = {
+  '.v3-tab-strip': '../shellV3/V3TabShell.tsx',
+  '.mx-chrome-rail': './ChromeHandleRail.tsx',
+};
+
+describe('fail-open планшетного режима', () => {
+  // Жёсткий toEqual, а не «непустой»/«содержит»: пустой список — валидное значение для
+  // `filter(...).length === 0`, поэтому мягкая проверка зеленела бы на конфигурации,
+  // которая выключает fail-open навсегда. Именно так дефект и дожил до цеха: якорем
+  // стоял `.mx-chrome-slot--header`, снесённый вместе с синей шапкой в #494, и режим
+  // выключал сам себя через 2 с после монтирования (сброса у broken нет).
+  it('список якорей — ровно тот, что покрыт этим тестом', () => {
+    expect(REQUIRED_ANCHORS).toEqual(['.v3-tab-strip', '.mx-chrome-rail']);
+  });
+
+  it('каждый якорь ставится живым компонентом', () => {
+    for (const anchor of REQUIRED_ANCHORS) {
+      const owner = ANCHOR_OWNERS[anchor];
+      expect(owner, `для якоря ${anchor} не назначен владелец разметки`).toBeTruthy();
+      expect(src(owner), `${owner} больше не ставит ${anchor}`).toContain(anchor.slice(1));
+    }
+  });
+});
 
 describe('якоря планшетного режима на месте', () => {
   for (const c of CASES) {

@@ -41,6 +41,13 @@
   (реально компилирует ~30с, бинарь обновляется). Версию Electron брать из `electron-app/node_modules/electron/package.json` (на 2026-06-27 = 41.7.1 → ABI 145). После — перезапустить только `electron.exe` (backend на Node-ABI не зависит).
 - **Клиентский лог verify-стека:** `C:\Users\Valstan\AppData\Roaming\@matricarmz\electron-app-cdp-9222\matricarmz.log` (изолированный userData при `MATRICA_CDP_PORT`). Грепать тут sqlite/ABI/cold-sync ошибки клиента — в `electron.log` стенда их НЕТ (там только stdout `pnpm dev`).
 
+## Планшетный режим проверяется БЕЗ планшета и без Android-тулчейна (выучено 2026-08-09)
+- У `android-app` есть браузерный спайк: `corepack pnpm -F @matricarmz/android-app dev` → `http://127.0.0.1:5199/?spikeLogin=1`. Он собирает **тот же** renderer (vite-алиас на `electron-app/src/renderer`) и выставляет `__MATRICA_PLATFORM__='android'` до его загрузки, поэтому режим «данные на весь экран», рейл, якоря fail-open и скролл-цели работают по-настоящему. `?spikeLogin=1` — фиктивный вход спайка (только в браузере), нужен потому, что до входа оболочки v3 нет вовсе. `better-sqlite3` тут не участвует — **ABI-качель не нужна**.
+- Данных в спайке нет (все методы моста, кроме нескольких, отдают пусто), но меню, вкладки и панели живые. Путь до списочной вкладки: клик по `.v2-section-header[0]` (секции свёрнуты) → клик по `.v2-menu-btn-label[0]` → появляется вкладка «Двигатели» и `.v3-tab-content`. **Заголовки секций набраны капслоком в CSS**, в `textContent` лежит «▸Склад2» — матчить по видимому тексту нельзя.
+- Драйв: обычный Chrome в headless с `--remote-debugging-port` (`C:\Program Files\Google\Chrome\Application\chrome.exe`, свой `--user-data-dir`), дальше тот же CDP-обвяз, что в `.verifier-electron/*.mjs`. Образец — `.verifier-electron/_r3-tablet-chrome.mjs` (gitignored).
+- **Грабля пробы: распорку `<div style="height:4000px">`, подложенную в `.v3-tab-content` ради прокрутки, сносит первый же ре-рендер** — панель схлопывается, `scrollTop` прыгает в 0, а это по правилам «оператор у начала списка», и хром возвращается ровно там, где проба ждёт обратного. Исход начинал зависеть от того, куда упадёт `scrollTop` (0 → возврат хрома, 10 → нет). Устойчиво — подменить сам `scrollTop` контейнера (`Object.defineProperty(el,'scrollTop',{get})`) и слать ему `new Event('scroll')`: через document-capture провайдера проходит тот же target с той же цепочкой классов.
+- Что спайк НЕ проверяет: тач-эргономику (краевые свайпы, палец в перчатке, системный жест «назад» Android) — это остаётся на живой APK.
+
 ## Скиллы (как поднимать на этом компе)
 ### verifier-electron (`/verify` Electron)
 - `.env.dev` для `backend-api` и `electron-app` уже есть (PG 5432, `matricarmz_probe`).
