@@ -13,6 +13,7 @@ import type {
   UiDisplayPrefs,
   UiShellPrefs,
   V2Session,
+  V2SessionCard,
   V2Prefs,
   V3Prefs,
   ReleaseWelcomeContent,
@@ -50,9 +51,12 @@ import {
   parseTabId,
   sessionCards,
   sessionSecondaryCard,
+  sessionTabs,
   tabIdFromSessionKey,
   tabsReducer,
   type CardRef,
+  type RestoredTab,
+  type V3Session,
   type WorkTab,
 } from '@matricarmz/shared';
 
@@ -575,6 +579,17 @@ const MENU_LABELS: Record<MenuTabId, string> = {
 function sectionTabLabel(tabId: TabId): string {
   return MENU_LABELS[tabId as MenuTabId] ?? String(tabId);
 }
+
+/** Раздел, который может жить вкладкой списка (у карточных видов подписи нет). */
+function isKnownSectionTab(tabId: TabId): boolean {
+  return MENU_LABELS[tabId as MenuTabId] !== undefined;
+}
+
+const SINGLETON_TAB_LABELS: Record<'chat' | 'ai_chat' | 'settings', string> = {
+  chat: 'Чат',
+  ai_chat: 'ИИваныч',
+  settings: 'Настройки',
+};
 
 /** Фолбэк-заголовок «Вид · id6» — маркер, что человекопонятное имя ещё не резолвнуто. */
 function isFallbackCardTitle(t: string): boolean {
@@ -3188,63 +3203,161 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- v2CardTitle is a render-scoped helper recreated every render; RETITLE is idempotent (equal title returns the same state reference), so the effect settles in one pass
   }, [isV2, engines, tabsState.tabs]);
 
-  // ── Фаза 4: session-restore открытых карточек между запусками ──────────────────
-  // Персист сессии рабочей области (вкладки/фокус/split) в shellPrefs.v2.session.
-  // Дебаунс 800мс; сигнатура защищает от echo-записи только что восстановленного.
-  const v2SessionSigRef = useRef('');
+  // ── Фаза 4: session-restore полосы вкладок между запусками ─────────────────────
+  // R3-PR2: персистится ВСЯ полоса (v3.session), а не только карточки. Запись в
+  // v2.session сохранена на один релиз — откат на предыдущую сборку на этой же
+  // станции (prefs лежат локально в sysDb, на сервер не уезжают) вернёт хотя бы
+  // карточки; списки/синглтоны/активную вкладку старый формат выразить не умеет.
+  const v2SessionRestoredRef = useRef('');
+  const v3SessionSigRef = useRef('');
+  const v3SessionCompSigRef = useRef('');
   useEffect(() => {
     if (!isV2 || !shellPrefs) return;
+    // Не пишем, пока сессия этого пользователя не восстановлена: иначе отложенная
+    // на 800мс запись «полоса пуста» затирает сохранённое, а восстановление —
+    // одноразовое и второй попытки уже не будет.
+    const userId = String(authStatus.user?.id ?? '').trim();
+    if (!userId || v2SessionRestoredRef.current !== userId) return;
     // Весь снимок выводится из одного состояния — список из 16 selected*Id в зависимостях
     // больше не нужен (и не мог быть полным: user_screen в нём отсутствовал).
-    const session: V2Session = {
+    const secondaryCard = sessionSecondaryCard(tabsState);
+    const v2session: V2Session = {
       openCards: sessionCards(tabsState),
       focusedKey: focusedCardKey(tabsState),
-      secondary: sessionSecondaryCard(tabsState),
+      secondary: secondaryCard,
     };
-    const sig = JSON.stringify(session);
-    if (sig === v2SessionSigRef.current) return;
+    const v3session: V3Session = {
+      tabs: sessionTabs(tabsState),
+      activeId: tabsState.activeId,
+      secondaryCard,
+    };
+    // Состав меняется редко, активная вкладка — на каждый клик, а ui:prefs:set пишет
+    // пять ключей настроек и перегоняет весь пользовательский словарь. Поэтому смена
+    // одной лишь активной вкладки ждёт дольше.
+    const compSig = JSON.stringify({ v2: v2session, tabs: v3session.tabs });
+    const fullSig = `${compSig}|${v3session.activeId}`;
+    if (fullSig === v3SessionSigRef.current) return;
+    const delay = compSig === v3SessionCompSigRef.current ? 4000 : 800;
     const t = window.setTimeout(() => {
-      v2SessionSigRef.current = sig;
+      v3SessionSigRef.current = fullSig;
+      v3SessionCompSigRef.current = compSig;
       const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
-      void persistShellPrefs({ ...base, v2: { ...base.v2, session } });
-    }, 800);
+      void persistShellPrefs({
+        ...base,
+        v2: { ...base.v2, session: v2session },
+        v3: { ...base.v3, session: v3session },
+      });
+    }, delay);
     return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced session persist; persistShellPrefs is a render-scoped function recreated every render, adding it would restart the 800ms debounce on each render and never let it settle
-  }, [isV2, shellPrefs, tabsState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced session persist; persistShellPrefs is a render-scoped function recreated every render, adding it would restart the debounce on each render and never let it settle
+  }, [isV2, shellPrefs, tabsState, authStatus.user?.id]);
 
   // Восстановление сессии: один раз на пользователя после загрузки prefs в v2.
   // Битые/удалённые сущности не страшны: карточка откроется своим error/empty-состоянием.
-  const v2SessionRestoredRef = useRef('');
   useEffect(() => {
     if (!isV2 || !shellPrefs) return;
     const userId = String(authStatus.user?.id ?? '').trim();
     if (!userId || v2SessionRestoredRef.current === userId) return;
     v2SessionRestoredRef.current = userId;
-    const session = shellPrefs.v2.session;
-    const cards = session.openCards
-      .filter((c) => isCardTab(c.kind as TabId))
-      .map((c) => ({ kind: c.kind as TabId, entityId: c.entityId, title: c.title }));
-    if (cards.length === 0) return;
-    v2SessionSigRef.current = JSON.stringify(session);
-    const focused = cards.find((c) => `${c.kind}:${c.entityId}` === session.focusedKey) ?? cards[cards.length - 1];
-    const restored: CardRef[] = cards.map((c) => ({
-      cardKind: c.kind,
-      entityId: c.entityId,
-      title: c.title,
-      titleIsFallback: isFallbackCardTitle(c.title),
-    }));
-    dispatchTabs({
-      type: 'RESTORE',
-      cards: restored,
-      focusedCardId: session.focusedKey ? tabIdFromSessionKey(session.focusedKey) : null,
-      secondary: null,
-    });
-    if (focused) reopenV2Card(focused.kind, focused.entityId);
-    const sec = session.secondary && isCardTab(session.secondary.kind as TabId) ? session.secondary : null;
-    if (sec && !(focused && sec.kind === focused.kind && sec.entityId === focused.entityId)) {
-      openSecondaryCard({ kind: sec.kind as TabId, entityId: sec.entityId, title: sec.title });
+    const v3s = shellPrefs.v3.session;
+    const legacy = shellPrefs.v2.session;
+    const restored: RestoredTab[] = [];
+    let secondarySource: V2SessionCard | null;
+    let storedActiveId: string | null;
+
+    if (v3s.tabs.length > 0) {
+      for (const t of v3s.tabs) {
+        if (t.kind === 'card') {
+          if (!isCardTab(t.card.kind as TabId)) continue;
+          restored.push({
+            kind: 'card',
+            card: {
+              cardKind: t.card.kind as TabId,
+              entityId: t.card.entityId,
+              title: t.card.title,
+              titleIsFallback: isFallbackCardTitle(t.card.title),
+            },
+          });
+          continue;
+        }
+        if (t.kind === 'list') {
+          const tabId = t.tabId as TabId;
+          // Подпись берём из каталога, а не из prefs: иначе переименование раздела
+          // замёрзло бы в сохранённой сессии навсегда.
+          if (CARD_DETAIL_TABS.includes(tabId) || !isKnownSectionTab(tabId)) continue;
+          restored.push({ kind: 'list', tabId, label: sectionTabLabel(tabId) });
+          continue;
+        }
+        restored.push({ kind: t.kind, label: SINGLETON_TAB_LABELS[t.kind] });
+      }
+      secondarySource = v3s.secondaryCard;
+      storedActiveId = v3s.activeId || null;
+    } else {
+      // Легаси-блоб предыдущей сборки: карточки есть, состава полосы нет.
+      for (const c of legacy.openCards) {
+        if (!isCardTab(c.kind as TabId)) continue;
+        restored.push({
+          kind: 'card',
+          card: {
+            cardKind: c.kind as TabId,
+            entityId: c.entityId,
+            title: c.title,
+            titleIsFallback: isFallbackCardTitle(c.title),
+          },
+        });
+      }
+      secondarySource = legacy.secondary;
+      const last = restored[restored.length - 1];
+      storedActiveId =
+        (legacy.focusedKey ? tabIdFromSessionKey(legacy.focusedKey) : null) ??
+        (last && last.kind === 'card' ? cardTabId(last.card.cardKind, last.card.entityId) : null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot session restore per user (v2SessionRestoredRef guard); reopenV2Card/openSecondaryCard are render-scoped helpers recreated every render, and isCardTab is a stable useCallback
+
+    if (restored.length === 0) return;
+
+    // Состав НЕ фильтруется по правам: sectionMembership и backupMode приезжают
+    // асинхронно, и транзиентная просадка гейта стёрла бы раскладку насовсем
+    // (персист перезаписал бы источник результатом фильтрации). Права решают только
+    // куда встанет фокус — иначе App.tab указал бы на негейтнутый раздел и эффект
+    // «таб недоступен» увёл бы оператора в случайный список.
+    const restoredIds = new Set(
+      restored.map((t) =>
+        t.kind === 'card'
+          ? cardTabId(t.card.cardKind, t.card.entityId)
+          : t.kind === 'list'
+            ? `list:${t.tabId}`
+            : t.kind,
+      ),
+    );
+    const activeParsed = storedActiveId ? parseTabId(storedActiveId) : null;
+    const activeAllowed =
+      storedActiveId !== null &&
+      restoredIds.has(storedActiveId) &&
+      (activeParsed?.kind !== 'list' || sectionGatedTabs.includes(activeParsed.tabId as MenuTabId));
+    const activeId = activeAllowed ? storedActiveId : null;
+
+    const secondary: CardRef | null =
+      secondarySource && isCardTab(secondarySource.kind as TabId)
+        ? {
+            cardKind: secondarySource.kind as TabId,
+            entityId: secondarySource.entityId,
+            title: secondarySource.title,
+            titleIsFallback: isFallbackCardTitle(secondarySource.title),
+          }
+        : null;
+
+    dispatchTabs({ type: 'RESTORE_SESSION', tabs: restored, activeId, secondary });
+
+    // App.tab догоняет только те виды, содержимое которых от него зависит: Чат,
+    // ИИваныч и Настройки рендерятся собственными renderers мимо App.tab.
+    if (activeParsed && activeAllowed) {
+      if (activeParsed.kind === 'card') reopenV2Card(activeParsed.cardKind as TabId, activeParsed.entityId);
+      else if (activeParsed.kind === 'list') setTabRaw(activeParsed.tabId as TabId);
+    }
+    if (secondary && (!activeParsed || activeParsed.kind !== 'card' || cardTabId(secondary.cardKind, secondary.entityId) !== storedActiveId)) {
+      openSecondaryCard({ kind: secondary.cardKind as TabId, entityId: secondary.entityId, title: secondary.title });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot session restore per user (v2SessionRestoredRef guard); reopenV2Card/openSecondaryCard/setTabRaw are render-scoped helpers recreated every render, and isCardTab is a stable useCallback
   }, [isV2, shellPrefs, authStatus.user?.id]);
 
   function openNoteFromHistory(noteId?: string | null) {

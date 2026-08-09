@@ -18,10 +18,12 @@ import {
   reduceTabs,
   sessionCards,
   sessionSecondaryCard,
+  sessionTabs,
   shouldWarnTabsCount,
   tabIdFromSessionKey,
   tabsReducer,
   type CardRef,
+  type RestoredTab,
   type TabsAction,
   type TabsState,
 } from './tabsModel.js';
@@ -481,6 +483,119 @@ describe('tabsModel: сессия и сброс', () => {
     expect(focusedCardKey(s)).toBe('work_order:W1');
     expect(sessionSecondaryCard(s)).toEqual({ kind: 'engine', entityId: 'E1', title: '⚙️ 123' });
     expect(focusedCardKey(tabsReducer(s, { type: 'FOCUS', id: MENU_TAB_ID }))).toBeNull();
+  });
+});
+
+describe('tabsModel: восстановление полосы из сессии (RESTORE_SESSION)', () => {
+  function restore(
+    tabs: RestoredTab[],
+    activeId: string | null = null,
+    secondary: CardRef | null = null,
+  ): TabsAction {
+    return { type: 'RESTORE_SESSION', tabs, activeId, secondary };
+  }
+
+  it('восстанавливает состав: списки, карточки и синглтоны', () => {
+    const s = run(
+      createTabsState(),
+      restore(
+        [
+          { kind: 'list', tabId: 'engines', label: 'Двигатели' },
+          { kind: 'card', card: cardRef('engine', 'E1') },
+          { kind: 'chat', label: 'Чат' },
+        ],
+        'card:engine:E1',
+      ),
+    );
+    expect(ids(s)).toEqual([MENU_TAB_ID, 'chat', 'card:engine:E1', 'list:engines']);
+    expect(s.activeId).toBe('card:engine:E1');
+  });
+
+  it('аддитивно: вкладка, открытая до восстановления, не закрывается и не дублируется', () => {
+    const before = run(createTabsState(), openList('notes', 'Заметки'), openSingleton('ai_chat', 'ИИваныч'));
+    const s = tabsReducer(
+      before,
+      restore([
+        { kind: 'list', tabId: 'engines', label: 'Двигатели' },
+        { kind: 'list', tabId: 'notes', label: 'Заметки' },
+      ]),
+    );
+    expect(ids(s)).toEqual([MENU_TAB_ID, 'ai_chat', 'list:notes', 'list:engines']);
+    expect(s.activeId).toBe(before.activeId);
+  });
+
+  it('карточки сверх лимита не открываются: notice и rejected, состав не вытесняется', () => {
+    const full = run(
+      createTabsState(),
+      ...Array.from({ length: MAX_CARD_TABS }, (_, i) => openCard('engine', `E${i}`)),
+    );
+    const r = reduceTabs(full, restore([{ kind: 'card', card: cardRef('engine', 'LATE') }]));
+    expect(r.rejected).toBe('card_limit');
+    expect(cardCount(r.state)).toBe(MAX_CARD_TABS);
+    expect(r.state.notice?.code).toBe('card_limit');
+    expect(hasTab(r.state, cardTabId('engine', 'LATE'))).toBe(false);
+  });
+
+  it('activeId несуществующей вкладки игнорируется — активная остаётся прежней', () => {
+    const before = run(createTabsState(), openList('notes', 'Заметки'));
+    const s = tabsReducer(before, restore([{ kind: 'list', tabId: 'engines', label: 'Двигатели' }], 'list:missing'));
+    expect(s.activeId).toBe('list:notes');
+    expect(hasTab(s, 'list:engines')).toBe(true);
+  });
+
+  it('вторая панель не совпадает с активной вкладкой', () => {
+    const s = run(
+      createTabsState(),
+      restore([{ kind: 'card', card: cardRef('engine', 'E1') }], 'card:engine:E1', cardRef('engine', 'E1')),
+    );
+    expect(s.secondary).toBeNull();
+    const other = run(
+      createTabsState(),
+      restore([{ kind: 'card', card: cardRef('engine', 'E1') }], 'card:engine:E1', cardRef('engine', 'E2')),
+    );
+    expect(other.secondary?.entityId).toBe('E2');
+  });
+
+  it('пустой payload не меняет состояние (ссылка та же)', () => {
+    const before = run(createTabsState(), openList('engines', 'Двигатели'));
+    expect(tabsReducer(before, restore([]))).toBe(before);
+  });
+
+  it('раздел без вкладки (экран входа) не восстанавливается', () => {
+    const s = run(createTabsState(), restore([{ kind: 'list', tabId: 'auth', label: 'Вход' }]));
+    expect(ids(s)).toEqual([MENU_TAB_ID]);
+  });
+
+  it('round-trip: sessionTabs → RESTORE_SESSION даёт тот же состав', () => {
+    const before = run(
+      createTabsState(),
+      openList('engines', 'Двигатели'),
+      openCard('engine', 'E1', 'Д-41'),
+      openSingleton('chat', 'Чат'),
+    );
+    const snapshot = sessionTabs(before);
+    expect(snapshot).toEqual([
+      { kind: 'chat' },
+      { kind: 'card', card: { kind: 'engine', entityId: 'E1', title: 'Д-41' } },
+      { kind: 'list', tabId: 'engines' },
+    ]);
+    const restored = run(
+      createTabsState(),
+      restore(
+        snapshot.map((t): RestoredTab => {
+          if (t.kind === 'list') return { kind: 'list', tabId: t.tabId, label: 'Двигатели' };
+          if (t.kind === 'card') return { kind: 'card', card: { ...t.card, cardKind: t.card.kind, titleIsFallback: false } };
+          return { kind: t.kind, label: t.kind === 'chat' ? 'Чат' : t.kind };
+        }),
+        before.activeId,
+      ),
+    );
+    expect(ids(restored)).toEqual(ids(before));
+    expect(restored.activeId).toBe(before.activeId);
+  });
+
+  it('sessionTabs не пишет МЕНЮ — он есть всегда', () => {
+    expect(sessionTabs(createTabsState())).toEqual([]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { subscribeLiveDataPulse, type LiveDataPulse } from '../services/liveDataService.js';
+import { useOnTabVisible, useTabVisibility } from '../shell/TabVisibilityContext.js';
 
 type UseLiveDataRefreshOptions = {
   enabled?: boolean;
@@ -14,7 +15,10 @@ export function useLiveDataRefresh(
   refresh: () => Promise<void>,
   options?: UseLiveDataRefreshOptions,
 ) {
-  const enabled = options?.enabled ?? true;
+  // Скрытая вкладка не поллит: с keep-alive страница остаётся смонтированной, и без
+  // этого гейта пять открытых списков дёргали бы данные одновременно.
+  const { visible: tabVisible } = useTabVisibility();
+  const enabled = (options?.enabled ?? true) && tabVisible;
   const intervalMs = Math.max(2000, options?.intervalMs ?? 15000);
   const refreshOnFocus = options?.refreshOnFocus ?? true;
   const refreshOnSyncDone = options?.refreshOnSyncDone ?? true;
@@ -68,5 +72,10 @@ export function useLiveDataRefresh(
     });
     return () => unsubscribe();
   }, [enabled, intervalMs, refreshOnFocus, refreshOnSyncDone, safeRefresh]);
+
+  // Вкладку показали снова — данные за время простоя протухли, догоняем сразу.
+  useOnTabVisible(() => {
+    void safeRefresh();
+  });
 }
 

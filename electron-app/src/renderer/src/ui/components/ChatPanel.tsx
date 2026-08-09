@@ -9,6 +9,7 @@ import { Input } from './Input.js';
 import { theme } from '../theme.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
+import { useTabVisible } from '../shell/TabVisibilityContext.js';
 
 function dot(color: string) {
   return (
@@ -57,6 +58,8 @@ export function ChatPanel(props: {
   chatSide: 'left' | 'right';
 }) {
   const { confirm } = useConfirm();
+  // Скрытая вкладка чата не поллит и, что важнее, не помечает входящие прочитанными.
+  const tabVisible = useTabVisible();
   const [users, setUsers] = useState<ChatUserItem[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [adminMode, setAdminMode] = useState<boolean>(false);
@@ -152,16 +155,17 @@ export function ChatPanel(props: {
   // Пауза при скрытом окне: фоновый синк идёт в main-процессе своим темпом, а звук
   // новых сообщений — App-уровневый полл (не здесь), так что скрытая панель не нужна.
   useEffect(() => {
-    if (props.viewMode) return;
+    if (props.viewMode || !tabVisible) return;
     const stop = pollWhenVisible(() => {
       void window.matrica.sync.run().catch(() => {});
     }, 60_000);
     return () => stop();
-  }, [props.viewMode]);
+  }, [props.viewMode, tabVisible]);
 
   // Poll users/unread/messages. Пауза при скрытом окне — заодно скрытый чат не
   // помечает входящие прочитанными, пока оператор реально не смотрит на окно.
   useEffect(() => {
+    if (!tabVisible) return;
     let alive = true;
     const tick = async () => {
       if (!alive) return;
@@ -176,7 +180,7 @@ export function ChatPanel(props: {
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the poll is keyed to the chat selection only; refreshMessages is re-created on every render, so depending on it would tear down and restart the poll (refetching messages and marking them read) on every render. KNOWN GAP: the running tick keeps the refreshMessages of the render that installed it, so later changes to props.meRole (via isPending), props.canAdminViewAll and props.meUserId do not reach the poll until selectedUserId/adminMode/adminPair changes
-  }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId]);
+  }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId, tabVisible]);
 
   useEffect(() => {
     if (!isPending) return;

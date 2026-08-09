@@ -17,6 +17,7 @@ import { IvanychFigure } from './IvanychFigure.js';
 import { theme } from '../theme.js';
 import { formatMoscowTime } from '../utils/dateUtils.js';
 import { renderMarkdown } from '../utils/markdownLite.js';
+import { useTabVisible } from '../shell/TabVisibilityContext.js';
 
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 800;
@@ -101,6 +102,9 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   recentEvents?: AiAgentEvent[];
   onClose: () => void;
 }>((props, ref) => {
+  // props.visible — «панель отрисована», useTabVisible — «её вкладка сейчас активна».
+  const tabVisible = useTabVisible();
+  const active = props.visible && tabVisible;
   const [items, setItems] = useState<AiChatRequestItem[]>([]);
   const [text, setText] = useState('');
   const [attach, setAttach] = useState<{ path: string; name: string } | null>(null);
@@ -153,7 +157,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   }, []);
 
   useEffect(() => {
-    if (!props.visible) return;
+    if (!active) return;
     void refresh();
     void loadTemplates();
     void window.matrica.auth.status().then((s: any) => {
@@ -165,7 +169,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       setNow(Date.now());
     }, REFRESH_MS);
     return () => clearInterval(t);
-  }, [props.visible, refresh, loadTemplates]);
+  }, [active, refresh, loadTemplates]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;

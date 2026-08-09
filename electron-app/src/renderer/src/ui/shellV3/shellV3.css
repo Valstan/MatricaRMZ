@@ -186,11 +186,29 @@
   line-height: 1.2;
 }
 
-/* Тело вкладки — весь остаток высоты */
+/* Тело вкладки — весь остаток высоты. position:relative обязателен: панели внутри
+   позиционируются абсолютно, и без него они считали бы координаты от корня страницы. */
 .v3-tab-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+/* Панель вкладки. Абсолютная не только ради наложения: раньше `.v3-card-body{flex:1 1 auto}`
+   стоял в БЛОЧНОМ `.v3-tab-body`, где flex-свойства мертвы — карточка получала полную
+   высоту содержимого внутри `overflow:hidden` и попросту не прокручивалась. */
+.v3-tab-pane {
+  position: absolute;
+  inset: 0;
+}
+
+/* visibility, а не display:none: скрытая панель сохраняет scrollTop и геометрию
+   (при display:none виртуализованный список отрисовал бы 0 строк, а замеры высоты
+   вернули бы ноль). Клавиатура в такие поля не проваливается — useTabFocusSelectAll
+   проверяет именно visibility. */
+.v3-tab-pane:not([data-pane-active='1']) {
+  visibility: hidden;
 }
 
 /* Контент вкладки МЕНЮ — прижат влево, ширина по содержимому */
@@ -205,6 +223,15 @@
   height: 100%;
   overflow: auto;
   padding: 6px;
+}
+
+/* Класс-якорь нужен коду, который ищет свой вьюпорт через closest('.ui-content-viewport')
+   (высота табеля), но комфортная колонка v1 здесь не нужна: в v3 список занимает всю
+   ширину панели. Специфичность (0,2,0) против (0,1,0) у правила global.css — победа не
+   зависит от порядка импорта файлов. */
+.v3-tab-content.ui-content-viewport > * {
+  width: 100%;
+  margin-inline: 0;
 }
 
 .v3-list-empty {
@@ -254,6 +281,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .v3-compare-secondary {

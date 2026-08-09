@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
+import { useTabVisible } from '../shell/TabVisibilityContext.js';
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -90,24 +92,31 @@ export function useListSelection(orderedIds: string[]) {
     return { openMenu: true, targetIds, bulk };
   };
 
+  // Слушатели висят на document в фазе capture: у скрытой панели они перехватывали бы
+  // клики и Shift+стрелки видимой вкладки.
+  const tabVisible = useTabVisible();
+
   useEffect(() => {
-    if (selectedCount <= 0) return;
+    if (!tabVisible || selectedCount <= 0) return;
     const onDocDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('[data-list-context-menu="true"]')) return;
       if (target.closest('[data-list-selected="true"]')) return;
+      // Уход на другую вкладку — не «клик мимо списка»: с keep-alive список остаётся
+      // жив, и выделение обязано дождаться возврата оператора.
+      if (target.closest('.v3-tab-strip')) return;
       clearSelection();
     };
     document.addEventListener('mousedown', onDocDown, true);
     return () => {
       document.removeEventListener('mousedown', onDocDown, true);
     };
-  }, [selectedCount]);
+  }, [selectedCount, tabVisible]);
 
   useEffect(() => {
-    if (selectedCount <= 0) return;
+    if (!tabVisible || selectedCount <= 0) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       if (e.shiftKey && e.key === 'ArrowDown') {
@@ -128,7 +137,7 @@ export function useListSelection(orderedIds: string[]) {
       document.removeEventListener('keydown', onKeyDown, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleShiftArrow is re-created every render, so depending on it would re-subscribe the capture-phase keydown listener on every render; the deps below are exactly the values it closes over (memoizing it would cascade through addRangeTo/toggleSelect)
-  }, [selectedCount, orderedIds, selectedInOrder, cursorId, anchorId]);
+  }, [selectedCount, orderedIds, selectedInOrder, cursorId, anchorId, tabVisible]);
 
   return {
     selectedIds,
