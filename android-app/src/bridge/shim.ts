@@ -146,7 +146,6 @@ const matrica = {
     clear: async () => ({ ok: true }),
   }),
   notes: stubGroup('notes', {
-    burningCount: async () => ({ ok: true, count: 0 }),
   }),
 };
 

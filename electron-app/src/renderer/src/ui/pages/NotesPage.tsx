@@ -132,7 +132,6 @@ export function NotesPage(props: {
   initialNoteId?: string | null;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onSendToChat: (note: NoteDraft, recipientUserIds: string[]) => Promise<void>;
-  onBurningCountChange?: (count: number) => void;
 }) {
   const { confirm } = useConfirm();
   const tabVisible = useTabVisible();
@@ -300,11 +299,6 @@ export function NotesPage(props: {
     }
     return { soon, overdue };
   }, [notesVisible, drafts, now]);
-
-  useEffect(() => {
-    const count = notesVisible.filter((n) => n.importance === 'burning' || (n.dueAt != null && n.dueAt < now)).length;
-    props.onBurningCountChange?.(count);
-  }, [notesVisible, now, props]);
 
   const ownedNotes = notesVisible.filter((n) => !n.shared);
   const sharedNotes = notesVisible.filter((n) => n.shared);

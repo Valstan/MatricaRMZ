@@ -61,7 +61,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { Tabs, type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS } from './layout/Tabs.js';
+import { type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS } from './layout/Tabs.js';
 import { isAndroidPlatform } from './platform.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { deriveUiCaps } from './auth/permissions.js';
@@ -90,12 +90,11 @@ import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyDuplicateGate.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
-import { loadContractActivityAlerts } from './utils/contractAlerts.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
-import { V2_LIST_TABS, buildV2Buttons } from './shellV2/v2ButtonCatalog.js';
+import { buildV2Buttons } from './shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from './shellV2/menuActions.js';
 import { V3TabShell, type OpenTab } from './shellV3/V3TabShell.js';
 
@@ -732,8 +731,6 @@ export function App() {
   const prevUserId = useRef<string | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
-  const [notesAlertCount, setNotesAlertCount] = useState<number>(0);
-  const [historyAlertCount, setHistoryAlertCount] = useState<number>(0);
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
@@ -791,7 +788,6 @@ export function App() {
   const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatUnreadTotalRef = useRef<number>(0);
   const chatPendingSoundTimerRef = useRef<number | null>(null);
-  const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
   const aiChatOpen = hasTab(tabsState, 'ai_chat');
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
@@ -835,8 +831,6 @@ export function App() {
   const v2SessionRestoredRef = useRef('');
   const v3SessionSigRef = useRef('');
   const v3SessionCompSigRef = useRef('');
-  // V2: какой список открыт во 2-й колонке (null — колонка скрыта). В v1 не используется.
-  const [v2ActiveListTab, setV2ActiveListTab] = useState<TabId | null>(null);
   // V2: отложенное открытие карточки после dirty-диалога (замена карточки того же вида).
   const pendingCardOpenRef = useRef<(() => void) | null>(null);
   // V2: replace той же сущности после discard не меняет selectedXId → key совпадает и
@@ -845,8 +839,6 @@ export function App() {
   const [v2CardEpoch, setV2CardEpoch] = useState(0);
   // Фаза 3: вкладки открытых карточек в рабочей области (до 3, single-mount — активна одна,
   // остальные — «закладки» для быстрого возврата). Дедуп по kind+entityId. Не используется в v1.
-  // V3 «Вкладки»: фокус на закреплённых вкладках (РАЗДЕЛЫ + Список) при открытых карточках.
-  const [_v3PinnedFocus, setV3PinnedFocus] = useState(false);
   // Свёрнутость секций МЕНЮ — машинно-локальная и переживает перезапуск: раньше каждая
   // загрузка клиента (на планшете — каждый старт приложения) сворачивала всё заново.
   const collapsedSectionsStoredRef = useRef(false);
@@ -1333,25 +1325,13 @@ export function App() {
     [isV2, tab, closeCardSession, openCardTab],
   );
 
-  // V2: фокус на списке — синхронизируем колонку списков (в т.ч. возврат из карточки
-  // на родительский список и первый вход в v2 на списочном табе).
-  useEffect(() => {
-    if (!isV2) return;
-    if (V2_LIST_TABS.has(tab)) setV2ActiveListTab(tab);
-  }, [isV2, tab]);
-
-  // V3: переход на любой fullscreen-контент (карточка ИЛИ страница вроде Настроек/Истории)
-  // снимает фокус с закреплённых вкладок — иначе открытое остаётся невидимым за сплитом.
-  // Ключ фокусной карточки — в зависимостях: открытие карточки того же kind (список →
-  // другой двигатель) не меняет tab ('engine' → 'engine'), но экран обязан переключиться.
+  // Ключ активной карточки: открытие карточки того же вида (список → другой двигатель)
+  // не меняет tab ('engine' → 'engine'), поэтому одного tab в зависимостях мало —
+  // хром планшета обязан отреагировать и на такой переход.
   const v3FocusedCardKey = (() => {
     const idn = v2CurrentCardIdentity();
     return idn ? `${idn.kind}:${idn.entityId}` : null;
   })();
-  useEffect(() => {
-    if (isV3 && !V2_LIST_TABS.has(tab)) setV3PinnedFocus(false);
-  }, [isV3, tab, v3FocusedCardKey]);
-
   // Планшет: смена раздела/карточки возвращает вспомогательные панели на пару секунд —
   // иначе после перехода оператор смотрит на голые данные и не видит, куда попал.
   // Через ref, потому что api пересоздаётся на каждое изменение состояния хрома.
@@ -1699,8 +1679,7 @@ export function App() {
     }
     if (!userId) {
       setTabsLayout(null);
-      setV2ActiveListTab(null);
-      setPinnedShortcuts([]);
+        setPinnedShortcuts([]);
       shortcutsMutationEpochRef.current = 0;
       return;
     }
@@ -2018,7 +1997,6 @@ export function App() {
     setSelectedReportPresetId(null);
     setChatUnreadTotal(0);
     setChatContext({ selectedUserId: null, adminMode: false });
-    setPresence(null);
     setHistoryInitialNoteId(null);
     setRecentVisits([]);
     setNavigationHistory([]);
@@ -2026,7 +2004,6 @@ export function App() {
     lastRecordedVisitSigRef.current = '';
     isApplyingHistoryRef.current = false;
     queuedHistoryReplayRef.current = null;
-    setV2ActiveListTab(null);
     setV2SecondaryCard(null);
     setSecondaryEngineDetails(null);
     setSecondaryEngineLoading(false);
@@ -2169,29 +2146,6 @@ export function App() {
     root.style.setProperty('--ui-list-font-size', `${listSize}px`);
     root.style.setProperty('--ui-card-font-size', `${cardSize}px`);
   }, [uiPrefs.displayPrefs, tabletActive]);
-
-  useEffect(() => {
-    if (!authStatus.loggedIn) {
-      setPresence(null);
-      return;
-    }
-    let alive = true;
-    const poll = async () => {
-      const r = await window.matrica.presence.me().catch(() => null);
-      if (!alive) return;
-      if (r && (r as any).ok) {
-        setPresence({ online: !!(r as any).online, lastActivityAt: (r as any).lastActivityAt ?? null });
-      }
-    };
-    void poll();
-    // Собственный индикатор «в сети»: 60с достаточно, чаще — лишний прод-трафик
-    // (`/presence/me` × каждый клиент). См. инцидент CPU/presence (GOTCHAS M28).
-    const id = setInterval(() => void poll(), 60_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [authStatus.loggedIn]);
 
   const capsRaw = deriveUiCaps(authStatus.permissions ?? null);
   const userRole = String(authStatus.user?.role ?? '').trim().toLowerCase();
@@ -2482,56 +2436,6 @@ export function App() {
   }, [authStatus.loggedIn, canChat, viewMode, chatUnreadTotal]);
 
   // Poll burning notes count for tab indicator.
-  useEffect(() => {
-    if (!authStatus.loggedIn || viewMode) {
-      setNotesAlertCount(0);
-      return;
-    }
-    let alive = true;
-    const tick = async () => {
-      try {
-        const r = await window.matrica.notes.burningCount();
-        if (!alive) return;
-        if ((r as any)?.ok) {
-          setNotesAlertCount(Math.max(0, Number((r as any).count ?? 0)));
-        }
-      } catch {
-        // ignore
-      }
-    };
-    void tick();
-    const stop = pollWhenVisible(() => void tick(), 60_000);
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, [authStatus.loggedIn, viewMode]);
-
-  // Poll «Мой круг» notifications (new contracts/ДС reminders) to drive the bell badge on the
-  // history group button. Same source as HistoryPage's alert list (loadContractActivityAlerts),
-  // so the badge and the section never disagree. Self-extinguishing (3-day createdAt window).
-  useEffect(() => {
-    if (!authStatus.loggedIn || viewMode) {
-      setHistoryAlertCount(0);
-      return;
-    }
-    let alive = true;
-    const tick = async () => {
-      try {
-        const alerts = await loadContractActivityAlerts();
-        if (alive) setHistoryAlertCount(alerts.length);
-      } catch {
-        // ignore — keep last known count
-      }
-    };
-    void tick();
-    const stop = pollWhenVisible(() => void tick(), 60_000);
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, [authStatus.loggedIn, viewMode]);
-
   // Gate: если вкладка скрылась по permissions/настройкам — переключаем на первую доступную.
   useEffect(() => {
     if (
@@ -2564,37 +2468,33 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the sectionGatedTabsKey string signature because the sectionGatedTabs array identity is not stable across renders; setTab is stable and re-running on it would add no new information
   }, [tab, sectionGatedTabsKey, userTab]);
 
-  async function persistTabsLayout(next: TabsLayoutPrefs) {
-    setTabsLayout(next);
+  async function persistShellPrefs(next: UiShellPrefs) {
+    // Санитайзим тем же правилом, что и main на записи (ui:prefs:set): иначе состояние
+    // рендерера расходится с БД молча — например, 4-я открытая карточка обрезается
+    // только на стороне БД, а процент разделителя клампится к 15..85.
+    const safe = sanitizeUiShellPrefs(next);
+    setShellPrefs(safe);
     const userId = authStatus.user?.id;
     if (!userId) return;
-    await window.matrica.settings.uiSet({ userId, tabsLayout: next }).catch(() => {});
+    await window.matrica.settings.uiSet({ userId, shellPrefs: safe }).catch(() => {});
   }
 
-  async function persistShellPrefs(next: UiShellPrefs) {
-    setShellPrefs(next);
-    const userId = authStatus.user?.id;
-    if (!userId) return;
-    await window.matrica.settings.uiSet({ userId, shellPrefs: next }).catch(() => {});
+  /** Правки раскладки пишем только в СВОЙ загруженный блоб: иначе клик в окне между
+   *  логином и ответом ui:prefs:get затирал бы prefs дефолтами, а при смене аккаунта —
+   *  писал бы раскладку прежнего пользователя в prefs нового. */
+  function canWriteShellPrefs(): boolean {
+    const userId = String(authStatus.user?.id ?? '').trim();
+    return !!shellPrefs && !!userId && shellPrefsLoadedForRef.current === userId;
   }
 
   function updateV2Prefs(nextV2: V2Prefs) {
-    const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
-    void persistShellPrefs({ ...base, v2: nextV2 });
+    if (!canWriteShellPrefs() || !shellPrefs) return;
+    void persistShellPrefs({ ...shellPrefs, v2: nextV2 });
   }
 
-  function updateV3Pcts(patch: Partial<Pick<V3Prefs, 'sectionsPct' | 'comparePct'>>) {
-    const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
-    void persistShellPrefs({ ...base, v3: { ...base.v3, ...patch } });
-  }
-
-  // Закрыть эфемерную вкладку-страницу (Настройки/История/…): вернуться к открытому
-  // списку; если список не открыт — к первому доступному разделу-списку.
-  function _closeV3PageTab() {
-    const fallback = sectionGatedTabs.find((t) => V2_LIST_TABS.has(t as TabId)) as TabId | undefined;
-    const target = v2ActiveListTab ?? fallback ?? null;
-    if (target) setTabState(target);
-    setV3PinnedFocus(true);
+  function updateV3Pcts(patch: Partial<Pick<V3Prefs, 'comparePct'>>) {
+    if (!canWriteShellPrefs() || !shellPrefs) return;
+    void persistShellPrefs({ ...shellPrefs, v3: { ...shellPrefs.v3, ...patch } });
   }
 
   // Общий обработчик кнопок меню (v1 Tabs и v2 ButtonPanel): auth-гейт, спец-ярлык
@@ -3111,7 +3011,6 @@ export function App() {
   }
 
   function focusV2Card(card: { kind: TabId; entityId: string }) {
-    setV3PinnedFocus(false);
     // Не держать одну и ту же карточку и слева, и справа: если фокусируем ту, что сейчас
     // в secondary, — закрываем правую панель (пользователь сам увёл её в primary).
     if (v2SecondaryCard && v2SecondaryCard.kind === card.kind && v2SecondaryCard.entityId === card.entityId) {
@@ -3296,11 +3195,11 @@ export function App() {
     const t = window.setTimeout(() => {
       v3SessionSigRef.current = fullSig;
       v3SessionCompSigRef.current = compSig;
-      const base = shellPrefs ?? DEFAULT_UI_SHELL_PREFS;
+      // Фолбэка на дефолты нет намеренно: эффект уже вышел по `!shellPrefs` выше.
       void persistShellPrefs({
-        ...base,
-        v2: { ...base.v2, session: v2session },
-        v3: { ...base.v3, session: v3session },
+        ...shellPrefs,
+        v2: { ...shellPrefs.v2, session: v2session },
+        v3: { ...shellPrefs.v3, session: v3session },
       });
     }, delay);
     return () => window.clearTimeout(t);
@@ -3738,55 +3637,6 @@ export function App() {
     setNavigationHistory(nextHistory);
     setNavigationIndex(nextHistory.length - 1);
   }, [authStatus.loggedIn, currentAppLink, navigationHistory, navigationIndex]);
-
-  const canGoBack = navigationIndex > 0;
-  const canGoForward = navigationIndex >= 0 && navigationIndex < navigationHistory.length - 1;
-
-  const goBack = useCallback(() => {
-    if (navigationIndex <= 0) return;
-    const targetIndex = navigationIndex - 1;
-    const step = navigationHistory[targetIndex];
-    if (!step) return;
-
-    setNavigationIndex(targetIndex);
-    if (isCardTab(tab)) {
-      queuedHistoryReplayRef.current = {
-        step,
-        targetIndex,
-        rollbackIndex: navigationIndex,
-      };
-      void closeCardSession({ targetTab: CARD_PARENT_TAB[tab] ?? null, appClose: false }).then(() => {
-        if (cardCloseInProgressRef.current) return;
-        replayQueuedHistoryStep();
-      });
-      return;
-    }
-
-    replayNavigationStep(step);
-  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab, replayQueuedHistoryStep]);
-
-  const goForward = useCallback(() => {
-    if (navigationIndex < 0 || navigationIndex >= navigationHistory.length - 1) return;
-    const targetIndex = navigationIndex + 1;
-    const step = navigationHistory[targetIndex];
-    if (!step) return;
-
-    setNavigationIndex(targetIndex);
-    if (isCardTab(tab)) {
-      queuedHistoryReplayRef.current = {
-        step,
-        targetIndex,
-        rollbackIndex: navigationIndex,
-      };
-      void closeCardSession({ targetTab: CARD_PARENT_TAB[tab] ?? null, appClose: false }).then(() => {
-        if (cardCloseInProgressRef.current) return;
-        replayQueuedHistoryStep();
-      });
-      return;
-    }
-
-    replayNavigationStep(step);
-  }, [closeCardSession, isCardTab, navigationHistory, navigationIndex, tab, replayQueuedHistoryStep]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) return;
@@ -5303,7 +5153,6 @@ export function App() {
               void navigateDeepLink(link);
             }}
             onSendToChat={sendNoteToChat}
-            onBurningCountChange={(count: number) => setNotesAlertCount(count)}
           />
         )}
 
@@ -5682,38 +5531,18 @@ export function App() {
               }}
             />
           ) : (
-            <>
-              <div style={{ flex: "0 0 auto" }}>
-                <Tabs
-                  tab={tab}
-                  onTab={handleMenuTab}
-                  availableTabs={sectionGatedTabs}
-                  layout={tabsLayout}
-                  onLayoutChange={persistTabsLayout}
-                  userLabel={userLabel}
-                  userTab={userTab}
-                  displayPrefs={uiPrefs.displayPrefs}
-                  canGoBack={canGoBack}
-                  canGoForward={canGoForward}
-                  onBack={goBack}
-                  onForward={goForward}
-                  {...(presence ? { authStatus: { online: presence.online } } : {})}
-                  notesAlertCount={notesAlertCount}
-                  historyAlertCount={historyAlertCount}
-                  pinnedShortcuts={pinnedShortcuts}
-                  onAddShortcut={addPinnedShortcut}
-                  onRemoveShortcut={removePinnedShortcut}
-                />
-              </div>
-              <div className="ui-content-viewport" style={{ marginTop: 6, flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
-                {!authStatus.loggedIn && tab !== "auth" && (
-                  <div style={{ color: "var(--muted)" }}>Требуется вход.</div>
-                )}
-                <React.Suspense fallback={<div style={{ padding: 16, color: "var(--muted)" }}>Загрузка раздела...</div>}>
-                  {renderTabContent(tab)}
-                </React.Suspense>
-              </div>
-            </>
+            // До входа оболочки нет: только форма. Старая панель разделов рисовала здесь
+            // пустую рамку и две всегда неактивные кнопки «← Назад / Вперёд →» — меню до
+            // логина пусто по построению, а история навигации начинает копиться только
+            // после входа.
+            <div className="ui-content-viewport" style={{ marginTop: 6, flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
+              {tab !== "auth" && (
+                <div style={{ color: "var(--muted)" }}>Требуется вход.</div>
+              )}
+              <React.Suspense fallback={<div style={{ padding: 16, color: "var(--muted)" }}>Загрузка раздела...</div>}>
+                {renderTabContent(tab)}
+              </React.Suspense>
+            </div>
           )}
         </div>
         <GlobalSearchOverlay
