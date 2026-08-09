@@ -9,7 +9,12 @@
 // (в renderer это union TabId) здесь непрозрачные строки — union живёт в
 // electron-app/src/renderer/src/ui/layout/Tabs.tsx; прецедент — V2SessionCard.kind.
 
-import { V3_MAX_CARD_TABS, V3_WARN_TOTAL_TABS, type V2SessionCard } from './uiShellV2.js';
+import {
+  V3_MAX_CARD_TABS,
+  V3_WARN_TOTAL_TABS,
+  type V2SessionCard,
+  type V3SessionTab,
+} from './uiShellV2.js';
 
 /** Идентификатор раздела / вида карточки: renderer TabId, для домена — строка. */
 export type TabSectionId = string;
@@ -103,8 +108,17 @@ export type TabsAction =
   | { type: 'RETITLE'; id: string; title: string; titleIsFallback: boolean }
   | { type: 'SET_SECONDARY'; card: CardRef | null }
   | { type: 'RESTORE'; cards: CardRef[]; focusedCardId: string | null; secondary: CardRef | null }
+  | { type: 'RESTORE_SESSION'; tabs: RestoredTab[]; activeId: string | null; secondary: CardRef | null }
   | { type: 'RESET' }
   | { type: 'DISMISS_NOTICE' };
+
+/** Вкладка из персиста сессии: подпись раздела резолвит вызывающий (она не персистится). */
+export type RestoredTab =
+  | { kind: 'list'; tabId: TabSectionId; label: string }
+  | { kind: 'card'; card: CardRef }
+  | { kind: 'chat'; label: string }
+  | { kind: 'ai_chat'; label: string }
+  | { kind: 'settings'; label: string };
 
 /** `rejected: … | null` вместо `rejected?:` — конвенция пакета под exactOptionalPropertyTypes. */
 export type TabsResult = { state: TabsState; rejected: TabsNoticeCode | null };
@@ -530,6 +544,50 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
       return { state: normalize(base), rejected: truncated ? 'card_limit' : null };
     }
 
+    case 'RESTORE_SESSION': {
+      // СТРОГО АДДИТИВНО: ничего не закрывает. Восстановление стартует только после
+      // ответа ui:prefs:get, а открыть раздел из МЕНЮ оператор может с первого рендера
+      // оболочки — «заменяющая» семантика молча снесла бы вкладку, открытую вручную.
+      let tabs = state.tabs;
+      const seen = new Set(tabs.map((t) => t.id));
+      let cards = countCards(tabs);
+      let truncated = false;
+      for (const item of action.tabs) {
+        if (item.kind === 'card') {
+          const card = makeCardTab(item.card);
+          if (card === null || seen.has(card.id)) continue;
+          if (cards >= MAX_CARD_TABS) {
+            truncated = true;
+            continue;
+          }
+          cards += 1;
+          seen.add(card.id);
+          tabs = [...tabs, card];
+          continue;
+        }
+        if (item.kind === 'list') {
+          const tabId = item.tabId.trim();
+          if (!tabId || NO_TAB_SECTIONS.includes(tabId)) continue;
+          const id = listTabId(tabId);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          tabs = [...tabs, { id, kind: 'list', label: item.label.trim() || tabId, tabId }];
+          continue;
+        }
+        if (seen.has(item.kind)) continue;
+        seen.add(item.kind);
+        tabs = [...tabs, createSingletonTab(item.kind, item.label)];
+      }
+      const activeId =
+        action.activeId !== null && seen.has(action.activeId) ? action.activeId : state.activeId;
+      const secondaryRef = action.secondary === null ? null : makeCardTab(action.secondary);
+      const secondary = secondaryRef !== null && secondaryRef.id !== activeId ? secondaryRef : null;
+      const candidate: TabsState = { tabs, activeId, secondary, notice: state.notice };
+      const base = truncated ? raiseNotice(candidate, 'card_limit') : candidate;
+      if (truncated) return { state: normalize(base), rejected: 'card_limit' };
+      return ok(state, base);
+    }
+
     case 'RESET': {
       const menu = state.tabs.find((t) => t.kind === 'menu');
       if (
@@ -620,6 +678,31 @@ export function shouldWarnTabsCount(totalTabs: number): boolean {
 /** Снимок карточек для персиста сессии (формат V2SessionCard, App.tsx:3064-3070). */
 export function sessionCards(state: TabsState): V2SessionCard[] {
   return cardTabs(state).map((t) => ({ kind: t.cardKind, entityId: t.entityId, title: t.label }));
+}
+
+/**
+ * Снимок ВСЕЙ полосы для персиста v3.session (МЕНЮ не пишем — он есть всегда).
+ * Подпись раздела не сохраняется: она резолвится из каталога при восстановлении,
+ * иначе переименование раздела замёрзло бы в prefs навсегда.
+ */
+export function sessionTabs(state: TabsState): V3SessionTab[] {
+  const out: V3SessionTab[] = [];
+  for (const t of state.tabs) {
+    switch (t.kind) {
+      case 'menu':
+        break;
+      case 'list':
+        out.push({ kind: 'list', tabId: t.tabId });
+        break;
+      case 'card':
+        out.push({ kind: 'card', card: { kind: t.cardKind, entityId: t.entityId, title: t.label } });
+        break;
+      default:
+        out.push({ kind: t.kind });
+        break;
+    }
+  }
+  return out;
 }
 
 export function sessionSecondaryCard(state: TabsState): V2SessionCard | null {

@@ -50,7 +50,10 @@ function recalcAdaptiveTableColumns() {
   const singleMode = isSingleListMode();
   const textMaxCh = clamp(readNumberCssVar(root, '--ui-list-text-max-ch', 100), 24, 100);
   root.dataset.uiListColumnsMode = singleMode ? 'single' : 'multi';
-  const tables = Array.from(document.querySelectorAll('table.list-table')) as HTMLTableElement[];
+  // Только видимая панель: замер 240 строк × колонки по каждой таблице слишком дорог,
+  // чтобы гонять его ещё и по скрытым вкладкам keep-alive.
+  const scope = document.querySelector('.v3-tab-pane[data-pane-active="1"]') ?? document;
+  const tables = Array.from(scope.querySelectorAll('table.list-table')) as HTMLTableElement[];
   for (const table of tables) {
     const wrapper = table.parentElement;
     if (wrapper) {
@@ -136,7 +139,15 @@ export function useAdaptiveListTables() {
 
     schedule();
     const observer = new MutationObserver(() => schedule());
-    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    // data-pane-active — сигнал смены активной вкладки: без него пересчёт не запустился бы
+    // (сам по себе показ панели не меняет ни childList, ни characterData).
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['data-pane-active'],
+    });
     window.addEventListener('resize', schedule);
     const onModeChanged = () => schedule();
     const onStorage = (event: StorageEvent) => {

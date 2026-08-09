@@ -8,6 +8,7 @@ import { loadContractActivityAlerts } from '../utils/contractAlerts.js';
 import { theme } from '../theme.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
+import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -154,6 +155,9 @@ export function HistoryPage(props: {
   onOpenNotes: (noteId?: string | null) => void;
   onOpenChat: () => void;
 }) {
+  // «История» — посадочный раздел, её вкладка открыта почти всегда: скрытой она
+  // поллила бы фоном при любом переключении.
+  const tabVisibleRef = useTabVisibleRef();
   const [notes, setNotes] = useState<NoteView[]>([]);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [pinnedContextMenu, setPinnedContextMenu] = useState<{ x: number; y: number; shortcutId: string } | null>(null);
@@ -198,12 +202,17 @@ export function HistoryPage(props: {
       }
     };
     void load();
-    // Плитки «последние заметки/сообщения» — визуальные; свёрнутое окно не опрашиваем.
-    const stop = pollWhenVisible(() => void load(), 20_000);
+    // Плитки «последние заметки/сообщения» — визуальные; свёрнутое окно и скрытую
+    // вкладку не опрашиваем (латч в колбэке: подписка mount-only).
+    const stop = pollWhenVisible(() => {
+      if (!tabVisibleRef.current) return;
+      void load();
+    }, 20_000);
     return () => {
       alive = false;
       stop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tabVisibleRef is a stable ref read inside the mount-only poll callback; adding it would resubscribe on every render
   }, [props.meUserId]);
 
   useEffect(() => {
@@ -237,11 +246,15 @@ export function HistoryPage(props: {
       }
     };
     void load();
-    const stop = pollWhenVisible(() => void load(), 60_000);
+    const stop = pollWhenVisible(() => {
+      if (!tabVisibleRef.current) return;
+      void load();
+    }, 60_000);
     return () => {
       alive = false;
       stop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only poll; tabVisibleRef is a stable ref read inside the callback
   }, []);
 
   useEffect(() => {

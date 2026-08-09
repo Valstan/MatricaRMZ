@@ -87,6 +87,17 @@
 - **Таймеры рендерера в hidden-окне троттлятся до минут (выучено 2026-07-28):** `await cdp.eval('__V.sleep(1000)')` (awaitPromise на renderer-`setTimeout`) висит до 60s-таймаута CDP. **Все паузы в смоуках держать на стороне Node** (`await new Promise(r => setTimeout(r, ms))` в драйвере), eval'ы — только мгновенные. Туда же: дебаунс-персисты в renderer (setTimeout 400мс) на скрытом окне доезжают с задержкой до минуты — поллить результат, не ждать фикс-время.
 - **react-resizable-panels: `onLayoutChanged.meta.isUserInteraction` НЕ взводится на синтетических PointerEvent** (панели двигаются, колбэк с меткой не приходит). Для персиста слушать сырой `onLayoutChange` + guard от echo (сравнение с текущим prefs-значением). Синтетический drag разделителя работает: pointerdown на `.v3-resize-handle` → серия pointermove (короткими eval'ами) → pointerup.
 
+## Ребилд натива под **Node**-ABI: `pnpm rebuild` — молчаливый no-op (выучено 2026-08-09)
+- Прежняя запись профиля («перед vitest `corepack pnpm rebuild better-sqlite3`») **не работает**: команда завершается с кодом 0, ничего не печатает и бинарь НЕ трогает (дата файла не меняется). Симптом остаётся: 28 падений `NODE_MODULE_VERSION 148 … requires 137` в 6 файлах `electron-app/src/main/**`.
+- **Рабочая форма — node-gyp напрямую из папки пакета** (node-gyp есть в сторе, но не на PATH и не в `node_modules/.bin`):
+  ```bash
+  cd node_modules/.pnpm/better-sqlite3@12.11.1/node_modules/better-sqlite3 && node ../../../node-gyp@12.4.0/node_modules/node-gyp/bin/node-gyp.js rebuild --release
+  ```
+  (компилирует ~1–2 мин, после этого `pnpm -F @matricarmz/electron-app test` = 370/370). Для Electron-ABI обратно — команда `@electron/rebuild` ниже.
+- **Ложная проверка ABI:** `node -e "require('better-sqlite3')"` печатает успех при бинаре под ЧУЖИМ ABI — модуль грузит `.node` лениво, только в `new Database()`. Проверять `new Database(':memory:')`, а не `require`.
+- **Ориентир — дата файла:** `stat -c %y .../build/Release/better_sqlite3.node`; если она не изменилась после ребилда, ребилда не было.
+- **Грабля харнесса:** `cd` внутри Bash-команды переживает вызовы. Если предыдущая команда ушла в подпапку, следующий `pnpm rebuild` отработает не в корне репо и тихо ничего не сделает — перед ребилдом явно `cd /d/PROGRAMMING/MatricaRMZ`.
+
 ## Ребилд натива: EPERM = его держит залипший dev-стенд (выучено 2026-08-08)
 - `@electron/rebuild@4.0.4` **есть** и знает Electron 43 (более ранняя запись профиля про «реально установлен 3.6.1» устарела — сейчас в сторе обе версии, брать путь `@electron+rebuild@4.0.4`). Рабочая команда из `electron-app/`:
   ```bash

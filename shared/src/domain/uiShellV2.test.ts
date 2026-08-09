@@ -5,6 +5,7 @@ import {
   V3_MAX_CARD_TABS,
   sanitizeUiShellPrefs,
   sanitizeV3Prefs,
+  sanitizeV3Session,
   v3CanOpenCard,
   v3ShowTabsWarning,
   v3TotalTabs,
@@ -47,37 +48,102 @@ describe('v3 «Вкладки»: sanitize + лимиты вкладок', () => 
     expect(sanitizeUiShellPrefs({ shellVersion: 'v4' }).shellVersion).toBe('v3');
   });
 
-  it('дефолт v3: без карточек, активна вкладка «РАЗДЕЛЫ»', () => {
+  it('дефолт v3: пустая полоса, активная вкладка не задана', () => {
     const prefs = sanitizeUiShellPrefs(null);
-    expect(prefs.v3.session.openCards).toEqual([]);
-    expect(prefs.v3.session.activeKey).toBe('sections');
+    expect(prefs.v3.session.tabs).toEqual([]);
+    expect(prefs.v3.session.activeId).toBe('');
+    expect(prefs.v3.session.secondaryCard).toBeNull();
   });
 
-  it('activeKey карточки валиден только если карточка открыта; иначе откат на sections', () => {
-    const withCard = sanitizeV3Prefs({
-      session: { openCards: [{ kind: 'engine', entityId: 'x', title: 'Д-41' }], activeKey: 'engine:x' },
+  it('состав полосы переживает sanitize: списки, карточки, синглтоны', () => {
+    const s = sanitizeV3Session({
+      tabs: [
+        { kind: 'list', tabId: 'engines' },
+        { kind: 'card', card: { kind: 'engine', entityId: 'x', title: 'Д-41' } },
+        { kind: 'chat' },
+        { kind: 'ai_chat' },
+        { kind: 'settings' },
+      ],
+      activeId: 'card:engine:x',
+      secondaryCard: { kind: 'engine', entityId: 'y', title: 'Д-65' },
     });
-    expect(withCard.session.activeKey).toBe('engine:x');
-    const stale = sanitizeV3Prefs({ session: { openCards: [], activeKey: 'engine:x' } });
-    expect(stale.session.activeKey).toBe('sections');
-    expect(sanitizeV3Prefs({ session: { openCards: [], activeKey: 'list' } }).session.activeKey).toBe('list');
+    expect(s.tabs).toHaveLength(5);
+    expect(s.tabs[0]).toEqual({ kind: 'list', tabId: 'engines' });
+    expect(s.tabs[1]).toEqual({ kind: 'card', card: { kind: 'engine', entityId: 'x', title: 'Д-41' } });
+    expect(s.activeId).toBe('card:engine:x');
+    expect(s.secondaryCard?.entityId).toBe('y');
+  });
+
+  it('незнакомый вид вкладки и битые записи отбрасываются', () => {
+    const s = sanitizeV3Session({
+      tabs: [
+        { kind: 'game' },
+        { kind: 'list', tabId: '   ' },
+        { kind: 'card', card: { kind: 'engine', entityId: '' } },
+        'мусор',
+        null,
+        { kind: 'list', tabId: 'notes' },
+      ],
+    });
+    expect(s.tabs).toEqual([{ kind: 'list', tabId: 'notes' }]);
+  });
+
+  it('дубли схлопываются: один список на раздел, один синглтон на вид, одна карточка на сущность', () => {
+    const s = sanitizeV3Session({
+      tabs: [
+        { kind: 'list', tabId: 'engines' },
+        { kind: 'list', tabId: 'engines' },
+        { kind: 'chat' },
+        { kind: 'chat' },
+        { kind: 'card', card: { kind: 'engine', entityId: 'x', title: 'a' } },
+        { kind: 'card', card: { kind: 'engine', entityId: 'x', title: 'b' } },
+      ],
+    });
+    expect(s.tabs).toHaveLength(3);
+    expect(s.tabs.filter((t) => t.kind === 'card')).toHaveLength(1);
+  });
+
+  it('карточки обрезаются лимитом V3_MAX_CARD_TABS (8), списки — НЕ обрезаются', () => {
+    const s = sanitizeV3Session({
+      tabs: [
+        ...Array.from({ length: 12 }, (_, i) => ({ kind: 'card', card: { kind: 'engine', entityId: `e${i}`, title: `t${i}` } })),
+        ...Array.from({ length: 9 }, (_, i) => ({ kind: 'list', tabId: `section${i}` })),
+      ],
+    });
+    expect(s.tabs.filter((t) => t.kind === 'card')).toHaveLength(V3_MAX_CARD_TABS);
+    expect(s.tabs.filter((t) => t.kind === 'list')).toHaveLength(9);
+  });
+
+  it('activeId отсутствует или не строка → пустая строка (никогда не "undefined")', () => {
+    expect(sanitizeV3Session({ tabs: [] }).activeId).toBe('');
+    expect(sanitizeV3Session({ tabs: [], activeId: 42 }).activeId).toBe('');
+    expect(sanitizeV3Session({ tabs: [], activeId: '  list:notes  ' }).activeId).toBe('list:notes');
+  });
+
+  it('старый формат сессии (openCards/activeKey) читается как пустая полоса — сработает legacy-фолбэк', () => {
+    const s = sanitizeV3Session({ openCards: [{ kind: 'engine', entityId: 'x', title: 't' }], activeKey: 'engine:x' });
+    expect(s.tabs).toEqual([]);
+    expect(s.activeId).toBe('');
+  });
+
+  it('round-trip: санитайз санитайзнутого не меняет сессию', () => {
+    const once = sanitizeV3Session({
+      tabs: [{ kind: 'list', tabId: 'engines' }, { kind: 'settings' }],
+      activeId: 'list:engines',
+      secondaryCard: { kind: 'engine', entityId: 'y', title: 'Д-65' },
+    });
+    expect(sanitizeV3Session(once)).toEqual(once);
   });
 
   it('проценты сплитов: ширина разделов null (по кнопкам), сравнение 50, кламп 15..85', () => {
     const def = sanitizeV3Prefs(null);
     expect(def.sectionsPct).toBeNull();
     expect(def.comparePct).toBe(50);
-    const p = sanitizeV3Prefs({ session: { openCards: [], activeKey: 'sections' }, sectionsPct: 40, comparePct: 5 });
+    const p = sanitizeV3Prefs({ session: { tabs: [], activeId: '' }, sectionsPct: 40, comparePct: 5 });
     expect(p.sectionsPct).toBe(40);
     expect(p.comparePct).toBe(15);
     expect(sanitizeV3Prefs({ sectionsPct: 99 }).sectionsPct).toBe(85);
     expect(sanitizeV3Prefs({ sectionsPct: 'мусор' }).sectionsPct).toBe(25);
-  });
-
-  it('открытые карточки обрезаются лимитом V3_MAX_CARD_TABS (8)', () => {
-    const cards = Array.from({ length: 12 }, (_, i) => ({ kind: 'engine', entityId: `e${i}`, title: `t${i}` }));
-    const prefs = sanitizeV3Prefs({ session: { openCards: cards, activeKey: 'sections' } });
-    expect(prefs.session.openCards).toHaveLength(V3_MAX_CARD_TABS);
   });
 
   it('лимиты: 10 всего (2 закреплённые + 8 карточек), предупреждение при >5 открытых', () => {

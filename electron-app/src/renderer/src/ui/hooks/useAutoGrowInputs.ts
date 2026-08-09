@@ -101,7 +101,10 @@ export function useAutoGrowInputs() {
 
     const syncAll = () => {
       const config = readConfig();
-      const allInputs = document.querySelectorAll('input');
+      // Только видимая панель: с keep-alive в документе живут поля нескольких вкладок,
+      // а запись style.width по всем ним грязнила бы раскладку скрытых поддеревьев.
+      const scope = document.querySelector('.v3-tab-pane[data-pane-active="1"]') ?? body;
+      const allInputs = scope.querySelectorAll('input');
       allInputs.forEach((node) => {
         if (node instanceof HTMLInputElement) applyToInput(node, config);
       });
@@ -131,7 +134,7 @@ export function useAutoGrowInputs() {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['type', 'placeholder', 'data-autogrow'],
+      attributeFilter: ['type', 'placeholder', 'data-autogrow', 'data-pane-active'],
     });
     const rootObserver = new MutationObserver(() => scheduleSync());
     rootObserver.observe(root, {

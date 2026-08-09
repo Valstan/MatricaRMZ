@@ -48,15 +48,31 @@ export type V2Prefs = {
 };
 
 /**
- * V3 shell («Вкладки»): одно окно с панелью вкладок. Две закреплённые вкладки —
- * «РАЗДЕЛЫ» (крайняя слева, ¼ ширины в сплите) и «Список …» (¾ справа); карточки
- * открываются собственными вкладками на весь экран. Кнопочная раскладка меню
- * переиспользуется из v2 (buttonLayout) — операторская настройка общая.
+ * V3 shell («Вкладки»): одно окно с полосой вкладок. МЕНЮ — незакрываемая вкладка
+ * слева; разделы, карточки, Чат, ИИваныч и Настройки — обычные члены полосы.
+ * Кнопочная раскладка меню переиспользуется из v2 (buttonLayout) — операторская
+ * настройка общая.
+ *
+ * Вид вкладки в персисте — не renderer-union, а строка: домен о разделах не знает
+ * (тот же приём, что у V2SessionCard.kind).
+ */
+export type V3SessionTab =
+  | { kind: 'list'; tabId: string }
+  | { kind: 'card'; card: V2SessionCard }
+  | { kind: 'chat' }
+  | { kind: 'ai_chat' }
+  | { kind: 'settings' };
+
+/**
+ * Сессия полосы вкладок. До R3-PR2 персистились только карточки (в `V2Prefs.session`,
+ * потолок 3) — списки, синглтоны и активная вкладка не переживали перезапуск.
  */
 export type V3Session = {
-  openCards: V2SessionCard[];
-  /** Активная вкладка: 'sections' | 'list' | `${kind}:${entityId}` карточки. */
-  activeKey: string;
+  /** Полный состав полосы, кроме МЕНЮ (он есть всегда), в порядке отрисовки. */
+  tabs: V3SessionTab[];
+  /** id активной вкладки в формате tabsModel; '' — не задан. */
+  activeId: string;
+  secondaryCard: V2SessionCard | null;
 };
 
 export type V3Prefs = {
@@ -114,7 +130,7 @@ export function v3ShowTabsWarning(cardCount: number): boolean {
 }
 
 export const DEFAULT_V3_PREFS: V3Prefs = {
-  session: { openCards: [], activeKey: 'sections' },
+  session: { tabs: [], activeId: '', secondaryCard: null },
   sectionsPct: null,
   comparePct: 50,
 };
@@ -197,21 +213,70 @@ export function sanitizeV2Prefs(value: unknown): V2Prefs {
   };
 }
 
+export function sanitizeV3SessionTab(value: unknown): V3SessionTab | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as { kind?: unknown; tabId?: unknown; card?: unknown };
+  switch (raw.kind) {
+    case 'list': {
+      const tabId = String(raw.tabId ?? '').trim();
+      return tabId ? { kind: 'list', tabId } : null;
+    }
+    case 'card': {
+      const card = sanitizeSessionCard(raw.card);
+      return card === null ? null : { kind: 'card', card };
+    }
+    case 'chat':
+      return { kind: 'chat' };
+    case 'ai_chat':
+      return { kind: 'ai_chat' };
+    case 'settings':
+      return { kind: 'settings' };
+    default:
+      return null;
+  }
+}
+
+/** Ключ дедупликации: 1:1 с id вкладки у редьюсера, но без импорта tabsModel (цикл). */
+function v3SessionTabKey(tab: V3SessionTab): string {
+  if (tab.kind === 'list') return `list:${tab.tabId}`;
+  if (tab.kind === 'card') return `card:${tab.card.kind}:${tab.card.entityId}`;
+  return tab.kind;
+}
+
+/**
+ * Валидатор ФОРМЫ, не место продуктовых решений: лимит стоит только на карточках
+ * (он есть и в редьюсере, и там сопровождается уведомлением). Списки ограничены
+ * лишь дедупом — молча терять вкладку на пути записи в sysDb нельзя.
+ */
+export function sanitizeV3Session(value: unknown): V3Session {
+  if (!value || typeof value !== 'object') return { tabs: [], activeId: '', secondaryCard: null };
+  const raw = value as Partial<V3Session>;
+  const tabs: V3SessionTab[] = [];
+  const seen = new Set<string>();
+  let cards = 0;
+  for (const item of Array.isArray(raw.tabs) ? raw.tabs : []) {
+    const tab = sanitizeV3SessionTab(item);
+    if (tab === null) continue;
+    const key = v3SessionTabKey(tab);
+    if (seen.has(key)) continue;
+    if (tab.kind === 'card') {
+      if (cards >= V3_MAX_CARD_TABS) continue;
+      cards += 1;
+    }
+    seen.add(key);
+    tabs.push(tab);
+  }
+  // Именно typeof, а не String(): на старом блобе (поля нет) String(undefined) дал бы
+  // строку 'undefined' и активной оказалась бы несуществующая вкладка.
+  const activeId = typeof raw.activeId === 'string' ? raw.activeId.trim() : '';
+  return { tabs, activeId, secondaryCard: sanitizeSessionCard(raw.secondaryCard) };
+}
+
 export function sanitizeV3Prefs(value: unknown): V3Prefs {
   if (!value || typeof value !== 'object') return structuredClone(DEFAULT_V3_PREFS);
   const raw = value as Partial<V3Prefs>;
-  const rawSession = raw.session && typeof raw.session === 'object' ? (raw.session as Partial<V3Session>) : {};
-  const openCards = (Array.isArray(rawSession.openCards) ? rawSession.openCards : [])
-    .map(sanitizeSessionCard)
-    .filter((c): c is V2SessionCard => c !== null)
-    .slice(0, V3_MAX_CARD_TABS);
-  const rawActive = typeof rawSession.activeKey === 'string' ? rawSession.activeKey.trim() : '';
-  const activeKey =
-    rawActive === 'sections' || rawActive === 'list' || openCards.some((c) => `${c.kind}:${c.entityId}` === rawActive)
-      ? rawActive
-      : 'sections';
   return {
-    session: { openCards, activeKey },
+    session: sanitizeV3Session(raw.session),
     sectionsPct: raw.sectionsPct == null ? null : sanitizePct(raw.sectionsPct, 25),
     comparePct: sanitizePct(raw.comparePct, DEFAULT_V3_PREFS.comparePct),
   };

@@ -8,10 +8,24 @@ import type { V2ButtonLayout } from '@matricarmz/shared';
 import { buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from '../shellV2/menuActions.js';
 import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
+import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
+import { matricaPlatform } from '../platform.js';
+import { shouldKeepAliveTab } from './keepAlive.js';
 import rmzLogo from '../../assets/logo_rmz.png';
 import './shellV3.css';
 
 const RMZ_LOGO_SRC = rmzLogo;
+
+/**
+ * Скрытая панель не перерисовывается при изменениях сверху. Объявлена НА УРОВНЕ МОДУЛЯ:
+ * тип, созданный внутри компонента, был бы новым на каждый рендер, и React перемонтировал
+ * бы всё поддерево — ровно то, что keep-alive обязан предотвратить.
+ */
+const FrozenWhileHidden = React.memo(
+  (p: { active: boolean; render: () => React.ReactNode }) => <>{p.render()}</>,
+  (prev, next) => !prev.active && !next.active,
+);
+FrozenWhileHidden.displayName = 'FrozenWhileHidden';
 
 function suspenseFallback() {
   return (
@@ -104,48 +118,82 @@ export function V3TabShell(props: {
     [props.comparePct],
   );
 
-  const renderTabBody = (tab: OpenTab) => {
+  // «Панельность» — параметр, а не свойство вида вкладки: внутри сравнения «2 рядом»
+  // абсолютно позиционированная панель накрыла бы сплит (у .v3-compare-pane своя
+  // раскладка), поэтому там renderTabBody зовётся с pane:false.
+  const renderTabBody = (tab: OpenTab, opts: { pane: boolean; active: boolean }) => {
+    const cls = (base: string) => (opts.pane ? `${base} v3-tab-pane` : base);
+    const paneAttrs = opts.pane ? { 'data-pane-active': opts.active ? '1' : undefined } : {};
+    // Ключ обязателен: панели рендерятся списком, и без него React сверял бы их по
+    // индексу — закрытие вкладки из середины полосы переносило бы состояние живой
+    // панели на соседнюю.
+    const wrap = (node: React.ReactNode) =>
+      opts.pane ? (
+        <TabVisibilityProvider key={tab.id} visible={opts.active}>
+          {node}
+        </TabVisibilityProvider>
+      ) : (
+        node
+      );
+    // Suspense обязателен всем: страницы ленивые (lazyPage), и без границы React
+    // отвечает «A component suspended while responding to synchronous input» и сносит
+    // всё дерево — оператор видит белый экран (ловилось на «⚙️ Настройки» меню аккаунта).
+    // Содержимое уходит в thunk: у скрытой панели render() не вызывается вовсе.
+    const frozen = (render: () => React.ReactNode) => (
+      <FrozenWhileHidden active={opts.active} render={() => <React.Suspense fallback={suspenseFallback()}>{render()}</React.Suspense>} />
+    );
     switch (tab.kind) {
       case 'menu':
-        return <div className="v3-tab-content-menu">{menuPanel}</div>;
+        return wrap(
+          <div key={tab.id} className={cls('v3-tab-content-menu')} {...paneAttrs}>
+            {menuPanel}
+          </div>,
+        );
       case 'list':
-        return tab.tabId ? (
-          <div className="v3-tab-content">
-            <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(tab.tabId)}</React.Suspense>
-          </div>
-        ) : (
-          <div className="v3-list-empty">
-            <div style={{ fontSize: 34 }}>🗂️</div>
-            <div>Выберите раздел из МЕНЮ</div>
-          </div>
+        return wrap(
+          tab.tabId ? (
+            <div key={tab.id} className={cls('v3-tab-content ui-content-viewport')} {...paneAttrs}>
+              {frozen(() => props.renderTabContent(tab.tabId as TabId))}
+            </div>
+          ) : (
+            <div key={tab.id} className={cls('v3-list-empty')} {...paneAttrs}>
+              <div style={{ fontSize: 34 }}>🗂️</div>
+              <div>Выберите раздел из МЕНЮ</div>
+            </div>
+          ),
         );
       case 'card':
-        return tab.tabId ? (
-          <div className="v3-card-body">
-            <React.Suspense fallback={suspenseFallback()}>{props.renderTabContent(tab.tabId)}</React.Suspense>
-          </div>
-        ) : null;
-      // Suspense обязателен всем трём: страницы ленивые (lazyPage), и без границы React
-      // отвечает «A component suspended while responding to synchronous input» и сносит
-      // всё дерево — оператор видит белый экран (ловилось на «⚙️ Настройки» меню аккаунта).
+        return tab.tabId
+          ? wrap(
+              <div key={tab.id} className={cls('v3-card-body')} {...paneAttrs}>
+                {frozen(() => props.renderTabContent(tab.tabId as TabId))}
+              </div>,
+            )
+          : null;
       case 'chat':
-        return props.renderChatTab ? (
-          <div className="v3-tab-content">
-            <React.Suspense fallback={suspenseFallback()}>{props.renderChatTab()}</React.Suspense>
-          </div>
-        ) : null;
+        return props.renderChatTab
+          ? wrap(
+              <div key={tab.id} className={cls('v3-tab-content ui-content-viewport')} {...paneAttrs}>
+                {frozen(() => props.renderChatTab?.())}
+              </div>,
+            )
+          : null;
       case 'ai_chat':
-        return props.renderAiChatTab ? (
-          <div className="v3-tab-content">
-            <React.Suspense fallback={suspenseFallback()}>{props.renderAiChatTab()}</React.Suspense>
-          </div>
-        ) : null;
+        return props.renderAiChatTab
+          ? wrap(
+              <div key={tab.id} className={cls('v3-tab-content ui-content-viewport')} {...paneAttrs}>
+                {frozen(() => props.renderAiChatTab?.())}
+              </div>,
+            )
+          : null;
       case 'settings':
-        return props.renderSettingsTab ? (
-          <div className="v3-tab-content">
-            <React.Suspense fallback={suspenseFallback()}>{props.renderSettingsTab()}</React.Suspense>
-          </div>
-        ) : null;
+        return props.renderSettingsTab
+          ? wrap(
+              <div key={tab.id} className={cls('v3-tab-content ui-content-viewport')} {...paneAttrs}>
+                {frozen(() => props.renderSettingsTab?.())}
+              </div>,
+            )
+          : null;
       default:
         return null;
     }
@@ -154,6 +202,21 @@ export function V3TabShell(props: {
   const activeTab = props.openTabs.find(t => t.id === props.activeTabId);
   const hasSecondary = secondary != null;
   const showCompare = hasSecondary && activeTab?.kind === 'card';
+
+  // Ленивый набор живых панелей: вкладка попадает сюда, только когда её впервые
+  // открыли (восстановленная сессия из восьми вкладок не монтирует восемь страниц
+  // на старте). Мутация ref идемпотентна и безопасна в StrictMode; render-phase
+  // setState дал бы лишний рендер и мигание.
+  const aliveRef = React.useRef<Set<string>>(new Set());
+  if (activeTab && shouldKeepAliveTab(matricaPlatform(), activeTab.kind)) {
+    aliveRef.current.add(activeTab.id);
+  }
+  const openIds = new Set(props.openTabs.map((t) => t.id));
+  for (const id of aliveRef.current) {
+    if (!openIds.has(id)) aliveRef.current.delete(id);
+  }
+  const alivePanes = props.openTabs.filter((t) => aliveRef.current.has(t.id));
+  const activeIsAlive = activeTab != null && aliveRef.current.has(activeTab.id);
 
   return (
     <div className="v3-shell">
@@ -223,39 +286,44 @@ export function V3TabShell(props: {
           )}
         </div>
       </div>
-      {showCompare && secondary ? (
-        <div className="v3-card-compare">
-          <Group orientation="horizontal" className="v3-split-group" defaultLayout={compareLayout}
-            onLayoutChanged={(layout: Layout, meta: LayoutChangedMeta) => {
-              if (!meta.isUserInteraction) return;
-              const pct = layout['v3-compare-primary'];
-              if (typeof pct === 'number' && Number.isFinite(pct)) props.onComparePctChange(pct);
-            }}
-          >
-            <Panel id="v3-compare-primary" className="v3-panel-body" minSize={220}>
-              <div className="v3-compare-pane">{activeTab && renderTabBody(activeTab)}</div>
-            </Panel>
-            <Separator className="v3-resize-handle" />
-            <Panel id="v3-compare-secondary" className="v3-panel-body" minSize={220}>
-              <div className="v3-compare-pane v3-compare-secondary">
-                <div className="v3-compare-header">
-                  <span className="v3-compare-title">{secondary.label}</span>
-                  <button type="button" className="v3-tab-close" title="Закрыть вторую панель" onClick={props.onCloseSecondary}>
-                    ✕
-                  </button>
+      {/* Сравнение живёт ВНУТРИ общего контейнера: будь оно другой веткой тернарника,
+          включение «2 рядом» размонтировало бы все живые панели разом. */}
+      <div className="v3-tab-body">
+        {alivePanes.map((t) =>
+          renderTabBody(t, { pane: true, active: !showCompare && t.id === props.activeTabId }),
+        )}
+        {showCompare && secondary ? (
+          <div key="v3-compare" className="v3-card-compare v3-tab-pane" data-pane-active="1">
+            <Group orientation="horizontal" className="v3-split-group" defaultLayout={compareLayout}
+              onLayoutChanged={(layout: Layout, meta: LayoutChangedMeta) => {
+                if (!meta.isUserInteraction) return;
+                const pct = layout['v3-compare-primary'];
+                if (typeof pct === 'number' && Number.isFinite(pct)) props.onComparePctChange(pct);
+              }}
+            >
+              <Panel id="v3-compare-primary" className="v3-panel-body" minSize={220}>
+                <div className="v3-compare-pane">{activeTab && renderTabBody(activeTab, { pane: false, active: true })}</div>
+              </Panel>
+              <Separator className="v3-resize-handle" />
+              <Panel id="v3-compare-secondary" className="v3-panel-body" minSize={220}>
+                <div className="v3-compare-pane v3-compare-secondary">
+                  <div className="v3-compare-header">
+                    <span className="v3-compare-title">{secondary.label}</span>
+                    <button type="button" className="v3-tab-close" title="Закрыть вторую панель" onClick={props.onCloseSecondary}>
+                      ✕
+                    </button>
+                  </div>
+                  <div className="v3-card-body">
+                    <React.Suspense fallback={suspenseFallback()}>{props.renderSecondaryCard()}</React.Suspense>
+                  </div>
                 </div>
-                <div className="v3-card-body">
-                  <React.Suspense fallback={suspenseFallback()}>{props.renderSecondaryCard()}</React.Suspense>
-                </div>
-              </div>
-            </Panel>
-          </Group>
-        </div>
-      ) : (
-        <div className="v3-tab-body">
-          {activeTab ? renderTabBody(activeTab) : null}
-        </div>
-      )}
+              </Panel>
+            </Group>
+          </div>
+        ) : activeTab && !activeIsAlive ? (
+          renderTabBody(activeTab, { pane: true, active: true })
+        ) : null}
+      </div>
     </div>
   );
 }

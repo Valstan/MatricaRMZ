@@ -143,12 +143,15 @@ console.log(`BOM ${bomId.slice(0, 8)} «${BOM_NAME}»: марок ${before.brand
 await ev(`[...document.querySelectorAll('span.v2-menu-btn-label')].find(x=>x.textContent.trim()==='BOM двигателей').closest('button').click(); true`);
 await sleep(1200);
 await ev(`(() => { const b=[...document.querySelectorAll('.v3-tab-strip button')].find(x=>x.textContent.trim()==='Список BOM двигателей'); if (b) b.click(); return true; })()`);
-await waitFor(`[...document.querySelectorAll('tbody tr')].some(r => r.textContent.trim().startsWith(${JSON.stringify(BOM_NAME)}))`, 'BOM rows rendered', 30000);
-step('список BOM отрисован', true, `строк ${await ev(`document.querySelectorAll('tbody tr').length`)}`);
+// Keep-alive (R3-PR2): в документе живут панели нескольких вкладок сразу. Всё, что ищется
+// ПОСЛЕ фокуса нужной вкладки, скоупим по видимой панели — иначе проба молча меряет чужую.
+const PANE = `(document.querySelector('.v3-tab-pane[data-pane-active="1"]') ?? document)`;
+await waitFor(`[...${PANE}.querySelectorAll('tbody tr')].some(r => r.textContent.trim().startsWith(${JSON.stringify(BOM_NAME)}))`, 'BOM rows rendered', 30000);
+step('список BOM отрисован', true, `строк ${await ev(`${PANE}.querySelectorAll('tbody tr').length`)}`);
 
 // ── 2. Открыть карточку доверенным кликом по строке.
 const rowRect = await ev(`(() => {
-  const tr=[...document.querySelectorAll('tbody tr')].find(r=>r.textContent.trim().startsWith(${JSON.stringify(BOM_NAME)}));
+  const tr=[...${PANE}.querySelectorAll('tbody tr')].find(r=>r.textContent.trim().startsWith(${JSON.stringify(BOM_NAME)}));
   const r=tr.getBoundingClientRect();
   return { x: Math.round(r.x + 40), y: Math.round(r.y + r.height / 2) };
 })()`);
@@ -165,14 +168,14 @@ await ev(`(() => {
   const b=[...document.querySelectorAll('.v3-tab-strip button')].find(x=>/Карточка BOM двигателя/.test(x.textContent) && x.textContent.trim()!=='✕');
   if (b) b.click(); return true;
 })()`);
-if (!(await gateWait(`(() => { const cb=[...document.querySelectorAll('input[type=checkbox]')].find(i=>/основная для «/.test(i.closest('label')?.textContent||'')); return cb && cb.getBoundingClientRect().width > 0; })()`, 'карточка получила раскладку после фокуса вкладки'))) bail();
+if (!(await gateWait(`(() => { const cb=[...${PANE}.querySelectorAll('input[type=checkbox]')].find(i=>/основная для «/.test(i.closest('label')?.textContent||'')); return cb && cb.getBoundingClientRect().width > 0; })()`, 'карточка получила раскладку после фокуса вкладки'))) bail();
 
 // ── Хелперы поиска.
 // Сами чекбоксы ищем глобально: подпись «основная для «…»» встречается ТОЛЬКО в этой карточке,
 // селектор достаточно узкий. А вот кнопка «Сохранить» есть у каждой смонтированной страницы
 // (в DOM их несколько), поэтому её берём подъёмом от чекбокса до ближайшего предка,
 // который её содержит, — иначе доверенный клик уедет в чужую карточку.
-const BOXES = `[...document.querySelectorAll('input[type=checkbox]')].filter(i=>/основная для «/.test(i.closest('label')?.textContent||''))`;
+const BOXES = `[...${PANE}.querySelectorAll('input[type=checkbox]')].filter(i=>/основная для «/.test(i.closest('label')?.textContent||''))`;
 const SAVE_RECT = `(() => {
   const cb=${BOXES}[0];
   if(!cb) return null;

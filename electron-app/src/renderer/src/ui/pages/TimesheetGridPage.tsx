@@ -19,6 +19,7 @@ import { TimesheetPrintDialog, type TimesheetPrintBlocks, type TimesheetPrintVar
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildWorkOrderA4PreviewHtml, printSectionsDirect } from '../utils/printPreview.js';
 import { buildTimesheetPrintSections, timesheetPrintCss, timesheetPrintTitle, type TimesheetPrintInput } from '../utils/timesheetPrintHtml.js';
+import { useTabVisibility } from '../shell/TabVisibilityContext.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -40,6 +41,7 @@ type RectView = { minR: number; maxR: number; minD: number; maxD: number };
 
 export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean; onBack: () => void }) {
   const { confirm } = useConfirm();
+  const { shownSeq } = useTabVisibility();
   const [ts, setTs] = useState<TimesheetData | null>(null);
   const [codes, setCodes] = useState<TimesheetCodeDef[]>([]);
   const [cells, setCells] = useState<CellMap>({});
@@ -154,7 +156,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     const raf = requestAnimationFrame(measure);
     window.addEventListener('resize', measure);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
-  }, [viewMode, fontScale, autoFont, days, displayDays.length, ts?.rows.length]);
+  }, [viewMode, fontScale, autoFont, days, displayDays.length, ts?.rows.length, shownSeq]);
 
   // Высота области таблицы: длинный табель должен прокручиваться ВНУТРИ своей рамки, а не
   // вместе со страницей. Только так шапка с числами и днями недели может залипнуть сверху
@@ -181,7 +183,9 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
       window.removeEventListener('resize', measure);
       ro?.disconnect();
     };
-  }, [viewMode, canEdit, ts?.rows.length]);
+    // shownSeq: пока вкладка была скрыта, геометрия могла измениться, а обычные deps
+    // на возврат к панели не реагируют.
+  }, [viewMode, canEdit, ts?.rows.length, shownSeq]);
 
   function getCell(rowId: string, day: number): Cell {
     return cells[rowId]?.[day] ?? { code: null, hours: null, comment: null };

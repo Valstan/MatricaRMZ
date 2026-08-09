@@ -8,6 +8,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useTabVisible } from '../shell/TabVisibilityContext.js';
 import { theme } from '../theme.js';
 
 type NoteDraft = {
@@ -134,6 +135,7 @@ export function NotesPage(props: {
   onBurningCountChange?: (count: number) => void;
 }) {
   const { confirm } = useConfirm();
+  const tabVisible = useTabVisible();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [shares, setShares] = useState<NoteShareItem[]>([]);
   const [users, setUsers] = useState<ChatUserItem[]>([]);
@@ -209,9 +211,13 @@ export function NotesPage(props: {
   );
 
   useEffect(() => {
+    // Тикающие «сколько прошло» перерисовывают всё дерево заметок: скрытой вкладке
+    // это не нужно, а с keep-alive она остаётся смонтированной.
+    if (!tabVisible) return;
+    setNow(nowMs());
     const id = window.setInterval(() => setNow(nowMs()), 60_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [tabVisible]);
 
   useEffect(() => {
     // autoSaveTimersRef.current is only ever mutated in place, never reassigned,
