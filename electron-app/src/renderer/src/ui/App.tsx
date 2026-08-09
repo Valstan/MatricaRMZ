@@ -826,6 +826,15 @@ export function App() {
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   // V2 shell («Резиновый»): per-user выбор оболочки + личные настройки 3-колоночного макета.
   const [shellPrefs, setShellPrefs] = useState<UiShellPrefs | null>(null);
+  // Чьи именно prefs сейчас в состоянии. Одного «shellPrefs !== null» мало: при смене
+  // аккаунта A→B состояние ещё держит блоб A, и без этой метки полоса A восстановилась
+  // бы под B, а следом затёрла бы сохранённую полосу B.
+  const shellPrefsLoadedForRef = useRef('');
+  // Метки сессии полосы вкладок. Живут рядом с shellPrefs, потому что сбрасываются вместе
+  // с ними при каждой смене пользователя.
+  const v2SessionRestoredRef = useRef('');
+  const v3SessionSigRef = useRef('');
+  const v3SessionCompSigRef = useRef('');
   // V2: какой список открыт во 2-й колонке (null — колонка скрыта). В v1 не используется.
   const [v2ActiveListTab, setV2ActiveListTab] = useState<TabId | null>(null);
   // V2: отложенное открытие карточки после dirty-диалога (замена карточки того же вида).
@@ -1677,9 +1686,19 @@ export function App() {
 
   useEffect(() => {
     const userId = authStatus.loggedIn ? authStatus.user?.id ?? '' : '';
+    // Смена пользователя (в т.ч. выход) обнуляет ВСЕ метки сессии. Без сброса
+    // v2SessionRestoredRef одноразовое восстановление уже «израсходовано»: повторный
+    // вход тем же логином без перезапуска не восстанавливал полосу, а дебаунс-персист
+    // через 800мс записывал поверх сохранённой то, что успело открыться (сид-вкладки).
+    if (shellPrefsLoadedForRef.current !== userId) {
+      shellPrefsLoadedForRef.current = '';
+      v2SessionRestoredRef.current = '';
+      v3SessionSigRef.current = '';
+      v3SessionCompSigRef.current = '';
+      setShellPrefs(null);
+    }
     if (!userId) {
       setTabsLayout(null);
-      setShellPrefs(null);
       setV2ActiveListTab(null);
       setPinnedShortcuts([]);
       shortcutsMutationEpochRef.current = 0;
@@ -1696,9 +1715,18 @@ export function App() {
           // Нет сохранённой записи → дефолт («Резиновый», v2). Явный выбор оператора
           // (в т.ч. возврат на старый) хранится в записи и переживает обновления.
           setShellPrefs(sanitizeUiShellPrefs(r.shellPrefs ?? null));
+        } else {
+          // Иначе состояние осталось бы null навсегда: правки раскладки становились бы
+          // молчаливым no-op, а восстановление сессии не запускалось бы вовсе.
+          setShellPrefs(sanitizeUiShellPrefs(null));
         }
+        shellPrefsLoadedForRef.current = userId;
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!alive) return;
+        setShellPrefs(sanitizeUiShellPrefs(null));
+        shellPrefsLoadedForRef.current = userId;
+      });
     void window.matrica.shortcuts
       .get({ userId })
       .then((r) => {
@@ -3235,9 +3263,6 @@ export function App() {
   // v2.session сохранена на один релиз — откат на предыдущую сборку на этой же
   // станции (prefs лежат локально в sysDb, на сервер не уезжают) вернёт хотя бы
   // карточки; списки/синглтоны/активную вкладку старый формат выразить не умеет.
-  const v2SessionRestoredRef = useRef('');
-  const v3SessionSigRef = useRef('');
-  const v3SessionCompSigRef = useRef('');
   useEffect(() => {
     if (!isV2 || !shellPrefs) return;
     // Не пишем, пока сессия этого пользователя не восстановлена: иначе отложенная
@@ -3245,6 +3270,9 @@ export function App() {
     // одноразовое и второй попытки уже не будет.
     const userId = String(authStatus.user?.id ?? '').trim();
     if (!userId || v2SessionRestoredRef.current !== userId) return;
+    // И не пишем в чужой блоб: при смене аккаунта состояние ещё может держать prefs
+    // прежнего пользователя.
+    if (shellPrefsLoadedForRef.current !== userId) return;
     // Весь снимок выводится из одного состояния — список из 16 selected*Id в зависимостях
     // больше не нужен (и не мог быть полным: user_screen в нём отсутствовал).
     const secondaryCard = sessionSecondaryCard(tabsState);
@@ -3285,6 +3313,10 @@ export function App() {
     if (!isV2 || !shellPrefs) return;
     const userId = String(authStatus.user?.id ?? '').trim();
     if (!userId || v2SessionRestoredRef.current === userId) return;
+    // Восстанавливаем ТОЛЬКО из блоба этого пользователя: при смене аккаунта A→B
+    // состояние успевает подержать prefs A, и без этой проверки под B поднялась бы
+    // полоса A, а следом персист записал бы её в prefs B.
+    if (shellPrefsLoadedForRef.current !== userId) return;
     v2SessionRestoredRef.current = userId;
     const v3s = shellPrefs.v3.session;
     const legacy = shellPrefs.v2.session;
