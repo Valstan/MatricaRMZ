@@ -62,7 +62,10 @@ export function V3TabShell(props: {
   activeSectionTabId: TabId;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+  /** Закрепить карточку второй панелью рядом с активной («2 рядом»). */
   onSplitCard?: (card: OpenTab) => void;
+  /** Вторая панель умеет не все виды карточек — у остальных ⑃ не показываем. */
+  canSplitCard?: (card: OpenTab) => boolean;
   secondaryCard: OpenTab | null;
   renderSecondaryCard: () => React.ReactNode;
   onCloseSecondary: () => void;
@@ -230,16 +233,37 @@ export function V3TabShell(props: {
         {props.openTabs.map((tab) => {
           const isActive = tab.id === props.activeTabId;
           const isMenu = tab.kind === 'menu';
+          const isSecondary = secondary != null && secondary.id === tab.id;
+          // ⑃ показываем, только когда клик действительно даст сравнение: рядом можно
+          // закрепить лишь карточку, и лишь когда активна ДРУГАЯ карточка (иначе панель
+          // сравнения не рендерится и кнопка была бы молча мёртвой).
+          const canSplit =
+            tab.kind === 'card' &&
+            !isActive &&
+            !isSecondary &&
+            activeTab?.kind === 'card' &&
+            props.onSplitCard != null &&
+            (props.canSplitCard?.(tab) ?? true);
           return (
             <div key={tab.id} className={`v3-tab ${isMenu ? 'v3-tab-menu' : ''}`} data-active={isActive ? '1' : undefined}>
               <button
                 type="button"
                 className="v3-tab-label"
                 onClick={() => props.onSelectTab(tab.id)}
-                title={tab.label}
+                title={isSecondary ? `${tab.label} — открыта во второй панели` : tab.label}
               >
-                {isMenu ? `🧱 ${tab.label}` : tab.label}
+                {isMenu ? `🧱 ${tab.label}` : isSecondary ? `▐ ${tab.label}` : tab.label}
               </button>
+              {canSplit && (
+                <button
+                  type="button"
+                  className="v3-tab-split"
+                  title="Открыть рядом для сравнения (пополам)"
+                  onClick={(e) => { e.stopPropagation(); props.onSplitCard?.(tab); }}
+                >
+                  ⑃
+                </button>
+              )}
               {tab.canClose && (
                 <button
                   type="button"

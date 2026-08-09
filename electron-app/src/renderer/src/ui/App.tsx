@@ -596,6 +596,30 @@ function isFallbackCardTitle(t: string): boolean {
   return / · [0-9a-f]{6}$/i.test(t);
 }
 
+/**
+ * Виды карточек, которые умеет вторая панель сравнения (switch в renderSecondaryCard).
+ * `part` и `user_screen` в него не входят — там default «нельзя открыть во второй панели»,
+ * поэтому ⑃ для них не предлагаем.
+ */
+const SECONDARY_CARD_KINDS: ReadonlyArray<TabId> = [
+  'engine',
+  'engine_brand',
+  'engine_brand_group',
+  'request',
+  'work_order',
+  'contract',
+  'counterparty',
+  'employee',
+  'product',
+  'service',
+  'nomenclature_item',
+  'tool',
+  'tool_property',
+  'engine_assembly_bom_item',
+  'stock_document',
+  'report_preset',
+];
+
 const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   engine: 'engines',
   engine_brand: 'engine_brands',
@@ -3121,6 +3145,9 @@ export function App() {
   }
 
   // ── Split «2 рядом»: вторая (правая) панель ─────────────────────────────────────
+  // Виды, которые умеет renderSecondaryCard. Держать в синхроне с его switch: у
+  // остальных (part, user_screen) там default «нельзя открыть во второй панели»,
+  // и предлагать оператору ⑃ для них — значит вести его в тупик.
   async function loadSecondaryEngine(entityId: string) {
     setSecondaryEngineDetails(null);
     setSecondaryEngineLoading(true);
@@ -5598,6 +5625,11 @@ export function App() {
               secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}
               onCloseSecondary={closeSecondaryCard}
+              onSplitCard={(card) => {
+                if (!card.cardKind || !card.entityId) return;
+                openSecondaryCard({ kind: card.cardKind, entityId: card.entityId, title: card.label });
+              }}
+              canSplitCard={(card) => card.cardKind != null && SECONDARY_CARD_KINDS.includes(card.cardKind)}
               comparePct={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v3.comparePct}
               onComparePctChange={(pct) => updateV3Pcts({ comparePct: pct })}
               renderTabContent={renderTabContent}

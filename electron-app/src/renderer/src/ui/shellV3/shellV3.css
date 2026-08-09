@@ -71,6 +71,21 @@
   cursor: pointer;
 }
 
+/* ⑃ «открыть рядом»: появляется только на вкладке карточки, которую можно закрепить
+   второй панелью (см. canSplit в V3TabShell) — поэтому в полосе её обычно одна-две. */
+.v3-tab-split {
+  flex: 0 0 auto;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  color: var(--muted, #6b7280);
+  cursor: pointer;
+}
+
+.v3-tab-split:hover {
+  color: var(--accent, #2563eb);
+}
+
 .v3-tab-close {
   flex: 0 0 auto;
   padding: 4px 8px;
