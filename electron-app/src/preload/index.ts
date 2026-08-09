@@ -748,7 +748,6 @@ const matricaApi = {
     unshare: async (args: { noteId: string; recipientUserId: string }) => ipcRenderer.invoke('notes:unshare', args),
     hide: async (args: { noteId: string; hidden: boolean }) => ipcRenderer.invoke('notes:hide', args),
     reorder: async (args: { noteId: string; sortOrder: number }) => ipcRenderer.invoke('notes:reorder', args),
-    burningCount: async () => ipcRenderer.invoke('notes:burningCount'),
   },
   aiChat: {
     list: async () => ipcRenderer.invoke('aiChat:list'),

@@ -2325,7 +2325,6 @@ export type MatricaApi = {
     hide: (args: { noteId: string; hidden: boolean }) => Promise<NoteShareResult>;
     reorder: (args: { noteId: string; sortOrder: number }) => Promise<NoteShareResult>;
     usersList: () => Promise<ChatUsersListResult>;
-    burningCount: () => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   };
   aiChat: {
     // Асинхронный AI-чат (очередь вопросов, отвечает облачная рутина).

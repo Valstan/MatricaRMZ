@@ -8,6 +8,8 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { useTabletDevice } from '../hooks/useUiMode.js';
 import { isAndroidPlatform } from '../platform.js';
 import { readChromeAutoHidePref, writeChromeAutoHidePref } from '../shell/ChromeVisibilityContext.js';
+import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
+import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 
 type CriticalEventItem = {
   id: string;
@@ -41,6 +43,7 @@ export function SettingsPage(props: {
   onLogout: () => void;
 }) {
   const { confirm: confirmModal } = useConfirm();
+  const tabVisibleRef = useTabVisibleRef();
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
   const [status, setStatus] = useState<string>('');
@@ -405,18 +408,26 @@ export function SettingsPage(props: {
   }, [backupPerms.view]);
 
   useEffect(() => {
-    const timer = setInterval(() => void refreshLoggingConfig(), 30_000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only 30s polling subscription; re-subscribing on refreshLoggingConfig identity churn would tear down and reset the interval every render
+    // Свёрнутое окно и скрытая вкладка не опрашиваются: pollWhenVisible знает про первое,
+    // латч видимости — про второе (подписка mount-only, флаг читается внутри колбэка).
+    const stop = pollWhenVisible(() => {
+      if (!tabVisibleRef.current) return;
+      void refreshLoggingConfig();
+    }, 30_000);
+    return () => stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only 30s polling subscription; tabVisibleRef is a stable ref, and re-subscribing on refreshLoggingConfig identity churn would reset the poll every render
   }, []);
 
   useEffect(() => {
     const role = String(authUser?.role ?? profileUser?.role ?? '').trim().toLowerCase();
     if (role !== 'superadmin') return;
     void refreshCriticalEvents();
-    const timer = setInterval(() => void refreshCriticalEvents(), 60_000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- polling subscription intentionally keyed on the role only; refreshCriticalEvents is body-declared and listing it would reset the 60s interval every render
+    const stop = pollWhenVisible(() => {
+      if (!tabVisibleRef.current) return;
+      void refreshCriticalEvents();
+    }, 60_000);
+    return () => stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- polling subscription intentionally keyed on the role only; tabVisibleRef is a stable ref, and listing refreshCriticalEvents would reset the poll every render
   }, [authUser?.role, profileUser?.role]);
 
   useEffect(() => {

@@ -117,7 +117,7 @@ export function EngineBrandGroupDetailsPage(props: {
   const disabled = !props.canEdit;
 
   return (
-    <div className="ui-content-viewport" style={{ height: '100%', overflow: 'auto' }}>
+    <div style={{ height: '100%', overflow: 'auto' }}>
       <div className="entity-card-shell" style={{ padding: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <Button onClick={() => void save(false)} disabled={disabled || saving}>

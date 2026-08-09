@@ -150,11 +150,20 @@ await waitFor(`[...${PANE}.querySelectorAll('tbody tr')].some(r => r.textContent
 step('список BOM отрисован', true, `строк ${await ev(`${PANE}.querySelectorAll('tbody tr').length`)}`);
 
 // ── 2. Открыть карточку доверенным кликом по строке.
+// Списочные страницы держат ОФФ-СКРИН клон таблицы (превью печати, position:absolute;
+// left:-100000px). Матч по имени без фильтра по видимости попадает в него, и доверенный
+// клик уходит за пределы окна — проба падает на «карточка не открылась» (ловилось вживую).
 const rowRect = await ev(`(() => {
-  const tr=[...${PANE}.querySelectorAll('tbody tr')].find(r=>r.textContent.trim().startsWith(${JSON.stringify(BOM_NAME)}));
+  const rows=[...${PANE}.querySelectorAll('tbody tr')].filter(r=>{
+    const b=r.getBoundingClientRect();
+    return b.width>0 && b.height>0 && b.x>=0 && b.y>=0 && b.x<window.innerWidth && b.y<window.innerHeight;
+  });
+  const tr=rows.find(r=>r.textContent.trim().startsWith(${JSON.stringify(BOM_NAME)}));
+  if(!tr) return null;
   const r=tr.getBoundingClientRect();
   return { x: Math.round(r.x + 40), y: Math.round(r.y + r.height / 2) };
 })()`);
+if (!rowRect) { step('строка BOM видима в списке', false, 'строка не найдена среди видимых'); bail(); }
 await trustedClick(rowRect);
 await waitFor(`[...document.querySelectorAll('.v3-tab-strip button')].some(b=>/Карточка BOM двигателя/.test(b.textContent))`, 'BOM card tab');
 // Содержимое карточки грузится асинхронно: вкладка появляется раньше чекбоксов.

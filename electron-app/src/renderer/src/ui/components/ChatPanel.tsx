@@ -235,6 +235,12 @@ export function ChatPanel(props: {
     };
   }, [othersOpen, availableUsers.length, props.chatSide]);
 
+  // Меню «Другие» — портал в body, закрывается ТОЛЬКО по document mousedown: уходя на
+  // другую вкладку, оператор оставил бы его висеть поверх, а вкладка чата keep-alive.
+  useEffect(() => {
+    if (!tabVisible) setOthersOpen(false);
+  }, [tabVisible]);
+
   useEffect(() => {
     if (!othersOpen) return;
     const onDocClick = (event: MouseEvent) => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { rankLookupOptions } from '../utils/searchMatching.js';
+import { useTabVisible } from '../shell/TabVisibilityContext.js';
 
 /** Автоскрытие выпадашки после паузы без взаимодействия (решение владельца: как на экране входа — везде). */
 const DEFAULT_AUTO_HIDE_MS = 3000;
@@ -132,6 +133,17 @@ export function useSuggestionDropdown<T extends SuggestOption>(
     if (!open) return;
     if (!filtered.length) setActiveIdx(-1);
   }, [filtered.length, open]);
+
+  // Выпадашка живёт порталом в body, поэтому visibility:hidden скрытой панели её не гасит.
+  // Обычное переключение мышью закрывает её раньше — по document mousedown, — но есть путь
+  // без mousedown вовсе (Ctrl+K → выбор с клавиатуры), и тогда список висел бы поверх
+  // чужой вкладки, а клик по нему писал бы значение в невидимую форму.
+  const tabVisible = useTabVisible();
+  useEffect(() => {
+    if (tabVisible) return;
+    setOpen(false);
+    setActiveIdx(-1);
+  }, [tabVisible]);
 
   useEffect(() => {
     if (!open || activeIdx < 0) return;

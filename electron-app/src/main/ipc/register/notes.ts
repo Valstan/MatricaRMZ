@@ -2,7 +2,6 @@ import { ipcMain } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
 import {
-  notesBurningCount,
   notesDelete,
   notesHide,
   notesList,
@@ -52,7 +51,4 @@ export function registerNotesIpc(ctx: IpcContext) {
     return await notesReorder(ctx.dataDb(), args);
   });
 
-  ipcMain.handle('notes:burningCount', async () => {
-    return await notesBurningCount(ctx.dataDb());
-  });
 }
