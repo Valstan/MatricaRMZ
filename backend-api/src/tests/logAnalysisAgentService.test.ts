@@ -26,9 +26,9 @@ vi.mock('../services/diagnosticsSyncPipelineService.js', () => ({
   })),
 }));
 
-vi.mock('../services/ai/claudeProvider.js', () => ({
-  callClaudeJson: vi.fn(async () => fakeReport.value),
-  isClaudeMisconfigured: () => false,
+vi.mock('../services/ai/llmProvider.js', () => ({
+  callLlmJson: vi.fn(async () => fakeReport.value),
+  isLlmMisconfigured: () => false,
 }));
 
 vi.mock('../services/criticalEventsService.js', () => ({
@@ -111,11 +111,11 @@ describe('logAnalysisAgentService.runLogAnalysisOnce', () => {
     expect(call.title).toMatch(/Критика/i);
   });
 
-  it('returns ok:false when claude returns null', async () => {
+  it('returns ok:false when model returns null', async () => {
     fakeReport.value = null;
     const res = await runLogAnalysisOnce({ lookbackHours: 12 });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/Claude/);
+    if (!res.ok) expect(res.error).toMatch(/Модель/);
     expect(ingestSpy).not.toHaveBeenCalled();
   });
 

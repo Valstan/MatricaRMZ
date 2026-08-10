@@ -5,9 +5,10 @@ import { diagnosticsSnapshots } from '../../database/schema.js';
 
 export type AiProfile = 'fast' | 'balanced' | 'quality';
 
-const CLAUDE_MODEL_HAIKU = 'claude-haiku-4-5-20251001';
-const CLAUDE_MODEL_SONNET = 'claude-sonnet-4-6';
-const CLAUDE_MODEL_OPUS = 'claude-opus-4-7';
+// Модели DeepSeek (D-024). Anthropic-совместимый эндпойнт принимает и claude-*-имена,
+// но мапит их вслепую на flash — просим ровно то, что хотим получить.
+const MODEL_FLASH = 'deepseek-v4-flash';
+const MODEL_PRO = 'deepseek-v4-pro';
 
 export const AI_PROFILE: AiProfile = (() => {
   const raw = String(process.env.AI_PROFILE ?? 'balanced')
@@ -19,8 +20,8 @@ export const AI_PROFILE: AiProfile = (() => {
 function profileDefaults(profile: AiProfile) {
   if (profile === 'fast') {
     return {
-      modelChat: CLAUDE_MODEL_HAIKU,
-      modelAnalytics: CLAUDE_MODEL_HAIKU,
+      modelChat: MODEL_FLASH,
+      modelAnalytics: MODEL_FLASH,
       timeoutMs: 60_000,
       timeoutChatMs: 25_000,
       timeoutAnalyticsMs: 45_000,
@@ -31,8 +32,8 @@ function profileDefaults(profile: AiProfile) {
   }
   if (profile === 'quality') {
     return {
-      modelChat: CLAUDE_MODEL_SONNET,
-      modelAnalytics: CLAUDE_MODEL_OPUS,
+      modelChat: MODEL_PRO,
+      modelAnalytics: MODEL_PRO,
       timeoutMs: 90_000,
       timeoutChatMs: 40_000,
       timeoutAnalyticsMs: 90_000,
@@ -43,8 +44,8 @@ function profileDefaults(profile: AiProfile) {
   }
   // balanced
   return {
-    modelChat: CLAUDE_MODEL_HAIKU,
-    modelAnalytics: CLAUDE_MODEL_SONNET,
+    modelChat: MODEL_FLASH,
+    modelAnalytics: MODEL_PRO,
     timeoutMs: 60_000,
     timeoutChatMs: 30_000,
     timeoutAnalyticsMs: 60_000,
@@ -69,12 +70,12 @@ function envText(name: string, fallback: string) {
   return value || fallback;
 }
 
-export const CLAUDE_MODEL_CHAT = envText('CLAUDE_MODEL_CHAT', PROFILE_DEFAULTS.modelChat);
-export const CLAUDE_MODEL_ANALYTICS = envText('CLAUDE_MODEL_ANALYTICS', PROFILE_DEFAULTS.modelAnalytics);
+export const AI_MODEL_CHAT = envText('AI_MODEL_CHAT', PROFILE_DEFAULTS.modelChat);
+export const AI_MODEL_ANALYTICS = envText('AI_MODEL_ANALYTICS', PROFILE_DEFAULTS.modelAnalytics);
 
-export const CLAUDE_TIMEOUT_MS = envNum('CLAUDE_TIMEOUT_MS', PROFILE_DEFAULTS.timeoutMs);
-export const CLAUDE_TIMEOUT_CHAT_MS = envNum('CLAUDE_TIMEOUT_CHAT_MS', PROFILE_DEFAULTS.timeoutChatMs);
-export const CLAUDE_TIMEOUT_ANALYTICS_MS = envNum('CLAUDE_TIMEOUT_ANALYTICS_MS', PROFILE_DEFAULTS.timeoutAnalyticsMs);
+export const AI_TIMEOUT_MS = envNum('AI_TIMEOUT_MS', PROFILE_DEFAULTS.timeoutMs);
+export const AI_TIMEOUT_CHAT_MS = envNum('AI_TIMEOUT_CHAT_MS', PROFILE_DEFAULTS.timeoutChatMs);
+export const AI_TIMEOUT_ANALYTICS_MS = envNum('AI_TIMEOUT_ANALYTICS_MS', PROFILE_DEFAULTS.timeoutAnalyticsMs);
 
 export const AI_RAG_TOP_K_DEFAULT = PROFILE_DEFAULTS.ragTopK;
 export const AI_CHAT_MAX_TOKENS_DEFAULT = PROFILE_DEFAULTS.chatMaxTokens;
@@ -84,7 +85,7 @@ export const AI_AGENT_BUSY_MESSAGE =
   'Я не успеваю ответить, я еще учусь, но скоро начну быстро отвечать на ваши вопросы и помогать вам в работе!';
 
 export const AI_AGENT_MISCONFIGURED_MESSAGE =
-  'ИИваныч пока не настроен (отсутствует ANTHROPIC_API_KEY). Обратитесь к администратору.';
+  'ИИваныч пока не настроен (нет ключа нейросети на сервере). Обратитесь к администратору.';
 
 export const AI_AGENT_DISABLED_MESSAGE =
   'ИИваныч временно отключён администратором. Программа работает в обычном режиме без его подсказок.';
@@ -111,7 +112,7 @@ export function isTimeoutError(err: unknown) {
 }
 
 export function getModelForMode(mode: 'analytics' | 'chat') {
-  return mode === 'analytics' ? CLAUDE_MODEL_ANALYTICS : CLAUDE_MODEL_CHAT;
+  return mode === 'analytics' ? AI_MODEL_ANALYTICS : AI_MODEL_CHAT;
 }
 
 export function buildContextSummary(ctx: any, ev?: any | null) {

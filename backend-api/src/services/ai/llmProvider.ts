@@ -1,47 +1,77 @@
+// Единая точка обращения к LLM. Движок экосистемы — DeepSeek API напрямую (D-024):
+// у него есть Anthropic-совместимый эндпойнт, поэтому тот же @anthropic-ai/sdk и весь
+// tools-контур работают без изменений — меняется только baseURL, ключ и имя модели.
+// Anthropic оставлен переключателем MATRICA_AI_PROVIDER=anthropic (с РФ-IP он режется
+// на эдже — memory anthropic-geo-block, поэтому дефолт именно deepseek).
 import Anthropic from '@anthropic-ai/sdk';
+
+const DEEPSEEK_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
 
 let cachedClient: Anthropic | null = null;
 let missingKeyWarned = false;
 
-export class ClaudeMisconfiguredError extends Error {
-  constructor() {
-    super('ANTHROPIC_API_KEY не задан');
-    this.name = 'ClaudeMisconfiguredError';
+export type LlmProviderName = 'deepseek' | 'anthropic';
+
+export function getLlmProvider(): LlmProviderName {
+  return String(process.env.MATRICA_AI_PROVIDER ?? 'deepseek').trim().toLowerCase() === 'anthropic'
+    ? 'anthropic'
+    : 'deepseek';
+}
+
+function apiKeyForProvider(provider: LlmProviderName): string {
+  const raw =
+    provider === 'deepseek'
+      ? (process.env.MATRICA_AI_DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? '')
+      : (process.env.MATRICA_AI_CLAUDE_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? '');
+  return String(raw).trim();
+}
+
+/** Ключ движка настроен? Нужно баннеру ИИваныча и health-проверкам — без броска исключения. */
+export function isLlmConfigured(): boolean {
+  return apiKeyForProvider(getLlmProvider()).length > 0;
+}
+
+export class LlmMisconfiguredError extends Error {
+  constructor(provider: LlmProviderName) {
+    super(provider === 'deepseek' ? 'DEEPSEEK_API_KEY не задан' : 'ANTHROPIC_API_KEY не задан');
+    this.name = 'LlmMisconfiguredError';
   }
 }
 
 function getClient(): Anthropic {
   if (cachedClient) return cachedClient;
-  const apiKey = String(
-    process.env.MATRICA_AI_CLAUDE_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? '',
-  ).trim();
+  const provider = getLlmProvider();
+  const apiKey = apiKeyForProvider(provider);
   if (!apiKey) {
     if (!missingKeyWarned) {
       missingKeyWarned = true;
-      console.warn('[claudeProvider] MATRICA_AI_CLAUDE_API_KEY not set — AI assist will fail');
+      console.warn(`[llmProvider] api key for provider "${provider}" not set — AI assist will fail`);
     }
-    throw new ClaudeMisconfiguredError();
+    throw new LlmMisconfiguredError(provider);
   }
-  cachedClient = new Anthropic({ apiKey });
+  cachedClient = new Anthropic({
+    apiKey,
+    ...(provider === 'deepseek' ? { baseURL: DEEPSEEK_ANTHROPIC_BASE_URL } : {}),
+  });
   return cachedClient;
 }
 
-export type CallClaudeOptions = {
+export type CallLlmOptions = {
   timeoutMs?: number;
   maxTokens?: number;
   temperature?: number;
 };
 
-export async function callClaude(args: {
+export async function callLlm(args: {
   model: string;
   system: string;
   user: string;
-  options?: CallClaudeOptions;
+  options?: CallLlmOptions;
 }): Promise<string> {
   const client = getClient();
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
-  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('claude timeout')), timeoutMs) : null;
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   try {
     const resp = await client.messages.create(
       {
@@ -73,19 +103,19 @@ export type JsonSchemaProperty = {
   required?: string[];
 };
 
-export async function callClaudeJson<T = unknown>(args: {
+export async function callLlmJson<T = unknown>(args: {
   model: string;
   system: string;
   user: string;
   toolName: string;
   toolDescription: string;
   schema: { properties: Record<string, JsonSchemaProperty>; required?: string[] };
-  options?: CallClaudeOptions;
+  options?: CallLlmOptions;
 }): Promise<T | null> {
   const client = getClient();
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
-  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('claude timeout')), timeoutMs) : null;
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   try {
     const resp = await client.messages.create(
       {
@@ -117,11 +147,11 @@ export async function callClaudeJson<T = unknown>(args: {
   }
 }
 
-export function isClaudeMisconfigured(error: unknown): error is ClaudeMisconfiguredError {
-  return error instanceof ClaudeMisconfiguredError;
+export function isLlmMisconfigured(error: unknown): error is LlmMisconfiguredError {
+  return error instanceof LlmMisconfiguredError;
 }
 
-export type ClaudeToolDef = {
+export type LlmToolDef = {
   name: string;
   description: string;
   input_schema: {
@@ -131,26 +161,26 @@ export type ClaudeToolDef = {
   };
 };
 
-export type ClaudeToolUse = {
+export type LlmToolUse = {
   id: string;
   name: string;
   input: Record<string, unknown>;
 };
 
-export type ClaudeToolResult = {
+export type LlmToolResult = {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
 };
 
-export type ClaudeToolMessage =
+export type LlmToolMessage =
   | { role: 'user'; content: string }
   | { role: 'assistant'; rawBlocks: Anthropic.ContentBlock[] }
-  | { role: 'user'; toolResults: ClaudeToolResult[] };
+  | { role: 'user'; toolResults: LlmToolResult[] };
 
-export type ClaudeWithToolsResult = {
+export type LlmWithToolsResult = {
   text: string;
-  toolUses: ClaudeToolUse[];
+  toolUses: LlmToolUse[];
   steps: number;
   inputTokens: number;
   outputTokens: number;
@@ -168,24 +198,24 @@ function toSystemParam(blocks: SystemBlock[]): string | Anthropic.TextBlockParam
   }));
 }
 
-export async function callClaudeWithTools(args: {
+export async function callLlmWithTools(args: {
   model: string;
   systemBlocks: SystemBlock[];
   userMessage: string;
-  tools: ClaudeToolDef[];
-  executeTool: (toolUse: ClaudeToolUse) => Promise<{ content: string; isError?: boolean }>;
+  tools: LlmToolDef[];
+  executeTool: (toolUse: LlmToolUse) => Promise<{ content: string; isError?: boolean }>;
   maxSteps?: number;
-  options?: CallClaudeOptions;
-}): Promise<ClaudeWithToolsResult> {
+  options?: CallLlmOptions;
+}): Promise<LlmWithToolsResult> {
   const client = getClient();
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
-  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('claude timeout')), timeoutMs) : null;
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, 8));
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: args.userMessage },
   ];
-  const allToolUses: ClaudeToolUse[] = [];
+  const allToolUses: LlmToolUse[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
   try {
@@ -216,7 +246,7 @@ export async function callClaudeWithTools(args: {
       messages.push({ role: 'assistant', content: resp.content });
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const tu of toolUseBlocks) {
-        const toolUse: ClaudeToolUse = {
+        const toolUse: LlmToolUse = {
           id: tu.id,
           name: tu.name,
           input: (tu.input ?? {}) as Record<string, unknown>,
@@ -241,31 +271,31 @@ export async function callClaudeWithTools(args: {
   }
 }
 
-export type ClaudeStreamEvent =
+export type LlmStreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool_use'; name: string; input: Record<string, unknown>; id: string }
   | { type: 'tool_result'; toolUseId: string; toolName: string; content: string; isError?: boolean }
   | { type: 'step_done'; step: number; stopReason: string | null }
-  | { type: 'done'; inputTokens: number; outputTokens: number; steps: number; toolUses: ClaudeToolUse[]; text: string }
+  | { type: 'done'; inputTokens: number; outputTokens: number; steps: number; toolUses: LlmToolUse[]; text: string }
   | { type: 'error'; error: string };
 
-export async function streamClaudeWithTools(args: {
+export async function streamLlmWithTools(args: {
   model: string;
   systemBlocks: SystemBlock[];
   userMessage: string;
-  tools: ClaudeToolDef[];
-  executeTool: (toolUse: ClaudeToolUse) => Promise<{ content: string; isError?: boolean }>;
-  onEvent: (ev: ClaudeStreamEvent) => void | Promise<void>;
+  tools: LlmToolDef[];
+  executeTool: (toolUse: LlmToolUse) => Promise<{ content: string; isError?: boolean }>;
+  onEvent: (ev: LlmStreamEvent) => void | Promise<void>;
   maxSteps?: number;
-  options?: CallClaudeOptions;
-}): Promise<ClaudeWithToolsResult> {
+  options?: CallLlmOptions;
+}): Promise<LlmWithToolsResult> {
   const client = getClient();
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
-  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('claude timeout')), timeoutMs) : null;
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, 8));
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: args.userMessage }];
-  const allToolUses: ClaudeToolUse[] = [];
+  const allToolUses: LlmToolUse[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
   let finalText = '';
@@ -311,7 +341,7 @@ export async function streamClaudeWithTools(args: {
       messages.push({ role: 'assistant', content: finalMessage.content });
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const tu of toolUseBlocks) {
-        const toolUse: ClaudeToolUse = {
+        const toolUse: LlmToolUse = {
           id: tu.id,
           name: tu.name,
           input: (tu.input ?? {}) as Record<string, unknown>,

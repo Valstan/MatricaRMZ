@@ -8,6 +8,7 @@ import { startConsistencyDiagnostics } from './services/diagnosticsConsistencySe
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js';
+import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
@@ -95,6 +96,7 @@ async function bootstrap() {
     startSyncPipelineSupervisorService();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();
+    startAiChatDirectWorker();
     startLogAnalysisAgent();
   }
 

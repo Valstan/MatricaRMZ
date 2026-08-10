@@ -117,6 +117,33 @@ async function computeSafeLimit(
 
 type ChangeRow = SyncPullResponse['changes'][number];
 
+/**
+ * Куда двигать курсор клиента после страницы изменений.
+ *
+ * Пустая страница означает «выше курсора нет НИ ОДНОЙ видимой этому клиенту строки»:
+ * приватность режет чужие строки в SQL, до LIMIT, поэтому ноль строк в ответе — это
+ * ноль строк во всём диапазоне, а не «не поместилось». Если в таком случае оставить
+ * курсор на месте, клиент встаёт намертво: каждый следующий pull перечитывает то же
+ * невидимое окно, возвращает ноль, и всё, что придёт на сервер позже, до реплики уже
+ * не доедет (лечилось только resetLocalDb).
+ *
+ * Прыгаем при этом на `ledgerLastSeq`, а НЕ на `serverLastSeq = max(lti, ledger)`:
+ * seq новым строкам синк-таблиц раздаёт именно счётчик ledger'а, и на БД с дрейфом
+ * счётчиков (индекс ушёл вперёд ledger'а — GOTCHAS «seq drift») прыжок на общий
+ * максимум увёл бы курсор ВЫШЕ всех будущих записей и ослепил клиента навсегда.
+ * Счётчик снят ДО запросов к таблицам, поэтому строку, записанную во время
+ * сканирования, прыжок не проскочит — у неё seq больше.
+ */
+export function nextPullCursor(
+  pageChanges: ReadonlyArray<Pick<ChangeRow, 'server_seq'>>,
+  effectiveSince: number,
+  ledgerLastSeq: number,
+): number {
+  const last = pageChanges.at(-1)?.server_seq;
+  if (last != null) return last;
+  return Math.max(effectiveSince, ledgerLastSeq);
+}
+
 /** Convert a PG row to the standard change-row format used by the pull response. */
 function pgRowToChange(
   tableName: string,
@@ -292,7 +319,7 @@ export async function pullChangesSince(
 
   const hasMore = allChanges.length > safeLimit;
   const pageChanges = allChanges.slice(0, safeLimit);
-  const lastSeq = pageChanges.at(-1)?.server_seq ?? effectiveSince;
+  const lastSeq = nextPullCursor(pageChanges, effectiveSince, ledgerLastSeq);
 
   return {
     sync_protocol_version: 2,

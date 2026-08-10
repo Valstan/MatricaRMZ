@@ -96,7 +96,8 @@
     "warehouse:blank-synthetic-codes": "tsx src/scripts/blankSyntheticCodes.ts",
     "warehouse:blank-synthetic-codes:apply": "tsx src/scripts/blankSyntheticCodes.ts --apply",
     "warehouse:backfill-units": "tsx src/scripts/backfillNomenclatureUnits.ts",
-    "warehouse:backfill-units:apply": "tsx src/scripts/backfillNomenclatureUnits.ts --apply"
+    "warehouse:backfill-units:apply": "tsx src/scripts/backfillNomenclatureUnits.ts --apply",
+    "ai:rules": "tsx src/scripts/aiChatRules.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

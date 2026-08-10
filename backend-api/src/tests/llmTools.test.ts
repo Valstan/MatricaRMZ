@@ -23,7 +23,7 @@ import {
   FULL_TOOL_NAMES,
   getToolDefinitions,
   type ToolContext,
-} from '../services/ai/claudeTools.js';
+} from '../services/ai/llmTools.js';
 
 const partsViewer: ToolContext = {
   actorId: 'u1',
@@ -51,7 +51,7 @@ beforeEach(() => {
   poolQuery.mockReset();
 });
 
-describe('claudeTools.executeTool', () => {
+describe('llmTools.executeTool', () => {
   it('rejects unknown tool name', async () => {
     const res = await executeTool({ id: 'x', name: 'nope', input: {} }, partsViewer);
     expect(res.isError).toBe(true);

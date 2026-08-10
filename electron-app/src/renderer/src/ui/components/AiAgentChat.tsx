@@ -1,16 +1,12 @@
-// Асинхронный AI-чат: очередь вопросов (≤5/час), ответы пишет облачная рутина
-// (Пн–Пт 8:00–17:00 МСК, раз в час, дальше ~50 мин дренажит очередь). Вопрос можно
-// редактировать/удалять, пока он не обработан. Файлы — через существующий files-контур
-// (Яндекс.Диск).
+// Асинхронный AI-чат: очередь вопросов (≤5/час). Ответ пишет сервер прямым вызовом
+// нейросети (D-024) — обычно за десятки секунд, поэтому пока вопрос в работе панель
+// опрашивает реплику часто и сама пинает синк (авто-синк ходит раз в 5 минут).
+// Вопрос можно редактировать/удалять, пока ИИваныч за него не взялся.
+// Файлы — через существующий files-контур (Яндекс.Диск).
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
 import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
-import {
-  AI_CHAT_MAX_QUESTIONS_PER_HOUR,
-  AI_CHAT_STATUS_LABELS,
-  getNextAiRunAt,
-  isAiRoutineLive,
-} from '@matricarmz/shared';
+import { AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, isAiChatInFlight } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { IvanychFigure } from './IvanychFigure.js';
@@ -22,16 +18,16 @@ import { useTabVisible } from '../shell/TabVisibilityContext.js';
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 800;
 const DEFAULT_WIDTH = 520;
-const REFRESH_MS = 60_000;
+const REFRESH_IDLE_MS = 60_000;
+/** Вопрос в работе: чаще перечитываем реплику и подтягиваем ответ синком. */
+const REFRESH_ACTIVE_MS = 2_500;
 
 // Чипы-подсказки: оператор забывает уточнить формат/период — тумблеры дописывают
 // требования к вопросу при отправке (см. план ai-chat-ux-drafts-telemetry-2026-07, задача D).
 // Группы single-select: формат ответа, объём, период. «Таблицей» — независимый тумблер.
 type HintChip = { key: string; label: string; hint: string; group: 'format' | 'detail' | 'period' | 'shape' };
 const HINT_CHIPS: HintChip[] = [
-  { key: 'docx', label: '📄 DOCX', hint: 'ответ оформи отдельным файлом Word (.docx)', group: 'format' },
-  { key: 'xlsx', label: '📊 Excel', hint: 'ответ оформи отдельным файлом Excel (.xlsx)', group: 'format' },
-  { key: 'pdf', label: '📕 PDF', hint: 'ответ оформи отдельным файлом PDF', group: 'format' },
+  { key: 'xlsx', label: '📊 Excel', hint: 'ответ приложи файлом Excel (.xlsx)', group: 'format' },
   { key: 'text', label: '📃 Текстом', hint: 'ответ дай текстом прямо в чат, без файлов', group: 'format' },
   { key: 'brief', label: 'Кратко', hint: 'ответь кратко, только итоговые цифры и факты', group: 'detail' },
   { key: 'full', label: 'Подробно', hint: 'ответь подробно, с пояснениями и методикой расчёта', group: 'detail' },
@@ -91,6 +87,29 @@ function FileChip(props: { file: FileRef }) {
   );
 }
 
+function formatElapsed(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec} с`;
+  return `${Math.floor(sec / 60)} мин ${String(sec % 60).padStart(2, '0')} с`;
+}
+
+/** Плашка «ИИваныч думает»: показывает, что вопрос дошёл и над ним работают. */
+function ThinkingBanner(props: { status: 'pending' | 'processing'; sinceMs: number }) {
+  const text = props.status === 'processing' ? 'ИИваныч думает и собирает данные' : 'ИИваныч принял вопрос';
+  return (
+    <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <IvanychFigure size={26} />
+      <span style={{ fontSize: 12, color: theme.colors.text }}>{text}</span>
+      <span aria-hidden style={{ display: 'inline-flex', gap: 3, alignItems: 'center', color: theme.colors.muted }}>
+        <i className="ivanych-thinking-dot" />
+        <i className="ivanych-thinking-dot" />
+        <i className="ivanych-thinking-dot" />
+      </span>
+      <span style={{ marginLeft: 'auto', fontSize: 11, color: theme.colors.muted }}>{formatElapsed(props.sinceMs)}</span>
+    </div>
+  );
+}
+
 export type AiAgentChatHandle = {
   refresh: () => void;
 };
@@ -113,7 +132,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [verdictDrafts, setVerdictDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastRunAt, setLastRunAt] = useState<number | null>(null);
+  const [engineReady, setEngineReady] = useState<boolean | null>(null);
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [fullscreen, setFullscreen] = useState(false);
@@ -129,8 +148,15 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     const res = await window.matrica.aiChat.list();
     if (res.ok) setItems(res.items);
     const meta = await window.matrica.aiChat.meta();
-    if (meta.ok) setLastRunAt(meta.lastRunAt);
+    if (meta.ok) setEngineReady(meta.ready);
   }, []);
+
+  // Ответ приезжает в реплику только синком, а авто-синк ходит раз в 5 минут —
+  // пока вопрос в работе, подтягиваем сами.
+  const pullAnswers = useCallback(async () => {
+    await window.matrica.sync.run().catch(() => undefined);
+    await refresh();
+  }, [refresh]);
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -164,12 +190,24 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       const u = s?.user;
       if (u?.id) setMe({ id: String(u.id), role: String(u.role ?? '') });
     });
-    const t = setInterval(() => {
-      void refresh();
-      setNow(Date.now());
-    }, REFRESH_MS);
-    return () => clearInterval(t);
   }, [active, refresh, loadTemplates]);
+
+  const hasInFlight = useMemo(
+    () => (me ? items.some((i) => i.userId === me.id && isAiChatInFlight(i.status)) : false),
+    [items, me],
+  );
+
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(
+      () => {
+        setNow(Date.now());
+        void (hasInFlight ? pullAnswers() : refresh());
+      },
+      hasInFlight ? REFRESH_ACTIVE_MS : REFRESH_IDLE_MS,
+    );
+    return () => clearInterval(t);
+  }, [active, hasInFlight, pullAnswers, refresh]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -188,8 +226,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     [myItems, now],
   );
   const leftThisHour = Math.max(0, AI_CHAT_MAX_QUESTIONS_PER_HOUR - usedThisHour);
-  const nextRunAt = getNextAiRunAt(now);
-  const routineLive = isAiRoutineLive(lastRunAt, now);
 
   // Частые запросы: только доведённые до ответа (answered) свои вопросы,
   // сгруппированные по нормализованному тексту — топ по повторам, затем по свежести.
@@ -436,6 +472,10 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           )}
         </div>
 
+        {!foreign && isAiChatInFlight(item.status) && (
+          <ThinkingBanner status={item.status as 'pending' | 'processing'} sinceMs={now - item.createdAt} />
+        )}
+
         {item.status === 'answered' && item.answerText != null && (
           <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
             <div style={{ fontSize: 11, color: theme.colors.muted, marginBottom: 4 }}>
@@ -482,7 +522,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
               {item.escalationNote ? ` Причина: ${item.escalationNote}` : ''}
             </div>
             {item.verdictText && (
-              <div style={{ fontSize: 12, marginTop: 4 }}>Решение принято, ИИваныч ответит в следующий запуск.</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Решение принято — ИИваныч сейчас ответит.</div>
             )}
             {isSuperadmin && !item.verdictText && (
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -564,23 +604,22 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           flexWrap: 'wrap',
         }}
       >
-        {routineLive ? (
-          <span title="Рутина сейчас разбирает очередь и перечитывает её каждые 2–3 минуты">
-            🟢 ИИваныч на связи: <b>ответит за несколько минут</b>
+        {engineReady === false ? (
+          <span title="На сервере не настроен ключ нейросети — вопросы копятся в очереди">
+            🔴 ИИваныч сейчас недоступен: <b>вопрос сохранится и будет обработан позже</b>
           </span>
         ) : (
-          <span title="ИИваныч включается раз в час (Пн–Пт с 8:00 до 17:00 МСК) и затем около часа держит очередь разобранной">
-            Следующий ответ ИИваныча: <b>{formatMoscowTime(nextRunAt)}</b>
+          <span title="Вопрос уходит на сервер сразу и обрабатывается без очереди и расписания">
+            🟢 ИИваныч на связи: <b>отвечает сразу</b>
           </span>
         )}
-        {lastRunAt != null && <span>Последний запуск: {formatMoscowTime(lastRunAt)}</span>}
       </div>
 
       <div ref={scrollRef} style={{ padding: 10, overflowY: 'auto', flex: '1 1 auto' }}>
         {myItems.length === 0 && foreignEscalated.length === 0 && (
           <div style={{ color: theme.colors.muted, fontSize: 13 }}>
-            Задайте вопрос по данным программы — остатки, двигатели, контракты, отчёты. ИИваныч проанализирует базу данных и
-            ответит в ближайший запуск (раз в час в рабочее время), а пока он на связи — за несколько минут.
+            Задайте вопрос по данным программы — остатки, двигатели, контракты, отчёты. ИИваныч проанализирует базу данных
+            и ответит сразу: обычно это занимает от нескольких секунд до пары минут — всё это время видно, что он думает.
           </div>
         )}
         {foreignEscalated.length > 0 && (

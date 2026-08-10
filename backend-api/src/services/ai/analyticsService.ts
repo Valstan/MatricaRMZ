@@ -6,25 +6,25 @@ import {
   AI_AGENT_MISCONFIGURED_MESSAGE,
   AI_ANALYTICS_MAX_TOKENS_DEFAULT,
   AI_ENABLED,
-  CLAUDE_TIMEOUT_ANALYTICS_MS,
+  AI_TIMEOUT_ANALYTICS_MS,
   getModelForMode,
   isTimeoutError,
   nowMs,
   truncate,
 } from './common.js';
 import {
-  callClaudeJson,
-  callClaudeWithTools,
-  isClaudeMisconfigured,
-  type ClaudeToolUse,
+  callLlmJson,
+  callLlmWithTools,
+  isLlmMisconfigured,
+  type LlmToolUse,
   type SystemBlock,
-} from './claudeProvider.js';
+} from './llmProvider.js';
 import {
   FULL_TOOL_NAMES,
   executeTool,
   getToolDefinitions,
   type ToolContext,
-} from './claudeTools.js';
+} from './llmTools.js';
 import { recordAssistMetrics } from './metricsService.js';
 import { retrieveRagMemories } from './ragService.js';
 
@@ -183,7 +183,7 @@ async function proposeSql(model: string, message: string, policy: AccessPolicy, 
     `Контекст памяти (релевантные факты пользователя):\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'н/д'}\n\n` +
     `Запрос пользователя: ${message}\n\n` +
     `Сформируй один SELECT-запрос с LIMIT не более ${MAX_ROWS}.`;
-  const json = await callClaudeJson<SqlProposalJson>({
+  const json = await callLlmJson<SqlProposalJson>({
     model,
     system: systemPrompt,
     user: userPrompt,
@@ -207,9 +207,9 @@ async function proposeSql(model: string, message: string, policy: AccessPolicy, 
       },
       required: ['sql', 'note'],
     },
-    options: { timeoutMs: CLAUDE_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: AI_ANALYTICS_MAX_TOKENS },
+    options: { timeoutMs: AI_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: AI_ANALYTICS_MAX_TOKENS },
   });
-  if (!json || typeof json.sql !== 'string') return { ok: false as const, error: 'Claude не вернул SQL-запрос.' };
+  if (!json || typeof json.sql !== 'string') return { ok: false as const, error: 'Модель не вернула SQL-запрос.' };
   return {
     ok: true as const,
     sql: String(json.sql),
@@ -261,18 +261,18 @@ async function runAnalyticsViaTools(args: {
   ];
   const ctx: ToolContext = { actorId: args.actorId, permissions: args.perms };
   const toolCallNames: string[] = [];
-  const result = await callClaudeWithTools({
+  const result = await callLlmWithTools({
     model: args.model,
     systemBlocks,
     userMessage: `Запрос: ${args.message}`,
     tools: [...toolDefs, replyToolDef],
     options: {
-      timeoutMs: CLAUDE_TIMEOUT_ANALYTICS_MS,
+      timeoutMs: AI_TIMEOUT_ANALYTICS_MS,
       maxTokens: AI_ANALYTICS_MAX_TOKENS,
       temperature: 0,
     },
     maxSteps: 6,
-    executeTool: async (toolUse: ClaudeToolUse) => {
+    executeTool: async (toolUse: LlmToolUse) => {
       toolCallNames.push(toolUse.name);
       if (toolUse.name === 'present_answer') {
         return { content: JSON.stringify(toolUse.input) };
@@ -360,7 +360,7 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
       return { ok: true as const, replyText: result.replyText, model, timeout: false };
     } catch (e) {
       const timeout = isTimeoutError(e);
-      const misconfigured = isClaudeMisconfigured(e);
+      const misconfigured = isLlmMisconfigured(e);
       await recordAssistMetrics({
         actorId: args.actorId,
         mode: 'analytics',
@@ -385,7 +385,7 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
       proposed = await proposeSql(model, args.message, policy, memories);
     } catch (e) {
       const timeout = isTimeoutError(e);
-      const misconfigured = isClaudeMisconfigured(e);
+      const misconfigured = isLlmMisconfigured(e);
       await recordAssistMetrics({
         actorId: args.actorId,
         mode: 'analytics',
@@ -397,7 +397,7 @@ export async function runAnalyticsAssist(args: { actorId: string; context: any; 
       });
       if (misconfigured) return { ok: true as const, replyText: AI_AGENT_MISCONFIGURED_MESSAGE, model, timeout: false };
       if (timeout) return { ok: true as const, replyText: AI_AGENT_BUSY_MESSAGE, model, timeout: true };
-      return { ok: false as const, error: String(e ?? 'ошибка обращения к Claude'), model, timeout: false };
+      return { ok: false as const, error: String(e ?? 'ошибка обращения к нейросети'), model, timeout: false };
     }
     sqlPlanMs = nowMs() - planStart;
     if (!proposed.ok) {

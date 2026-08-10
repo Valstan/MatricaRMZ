@@ -15,7 +15,7 @@ const DEFAULT_LIMIT = 1000;
 
 const STATE_SCOPE = 'ai_agent_chat_state';
 const CHAT_SCOPE = 'ai_agent_chat_corpus';
-const AI_CORPUS_MODEL_LABEL = process.env.AI_CORPUS_MODEL_LABEL || process.env.CLAUDE_MODEL_CHAT || 'claude-haiku-4-5';
+const AI_CORPUS_MODEL_LABEL = process.env.AI_CORPUS_MODEL_LABEL || process.env.AI_MODEL_CHAT || 'claude-haiku-4-5';
 
 type ChatRow = {
   id: string;

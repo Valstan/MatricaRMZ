@@ -26,7 +26,10 @@ export function registerAiChatIpc(ctx: IpcContext) {
     if (args?.filePath && !consumeIssuedPath(args.filePath)) {
       return { ok: false as const, error: 'путь не из диалога выбора файлов' };
     }
-    return await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    // Сервер отвечает сразу, как получит вопрос — не ждём очередного тика синка.
+    if (res.ok) void ctx.mgr.runOnce().catch(() => undefined);
+    return res;
   });
 
   ipcMain.handle('aiChat:update', async (_e, args: { id: string; questionText: string }) => {
