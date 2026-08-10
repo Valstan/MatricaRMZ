@@ -23,7 +23,15 @@ import {
   type AiChatActor,
 } from './aiChatWriteService.js';
 import { AI_ENABLED, AI_MODEL_ANALYTICS, truncate } from './common.js';
-import { callLlmWithTools, isLlmConfigured, isLlmMisconfigured, type LlmToolDef, type LlmToolUse, type SystemBlock } from './llmProvider.js';
+import {
+  callLlmWithTools,
+  getLlmProvider,
+  isLlmConfigured,
+  isLlmMisconfigured,
+  type LlmToolDef,
+  type LlmToolUse,
+  type SystemBlock,
+} from './llmProvider.js';
 import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
 import { buildAnswerWorkbook, type AnswerTable } from './answerWorkbook.js';
 
@@ -364,5 +372,11 @@ export function startAiChatDirectWorker(): void {
   };
   timer = setInterval(() => void tick(), TICK_MS);
   timer.unref?.();
-  logInfo('ai chat direct worker started', { tickMs: TICK_MS, model: AI_MODEL_ANALYTICS });
+  // critical:true — иначе на проде строки не будет вовсе (logger режет info вне dev),
+  // и после деплоя нечем подтвердить, что движок вообще поднялся.
+  logInfo(
+    'ai chat direct worker started',
+    { tickMs: TICK_MS, model: AI_MODEL_ANALYTICS, provider: getLlmProvider(), keyConfigured: isLlmConfigured() },
+    { critical: true },
+  );
 }
