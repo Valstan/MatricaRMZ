@@ -58,7 +58,7 @@ corepack pnpm -C backend-api ai:rules set docs/ai-chat/RULES.seed.md
 
 1. `/health` → `features.aiEnabled` и `/ai-chat/meta` → `ready`. `ready:false` = нет ключа
    движка или `AI_ENABLED=false`; вопросы при этом копятся и разберутся после настройки.
-2. Лог бэкенда: строки `ai chat direct: …` (`answered`, `escalated`, `answer failed`).
+2. Лог бэкенда. **На проде `logInfo` подавлен** (`utils/logger.ts`: вне dev печатаются только warn/error/critical), поэтому в journald видны лишь `ai chat direct worker started` (помечен critical) и `ai chat direct: answer failed`. Успешные `answered`/`escalated` — только в dev-режиме.
 3. Вопрос завис в `processing` — воркер вернёт его в очередь через 10 минут
    (`AI_CHAT_DIRECT_STALE_MS`); три неудачные попытки подряд переводят вопрос в
    `escalated` с технической причиной, чтобы не крутить цикл.
