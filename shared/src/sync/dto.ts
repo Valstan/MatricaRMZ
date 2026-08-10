@@ -132,7 +132,7 @@ export const aiChatRequestRowSchema = z.object({
   username: z.string().min(1),
   question_text: z.string().min(1),
   question_file_json: z.string().nullable().optional(), // JSON FileRef прикреплённого к вопросу файла
-  status: z.enum(['pending', 'answered', 'escalated', 'rejected']),
+  status: z.enum(['pending', 'processing', 'answered', 'escalated', 'rejected']),
   answer_text: z.string().nullable().optional(),
   answer_files_json: z.string().nullable().optional(), // JSON массив FileRef ответных файлов
   answered_at: z.number().int().nullable().optional(),

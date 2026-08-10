@@ -1,6 +1,8 @@
 // Асинхронный AI-чат: локальный CRUD очереди вопросов (sync-таблица ai_chat_requests).
-// Клиент пишет ТОЛЬКО вопрос (owner-private, ≤5/час — гейт на сервере); ответы приезжают
-// pull'ом от облачной рутины. Файл вопроса заливается на Яндекс через существующий files-контур.
+// Клиент пишет ТОЛЬКО вопрос (owner-private, ≤5/час — гейт на сервере); ответ приезжает
+// pull'ом — сервер отвечает прямым вызовом нейросети через секунды после push'а (D-024),
+// поэтому создание вопроса сразу пинает синк. Файл вопроса заливается на Яндекс через
+// существующий files-контур.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { asc, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -179,7 +181,12 @@ export async function aiChatMeta(db: BetterSQLite3Database, apiBaseUrl: string):
     if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
     const j = r.json as any;
     if (!j?.ok) return { ok: false, error: 'bad response' };
-    return { ok: true, lastRunAt: j.lastRunAt == null ? null : Number(j.lastRunAt) };
+    return {
+      ok: true,
+      mode: j.mode === 'routine' ? 'routine' : 'direct',
+      ready: j.ready === true,
+      lastRunAt: j.lastRunAt == null ? null : Number(j.lastRunAt),
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

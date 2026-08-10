@@ -5,8 +5,8 @@ import { pool } from '../../database/db.js';
 import { ingestServerCriticalEvent, listCriticalEvents } from '../criticalEventsService.js';
 import { getSyncPipelineHealth } from '../diagnosticsSyncPipelineService.js';
 import { logError, logInfo } from '../../utils/logger.js';
-import { AI_ENABLED, CLAUDE_MODEL_ANALYTICS, CLAUDE_TIMEOUT_ANALYTICS_MS, nowMs } from './common.js';
-import { callClaudeJson, isClaudeMisconfigured } from './claudeProvider.js';
+import { AI_ENABLED, AI_MODEL_ANALYTICS, AI_TIMEOUT_ANALYTICS_MS, nowMs } from './common.js';
+import { callLlmJson, isLlmMisconfigured } from './llmProvider.js';
 
 const DEFAULT_TIME_ZONE = 'Europe/Moscow';
 const DEFAULT_TIMES = ['06:00', '18:00'];
@@ -257,8 +257,8 @@ export async function runLogAnalysisOnce(args?: { lookbackHours?: number; timeZo
 
   let report: LogAnalysisReport | null;
   try {
-    report = await callClaudeJson<LogAnalysisReport>({
-      model: CLAUDE_MODEL_ANALYTICS,
+    report = await callLlmJson<LogAnalysisReport>({
+      model: AI_MODEL_ANALYTICS,
       system,
       user,
       toolName: 'submit_log_analysis_report',
@@ -292,16 +292,16 @@ export async function runLogAnalysisOnce(args?: { lookbackHours?: number; timeZo
         },
         required: ['severity', 'summary'],
       },
-      options: { timeoutMs: CLAUDE_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: 2048 },
+      options: { timeoutMs: AI_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: 2048 },
     });
   } catch (err) {
-    if (isClaudeMisconfigured(err)) {
+    if (isLlmMisconfigured(err)) {
       return { ok: false, error: 'MATRICA_AI_CLAUDE_API_KEY не задан' };
     }
     return { ok: false, error: String(err) };
   }
   if (!report || typeof report !== 'object') {
-    return { ok: false, error: 'Claude не вернул отчёт' };
+    return { ok: false, error: 'Модель не вернула отчёт' };
   }
   const severity = report.severity === 'critical' || report.severity === 'warn' || report.severity === 'ok' ? report.severity : 'warn';
   const findings = Array.isArray(report.findings) ? report.findings : [];

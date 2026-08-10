@@ -7,30 +7,30 @@ import {
   AI_AGENT_MISCONFIGURED_MESSAGE,
   AI_CHAT_MAX_TOKENS_DEFAULT,
   AI_ENABLED,
-  CLAUDE_MODEL_ANALYTICS,
-  CLAUDE_MODEL_CHAT,
-  CLAUDE_TIMEOUT_CHAT_MS,
+  AI_MODEL_ANALYTICS,
+  AI_MODEL_CHAT,
+  AI_TIMEOUT_CHAT_MS,
   buildContextSummary,
   isTimeoutError,
   nowMs,
   truncate,
 } from './common.js';
 import {
-  callClaudeJson,
-  callClaudeWithTools,
-  isClaudeMisconfigured,
-  streamClaudeWithTools,
-  type ClaudeStreamEvent,
-  type ClaudeToolUse,
+  callLlmJson,
+  callLlmWithTools,
+  isLlmMisconfigured,
+  streamLlmWithTools,
+  type LlmStreamEvent,
+  type LlmToolUse,
   type SystemBlock,
-} from './claudeProvider.js';
+} from './llmProvider.js';
 import {
   COMPACT_TOOL_NAMES,
   FULL_TOOL_NAMES,
   executeTool,
   getToolDefinitions,
   type ToolContext,
-} from './claudeTools.js';
+} from './llmTools.js';
 import { recordAssistMetrics } from './metricsService.js';
 import { ingestRagAssistFact, retrieveRagMemories } from './ragService.js';
 
@@ -151,18 +151,18 @@ async function runWithToolsThenSummarize(args: {
     },
   };
   const toolCallNames: string[] = [];
-  const result = await callClaudeWithTools({
+  const result = await callLlmWithTools({
     model: args.model,
     systemBlocks: args.systemBlocks,
     userMessage: args.userMessage,
     tools: [...toolDefs, replyToolDef],
     options: {
-      timeoutMs: CLAUDE_TIMEOUT_CHAT_MS,
+      timeoutMs: AI_TIMEOUT_CHAT_MS,
       maxTokens: AI_CHAT_MAX_TOKENS,
       temperature: 0.2,
     },
     maxSteps: 4,
-    executeTool: async (toolUse: ClaudeToolUse) => {
+    executeTool: async (toolUse: LlmToolUse) => {
       toolCallNames.push(toolUse.name);
       if (toolUse.name === 'reply_to_user') {
         return { content: JSON.stringify(toolUse.input) };
@@ -187,7 +187,7 @@ async function runJsonOnly(args: {
   systemText: string;
   userPrompt: string;
 }) {
-  const json = await callClaudeJson<ChatReplyJson>({
+  const json = await callLlmJson<ChatReplyJson>({
     model: args.model,
     system: args.systemText,
     user: args.userPrompt,
@@ -204,7 +204,7 @@ async function runJsonOnly(args: {
       required: ['kind', 'text'],
     },
     options: {
-      timeoutMs: CLAUDE_TIMEOUT_CHAT_MS,
+      timeoutMs: AI_TIMEOUT_CHAT_MS,
       maxTokens: AI_CHAT_MAX_TOKENS,
       temperature: 0.2,
     },
@@ -220,7 +220,7 @@ export async function runChatAssist(args: {
   message: string;
 }) {
   const startedAt = nowMs();
-  const initialModel = CLAUDE_MODEL_CHAT;
+  const initialModel = AI_MODEL_CHAT;
   if (!AI_ENABLED) {
     return {
       ok: true as const,
@@ -261,7 +261,7 @@ export async function runChatAssist(args: {
 
   const unknownStreak = escalationCounters.get(args.actorId) ?? 0;
   const escalated = unknownStreak >= AI_CHAT_ESCALATE_AFTER;
-  const modelChat = escalated ? CLAUDE_MODEL_ANALYTICS : initialModel;
+  const modelChat = escalated ? AI_MODEL_ANALYTICS : initialModel;
   const toolNames = escalated ? FULL_TOOL_NAMES : COMPACT_TOOL_NAMES;
 
   const llmStart = nowMs();
@@ -326,7 +326,7 @@ export async function runChatAssist(args: {
   } catch (error) {
     const llmMs = nowMs() - llmStart;
     const timeout = isTimeoutError(error);
-    const misconfigured = isClaudeMisconfigured(error);
+    const misconfigured = isLlmMisconfigured(error);
     await recordAssistMetrics({
       actorId: args.actorId,
       mode: 'chat',
@@ -352,12 +352,12 @@ export async function runChatAssist(args: {
         timeout: true,
       };
     }
-    return { ok: false as const, error: String(error ?? 'ошибка обращения к Claude'), model: modelChat, timeout: false };
+    return { ok: false as const, error: String(error ?? 'ошибка обращения к нейросети'), model: modelChat, timeout: false };
   }
 }
 
 export type ChatStreamHandlers = {
-  onEvent: (ev: ClaudeStreamEvent) => void | Promise<void>;
+  onEvent: (ev: LlmStreamEvent) => void | Promise<void>;
 };
 
 export type ChatStreamResult = {
@@ -382,7 +382,7 @@ export async function runChatAssistStream(
   handlers: ChatStreamHandlers,
 ): Promise<ChatStreamResult> {
   const startedAt = nowMs();
-  const initialModel = CLAUDE_MODEL_CHAT;
+  const initialModel = AI_MODEL_CHAT;
   if (!AI_ENABLED) {
     await handlers.onEvent({ type: 'text', delta: AI_AGENT_DISABLED_MESSAGE });
     await handlers.onEvent({
@@ -454,7 +454,7 @@ export async function runChatAssistStream(
 
   const unknownStreak = escalationCounters.get(args.actorId) ?? 0;
   const escalated = unknownStreak >= AI_CHAT_ESCALATE_AFTER;
-  const modelChat = escalated ? CLAUDE_MODEL_ANALYTICS : initialModel;
+  const modelChat = escalated ? AI_MODEL_ANALYTICS : initialModel;
   const toolNames = escalated ? FULL_TOOL_NAMES : COMPACT_TOOL_NAMES;
 
   const llmStart = nowMs();
@@ -481,15 +481,15 @@ export async function runChatAssistStream(
   let replyFromTool: AiAgentSuggestion | null = null;
 
   try {
-    const result = await streamClaudeWithTools({
+    const result = await streamLlmWithTools({
       model: modelChat,
       systemBlocks,
       userMessage: `Сообщение пользователя: ${args.message}`,
       tools: [...toolDefs, replyToolDef],
-      options: { timeoutMs: CLAUDE_TIMEOUT_CHAT_MS, maxTokens: AI_CHAT_MAX_TOKENS, temperature: 0.2 },
+      options: { timeoutMs: AI_TIMEOUT_CHAT_MS, maxTokens: AI_CHAT_MAX_TOKENS, temperature: 0.2 },
       maxSteps: 4,
       onEvent: handlers.onEvent,
-      executeTool: async (toolUse: ClaudeToolUse) => {
+      executeTool: async (toolUse: LlmToolUse) => {
         toolCallNames.push(toolUse.name);
         if (toolUse.name === 'reply_to_user') {
           replyFromTool = normalizeReply(toolUse.input as ChatReplyJson, '');
@@ -534,7 +534,7 @@ export async function runChatAssistStream(
   } catch (error) {
     const llmMs = nowMs() - llmStart;
     const timeout = isTimeoutError(error);
-    const misconfigured = isClaudeMisconfigured(error);
+    const misconfigured = isLlmMisconfigured(error);
     await recordAssistMetrics({
       actorId: args.actorId,
       mode: 'chat',

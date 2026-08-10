@@ -1,7 +1,7 @@
 import { pool } from '../../database/db.js';
 import { computeAssemblyForecastFromServer } from '../warehouseForecastService.js';
 import { getRestrictedWorkOrderIds, isAllowlistedReaderById } from '../sync/restrictedWorkOrders.js';
-import type { ClaudeToolDef, ClaudeToolUse } from './claudeProvider.js';
+import type { LlmToolDef, LlmToolUse } from './llmProvider.js';
 import {
   HIDDEN_TABLES,
   HIDDEN_COLUMNS,
@@ -27,7 +27,7 @@ export type ToolResult = {
 type ToolHandler = (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
 
 type ToolEntry = {
-  def: ClaudeToolDef;
+  def: LlmToolDef;
   requires?: ReadonlyArray<string>;
   handler: ToolHandler;
 };
@@ -637,10 +637,10 @@ export const COMPACT_TOOL_NAMES: ReadonlyArray<string> = [
   'get_inventory_forecast',
 ];
 
-export function getToolDefinitions(names: ReadonlyArray<string>): ClaudeToolDef[] {
+export function getToolDefinitions(names: ReadonlyArray<string>): LlmToolDef[] {
   return names
     .map((n) => TOOLS[n]?.def)
-    .filter((d): d is ClaudeToolDef => Boolean(d));
+    .filter((d): d is LlmToolDef => Boolean(d));
 }
 
 async function getPartsDemandPriority(input: Record<string, unknown>): Promise<ToolResult> {
@@ -782,7 +782,7 @@ async function getWorkshopThroughput(input: Record<string, unknown>): Promise<To
   }
 }
 
-export async function executeTool(toolUse: ClaudeToolUse, ctx: ToolContext): Promise<ToolResult> {
+export async function executeTool(toolUse: LlmToolUse, ctx: ToolContext): Promise<ToolResult> {
   const entry = TOOLS[toolUse.name];
   if (!entry) return { content: `Неизвестный tool: ${toolUse.name}.`, isError: true };
   const requires = entry.requires ?? [];

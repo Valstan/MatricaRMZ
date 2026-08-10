@@ -1,94 +1,33 @@
 // Ядро операций облачной AI-рутины асинхронного чата. Используется двумя каналами:
 // CLI-скриптом scripts/aiChatRoutineIO.ts (SSH-путь) и REST-роутером /ai-chat/routine
 // (облачный контейнер claude.ai не имеет SSH — ходит по HTTPS с AI_ROUTINE_TOKEN).
-// ВСЕ записи — через writeSyncChanges/recordSyncChanges (ledger), прямой SQL-write запрещён.
-import { randomUUID, createHash } from 'node:crypto';
-import { writeFileSync, unlinkSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+// D-024: с переходом ИИваныча на прямые вызовы DeepSeek этот канал — резервный;
+// сам ответ теперь пишет aiChatAnswerService тем же writer'ом (aiChatWriteService).
+import { randomUUID } from 'node:crypto';
 
 import { and, eq, isNull, isNotNull, or } from 'drizzle-orm';
 import { Pool } from 'pg';
 
-import { SyncTableName } from '@matricarmz/shared';
-
 import { db } from '../../database/db.js';
-import { aiChatMeta, aiChatRequests, aiChatRulesHistory, fileAssets } from '../../database/schema.js';
+import { aiChatMeta, aiChatRequests, aiChatRulesHistory } from '../../database/schema.js';
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
-import { buildAllowedTablesFromPerms } from './claudeTools.js';
+import { buildAllowedTablesFromPerms } from './llmTools.js';
 import { listEmployeesAuth } from '../employeeAuthService.js';
-import { recordSyncChanges } from '../sync/syncChangeService.js';
-import { writeSyncChanges } from '../sync/syncWriteService.js';
-import { getDownloadHref, getUploadHref, uploadFileStream, ensureFolderDeep } from '../yandexDisk.js';
+import {
+  getAiChatActor,
+  notifySuperadminEscalation,
+  nowMs,
+  questionFileHref,
+  uploadAnswerBuffer,
+  writeAiChatRow,
+  type AiChatActor,
+} from './aiChatWriteService.js';
 
-function nowMs() {
-  return Date.now();
-}
+export type RoutineActor = AiChatActor;
 
-export type RoutineActor = { id: string; username: string; role: string };
+export const getRoutineActor = getAiChatActor;
 
-export async function getRoutineActor(): Promise<RoutineActor> {
-  const list = await listEmployeesAuth();
-  if (!list.ok) throw new Error('listEmployeesAuth failed');
-  const ai = list.rows.find((r) => String(r.login ?? '').trim().toLowerCase() === 'ai-agent');
-  if (ai?.id) return { id: String(ai.id), username: 'ai-agent', role: 'admin' };
-  const sa = list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin');
-  if (sa?.id) return { id: String(sa.id), username: String(sa.login ?? 'superadmin'), role: 'superadmin' };
-  throw new Error('no ai-agent employee and no superadmin found');
-}
-
-function toSyncPayload(row: any): Record<string, unknown> {
-  return {
-    id: String(row.id),
-    user_id: String(row.userId),
-    username: String(row.username),
-    question_text: String(row.questionText),
-    question_file_json: row.questionFileJson ?? null,
-    status: String(row.status),
-    answer_text: row.answerText ?? null,
-    answer_files_json: row.answerFilesJson ?? null,
-    answered_at: row.answeredAt ?? null,
-    escalation_note: row.escalationNote ?? null,
-    verdict_text: row.verdictText ?? null,
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt ?? null,
-    sync_status: 'synced',
-  };
-}
-
-async function writeRow(actor: RoutineActor, row: any) {
-  return await writeSyncChanges(
-    [
-      {
-        type: 'upsert',
-        table: SyncTableName.AiChatRequests,
-        row: toSyncPayload(row),
-        row_id: String(row.id),
-      },
-    ],
-    actor,
-    { allowSyncConflicts: true },
-  );
-}
-
-async function questionFileHref(questionFileJson: string | null): Promise<string | null> {
-  if (!questionFileJson) return null;
-  try {
-    const ref = JSON.parse(questionFileJson) as { id?: string };
-    if (!ref?.id) return null;
-    const rows = await db
-      .select()
-      .from(fileAssets)
-      .where(and(eq(fileAssets.id, String(ref.id) as any), isNull(fileAssets.deletedAt)))
-      .limit(1);
-    const f = rows[0] as any;
-    if (!f?.yandexDiskPath) return null;
-    return await getDownloadHref(String(f.yandexDiskPath));
-  } catch {
-    return null;
-  }
-}
+const writeRow = writeAiChatRow;
 
 export async function routineListPending() {
   const rows = await db
@@ -138,49 +77,6 @@ export async function routineListPending() {
 }
 
 export type RoutineAttachment = { name: string; contentBase64: string };
-
-async function uploadAnswerBuffer(
-  requestId: string,
-  name: string,
-  bytes: Buffer,
-  actorId: string,
-): Promise<Record<string, unknown>> {
-  const base = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim();
-  if (!base) throw new Error('YANDEX_DISK_BASE_PATH не настроен');
-  const safeName = name.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const id = randomUUID();
-  const createdAt = nowMs();
-  const diskPath = `${base.replace(/\/+$/, '')}/ai_chat/${requestId}/ai-chat-files/${id}_${safeName}`;
-  await ensureFolderDeep(base.replace(/\/+$/, '') || '/');
-  await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
-  // uploadFileStream работает с файлом на диске — пишем во временный (без изменения yandexDisk.ts).
-  const dir = mkdtempSync(join(tmpdir(), 'ai-routine-'));
-  const tmpPath = join(dir, safeName);
-  writeFileSync(tmpPath, bytes);
-  try {
-    await uploadFileStream({ diskPath, localFilePath: tmpPath, mime: null });
-  } finally {
-    try {
-      unlinkSync(tmpPath);
-    } catch {
-      // temp cleanup is best-effort
-    }
-  }
-  await db.insert(fileAssets).values({
-    id,
-    createdAt,
-    createdByUserId: actorId as any,
-    name: safeName,
-    mime: null,
-    size: bytes.length,
-    sha256,
-    storageKind: 'yandex',
-    localRelPath: null,
-    yandexDiskPath: diskPath,
-  });
-  return { id, name: safeName, size: bytes.length, mime: null, sha256, createdAt };
-}
 
 function decodeAttachments(attachments: RoutineAttachment[] | undefined): Array<{ name: string; bytes: Buffer }> {
   const out: Array<{ name: string; bytes: Buffer }> = [];
@@ -245,39 +141,12 @@ export async function routineEscalate(args: { id: string; reason: string }) {
     return { ok: false as const, error: `escalate skipped: ${JSON.stringify(wres.skipped)}` };
   }
 
-  // DM суперадмину (паттерн aiAgentReportsService.sendReportToSuperadmin).
-  const list = await listEmployeesAuth();
-  const sa = list.ok ? list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin') : null;
-  if (sa?.id) {
-    const msgId = randomUUID();
-    const text = `⚠️ ИИваныч: эскалация вопроса от ${cur.username}:\n«${String(cur.questionText).slice(0, 500)}»\n\nПричина: ${reason || '(не указана)'}\n\nОткройте ИИваныча → блок «Эскалации» и дайте вердикт.`;
-    await recordSyncChanges(
-      actor,
-      [
-        {
-          tableName: SyncTableName.ChatMessages,
-          rowId: msgId,
-          op: 'upsert',
-          payload: {
-            id: msgId,
-            sender_user_id: actor.id,
-            sender_username: actor.username,
-            recipient_user_id: String(sa.id),
-            message_type: 'text',
-            body_text: text,
-            payload_json: null,
-            created_at: ts,
-            updated_at: ts,
-            deleted_at: null,
-            sync_status: 'synced',
-          },
-          ts,
-        },
-      ],
-      { allowSyncConflicts: true },
-    );
-  }
-  return { ok: true as const, id: args.id, notifiedSuperadmin: Boolean(sa?.id) };
+  const notified = await notifySuperadminEscalation(actor, {
+    username: String(cur.username),
+    questionText: String(cur.questionText),
+    reason,
+  });
+  return { ok: true as const, id: args.id, notifiedSuperadmin: notified };
 }
 
 async function upsertMeta(key: string, value: string) {

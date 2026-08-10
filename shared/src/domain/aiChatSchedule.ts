@@ -61,14 +61,20 @@ export function getPrevAiRunAt(now: number): number {
   return now; // недостижимо
 }
 
-export type AiChatRequestStatus = 'pending' | 'answered' | 'escalated' | 'rejected';
+export type AiChatRequestStatus = 'pending' | 'processing' | 'answered' | 'escalated' | 'rejected';
 
 export const AI_CHAT_STATUS_LABELS: Record<AiChatRequestStatus, string> = {
   pending: '⏳ ожидает ответа',
+  processing: '🤔 ИИваныч думает',
   answered: '✅ отвечен',
   escalated: '⚠️ на рассмотрении',
   rejected: '🚫 отклонён',
 };
+
+/** Вопрос ещё в работе — клиент показывает «думает» и опрашивает чаще обычного. */
+export function isAiChatInFlight(status: AiChatRequestStatus): boolean {
+  return status === 'pending' || status === 'processing';
+}
 
 /** Строка ai_chat_requests в форме клиента (camelCase, как в SQLite-реплике). */
 export type AiChatRequestItem = {
@@ -88,6 +94,14 @@ export type AiChatRequestItem = {
   deletedAt: number | null;
 };
 
-export type AiChatMetaResult =
-  | { ok: true; lastRunAt: number | null }
-  | { ok: false; error: string };
+/** Состояние движка ИИваныча, как его видит сервер (роут `/ai-chat/meta`). */
+export type AiChatEngineMeta = {
+  /** `direct` — сервер отвечает сам через API нейросети; `routine` — ждём облачную рутину. */
+  mode: 'direct' | 'routine';
+  /** Ключ движка настроен и ИИваныч включён — можно обещать ответ «прямо сейчас». */
+  ready: boolean;
+  /** Штамп последнего прогона облачной рутины (в direct-режиме не используется). */
+  lastRunAt: number | null;
+};
+
+export type AiChatMetaResult = ({ ok: true } & AiChatEngineMeta) | { ok: false; error: string };
