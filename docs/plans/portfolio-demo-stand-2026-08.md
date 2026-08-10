@@ -2,7 +2,7 @@
 
 > Директива brain'а `from-brain/2026-08-09-demo-stand-for-the-portfolio` (решение владельца D-021, compliance: mandate). Ответ — [`to-brain/2026-08-09-demo-stand-ack.md`](../../mailbox/to-brain/2026-08-09-demo-stand-ack.md).
 >
-> **Статус:** план принят 2026-08-09, реализация не начата.
+> **Статус:** п.1 порядка работ ✅ (2026-08-10) — `seedPortfolioDemo.ts` + `demo:seed` написаны и прогнаны вживую на `matricarmz_demo` (PC40): 160 двигателей / 8 марок / 4 выдуманных контрагента / 2 контракта со слотами и платежами / 12 нарядов с КТУ / 18 позиций номенклатуры с остатками. Логин `demo`/`demo2026`. Cold-start пустой БД требует прод-дампов схемы (`.verifier-electron/prod-schema.sql|prod-seeds.sql`, рецепт — `docs/machines/<host>.md`). Дальше — п.2 (пройти сценарии руками) и съёмка.
 
 ## Задача
 
