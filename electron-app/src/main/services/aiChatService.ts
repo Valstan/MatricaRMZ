@@ -181,12 +181,7 @@ export async function aiChatMeta(db: BetterSQLite3Database, apiBaseUrl: string):
     if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
     const j = r.json as any;
     if (!j?.ok) return { ok: false, error: 'bad response' };
-    return {
-      ok: true,
-      mode: j.mode === 'routine' ? 'routine' : 'direct',
-      ready: j.ready === true,
-      lastRunAt: j.lastRunAt == null ? null : Number(j.lastRunAt),
-    };
+    return { ok: true, ready: j.ready === true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
