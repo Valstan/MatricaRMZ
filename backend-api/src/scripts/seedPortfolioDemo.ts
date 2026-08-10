@@ -92,9 +92,25 @@ function mulberry32(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const rnd = mulberry32(20260810);
-const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rnd() * arr.length)]!;
-const between = (min: number, max: number) => min + Math.floor(rnd() * (max - min + 1));
+/**
+ * Генератор НА КАЖДУЮ сущность, а не один общий на прогон.
+ *
+ * Общий поток ломал идемпотентность: при повторном прогоне ветка «сущность уже есть»
+ * пропускала часть вызовов (статусы не переписываются), поток расходился — и со второй
+ * итерации сид генерировал ДРУГИЕ номера, то есть плодил дубликаты вместо пропуска.
+ * Ключ генератора зависит только от индекса/имени, поэтому значения каждой сущности
+ * воспроизводятся независимо от того, что делали соседние.
+ */
+function rngFor(key: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193) >>> 0;
+  const r = mulberry32(h);
+  return {
+    next: r,
+    pick: <T,>(arr: readonly T[]): T => arr[Math.floor(r() * arr.length)]!,
+    between: (min: number, max: number) => min + Math.floor(r() * (max - min + 1)),
+  };
+}
 
 const DAY = 86_400_000;
 const NOW = Date.now();
@@ -304,7 +320,6 @@ async function insertOperation(row: {
   metaJson: string | null;
 }): Promise<void> {
   const existing = await db.select({ id: operations.id }).from(operations).where(eq(operations.id, row.id)).limit(1);
-  if (existing[0]) return;
   const ts = row.performedAt;
   const full = {
     ...row,
@@ -314,7 +329,25 @@ async function insertOperation(row: {
     deletedAt: null,
     syncStatus: 'synced' as const,
   };
-  await db.insert(operations).values(full);
+  // Перезаписываем, а не пропускаем: иначе правка содержимого нарядов не доезжает до
+  // повторного прогона — стенд пересевается, а кадры снимаются со старых операций.
+  if (existing[0]) {
+    await db
+      .update(operations)
+      .set({
+        operationType: row.operationType,
+        status: row.status,
+        note: row.note,
+        performedAt: ts,
+        performedBy: full.performedBy,
+        metaJson: row.metaJson,
+        updatedAt: ts,
+        deletedAt: null,
+      })
+      .where(eq(operations.id, row.id));
+  } else {
+    await db.insert(operations).values(full);
+  }
   await recordSyncChanges({ id: ACTOR.id, username: ACTOR.username, role: ACTOR.role }, [
     {
       tableName: SyncTableName.Operations,
@@ -351,6 +384,35 @@ function stableId(key: string): string {
   return `${hex(h1)}-${hex(h2).slice(0, 4)}-4${hex(h2).slice(4, 7)}-8${hex(h1 ^ h2).slice(0, 3)}-${hex(Math.imul(h1, h2))}${hex(h2).slice(0, 4)}`;
 }
 
+/** Двигатель с проставленным `contract_id` — витринный кандидат при повторном прогоне. */
+async function findAnyEngineWithContract(
+  engineTypeId: string,
+): Promise<{ id: string; number: string; brand: string; customerId: string } | null> {
+  const rows = await db
+    .select({ entityId: attributeValues.entityId, code: attributeDefs.code, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
+    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
+    .where(and(eq(entities.typeId, engineTypeId as any), isNull(entities.deletedAt), isNull(attributeValues.deletedAt)));
+  const byEngine = new Map<string, Record<string, string>>();
+  for (const r of rows) {
+    const bag = byEngine.get(String(r.entityId)) ?? {};
+    try {
+      const parsed = JSON.parse(String(r.valueJson ?? 'null'));
+      if (typeof parsed === 'string') bag[String(r.code)] = parsed;
+    } catch {
+      /* нескалярные значения нам тут не нужны */
+    }
+    byEngine.set(String(r.entityId), bag);
+  }
+  for (const [id, bag] of [...byEngine].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (bag.contract_id && bag.engine_number) {
+      return { id, number: bag.engine_number, brand: bag.engine_brand ?? '', customerId: bag.customer_id ?? '' };
+    }
+  }
+  return null;
+}
+
 // ─────────────────────────── main ───────────────────────────
 
 async function main() {
@@ -371,6 +433,10 @@ async function main() {
   const empTypeId = await ensureType(EntityTypeCode.Employee, 'Сотрудник');
   const unitTypeId = await ensureType('unit', 'Единицы измерения');
   const groupTypeId = await ensureType('nomenclature_group', 'Группы номенклатуры');
+  const serviceTypeId = await ensureType(EntityTypeCode.Service, 'Услуги');
+  await ensureAttr(serviceTypeId, 'name', 'Наименование', AttributeDataType.Text, 10);
+  await ensureAttr(serviceTypeId, 'unit', 'Единица измерения', AttributeDataType.Text, 20);
+  await ensureAttr(serviceTypeId, 'price', 'Цена, ₽', AttributeDataType.Number, 25);
 
   await ensureAttr(brandTypeId, 'name', 'Название', AttributeDataType.Text, 10);
   await ensureAttr(customerTypeId, 'name', 'Название', AttributeDataType.Text, 10);
@@ -439,22 +505,24 @@ async function main() {
   const engines: EngineSeed[] = [];
   const ENGINE_COUNT = 160;
   for (let i = 0; i < ENGINE_COUNT; i++) {
+    const rng = rngFor(`engine:${i}`);
     const brand = BRANDS[i % BRANDS.length]!;
     const prefix = brand.replace(/^[^0-9]*/, '').split(/[.-]/)[0] || '100';
-    const number = `${prefix}-${String(10000 + Math.floor(rnd() * 89999))}`;
-    const arrival = daysAgo(between(5, 400));
+    const number = `${prefix}-${String(10000 + Math.floor(rng.next() * 89999))}`;
+    const arrival = daysAgo(rng.between(5, 400));
     const { id, created } = await ensureEntityWithAttrs(engineTypeId, 'engine_number', number, {
       engine_number: number,
       engine_brand: brand,
       engine_brand_id: brandIds.get(brand),
       arrival_date: arrival,
-      customer_id: pick(customerIds),
+      customer_id: rng.pick(customerIds),
     });
     engines.push({ id, number, brand });
     if (!created) continue;
     // Статусная лестница: чем «старше» приход, тем дальше двигатель продвинулся.
     const age = (NOW - arrival) / DAY;
-    const roll = rnd();
+    const roll = rng.next();
+    const between = rng.between;
     const set = async (code: (typeof STATUS_CODES)[number], atDaysAgo: number) => {
       await setEntityAttribute(ACTOR, id, code, true, { allowSyncConflicts: true });
       await setEntityAttribute(ACTOR, id, statusDateCode(code), daysAgo(atDaysAgo), { allowSyncConflicts: true });
@@ -470,6 +538,7 @@ async function main() {
 
   // 7. Контракты со слотами и платежами.
   const kop = (rub: number) => Math.round(rub * 100);
+  const contractEngines: Array<{ id: string; number: string; brand: string; customerId: string }> = [];
   async function ensureContract(args: {
     number: string;
     internalNumber: string;
@@ -526,10 +595,18 @@ async function main() {
     for (const e of engines) {
       if (attached.length >= args.attachEngines) break;
       if (!wantedBrands.has(e.brand)) continue;
-      const sectionKey = args.addonRows?.some((r) => r.brand === e.brand) && rnd() < 0.4 ? 'ДС 1' : 'primary';
+      const sectionKey =
+        args.addonRows?.some((r) => r.brand === e.brand) && rngFor(`attach:${args.number}:${e.number}`).next() < 0.4
+          ? 'ДС 1'
+          : 'primary';
       await setEntityAttribute(ACTOR, e.id, 'contract_id', id, { allowSyncConflicts: true });
       await setEntityAttribute(ACTOR, e.id, 'contract_section_number', sectionKey, { allowSyncConflicts: true });
+      // Контрагент двигателя обязан совпасть с контрагентом договора: карточка двигателя
+      // фильтрует список контрактов по customer_id (EngineDetailsPage, C-#8), и при
+      // расхождении привязка выглядит «повисшей» — ⚠ «выбранное значение удалено».
+      await setEntityAttribute(ACTOR, e.id, 'customer_id', args.customerId, { allowSyncConflicts: true });
       attached.push({ engineId: e.id, sectionKey, engineBrandId: brandIds.get(e.brand)! });
+      contractEngines.push({ id: e.id, number: e.number, brand: e.brand, customerId: args.customerId });
       engines.splice(engines.indexOf(e), 1); // двигатель уходит в этот контракт, следующему не достаётся
     }
 
@@ -539,9 +616,10 @@ async function main() {
     cp = {
       version: 1,
       slots: cp.slots.map((slot, idx) => {
+        const srng = rngFor(`slot:${args.number}:${idx}`);
         const price = slot.contractPriceKop != null ? slot.contractPriceKop : kop(1_000_000);
         const payments: PaymentRow[] = [];
-        const advDaysAgo = between(20, 120);
+        const advDaysAgo = srng.between(20, 120);
         if (idx % 3 !== 2) {
           payments.push({
             id: randomUUID(),
@@ -564,7 +642,7 @@ async function main() {
         if (slot.engineId && idx % 5 === 0) {
           payments.push({
             id: randomUUID(),
-            date: iso(daysAgo(between(2, 15))),
+            date: iso(daysAgo(srng.between(2, 15))),
             amountKop: price - Math.round(price * 0.3) - (idx % 4 === 1 ? Math.round(price * 0.2) : 0),
             kind: 'final',
             note: 'Окончательный расчёт после приёмки',
@@ -605,12 +683,23 @@ async function main() {
   console.log(`[demo-seed] контракты: ${contractA.slice(0, 8)}…, ${contractB.slice(0, 8)}…`);
 
   // 8. Наряды с бригадой и КТУ (закрытые + открытые + один выданный в работу).
+  // Услуги-справочник: без `serviceId` в строке карточка наряда показывает в колонке
+  // «Вид работ» плейсхолдер «Выберите вид работ» — наряд выглядит незаполненным.
+  const serviceIds = new Map<string, string>();
+  for (const [name, unit, , priceRub] of WORK_NAMES) {
+    const { id } = await ensureEntityWithAttrs(serviceTypeId, 'name', name, { name, unit, price: priceRub });
+    serviceIds.set(name, id);
+  }
+  console.log(`[demo-seed] услуг: ${serviceIds.size}`);
+
   const crewPool = employeeIds.slice(1);
   const names = EMPLOYEES.slice(1);
   let woNumber = 1041;
   for (let i = 0; i < 12; i++) {
     const opId = stableId(`work-order:${i}`);
     const engine = engines[(i * 13) % engines.length]!;
+    const wrng = rngFor(`work-order:${i}`);
+    const between = wrng.between;
     const crewSize = between(3, 5);
     const start = (i * 3) % crewPool.length;
     const crew = Array.from({ length: crewSize }, (_, k) => {
@@ -622,7 +711,7 @@ async function main() {
       const [serviceName, unit, qty, priceRub] = WORK_NAMES[(i + k * 3) % WORK_NAMES.length]!;
       return {
         lineNo: k + 1,
-        serviceId: null,
+        serviceId: serviceIds.get(serviceName) ?? null,
         serviceName,
         unit,
         qty,
@@ -630,6 +719,10 @@ async function main() {
         amountRub: qty * priceRub,
         productNumber: engine.number,
         engineId: engine.id,
+        // Снимки двигателя в строке: список нарядов берёт марку/номер именно отсюда
+        // (`getWorkOrderEngineInfo` читает freeWorks), а не из шапки наряда.
+        engineNumber: engine.number,
+        engineBrandName: engine.brand,
       } as WorkOrderWorkLine;
     });
     const totalAmountRub = works.reduce((s, w) => s + w.amountRub, 0);
@@ -649,7 +742,10 @@ async function main() {
       ...(closed ? { completedDate: orderDate + between(10, 40) * DAY } : {}),
       crew,
       workGroups: [],
-      freeWorks: [],
+      // Строки работ кладём в `freeWorks` (v3-форма). Клиент при наличии workGroups/freeWorks
+      // ИГНОРИРУЕТ legacy-поле `works` (recalcPayload), и наряд с работами только в `works`
+      // показывался бы в списке с пустыми «Видами работ» и итогом 0 ₽.
+      freeWorks: works,
       works,
       totalAmountRub,
       basePerWorkerRub,
@@ -671,13 +767,34 @@ async function main() {
   console.log('[demo-seed] нарядов: 12 (8 закрытых, 3 открытых, 1 выдан в работу)');
 
   // 9. История ремонта витринного двигателя (кадр «карточка целиком»).
-  const hero = engines[0]!;
+  // Берём двигатель, привязанный к контракту, — карточка должна показать и договор, и
+  // пройденные статусы, и ленту событий, иначе флагманский кадр показывает пустые поля.
+  // При повторном прогоне контракты уже есть → привязка не выполнялась и contractEngines пуст;
+  // тогда витринный двигатель ищем в БД по проставленному contract_id, иначе он «переезжал» бы
+  // с прогона на прогон и кадр показывал бы другую карточку.
+  const hero = contractEngines[0] ?? (await findAnyEngineWithContract(engineTypeId)) ?? engines[0]!;
+  const heroCustomer = CUSTOMERS.find((c) => customerIds[CUSTOMERS.indexOf(c)] === (hero as any).customerId) ?? CUSTOMERS[0];
+  // Сначала гасим статусы, выставленные общим циклом от ПРЕЖНЕЙ даты прихода: ниже мы
+  // сдвигаем приход, и оставшийся флаг дал бы отгрузку раньше приёмки (видно на кадре).
+  for (const code of STATUS_CODES) {
+    await setEntityAttribute(ACTOR, hero.id, code, false, { allowSyncConflicts: true });
+    await setEntityAttribute(ACTOR, hero.id, statusDateCode(code), null, { allowSyncConflicts: true });
+  }
+  for (const [code, at] of [
+    ['status_storage_received', 118],
+    ['status_repair_started', 96],
+    ['status_repaired', 21],
+  ] as const) {
+    await setEntityAttribute(ACTOR, hero.id, code, true, { allowSyncConflicts: true });
+    await setEntityAttribute(ACTOR, hero.id, statusDateCode(code), daysAgo(at), { allowSyncConflicts: true });
+  }
+  await setEntityAttribute(ACTOR, hero.id, 'arrival_date', daysAgo(120), { allowSyncConflicts: true });
   await insertOperation({
     id: stableId('op:hero-acceptance'),
     engineEntityId: hero.id,
     operationType: 'acceptance',
     status: 'event',
-    note: `Принят в ремонт от ${CUSTOMERS[0].name}: комплектность по акту, видимых повреждений блока нет.`,
+    note: `Принят в ремонт от ${heroCustomer.name}: комплектность по акту, видимых повреждений блока нет.`,
     performedAt: daysAgo(120),
     metaJson: null,
   });
@@ -688,6 +805,24 @@ async function main() {
     status: 'event',
     note: 'Дефектовка: износ коренных шеек 0,08 мм — шлифовка в Р1; гильзы под замену (4 шт.), ГБЦ — притирка клапанов.',
     performedAt: daysAgo(105),
+    metaJson: null,
+  });
+  await insertOperation({
+    id: stableId('op:hero-repair'),
+    engineEntityId: hero.id,
+    operationType: 'repair',
+    status: 'event',
+    note: 'Ремонт завершён: коленвал в Р1, гильзы заменены, ГБЦ собрана. Двигатель передан на испытательный стенд.',
+    performedAt: daysAgo(24),
+    metaJson: null,
+  });
+  await insertOperation({
+    id: stableId('op:hero-test'),
+    engineEntityId: hero.id,
+    operationType: 'test',
+    status: 'event',
+    note: 'Обкатка 6 ч: давление масла 4,2 кгс/см², температура в норме, течей нет. Принято ОТК.',
+    performedAt: daysAgo(20),
     metaJson: null,
   });
   console.log(`[demo-seed] витринный двигатель: ${hero.number} (${hero.brand})`);
@@ -717,6 +852,20 @@ async function main() {
       .where(and(eq(erpNomenclature.code, code), isNull(erpNomenclature.deletedAt)))
       .limit(1);
     if (existingNom[0]?.id) {
+      // Повторный прогон: обновляем существующую карточку (нормы запаса, группа, единица),
+      // иначе правки сида не доезжают до уже засеянного стенда.
+      const upd = await upsertWarehouseNomenclature({
+        id: String(existingNom[0].id),
+        code,
+        name,
+        itemType: 'part',
+        groupId,
+        unitId,
+        minStock: 10 + ((i * 7) % 30),
+        maxStock: 120 + ((i * 13) % 90),
+        specJson: JSON.stringify({ templateId: String(partTemplate.id) }),
+      });
+      if (!upd.ok) console.warn(`[demo-seed] номенклатура ${name} (update): ${(upd as any).error}`);
       nomenclatureIds.push(String(existingNom[0].id));
       continue;
     }
@@ -742,6 +891,10 @@ async function main() {
       itemType: 'part',
       groupId,
       unitId,
+      // Нормы запаса: без них колонки «Мин»/«Макс»/«К заказу» на экране остатков —
+      // сплошные прочерки, и фильтр «ниже минимального» показывать нечего.
+      minStock: 10 + ((i * 7) % 30),
+      maxStock: 120 + ((i * 13) % 90),
       specJson: JSON.stringify({ templateId: String(partTemplate.id) }),
     });
     if (up.ok) {
@@ -755,8 +908,8 @@ async function main() {
     // Приход остатков (импортоподобный stock_receipt) + пара расходов в цех.
     const mkLines = (ids: string[], qtyMin: number, qtyMax: number) =>
       ids.map((nomenclatureId) => ({
-        qty: between(qtyMin, qtyMax),
-        price: between(1_800, 96_000),
+        qty: rngFor(`doc-qty:${nomenclatureId}:${qtyMin}`).between(qtyMin, qtyMax),
+        price: rngFor(`doc-price:${nomenclatureId}`).between(1_800, 96_000),
         nomenclatureId,
         unit: 'шт',
         warehouseId: 'default',
