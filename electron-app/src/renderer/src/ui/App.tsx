@@ -12,7 +12,6 @@ import type {
   UiControlSettings,
   UiDisplayPrefs,
   UiShellPrefs,
-  V2Session,
   V2SessionCard,
   V2Prefs,
   V3Prefs,
@@ -46,10 +45,8 @@ import {
   cardTabs,
   createTabsState,
   focusAfterClose,
-  focusedCardKey,
   hasTab,
   parseTabId,
-  sessionCards,
   sessionSecondaryCard,
   sessionTabs,
   tabIdFromSessionKey,
@@ -3158,10 +3155,9 @@ export function App() {
   }, [isV2, engines, tabsState.tabs]);
 
   // ── Фаза 4: session-restore полосы вкладок между запусками ─────────────────────
-  // R3-PR2: персистится ВСЯ полоса (v3.session), а не только карточки. Запись в
-  // v2.session сохранена на один релиз — откат на предыдущую сборку на этой же
-  // станции (prefs лежат локально в sysDb, на сервер не уезжают) вернёт хотя бы
-  // карточки; списки/синглтоны/активную вкладку старый формат выразить не умеет.
+  // R3-PR2: персистится ВСЯ полоса (v3.session), а не только карточки. Dual-write в
+  // v2.session снят (обещан «на один релиз» и выпущен в v2026.809.1623); legacy-блоб
+  // по-прежнему читается restore-фолбэком, пока станция не переписала v3.session.
   useEffect(() => {
     if (!isV2 || !shellPrefs) return;
     // Не пишем, пока сессия этого пользователя не восстановлена: иначе отложенная
@@ -3175,11 +3171,6 @@ export function App() {
     // Весь снимок выводится из одного состояния — список из 16 selected*Id в зависимостях
     // больше не нужен (и не мог быть полным: user_screen в нём отсутствовал).
     const secondaryCard = sessionSecondaryCard(tabsState);
-    const v2session: V2Session = {
-      openCards: sessionCards(tabsState),
-      focusedKey: focusedCardKey(tabsState),
-      secondary: secondaryCard,
-    };
     const v3session: V3Session = {
       tabs: sessionTabs(tabsState),
       activeId: tabsState.activeId,
@@ -3188,7 +3179,7 @@ export function App() {
     // Состав меняется редко, активная вкладка — на каждый клик, а ui:prefs:set пишет
     // пять ключей настроек и перегоняет весь пользовательский словарь. Поэтому смена
     // одной лишь активной вкладки ждёт дольше.
-    const compSig = JSON.stringify({ v2: v2session, tabs: v3session.tabs });
+    const compSig = JSON.stringify({ tabs: v3session.tabs, secondaryCard });
     const fullSig = `${compSig}|${v3session.activeId}`;
     if (fullSig === v3SessionSigRef.current) return;
     const delay = compSig === v3SessionCompSigRef.current ? 4000 : 800;
@@ -3198,7 +3189,6 @@ export function App() {
       // Фолбэка на дефолты нет намеренно: эффект уже вышел по `!shellPrefs` выше.
       void persistShellPrefs({
         ...shellPrefs,
-        v2: { ...shellPrefs.v2, session: v2session },
         v3: { ...shellPrefs.v3, session: v3session },
       });
     }, delay);
