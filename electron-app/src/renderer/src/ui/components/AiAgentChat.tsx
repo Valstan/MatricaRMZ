@@ -15,9 +15,6 @@ import { formatMoscowTime } from '../utils/dateUtils.js';
 import { renderMarkdown } from '../utils/markdownLite.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
 
-const MIN_WIDTH = 360;
-const MAX_WIDTH = 800;
-const DEFAULT_WIDTH = 520;
 const REFRESH_IDLE_MS = 60_000;
 /** Вопрос в работе: чаще перечитываем реплику и подтягиваем ответ синком. */
 const REFRESH_ACTIVE_MS = 2_500;
@@ -119,7 +116,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   context: AiAgentContext;
   lastEvent: AiAgentEvent | null;
   recentEvents?: AiAgentEvent[];
-  onClose: () => void;
 }>((props, ref) => {
   // props.visible — «панель отрисована», useTabVisible — «её вкладка сейчас активна».
   const tabVisible = useTabVisible();
@@ -134,15 +130,12 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [error, setError] = useState<string | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
-  const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
-  const [fullscreen, setFullscreen] = useState(false);
   const [now, setNow] = useState<number>(Date.now());
   const [activeHints, setActiveHints] = useState<string[]>([]);
   const [templates, setTemplates] = useState<AiChatTemplate[]>([]);
   const [savedTemplateFor, setSavedTemplateFor] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await window.matrica.aiChat.list();
@@ -340,58 +333,21 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     await refresh();
   }
 
-  function onResizeMouseDown(e: React.MouseEvent) {
-    if (fullscreen) return;
-    resizingRef.current = { startX: e.clientX, startWidth: width };
-    e.preventDefault();
-  }
-
-  useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      const r = resizingRef.current;
-      if (!r) return;
-      const delta = r.startX - e.clientX;
-      setWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, r.startWidth + delta)));
-    }
-    function onMouseUp() {
-      resizingRef.current = null;
-    }
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-  }, []);
-
   if (!props.visible) return null;
 
-  const containerStyle: React.CSSProperties = fullscreen
-    ? {
-        position: 'fixed',
-        inset: 16,
-        borderRadius: 14,
-        border: `1px solid ${theme.colors.border}`,
-        background: theme.colors.surface,
-        boxShadow: '0 20px 80px rgba(0,0,0,0.35)',
-        display: 'flex',
-        flexDirection: 'column',
-        zIndex: 30,
-      }
-    : {
-        position: 'fixed',
-        right: 16,
-        bottom: 16,
-        width,
-        maxHeight: '80vh',
-        borderRadius: 14,
-        border: `1px solid ${theme.colors.border}`,
-        background: theme.colors.surface,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
-        display: 'flex',
-        flexDirection: 'column',
-        zIndex: 20,
-      };
+  // Обычная вкладка v3 (решение владельца 2026-08-11): чат заполняет свою панель
+  // in-flow, без position:fixed. Колонка ограничена по ширине ради читаемости на
+  // широких мониторах; скроллится только лента сообщений, композер прижат к низу.
+  const containerStyle: React.CSSProperties = {
+    height: '100%',
+    width: '100%',
+    maxWidth: 1000,
+    margin: '0 auto',
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    background: theme.colors.surface,
+  };
 
   function renderCard(item: AiChatRequestItem, foreign: boolean) {
     const questionFile = parseFileRef(item.questionFileJson);
@@ -565,12 +521,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
 
   return (
     <div data-ai-agent-ignore="true" data-input-assist="off" style={containerStyle}>
-      {!fullscreen && (
-        <div
-          onMouseDown={onResizeMouseDown}
-          style={{ position: 'absolute', top: 0, left: -4, width: 8, height: '100%', cursor: 'ew-resize', zIndex: 21 }}
-        />
-      )}
       <div
         style={{
           padding: 10,
@@ -583,12 +533,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         <div style={{ fontWeight: 900, flex: 1 }}>ИИваныч</div>
         <Button variant="ghost" onClick={() => void refresh()} title="Обновить">
           ⟳
-        </Button>
-        <Button variant="ghost" onClick={() => setFullscreen((v) => !v)} title={fullscreen ? 'Свернуть' : 'На весь экран'}>
-          {fullscreen ? '⤓' : '⤢'}
-        </Button>
-        <Button variant="ghost" onClick={props.onClose} title="Закрыть">
-          ✕
         </Button>
         <IvanychFigure size={40} />
       </div>

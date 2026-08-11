@@ -96,6 +96,26 @@ export function V3TabShell(props: {
     return () => setShellMounted(false);
   }, [setShellMounted]);
 
+  // МЕНЮ — узкий оверлей ПОВЕРХ активной вкладки (решение владельца 2026-08-11),
+  // а не полотно на всю панель. Вкладка «menu» осталась в модели (tabsModel держит
+  // её как неубиваемый tabs[0] и фолбэк activeId) — когда она активна (свежий вход,
+  // закрыта последняя вкладка), оверлей раскрывается сам, и CDP-смоуки по-прежнему
+  // видят span.v2-menu-btn-label сразу после загрузки.
+  const [menuOverlayOpen, setMenuOverlayOpen] = React.useState(false);
+  const activeForOverlay = props.openTabs.find((t) => t.id === props.activeTabId);
+  const activeKindForOverlay = activeForOverlay?.kind;
+  React.useEffect(() => {
+    if (activeKindForOverlay === 'menu') setMenuOverlayOpen(true);
+  }, [activeKindForOverlay, props.activeTabId]);
+  React.useEffect(() => {
+    if (!menuOverlayOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOverlayOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [menuOverlayOpen]);
+
   const menuPanel = (
     <ButtonPanel
       buttons={buttons}
@@ -105,8 +125,15 @@ export function V3TabShell(props: {
       onLayoutChange={props.onButtonLayoutChange}
       activeMenuTab={activeMenuTab}
       listOpenTab={null}
-      onTab={(t) => props.onMenuTab(t)}
-      onAction={props.onAction}
+      onTab={(t) => {
+        // Выбор пункта сворачивает оверлей — вкладка раздела откроется под ним.
+        setMenuOverlayOpen(false);
+        props.onMenuTab(t);
+      }}
+      onAction={(id) => {
+        setMenuOverlayOpen(false);
+        props.onAction(id);
+      }}
     />
   );
 
@@ -143,9 +170,13 @@ export function V3TabShell(props: {
     );
     switch (tab.kind) {
       case 'menu':
+        // Сам ButtonPanel живёт в оверлее (см. v3-menu-overlay ниже); панель вкладки
+        // «menu» — домашний экран-подсказка на случаи, когда activeId падает на неё
+        // (свежий вход, закрыта последняя вкладка, dirty-guard defer).
         return wrap(
-          <div key={tab.id} className={cls('v3-tab-content-menu')} {...paneAttrs}>
-            {menuPanel}
+          <div key={tab.id} className={cls('v3-list-empty')} {...paneAttrs}>
+            <div style={{ fontSize: 34 }}>🧱</div>
+            <div>Выберите раздел в МЕНЮ</div>
           </div>,
         );
       case 'list':
@@ -178,9 +209,11 @@ export function V3TabShell(props: {
             )
           : null;
       case 'ai_chat':
+        // v3-tab-content-ai-chat глушит скролл обёртки: скроллится только лента
+        // сообщений внутри чата, композер остаётся прижат к низу панели.
         return props.renderAiChatTab
           ? wrap(
-              <div key={tab.id} className={cls('v3-tab-content ui-content-viewport')} {...paneAttrs}>
+              <div key={tab.id} className={cls('v3-tab-content v3-tab-content-ai-chat ui-content-viewport')} {...paneAttrs}>
                 {frozen(() => props.renderAiChatTab?.())}
               </div>,
             )
@@ -245,7 +278,16 @@ export function V3TabShell(props: {
               <button
                 type="button"
                 className="v3-tab-label"
-                onClick={() => props.onSelectTab(tab.id)}
+                onClick={() => {
+                  // МЕНЮ — переключатель оверлея, активную вкладку не трогает;
+                  // выбор любой другой вкладки сворачивает открытый оверлей.
+                  if (isMenu) {
+                    setMenuOverlayOpen((v) => !v);
+                    return;
+                  }
+                  setMenuOverlayOpen(false);
+                  props.onSelectTab(tab.id);
+                }}
                 title={isSecondary ? `${tab.label} — открыта во второй панели` : tab.label}
               >
                 {isMenu ? `🧱 ${tab.label}` : isSecondary ? `▐ ${tab.label}` : tab.label}
@@ -343,6 +385,12 @@ export function V3TabShell(props: {
         ) : activeTab && !activeIsAlive ? (
           renderTabBody(activeTab, { pane: true, active: true })
         ) : null}
+        {menuOverlayOpen && (
+          <>
+            <div className="v3-menu-overlay-backdrop" onClick={() => setMenuOverlayOpen(false)} />
+            <div className="v3-menu-overlay">{menuPanel}</div>
+          </>
+        )}
       </div>
     </div>
   );
