@@ -34,9 +34,7 @@ type EnginePhotoGalleryProps = {
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 };
 
-// Android v1: фото/вложения скрыты платформой — гейт в корне компонента.
 export function EnginePhotoGallery(props: EnginePhotoGalleryProps) {
-  if (isAndroidPlatform()) return null;
   return <EnginePhotoGalleryInner {...props} />;
 }
 
@@ -58,6 +56,9 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
+  // Планшет: буфера обмена, печати и папок у WebView нет — эти действия там прячем,
+  // просмотр и удаление работают.
+  const isAndroid = isAndroidPlatform();
 
   const flash = (msg: string, ms = 1600) => {
     setBusy(msg);
@@ -258,10 +259,14 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
         >
           <strong style={{ fontSize: 13 }}>Выбрано фото: {selected.size}</strong>
           <span style={{ flex: 1 }} />
-          <Button variant="ghost" onClick={doPrint}>Печать</Button>
-          <Button variant="ghost" onClick={doAssemblePdf}>Собрать в PDF</Button>
-          <Button variant="ghost" onClick={doCopyToFolder}>На флешку / в папку…</Button>
-          <Button variant="ghost" onClick={() => doReveal(false)}>Открыть папку с файлами</Button>
+          {!isAndroid && (
+            <>
+              <Button variant="ghost" onClick={doPrint}>Печать</Button>
+              <Button variant="ghost" onClick={doAssemblePdf}>Собрать в PDF</Button>
+              <Button variant="ghost" onClick={doCopyToFolder}>На флешку / в папку…</Button>
+              <Button variant="ghost" onClick={() => doReveal(false)}>Открыть папку с файлами</Button>
+            </>
+          )}
           {props.canDelete && <Button variant="ghost" onClick={doDelete}>Удалить</Button>}
           <Button variant="ghost" onClick={() => setSelected(new Set())}>Снять выбор</Button>
         </div>
@@ -310,7 +315,7 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
         >
           {/* Тулбар */}
           <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', flexWrap: 'wrap' }}>
-            <Button variant="ghost" style={tbBtn} onClick={doCopy}>Копировать</Button>
+            {!isAndroid && <Button variant="ghost" style={tbBtn} onClick={doCopy}>Копировать</Button>}
             {props.canDelete && <Button variant="ghost" style={tbBtn} onClick={doDelete}>Удалить</Button>}
             {/* Кнопка добавляет/убирает ТЕКУЩЕЕ фото и набор не обнуляет: листаешь —
                 выбранное копится, а действия тулбара идут по всему набору. */}
@@ -330,6 +335,7 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
                 Снять выбор ({selected.size})
               </Button>
             )}
+            {!isAndroid && (
             <div style={{ position: 'relative' }}>
               <Button variant="ghost" style={tbBtn} onClick={() => setShareOpen((v) => !v)}>Отправить ▾</Button>
               {shareOpen && (
@@ -340,8 +346,9 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
                 </div>
               )}
             </div>
-            <Button variant="ghost" style={tbBtn} onClick={doPrint}>Печать</Button>
-            <Button variant="ghost" style={tbBtn} onClick={doAssemblePdf}>Собрать в PDF</Button>
+            )}
+            {!isAndroid && <Button variant="ghost" style={tbBtn} onClick={doPrint}>Печать</Button>}
+            {!isAndroid && <Button variant="ghost" style={tbBtn} onClick={doAssemblePdf}>Собрать в PDF</Button>}
             <span style={{ flex: 1 }} />
             <span style={{ color: '#cbd5e1', fontSize: 13 }}>
               {(activeIndex ?? 0) + 1} / {photos.length}

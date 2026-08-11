@@ -77,6 +77,15 @@ function isPrintableImage(name: string): boolean {
   return ['jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp'].includes(fileExt(name));
 }
 
+/** Снимок с камеры приходит как image.jpg — в списке вложений это бесполезное имя. */
+function renameCameraShot(file: File): File {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+  const ext = fileExt(file.name) || 'jpg';
+  return new File([file], `Фото ${stamp}.${ext}`, { type: file.type });
+}
+
 const LIST_TOGGLE_STYLE: React.CSSProperties = {
   marginTop: 10,
   width: '100%',
@@ -102,10 +111,7 @@ type AttachmentsPanelProps = {
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 };
 
-// Android v1: вложения скрыты платформой (файловые диалоги не портируются) —
-// гейт в корне компонента закрывает все точки монтирования разом.
 export function AttachmentsPanel(props: AttachmentsPanelProps) {
-  if (isAndroidPlatform()) return null;
   return <AttachmentsPanelInner {...props} />;
 }
 
@@ -121,6 +127,11 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // На планшете нет ни файловых диалогов, ни кэша на диске, ни Проводника: часть
+  // кнопок панели там просто не имеет смысла — гейтим их поштучно, а не панель целиком.
+  const isAndroid = isAndroidPlatform();
+  const androidPickRef = useRef<HTMLInputElement>(null);
+  const androidCameraRef = useRef<HTMLInputElement>(null);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
   // Длинный список файлов по умолчанию свёрнут (этап 4 tabs-window-shell): пользователь
@@ -257,6 +268,41 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     }
   }
 
+  /**
+   * Планшет. Пути к файлу у WebView нет: содержимое читаем из Blob и грузим им же.
+   * Диалог переименования тут не показываем — в цеху лишний шаг ни к чему, имя
+   * берём как есть (для камеры оно осмысленное: «Фото <дата время>.jpg»).
+   */
+  async function uploadBlobs(files: File[]) {
+    if (!props.canUpload || files.length === 0) return;
+    setBusy('Загрузка файлов...');
+    try {
+      const added: FileRef[] = [];
+      for (const file of files) {
+        const dataBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('не удалось прочитать файл'));
+          reader.onload = () => resolve(String(reader.result ?? '').split(',')[1] ?? '');
+          reader.readAsDataURL(file);
+        });
+        const r = await window.matrica.files.uploadBlob({
+          name: file.name,
+          ...(file.type ? { mime: file.type } : {}),
+          dataBase64,
+          ...(props.scope ? { scope: props.scope } : {}),
+        });
+        if (!r.ok) throw new Error(r.error);
+        added.push(r.file);
+      }
+      await Promise.resolve(props.onChange([...list, ...added]));
+      setBusy(`Успешно: прикреплено файлов — ${added.length}`);
+      setTimeout(() => setBusy(''), 1400);
+    } catch (e) {
+      setBusy(`Неуспешно: ${e instanceof Error ? e.message : String(e)}`);
+      setTimeout(() => setBusy(''), 4500);
+    }
+  }
+
   async function addFromDrop(dropped: FileList | null) {
     if (!props.canUpload || !dropped || dropped.length === 0) return;
     const r = await window.matrica.files.dropped(Array.from(dropped));
@@ -337,7 +383,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   return (
     <div
       onDragOver={(e) => {
-        if (!props.canUpload || !e.dataTransfer.types.includes('Files')) return;
+        if (!props.canUpload || isAndroid || !e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
         if (!dragOver) setDragOver(true);
@@ -371,7 +417,41 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             {busy}
           </div>
         )}
-        {props.canUpload && (
+        {props.canUpload && isAndroid && (
+          <>
+            {/* На планшете файлы выбирает сам WebView: галерея, «Файлы» или камера. */}
+            <input
+              ref={androidPickRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []);
+                e.target.value = '';
+                void uploadBlobs(picked);
+              }}
+            />
+            <input
+              ref={androidCameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []);
+                e.target.value = '';
+                void uploadBlobs(picked.map((f) => renameCameraShot(f)));
+              }}
+            />
+            <Button variant="ghost" onClick={() => androidPickRef.current?.click()}>
+              Добавить файл
+            </Button>
+            <Button variant="ghost" onClick={() => androidCameraRef.current?.click()}>
+              📷 Сделать фото
+            </Button>
+          </>
+        )}
+        {props.canUpload && !isAndroid && (
           <>
             <Button
               variant="ghost"
@@ -391,8 +471,9 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         )}
         {/* Раньше «Папка скачивания» лишь МЕНЯЛА корневую папку и ничего не открывала.
             Теперь основная кнопка открывает папку файлов именно этой карточки, а смена
-            корня осталась отдельным пунктом. */}
-        <Button
+            корня осталась отдельным пунктом. На планшете папок с файлами нет. */}
+        {!isAndroid && (
+        <><Button
           variant="ghost"
           disabled={list.length === 0}
           title="Открыть папку с файлами этой карточки"
@@ -418,7 +499,8 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           }}
         >
           Сменить папку загрузок…
-        </Button>
+        </Button></>
+        )}
       </div>
       {selectedIds.length > 0 && (
         <div
@@ -436,18 +518,22 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         >
           <strong style={{ fontSize: 13 }}>Выбрано файлов: {selectedIds.length}</strong>
           <span style={{ flex: 1 }} />
-          <Button variant="ghost" onClick={() => setPrintDialogOpen(true)}>
-            Печать…
-          </Button>
-          <Button variant="ghost" onClick={() => void runBatch('Копирование в папку', () => window.matrica.files.copyToFolder({ fileIds: selectedIds }))}>
-            Копировать в папку…
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => void runBatch('Подготовка к отправке', () => window.matrica.files.revealForShare({ fileIds: selectedIds, label: objectLabel }))}
-          >
-            Отправить…
-          </Button>
+          {!isAndroid && (
+            <>
+              <Button variant="ghost" onClick={() => setPrintDialogOpen(true)}>
+                Печать…
+              </Button>
+              <Button variant="ghost" onClick={() => void runBatch('Копирование в папку', () => window.matrica.files.copyToFolder({ fileIds: selectedIds }))}>
+                Копировать в папку…
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void runBatch('Подготовка к отправке', () => window.matrica.files.revealForShare({ fileIds: selectedIds, label: objectLabel }))}
+              >
+                Отправить…
+              </Button>
+            </>
+          )}
           <Button variant="ghost" onClick={() => setSelected(new Set())}>
             Снять выбор
           </Button>
@@ -486,7 +572,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           Показано: {filteredList.length} из {list.length}
         </div>
       </div>
-      {props.canUpload && (
+      {props.canUpload && !isAndroid && (
         <div style={{ marginTop: 6, fontSize: 12, color: dragOver ? '#1d4ed8' : '#94a3b8' }}>
           {dragOver ? 'Отпустите — файлы загрузятся сюда' : 'Файлы можно перетащить сюда мышью или вставить из буфера обмена'}
         </div>

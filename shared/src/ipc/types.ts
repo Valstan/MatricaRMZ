@@ -2295,6 +2295,8 @@ export type MatricaApi = {
     dropped: (files: File[]) => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Достаёт из буфера обмена файлы / картинку / текст, сохраняя два последних во временный файл.
     clipboardRead: () => Promise<{ ok: true; paths: string[]; kind: 'files' | 'image' | 'text' } | { ok: false; error: string }>;
+    // Планшет: загрузка файла содержимым (пути к файлу у WebView нет).
+    uploadBlob: (args: { name: string; mime?: string; dataBase64: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
     // Собирает файлы ЭТОЙ карточки в `<папка загрузок>/Объекты/<имя>` и открывает её в Проводнике.
     openObjectDir: (args: { fileIds: string[]; label?: string }) => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
     // Папка скачивания/кеша.

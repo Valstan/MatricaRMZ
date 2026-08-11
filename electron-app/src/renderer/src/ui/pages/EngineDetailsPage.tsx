@@ -49,13 +49,9 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
   { key: 'details', label: 'Детали и акты' },
   { key: 'history', label: 'История ремонта' },
-  // Android v1: файловые диалоги не портируются, платежи вне цеховой рамки.
-  ...(isAndroidPlatform()
-    ? []
-    : ([
-        { key: 'files', label: 'Фото и документы' },
-        { key: 'payments', label: 'Платежи' },
-      ] as { key: EngineCardTab; label: string }[])),
+  { key: 'files', label: 'Фото и документы' },
+  // Платежи остаются вне цеховой рамки планшета.
+  ...(isAndroidPlatform() ? [] : ([{ key: 'payments', label: 'Платежи' }] as { key: EngineCardTab; label: string }[])),
   { key: 'reclamation', label: 'Рекламация' },
 ];
 
