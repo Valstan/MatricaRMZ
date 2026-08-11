@@ -35,6 +35,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { CardTabs, type CardTab } from '../components/CardTabs.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
@@ -63,6 +64,13 @@ import { buildWorkOrderPrintModel, type WoPrintDeps } from '../utils/woPrintMode
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 
 type LinkOpt = SearchSelectOption;
+
+type WorkOrderCardTab = 'main' | 'content' | 'signatures';
+const WORK_ORDER_CARD_TABS: CardTab<WorkOrderCardTab>[] = [
+  { key: 'main', label: 'Реквизиты' },
+  { key: 'content', label: 'Содержимое' },
+  { key: 'signatures', label: 'Подписи' },
+];
 /** Резолвленные для печати реквизиты по двигателю: суффикс номера контракта (***NNN) + контрагент. */
 type EngineContractInfo = { contractSuffix: string; counterparty: string };
 
@@ -318,6 +326,10 @@ export function WorkOrderDetailsPage(props: {
   const [engineContractInfo, setEngineContractInfo] = useState<Record<string, EngineContractInfo>>({});
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [numberEditor, setNumberEditor] = useState<{ value: string; busy: boolean; error: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkOrderCardTab>('main');
+  // Новый наряд открываем на реквизитах (их и заполняют), уже заведённый — сразу на
+  // содержимом. Переключаем один раз, чтобы не отменять выбор пользователя.
+  const defaultTabApplied = useRef(false);
   const [parts, setParts] = useState<PartInfo[]>([]);
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
@@ -352,6 +364,11 @@ export function WorkOrderDetailsPage(props: {
   /** Текущий статус операции из локальной SQLite (после refresh). 'closed' блокирует редактирование. */
   const [operationStatus, setOperationStatus] = useState<string>('open');
   const [operationUpdatedAt, setOperationUpdatedAt] = useState<number>(0);
+  useEffect(() => {
+    if (defaultTabApplied.current || operationUpdatedAt <= 0) return;
+    defaultTabApplied.current = true;
+    setActiveTab('content');
+  }, [operationUpdatedAt]);
   const isClosed = operationStatus === 'closed' || closedLocally;
   const canEditNow = props.canEdit && !isClosed;
   const dirtyRef = useRef(false);
@@ -1846,7 +1863,9 @@ export function WorkOrderDetailsPage(props: {
     <SectionCard className="entity-card-span-full">
       {/* Фаза E (ui-themes-ergonomics): блок подписей свёрнут по умолчанию — заполняется
           при закрытии наряда, а в повседневной работе только загромождает карточку. */}
-      <CollapsibleSection title="Подписи" defaultOpen={false}>
+      {/* Секция живёт на своей вкладке — держим её раскрытой (свёрнутая размонтирует
+          содержимое, и вкладка выглядела бы пустой). */}
+      <CollapsibleSection title="Подписи" defaultOpen>
       <div style={{ display: 'grid', gap: 16 }}>
         <datalist id="wo-signature-captions">
           {captionSuggestions.map((c) => (
@@ -1964,10 +1983,26 @@ export function WorkOrderDetailsPage(props: {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-      {/* Закреплённая шапка: управляющие кнопки + реквизиты — не уезжают за край при прокрутке */}
+      {/* Закреплённая шапка: управляющие кнопки и вкладки. Реквизиты уехали в свою
+          вкладку (решение владельца 2026-08-11): в шапке они занимали пол-экрана
+          планшета и мешали работать с содержимым наряда. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 9, flexShrink: 0, background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%' }}>
           {cardActionBar}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 var(--ui-space-4, 10px) var(--ui-space-2, 4px)', fontSize: 12, color: 'var(--subtle)' }}>
+            <span>Наряд № {Number(payload.workOrderNumber) > 0 ? payload.workOrderNumber : 'новый'}</span>
+            {payload.workOrderKind ? <span>· {WORK_ORDER_KIND_LABELS[payload.workOrderKind] ?? payload.workOrderKind}</span> : null}
+            {isClosed ? <span>· закрыт</span> : payload.repairIssued ? <span>· выдан в работу</span> : null}
+          </div>
+          <CardTabs tabs={WORK_ORDER_CARD_TABS} active={activeTab} onChange={setActiveTab} className="" />
+        </div>
+      </div>
+      {/* Вкладка «Реквизиты» */}
+      <div
+        data-card-tab="main"
+        hidden={activeTab !== 'main'}
+        style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}
+      >
       {/* Реквизиты: только номер и дата создания */}
       <div
         style={{
@@ -2651,9 +2686,9 @@ export function WorkOrderDetailsPage(props: {
           })()
         ) : null}
       </div>
-        </div>
       </div>
-      {/* Тело карточки — прокручивается под закреплённой шапкой */}
+      {/* Вкладка «Содержимое» — работы, комплектовка, бригада */}
+      <div data-card-tab="content" hidden={activeTab !== 'content'}>
       <div style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}>
         <EntityCardShell title="" layout="stack">
       {(payload.workOrderKind === WorkOrderKind.Repair || payload.workOrderKind === WorkOrderKind.Assembly) && !isClosed ? (
@@ -3338,8 +3373,11 @@ export function WorkOrderDetailsPage(props: {
         </div>
         ) : null}
       </SectionCard>
-
-      {signaturesSection}
+      </div>
+      {/* Вкладка «Подписи» */}
+      <div data-card-tab="signatures" hidden={activeTab !== 'signatures'} style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}>
+        {signaturesSection}
+      </div>
     </div>
     {workOrderTemplateEditor ? (
       <WorkOrderTemplateEditorDialog

@@ -19,6 +19,7 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { CardTabs } from '../components/CardTabs.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
@@ -1929,33 +1930,15 @@ export function EngineDetailsPage(props: {
     >
         {/* Вкладки карточки (план reclamation-mvp-2026-07 Ф0). Панели НЕ размонтируются
             (скрытие через hidden) — save-on-close/черновики/печать работают по state как раньше. */}
-        <div className="entity-card-span-full" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
-          {ENGINE_CARD_TABS.filter((t) => (t.key !== 'details' && t.key !== 'history') || props.canViewOperations).map((t) => {
-            const active = activeTab === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setActiveTab(t.key)}
-                style={{
-                  padding: '7px 14px',
-                  borderRadius: '10px 10px 0 0',
-                  border: '1px solid var(--border)',
-                  borderBottom: 'none',
-                  background: active ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                  fontWeight: active ? 700 : 400,
-                  cursor: 'pointer',
-                  color: 'inherit',
-                  fontSize: 13,
-                }}
-              >
-                {t.label}
-                {t.key === 'main' && mainDirty ? <span style={{ color: 'var(--danger)' }}> ●</span> : null}
-                {t.key === 'reclamation' && reclFlag ? <span style={{ color: '#2563eb' }}> ●</span> : null}
-              </button>
-            );
-          })}
-        </div>
+        <CardTabs
+          tabs={ENGINE_CARD_TABS.filter((t) => (t.key !== 'details' && t.key !== 'history') || props.canViewOperations).map((t) => ({
+            ...t,
+            ...(t.key === 'main' && mainDirty ? { dot: 'warning' as const } : {}),
+            ...(t.key === 'reclamation' && reclFlag ? { dot: 'info' as const } : {}),
+          }))}
+          active={activeTab}
+          onChange={setActiveTab}
+        />
 
         {reservation && reservationState !== 'free' ? (
           <div
