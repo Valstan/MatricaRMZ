@@ -1919,11 +1919,6 @@ export function EngineDetailsPage(props: {
               props.onClose();
             })();
           }}
-          onReset={() => {
-            void props.onReload().then(() => {
-              setSessionChanged(false);
-            });
-          }}
           onPrint={props.canPrintEngineCard && !isAndroidPlatform() ? handlePrint : undefined}
           onDelete={() => void handleDelete()}
           deleteConfirmDetail={`Будет удалён двигатель «${String(engineNumber || '').trim() || props.engineId}» (марка: ${String(engineBrand || '—').trim()}). Действие обычно нельзя отменить.`}

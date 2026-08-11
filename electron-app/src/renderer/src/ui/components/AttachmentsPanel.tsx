@@ -71,6 +71,20 @@ function isObsoleteFile(file: AttachmentFileRef): boolean {
   return file.isObsolete === true;
 }
 
+const LIST_TOGGLE_STYLE: React.CSSProperties = {
+  marginTop: 10,
+  width: '100%',
+  padding: '8px 12px',
+  border: '1px solid #e5e7eb',
+  borderRadius: 12,
+  background: '#f8fafc',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontWeight: 600,
+  color: '#334155',
+  textAlign: 'left',
+};
+
 type AttachmentsPanelProps = {
   title?: string;
   value: unknown; // FileRef[] in JSON
@@ -302,27 +316,13 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         </div>
       )}
 
-      {listCollapsed ? (
-        <button
-          type="button"
-          onClick={() => setListExpanded(true)}
-          style={{
-            marginTop: 10,
-            width: '100%',
-            padding: '8px 12px',
-            border: '1px solid #e5e7eb',
-            borderRadius: 12,
-            background: '#f8fafc',
-            cursor: 'pointer',
-            font: 'inherit',
-            fontWeight: 600,
-            color: '#334155',
-            textAlign: 'left',
-          }}
-        >
-          ▶ Показать файлы ({filteredList.length})
+      {/* Кнопка остаётся на месте и после разворота — иначе список не свернуть обратно. */}
+      {list.length > LONG_LIST_THRESHOLD && (
+        <button type="button" onClick={() => setListExpanded((v) => !v)} style={LIST_TOGGLE_STYLE}>
+          {listExpanded ? '▼ Свернуть файлы' : '▶ Показать файлы'} ({filteredList.length})
         </button>
-      ) : (
+      )}
+      {!listCollapsed && (
       <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
