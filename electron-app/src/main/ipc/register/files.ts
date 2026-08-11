@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ipcMain, dialog, app, BrowserWindow } from 'electron';
@@ -7,6 +8,7 @@ import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcConte
 import { consumeIssuedPath, rememberIssuedPath } from '../pathOriginRegistry.js';
 
 import {
+  filesClipboardRead,
   filesCopyImageToClipboard,
   filesCopyToFolder,
   filesDelete,
@@ -47,6 +49,32 @@ export function registerFilesIpc(ctx: IpcContext) {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  });
+
+  // Файлы, брошенные мышью на карточку. Пути приходят из webUtils.getPathForFile
+  // (preload) — их даёт только НАСТОЯЩИЙ File из события drop/paste, поэтому
+  // allowlist путей остаётся смыслом: сфабриковать произвольный путь renderer'у нечем.
+  ipcMain.handle('files:registerDropped', async (_e, args: { paths: string[] }) => {
+    try {
+      const gate = await requirePermOrResult(ctx, 'files.upload');
+      if (!gate.ok) return gate;
+
+      const paths = (args?.paths ?? []).map((p) => String(p || '').trim()).filter((p) => p.length > 0 && existsSync(p));
+      if (paths.length === 0) return { ok: false, error: 'Перетащите файлы (папки так не загружаются)' };
+      for (const p of paths) rememberIssuedPath(p);
+      return { ok: true, paths };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('files:clipboardRead', async () => {
+    const gate = await requirePermOrResult(ctx, 'files.upload');
+    if (!gate.ok) return gate;
+    const r = await filesClipboardRead();
+    if (!r.ok) return r;
+    for (const p of r.paths) rememberIssuedPath(p);
+    return r;
   });
 
   ipcMain.handle('files:downloadDir:get', async () => {

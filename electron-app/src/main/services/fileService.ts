@@ -614,6 +614,56 @@ export async function filesOriginalGet(
   }
 }
 
+/**
+ * Что лежит в буфере обмена — файлы, картинка или текст. Бухгалтер копирует «что попало»,
+ * поэтому вид определяем по содержимому и сами решаем, с каким расширением сохранить:
+ * скопированные файлы отдаём их же путями, картинку кладём в .png, текст — в .txt.
+ * Возвращаем пути во временной папке; вызывающий грузит их обычным путём загрузки.
+ */
+export async function filesClipboardRead(): Promise<
+  { ok: true; paths: string[]; kind: 'files' | 'image' | 'text' } | { ok: false; error: string }
+> {
+  try {
+    const formats = clipboard.availableFormats();
+    // Windows кладёт список скопированных файлов в CF_HDROP (у Electron — FileNameW),
+    // текстом там UTF-16LE пути, разделённые нулями.
+    if (formats.some((f) => f.toLowerCase().includes('filename'))) {
+      const raw = clipboard.readBuffer('FileNameW').toString('ucs2');
+      const paths = raw
+        .split('\0')
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0 && existsSync(p));
+      if (paths.length > 0) return { ok: true, paths, kind: 'files' };
+    }
+
+    const img = clipboard.readImage();
+    if (!img.isEmpty()) {
+      const dir = await fsp.mkdtemp(join(tmpdir(), 'matrica-paste-'));
+      const target = join(dir, `Вставка ${clipboardStamp()}.png`);
+      await fsp.writeFile(target, img.toPNG());
+      return { ok: true, paths: [target], kind: 'image' };
+    }
+
+    const text = clipboard.readText();
+    if (text.trim()) {
+      const dir = await fsp.mkdtemp(join(tmpdir(), 'matrica-paste-'));
+      const target = join(dir, `Вставка ${clipboardStamp()}.txt`);
+      await fsp.writeFile(target, text, 'utf8');
+      return { ok: true, paths: [target], kind: 'text' };
+    }
+
+    return { ok: false, error: 'В буфере обмена нет ни файлов, ни картинки, ни текста' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function clipboardStamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+
 export async function filesCopyImageToClipboard(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
