@@ -9,6 +9,7 @@ import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.j
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js';
 import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
+import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
@@ -97,6 +98,7 @@ async function bootstrap() {
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();
     startAiChatDirectWorker();
+    startAiUsageDigestScheduler();
     startLogAnalysisAgent();
   }
 
