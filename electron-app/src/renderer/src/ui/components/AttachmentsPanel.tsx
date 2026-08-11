@@ -120,6 +120,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   // Групповые операции: чекбоксы в списке → печать / копирование / отправка пачкой.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
   // Длинный список файлов по умолчанию свёрнут (этап 4 tabs-window-shell): пользователь
@@ -256,6 +257,28 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     }
   }
 
+  async function addFromDrop(dropped: FileList | null) {
+    if (!props.canUpload || !dropped || dropped.length === 0) return;
+    const r = await window.matrica.files.dropped(Array.from(dropped));
+    if (!r.ok) {
+      setBusy(`Ошибка: ${r.error}`);
+      setTimeout(() => setBusy(''), 3500);
+      return;
+    }
+    await addFromPaths(r.paths);
+  }
+
+  async function addFromClipboard() {
+    if (!props.canUpload) return;
+    const r = await window.matrica.files.clipboardRead();
+    if (!r.ok) {
+      setBusy(`Ошибка: ${r.error}`);
+      setTimeout(() => setBusy(''), 3500);
+      return;
+    }
+    await addFromPaths(r.paths);
+  }
+
   function toggleSelected(fileId: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -313,7 +336,30 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
 
   return (
     <div
-      style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}
+      onDragOver={(e) => {
+        if (!props.canUpload || !e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        if (!dragOver) setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        // Уход внутрь дочернего узла — не выход из зоны.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!props.canUpload) return;
+        e.preventDefault();
+        setDragOver(false);
+        void addFromDrop(e.dataTransfer.files);
+      }}
+      style={{
+        marginTop: 14,
+        border: dragOver ? '2px dashed #2563eb' : '1px solid rgba(15, 23, 42, 0.18)',
+        borderRadius: 14,
+        padding: dragOver ? 11 : 12,
+        background: dragOver ? '#eff6ff' : undefined,
+      }}
     >
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <strong>{props.title ?? 'Вложения'}</strong>
@@ -337,6 +383,9 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
               }}
             >
               Добавить файл
+            </Button>
+            <Button variant="ghost" title="Загрузить то, что скопировано в буфер обмена" onClick={() => void addFromClipboard()}>
+              Вставить из буфера
             </Button>
           </>
         )}
@@ -437,6 +486,11 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           Показано: {filteredList.length} из {list.length}
         </div>
       </div>
+      {props.canUpload && (
+        <div style={{ marginTop: 6, fontSize: 12, color: dragOver ? '#1d4ed8' : '#94a3b8' }}>
+          {dragOver ? 'Отпустите — файлы загрузятся сюда' : 'Файлы можно перетащить сюда мышью или вставить из буфера обмена'}
+        </div>
+      )}
       {uploadFlow.progress.active && (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>

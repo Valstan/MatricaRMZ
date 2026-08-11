@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { ChatDeepLinkPayload, PartMetadata } from '@matricarmz/shared';
 
 // API, доступный в renderer. Дальше будем расширять CRUD и синхронизацию.
@@ -704,6 +704,13 @@ const matricaApi = {
     upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
       ipcRenderer.invoke('files:upload', args),
     pick: async () => ipcRenderer.invoke('files:pick'),
+    // Путь брошенного файла умеет достать только preload (webUtils) и только у
+    // настоящего File из события drop/paste — renderer произвольный путь не подсунет.
+    dropped: async (files: File[]) =>
+      ipcRenderer.invoke('files:registerDropped', {
+        paths: files.map((f) => webUtils.getPathForFile(f)).filter(Boolean),
+      }),
+    clipboardRead: async () => ipcRenderer.invoke('files:clipboardRead'),
     download: async (args: { fileId: string }) => ipcRenderer.invoke('files:download', args),
     open: async (args: { fileId: string }) => ipcRenderer.invoke('files:open', args),
     delete: async (args: { fileId: string }) => ipcRenderer.invoke('files:delete', args),

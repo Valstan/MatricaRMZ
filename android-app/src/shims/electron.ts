@@ -131,6 +131,16 @@ export const contextBridge = {
   },
 };
 
+// Пути к файлам на планшете нет: у WebView нет доступа к файловой системе, а
+// загрузка вложений там пойдёт своим путём (из Blob), не через путь на диске.
+// Пустая строка отфильтровывается вызывающим, и перетаскивание честно отвечает
+// «перетащите файлы», а не падает.
+export const webUtils = {
+  getPathForFile(_file: unknown): string {
+    return '';
+  },
+};
+
 // Единственное «окно» — сам WebView; webContents.send доставляет событие
 // слушателям ipcRenderer.on (sync:progress, auth:changed и т.п.).
 const fakeWindow = {
