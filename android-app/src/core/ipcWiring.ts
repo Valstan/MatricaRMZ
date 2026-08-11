@@ -2,9 +2,10 @@
 // реализации ~100 методов реюзаем НАСТОЯЩИЕ ipc/register/*-модули и preload
 // Electron-клиента: электрон-шим даёт in-process ipcMain/ipcRenderer-шину, здесь
 // собирается IpcContext и регистрируются домены android-рамки (план
-// docs/plans/android-tablet-client-2026-08.md, Ф2). Домены вне рамки (файлы,
-// печать, чат, AI, отчёты, бэкапы) не регистрируются — их каналы отвечают
-// мягким «недоступно на планшете» (см. ipcRenderer.invoke в шиме).
+// docs/plans/android-tablet-client-2026-08.md, Ф2). Домены вне рамки (печать, чат,
+// AI, отчёты, бэкапы) не регистрируются — их каналы отвечают мягким «недоступно
+// на планшете» (см. ipcRenderer.invoke в шиме). Вложения — исключение: у них свой
+// узкий мост (filesBridge.ts), потому что десктопный построен вокруг путей на диске.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { ipcMain } from 'electron';
@@ -33,6 +34,7 @@ import { registerWorkOrdersIpc } from '../../../electron-app/src/main/ipc/regist
 import { registerWorkshopsIpc } from '../../../electron-app/src/main/ipc/register/workshops.js';
 
 import { getAndroidPlatformHooks } from '../shims/platform.js';
+import { registerAndroidFilesIpc } from './filesBridge.js';
 import type { AndroidCore } from './boot.js';
 
 export function wireIpcForAndroid(core: AndroidCore): IpcContext {
@@ -96,6 +98,9 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerNotesIpc(ctx);
   registerPartsIpc(ctx);
   registerErpIpc(ctx);
+  // Вложения: свой узкий мост поверх REST (десктопный files.ts построен вокруг
+  // путей на диске и на планшете неприменим).
+  registerAndroidFilesIpc(ctx);
   restoreIpcHandle();
 
   // Каналы, живущие в electron-app/src/main/index.ts (не портируется целиком).
