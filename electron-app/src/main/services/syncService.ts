@@ -56,6 +56,7 @@ import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigration
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
+import { getSyncSqlLimits, nextUpsertChunkEnd } from './sync/upsertChunks.js';
 import {
   markPendingError,
   dropPendingChatReads as dropPendingChatReadsRecovery,
@@ -94,17 +95,17 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.CardDrafts]: 500,
   [SyncTableName.AiChatRequests]: 100,
 };
-// better-sqlite3 bundles modern SQLite (SQLITE_MAX_VARIABLE_NUMBER=32766 since 3.32).
-// Large chunks matter: each INSERT statement outside a transaction is its own commit,
-// and cold full pull with 900-param chunks produced ~300 commits (~4s of the apply phase).
-const SQLITE_BIND_PARAM_LIMIT = 32000;
+// Bind-param limit lives in sync/upsertChunks.ts (desktop 32000; android injects 900
+// + byte cap via setSyncSqlLimits — GOTCHAS M74). Large chunks matter on desktop:
+// each INSERT statement outside a transaction is its own commit, and cold full pull
+// with 900-param chunks produced ~300 commits (~4s of the apply phase).
 // Conservative limit for retry if the runtime SQLite still enforces the legacy 999 cap.
 const SQLITE_BIND_PARAM_LIMIT_LEGACY = 900;
 const CHUNK_SIZE_FALLBACK = 200;
 const MAX_UPSERT_CHUNK_ROWS = 2000;
 const IN_ARRAY_CHUNK = 400;
 
-function getUpsertChunkSize(rows: Array<Record<string, unknown>>, bindLimit = SQLITE_BIND_PARAM_LIMIT) {
+function getUpsertChunkSize(rows: Array<Record<string, unknown>>, bindLimit = getSyncSqlLimits().maxBindParams) {
   if (!rows.length) return CHUNK_SIZE_FALLBACK;
   const keyCount = Math.max(
     1,
@@ -173,8 +174,10 @@ async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
 ) {
   if (rows.length === 0) return;
   let chunkSize = getUpsertChunkSize(rows);
+  const { maxChunkBytes } = getSyncSqlLimits();
   for (let i = 0; i < rows.length; ) {
-    const chunk = rows.slice(i, i + chunkSize);
+    const end = nextUpsertChunkEnd(rows, i, chunkSize, maxChunkBytes);
+    const chunk = rows.slice(i, end);
     try {
       await db
         .insert(drizzleTable)
@@ -183,7 +186,7 @@ async function upsertPulledRowsInChunks<T extends Record<string, unknown>>(
           target: conflictTarget,
           set: conflictSet,
         });
-      i += chunk.length;
+      i = end;
     } catch (e) {
       const legacyChunkSize = getUpsertChunkSize(rows, SQLITE_BIND_PARAM_LIMIT_LEGACY);
       if (chunkSize > legacyChunkSize && /too many (sql )?variables/i.test(String(e))) {

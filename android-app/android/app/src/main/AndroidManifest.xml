@@ -3,8 +3,11 @@
 
     <!-- allowBackup=false: в данных приложения лежит реплика завода и ключ
          SQLCipher; авто-бэкап Android выгружал бы их в Google-аккаунт. -->
+    <!-- largeHeap: страховка от OOM Java-кучи при разборе bridge-сообщений синка
+         (GOTCHAS M74); основной фикс — байтовый кап чанков в syncWiring.ts. -->
     <application
         android:allowBackup="false"
+        android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
