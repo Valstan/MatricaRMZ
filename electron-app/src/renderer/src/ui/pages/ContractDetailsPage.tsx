@@ -24,6 +24,7 @@ import {
   nextAddonSeq,
   contractSectionAddonToken,
   canonicalContractSectionKey,
+  buildContractSectionOptions,
   PRIMARY_CONTRACT_SECTION_KEY,
   aggregateContractExecutionProgress,
   CONTRACT_EXECUTION_PARTS_ATTR_CODE,
@@ -70,7 +71,7 @@ import { mutateContractPayments, readContractPayments } from '../utils/contractP
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
-import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 
@@ -436,6 +437,12 @@ function SectionBlock(props: {
   engineOptions?: LinkOpt[];
   onOpenEngine?: (engineId: string) => void | Promise<void>;
   onAttachEngineToSection?: (engineId: string, sectionToken: string) => void | Promise<void>;
+  // Перенос двигателя в другую секцию прямо из строки (двунаправленно с карточкой двигателя).
+  onMoveEngineToSection?: (engineId: string, sectionToken: string) => void | Promise<void>;
+  /** Опции секций для переноса — по КОММИТНЫМ секциям (id = стабильный токен привязки). */
+  sectionMoveOptions?: SearchSelectOption[];
+  /** Для гарда резервирования: чужой advisory-резерв блокирует перенос. */
+  currentUserId?: string;
   // Платежи (план engine-payments-2026-07, этап 2): слоты секции + распределение аванса.
   contractPayments?: ContractPayments;
   canEditPayments?: boolean;
@@ -476,6 +483,8 @@ function SectionBlock(props: {
     engineOptions = [],
     onOpenEngine,
     onAttachEngineToSection,
+    onMoveEngineToSection,
+    sectionMoveOptions = [],
   } = props;
 
   // C-#6: токен привязки этой секции — то, что хранит engine.contract_section_number.
@@ -536,6 +545,36 @@ function SectionBlock(props: {
   const selectedSlotIds = slotRows.filter((r) => props.slotSelection?.has(r.slot.id)).map((r) => r.slot.id);
   // Для разнесения — общий выбор по всем секциям (fallback на секционный для старых вызовов).
   const distributeSlotIds = props.globalSelectedSlotIds ?? selectedSlotIds;
+
+  // Компактный дропдаун переноса двигателя в другую секцию. Текущий токен, если его нет
+  // среди коммитных опций (несохранённое/удалённое ДС), подмешивается синтетической
+  // опцией — как в карточке двигателя: значение не должно «пропадать», а уехать с него можно.
+  const renderMoveEngineSelect = (engine: EngineListItem, currentToken: string) => {
+    if (!canEdit || !onMoveEngineToSection || sectionMoveOptions.length === 0) return null;
+    const reservedByOther = Boolean(engine.reservedByUserId && engine.reservedByUserId !== (props.currentUserId ?? ''));
+    const options =
+      currentToken && !sectionMoveOptions.some((o) => o.id === currentToken)
+        ? [{ id: currentToken, label: currentToken }, ...sectionMoveOptions]
+        : sectionMoveOptions;
+    return (
+      <div
+        style={{ maxWidth: 200 }}
+        title={reservedByOther ? 'Двигатель взят в работу другим оператором' : 'Перенести двигатель в другую секцию контракта'}
+      >
+        <SearchSelect
+          value={currentToken || null}
+          options={options}
+          placeholder="Секция…"
+          disabled={reservedByOther}
+          showAllWhenEmpty
+          onChange={(next) => {
+            const target = String(next ?? '').trim();
+            if (target && target !== currentToken) void onMoveEngineToSection(engine.id, target);
+          }}
+        />
+      </div>
+    );
+  };
 
   const update = (patch: Partial<ContractPrimarySection | ContractAddonSection>) => {
     onChange({ ...section, ...patch });
@@ -1073,17 +1112,20 @@ function SectionBlock(props: {
                               </td>
                               <td data-col-kind="name" style={TD_CELL}>
                                 {engine ? (
-                                  onOpenEngine ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => void onOpenEngine(engine.id)}
-                                      style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
-                                    >
-                                      {engine.engineNumber || '—'}
-                                    </button>
-                                  ) : (
-                                    engine.engineNumber || '—'
-                                  )
+                                  <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
+                                    {onOpenEngine ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void onOpenEngine(engine.id)}
+                                        style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                                      >
+                                        {engine.engineNumber || '—'}
+                                      </button>
+                                    ) : (
+                                      engine.engineNumber || '—'
+                                    )}
+                                    {renderMoveEngineSelect(engine, sectionToken)}
+                                  </div>
                                 ) : (
                                   <span style={{ color: 'var(--subtle)' }}>— свободно —</span>
                                 )}
@@ -1160,17 +1202,20 @@ function SectionBlock(props: {
                         {engine.engineBrand || '—'}
                       </td>
                       <td data-col-kind="name" style={TD_CELL}>
-                        {onOpenEngine ? (
-                          <button
-                            type="button"
-                            onClick={() => void onOpenEngine(engine.id)}
-                            style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
-                          >
-                            {engine.engineNumber || '—'}
-                          </button>
-                        ) : (
-                          engine.engineNumber || '—'
-                        )}
+                        <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
+                          {onOpenEngine ? (
+                            <button
+                              type="button"
+                              onClick={() => void onOpenEngine(engine.id)}
+                              style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                            >
+                              {engine.engineNumber || '—'}
+                            </button>
+                          ) : (
+                            engine.engineNumber || '—'
+                          )}
+                          {renderMoveEngineSelect(engine, sectionToken)}
+                        </div>
                       </td>
                       <td data-col-kind="text" style={TD_CELL}>
                         {currentEngineStatusLabel(engine)}
@@ -1217,6 +1262,8 @@ export function ContractDetailsPage(props: {
   canEditMasterData: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  /** Для гарда резервирования при переносе двигателя между секциями. */
+  currentUserId?: string;
   onClose: () => void;
   onOpenCounterparty: (counterpartyId: string) => void;
   onOpenEngine?: (engineId: string) => void | Promise<void>;
@@ -1681,6 +1728,15 @@ export function ContractDetailsPage(props: {
   }, [contract]);
 
   /**
+   * Опции переноса двигателя между секциями — по КОММИТНЫМ секциям (несохранённое ДС
+   * ещё не существует для других компьютеров, переносить в него рано).
+   */
+  const sectionMoveOptions = useMemo<SearchSelectOption[]>(() => {
+    const committed = parseContractSections(contract?.attributes ?? {});
+    return buildContractSectionOptions(committed).map((o) => ({ id: o.id, label: o.label }));
+  }, [contract]);
+
+  /**
    * Посадить двигатель в слот ЕГО марки и вернуть выбранную секцию.
    *
    * Оператор выбирает двигатель, а не слот: слот определяется маркой из карточки
@@ -1691,13 +1747,16 @@ export function ContractDetailsPage(props: {
   async function placeEngineIntoSlot(
     engineId: string,
     preferredSectionKey?: string,
+    opts?: { strict?: boolean },
   ): Promise<{ sectionKey: string; overPlan: boolean } | null> {
     const engineBrandId = engineBrandByIdRef.current.get(engineId);
+    const strict = opts?.strict === true;
     const preview = planSlotForEngine({
       cp: await readContractPayments(props.contractId),
       sectionKeys,
       ...(engineBrandId ? { engineBrandId } : {}),
       ...(preferredSectionKey ? { preferredSectionKey } : {}),
+      ...(strict ? { strict: true } : {}),
     });
     if (preview.overPlan) {
       const brandLabel = engineBrandId
@@ -1722,6 +1781,7 @@ export function ContractDetailsPage(props: {
           sectionKeys,
           ...(engineBrandId ? { engineBrandId } : {}),
           ...(preferredSectionKey ? { preferredSectionKey } : {}),
+          ...(strict ? { strict: true } : {}),
         });
         placed = { sectionKey: placement.sectionKey, overPlan: placement.overPlan };
         return attachEngineToSlot(current, placement, engineId, () => crypto.randomUUID(), engineBrandId);
@@ -1775,6 +1835,45 @@ export function ContractDetailsPage(props: {
         placed.overPlan ? '⚠ Двигатель добавлен СВЕРХ плана — проверьте план контракта или марку.' : 'Двигатель привязан.',
       );
       setTimeout(() => setEngineAttachStatus(''), placed.overPlan ? 6000 : 1500);
+    } catch (e) {
+      setEngineAttachStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Перенос двигателя в другую секцию из строки карточки контракта. В отличие от
+   * привязки выбор секции здесь ЯВНЫЙ, поэтому planSlotForEngine работает в strict-режиме:
+   * никакого fallback в соседние секции — свободный слот марки в целевой, иначе over-plan
+   * там же (после подтверждения). Деньги за двигателем не едут — остаются на старом слоте.
+   */
+  async function moveEngineToSection(engineId: string, targetToken: string) {
+    const normalizedId = String(engineId ?? '').trim();
+    const target = String(targetToken ?? '').trim();
+    if (!normalizedId || !target) return;
+    const engine = relatedEngines.find((e) => e.id === normalizedId);
+    if (canonicalContractSectionKey(engine?.contractSectionNumber) === target) return;
+    try {
+      setEngineAttachStatus('Перенос двигателя…');
+      const oldSlot = findSlotForEngine(contractPayments, normalizedId);
+      const hadMoney = (oldSlot?.payments ?? []).some((p) => p.kind !== 'contract_price');
+      const placed = await placeEngineIntoSlot(normalizedId, target, { strict: true });
+      if (!placed) {
+        setEngineAttachStatus('');
+        return;
+      }
+      if (String(engine?.contractId ?? '') !== String(props.contractId)) {
+        await window.matrica.engines.setAttr(normalizedId, 'contract_id', props.contractId);
+      }
+      await window.matrica.engines.setAttr(normalizedId, 'contract_section_number', placed.sectionKey);
+      await loadProgress();
+      const message = [
+        placed.overPlan
+          ? `⚠ Двигатель перенесён в «${sectionLabelOf(placed.sectionKey)}» СВЕРХ плана — проверьте план контракта или марку.`
+          : `Двигатель перенесён в «${sectionLabelOf(placed.sectionKey)}».`,
+        ...(hadMoney ? ['Платежи остаются на прежнем слоте.'] : []),
+      ].join(' ');
+      setEngineAttachStatus(message);
+      setTimeout(() => setEngineAttachStatus(''), placed.overPlan || hadMoney ? 6000 : 1500);
     } catch (e) {
       setEngineAttachStatus(`Ошибка: ${String(e)}`);
     }
@@ -2070,11 +2169,22 @@ export function ContractDetailsPage(props: {
   const { totalQty, totalSum, dueAt } = useMemo(() => (sections ? computeSectionTotals(sections) : { totalQty: 0, totalSum: 0, dueAt: null }), [sections]);
   const relatedEngineIds = useMemo(() => new Set(relatedEngines.map((engine) => engine.id)), [relatedEngines]);
   const executionPartIds = useMemo(() => new Set(executionParts.map((row) => row.partId)), [executionParts]);
-  /** Двигатели контракта без секции: в слоты они не попадают и в списках секций не видны. */
-  const enginesWithoutSection = useMemo(
-    () => relatedEngines.filter((e) => !canonicalContractSectionKey(e.contractSectionNumber)),
-    [relatedEngines],
-  );
+  /**
+   * Двигатели контракта без секции: в слоты они не попадают и в списках секций не видны.
+   * Сюда же — двигатели с токеном УДАЛЁННОГО ДС («ДС n», которого нет среди отображаемых
+   * секций): раньше такие вообще нигде не показывались, и увезти их из мёртвой секции
+   * было невозможно.
+   */
+  const enginesWithoutSection = useMemo(() => {
+    const visibleTokens = new Set([
+      PRIMARY_CONTRACT_SECTION_KEY,
+      ...(sections?.addons ?? []).map((a) => contractSectionAddonToken(a.seq)),
+    ]);
+    return relatedEngines.filter((e) => {
+      const token = canonicalContractSectionKey(e.contractSectionNumber);
+      return !token || !visibleTokens.has(token);
+    });
+  }, [relatedEngines, sections]);
 
   /**
    * Разложить «бесхозные» двигатели по слотам их марок. Автоматически при открытии карточки
@@ -2287,6 +2397,9 @@ export function ContractDetailsPage(props: {
             engineOptions={allEngineOptions}
             {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
             onAttachEngineToSection={attachEngineToSection}
+            onMoveEngineToSection={moveEngineToSection}
+            sectionMoveOptions={sectionMoveOptions}
+            {...(props.currentUserId ? { currentUserId: props.currentUserId } : {})}
             contractPayments={contractPayments}
             canEditPayments={props.canEdit}
             onDistributeToSlots={distributeToSlots}
@@ -2316,6 +2429,9 @@ export function ContractDetailsPage(props: {
               engineOptions={allEngineOptions}
               {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
               onAttachEngineToSection={attachEngineToSection}
+              onMoveEngineToSection={moveEngineToSection}
+              sectionMoveOptions={sectionMoveOptions}
+              {...(props.currentUserId ? { currentUserId: props.currentUserId } : {})}
               contractPayments={contractPayments}
               canEditPayments={props.canEdit}
               onDistributeToSlots={distributeToSlots}
@@ -2372,37 +2488,77 @@ export function ContractDetailsPage(props: {
                   </div>
                   <DataTable className="list-table">
                     <colgroup>
-                      <col style={{ width: '35%' }} />
-                      <col style={{ width: '35%' }} />
+                      <col style={{ width: '30%' }} />
+                      <col style={{ width: '25%' }} />
                       <col />
+                      {props.canEdit && <col style={{ width: 220 }} />}
                     </colgroup>
                     <thead>
                       <tr>
                         <th style={TD_HEAD} data-col-kind="name">Номер двигателя</th>
                         <th style={TD_HEAD} data-col-kind="name">Марка двигателя</th>
                         <th style={TD_HEAD} data-col-kind="text">Статус</th>
+                        {props.canEdit && (
+                          <th style={TD_HEAD} data-col-kind="text" title="Перенести двигатель в выбранную секцию">Секция</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
-                      {enginesWithoutSection.map((engine) => (
-                        <tr key={engine.id}>
-                          <td data-col-kind="name" style={TD_CELL}>
-                            {props.onOpenEngine ? (
-                              <button
-                                type="button"
-                                onClick={() => void props.onOpenEngine?.(engine.id)}
-                                style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
-                              >
-                                {engine.engineNumber || '—'}
-                              </button>
-                            ) : (
-                              engine.engineNumber || '—'
+                      {enginesWithoutSection.map((engine) => {
+                        const currentToken = canonicalContractSectionKey(engine.contractSectionNumber);
+                        const reservedByOther = Boolean(
+                          engine.reservedByUserId && engine.reservedByUserId !== (props.currentUserId ?? ''),
+                        );
+                        // Токен удалённого ДС подмешивается синтетической опцией: значение
+                        // видно, а перенос из мёртвой секции работает.
+                        const moveOptions =
+                          currentToken && !sectionMoveOptions.some((o) => o.id === currentToken)
+                            ? [{ id: currentToken, label: currentToken }, ...sectionMoveOptions]
+                            : sectionMoveOptions;
+                        return (
+                          <tr key={engine.id}>
+                            <td data-col-kind="name" style={TD_CELL}>
+                              {props.onOpenEngine ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void props.onOpenEngine?.(engine.id)}
+                                  style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--info)', cursor: 'pointer', font: 'inherit' }}
+                                >
+                                  {engine.engineNumber || '—'}
+                                </button>
+                              ) : (
+                                engine.engineNumber || '—'
+                              )}
+                            </td>
+                            <td data-col-kind="name" style={TD_CELL}>{engine.engineBrand || '—'}</td>
+                            <td data-col-kind="text" style={TD_CELL}>{currentEngineStatusLabel(engine)}</td>
+                            {props.canEdit && (
+                              <td data-col-kind="text" style={TD_CELL}>
+                                <div
+                                  style={{ maxWidth: 200 }}
+                                  title={
+                                    reservedByOther
+                                      ? 'Двигатель взят в работу другим оператором'
+                                      : 'Перенести двигатель в выбранную секцию'
+                                  }
+                                >
+                                  <SearchSelect
+                                    value={currentToken || null}
+                                    options={moveOptions}
+                                    placeholder="Секция…"
+                                    disabled={reservedByOther}
+                                    showAllWhenEmpty
+                                    onChange={(next) => {
+                                      const target = String(next ?? '').trim();
+                                      if (target && target !== currentToken) void moveEngineToSection(engine.id, target);
+                                    }}
+                                  />
+                                </div>
+                              </td>
                             )}
-                          </td>
-                          <td data-col-kind="name" style={TD_CELL}>{engine.engineBrand || '—'}</td>
-                          <td data-col-kind="text" style={TD_CELL}>{currentEngineStatusLabel(engine)}</td>
-                        </tr>
-                      ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </DataTable>
                   {props.canEdit ? (

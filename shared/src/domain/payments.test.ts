@@ -239,6 +239,39 @@ describe('planSlotForEngine / attachEngineToSlot', () => {
     expect(findSlotForEngine(next, 'eng-z')?.engineBrandId).toBe('brand-Z');
   });
 
+  it('strict: не падает в другую секцию — over-plan в целевой', () => {
+    seq = 0;
+    const cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    // Свободный слот brand-B есть в «ДС 1», но выбрана primary — fallback запрещён.
+    const placement = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-B', preferredSectionKey: 'primary', strict: true });
+    expect(placement).toEqual({ sectionKey: 'primary', overPlan: true });
+  });
+
+  it('strict: свободный слот марки в целевой секции используется', () => {
+    seq = 0;
+    const cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    const placement = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-B', preferredSectionKey: 'ДС 1', strict: true });
+    expect(placement.overPlan).toBe(false);
+    expect(cp.slots.find((s) => s.id === placement.slotId)?.sectionKey).toBe('ДС 1');
+  });
+
+  it('strict-перенос: старый слот освобождается, деньги остаются, сверка после переноса — no-op', () => {
+    seq = 0;
+    let cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    const first = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-A', preferredSectionKey: 'primary', strict: true });
+    cp = attachEngineToSlot(cp, first, 'eng-1', nextId, 'brand-A');
+    cp = addPayment(cp, first.slotId!, { id: 'p1', date: '2026-07-01', amountKop: 700, kind: 'advance' });
+    const move = planSlotForEngine({ cp, sectionKeys, engineBrandId: 'brand-A', preferredSectionKey: 'ДС 1', strict: true });
+    expect(move).toEqual({ sectionKey: 'ДС 1', overPlan: true }); // в «ДС 1» плановых мест brand-A нет
+    cp = attachEngineToSlot(cp, move, 'eng-1', nextId, 'brand-A');
+    expect(cp.slots.find((s) => s.id === first.slotId)?.engineId).toBeUndefined();
+    expect(cp.slots.find((s) => s.id === first.slotId)?.payments).toHaveLength(1);
+    expect(findSlotForEngine(cp, 'eng-1')?.sectionKey).toBe('ДС 1');
+    // Сверка после чистого переноса ничего не меняет — JSON-diff в карточке будет no-op.
+    const reconciled = syncSlotsWithPlan(cp, plan, [{ engineId: 'eng-1', sectionKey: 'ДС 1', engineBrandId: 'brand-A' }], nextId);
+    expect(reconciled).toEqual(cp);
+  });
+
   it('переезд двигателя не оставляет его в двух слотах, деньги остаются на прежнем', () => {
     seq = 0;
     let cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);

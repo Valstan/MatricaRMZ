@@ -4423,7 +4423,7 @@ export function App() {
         );
       case 'contract':
         return (
-          <ContractDetailsPage key={k} contractId={id} canEdit={caps.canEditContracts} canEditMasterData={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenPart={openPart} onOpenEngineBrand={openEngineBrand} />
+          <ContractDetailsPage key={k} contractId={id} canEdit={caps.canEditContracts} canEditMasterData={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} currentUserId={String(authStatus.user?.id ?? '')} registerCardCloseActions={reg} requestClose={close} onClose={close} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenPart={openPart} onOpenEngineBrand={openEngineBrand} />
         );
       case 'counterparty':
         return (
@@ -4990,6 +4990,7 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            currentUserId={String(authStatus.user?.id ?? '')}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onClose={() => {
