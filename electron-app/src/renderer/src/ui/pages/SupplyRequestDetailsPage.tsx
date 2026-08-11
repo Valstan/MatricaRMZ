@@ -10,6 +10,14 @@ import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { CardTabs, type CardTab } from '../components/CardTabs.js';
+
+type SupplyRequestCardTab = 'main' | 'items' | 'files';
+const SUPPLY_REQUEST_CARD_TABS: CardTab<SupplyRequestCardTab>[] = [
+  { key: 'main', label: 'Реквизиты' },
+  { key: 'items', label: 'Список товаров' },
+  { key: 'files', label: 'Фото и документы' },
+];
 import { SectionCard } from '../components/SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
@@ -274,6 +282,7 @@ export function SupplyRequestDetailsPage(props: {
   const { confirm: confirmModal, pickChoice, promptText } = useConfirm();
   const [payload, setPayload] = useState<SupplyRequestPayload | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<SupplyRequestCardTab>('main');
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
 
   const [linkLists, setLinkLists] = useState<Record<string, LinkOpt[]>>({});
@@ -1095,6 +1104,11 @@ export function SupplyRequestDetailsPage(props: {
         </div>
       ) : null}
 
+      {/* Заявка шла одним полотном: реквизиты, длинная таблица товаров и вложения.
+          Разложено по вкладкам; панели НЕ размонтируются (hidden) — сохранение при
+          закрытии карточки читает их state. */}
+      <CardTabs tabs={SUPPLY_REQUEST_CARD_TABS} active={activeTab} onChange={setActiveTab} />
+      <div data-card-tab="main" hidden={activeTab !== 'main'}>
       <SectionCard style={{ marginTop: 12, padding: 12 }}>
         <DraggableFieldList
           items={mainFields}
@@ -1264,6 +1278,8 @@ export function SupplyRequestDetailsPage(props: {
         </div>
       </SectionCard>
 
+      </div>
+      <div data-card-tab="items" hidden={activeTab !== 'items'}>
       <div style={{ marginTop: 14 }}>
         <h2 style={{ margin: '8px 0' }}>Список товаров</h2>
 
@@ -1693,6 +1709,8 @@ export function SupplyRequestDetailsPage(props: {
         )}
       </div>
 
+      </div>
+      <div data-card-tab="files" hidden={activeTab !== 'files'}>
       <AttachmentsPanel
         title="Вложения к заявке"
         value={payload.attachments}
@@ -1703,6 +1721,7 @@ export function SupplyRequestDetailsPage(props: {
           return { ok: true as const };
         }}
       />
+      </div>
     </div>
   );
 }

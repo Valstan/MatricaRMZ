@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { CardTabs, type CardTab } from '../components/CardTabs.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { FormGrid } from '../components/FormGrid.js';
@@ -12,6 +13,15 @@ import { NumericField } from '../components/NumericField.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
+
+type ContractCardTab = 'contract' | 'engines' | 'parts' | 'accounting' | 'files';
+const CONTRACT_CARD_TABS: CardTab<ContractCardTab>[] = [
+  { key: 'contract', label: 'Контракт и ДС' },
+  { key: 'engines', label: 'Двигатели' },
+  { key: 'parts', label: 'Детали' },
+  { key: 'accounting', label: 'Бухгалтерия' },
+  { key: 'files', label: 'Фото и документы' },
+];
 import { DataTable } from '../components/DataTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
@@ -1275,6 +1285,7 @@ export function ContractDetailsPage(props: {
   const { confirm } = useConfirm();
   const [contract, setContract] = useState<ContractEntity | null>(null);
   const [status, setStatus] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<ContractCardTab>('contract');
   const [sections, setSections] = useState<ContractSections | null>(null);
   const [entityTypes, setEntityTypes] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [engineBrandOptions, setEngineBrandOptions] = useState<LinkOpt[]>([]);
@@ -2386,6 +2397,11 @@ export function ContractDetailsPage(props: {
             (этап 2 engine-payments) не влезали, когда секция делила ряд с соседней
             карточкой/кнопкой «Добавить ДС» и уходили за правый край (fix 2026-07-29). */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, minWidth: 0, width: '100%' }}>
+          {/* Карточка была одним полотном: секции контракта, двигатели, детали, ГОЗ,
+              сводка и вложения шли подряд. Разложено по вкладкам; панели НЕ
+              размонтируются (hidden) — сохранение при закрытии читает их state. */}
+          <CardTabs tabs={CONTRACT_CARD_TABS} active={activeTab} onChange={setActiveTab} />
+          <div data-card-tab="contract" hidden={activeTab !== 'contract'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <SectionBlock
             title="Первичный контракт"
             section={sections.primary}
@@ -2466,6 +2482,8 @@ export function ContractDetailsPage(props: {
               убран: он дублировал единый список секций. Здесь остаётся только то, чего в
               секциях не видно — двигатели с contract_id, но без секции. После привязки через
               карточку они не появляются: секция проставляется вместе со слотом. */}
+          </div>
+          <div data-card-tab="engines" hidden={activeTab !== 'engines'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           {enginesWithoutSection.length > 0 || props.canEdit ? (
             <SectionCard className="entity-card-span-full" title="Двигатели без секции" style={{ borderRadius: 0, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -2610,6 +2628,8 @@ export function ContractDetailsPage(props: {
             </SectionCard>
           ) : null}
 
+          </div>
+          <div data-card-tab="parts" hidden={activeTab !== 'parts'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <SectionCard className="entity-card-span-full" title="Детали" style={{ borderRadius: 0, padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
@@ -2746,6 +2766,8 @@ export function ContractDetailsPage(props: {
             )}
           </SectionCard>
 
+          </div>
+          <div data-card-tab="accounting" hidden={activeTab !== 'accounting'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <SectionCard className="entity-card-span-full" title="Реквизиты ГОЗ (бухгалтерия)" style={{ borderRadius: 0, padding: 16 }}>
             <FormGrid columns="repeat(2, minmax(240px, 1fr))" gap={10}>
               <FormField label="Наименование (ГОЗ)" fullWidth>
@@ -2875,6 +2897,8 @@ export function ContractDetailsPage(props: {
             </div>
           </SectionCard>
 
+          </div>
+          <div data-card-tab="files" hidden={activeTab !== 'files'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <div className="entity-card-span-full">
             <AttachmentsPanel
               title="Вложения к контракту"
@@ -2909,6 +2933,7 @@ export function ContractDetailsPage(props: {
               })}
             </div>
           )}
+          </div>
         </div>
     </EntityCardShell>
   );
