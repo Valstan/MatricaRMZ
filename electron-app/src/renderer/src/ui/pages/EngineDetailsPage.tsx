@@ -2213,6 +2213,7 @@ export function EngineDetailsPage(props: {
         />
         <AttachmentsPanel
           title="Вложения к двигателю"
+          objectLabel={`Двигатель ${String(engineNumber || props.engineId).trim()}`}
           value={props.engine.attributes?.attachments}
           canView={props.canViewFiles}
           canUpload={props.canUploadFiles && canEditEnginesEff}

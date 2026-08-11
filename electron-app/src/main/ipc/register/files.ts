@@ -14,6 +14,7 @@ import {
   filesDownloadDirGet,
   filesDownloadDirSet,
   filesOpen,
+  filesOpenObjectDir,
   filesOriginalGet,
   filesPreviewGet,
   filesRevealForShare,
@@ -175,6 +176,18 @@ export function registerFilesIpc(ctx: IpcContext) {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  });
+
+  ipcMain.handle('files:openObjectDir', async (_e, args: { fileIds: string[]; label?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'files.view');
+    if (!gate.ok) return gate;
+    const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
+    if (!dir.ok) return dir;
+    return filesOpenObjectDir(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      fileIds: args.fileIds,
+      downloadDir: dir.path,
+      label: String(args.label || 'Карточка'),
+    });
   });
 
   ipcMain.handle('files:print', async (_e, args: { fileIds: string[] }) => {

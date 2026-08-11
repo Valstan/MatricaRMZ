@@ -6,6 +6,7 @@ import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { isAndroidPlatform } from '../platform.js';
+import { escapeHtml, printSectionsDirect } from '../utils/printPreview.js';
 
 type AttachmentFileRef = FileRef & { isObsolete?: boolean };
 type FileFilterMode = 'actual' | 'obsolete' | 'all';
@@ -71,6 +72,11 @@ function isObsoleteFile(file: AttachmentFileRef): boolean {
   return file.isObsolete === true;
 }
 
+/** Печатается содержимым только картинка — офисные файлы конвейер main'а не рендерит. */
+function isPrintableImage(name: string): boolean {
+  return ['jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp'].includes(fileExt(name));
+}
+
 const LIST_TOGGLE_STYLE: React.CSSProperties = {
   marginTop: 10,
   width: '100%',
@@ -90,6 +96,8 @@ type AttachmentsPanelProps = {
   value: unknown; // FileRef[] in JSON
   canView: boolean;
   canUpload: boolean;
+  /** Человеческое имя карточки — им подписывается папка файлов объекта и печать. */
+  objectLabel?: string;
   scope?: { ownerType: string; ownerId: string; category: string };
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 };
@@ -109,6 +117,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const [thumbs, setThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const thumbsRef = useRef(thumbs);
 
+  // Групповые операции: чекбоксы в списке → печать / копирование / отправка пачкой.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+
   const list = useMemo(() => normalizeList(props.value), [props.value]);
   // Длинный список файлов по умолчанию свёрнут (этап 4 tabs-window-shell): пользователь
   // разворачивает сам; превью не грузятся, пока список свёрнут.
@@ -121,6 +133,13 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     return list;
   }, [list, filterMode]);
   const listKey = useMemo(() => list.map((x) => x.id).join('|'), [list]);
+  // Выбор живёт по id: файл удалили/отфильтровали — он выпадает и из выборки.
+  const selectedIds = useMemo(() => filteredList.filter((f) => selected.has(f.id)).map((f) => f.id), [filteredList, selected]);
+  const objectLabel = props.objectLabel?.trim() || props.title?.trim() || 'Карточка';
+
+  useEffect(() => {
+    setSelected(new Set());
+  }, [listKey]);
 
   useEffect(() => {
     thumbsRef.current = thumbs;
@@ -237,6 +256,59 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     }
   }
 
+  function toggleSelected(fileId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }
+
+  async function runBatch(label: string, run: () => Promise<{ ok: true } | { ok: false; error: string }>) {
+    setBusy(`${label}...`);
+    try {
+      const r = await run();
+      if (!r.ok) {
+        setBusy(r.error === 'cancelled' ? '' : `Ошибка: ${r.error}`);
+        setTimeout(() => setBusy(''), 3000);
+        return;
+      }
+      setBusy(`${label}: готово`);
+      setTimeout(() => setBusy(''), 1400);
+    } catch (e) {
+      setBusy(`Ошибка: ${String(e)}`);
+      setTimeout(() => setBusy(''), 3000);
+    }
+  }
+
+  /** Печать имён — обычный список; печать содержимого — существующий фото-конвейер main'а. */
+  async function printSelected(mode: 'names' | 'contents') {
+    setPrintDialogOpen(false);
+    const files = filteredList.filter((f) => selected.has(f.id));
+    if (files.length === 0) return;
+    if (mode === 'names') {
+      printSectionsDirect({
+        title: objectLabel,
+        sections: [
+          {
+            id: 'files',
+            title: `Файлы — ${objectLabel}`,
+            html: `<ol>${files.map((f) => `<li>${escapeHtml(f.name)}${isObsoleteFile(f) ? ' — устаревшая версия' : ''}</li>`).join('')}</ol>`,
+          },
+        ],
+      });
+      return;
+    }
+    const printable = files.filter((f) => isPrintableImage(f.name));
+    if (printable.length === 0) {
+      setBusy('Ошибка: среди выбранных нет изображений — печатать нечего');
+      setTimeout(() => setBusy(''), 3500);
+      return;
+    }
+    await runBatch('Печать файлов', () => window.matrica.files.print({ fileIds: printable.map((f) => f.id) }));
+  }
+
   if (!props.canView) return null;
 
   return (
@@ -268,18 +340,86 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             </Button>
           </>
         )}
+        {/* Раньше «Папка скачивания» лишь МЕНЯЛА корневую папку и ничего не открывала.
+            Теперь основная кнопка открывает папку файлов именно этой карточки, а смена
+            корня осталась отдельным пунктом. */}
         <Button
           variant="ghost"
+          disabled={list.length === 0}
+          title="Открыть папку с файлами этой карточки"
+          onClick={() =>
+            void runBatch('Открытие папки', () =>
+              window.matrica.files.openObjectDir({
+                fileIds: (selectedIds.length > 0 ? selectedIds : filteredList.map((f) => f.id)),
+                label: objectLabel,
+              }),
+            )
+          }
+        >
+          Папка файлов
+        </Button>
+        <Button
+          variant="ghost"
+          title="Выбрать, куда программа скачивает файлы"
           onClick={async () => {
             const r = await window.matrica.files.downloadDirPick();
-            if (!r.ok) setBusy(`Ошибка: ${r.error}`);
-            else setBusy(`Папка: ${r.path}`);
-            setTimeout(() => setBusy(''), 1200);
+            if (!r.ok) setBusy(r.error === 'cancelled' ? '' : `Ошибка: ${r.error}`);
+            else setBusy(`Папка загрузок: ${r.path}`);
+            setTimeout(() => setBusy(''), 1800);
           }}
         >
-          Папка скачивания
+          Сменить папку загрузок…
         </Button>
       </div>
+      {selectedIds.length > 0 && (
+        <div
+          style={{
+            marginTop: 10,
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            padding: '8px 10px',
+            border: '1px solid #bfdbfe',
+            borderRadius: 12,
+            background: '#eff6ff',
+          }}
+        >
+          <strong style={{ fontSize: 13 }}>Выбрано файлов: {selectedIds.length}</strong>
+          <span style={{ flex: 1 }} />
+          <Button variant="ghost" onClick={() => setPrintDialogOpen(true)}>
+            Печать…
+          </Button>
+          <Button variant="ghost" onClick={() => void runBatch('Копирование в папку', () => window.matrica.files.copyToFolder({ fileIds: selectedIds }))}>
+            Копировать в папку…
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void runBatch('Подготовка к отправке', () => window.matrica.files.revealForShare({ fileIds: selectedIds, label: objectLabel }))}
+          >
+            Отправить…
+          </Button>
+          <Button variant="ghost" onClick={() => setSelected(new Set())}>
+            Снять выбор
+          </Button>
+        </div>
+      )}
+      {printDialogOpen && (
+        <div style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Что напечатать по выбранным файлам ({selectedIds.length})?</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button onClick={() => void printSelected('names')}>Список названий</Button>
+            <Button onClick={() => void printSelected('contents')}>Сами файлы</Button>
+            <Button variant="ghost" onClick={() => setPrintDialogOpen(false)}>
+              Отмена
+            </Button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+            «Сами файлы» печатает изображения — по одному на лист A4. Документы (PDF, Word, Excel) так не печатаются:
+            для них выбирайте «Список названий» или открывайте файл кнопкой «Открыть».
+          </div>
+        </div>
+      )}
       <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
           <span>Фильтр:</span>
@@ -327,6 +467,18 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #2563eb 120%)', color: '#fff' }}>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 36 }}>
+                <input
+                  type="checkbox"
+                  aria-label="Выбрать все файлы"
+                  title="Выбрать все файлы"
+                  checked={filteredList.length > 0 && selectedIds.length === filteredList.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < filteredList.length;
+                  }}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(filteredList.map((f) => f.id)) : new Set())}
+                />
+              </th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }}>Файл</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 190 }}>Статус</th>
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 120 }}>Размер</th>
@@ -336,6 +488,14 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           <tbody>
             {filteredList.map((f) => (
               <tr key={f.id}>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Выбрать файл ${f.name}`}
+                    checked={selected.has(f.id)}
+                    onChange={() => toggleSelected(f.id)}
+                  />
+                </td>
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10 }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     {(() => {
@@ -479,7 +639,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             ))}
             {filteredList.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: 12, color: '#6b7280' }}>
+                <td colSpan={5} style={{ padding: 12, color: '#6b7280' }}>
                   {list.length === 0
                     ? `Нет вложений. ${props.canUpload ? 'Нажмите “Добавить файл”, чтобы прикрепить документ.' : ''}`
                     : 'По выбранному фильтру файлы не найдены.'}
