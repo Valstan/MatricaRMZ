@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { db, pool } from '../database/db.js';
 import { chatMessages } from '../database/schema.js';
 import { getSuperadminUserId, listEmployeesAuth } from './employeeAuthService.js';
-import { SyncTableName } from '@matricarmz/shared';
+import { SyncTableName, formatClientLabel, sectionLabelForTabKey } from '@matricarmz/shared';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 import { logError, logInfo } from '../utils/logger.js';
 
@@ -247,7 +247,34 @@ function percentile(sorted: number[], p: number) {
   return sorted[idx] ?? null;
 }
 
-function buildReportText(range: ReportRange, stats: ReportStats, timeZone: string) {
+/**
+ * actorId (UUID employee) → «ФИО (login)»; неизвестный id остаётся как есть,
+ * ai-agent помечается пустой меткой и выпадает из «активных пользователей».
+ */
+async function buildActorLabels(actorIds: Iterable<string>): Promise<Map<string, string>> {
+  const ids = Array.from(actorIds);
+  const labels = new Map<string, string>();
+  if (ids.length === 0) return labels;
+  const list = await listEmployeesAuth().catch(() => null);
+  const byId = new Map<string, { login: string; fullName: string }>();
+  if (list && list.ok) {
+    for (const r of list.rows) {
+      byId.set(String(r.id), { login: String(r.login ?? ''), fullName: String(r.fullName ?? '') });
+    }
+  }
+  for (const id of ids) {
+    const emp = byId.get(id);
+    if (!emp) {
+      labels.set(id, id);
+      continue;
+    }
+    const login = emp.login.trim().toLowerCase();
+    labels.set(id, login === 'ai-agent' ? '' : formatClientLabel({ login: emp.login, fullName: emp.fullName || null }));
+  }
+  return labels;
+}
+
+function buildReportText(range: ReportRange, stats: ReportStats, timeZone: string, actorLabels: Map<string, string>) {
   const lines: string[] = [];
   lines.push('[AI Agent] Отчет по использованию и качеству');
   lines.push(`Период: ${formatDateTime(range.sinceMs, timeZone)} — ${formatDateTime(range.untilMs, timeZone)}`);
@@ -265,7 +292,7 @@ function buildReportText(range: ReportRange, stats: ReportStats, timeZone: strin
 
   const topTabs = topEntries(stats.tabs, 5);
   if (topTabs.length) {
-    lines.push(`Топ вкладок: ${topTabs.map(([k, v]) => `${k || '—'}=${v}`).join(', ')}`);
+    lines.push(`Топ вкладок: ${topTabs.map(([k, v]) => `${k ? sectionLabelForTabKey(k) : '—'}=${v}`).join(', ')}`);
   }
 
   const topEvents = topEntries(stats.eventTypes, 5);
@@ -289,7 +316,9 @@ function buildReportText(range: ReportRange, stats: ReportStats, timeZone: strin
     );
   }
 
-  const topUsers = topEntries(stats.users, 3);
+  const topUsers = topEntries(stats.users, 3)
+    .map(([k, v]) => [actorLabels.get(k) ?? k, v] as const)
+    .filter(([label]) => label !== '');
   if (topUsers.length) {
     lines.push(`Активные пользователи (по событиям): ${topUsers.map(([k, v]) => `${k}=${v}`).join(', ')}`);
   }
@@ -379,7 +408,8 @@ export function startAiAgentReportsScheduler(args?: { times?: string[]; timeZone
       const range = { sinceMs, untilMs };
       const rows = await loadSnapshots(range);
       const stats = buildStats(rows as any);
-      const text = buildReportText(range, stats, timeZone);
+      const actorLabels = await buildActorLabels(stats.users.keys());
+      const text = buildReportText(range, stats, timeZone, actorLabels);
       await sendReportToSuperadmin(text);
       lastSentBySlot.set(timeKey, dateKey);
       lastReportAtBySlot.set(timeKey, untilMs);

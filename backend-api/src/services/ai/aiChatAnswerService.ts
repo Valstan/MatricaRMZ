@@ -17,6 +17,7 @@ import {
   getAiChatActor,
   notifySuperadminEscalation,
   nowMs,
+  personLabelForLogin,
   questionFileHref,
   uploadAnswerBuffer,
   writeAiChatRow,
@@ -190,8 +191,9 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     });
   }
 
+  const personLabel = await personLabelForLogin(String(row.username));
   const userMessage = [
-    `Вопрос сотрудника ${String(row.username)}:`,
+    `Вопрос сотрудника ${personLabel}:`,
     String(row.questionText),
     ...(fileBlock ? ['', fileBlock] : []),
   ].join('\n');

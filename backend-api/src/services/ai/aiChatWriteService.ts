@@ -10,11 +10,11 @@ import { join } from 'node:path';
 
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { SyncTableName } from '@matricarmz/shared';
+import { SyncTableName, formatClientLabel } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
 import { fileAssets } from '../../database/schema.js';
-import { listEmployeesAuth } from '../employeeAuthService.js';
+import { listEmployeesAuth, resolveLoginsToFullNames } from '../employeeAuthService.js';
 import { recordSyncChanges } from '../sync/syncChangeService.js';
 import { writeSyncChanges } from '../sync/syncWriteService.js';
 import { getDownloadHref, getUploadHref, uploadFileStream, ensureFolderDeep } from '../yandexDisk.js';
@@ -53,6 +53,14 @@ export function toAiChatSyncPayload(row: any): Record<string, unknown> {
     deleted_at: row.deletedAt ?? null,
     sync_status: 'synced',
   };
+}
+
+/** «ФИО (login)» по логину; без ФИО у employee — просто логин (оператор не пропадает молча). */
+export async function personLabelForLogin(login: string): Promise<string> {
+  const raw = String(login ?? '').trim();
+  if (!raw) return '—';
+  const names = await resolveLoginsToFullNames([raw]).catch(() => ({}) as Record<string, string>);
+  return formatClientLabel({ login: raw, fullName: names[raw.toLowerCase()] ?? null });
 }
 
 export async function writeAiChatRow(actor: AiChatActor, row: any) {
@@ -141,8 +149,9 @@ export async function notifySuperadminEscalation(
   if (!sa?.id) return false;
   const ts = nowMs();
   const msgId = randomUUID();
+  const personLabel = await personLabelForLogin(args.username);
   const text =
-    `⚠️ ИИваныч: эскалация вопроса от ${args.username}:\n«${String(args.questionText).slice(0, 500)}»\n\n` +
+    `⚠️ ИИваныч: эскалация вопроса от ${personLabel}:\n«${String(args.questionText).slice(0, 500)}»\n\n` +
     `Причина: ${args.reason || '(не указана)'}\n\nОткройте ИИваныча → блок «Эскалации» и дайте вердикт.`;
   await recordSyncChanges(
     actor,
@@ -170,4 +179,42 @@ export async function notifySuperadminEscalation(
     { allowSyncConflicts: true },
   );
   return true;
+}
+
+/**
+ * Дайджест суперадмину как answered-строка ИИваныча (порт routinePostDigest из
+ * снесённого aiChatRoutineService — та же форма записи, тот же заголовок).
+ */
+export async function postDigestToSuperadmin(args: {
+  digestMd: string;
+  title?: string | null;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const answerText = String(args.digestMd ?? '').trim();
+  if (!answerText) return { ok: false, error: 'digestMd is empty' };
+  const title = (args.title ?? '').trim() || '📊 Еженедельный отчёт по использованию программы';
+
+  const list = await listEmployeesAuth();
+  const sa = list.ok ? list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin') : null;
+  if (!sa?.id) return { ok: false, error: 'superadmin not found' };
+
+  const actor = await getAiChatActor();
+  const ts = nowMs();
+  const id = randomUUID();
+  await writeAiChatRow(actor, {
+    id,
+    userId: String(sa.id),
+    username: String(sa.login ?? 'superadmin'),
+    questionText: title,
+    questionFileJson: null,
+    status: 'answered',
+    answerText,
+    answerFilesJson: null,
+    answeredAt: ts,
+    escalationNote: null,
+    verdictText: null,
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+  });
+  return { ok: true, id };
 }
