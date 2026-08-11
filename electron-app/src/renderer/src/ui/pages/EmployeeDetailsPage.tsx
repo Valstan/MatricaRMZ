@@ -10,6 +10,16 @@ import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js'
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
+import { CardTabs, type CardTab } from '../components/CardTabs.js';
+
+type EmployeeCardTab = 'main' | 'transfers' | 'extra' | 'access' | 'files';
+const EMPLOYEE_CARD_TABS: CardTab<EmployeeCardTab>[] = [
+  { key: 'main', label: 'Основное' },
+  { key: 'transfers', label: 'Переводы' },
+  { key: 'extra', label: 'Дополнительные поля' },
+  { key: 'access', label: 'Доступ' },
+  { key: 'files', label: 'Фото и документы' },
+];
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -248,6 +258,7 @@ export function EmployeeDetailsPage(props: {
   const { confirm } = useConfirm();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [status, setStatus] = useState('');
+  const [activeTab, setActiveTab] = useState<EmployeeCardTab>('main');
 
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -1615,6 +1626,10 @@ export function EmployeeDetailsPage(props: {
       }
       status={departmentLabel ? <span style={{ color: 'var(--subtle)' }}>{departmentLabel}</span> : null}
     >
+      {/* Карточка шла одним полотном; разложена по вкладкам. Панели НЕ размонтируются
+          (hidden) — сохранение при закрытии и черновики читают их state. */}
+      <CardTabs tabs={EMPLOYEE_CARD_TABS} active={activeTab} onChange={setActiveTab} />
+      <div data-card-tab="main" hidden={activeTab !== 'main'} className="entity-card-span-full">
       <SectionCard style={{ padding: 12 }}>
       <DraggableFieldList
         items={mainFields}
@@ -1650,6 +1665,8 @@ export function EmployeeDetailsPage(props: {
       />
       </SectionCard>
 
+      </div>
+      <div data-card-tab="transfers" hidden={activeTab !== 'transfers'} className="entity-card-span-full">
       <SectionCard title="Переводы" style={{ border: '1px solid var(--border)' }}>
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
           {transfers.length === 0 && <div style={{ color: 'var(--subtle)' }}>Переводов нет</div>}
@@ -1727,6 +1744,8 @@ export function EmployeeDetailsPage(props: {
         </div>
       </SectionCard>
 
+      </div>
+      <div data-card-tab="files" hidden={activeTab !== 'files'} className="entity-card-span-full">
       <div className="entity-card-span-full">
         <AttachmentsPanel
           title="Вложения сотрудника"
@@ -1742,6 +1761,8 @@ export function EmployeeDetailsPage(props: {
         />
       </div>
 
+      </div>
+      <div data-card-tab="extra" hidden={activeTab !== 'extra'} className="entity-card-span-full">
       <SectionCard
         className="entity-card-span-full"
         title="Дополнительные поля"
@@ -1867,6 +1888,8 @@ export function EmployeeDetailsPage(props: {
         )}
       </SectionCard>
 
+      </div>
+      <div data-card-tab="access" hidden={activeTab !== 'access'} className="entity-card-span-full">
       <div style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 0, padding: 12 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <strong>Пользователи и права доступа</strong>
@@ -2144,6 +2167,7 @@ export function EmployeeDetailsPage(props: {
 
           {accountStatus && <div style={{ marginTop: 10, color: accountStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{accountStatus}</div>}
         </div>
+      </div>
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>}
     </EntityCardShell>
   );
