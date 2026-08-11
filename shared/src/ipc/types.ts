@@ -2291,6 +2291,8 @@ export type MatricaApi = {
     assemblePdf: (args: { fileIds: string[]; defaultName?: string }) => Promise<{ ok: true; savePath: string } | { ok: false; error: string }>;
     // Печатает выбранные фото (1 фото на A4) на принтер.
     print: (args: { fileIds: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    // Собирает файлы ЭТОЙ карточки в `<папка загрузок>/Объекты/<имя>` и открывает её в Проводнике.
+    openObjectDir: (args: { fileIds: string[]; label?: string }) => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
     // Папка скачивания/кеша.
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;

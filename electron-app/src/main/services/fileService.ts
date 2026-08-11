@@ -651,16 +651,20 @@ export async function filesCopyToFolder(
   }
 }
 
-async function stageForShare(
+/**
+ * Собрать файлы в отдельную папку. Кэш скачивания шардирован по sha256 и общий для всех
+ * карточек (один файл может висеть на нескольких объектах), поэтому «папка этого объекта»
+ * — не сам кэш, а его копия под человеческим именем.
+ */
+async function stageInto(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   fileIds: string[],
   downloadDir: string,
-  label: string,
+  folder: string,
 ): Promise<{ ok: true; folder: string } | { ok: false; error: string }> {
   const dl = await downloadOriginals(db, apiBaseUrl, fileIds, downloadDir);
   if (!dl.ok) return dl;
-  const folder = join(tmpdir(), 'matrica-share', safeFilename(label || 'photos'));
   try {
     await fsp.rm(folder, { recursive: true, force: true });
     mkdirSync(folder, { recursive: true });
@@ -671,6 +675,32 @@ async function stageForShare(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+function stageForShare(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  fileIds: string[],
+  downloadDir: string,
+  label: string,
+): Promise<{ ok: true; folder: string } | { ok: false; error: string }> {
+  return stageInto(db, apiBaseUrl, fileIds, downloadDir, join(tmpdir(), 'matrica-share', safeFilename(label || 'photos')));
+}
+
+/**
+ * «Папка файлов» карточки: рядом с кэшем, `<downloadDir>/Объекты/<имя карточки>`, и сразу
+ * открыть её в проводнике. Чужие файлы из других карточек туда не попадают.
+ */
+export async function filesOpenObjectDir(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fileIds: string[]; downloadDir: string; label: string },
+): Promise<{ ok: true; folder: string } | { ok: false; error: string }> {
+  const folder = join(args.downloadDir, 'Объекты', safeFilename(args.label || 'Карточка'));
+  const st = await stageInto(db, apiBaseUrl, args.fileIds, args.downloadDir, folder);
+  if (!st.ok) return st;
+  await shell.openPath(st.folder);
+  return { ok: true, folder: st.folder };
 }
 
 export async function filesRevealForShare(
