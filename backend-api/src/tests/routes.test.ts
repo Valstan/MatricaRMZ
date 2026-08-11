@@ -118,6 +118,15 @@ describe('backend routes', () => {
     expect(res.body.ok).toBe(true);
   });
 
+  it('POST /client/watchdog/report accepts an app_missing report', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/client/watchdog/report')
+      .send({ clientId: 'PC-test-123', kind: 'app_missing', version: '2026.1.1', detail: 'app missing (repair=false forced=false)' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
   it('POST /client/watchdog/report rejects invalid kind', async () => {
     const app = createApp();
     const res = await request(app).post('/client/watchdog/report').send({ clientId: 'PC-test-123', kind: 'bogus' });

@@ -2,8 +2,37 @@
 
 Tiny external recovery agent for the Electron client. Single-pass Go binary,
 launched by a Windows Scheduled Task (at logon + every ~15 min), that detects a
-botched update (app exe / shortcuts gone) and silently reinstalls from a local
-or downloaded installer. Pure stdlib — no third-party dependencies.
+botched update (app exe gone / clearly broken / shortcuts gone) and silently
+reinstalls from a local or downloaded installer. Pure stdlib — no third-party
+dependencies.
+
+## CLI
+
+- no args — the scheduled pass (backoff-aware, exits untouched on a healthy
+  install).
+- `--repair` — operator-launched forced pass, wired to the desktop shortcut
+  «Восстановить Матрицу РМЗ» that the installer creates (and the client's
+  `--restore-shortcuts` maintains). Same ladder, but backoff/state is bypassed;
+  a healthy install just gets its shortcuts topped up (exit 0).
+
+Concurrency: each pass claims `%APPDATA%\MatricaRMZ\watchdog-pass.lock`
+(stale after 30 min, mirrors the in-app updater's `update.lock` pattern) so a
+shortcut-launched `--repair` cannot race a scheduled pass into two concurrent
+silent installers.
+
+## Health check
+
+The app is considered present when the exe from the handshake — or, without a
+usable handshake, the standard per-user install path (`Programs\MatricaRMZ`,
+then the legacy `Programs\@matricarmzelectron-app`) — exists AND is not
+*clearly* broken: bad MZ header, or `resources\app.asar` definitively absent
+next to the exe. Inconclusive probes (locked file, AV hold) count as healthy —
+a false «corrupt» verdict costs a ~116-MB reinstall per backoff period.
+
+When recovery starts because the app is missing/corrupt, the watchdog first
+sends a standalone `app_missing` report (critical event
+`client.watchdog.app_missing`) — visible to the owner even if the recovery
+itself then succeeds.
 
 See the full design and rationale in
 [`docs/plans/_archive/client-watchdog-agent.md`](../docs/plans/_archive/client-watchdog-agent.md).
@@ -24,11 +53,24 @@ in `electron-app`). The watchdog reads it instead of touching the app's SQLite
 or guessing Electron's `userData` dir. The handshake lives outside the install
 dir, so it survives the installer wipe.
 
+Only a **packaged, non-CDP** client instance writes the handshake: a dev/CDP
+instance on the same machine used to overwrite it with its own `appExePath`
+(`node_modules\...\electron.exe`) and `apiBaseUrl` (localhost), silently
+pointing the watchdog at a dev stack. Guarded in `writeWatchdogHandshake`
+(`app.isPackaged` + `-cdp-` userData suffix).
+
+The heal is mutual: the packaged client on startup restores a missing watchdog
+exe from its `resources\` and re-registers missing scheduled tasks
+(`ensureWatchdogInstalled`, same schtasks parameters as the installer) — the
+antivirus sweep that takes the app can take the watchdog too.
+
 Server endpoints used (all unauthenticated — the watchdog has no session):
 - `GET  /client/settings?clientId=…` — poll for an owner-issued `reinstall`
 - `POST /client/settings/sync-request/ack` — ack that command
 - `GET  /updates/latest-meta`, `GET /updates/file/<name>` — download fallback
-- `POST /client/watchdog/report` — report `recovered` / `failed` → critical event
+- `POST /client/watchdog/report` — report `app_missing` / `recovered` /
+  `failed` → critical event (the backend must know a kind before a client
+  release ships it — strict zod 400s unknown kinds)
 
 ## Build
 

@@ -186,6 +186,11 @@ killDoneUninstall:
   ; schtasks failure never aborts the install.
   nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /F /RL LIMITED /SC ONLOGON /TN "MatricaRMZ\Watchdog Logon" /TR "\"$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe\""'
   nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /F /RL LIMITED /SC MINUTE /MO 15 /TN "MatricaRMZ\Watchdog Periodic" /TR "\"$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe\""'
+  ; Аварийная кнопка оператора: ярлык на `matricarmz-watchdog.exe --repair` —
+  ; принудительный проход сторожа без ожидания расписания (15 мин). Иконка — от
+  ; клиента: Go-бинарь сторожа собственной не несёт. Клиент поддерживает ярлык и
+  ; сам (restoreShortcutsHeadless), поэтому удалённый оператором ярлык вернётся.
+  CreateShortCut "$DESKTOP\Восстановить Матрицу РМЗ.lnk" "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe" "--repair" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
 !macroend
 
 ; ⚠️ Вызывается из customUnInstall, а он выполняется и при ОБНОВЛЕНИИ: одноклик-апдейт
@@ -207,6 +212,7 @@ killDoneUninstall:
     Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe.old"
     RMDir "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog"
     Delete "$APPDATA\MatricaRMZ\matricarmz-watchdog.exe"
+    Delete "$DESKTOP\Восстановить Матрицу РМЗ.lnk"
     ; Кэш обновлений живёт вне $INSTDIR, поэтому штатный деинсталлятор его не видит:
     ; без этой строки после честного удаления продукта на диске остаются 130+ МБ
     ; установщиков — ровно в той папке, на которую заведено исключение антивируса.
