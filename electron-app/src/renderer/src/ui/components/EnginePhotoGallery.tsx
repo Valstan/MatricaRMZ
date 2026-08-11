@@ -126,11 +126,13 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
 
   if (!props.canView || photos.length === 0) return null;
 
+  // Выборка накопительная и живёт независимо от лайтбокса: набрал фото листанием —
+  // действие идёт по всему набору. Пусто — работаем с текущим открытым фото.
   const targetIds = (): string[] => {
-    if (selectMode && selected.size > 0) return photos.filter((p) => selected.has(p.id)).map((p) => p.id);
+    if (selected.size > 0) return photos.filter((p) => selected.has(p.id)).map((p) => p.id);
     return active ? [active.id] : [];
   };
-  const targetCount = selectMode && selected.size > 0 ? selected.size : active ? 1 : 0;
+  const activeSelected = active != null && selected.has(active.id);
   const defaultName = `Фото двигателя ${props.engineLabel ?? ''}`.trim();
 
   const toggleSelected = (id: string) => {
@@ -147,7 +149,7 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
     setBusy('Копирование…');
     const r = await window.matrica.files.copyImage({ fileId: active.id });
     if (!r.ok) flash(`Ошибка: ${r.error}`, 3000);
-    else flash(selectMode && selected.size > 1 ? 'Скопировано текущее фото (буфер хранит одно изображение)' : 'Фото скопировано в буфер обмена');
+    else flash(selected.size > 1 ? 'Скопировано текущее фото (буфер хранит одно изображение)' : 'Фото скопировано в буфер обмена');
   }
 
   async function doDelete() {
@@ -227,7 +229,43 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
         <span style={{ fontSize: 12, color: '#64748b' }}>{photos.length} фото</span>
         <span style={{ flex: 1 }} />
         {busy && <div style={{ color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 12 }}>{busy}</div>}
+        {/* Режим выбора нужен и в сетке, а не только внутри просмотрщика. */}
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setSelectMode((v) => {
+              if (v) setSelected(new Set());
+              return !v;
+            });
+          }}
+        >
+          {selectMode ? 'Выйти из выбора' : 'Выбрать несколько'}
+        </Button>
       </div>
+      {selected.size > 0 && (
+        <div
+          style={{
+            marginBottom: 10,
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            padding: '8px 10px',
+            border: '1px solid #bfdbfe',
+            borderRadius: 12,
+            background: '#eff6ff',
+          }}
+        >
+          <strong style={{ fontSize: 13 }}>Выбрано фото: {selected.size}</strong>
+          <span style={{ flex: 1 }} />
+          <Button variant="ghost" onClick={doPrint}>Печать</Button>
+          <Button variant="ghost" onClick={doAssemblePdf}>Собрать в PDF</Button>
+          <Button variant="ghost" onClick={doCopyToFolder}>На флешку / в папку…</Button>
+          <Button variant="ghost" onClick={() => doReveal(false)}>Открыть папку с файлами</Button>
+          {props.canDelete && <Button variant="ghost" onClick={doDelete}>Удалить</Button>}
+          <Button variant="ghost" onClick={() => setSelected(new Set())}>Снять выбор</Button>
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {photos.map((p, idx) => {
           const url = thumbs[p.id];
@@ -255,7 +293,7 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
                   {fileExt(p.name).toUpperCase() || 'IMG'}
                 </div>
               )}
-              {selectMode && (
+              {(selectMode || sel) && (
                 <div style={{ position: 'absolute', top: 4, left: 4, width: 18, height: 18, borderRadius: 4, background: sel ? '#2563eb' : 'rgba(255,255,255,0.85)', border: '1px solid #2563eb', color: '#fff', fontSize: 12, lineHeight: '16px', textAlign: 'center', fontWeight: 700 }}>
                   {sel ? '✓' : ''}
                 </div>
@@ -274,9 +312,24 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
           <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', flexWrap: 'wrap' }}>
             <Button variant="ghost" style={tbBtn} onClick={doCopy}>Копировать</Button>
             {props.canDelete && <Button variant="ghost" style={tbBtn} onClick={doDelete}>Удалить</Button>}
-            <Button variant="ghost" style={selectMode ? { ...tbBtn, background: 'rgba(37,99,235,0.4)' } : tbBtn} onClick={() => { setSelectMode((v) => !v); setSelected(new Set()); }}>
-              {selectMode ? `Выбрано: ${selected.size}` : 'Выбрать'}
+            {/* Кнопка добавляет/убирает ТЕКУЩЕЕ фото и набор не обнуляет: листаешь —
+                выбранное копится, а действия тулбара идут по всему набору. */}
+            <Button
+              variant="ghost"
+              style={activeSelected ? { ...tbBtn, background: 'rgba(37,99,235,0.4)' } : tbBtn}
+              onClick={() => {
+                if (!active) return;
+                setSelectMode(true);
+                toggleSelected(active.id);
+              }}
+            >
+              {activeSelected ? '✓ Выбрано' : 'Выбрать'}
             </Button>
+            {selected.size > 0 && (
+              <Button variant="ghost" style={tbBtn} onClick={() => setSelected(new Set())}>
+                Снять выбор ({selected.size})
+              </Button>
+            )}
             <div style={{ position: 'relative' }}>
               <Button variant="ghost" style={tbBtn} onClick={() => setShareOpen((v) => !v)}>Отправить ▾</Button>
               {shareOpen && (
@@ -292,7 +345,7 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
             <span style={{ flex: 1 }} />
             <span style={{ color: '#cbd5e1', fontSize: 13 }}>
               {(activeIndex ?? 0) + 1} / {photos.length}
-              {targetCount > 1 ? ` · действие на ${targetCount}` : ''}
+              {selected.size > 0 ? ` · выбрано ${selected.size} — действия по выбранным` : ''}
             </span>
             <Button variant="ghost" style={tbBtn} onClick={() => setActiveIndex(null)}>Закрыть ✕</Button>
           </div>
