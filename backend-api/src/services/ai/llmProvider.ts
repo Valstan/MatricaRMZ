@@ -7,6 +7,9 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const DEEPSEEK_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
 
+/** Потолок обращений к инструментам за один ответ — защита от бесконечного цикла. */
+const MAX_TOOL_STEPS = 12;
+
 let cachedClient: Anthropic | null = null;
 let missingKeyWarned = false;
 
@@ -103,6 +106,16 @@ export type JsonSchemaProperty = {
   required?: string[];
 };
 
+/**
+ * Модели DeepSeek работают в thinking-режиме, а он несовместим с принудительным выбором
+ * инструмента: эндпойнт отвечает `400 Thinking mode does not support this tool_choice`
+ * (прод 2026-08-11, падал ночной разбор логов). Поэтому там просим инструмент словами,
+ * а не параметром; на Anthropic принуждение работает и остаётся.
+ */
+function isThinkingToolChoiceError(err: unknown): boolean {
+  return /thinking mode does not support this tool_choice/i.test(String(err ?? ''));
+}
+
 export async function callLlmJson<T = unknown>(args: {
   model: string;
   system: string;
@@ -116,29 +129,36 @@ export async function callLlmJson<T = unknown>(args: {
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
-  try {
-    const resp = await client.messages.create(
+  const forcesTool = getLlmProvider() !== 'deepseek';
+  const request = (forceTool: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
+    model: args.model,
+    max_tokens: args.options?.maxTokens ?? 1024,
+    system: forceTool
+      ? args.system
+      : `${args.system}\n\nОтвет верни единственным вызовом инструмента ${args.toolName} — обычным текстом не отвечай.`,
+    tools: [
       {
-        model: args.model,
-        max_tokens: args.options?.maxTokens ?? 1024,
-        system: args.system,
-        tools: [
-          {
-            name: args.toolName,
-            description: args.toolDescription,
-            input_schema: {
-              type: 'object',
-              properties: args.schema.properties as Record<string, unknown>,
-              ...(args.schema.required ? { required: args.schema.required } : {}),
-            },
-          },
-        ],
-        tool_choice: { type: 'tool', name: args.toolName },
-        messages: [{ role: 'user', content: args.user }],
-        ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
+        name: args.toolName,
+        description: args.toolDescription,
+        input_schema: {
+          type: 'object',
+          properties: args.schema.properties as Record<string, unknown>,
+          ...(args.schema.required ? { required: args.schema.required } : {}),
+        },
       },
-      { signal: ac.signal },
-    );
+    ],
+    ...(forceTool ? { tool_choice: { type: 'tool' as const, name: args.toolName } } : {}),
+    messages: [{ role: 'user' as const, content: args.user }],
+    ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
+  });
+  try {
+    const resp = await client.messages
+      .create(request(forcesTool), { signal: ac.signal })
+      .catch(async (err: unknown) => {
+        // Страховка, если принуждение отвергнет и другой провайдер.
+        if (!forcesTool || !isThinkingToolChoiceError(err)) throw err;
+        return client.messages.create(request(false), { signal: ac.signal });
+      });
     const toolUse = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (!toolUse) return null;
     return toolUse.input as T;
@@ -184,7 +204,30 @@ export type LlmWithToolsResult = {
   steps: number;
   inputTokens: number;
   outputTokens: number;
+  /** Причина остановки последнего вызова — нужна логам, когда текста нет. */
+  stopReason: string | null;
 };
+
+/**
+ * Шаги кончились, а модель всё ещё зовёт инструменты — просим финальный ответ по уже
+ * собранным данным. Без этого пользователь получал пустоту («ai chat direct: empty answer»,
+ * прод 2026-08-11) и вопрос уходил в эскалацию как технический сбой.
+ *
+ * Инструкцию дописываем текстовым блоком в последнее сообщение пользователя: два
+ * user-сообщения подряд эндпойнт не принимает.
+ */
+const FINAL_ANSWER_INSTRUCTION =
+  'Лимит обращений к инструментам исчерпан — больше их не вызывай. ' +
+  'Дай финальный ответ по уже собранным данным; если чего-то не хватило, честно скажи чего именно.';
+
+function appendFinalInstruction(messages: Anthropic.MessageParam[]): void {
+  const last = messages[messages.length - 1];
+  if (last && last.role === 'user' && Array.isArray(last.content)) {
+    last.content = [...last.content, { type: 'text', text: FINAL_ANSWER_INSTRUCTION }];
+    return;
+  }
+  messages.push({ role: 'user', content: FINAL_ANSWER_INSTRUCTION });
+}
 
 export type SystemBlock =
   | { type: 'text'; text: string; cacheable?: boolean };
@@ -211,13 +254,14 @@ export async function callLlmWithTools(args: {
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
-  const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, 8));
+  const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, MAX_TOOL_STEPS));
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: args.userMessage },
   ];
   const allToolUses: LlmToolUse[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
+  let lastText = '';
   try {
     for (let step = 1; step <= maxSteps; step++) {
       const resp = await client.messages.create(
@@ -239,9 +283,17 @@ export async function callLlmWithTools(args: {
       const textBlocks = resp.content.filter(
         (b): b is Anthropic.TextBlock => b.type === 'text',
       );
+      const stepText = textBlocks.map((b) => b.text).join('\n').trim();
+      if (stepText) lastText = stepText;
       if (toolUseBlocks.length === 0 || resp.stop_reason !== 'tool_use') {
-        const finalText = textBlocks.map((b) => b.text).join('\n').trim();
-        return { text: finalText, toolUses: allToolUses, steps: step, inputTokens, outputTokens };
+        return {
+          text: stepText,
+          toolUses: allToolUses,
+          steps: step,
+          inputTokens,
+          outputTokens,
+          stopReason: resp.stop_reason,
+        };
       }
       messages.push({ role: 'assistant', content: resp.content });
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -265,7 +317,33 @@ export async function callLlmWithTools(args: {
       }
       messages.push({ role: 'user', content: toolResults });
     }
-    return { text: '', toolUses: allToolUses, steps: maxSteps, inputTokens, outputTokens };
+    appendFinalInstruction(messages);
+    const finalResp = await client.messages.create(
+      {
+        model: args.model,
+        max_tokens: args.options?.maxTokens ?? 1024,
+        system: toSystemParam(args.systemBlocks),
+        tools: args.tools,
+        messages,
+        ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
+      },
+      { signal: ac.signal },
+    );
+    inputTokens += finalResp.usage?.input_tokens ?? 0;
+    outputTokens += finalResp.usage?.output_tokens ?? 0;
+    const synthesized = finalResp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    return {
+      text: synthesized || lastText,
+      toolUses: allToolUses,
+      steps: maxSteps,
+      inputTokens,
+      outputTokens,
+      stopReason: finalResp.stop_reason,
+    };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -293,7 +371,7 @@ export async function streamLlmWithTools(args: {
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
-  const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, 8));
+  const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, MAX_TOOL_STEPS));
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: args.userMessage }];
   const allToolUses: LlmToolUse[] = [];
   let inputTokens = 0;
@@ -336,7 +414,14 @@ export async function streamLlmWithTools(args: {
           toolUses: allToolUses,
           text: finalText,
         });
-        return { text: finalText, toolUses: allToolUses, steps: step, inputTokens, outputTokens };
+        return {
+          text: finalText,
+          toolUses: allToolUses,
+          steps: step,
+          inputTokens,
+          outputTokens,
+          stopReason: finalMessage.stop_reason,
+        };
       }
       messages.push({ role: 'assistant', content: finalMessage.content });
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -368,6 +453,30 @@ export async function streamLlmWithTools(args: {
       }
       messages.push({ role: 'user', content: toolResults });
     }
+    appendFinalInstruction(messages);
+    const finalStream = client.messages.stream(
+      {
+        model: args.model,
+        max_tokens: args.options?.maxTokens ?? 1024,
+        system: toSystemParam(args.systemBlocks),
+        tools: args.tools,
+        messages,
+        ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
+      },
+      { signal: ac.signal },
+    );
+    finalStream.on('text', (delta: string) => {
+      if (delta) void args.onEvent({ type: 'text', delta });
+    });
+    const synthesizedMessage = await finalStream.finalMessage();
+    inputTokens += synthesizedMessage.usage?.input_tokens ?? 0;
+    outputTokens += synthesizedMessage.usage?.output_tokens ?? 0;
+    const synthesized = synthesizedMessage.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    if (synthesized) finalText = synthesized;
     await args.onEvent({
       type: 'done',
       inputTokens,
@@ -376,7 +485,14 @@ export async function streamLlmWithTools(args: {
       toolUses: allToolUses,
       text: finalText,
     });
-    return { text: finalText, toolUses: allToolUses, steps: maxSteps, inputTokens, outputTokens };
+    return {
+      text: finalText,
+      toolUses: allToolUses,
+      steps: maxSteps,
+      inputTokens,
+      outputTokens,
+      stopReason: synthesizedMessage.stop_reason,
+    };
   } catch (err) {
     try {
       await args.onEvent({ type: 'error', error: String(err) });
