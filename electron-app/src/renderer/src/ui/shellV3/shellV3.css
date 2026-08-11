@@ -190,15 +190,40 @@
 }
 
 /* Предупреждения */
-.v3-tabs-warning {
-  flex: 0 0 auto;
-  max-width: 200px;
-  padding: 4px 8px;
+/* Напоминание «много вкладок». В полосе вкладок оно отъедало ширину и схлопывало
+   вкладки на планшете — теперь всплывает над телом вкладки и само исчезает.
+   pointer-events:none обязателен: подсказка висит поверх карточки и не должна
+   перехватывать клики по тому, что под ней. */
+.v3-tabs-hint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  pointer-events: none;
+  max-width: min(90vw, 420px);
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface, #fff);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
   color: var(--danger, #dc2626);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  white-space: normal;
   line-height: 1.2;
+  text-align: center;
+  animation: v3-tabs-hint-in 220ms ease-out;
+}
+
+@keyframes v3-tabs-hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 /* Тело вкладки — весь остаток высоты. position:relative обязателен: панели внутри

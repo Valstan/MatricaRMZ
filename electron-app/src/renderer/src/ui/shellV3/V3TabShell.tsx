@@ -16,6 +16,10 @@ import './shellV3.css';
 
 const RMZ_LOGO_SRC = rmzLogo;
 
+/** Напоминание про вкладки: сколько висит и как часто повторяется. */
+const TABS_HINT_VISIBLE_MS = 3_000;
+const TABS_HINT_PERIOD_MS = 60_000;
+
 /**
  * Скрытая панель не перерисовывается при изменениях сверху. Объявлена НА УРОВНЕ МОДУЛЯ:
  * тип, созданный внутри компонента, был бы новым на каждый рендер, и React перемонтировал
@@ -115,6 +119,34 @@ export function V3TabShell(props: {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [menuOverlayOpen]);
+
+  // «Много вкладок» больше не живёт в полосе вкладок (решение владельца 2026-08-11):
+  // там она отъедала ширину, и на планшете вкладки схлопывались до нечитаемых. Теперь —
+  // короткая всплывашка над телом вкладки: показывается TABS_HINT_VISIBLE_MS и повторяется
+  // не чаще TABS_HINT_PERIOD_MS, пока вкладок много. Кликам не мешает (pointer-events: none).
+  const tooManyTabs = shouldWarnTabsCount(props.openTabs.length);
+  const [tabsHintVisible, setTabsHintVisible] = React.useState(false);
+  const tabsHintShownAtRef = React.useRef(0);
+  React.useEffect(() => {
+    if (!tooManyTabs) return;
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    let nextTimer: ReturnType<typeof setTimeout> | null = null;
+    const cycle = () => {
+      tabsHintShownAtRef.current = Date.now();
+      setTabsHintVisible(true);
+      hideTimer = setTimeout(() => setTabsHintVisible(false), TABS_HINT_VISIBLE_MS);
+      nextTimer = setTimeout(cycle, TABS_HINT_PERIOD_MS);
+    };
+    // Первый показ — сразу, но если напоминание уже было недавно (счётчик вкладок
+    // попрыгал через порог), ждём остаток периода.
+    const sinceLast = Date.now() - tabsHintShownAtRef.current;
+    nextTimer = setTimeout(cycle, Math.max(0, TABS_HINT_PERIOD_MS - sinceLast));
+    return () => {
+      setTabsHintVisible(false);
+      if (hideTimer) clearTimeout(hideTimer);
+      if (nextTimer) clearTimeout(nextTimer);
+    };
+  }, [tooManyTabs]);
 
   const menuPanel = (
     <ButtonPanel
@@ -315,11 +347,6 @@ export function V3TabShell(props: {
             </div>
           );
         })}
-        {shouldWarnTabsCount(props.openTabs.length) ? (
-          <div className="v3-tabs-warning" role="alert">
-            ⚠ Много вкладок — закройте отработанные.
-          </div>
-        ) : null}
         <div className="v3-tab-spacer" />
         {props.userLabel ? (
           <button
@@ -390,6 +417,11 @@ export function V3TabShell(props: {
             <div className="v3-menu-overlay-backdrop" onClick={() => setMenuOverlayOpen(false)} />
             <div className="v3-menu-overlay">{menuPanel}</div>
           </>
+        )}
+        {tabsHintVisible && (
+          <div className="v3-tabs-hint" role="status">
+            ⚠ Много вкладок — закройте отработанные.
+          </div>
         )}
       </div>
     </div>
