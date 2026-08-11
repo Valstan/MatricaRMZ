@@ -802,6 +802,29 @@ export function buildAssemblyDuplicateMessage(args: {
   };
 }
 
+/**
+ * Гейт отгрузки: «Отправлен заказчику» нельзя ставить молча при незакрытом сборочном
+ * наряде — оператору предлагается закрыть наряд сегодняшним числом. Возвращает список
+ * blocking-нарядов (те же 'issued'/'overdue', что и в гейте дублей) и текст модалки;
+ * `null` — открытых нарядов нет, галка ставится без вопросов.
+ */
+export function buildShipmentOpenAssemblyMessage(args: {
+  engineLabel: string;
+  refs: AssemblyEngineWorkOrderRef[];
+}): { refs: AssemblyEngineWorkOrderRef[]; text: string } | null {
+  const blocking = args.refs.filter((ref) => Boolean(ref?.id)).filter(isAssemblyWorkOrderBlocking);
+  if (blocking.length === 0) return null;
+  const engine = args.engineLabel.trim() || 'этот двигатель';
+  const list = blocking.map(formatAssemblyWorkOrderRef).join('; ');
+  return {
+    refs: blocking,
+    text:
+      blocking.length === 1
+        ? `На двигатель ${engine} не закрыт наряд на сборку ${list}. Закрыть наряд сегодняшним числом?`
+        : `На двигатель ${engine} не закрыты наряды на сборку: ${list}. Закрыть наряды сегодняшним числом?`,
+  };
+}
+
 function clampFont(value: unknown, range: { min: number; max: number }): number | undefined {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return undefined;

@@ -4,6 +4,7 @@ import {
   applyWorkOrderIssue,
   applyWorkOrderWithdrawal,
   buildAssemblyDuplicateMessage,
+  buildShipmentOpenAssemblyMessage,
   deriveWorkOrderStatusCode,
   formatAssemblyWorkOrderRef,
   isAssemblyWorkOrderBlocking,
@@ -532,5 +533,64 @@ describe('гейт дублей сборочных нарядов', () => {
 
   it('наряд без номера называется словами, а не «№ 0»', () => {
     expect(formatAssemblyWorkOrderRef(ref({ workOrderNumber: 0 }))).toContain('без номера');
+  });
+});
+
+describe('гейт отгрузки при незакрытом сборочном наряде', () => {
+  const ref = (over: Partial<AssemblyEngineWorkOrderRef> = {}): AssemblyEngineWorkOrderRef => ({
+    id: 'wo-1',
+    workOrderNumber: 12,
+    orderDate: Date.UTC(2026, 7, 3, 9, 0),
+    statusCode: 'issued',
+    ...over,
+  });
+
+  it('без нарядов вопросов нет', () => {
+    expect(buildShipmentOpenAssemblyMessage({ engineLabel: 'Д6 123', refs: [] })).toBeNull();
+  });
+
+  it('закрытые и отозванные наряды отгрузку не держат', () => {
+    const msg = buildShipmentOpenAssemblyMessage({
+      engineLabel: 'Д6 123',
+      refs: [ref({ statusCode: 'done' }), ref({ id: 'wo-2', statusCode: 'done_late' }), ref({ id: 'wo-3', statusCode: 'withdrawn' })],
+    });
+    expect(msg).toBeNull();
+  });
+
+  it('открытый наряд называет номер, дату и статус и предлагает закрыть сегодняшним числом', () => {
+    const msg = buildShipmentOpenAssemblyMessage({ engineLabel: 'Д6 123', refs: [ref()] });
+    expect(msg?.refs.map((r) => r.id)).toEqual(['wo-1']);
+    expect(msg?.text).toContain('Д6 123');
+    expect(msg?.text).toContain('№ 12');
+    expect(msg?.text).toContain('03.08.2026');
+    expect(msg?.text).toContain('Выдан');
+    expect(msg?.text).toContain('сегодняшним числом');
+  });
+
+  it('просроченный наряд тоже блокирует', () => {
+    const msg = buildShipmentOpenAssemblyMessage({ engineLabel: 'Д6 123', refs: [ref({ statusCode: 'overdue' })] });
+    expect(msg?.refs).toHaveLength(1);
+    expect(msg?.text).toContain('Просрочен');
+  });
+
+  it('в blocking-список попадают только открытые из смешанного набора', () => {
+    const msg = buildShipmentOpenAssemblyMessage({
+      engineLabel: 'Д6 123',
+      refs: [
+        ref({ id: 'wo-old', workOrderNumber: 7, statusCode: 'done' }),
+        ref({ id: 'wo-a', workOrderNumber: 12 }),
+        ref({ id: 'wo-b', workOrderNumber: 13, statusCode: 'overdue' }),
+      ],
+    });
+    expect(msg?.refs.map((r) => r.id)).toEqual(['wo-a', 'wo-b']);
+    expect(msg?.text).toContain('№ 12');
+    expect(msg?.text).toContain('№ 13');
+    expect(msg?.text).not.toContain('№ 7');
+    expect(msg?.text).toContain('наряды');
+  });
+
+  it('пустой label заменяется на «этот двигатель»', () => {
+    const msg = buildShipmentOpenAssemblyMessage({ engineLabel: '  ', refs: [ref()] });
+    expect(msg?.text).toContain('этот двигатель');
   });
 });
