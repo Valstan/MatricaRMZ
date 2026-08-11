@@ -146,9 +146,12 @@ export function ButtonPanel(props: {
   }
 
   function toggleSection(id: string) {
+    // Аккордеон (решение владельца 2026-08-11): развёрнут максимум один раздел.
+    // Набор «всех прочих» считается от ЖИВЫХ props.buttons.sections — состав секций
+    // зависит от прав и планшетного режима, сохранённому state доверять нельзя.
     const next = props.collapsedSections.includes(id)
-      ? props.collapsedSections.filter((s) => s !== id)
-      : [...props.collapsedSections, id];
+      ? props.buttons.sections.map((s) => s.id).filter((s) => s !== id)
+      : Array.from(new Set([...props.collapsedSections, id]));
     props.onCollapsedSectionsChange(next);
   }
 
@@ -173,9 +176,10 @@ export function ButtonPanel(props: {
 
   return (
     <div className="v2-button-panel" onClick={() => { if (menu) closeMenu(); }}>
-      {/* Закреплённая область — всегда видна, не сворачивается, свой DndContext */}
+      {/* Закреплённая область — всегда видна и развёрнута, живёт ВНЕ скролла:
+          при прокрутке остальных секций остаётся наверху (владелец 2026-08-11). */}
       {props.buttons.pinned.length > 0 && (
-        <>
+        <div className="v2-button-panel-fixed">
           <div className="v2-section-header v2-section-pinned-header" data-pinned="1">
             <span className="v2-section-header-label">Закреплённые</span>
           </div>
@@ -187,10 +191,11 @@ export function ButtonPanel(props: {
             </SortableContext>
           </DndContext>
           <div className="v2-button-divider" />
-        </>
+        </div>
       )}
 
-      {/* Секции навигации и действий — каждая сворачивается */}
+      <div className="v2-button-panel-scroll">
+      {/* Секции навигации и действий — аккордеон: развёрнута максимум одна */}
       {props.buttons.sections.map((section) => {
         const collapsed = props.collapsedSections.includes(section.id);
         const sectionIds = section.items.map((b) => b.id);
@@ -234,6 +239,7 @@ export function ButtonPanel(props: {
             ))}
           </div>
         )}
+      </div>
       </div>
       {menu && (
         <div className="v2-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>

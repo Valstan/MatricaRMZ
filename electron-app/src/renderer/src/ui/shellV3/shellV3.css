@@ -226,11 +226,32 @@
   visibility: hidden;
 }
 
-/* Контент вкладки МЕНЮ — прижат влево, ширина по содержимому */
-.v3-tab-content-menu {
-  height: 100%;
-  overflow: auto;
-  max-width: 320px;
+/* МЕНЮ — узкий оверлей поверх активной вкладки (владелец 2026-08-11). Ширина —
+   по самой широкой кнопке (label'ы nowrap → max-content), с потолком на случай
+   длинных подписей. Живёт в .v3-tab-body (position:relative), скролл — внутри
+   ButtonPanel (.v2-button-panel-scroll). */
+.v3-menu-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 230px;
+  max-width: min(90vw, 340px);
+  background: var(--surface, #fff);
+  border-right: 1px solid var(--border);
+  box-shadow: 10px 0 28px rgba(15, 23, 42, 0.2);
+}
+
+/* Прозрачная подложка: клик мимо меню сворачивает оверлей, не задевая вкладки. */
+.v3-menu-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 39;
+  background: transparent;
 }
 
 /* Контент прочих вкладок */
@@ -238,6 +259,14 @@
   height: 100%;
   overflow: auto;
   padding: 6px;
+}
+
+/* Чат ИИваныча: скроллится только лента внутри чата, обёртка — флекс без скролла,
+   композер прижат к низу панели. */
+.v3-tab-content-ai-chat {
+  overflow: hidden;
+  display: flex;
+  padding: 0;
 }
 
 /* Класс-якорь нужен коду, который ищет свой вьюпорт через closest('.ui-content-viewport')

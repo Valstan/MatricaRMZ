@@ -7,10 +7,28 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   padding: 6px;
   gap: 2px;
+}
+
+/* Закреплённый блок живёт вне скролла (всегда наверху), прокручиваются только
+   секции: sticky больше не нужен, фиксацию даёт раскладка. */
+.v2-button-panel-fixed {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.v2-button-panel-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .v2-button-section {
@@ -19,12 +37,8 @@
   gap: 3px;
 }
 
-/* Закреплённая группа: тот же список, лёгкая подложка — видно, что это «шапка».
-   Закреплена при прокрутке МЕНЮ — не уезжает вверх. */
+/* Закреплённая группа: тот же список, лёгкая подложка — видно, что это «шапка». */
 .v2-button-section-pinned {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   background: var(--surface, #fff);
   border-radius: 10px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
@@ -177,18 +191,20 @@
   margin-bottom: 4px;
 }
 
+/* Заголовок раздела — заливка с акцентом: белые кнопки-пункты и кнопки-разделы
+   не должны сливаться (владелец 2026-08-11). */
 .v2-section-header {
   display: flex;
   align-items: center;
   gap: 5px;
   width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--muted);
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent, #2563eb);
   padding: 7px 6px 5px 6px;
   cursor: pointer;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   border-radius: 7px;
@@ -196,8 +212,8 @@
 }
 
 .v2-section-header:hover {
-  background: rgba(148, 163, 184, 0.12);
-  color: var(--text);
+  background: rgba(37, 99, 235, 0.2);
+  color: var(--accent, #2563eb);
 }
 
 .v2-section-header-label {
@@ -224,6 +240,8 @@
 }
 
 .v2-section-pinned-header {
+  border: none;
+  background: transparent;
   color: rgba(37, 99, 235, 0.7);
   cursor: default;
   padding-top: 3px;

@@ -789,7 +789,6 @@ export function App() {
   const chatUnreadTotalRef = useRef<number>(0);
   const chatPendingSoundTimerRef = useRef<number | null>(null);
   const [employeesRefreshKey, setEmployeesRefreshKey] = useState<number>(0);
-  const aiChatOpen = hasTab(tabsState, 'ai_chat');
   const aiChatRef = useRef<AiAgentChatHandle | null>(null);
   const [aiLastEvent, setAiLastEvent] = useState<AiAgentEvent | null>(null);
   const [aiRecentEvents, setAiRecentEvents] = useState<AiAgentEvent[]>([]);
@@ -1966,8 +1965,9 @@ export function App() {
         openSectionTab(userTab);
         break;
       case 'ai_chat':
-        if (aiChatOpen) dispatchTabs({ type: 'CLOSE', id: 'ai_chat' });
-        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: true });
+        // Как обычный раздел: кнопка меню всегда открывает/фокусирует вкладку,
+        // закрытие — только ✕ на самой вкладке (решение владельца 2026-08-11).
+        dispatchTabs({ type: 'OPEN_SINGLETON', id: 'ai_chat', label: 'ИИваныч', focus: true });
         break;
       case 'chat':
         if (chatOpen) dispatchTabs({ type: 'CLOSE', id: 'chat' });
@@ -5398,7 +5398,7 @@ export function App() {
   );
 
   const renderAiChatTabContent = () => (
-    <AiAgentChat ref={aiChatRef} visible={true} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} onClose={() => dispatchTabs({ type: 'CLOSE', id: 'ai_chat' })} />
+    <AiAgentChat ref={aiChatRef} visible={true} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} />
   );
 
   const renderSettingsTabContent = () => {
