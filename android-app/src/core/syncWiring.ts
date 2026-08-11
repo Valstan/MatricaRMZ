@@ -8,6 +8,7 @@ import {
   setResetLocalDatabaseImpl,
   setSyncSqlExecutor,
 } from '../../../electron-app/src/main/services/syncService.js';
+import { setSyncSqlLimits } from '../../../electron-app/src/main/services/sync/upsertChunks.js';
 import type { SqlExecutor } from '../../../electron-app/src/main/database/sqlExecutor.js';
 
 import type { AsyncSqlite, SqlValue } from '../db/asyncSqlite.js';
@@ -47,6 +48,11 @@ export type AndroidSyncWiring = {
 };
 
 export function wireSyncForAndroid(w: AndroidSyncWiring): void {
+  // Легаси-кап 999 bind-переменных системного SQLite + байтовый кап bridge-вызова:
+  // Capacitor-мост парсит каждый вызов как один JSON в Java-куче (256 МБ), и
+  // upsert прод-масштаба валит процесс OOM'ом до ответа SQLite (GOTCHAS M74).
+  // 700 КБ по .length ≈ до ~1.5 МБ UTF-8 — с запасом от капа кучи.
+  setSyncSqlLimits({ maxBindParams: 900, maxChunkBytes: 700_000 });
   setSyncSqlExecutor(createSqlExecutorFromAsyncSqlite(w.sqlite));
   // Сигнатура electron-мигратора — (db, schema, opts); android-порт дополнительно
   // получает низкоуровневый фасад для будущих цепочек 12→N.
