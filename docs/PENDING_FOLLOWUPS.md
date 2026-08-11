@@ -241,7 +241,16 @@ _Инфраструктура защищена (проверено `ss -tlnp`/UF
 
 _Вопрос про `CleanupMatricaFiles` **закрыт владельцем 2026-07-25: оставляем как есть** — реальную install-папку one-click-инсталлер и так заменяет целиком, а RMDir реальной папки означал бы «нет запускаемого клиента» при сорванном апдейте до прихода watchdog (~15 мин). Осознанное решение зафиксировано комментарием в `installer/installer.nsh`._
 
-_Приёмка ветки «пропавшие ярлыки» ✅ 2026-07-25 на rmz4val — нашла дефект (тихий NSIS не возвращает удалённые `.lnk`, GOTCHAS **M44**), починено #341 и перепроверено собранным CI-бинарём. **Приёмка backoff ✅ 2026-07-26** (30м → 1ч → 2ч на CI-бинаре в песочнице) — см. COMPLETED. **Открытого по watchdog не осталось**, пункт держится только как якорь для unsigned-раздачи._
+_Приёмка ветки «пропавшие ярлыки» ✅ 2026-07-25 на rmz4val — нашла дефект (тихий NSIS не возвращает удалённые `.lnk`, GOTCHAS **M44**), починено #341 и перепроверено собранным CI-бинарём. **Приёмка backoff ✅ 2026-07-26** (30м → 1ч → 2ч на CI-бинаре в песочнице) — см. COMPLETED._
+
+**Живая приёмка hardening-пакета (--repair + mutual heal, ветка feat/watchdog-self-heal-hardening) — на первой машине после релиза** (ADR-0002 §Порядок выката: installer.nsh и Go не ловятся ни линтером, ни тестами). Порядок и чек-лист:
+
+1. **Backend деплоится ДО клиентского релиза** — строгий zod на `POST /client/watchdog/report` отвечает 400 на неизвестный kind `app_missing` (сторож шлёт fire-and-forget, но событие потеряется).
+2. После установки: на рабочем столе появился ярлык «Восстановить Матрицу РМЗ» → `matricarmz-watchdog.exe --repair` (иконка клиента).
+3. Клик по ярлыку на здоровой машине: в `%APPDATA%\MatricaRMZ\watchdog.log` строка `healthy, exiting … repair=true`, переустановки нет, `watchdog-pass.lock` удалён.
+4. Переименовать/убрать `resources\app.asar` при закрытом клиенте → клик по ярлыку → сторож считает установку битой (`clearly broken` в логе), тихая переустановка, в «Критических событиях» появилось `client.watchdog.app_missing` и затем `recovered`.
+5. Mutual heal: удалить `%LOCALAPPDATA%\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe` и снести обе задачи (`schtasks /Delete`) → запустить клиент → в `matricarmz.log` строки `watchdog heal:`, exe вернулся, `schtasks /Query /TN "MatricaRMZ\Watchdog Logon"` и `…Periodic` существуют (заодно закрывается историческое отсутствие задачи Logon на rmz4val/PC40).
+6. Dev-гигиена (на dev-машине): убедиться, что dev/CDP-запуск клиента больше не переписывает `%APPDATA%\MatricaRMZ\watchdog.json` на electron.exe/localhost.
 
 ---
 

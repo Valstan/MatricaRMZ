@@ -162,7 +162,7 @@ clientSettingsRouter.post('/settings/sync-request/ack', async (req, res) => {
 clientSettingsRouter.post('/watchdog/report', async (req, res) => {
   const schema = z.object({
     clientId: z.string().min(2).max(200),
-    kind: z.enum(['recovered', 'failed']),
+    kind: z.enum(['recovered', 'failed', 'app_missing']),
     version: z.string().max(50).optional().nullable(),
     detail: z.string().max(4000).optional().nullable(),
     exitCode: z.number().int().optional().nullable(),
@@ -183,6 +183,20 @@ clientSettingsRouter.post('/watchdog/report', async (req, res) => {
         clientId,
         aiDetails: { kind, version: version ?? null, exitCode: exitCode ?? null, detail: detail ?? null, logTail: logTail ?? null },
         dedupMessage: `watchdog-failed:${clientId}`,
+      });
+    } else if (kind === 'app_missing') {
+      // Standalone «приложение пропало» signal sent at the top of the watchdog's
+      // recovery branch — visible to the owner even when the recovery itself
+      // succeeds seconds later (the recovered/failed pair only reports outcomes).
+      ingestServerCriticalEvent({
+        eventCode: 'client.watchdog.app_missing',
+        title: 'Watchdog: приложение на клиенте пропало',
+        humanMessage: `Watchdog обнаружил, что приложение на клиенте отсутствует или повреждено${verSuffix} — запускается восстановление.${detail ? ` ${detail}` : ''}`,
+        category: 'storage',
+        severity: 'warn',
+        clientId,
+        aiDetails: { kind, version: version ?? null, exitCode: exitCode ?? null, detail: detail ?? null },
+        dedupMessage: `watchdog-app-missing:${clientId}`,
       });
     } else {
       ingestServerCriticalEvent({

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import type { ChatDeepLinkPayload } from '@matricarmz/shared';
 
@@ -290,6 +290,29 @@ function restoreShortcutsHeadless(): boolean {
       logToFile(`restore-shortcuts: ${shortcutPath} failed: ${String(e)}`);
     }
   }
+  // «Восстановить Матрицу РМЗ» → watchdog --repair: the installer creates this
+  // desktop shortcut, but shortcut restoration must keep the emergency button
+  // alive too (best-effort; not counted into ok — the app shortcuts are the
+  // contract of this mode).
+  const localAppData = String(process.env.LOCALAPPDATA ?? '').trim();
+  if (localAppData) {
+    const watchdogExe = join(localAppData, 'Programs', 'MatricaRMZ-Watchdog', 'matricarmz-watchdog.exe');
+    if (existsSync(watchdogExe)) {
+      try {
+        shell.writeShortcutLink(join(app.getPath('desktop'), 'Восстановить Матрицу РМЗ.lnk'), 'create', {
+          target: watchdogExe,
+          args: '--repair',
+          cwd: dirname(watchdogExe),
+          // The watchdog exe carries no icon resource (plain Go binary) — borrow
+          // the client's own icon so the shortcut is recognizable.
+          icon: exe,
+          iconIndex: 0,
+        });
+      } catch (e) {
+        logToFile(`restore-shortcuts: repair shortcut failed: ${String(e)}`);
+      }
+    }
+  }
   return ok;
 }
 
@@ -351,6 +374,14 @@ app.whenReady().then(() => {
   void import('./services/backupService.js')
     .then(({ sweepBackupCache }) => sweepBackupCache(app.getPath('userData')))
     .catch((e) => logToFile(`backup cache sweep failed: ${String(e)}`));
+
+  // Mutual heal (win32, packaged only, best-effort): the watchdog restores a
+  // lost app; the app restores a lost watchdog exe / scheduled tasks. The same
+  // antivirus sweep that took the owner's entire install can take the watchdog
+  // too — and then nobody heals anybody.
+  void import('./services/watchdogHandshakeService.js')
+    .then(({ ensureWatchdogInstalled }) => ensureWatchdogInstalled((line) => logToFile(line)))
+    .catch((e) => logToFile(`watchdog heal failed: ${String(e)}`));
 
   // Разовая подчистка прежнего кэша обновлений в «Загрузках» (ADR-0002). Делает
   // клиент, а не установщик: установщик запущен ИЗ этого каталога и удалить свой

@@ -20,8 +20,13 @@
 //
 // Pure stdlib on purpose: no third-party deps means a trivial CI build and a
 // small static exe. The watchdog NEVER touches a healthy app (it acts only when
-// the exe is missing or the owner explicitly commanded a reinstall), so it
-// cannot race the normal in-app updater.
+// the exe is missing/clearly broken or the owner explicitly commanded a
+// reinstall), so it cannot race the normal in-app updater.
+//
+// `--repair` runs the same ladder as an operator-launched forced pass (desktop
+// shortcut «Восстановить Матрицу РМЗ»): backoff is bypassed, a healthy install
+// just gets its shortcuts topped up. A pass lock (watchdog-pass.lock, stale
+// after 30 min) keeps a shortcut launch from racing a scheduled pass.
 package main
 
 import (
@@ -125,18 +130,34 @@ type clientSettingsResp struct {
 }
 
 const (
-	// electron-builder one-click per-user NSIS derives the install dir from the
-	// sanitized package.json `name` (@matricarmz/electron-app -> @matricarmzelectron-app),
-	// NOT productName. Verified against a live install (docs/machines/rmz4val.md).
-	standardInstallExe = `Programs\@matricarmzelectron-app\MatricaRMZ.exe` // under %LOCALAPPDATA%
-	httpTimeout        = 30 * time.Second
-	downloadTimeout    = 5 * time.Minute
+	// Since 2026-08 (#471) installer.nsh preInit pins the install dir to
+	// Programs\MatricaRMZ via HKCU InstallLocation. Before that, electron-builder
+	// one-click per-user NSIS derived it from the sanitized package.json `name`
+	// (@matricarmz/electron-app -> @matricarmzelectron-app), NOT productName —
+	// machines that have not reinstalled since still use the legacy layout, so
+	// the no-handshake fallback must try both.
+	standardInstallExe       = `Programs\MatricaRMZ\MatricaRMZ.exe`                // under %LOCALAPPDATA%
+	legacyStandardInstallExe = `Programs\@matricarmzelectron-app\MatricaRMZ.exe`   // under %LOCALAPPDATA%
+	httpTimeout              = 30 * time.Second
+	downloadTimeout          = 5 * time.Minute
+	// A pass can legitimately run long: download (5 min) + silent installer
+	// (15 min) + shortcut restore (90 s). Anything older is a crashed pass.
+	passLockStaleAfter = 30 * time.Minute
 )
 
 var httpClient = &http.Client{Timeout: httpTimeout}
 
 func main() {
-	logf("watchdog pass start")
+	// --repair: operator-launched forced pass (the «Восстановить Матрицу РМЗ»
+	// desktop shortcut). Same ladder, but backoff/state is bypassed — a human
+	// explicitly asked for a fix right now.
+	repair := false
+	for _, a := range os.Args[1:] {
+		if a == "--repair" {
+			repair = true
+		}
+	}
+	logf("watchdog pass start (repair=%v)", repair)
 	hs, err := readHandshake()
 	if err != nil {
 		// No handshake means the app has never run on this account, so there is
@@ -145,19 +166,35 @@ func main() {
 		return
 	}
 
+	// schtasks' no-second-instance policy only covers the scheduled tasks; a
+	// shortcut-launched --repair can overlap a scheduled pass and race two
+	// silent installers over the same install dir.
+	if !acquirePassLock() {
+		logf("another watchdog pass is in flight (fresh watchdog-pass.lock) — exiting")
+		return
+	}
+	defer releasePassLock()
+
 	forced, reqID := checkReinstallCommand(hs)
-	present := appPresent(hs)
+	exe := resolveAppExe(hs)
+	present := exe != ""
+	corrupt := false
+	if present && appClearlyBroken(exe) {
+		logf("app exe on disk but clearly broken (bad PE header or missing resources\\app.asar): %s", exe)
+		present = false
+		corrupt = true
+	}
 	running := processRunning()
 	shortcuts := shortcutsPresent(hs)
 
 	if present && !forced {
 		// Exe on disk, but a wiped install can leave the operator with no way to
 		// launch it (план §Логика п.1): missing shortcuts on a NOT-running app →
-		// recreate the .lnk files directly. A running app is never touched.
-		// NOT a reinstall: silent NSIS does not recreate deleted shortcuts (it
-		// respects "user deleted it") — see restoreShortcuts.
-		if !shortcuts && !running {
-			logf("app exe present but shortcuts missing and process not running — restoring shortcuts directly")
+		// recreate the .lnk files directly. A running app is never touched —
+		// except on --repair, where the operator explicitly asked and the
+		// headless --restore-shortcuts child does not disturb a live instance.
+		if !shortcuts && (!running || repair) {
+			logf("app exe present but shortcuts missing — restoring shortcuts directly (running=%v)", running)
 			if restoreShortcuts(hs) {
 				logf("shortcuts restored directly (no reinstall needed)")
 				report(hs, "recovered", "shortcuts restored directly (desktop + start menu)", 0)
@@ -165,12 +202,15 @@ func main() {
 			}
 			logf("direct restore failed — falling back to reinstall")
 		} else {
-			logf("app present and no pending command — healthy, exiting (running=%v shortcuts=%v)", running, shortcuts)
+			logf("app present and no pending command — healthy, exiting (running=%v shortcuts=%v repair=%v)", running, shortcuts, repair)
 			return
 		}
 	}
 
 	reason := "app missing"
+	if corrupt {
+		reason = "app corrupt"
+	}
 	if forced {
 		reason = "owner reinstall command"
 	} else if present {
@@ -179,9 +219,10 @@ func main() {
 
 	// Attempt counter + backoff (план §Логика п.6): after a failed pass, do not
 	// re-download ~116 MB every 15 minutes forever — wait out an exponential
-	// backoff (30m, 1h, 2h, ... capped at 24h). An owner command bypasses it.
+	// backoff (30m, 1h, 2h, ... capped at 24h). An owner command or an
+	// operator-launched --repair bypasses it.
 	st := readState()
-	if !forced && st.FailCount > 0 {
+	if !forced && !repair && st.FailCount > 0 {
 		wait := backoffFor(st.FailCount)
 		since := time.Since(time.UnixMilli(st.LastFailMs))
 		if since < wait {
@@ -190,6 +231,18 @@ func main() {
 		}
 	}
 	logf("recovery needed: %s (clientId=%s)", reason, hs.ClientID)
+	if !present {
+		// Standalone «the app is gone» signal, distinct from the recovery
+		// outcome: the owner sees the incident even when recovery succeeds
+		// seconds later (or drags on through installer download). Requires a
+		// backend that knows the kind — older backends 400 it, postJSON is
+		// fire-and-forget, so nothing breaks.
+		missing := "app missing"
+		if corrupt {
+			missing = "app corrupt"
+		}
+		report(hs, "app_missing", fmt.Sprintf("%s (repair=%v forced=%v)", missing, repair, forced), 0)
+	}
 
 	// Respect the in-app updater's lock: if a normal update is mid-flight, defer
 	// to the next pass rather than launching a second installer over it.
@@ -267,6 +320,44 @@ func writeState(st state) {
 		return
 	}
 	_ = os.WriteFile(statePath(), raw, 0o644)
+}
+
+// --- pass lock (scheduled pass vs shortcut-launched --repair) ---------------
+
+func passLockPath() string {
+	return filepath.Join(os.Getenv("APPDATA"), "MatricaRMZ", "watchdog-pass.lock")
+}
+
+// acquirePassLock claims the single-pass slot. Mirrors the updaterInProgress
+// staleness pattern: the lock is just a file whose mtime marks the pass start,
+// and a lock older than passLockStaleAfter belongs to a crashed pass — it is
+// removed and re-claimed, so a kill can never wedge the watchdog forever.
+// O_EXCL keeps the claim atomic between two concurrent starts.
+func acquirePassLock() bool {
+	p := passLockPath()
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err == nil {
+		fmt.Fprintf(f, "pid=%d started=%s\n", os.Getpid(), time.Now().Format(time.RFC3339))
+		f.Close()
+		return true
+	}
+	st, serr := os.Stat(p)
+	if serr == nil && time.Since(st.ModTime()) < passLockStaleAfter {
+		return false
+	}
+	_ = os.Remove(p)
+	f, err = os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return false
+	}
+	fmt.Fprintf(f, "pid=%d started=%s\n", os.Getpid(), time.Now().Format(time.RFC3339))
+	f.Close()
+	return true
+}
+
+func releasePassLock() {
+	_ = os.Remove(passLockPath())
 }
 
 // backoffFor: 30m after the first failure, doubling per failure, capped at 24h.
@@ -428,8 +519,10 @@ func resolveAppExe(hs *handshake) string {
 		return hs.AppExePath
 	}
 	if local := os.Getenv("LOCALAPPDATA"); local != "" {
-		if p := filepath.Join(local, standardInstallExe); isRegularFile(p) {
-			return p
+		for _, rel := range []string{standardInstallExe, legacyStandardInstallExe} {
+			if p := filepath.Join(local, rel); isRegularFile(p) {
+				return p
+			}
 		}
 	}
 	return ""
@@ -437,6 +530,37 @@ func resolveAppExe(hs *handshake) string {
 
 func appPresent(hs *handshake) bool {
 	return resolveAppExe(hs) != ""
+}
+
+// appClearlyBroken checks that the exe is actually launchable, not merely a file
+// with size>0: the owner's machine lost the whole install to (likely) antivirus
+// quarantine and a zero-knowledge stat check called it healthy. Two probes: the
+// MZ header of the exe (same check validateInstaller applies to installers) and
+// the sibling resources\app.asar an electron-builder layout always has.
+//
+// Conservative on purpose — a false «corrupt» verdict costs a ~116-MB reinstall
+// per backoff period. Any inconclusive probe (open error: file locked, AV hold)
+// counts as healthy; only a definite bad header or a definitely absent app.asar
+// flips the verdict. The asar probe is skipped for non-standard exe names (a
+// stale dev handshake can point at a bare electron.exe, which ships no app.asar).
+func appClearlyBroken(exe string) bool {
+	f, err := os.Open(exe)
+	if err == nil {
+		head := make([]byte, 2)
+		_, rerr := io.ReadFull(f, head)
+		f.Close()
+		if rerr == nil && (head[0] != 0x4D || head[1] != 0x5A) { // "MZ"
+			return true
+		}
+	}
+	if !strings.EqualFold(filepath.Base(exe), "MatricaRMZ.exe") {
+		return false
+	}
+	asar := filepath.Join(filepath.Dir(exe), "resources", "app.asar")
+	if _, serr := os.Stat(asar); serr != nil && os.IsNotExist(serr) {
+		return true
+	}
+	return false
 }
 
 // updaterInProgress mirrors the app's acquireUpdateLock staleness window (2h):
