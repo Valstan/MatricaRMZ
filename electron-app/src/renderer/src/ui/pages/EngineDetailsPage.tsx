@@ -28,6 +28,9 @@ import { mutateContractPayments } from '../utils/contractPaymentsStore.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { isAndroidPlatform } from '../platform.js';
+import { useConfirm } from '../components/ConfirmContext.js';
+import { confirmShipmentWithOpenAssembly } from '../utils/shipmentAssemblyGate.js';
+import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
 
 // Заморожено 2026-05-26: «Разборка двигателя» отключена, поскольку бизнес отказался
 // от потока «разборка → repair_fund → Repair-наряд» (списки деталей по маркам не актуальны,
@@ -424,6 +427,7 @@ export function EngineDetailsPage(props: {
     }
   };
   const [returnOpen, setReturnOpen] = useState(false);
+  const { pickChoice } = useConfirm();
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [dupMatches, setDupMatches] = useState<EngineDuplicateMatches>({ exact: [], similar: [] });
   // "New engine" = the card was opened with an empty number (freshly created). Captured
@@ -890,6 +894,42 @@ export function EngineDetailsPage(props: {
       }
       return { ...prev, [code]: next ? prev[code] ?? Date.now() : null };
     });
+  }
+
+  // Гейт отгрузки в полёте: чекбокс не задизейблен на время модалки, повторный клик
+  // не должен открыть второй гейт поверх первого.
+  const shipmentGateBusy = useRef(false);
+
+  /**
+   * Асинхронная обёртка над applyStatusCheckboxChange для onChange чекбоксов:
+   * «Отправлен заказчику» при незакрытом сборочном наряде проходит через модалку
+   * (отмена — галка не встаёт; закрытие наряда — заодно встаёт «Отремонтирован»).
+   * Остальные коды идут прежним синхронным путём.
+   */
+  async function handleStatusCheckboxChange(code: StatusCode, next: boolean) {
+    if (code !== 'status_customer_sent' || !next) {
+      applyStatusCheckboxChange(code, next);
+      return;
+    }
+    if (shipmentGateBusy.current) return;
+    shipmentGateBusy.current = true;
+    try {
+      const decision = await confirmShipmentWithOpenAssembly({
+        engineId: props.engineId,
+        engineLabel: formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull }),
+        pickChoice,
+      });
+      if (decision.action !== 'proceed') return;
+      // Закрытие сборочного наряда = двигатель отремонтирован (владелец 2026-07-29).
+      // Ставим через ЛОКАЛЬНЫЙ state, не engines.advanceStatus: прямая запись в БД
+      // разошлась бы с несохранённой карточкой и перезатёрлась бы в saveAllAndClose.
+      if (decision.closedWorkOrders > 0 && !statusFlags.status_repaired) {
+        applyStatusCheckboxChange('status_repaired', true);
+      }
+      applyStatusCheckboxChange(code, next);
+    } finally {
+      shipmentGateBusy.current = false;
+    }
   }
 
   /**
@@ -1730,7 +1770,7 @@ export function EngineDetailsPage(props: {
                 checked={!!statusFlags[code]}
                 disabled={!canEditEnginesEff}
                 onChange={(e) => {
-                  applyStatusCheckboxChange(code, e.target.checked);
+                  void handleStatusCheckboxChange(code, e.target.checked);
                 }}
               />
               <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
