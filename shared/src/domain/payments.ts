@@ -403,12 +403,21 @@ export function planSlotForEngine(args: {
   engineBrandId?: string;
   /** Секция, уже выбранная оператором в карточке двигателя. */
   preferredSectionKey?: string;
+  /**
+   * Явный перенос в выбранную секцию (дропдаун в карточке контракта): fallback в другие
+   * секции запрещён — либо свободный слот марки в целевой, либо over-plan там же.
+   * Авто-подбор терпит «соседнюю» секцию, но пользователь, выбравший «ДС 2», воспримет
+   * молчаливую посадку в primary как баг.
+   */
+  strict?: boolean;
 }): EngineSlotPlacement {
   const preferred = String(args.preferredSectionKey ?? '').trim();
-  const order = [
-    ...(preferred ? [preferred] : []),
-    ...args.sectionKeys.filter((key) => key !== preferred),
-  ];
+  const order = args.strict === true && preferred
+    ? [preferred]
+    : [
+        ...(preferred ? [preferred] : []),
+        ...args.sectionKeys.filter((key) => key !== preferred),
+      ];
   for (const sectionKey of order) {
     const free = args.cp.slots.filter((s) => s.sectionKey === sectionKey && !s.engineId);
     const pool = args.engineBrandId ? free.filter((s) => s.engineBrandId === args.engineBrandId) : free;
