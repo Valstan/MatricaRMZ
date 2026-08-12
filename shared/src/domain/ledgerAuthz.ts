@@ -19,7 +19,7 @@ export type LedgerWriteRequirement =
   | { kind: 'permission'; code: PermissionCode } // operator must hold this permission
   | { kind: 'admin' } // admin/superadmin only (sensitive: contracts/customers)
   | { kind: 'superadmin' } // superadmin only (structural directories)
-  | { kind: 'own_employee' }; // own employee record only (or admin) — PII
+  | { kind: 'own_employee'; code: PermissionCode }; // own employee record, либо держатель кадрового права — PII
 
 // Server-managed employee auth/security attributes (EAV `attribute_defs.code`).
 // These are written ONLY by the server (setEmployeeAuth / admin routes) using a
@@ -92,7 +92,12 @@ const ENTITY_TYPE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // counterparty edit surfaces gate on caps.canEditContracts.
   contract: { kind: 'permission', code: PermissionCode.ContractsEdit },
   customer: { kind: 'permission', code: PermissionCode.ContractsEdit },
-  employee: { kind: 'own_employee' },
+  // Своя карточка — всем (самообслуживание профиля); чужие — только по кадровому
+  // праву: без него оператор с доступом к разделу «Персонал» всё равно упирался в
+  // отказ синка, и «дайте права» галочками не лечилось (прод 2026-08-12, Рамзия).
+  // Служебные поля (логин, системная роль, доступ) остаются закрыты для всех
+  // клиентских записей — их режет backstop выше по коду, до этого правила.
+  employee: { kind: 'own_employee', code: PermissionCode.EmployeesCreate },
 
   // structural directories — superadmin only
   workshop: { kind: 'superadmin' },
@@ -181,6 +186,7 @@ export function operatorMeetsRequirement(
     case 'permission':
       return ctx.perms[req.code] === true;
     case 'own_employee':
+      if (ctx.perms[req.code] === true) return true;
       return !!ctx.ownerEntityId && ctx.ownerEntityId === ctx.actorId;
     case 'admin':
     case 'superadmin':
