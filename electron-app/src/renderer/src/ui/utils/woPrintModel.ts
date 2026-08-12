@@ -38,6 +38,7 @@ export type WoPrintEmployee = {
   firstName?: string;
   middleName?: string;
   displayName: string;
+  personnelNumber?: string | null;
   departmentName?: string | null;
   workshopId?: string | null;
   position?: string | null;
@@ -111,6 +112,32 @@ function resolvePartArticle(line: WorkOrderWorkLine, deps: WoPrintDeps): string 
 /** Клейма экземпляров строки («№ детали») одной строкой. */
 function resolveStampedNumbers(line: WorkOrderWorkLine): string {
   return (line.stampedNumbers ?? []).map((v) => String(v ?? '').trim()).filter(Boolean).join(', ');
+}
+
+/**
+ * Бригадник в наряде печатается как «Фамилия И.О.» + отдельная колонка табельного номера
+ * (просьба владельца 2026-08-12): в цеху состав сверяют по табельному, а не по полному ФИО.
+ * Порядок фиксирован — сначала фамилия, потом инициалы; общий `formatEmployeeInitialsSurname`
+ * даёт обратный порядок и используется в подписях, его не трогаем.
+ */
+function crewMemberLabel(member: { employeeId?: string; employeeName?: string }, deps: WoPrintDeps): string {
+  const employee = deps.employees.find((e) => e.id === String(member.employeeId ?? '').trim());
+  const last = String(employee?.lastName ?? '').trim();
+  if (last) {
+    const initials = [employee?.firstName, employee?.middleName]
+      .map((p) => String(p ?? '').trim())
+      .filter(Boolean)
+      .map((p) => `${p[0]?.toUpperCase()}.`)
+      .join('');
+    return initials ? `${last} ${initials}` : last;
+  }
+  return String(member.employeeName ?? '').trim() || String(employee?.displayName ?? '').trim();
+}
+
+/** Табельный номер бригадника; пусто — если в карточке сотрудника его нет. */
+function crewMemberPersonnelNumber(member: { employeeId?: string }, deps: WoPrintDeps): string {
+  const employee = deps.employees.find((e) => e.id === String(member.employeeId ?? '').trim());
+  return String(employee?.personnelNumber ?? '').trim();
 }
 
 /** Подразделение подписанта: цех (по workshop_id) если задан, иначе подразделение. */
@@ -279,10 +306,12 @@ function buildAssemblyModel(
   };
 
   const crewHtml = current.crew.length
-    ? `<table><thead><tr><th>Сотрудник</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th></tr></thead><tbody>${current.crew
+    ? `<table><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th></tr></thead><tbody>${current.crew
         .map(
           (member) =>
-            `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(
+            `<tr><td>${escapeHtml(crewMemberLabel(member, deps) || '—')}</td><td>${escapeHtml(
+              crewMemberPersonnelNumber(member, deps),
+            )}</td><td>${escapeHtml(
               String(member.ktu ?? 1),
             )}</td><td>${escapeHtml(money(member.payoutRub ?? 0))}</td><td>${
               member.payoutFrozen ? 'Да' : 'Нет'
@@ -428,12 +457,14 @@ function buildSimpleModel(
   // Отдельных слотов подписи на бригаду не заводим — их число заранее неизвестно, а
   // колонка растёт вместе с составом сама.
   const crewHtml = current.crew.length
-    ? `<table class="wo-crew"><thead><tr><th>Сотрудник</th><th>КТУ</th>${
+    ? `<table class="wo-crew"><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th>${
         showAmount ? '<th>Начислено</th>' : ''
       }<th>Подпись</th></tr></thead><tbody>${current.crew
         .map(
           (member) =>
-            `<tr><td>${escapeHtml(member.employeeName || '—')}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td>${
+            `<tr><td>${escapeHtml(crewMemberLabel(member, deps) || '—')}</td><td>${escapeHtml(
+              crewMemberPersonnelNumber(member, deps),
+            )}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td>${
               showAmount ? `<td>${escapeHtml(money(member.payoutRub ?? 0))}</td>` : ''
             }<td class="wo-sign-cell"></td></tr>`,
         )

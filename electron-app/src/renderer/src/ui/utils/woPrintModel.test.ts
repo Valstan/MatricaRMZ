@@ -6,7 +6,8 @@ import { buildWorkOrderPrintModel, type WoPrintDeps } from './woPrintModel.js';
 
 const DEPS: WoPrintDeps = {
   employees: [
-    { id: 'e-1', displayName: 'Иванов И.И.', lastName: 'Иванов', firstName: 'Иван', middleName: 'Иванович', position: 'Слесарь', workshopId: 'w-1' },
+    { id: 'e-1', displayName: 'Иванов И.И.', lastName: 'Иванов', firstName: 'Иван', middleName: 'Иванович', position: 'Слесарь', workshopId: 'w-1', personnelNumber: '1043' },
+    { id: 'e-2', displayName: 'Петров П.П.', lastName: 'Петров', firstName: 'Пётр', middleName: 'Петрович', position: 'Слесарь', workshopId: 'w-1' },
   ],
   engines: [{ id: 'eng-1', engineNumber: '12345', engineBrandName: 'В-84', engineInternalNumber: '41/26' }],
   parts: [{ id: 'p-1', name: 'Поршень', article: 'ART-77' }],
@@ -101,6 +102,27 @@ describe('woPrintModel — простая форма (обычный / ремо�
     expect(crew).toContain('<th>Подпись</th>');
     expect(crew).toContain('wo-sign-cell');
     expect(model.extraCss).toContain('wo-sign-cell');
+  });
+
+  it('бригада: «Фамилия И.О.», следом табельный номер из карточки сотрудника', () => {
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        crew: [
+          { employeeId: 'e-1', employeeName: 'Иванов И.И.', ktu: 1.2, payoutRub: 500 },
+          // У Петрова табельного нет — в бумаге на его месте пустая ячейка, не «—».
+          { employeeId: 'e-2', employeeName: 'Петров П.П.', ktu: 1, payoutRub: 400 },
+        ],
+      }),
+      {},
+      DEPS,
+    );
+    const crew = html(model, 'crew');
+    expect(crew).toContain('<th>Таб. №</th>');
+    expect(crew).toContain('<td>Иванов И.И.</td><td>1043</td>');
+    expect(crew).toContain('<td>Петров П.П.</td><td></td>');
+    // Колонка табельного стоит сразу за фамилией, до КТУ.
+    expect(crew.indexOf('<th>Таб. №</th>')).toBeLessThan(crew.indexOf('<th>КТУ</th>'));
   });
 
   it('печатает стоимость услуг и итог', () => {
