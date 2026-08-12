@@ -183,6 +183,13 @@ export type WorkOrderTemplateEditorDialogProps = {
   /** Default kind for a new template. Ignored when templateId is set (taken from loaded template). */
   defaultKind: WorkOrderKind;
   canEdit: boolean;
+  /**
+   * Набор подписей, собранный в открытой карточке наряда: подставляется вместо
+   * подписей шаблона, чтобы «сохранить как шаблон» прямо со вкладки «Подписи» не
+   * требовало собирать тот же список во второй раз. Для нового шаблона — начальное
+   * значение, для существующего — замена его подписей (остальное шаблона не трогаем).
+   */
+  seedSignatureBlocks?: readonly WorkOrderSignatureBlockSelection[];
   onClose: () => void;
   onSaved?: (template: WorkOrderTemplateDto) => void;
 };
@@ -204,13 +211,21 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState('');
 
+  const seedSignatureBlocks = props.seedSignatureBlocks;
+
   useEffect(() => {
     if (!props.open) return;
     setStatus('');
     let cancelled = false;
+    // Подписи из карточки заменяют шаблонные целиком: оператор пришёл сюда именно с
+    // готовым набором, слияние двух списков дало бы дубли ролей.
+    const withSeed = (state: EditorState): EditorState =>
+      seedSignatureBlocks
+        ? { ...state, signatureBlocks: normalizeTemplateSignatureBlocks(seedSignatureBlocks), dirty: true }
+        : state;
     (async () => {
       if (props.templateId === null) {
-        setEditor(newEditor(props.defaultKind));
+        setEditor(withSeed(newEditor(props.defaultKind)));
         return;
       }
       setLoading(true);
@@ -222,7 +237,7 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
           setEditor(null);
           return;
         }
-        setEditor(templateToEditor(r.template));
+        setEditor(withSeed(templateToEditor(r.template)));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -230,7 +245,7 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
     return () => {
       cancelled = true;
     };
-  }, [props.open, props.templateId, props.defaultKind]);
+  }, [props.open, props.templateId, props.defaultKind, seedSignatureBlocks]);
 
   useEffect(() => {
     if (!props.open) return;

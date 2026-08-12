@@ -430,7 +430,12 @@ export function WorkOrderDetailsPage(props: {
   const [selectedWorkOrderTemplateId, setSelectedWorkOrderTemplateId] = useState<string>('');
   const [workOrderTemplateBusy, setWorkOrderTemplateBusy] = useState(false);
   const [workOrderTemplateEditor, setWorkOrderTemplateEditor] = useState<
-    { templateId: string | null; defaultKind: WorkOrderKind } | null
+    {
+      templateId: string | null;
+      defaultKind: WorkOrderKind;
+      /** Подписи, собранные во вкладке «Подписи», — уезжают в шаблон вместо его собственных. */
+      seedSignatureBlocks?: readonly WorkOrderSignatureBlockSelection[];
+    } | null
   >(null);
   /** Set of payload field keys hidden from the card UI by the last-applied template.
    * Lives only for the current session — closing and re-opening the card resets it. */
@@ -1588,6 +1593,25 @@ export function WorkOrderDetailsPage(props: {
     patch({ ...payload, signatureBlocks: next });
   }
 
+  /**
+   * Подписи наряда в виде, пригодном для шаблона: берём то, что оператор ВИДИТ на
+   * вкладке, включая роли по умолчанию, которых в payload ещё нет (пока их не трогали,
+   * они существуют только как defaultCaptions). Иначе «сохранить подписи в шаблон» на
+   * нетронутом наряде уносило бы пустой список. Пустые строки (без роли и сотрудника)
+   * в шаблон не кладём — это заготовки под ручное заполнение.
+   */
+  function signatureBlocksForTemplate(): WorkOrderSignatureBlockSelection[] {
+    if (!payload) return [];
+    const out: WorkOrderSignatureBlockSelection[] = [];
+    for (const block of getWorkOrderSignatureBlocks(payload.workOrderKind)) {
+      const slots = resolveWorkOrderSignatureSlots(block, payload.signatureBlocks).filter(
+        (s) => String(s.caption ?? '').trim() || String(s.employeeId ?? '').trim(),
+      );
+      if (slots.length) out.push({ blockId: block.id, slots });
+    }
+    return out;
+  }
+
   /** Подразделение подписанта для печати: цех (по workshop_id) если задан, иначе подразделение. */
   function resolveEmployeeUnit(employee: EmployeeInfo | undefined): string {
     if (!employee) return '';
@@ -1867,6 +1891,45 @@ export function WorkOrderDetailsPage(props: {
           содержимое, и вкладка выглядела бы пустой). */}
       <CollapsibleSection title="Подписи" defaultOpen>
       <div style={{ display: 'grid', gap: 16 }}>
+        {/* Собранный здесь набор подписей — это и есть заготовка шаблона: сохраняем его
+            прямо со вкладки, чтобы не пересобирать тот же список в разделе шаблонов.
+            Шаблоны общие на завод, поэтому правка видна всем — так и задумано. */}
+        {props.canEditWorkOrderTemplates && isWorkOrderTemplateKind(payload.workOrderKind) ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <Button
+              variant="ghost"
+              disabled={workOrderTemplateBusy}
+              onClick={() =>
+                setWorkOrderTemplateEditor({
+                  templateId: null,
+                  defaultKind: payload.workOrderKind as WorkOrderKind,
+                  seedSignatureBlocks: signatureBlocksForTemplate(),
+                })
+              }
+            >
+              Сохранить подписи в новый шаблон
+            </Button>
+            {selectedWorkOrderTemplateId ? (
+              <Button
+                variant="ghost"
+                disabled={workOrderTemplateBusy}
+                onClick={() =>
+                  setWorkOrderTemplateEditor({
+                    templateId: selectedWorkOrderTemplateId,
+                    defaultKind: payload.workOrderKind as WorkOrderKind,
+                    seedSignatureBlocks: signatureBlocksForTemplate(),
+                  })
+                }
+              >
+                Обновить подписи в шаблоне «
+                {availableWorkOrderTemplates.find((t) => t.id === selectedWorkOrderTemplateId)?.name ?? '—'}»
+              </Button>
+            ) : null}
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+              Шаблон подставит эти подписи в новый наряд вместе с остальными настройками.
+            </span>
+          </div>
+        ) : null}
         <datalist id="wo-signature-captions">
           {captionSuggestions.map((c) => (
             <option key={c} value={c} />
@@ -3384,6 +3447,9 @@ export function WorkOrderDetailsPage(props: {
         open
         templateId={workOrderTemplateEditor.templateId}
         defaultKind={workOrderTemplateEditor.defaultKind}
+        {...(workOrderTemplateEditor.seedSignatureBlocks
+          ? { seedSignatureBlocks: workOrderTemplateEditor.seedSignatureBlocks }
+          : {})}
         canEdit={props.canEditWorkOrderTemplates === true}
         onClose={() => setWorkOrderTemplateEditor(null)}
         onSaved={(saved) => {

@@ -211,8 +211,11 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     code: PermissionCode.WorkOrderTemplatesEdit,
     group: 'Справочники',
     titleRu: 'Редактирование шаблонов нарядов',
-    descriptionRu: 'Создание/изменение/удаление универсальных шаблонов нарядов (предзаполнение полей и строк, скрытие неактуальных полей). Чтение шаблонов доступно всем с правом «Создание нарядов».',
-    adminOnly: true,
+    // Не admin-only с 2026-08-12 (решение владельца): шаблон наряда — это цеховая
+    // заготовка «как мы обычно выписываем наряд», и собирать её должен тот, кто наряды
+    // выписывает. Держать её за админом значило гонять мастера к администратору из-за
+    // смены одной подписи.
+    descriptionRu: 'Создание/изменение/удаление универсальных шаблонов нарядов (предзаполнение полей и строк, набор подписей, скрытие неактуальных полей). Шаблоны общие на завод — правка видна всем.',
   },
   {
     code: PermissionCode.EngineActTemplatesEdit,
@@ -372,6 +375,9 @@ const OPERATOR_BASE_PERMISSIONS: PermissionCode[] = [
   PermissionCode.ErpRegistersView,
   PermissionCode.ErpJournalsView,
   PermissionCode.EmployeesView,
+  // Шаблоны нарядов правит тот, кто наряды выписывает (решение владельца 2026-08-12):
+  // право входит в базу оператора, а не выдаётся админом поштучно.
+  PermissionCode.WorkOrderTemplatesEdit,
   PermissionCode.FilesView,
   PermissionCode.TimesheetView,
   PermissionCode.TimesheetPrint,

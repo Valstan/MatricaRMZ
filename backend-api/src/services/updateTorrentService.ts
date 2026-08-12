@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, lt } from 'drizzle-orm';
 
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
-import { logError, logInfo, logWarn } from '../utils/logger.js';
+import { describeError, logError, logInfo, logWarn } from '../utils/logger.js';
 import { db } from '../database/db.js';
 import { updatePeers } from '../database/schema.js';
 
@@ -410,7 +410,7 @@ export function startUpdateTorrentService() {
       });
     }
     setInterval(
-      () => void cleanupExpiredPeers().catch((e: unknown) => logWarn('peer cleanup failed', { error: String(e) })),
+      () => void cleanupExpiredPeers().catch((e: unknown) => logWarn('peer cleanup failed', describeError(e))),
       LAN_PEER_CLEANUP_INTERVAL_MS,
     );
   } else {
