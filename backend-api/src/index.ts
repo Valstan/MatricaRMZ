@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { db } from './database/db.js';
 import { PermissionCode } from './auth/permissions.js';
 import { permissions } from './database/schema.js';
-import { logError, logInfo } from './utils/logger.js';
+import { describeError, logError, logInfo } from './utils/logger.js';
 import { startUpdateTorrentService } from './services/updateTorrentService.js';
 import { startConsistencyDiagnostics } from './services/diagnosticsConsistencyService.js';
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
@@ -36,7 +36,7 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  logError('backend unhandled rejection', { error: String(reason) });
+  logError('backend unhandled rejection', describeError(reason));
 });
 
 const port = Number(process.env.MATRICA_INSTANCE_PORT ?? process.env.PORT ?? 3001);

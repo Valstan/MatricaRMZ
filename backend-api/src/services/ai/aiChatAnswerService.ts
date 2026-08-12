@@ -12,7 +12,7 @@ import { and, asc, eq, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { db } from '../../database/db.js';
 import { aiChatMeta, aiChatRequests } from '../../database/schema.js';
-import { logError, logInfo } from '../../utils/logger.js';
+import { describeError, logError, logInfo } from '../../utils/logger.js';
 import {
   getAiChatActor,
   notifySuperadminEscalation,
@@ -375,7 +375,7 @@ export function startAiChatDirectWorker(): void {
     try {
       await aiChatDirectTick();
     } catch (e) {
-      logError('ai chat direct worker tick failed', { error: String(e) });
+      logError('ai chat direct worker tick failed', describeError(e));
     } finally {
       running = false;
     }
