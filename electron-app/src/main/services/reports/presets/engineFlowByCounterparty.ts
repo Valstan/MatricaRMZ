@@ -36,6 +36,7 @@ type BrandNode = { label: string; agg: FlowAgg };
 type ContractNode = {
   shortLabel: string;
   fullLabel: string;
+  sectionToken: string;
   sortKey: string;
   total: FlowAgg;
   brands: Map<string, BrandNode>;
@@ -153,6 +154,7 @@ export async function buildEngineFlowByCounterpartyReport(
       contractNode = {
         shortLabel: contractId ? shortContractLabel(fullNumber, sectionToken) : NO_CONTRACT,
         fullLabel: fullNumber,
+        sectionToken,
         sortKey: `${fullNumber}|${sectionToken}`,
         total: emptyFlowAgg(),
         brands: new Map(),
@@ -174,6 +176,21 @@ export async function buildEngineFlowByCounterpartyReport(
     accFlow(contractNode.total, delta);
     accFlow(counterpartyNode.total, delta);
     accFlow(grand, delta);
+  }
+
+  // У ГОЗ-номеров хвост общий на весь год («…/10/ГОЗ-25»), поэтому у одного заказчика короткие
+  // метки легко совпадают — тогда берём на сегмент больше, пока они не разойдутся.
+  for (const counterpartyNode of byCounterparty.values()) {
+    const contracts = Array.from(counterpartyNode.contracts.values()).filter((c) => c.fullLabel);
+    for (let depth = 1; depth <= 3; depth += 1) {
+      const seen = new Map<string, number>();
+      for (const contract of contracts) seen.set(contract.shortLabel, (seen.get(contract.shortLabel) ?? 0) + 1);
+      const collided = contracts.filter((contract) => (seen.get(contract.shortLabel) ?? 0) > 1);
+      if (collided.length === 0) break;
+      for (const contract of collided) {
+        contract.shortLabel = shortContractLabel(contract.fullLabel, contract.sectionToken, depth + 1);
+      }
+    }
   }
 
   const rows: Array<Record<string, ReportCellValue>> = [];

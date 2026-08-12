@@ -158,7 +158,7 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     if (!report.ok) return;
     const labels = report.rows.map((r) => r.contractShortLabel);
     expect(labels).toContain('№ 125'); // «125/2026» → год отброшен
-    expect(labels).toContain('№ 158 / ДС 2'); // «РМЗ-2026-0158» → хвост 3 цифры + ДС
+    expect(labels).toContain('№ 0158 / ДС 2'); // «РМЗ-2026-0158» → хвост после дефиса + ДС
     expect(labels).toContain('№ 7'); // «7/2026»
   });
 
@@ -166,7 +166,7 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     const report = await buildEngineFlowByCounterpartyReport(stubDb(), {});
     expect(report.ok).toBe(true);
     if (!report.ok) return;
-    const e6Row = findRow(report.rows, '№ 158 / ДС 2', 'Д-245');
+    const e6Row = findRow(report.rows, '№ 0158 / ДС 2', 'Д-245');
     expect(e6Row?.counterpartyLabel).toBe('АО «Первый заказчик»');
     expect(report.rows.some((r) => r.counterpartyLabel === '(без заказчика)')).toBe(false);
   });
@@ -186,6 +186,66 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     if (!report.ok) return;
     expect(report.rows.every((r) => r.engineBrand === 'ЯМЗ-238')).toBe(true);
     expect(report.totals?.arrivedQty).toBe(2); // E5, E7
+  });
+});
+
+// Реальные ГОЗ-номера: общий хвост «/ГОЗ-25» на весь год, различает сегмент перед ним.
+// Второй и третий договор совпадают и по нему — метка должна разъехаться на сегмент глубже.
+describe('короткая метка на ГОЗ-номерах', () => {
+  const gozTypeRows: Row[] = [
+    { id: 'T_ENGINE', code: 'engine' },
+    { id: 'T_CONTRACT', code: 'contract' },
+    { id: 'T_CP', code: 'counterparty' },
+  ];
+  const gozContracts: Record<string, string> = {
+    G1: '2425187912371412245237126/10/ГОЗ-25',
+    G2: '2224187314431432245222903/739-1/55/13906/9012/2325',
+    G3: '2325187913551442245231239/739-1/55/13983/8947/2325',
+  };
+  const gozEntityRows: Row[] = [
+    { id: 'CP1', typeId: 'T_CP' },
+    ...Object.keys(gozContracts).map((id) => ({ id, typeId: 'T_CONTRACT' })),
+    ...Object.keys(gozContracts).map((id) => ({ id: `E_${id}`, typeId: 'T_ENGINE' })),
+  ];
+  const gozAttrs: Record<string, Record<string, unknown>> = {
+    CP1: { name: 'ООО «ОВК»' },
+    ...Object.fromEntries(Object.entries(gozContracts).map(([id, number]) => [id, { contract_sections: contractSections(number, 'CP1') }])),
+    ...Object.fromEntries(Object.keys(gozContracts).map((id) => [`E_${id}`, { contract_id: id, arrival_date: ARRIVAL }])),
+  };
+  const gozValueRows: Row[] = [];
+  for (const [entityId, attrs] of Object.entries(gozAttrs)) {
+    for (const [code, value] of Object.entries(attrs)) {
+      gozValueRows.push({ entityId, attributeDefId: code, valueJson: JSON.stringify(value) });
+    }
+  }
+  const gozDb = (): any => ({
+    select: () => ({
+      from: (table: unknown) => {
+        const rows =
+          table === entityTypes
+            ? gozTypeRows
+            : table === entities
+              ? gozEntityRows
+              : table === attributeDefs
+                ? defRows
+                : table === attributeValues
+                  ? gozValueRows
+                  : [];
+        const chain: any = { where: () => chain, limit: () => Promise.resolve(rows) };
+        return chain;
+      },
+    }),
+  });
+
+  it('берёт сегмент перед «ГОЗ-NN», а совпавшие метки разводит следующим сегментом', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(gozDb(), {});
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const labels = report.rows.map((r) => String(r.contractShortLabel));
+    expect(labels).toContain('№ 10'); // не «№ 25» — маркер года общий на все договоры
+    expect(new Set(labels).size).toBe(labels.length); // метки уникальны внутри заказчика
+    expect(labels).toContain('№ 9012/2325');
+    expect(labels).toContain('№ 8947/2325');
   });
 });
 
