@@ -83,6 +83,43 @@ describe('callLlmWithTools', () => {
     expect(result.text).toBe('промежуточный вывод');
   });
 
+  it('финальному вызову инструменты не отдаёт — иначе модель зовёт их вместо ответа', async () => {
+    create.mockResolvedValueOnce(TOOL_USE_RESPONSE).mockResolvedValueOnce(textResponse('Итог: 7 двигателей.'));
+
+    await callLlmWithTools({
+      model: 'deepseek-v4-flash',
+      systemBlocks: [{ type: 'text', text: 'system' }],
+      userMessage: 'вопрос',
+      tools: TOOLS,
+      maxSteps: 1,
+      executeTool: async () => ({ content: 'ok' }),
+    });
+
+    const stepParams = create.mock.calls[0]?.[0] as { tools?: unknown };
+    const finalParams = create.mock.calls[1]?.[0] as { tools?: unknown };
+    expect(stepParams.tools).toEqual(TOOLS);
+    expect(finalParams.tools).toBeUndefined();
+  });
+
+  it('если эндпойнт не принял историю без тулов — повторяет финальный вызов с ними', async () => {
+    create
+      .mockResolvedValueOnce(TOOL_USE_RESPONSE)
+      .mockRejectedValueOnce(new Error('400 tools required for tool_use history'))
+      .mockResolvedValueOnce(textResponse('Ответ по собранным данным.'));
+
+    const result = await callLlmWithTools({
+      model: 'deepseek-v4-flash',
+      systemBlocks: [{ type: 'text', text: 'system' }],
+      userMessage: 'вопрос',
+      tools: TOOLS,
+      maxSteps: 1,
+      executeTool: async () => ({ content: 'ok' }),
+    });
+
+    expect(result.text).toBe('Ответ по собранным данным.');
+    expect((create.mock.calls[2]?.[0] as { tools?: unknown }).tools).toEqual(TOOLS);
+  });
+
   it('возвращает текст сразу, как только модель перестала звать инструменты', async () => {
     create.mockResolvedValueOnce(textResponse('Готово.'));
 

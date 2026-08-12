@@ -318,17 +318,23 @@ export async function callLlmWithTools(args: {
       messages.push({ role: 'user', content: toolResults });
     }
     appendFinalInstruction(messages);
-    const finalResp = await client.messages.create(
-      {
-        model: args.model,
-        max_tokens: args.options?.maxTokens ?? 1024,
-        system: toSystemParam(args.systemBlocks),
-        tools: args.tools,
-        messages,
-        ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
-      },
-      { signal: ac.signal },
-    );
+    // Инструменты финальному вызову НЕ отдаём: со списком тулов модель просто продолжает
+    // их звать, несмотря на текстовую инструкцию — на проде 2026-08-12 так сгорел весь
+    // потолок токенов (22 вызова, `stop_reason: max_tokens`, ни строчки текста), и вопрос
+    // владельца ушёл в эскалацию как технический сбой. Без тулов ответить нечем, кроме текста.
+    const finalRequest = (withTools: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
+      model: args.model,
+      max_tokens: args.options?.maxTokens ?? 1024,
+      system: toSystemParam(args.systemBlocks),
+      ...(withTools ? { tools: args.tools } : {}),
+      messages,
+      ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
+    });
+    const finalResp = await client.messages
+      .create(finalRequest(false), { signal: ac.signal })
+      // Если эндпойнт не принимает историю с tool_use без объявленных тулов — откатываемся
+      // на прежнее поведение: частичный ответ лучше отказа.
+      .catch(async () => client.messages.create(finalRequest(true), { signal: ac.signal }));
     inputTokens += finalResp.usage?.input_tokens ?? 0;
     outputTokens += finalResp.usage?.output_tokens ?? 0;
     const synthesized = finalResp.content
