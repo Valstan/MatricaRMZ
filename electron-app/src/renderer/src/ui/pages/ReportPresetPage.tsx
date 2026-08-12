@@ -9,8 +9,15 @@ import type {
   ReportPresetFilterTemplate,
   ReportPresetId,
   ReportPresetPreviewResult,
+  ReportPrintLayout,
 } from '@matricarmz/shared';
-import { formatWorkOrdersStatusCountsLine, WORK_ORDERS_STATUS_COUNT_LABELS } from '@matricarmz/shared';
+import {
+  formatWorkOrdersStatusCountsLine,
+  resolveReportPrintLayout,
+  MAX_REPORT_PRINT_FONT_PX,
+  MIN_REPORT_PRINT_FONT_PX,
+  WORK_ORDERS_STATUS_COUNT_LABELS,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -199,6 +206,8 @@ export function ReportPresetPage(props: {
       patchFilter(filter.key, Boolean(defaults[filter.key]));
     } else if (filter.type === 'select') {
       patchFilter(filter.key, defaults[filter.key] ?? filter.options?.[0]?.value ?? '');
+    } else if (filter.type === 'print_layout') {
+      patchFilter(filter.key, defaults[filter.key] ?? filter.defaultLayout);
     }
   }
 
@@ -522,7 +531,8 @@ export function ReportPresetPage(props: {
 
   const filterGroups = useMemo(() => {
     if (!activePreset) return { selection: [] as ReportFilterSpec[], settings: [] as ReportFilterSpec[] };
-    const isSetting = (filter: ReportFilterSpec) => filter.type === 'number' || filter.type === 'text' || filter.type === 'checkbox';
+    const isSetting = (filter: ReportFilterSpec) =>
+      filter.type === 'number' || filter.type === 'text' || filter.type === 'checkbox' || filter.type === 'print_layout';
     return {
       selection: activePreset.filters.filter((f) => !isSetting(f)),
       settings: activePreset.filters.filter((f) => isSetting(f)),
@@ -942,10 +952,109 @@ export function ReportPresetPage(props: {
     );
   }
 
+  /**
+   * Блок «Печать: колонки и шрифты» — строка на колонку: печатать / кегль.
+   * Значение фильтра целиком (`ReportPrintLayout`) уходит в билдер: он вырезает
+   * скрытые колонки из отчёта и кладёт раскладку в результат, а печать и превью
+   * рисуют по ней бумагу.
+   */
+  function renderPrintLayoutControl(filter: Extract<ReportFilterSpec, { type: 'print_layout' }>) {
+    const off = activeDisabled.includes(filter.key);
+    const bodyStyle: React.CSSProperties = off ? { opacity: 0.4, pointerEvents: 'none' } : {};
+    const layout = resolveReportPrintLayout(activeFilters[filter.key], filter.defaultLayout, {
+      columns: filter.columns,
+      requiredKeys: filter.requiredKeys ?? [],
+    });
+    const required = new Set(filter.requiredKeys ?? []);
+    const hidden = new Set(layout.hidden);
+    const patchLayout = (next: Partial<ReportPrintLayout>) => patchFilter(filter.key, { ...layout, ...next });
+    const setColumnFont = (key: string, raw: string) => {
+      const fontPx = { ...layout.fontPx };
+      if (!raw.trim()) delete fontPx[key];
+      else fontPx[key] = Number(raw);
+      patchLayout({ fontPx });
+    };
+    const toggleColumn = (key: string, printed: boolean) => {
+      const next = new Set(hidden);
+      if (printed) next.delete(key);
+      else next.add(key);
+      patchLayout({ hidden: Array.from(next) });
+    };
+    return (
+      <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 700 }} title={filter.labelHint}>{filter.label}{off ? ' (откл.)' : ''}</span>
+          {filterHeaderControls(filter, off)}
+        </div>
+        <div style={{ ...bodyStyle, display: 'grid', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            <label style={{ display: 'grid', gap: 3, fontSize: 12 }}>
+              <span>Шрифт таблицы, px</span>
+              <Input
+                type="number"
+                min={MIN_REPORT_PRINT_FONT_PX}
+                max={MAX_REPORT_PRINT_FONT_PX}
+                value={String(layout.basePx)}
+                onChange={(e) => patchLayout({ basePx: Number(e.target.value) })}
+                disabled={busy}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: 3, fontSize: 12 }}>
+              <span>Шрифт шапки, px</span>
+              <Input
+                type="number"
+                min={MIN_REPORT_PRINT_FONT_PX}
+                max={MAX_REPORT_PRINT_FONT_PX}
+                value={String(layout.headerPx)}
+                onChange={(e) => patchLayout({ headerPx: Number(e.target.value) })}
+                disabled={busy}
+              />
+            </label>
+          </div>
+          <div style={{ display: 'grid', gap: 3 }}>
+            {filter.columns.map((column) => {
+              const isRequired = required.has(column.key);
+              const printed = !hidden.has(column.key);
+              return (
+                <div key={column.key} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 68px', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={printed}
+                    disabled={busy || isRequired}
+                    title={isRequired ? 'Колонка держит структуру отчёта — исключить нельзя' : 'Печатать колонку'}
+                    onChange={(e) => toggleColumn(column.key, e.target.checked)}
+                  />
+                  <span style={{ fontSize: 12, opacity: printed ? 1 : 0.5 }} title={column.label}>
+                    {column.label}
+                  </span>
+                  <Input
+                    type="number"
+                    min={MIN_REPORT_PRINT_FONT_PX}
+                    max={MAX_REPORT_PRINT_FONT_PX}
+                    placeholder={String(layout.basePx)}
+                    value={layout.fontPx[column.key] == null ? '' : String(layout.fontPx[column.key])}
+                    onChange={(e) => setColumnFont(column.key, e.target.value)}
+                    disabled={busy || !printed}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>
+            Пустое поле кегля — колонка печатается общим шрифтом таблицы.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderFilterControl(filter: ReportFilterSpec) {
     const off = activeDisabled.includes(filter.key);
     const bodyStyle: React.CSSProperties = off ? { opacity: 0.4, pointerEvents: 'none' } : {};
     const labelSuffix = off ? ' (откл.)' : '';
+    if (filter.type === 'print_layout') {
+      return renderPrintLayoutControl(filter);
+    }
     if (filter.type === 'date_range') {
       return (
         <div key={filter.key} style={{ display: 'grid', gap: 6 }}>

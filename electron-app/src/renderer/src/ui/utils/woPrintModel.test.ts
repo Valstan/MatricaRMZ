@@ -13,7 +13,7 @@ const DEPS: WoPrintDeps = {
   parts: [{ id: 'p-1', name: 'Поршень', article: 'ART-77' }],
   workshops: [{ id: 'w-1', name: 'Цех 1' }],
   warehouseLocations: [{ id: 'wh-1', code: 'MAIN', name: 'Главный склад' }],
-  engineContractInfo: { 'eng-1': { contractSuffix: '***239', counterparty: 'МО РФ' } },
+  engineContractInfo: { 'eng-1': { contractSuffix: '*239', counterparty: 'МО РФ' } },
   hiddenFields: new Set<string>(),
 };
 

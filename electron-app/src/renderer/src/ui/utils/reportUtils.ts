@@ -1,5 +1,5 @@
 import type { ReportCellValue, ReportFilterSpec, ReportPresetDefinition, ReportPresetFilters, ReportPresetPreviewResult } from '@matricarmz/shared';
-import { renderWorkOrdersReportInner } from '@matricarmz/shared';
+import { renderEngineFlowPrintInnerHtml, renderWorkOrdersReportInner } from '@matricarmz/shared';
 
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from './dateUtils.js';
 import type { PrintSection } from './printPreview.js';
@@ -27,6 +27,7 @@ const REPORT_TOTAL_LABELS: Record<string, string> = {
   remainingNeedQty: 'Остаточная потребность, шт.',
   engines: 'Двигатели, шт.',
   contracts: 'Контракты, шт.',
+  years: 'Лет в отчёте',
   totalQty: 'Общий объем, шт.',
   totalAmountRub: 'Сумма, ₽',
   orderedQty: 'Заказано, шт.',
@@ -188,8 +189,8 @@ export function buildDefaultFilters(preset: ReportPresetDefinition): ReportPrese
   const out: ReportPresetFilters = {};
   for (const filter of preset.filters) {
     if (filter.type === 'date_range') {
-      out[filter.startKey] = startOfDayMs(monthStart);
-      out[filter.endKey] = endOfDayMs(now);
+      out[filter.startKey] = filter.unboundedByDefault ? null : startOfDayMs(monthStart);
+      out[filter.endKey] = filter.unboundedByDefault ? null : endOfDayMs(now);
       continue;
     }
     if (filter.type === 'multi_select') {
@@ -201,7 +202,11 @@ export function buildDefaultFilters(preset: ReportPresetDefinition): ReportPrese
       continue;
     }
     if (filter.type === 'checkbox') {
-      out[filter.key] = filter.key === 'includePurchases';
+      out[filter.key] = filter.defaultValue ?? filter.key === 'includePurchases';
+      continue;
+    }
+    if (filter.type === 'print_layout') {
+      out[filter.key] = { ...filter.defaultLayout, hidden: [...filter.defaultLayout.hidden], fontPx: { ...filter.defaultLayout.fontPx } };
       continue;
     }
     if (filter.type === 'select') {
@@ -439,6 +444,25 @@ export function renderReportTableHtml(report: PreviewOk) {
 export function buildReportPrintPreviewSections(report: PreviewOk): PrintSection[] {
   if (report.presetId === 'work_order_payroll') {
     return [{ id: 'payroll-form', title: 'Печатная форма', html: renderWorkOrderPayrollFormInnerHtml(report) }];
+  }
+  if (report.presetId === 'engine_flow_by_counterparty') {
+    // Та же функция, что печатает бумагу: настройки шрифтов и скрытых колонок оператор
+    // должен видеть в превью, а не узнавать о них после «Печать».
+    return [
+      {
+        id: 'engine-flow',
+        title: 'Печатная форма',
+        hideTitle: true,
+        html: renderEngineFlowPrintInnerHtml({
+          title: report.title,
+          ...(report.subtitle ? { subtitle: report.subtitle } : {}),
+          columns: report.columns,
+          rows: report.rows,
+          ...(report.footerNotes ? { footerNotes: report.footerNotes } : {}),
+          ...(report.printLayout ? { printLayout: report.printLayout } : {}),
+        }),
+      },
+    ];
   }
   if (report.presetId === 'work_orders_report') {
     const chips = (report.subtitle ?? '')
