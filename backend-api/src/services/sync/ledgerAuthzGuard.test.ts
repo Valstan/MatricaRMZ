@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { operatorRolePermissions } from '@matricarmz/shared';
+import { PermissionCode, operatorRolePermissions } from '@matricarmz/shared';
 
 // Table-aware in-memory db mock: queue rows per table; select().from(t).where(...) drains it.
 const state = vi.hoisted(() => ({ selectByTable: new Map<unknown, any[][]>() }));
@@ -146,6 +146,45 @@ describe('partitionLedgerInputsByAuthz', () => {
     expect(allowed.map((i) => i.row_id)).toEqual(['a2']);
     expect(denied.map((d) => d.row_id)).toEqual(['a1']);
     expect(denied[0]?.reason).toBe('forbidden:employee_auth_attr:system_role');
+  });
+
+  // Кадровое право открывает ЧУЖУЮ карточку, но не служебные поля: иначе «дайте
+  // Рамзии доступ к сотрудникам» превращалось бы в право менять роли и логины.
+  it('operator с кадровым правом: чужой профиль разрешён, system_role — нет', async () => {
+    const { getEffectivePermissionsForUser } = await import('../../auth/permissions.js');
+    vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({
+      ...operatorRolePermissions('master')!,
+      [PermissionCode.EmployeesCreate]: true,
+    });
+    seedTypes();
+    seedEntities([{ id: 'emp-other', entityTypeId: 't-employee' }]);
+    seedDefs([
+      { id: 'def-name', code: 'full_name' },
+      { id: 'def-role', code: 'system_role' },
+    ]);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-other', attribute_def_id: 'def-name' }, row_id: 'a1' },
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a2', entity_id: 'emp-other', attribute_def_id: 'def-role' }, row_id: 'a2' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'emp-hr', username: 'ramzia', role: 'master' });
+
+    expect(allowed.map((i) => i.row_id)).toEqual(['a1']);
+    expect(denied.map((d) => d.reason)).toEqual(['forbidden:employee_auth_attr:system_role']);
+  });
+
+  it('operator без кадрового права: чужая карточка по-прежнему закрыта', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-other', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-name', code: 'full_name' }]);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-other', attribute_def_id: 'def-name' }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(allowed).toEqual([]);
+    expect(denied.map((d) => d.reason)).toEqual(['forbidden:employee']);
   });
 
   it('operator: own employee section_access DENIED (superadmin-only, no self-escalation)', async () => {

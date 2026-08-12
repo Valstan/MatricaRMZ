@@ -120,8 +120,17 @@ describe('operatorMeetsRequirement', () => {
   });
 
   it('own_employee allows only the actor’s own record', () => {
-    expect(operatorMeetsRequirement({ kind: 'own_employee' }, { perms, actorId: 'u1', ownerEntityId: 'u1' })).toBe(true);
-    expect(operatorMeetsRequirement({ kind: 'own_employee' }, { perms, actorId: 'u1', ownerEntityId: 'u2' })).toBe(false);
+    const req = { kind: 'own_employee', code: PermissionCode.EmployeesCreate } as const;
+    expect(operatorMeetsRequirement(req, { perms, actorId: 'u1', ownerEntityId: 'u1' })).toBe(true);
+    expect(operatorMeetsRequirement(req, { perms, actorId: 'u1', ownerEntityId: 'u2' })).toBe(false);
+  });
+
+  it('own_employee пропускает чужую карточку держателю кадрового права', () => {
+    const req = { kind: 'own_employee', code: PermissionCode.EmployeesCreate } as const;
+    const hr = { [PermissionCode.EmployeesCreate]: true } as Record<string, boolean>;
+    expect(operatorMeetsRequirement(req, { perms: hr, actorId: 'u1', ownerEntityId: 'u2' })).toBe(true);
+    // Право не нужно, чтобы править собственную карточку — самообслуживание остаётся у всех.
+    expect(operatorMeetsRequirement(req, { perms, actorId: 'u1', ownerEntityId: 'u1' })).toBe(true);
   });
 
   it('admin/superadmin requirements are never met by an operator; open always is', () => {
