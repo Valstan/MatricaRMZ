@@ -57,7 +57,7 @@ export type WoPrintDeps = {
   parts: readonly { id: string; name: string; article?: string }[];
   workshops: readonly { id: string; name: string }[];
   warehouseLocations: readonly { id: string; code: string; name: string }[];
-  /** Реквизиты контракта по двигателю: суффикс номера (***NNN) + контрагент. */
+  /** Реквизиты контракта по двигателю: суффикс номера (*NNN) + контрагент. */
   engineContractInfo: Readonly<Record<string, { contractSuffix: string; counterparty: string }>>;
   /** Поля, скрытые применённым шаблоном наряда (serviceName / priceRub / amountRub). */
   hiddenFields: ReadonlySet<string>;

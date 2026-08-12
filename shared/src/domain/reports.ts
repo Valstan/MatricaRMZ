@@ -1,3 +1,4 @@
+import type { ReportPrintLayout } from './reportPrintLayout.js';
 import type { WorkOrderSignatureDecryptions } from './workOrderSignatures.js';
 import { WORK_ORDERS_REPORT_COLUMNS, WORK_ORDERS_REPORT_COLUMN_OPTIONS } from './workOrdersReport.js';
 
@@ -68,6 +69,11 @@ export type ReportFilterSpec =
       labelHint?: string;
       startKey: string;
       endKey: string;
+      /**
+       * По умолчанию период пуст (без границ), а не «текущий месяц». Для отчётов состояния:
+       * там месяц по умолчанию отсёк бы почти всё, и отчёт открывался бы пустым.
+       */
+      unboundedByDefault?: boolean;
     }
   | {
       type: 'multi_select';
@@ -92,6 +98,22 @@ export type ReportFilterSpec =
       key: string;
       label: string;
       labelHint?: string;
+      defaultValue?: boolean;
+    }
+  | {
+      /**
+       * Блок настройки печатной формы: размеры шрифта (общий, шапка, по каждой колонке)
+       * и исключение колонок из отчёта. Значение фильтра — `ReportPrintLayout`.
+       */
+      type: 'print_layout';
+      key: string;
+      label: string;
+      labelHint?: string;
+      /** Колонки, которыми оператор управляет (обычно `columns` пресета). */
+      columns: ReportColumn[];
+      /** Колонки, на которых держится иерархия печати: шрифт менять можно, исключать — нет. */
+      requiredKeys?: string[];
+      defaultLayout: ReportPrintLayout;
     }
   | {
       type: 'number';
@@ -174,13 +196,14 @@ export const ENGINES_CONTRACTS_BRAND_COLUMNS: ReportColumn[] = [
 
 /**
  * Колонки печатного отчёта «Движение двигателей по заказчикам» — строка на марку внутри
- * договора; иерархию (заказчик → договор → марка) собирает печатная форма, здесь плоско,
+ * договора; иерархию (год → заказчик → договор → марка) собирает печатная форма, здесь плоско,
  * чтобы CSV/1С-выгрузка и превью в окне остались обычной таблицей.
  *
  * Инвариант строки: `arrivedQty = shippedQty + scrapSentQty + atFactoryQty`,
  * `atFactoryQty = scrapAtFactoryQty + inRepairQty`.
  */
 export const ENGINE_FLOW_BY_COUNTERPARTY_COLUMNS: ReportColumn[] = [
+  { key: 'yearLabel', label: 'Год прихода' },
   { key: 'counterpartyLabel', label: 'Заказчик' },
   { key: 'contractShortLabel', label: 'Договор' },
   { key: 'contractFullLabel', label: 'Договор, полный №' },
@@ -193,6 +216,21 @@ export const ENGINE_FLOW_BY_COUNTERPARTY_COLUMNS: ReportColumn[] = [
   { key: 'atFactoryQty', label: 'На заводе, шт', kind: 'number', align: 'right' },
   { key: 'inRepairQty', label: 'Из них в ремонте, шт', kind: 'number', align: 'right' },
 ];
+
+/**
+ * Колонки, на которых держится иерархия печатной формы «Движение двигателей»: год и заказчик —
+ * заголовки блоков, договор и марка — левые ячейки таблицы. Их шрифт настраивается, но
+ * исключить их нельзя: без них строки таблицы теряют подпись.
+ */
+export const ENGINE_FLOW_REQUIRED_COLUMN_KEYS = ['yearLabel', 'counterpartyLabel', 'contractShortLabel', 'engineBrand'];
+
+/** Печатная форма «Движение двигателей»: крупный текст таблицы, полный номер договора — мелко. */
+export const ENGINE_FLOW_DEFAULT_PRINT_LAYOUT: ReportPrintLayout = {
+  basePx: 14,
+  headerPx: 11,
+  hidden: [],
+  fontPx: { contractFullLabel: 9 },
+};
 
 /** Суперсет колонок разреза «По двигателям» (выбор колонок доступен оператору). */
 export const ENGINES_CONTRACTS_ENGINE_COLUMNS: ReportColumn[] = [
@@ -433,6 +471,11 @@ export type ReportPresetPreviewResult =
       workOrdersStatusSummary?: import('./workOrdersReport.js').WorkOrdersStatusSummary;
       /** Доп. блоки текста под таблицей (подсказки, пояснения к фильтрам). */
       footerNotes?: string[];
+      /**
+       * Раскладка печатной формы, разобранная из фильтров пресета: печать и превью
+       * рисуются одной функцией и обязаны видеть одни и те же шрифты/скрытые колонки.
+       */
+      printLayout?: ReportPrintLayout;
       /**
        * Прогноз сборки: структурированные дефициты по номенклатуре (все марки прогноза).
        * UI строит из них кнопку «Создать заявку в снабжение» (позиции toPurchase > 0).
@@ -1197,11 +1240,108 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'engine_flow_by_counterparty',
     title: 'Движение двигателей по заказчикам',
     description:
-      'Печатная форма А4: блок на каждого заказчика, внутри строки договоров и марок двигателей. По каждой строке — сколько пришло на завод, сколько отправлено обратно, сколько признано утилем (лежит на заводе / отправлено) и сколько сейчас на заводе, из них в ремонте. Считается на текущий момент, без периода.',
+      'Печатная форма А4: блок на каждый год прихода, внутри — заказчики, договоры и марки двигателей. По каждой строке: сколько пришло на завод, сколько отправлено обратно, сколько признано утилем (лежит на заводе / отправлено) и сколько сейчас на заводе, из них в ремонте. Итоги — по договору, заказчику, марке, году и по всем годам. Состояния считаются на текущий момент; фильтры дат отбирают, какие двигатели попадут в отчёт.',
     filters: [
+      {
+        type: 'date_range',
+        key: 'arrivalPeriod',
+        label: 'Дата прихода',
+        startKey: 'arrivalStartMs',
+        endKey: 'arrivalEndMs',
+        unboundedByDefault: true,
+        labelHint: 'Оставляет двигатели, приехавшие в этот период. По этой же дате отчёт делится на блоки по годам. Пусто — все годы.',
+      },
+      {
+        type: 'date_range',
+        key: 'shippingPeriod',
+        label: 'Дата отгрузки',
+        startKey: 'shippingStartMs',
+        endKey: 'shippingEndMs',
+        unboundedByDefault: true,
+        labelHint: 'Только двигатели, отгруженные в этот период (двигатели без отгрузки отсеиваются). Пусто — без ограничения.',
+      },
       { type: 'multi_select', key: 'counterpartyIds', label: 'Заказчики', optionsSource: 'counterparties' },
       { type: 'multi_select', key: 'contractIds', label: 'Договоры', optionsSource: 'contracts' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      {
+        type: 'select',
+        key: 'scrapFilter',
+        label: 'Утиль',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'Только утиль' },
+          { value: 'no', label: 'Только не утиль' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'onSiteFilter',
+        label: 'Наличие на заводе',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'На заводе' },
+          { value: 'no', label: 'Покинувшие завод' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'repairActiveFilter',
+        label: 'Статус «Начат ремонт»',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'yes', label: 'Ремонт начат' },
+          { value: 'no', label: 'Ремонт не начат' },
+        ],
+      },
+      {
+        type: 'select',
+        key: 'contractSectionFilter',
+        label: 'Договоры и ДС',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'primary', label: 'Только основные договоры' },
+          { value: 'addon', label: 'Только дополнительные соглашения' },
+        ],
+        labelHint: 'Двигатели, привязанные к ДС, идут в отчёте отдельной строкой договора.',
+      },
+      {
+        type: 'text',
+        key: 'engineNumberQuery',
+        label: 'Номер двигателя содержит',
+        placeholder: 'например 1234',
+        labelHint: 'Подстрока номера двигателя или внутреннего номера.',
+      },
+      {
+        type: 'select',
+        key: 'yearOrder',
+        label: 'Порядок годов',
+        options: [
+          { value: 'desc', label: 'Новые сверху' },
+          { value: 'asc', label: 'Старые сверху' },
+        ],
+      },
+      {
+        type: 'checkbox',
+        key: 'showBrandSummary',
+        label: 'Свод по маркам (за каждый год и общий)',
+        defaultValue: true,
+      },
+      {
+        type: 'checkbox',
+        key: 'showContractSubtotals',
+        label: 'Подытоги по договорам',
+        defaultValue: true,
+        labelHint: 'Строка «Итого по договору» под марками договора (печатается, когда марок больше одной).',
+      },
+      {
+        type: 'print_layout',
+        key: 'printLayout',
+        label: 'Печать: колонки и шрифты',
+        labelHint: 'Что печатать и каким кеглем. Снятая галочка убирает колонку из печати и из выгрузок.',
+        columns: ENGINE_FLOW_BY_COUNTERPARTY_COLUMNS,
+        requiredKeys: ENGINE_FLOW_REQUIRED_COLUMN_KEYS,
+        defaultLayout: ENGINE_FLOW_DEFAULT_PRINT_LAYOUT,
+      },
     ],
     columns: ENGINE_FLOW_BY_COUNTERPARTY_COLUMNS,
   },

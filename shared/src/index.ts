@@ -52,6 +52,8 @@ export * from './domain/uiSpec.js';
 export * from './domain/customReport.js';
 export * from './domain/userUiProfile.js';
 export * from './domain/reports.js';
+export * from './domain/reportPrintLayout.js';
+export * from './domain/engineFlowPrint.js';
 export * from './domain/assemblyForecast.js';
 export * from './domain/analytics.js';
 export * from './domain/releaseWelcome.js';

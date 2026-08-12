@@ -1,7 +1,7 @@
+import { renderEngineFlowPrintHtml } from '@matricarmz/shared';
 import { describe, expect, it } from 'vitest';
 
 import { attributeDefs, attributeValues, entities, entityTypes } from '../../../database/schema.js';
-import { renderEngineFlowPrintHtml } from '../render.js';
 import { buildEngineFlowByCounterpartyReport } from './engineFlowByCounterparty.js';
 
 // Синтетический снапшот: loadSnapshot — единственное обращение билдера к БД.
@@ -120,7 +120,7 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     if (!report.ok) return;
 
     // C1/BR1: E1 (в ремонте), E2 (отгружен), E3 (утиль на заводе), E4 (утиль отправлен)
-    const c1br1 = findRow(report.rows, '№ 125', 'Д-245');
+    const c1br1 = findRow(report.rows, '*125', 'Д-245');
     expect(c1br1).toBeDefined();
     expect(c1br1?.arrivedQty).toBe(4);
     expect(c1br1?.shippedQty).toBe(1);
@@ -130,7 +130,7 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     expect(c1br1?.atFactoryQty).toBe(2); // E1 + E3
     expect(c1br1?.inRepairQty).toBe(1); // E1 (E3 — утиль на заводе)
 
-    const c1br2 = findRow(report.rows, '№ 125', 'ЯМЗ-238');
+    const c1br2 = findRow(report.rows, '*125', 'ЯМЗ-238');
     expect(c1br2?.arrivedQty).toBe(1);
     expect(c1br2?.atFactoryQty).toBe(1);
     expect(c1br2?.scrapTotalQty).toBe(0);
@@ -152,21 +152,21 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     expect(report.totals?.contracts).toBe(3);
   });
 
-  it('короткая метка договора: год отбрасывается, ДС добавляется суффиксом', async () => {
+  it('короткий номер договора: «*» + три последние цифры части до первого «/», ДС суффиксом', async () => {
     const report = await buildEngineFlowByCounterpartyReport(stubDb(), {});
     expect(report.ok).toBe(true);
     if (!report.ok) return;
     const labels = report.rows.map((r) => r.contractShortLabel);
-    expect(labels).toContain('№ 125'); // «125/2026» → год отброшен
-    expect(labels).toContain('№ 0158 / ДС 2'); // «РМЗ-2026-0158» → хвост после дефиса + ДС
-    expect(labels).toContain('№ 7'); // «7/2026»
+    expect(labels).toContain('*125'); // «125/2026» → цифры части до слеша
+    expect(labels).toContain('*158 / ДС 2'); // «РМЗ-2026-0158» → слеша нет, берутся три последние цифры + ДС
+    expect(labels).toContain('*7'); // «7/2026» → цифр меньше трёх — берём сколько есть
   });
 
   it('заказчик подтягивается с договора, если у двигателя поле пустое', async () => {
     const report = await buildEngineFlowByCounterpartyReport(stubDb(), {});
     expect(report.ok).toBe(true);
     if (!report.ok) return;
-    const e6Row = findRow(report.rows, '№ 0158 / ДС 2', 'Д-245');
+    const e6Row = findRow(report.rows, '*158 / ДС 2', 'Д-245');
     expect(e6Row?.counterpartyLabel).toBe('АО «Первый заказчик»');
     expect(report.rows.some((r) => r.counterpartyLabel === '(без заказчика)')).toBe(false);
   });
@@ -189,9 +189,9 @@ describe('buildEngineFlowByCounterpartyReport', () => {
   });
 });
 
-// Реальные ГОЗ-номера: общий хвост «/ГОЗ-25» на весь год, различает сегмент перед ним.
-// Второй и третий договор совпадают и по нему — метка должна разъехаться на сегмент глубже.
-describe('короткая метка на ГОЗ-номерах', () => {
+// Реальные ГОЗ-номера: хвосты («/739-1/55/…», «/ГОЗ-25») у договоров года общие, различает их
+// только ИГК в начале — оттуда и берутся три цифры короткого номера.
+describe('короткий номер на ГОЗ-номерах', () => {
   const gozTypeRows: Row[] = [
     { id: 'T_ENGINE', code: 'engine' },
     { id: 'T_CONTRACT', code: 'contract' },
@@ -237,15 +237,15 @@ describe('короткая метка на ГОЗ-номерах', () => {
     }),
   });
 
-  it('берёт сегмент перед «ГОЗ-NN», а совпавшие метки разводит следующим сегментом', async () => {
+  it('берёт три последние цифры ИГК — метки договоров одного заказчика не сливаются', async () => {
     const report = await buildEngineFlowByCounterpartyReport(gozDb(), {});
     expect(report.ok).toBe(true);
     if (!report.ok) return;
     const labels = report.rows.map((r) => String(r.contractShortLabel));
-    expect(labels).toContain('№ 10'); // не «№ 25» — маркер года общий на все договоры
-    expect(new Set(labels).size).toBe(labels.length); // метки уникальны внутри заказчика
-    expect(labels).toContain('№ 9012/2325');
-    expect(labels).toContain('№ 8947/2325');
+    expect(labels).toContain('*126');
+    expect(labels).toContain('*903');
+    expect(labels).toContain('*239');
+    expect(new Set(labels).size).toBe(labels.length);
   });
 });
 
@@ -260,7 +260,10 @@ describe('renderEngineFlowPrintHtml', () => {
     expect(html).toContain('АО «Первый заказчик»');
     expect(html).toContain('ООО «Второй заказчик»');
     expect(html).toContain('Итого по заказчику');
-    expect(html).toContain('Итого по всем заказчикам');
+    expect(html).toContain('Итого по всем годам');
+    expect(html).toContain('2026 год');
+    expect(html).toContain('Итого за 2026 год');
+    expect(html).toContain('Свод по маркам · 2026 год');
     // В C1 две марки → есть подытог договора; полный номер печатается рядом с короткой меткой.
     expect(html).toContain('Итого по договору');
     expect(html).toContain('125/2026');
@@ -274,5 +277,171 @@ describe('renderEngineFlowPrintHtml', () => {
     if (!report.ok) return;
     expect(report.rows).toHaveLength(0);
     expect(renderEngineFlowPrintHtml(report)).toContain('Нет данных');
+  });
+
+  it('шрифты из настроек печати попадают в бумагу, скрытая колонка — нет', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(stubDb(), {
+      printLayout: { basePx: 16, headerPx: 11, hidden: ['contractFullLabel', 'inRepairQty'], fontPx: { engineBrand: 18 } },
+    });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const html = renderEngineFlowPrintHtml(report);
+
+    expect(html).toContain('font-size:16px');
+    expect(html).toContain('.ef td.col-engineBrand,.ef .col-engineBrand{font-size:18px}');
+    // Кегль без явного переопределения не пишется отдельным правилом — иначе он перебил бы
+    // увеличенные заголовки года и заказчика.
+    expect(html).not.toContain('.col-arrivedQty{font-size');
+    expect(html).not.toContain('из них<br/>в ремонте');
+    expect(html).not.toContain('125/2026'); // полный номер исключён оператором
+  });
+
+  it('своды и подытоги гасятся чекбоксами фильтров', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(stubDb(), {
+      showBrandSummary: false,
+      showContractSubtotals: false,
+    });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const html = renderEngineFlowPrintHtml(report);
+    expect(html).not.toContain('Свод по маркам');
+    expect(html).not.toContain('Итого по договору');
+    expect(html).toContain('Итого за 2026 год');
+  });
+});
+
+// Двигатели двух лет прихода + один без даты: блоки по годам, их порядок и итоги.
+describe('разбивка по годам', () => {
+  const Y2024 = Date.UTC(2024, 4, 5);
+  const Y2025 = Date.UTC(2025, 6, 20);
+  const yearTypeRows: Row[] = [
+    { id: 'T_ENGINE', code: 'engine' },
+    { id: 'T_CONTRACT', code: 'contract' },
+    { id: 'T_BRAND', code: 'engine_brand' },
+    { id: 'T_CP', code: 'counterparty' },
+  ];
+  const yearEntityRows: Row[] = [
+    { id: 'BR1', typeId: 'T_BRAND' },
+    { id: 'CP1', typeId: 'T_CP' },
+    { id: 'C1', typeId: 'T_CONTRACT' },
+    ...['A1', 'A2', 'B1', 'N1'].map((id) => ({ id, typeId: 'T_ENGINE' })),
+  ];
+  const yearAttrs: Record<string, Record<string, unknown>> = {
+    BR1: { name: 'Д-245' },
+    CP1: { name: 'АО «Первый заказчик»' },
+    C1: { contract_sections: contractSections('125/2026', 'CP1') },
+    A1: { engine_brand_id: 'BR1', contract_id: 'C1', counterparty_id: 'CP1', arrival_date: Y2024, engine_number: '1001' },
+    A2: {
+      engine_brand_id: 'BR1',
+      contract_id: 'C1',
+      counterparty_id: 'CP1',
+      arrival_date: Y2024,
+      engine_number: '1002',
+      status_customer_sent: true,
+    },
+    B1: { engine_brand_id: 'BR1', contract_id: 'C1', counterparty_id: 'CP1', arrival_date: Y2025, engine_number: '2001' },
+    N1: { engine_brand_id: 'BR1', contract_id: 'C1', counterparty_id: 'CP1', engine_number: '3001' },
+  };
+  const yearValueRows: Row[] = [];
+  for (const [entityId, attrs] of Object.entries(yearAttrs)) {
+    for (const [code, value] of Object.entries(attrs)) {
+      yearValueRows.push({ entityId, attributeDefId: code, valueJson: JSON.stringify(value) });
+    }
+  }
+  const yearsDb = (): any => ({
+    select: () => ({
+      from: (table: unknown) => {
+        const rows =
+          table === entityTypes
+            ? yearTypeRows
+            : table === entities
+              ? yearEntityRows
+              : table === attributeDefs
+                ? defRows
+                : table === attributeValues
+                  ? yearValueRows
+                  : [];
+        const chain: any = { where: () => chain, limit: () => Promise.resolve(rows) };
+        return chain;
+      },
+    }),
+  });
+
+  it('строки размечены годом прихода, «без даты» уходит в конец при любом порядке', async () => {
+    const desc = await buildEngineFlowByCounterpartyReport(yearsDb(), {});
+    expect(desc.ok).toBe(true);
+    if (!desc.ok) return;
+    expect(desc.rows.map((r) => r.yearLabel)).toEqual(['2025 год', '2024 год', 'Без даты прихода']);
+    expect(desc.totals?.years).toBe(3);
+    expect(desc.totals?.arrivedQty).toBe(4);
+    // Один договор, приходивший в разные годы, остаётся одним договором в шапке.
+    expect(desc.totals?.contracts).toBe(1);
+
+    const asc = await buildEngineFlowByCounterpartyReport(yearsDb(), { yearOrder: 'asc' });
+    expect(asc.ok).toBe(true);
+    if (!asc.ok) return;
+    expect(asc.rows.map((r) => r.yearLabel)).toEqual(['2024 год', '2025 год', 'Без даты прихода']);
+  });
+
+  it('итоги считаются по каждому году и общий по всем годам', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(yearsDb(), {});
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const y2024 = report.rows.find((r) => r.yearLabel === '2024 год');
+    expect(y2024?.arrivedQty).toBe(2);
+    expect(y2024?.shippedQty).toBe(1);
+    const html = renderEngineFlowPrintHtml(report);
+    expect(html).toContain('Итого за 2024 год');
+    expect(html).toContain('Итого за 2025 год');
+    expect(html).toContain('Итого за Без даты прихода');
+    expect(html).toContain('Свод по маркам · все годы');
+  });
+
+  it('фильтр по дате прихода оставляет только свой год', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(yearsDb(), {
+      arrivalStartMs: Date.UTC(2025, 0, 1),
+      arrivalEndMs: Date.UTC(2025, 11, 31),
+    });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.rows.map((r) => r.yearLabel)).toEqual(['2025 год']);
+    expect(report.totals?.arrivedQty).toBe(1);
+  });
+
+  it('фильтры по состоянию и номеру двигателя сужают выборку', async () => {
+    const onSite = await buildEngineFlowByCounterpartyReport(yearsDb(), { onSiteFilter: 'no' });
+    expect(onSite.ok).toBe(true);
+    if (!onSite.ok) return;
+    expect(onSite.totals?.arrivedQty).toBe(1); // только A2 (отгружен)
+
+    const byNumber = await buildEngineFlowByCounterpartyReport(yearsDb(), { engineNumberQuery: '200' });
+    expect(byNumber.ok).toBe(true);
+    if (!byNumber.ok) return;
+    expect(byNumber.totals?.arrivedQty).toBe(1); // B1
+    expect(byNumber.rows.map((r) => r.yearLabel)).toEqual(['2025 год']);
+  });
+});
+
+describe('настройки печати в результате отчёта', () => {
+  it('скрытая колонка исчезает из columns, но данные строк не трогаются', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(stubDb(), {
+      printLayout: { basePx: 14, headerPx: 12, hidden: ['contractFullLabel'], fontPx: {} },
+    });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.columns.some((c) => c.key === 'contractFullLabel')).toBe(false);
+    expect(report.rows[0]?.contractFullLabel).toBeDefined();
+    expect(report.printLayout?.basePx).toBe(14);
+  });
+
+  it('колонки-опоры иерархии исключить нельзя', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(stubDb(), {
+      printLayout: { basePx: 14, headerPx: 12, hidden: ['engineBrand', 'yearLabel', 'scrapSentQty'], fontPx: {} },
+    });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.columns.some((c) => c.key === 'engineBrand')).toBe(true);
+    expect(report.columns.some((c) => c.key === 'yearLabel')).toBe(true);
+    expect(report.columns.some((c) => c.key === 'scrapSentQty')).toBe(false);
   });
 });

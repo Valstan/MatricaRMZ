@@ -19,6 +19,7 @@ import {
   isWorkOrderTemplateKind,
   normalizeWorkOrderLine,
   resolveAssemblyEngineId,
+  shortContractSuffix,
   type WorkOrderPayload,
   type WorkOrderPrintSettings,
   type WorkOrderSignatureBlockSelection,
@@ -71,20 +72,8 @@ const WORK_ORDER_CARD_TABS: CardTab<WorkOrderCardTab>[] = [
   { key: 'content', label: 'Содержимое' },
   { key: 'signatures', label: 'Подписи' },
 ];
-/** Резолвленные для печати реквизиты по двигателю: суффикс номера контракта (***NNN) + контрагент. */
+/** Резолвленные для печати реквизиты по двигателю: суффикс номера контракта (*NNN) + контрагент. */
 type EngineContractInfo = { contractSuffix: string; counterparty: string };
-
-/**
- * Суффикс основного номера контракта для печати: «***» + последние 3 цифры части
- * номера ДО первого «/». Напр. «2325187913551442245231239/27/ГОЗ-24» → «***239».
- * Пустая строка, если цифр нет.
- */
-function contractNumberSuffix(mainNumber: string | null | undefined): string {
-  const beforeSlash = String(mainNumber ?? '').split('/')[0] ?? '';
-  const digits = beforeSlash.replace(/\D/g, '');
-  const last3 = digits.slice(-3);
-  return last3 ? `***${last3}` : '';
-}
 
 /**
  * Вариант детали внутри позиции спецификации марки (Phase 4b). Позиция = строки BOM с общим
@@ -652,7 +641,7 @@ export function WorkOrderDetailsPage(props: {
   }, [payload, canEditNow, props.registerCardCloseActions, props.id]);
 
   // Реквизиты контракта/контрагента для печати: резолвим двигатель наряда → контракт
-  // (основной номер → ***NNN) и контрагент (краткое наименование, иначе полное) из EAV.
+  // (основной номер → *NNN) и контрагент (краткое наименование, иначе полное) из EAV.
   // Двигатель шапки (assemblyEngineId) — наравне с построчными штампами: у сборочного наряда
   // строки могут быть без engineId (пикер шапки штампует только существующие строки, а
   // «Заполнить из спецификации» стрижёт штамп в normalizeWorkOrderLine) — реквизиты пропадали
@@ -681,7 +670,7 @@ export function WorkOrderDetailsPage(props: {
         if (engine.contractId) {
           const c = await window.matrica.admin.entities.get(engine.contractId).catch(() => null);
           const attrs = ((c as any)?.attributes ?? {}) as Record<string, unknown>;
-          contractSuffix = contractNumberSuffix(attrs.number == null ? '' : String(attrs.number));
+          contractSuffix = shortContractSuffix(attrs.number == null ? '' : String(attrs.number));
           if (!customerId && attrs.customer_id) customerId = String(attrs.customer_id);
         }
         let counterparty = '';
