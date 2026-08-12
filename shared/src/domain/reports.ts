@@ -21,6 +21,7 @@ export type ReportPresetId =
   | 'engine_movements'
   | 'engines_list'
   | 'engines_contracts_overview'
+  | 'engine_flow_by_counterparty'
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
   | 'part_movement_journal'
@@ -169,6 +170,28 @@ export const ENGINES_CONTRACTS_BRAND_COLUMNS: ReportColumn[] = [
   { key: 'shippedQty', label: 'Отгружено, шт', kind: 'number', align: 'right' },
   { key: 'scrapQty', label: 'Утиль, шт', kind: 'number', align: 'right' },
   { key: 'avgTatDays', label: 'Средний TAT, дн', kind: 'number', align: 'right' },
+];
+
+/**
+ * Колонки печатного отчёта «Движение двигателей по заказчикам» — строка на марку внутри
+ * договора; иерархию (заказчик → договор → марка) собирает печатная форма, здесь плоско,
+ * чтобы CSV/1С-выгрузка и превью в окне остались обычной таблицей.
+ *
+ * Инвариант строки: `arrivedQty = shippedQty + scrapSentQty + atFactoryQty`,
+ * `atFactoryQty = scrapAtFactoryQty + inRepairQty`.
+ */
+export const ENGINE_FLOW_BY_COUNTERPARTY_COLUMNS: ReportColumn[] = [
+  { key: 'counterpartyLabel', label: 'Заказчик' },
+  { key: 'contractShortLabel', label: 'Договор' },
+  { key: 'contractFullLabel', label: 'Договор, полный №' },
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'arrivedQty', label: 'Пришло, шт', kind: 'number', align: 'right' },
+  { key: 'shippedQty', label: 'Отправлено заказчику, шт', kind: 'number', align: 'right' },
+  { key: 'scrapTotalQty', label: 'Утиль всего, шт', kind: 'number', align: 'right' },
+  { key: 'scrapAtFactoryQty', label: 'Утиль на заводе, шт', kind: 'number', align: 'right' },
+  { key: 'scrapSentQty', label: 'Утиль отправлен, шт', kind: 'number', align: 'right' },
+  { key: 'atFactoryQty', label: 'На заводе, шт', kind: 'number', align: 'right' },
+  { key: 'inRepairQty', label: 'Из них в ремонте, шт', kind: 'number', align: 'right' },
 ];
 
 /** Суперсет колонок разреза «По двигателям» (выбор колонок доступен оператору). */
@@ -325,6 +348,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   engine_movements: ['engines'],
   engines_list: ['engines', 'contracts'],
   engines_contracts_overview: ['engines', 'contracts'],
+  engine_flow_by_counterparty: ['engines', 'contracts'],
   warehouse_stock_path_audit: ['audit', 'warehouse'],
   assembly_forecast_7d: ['engines', 'supply'],
   part_movement_journal: ['warehouse'],
@@ -1168,6 +1192,18 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
     ],
     columns: ENGINES_CONTRACTS_CONTRACT_COLUMNS,
+  },
+  {
+    id: 'engine_flow_by_counterparty',
+    title: 'Движение двигателей по заказчикам',
+    description:
+      'Печатная форма А4: блок на каждого заказчика, внутри строки договоров и марок двигателей. По каждой строке — сколько пришло на завод, сколько отправлено обратно, сколько признано утилем (лежит на заводе / отправлено) и сколько сейчас на заводе, из них в ремонте. Считается на текущий момент, без периода.',
+    filters: [
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Заказчики', optionsSource: 'counterparties' },
+      { type: 'multi_select', key: 'contractIds', label: 'Договоры', optionsSource: 'contracts' },
+      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+    ],
+    columns: ENGINE_FLOW_BY_COUNTERPARTY_COLUMNS,
   },
   {
     id: 'scrap_register',

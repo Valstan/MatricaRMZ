@@ -235,9 +235,176 @@ export function renderAssemblyForecastPdfFooter(lines: string[]): string {
   return `${style}<div class="afp-fn"><div class="afp-fn-h">Пояснения</div>${body}</div>`;
 }
 
+const ENGINE_FLOW_METRIC_KEYS = [
+  'arrivedQty',
+  'shippedQty',
+  'scrapTotalQty',
+  'scrapAtFactoryQty',
+  'scrapSentQty',
+  'atFactoryQty',
+  'inRepairQty',
+] as const;
+
+type EngineFlowMetrics = Record<(typeof ENGINE_FLOW_METRIC_KEYS)[number], number>;
+
+function engineFlowMetrics(row: Record<string, unknown>): EngineFlowMetrics {
+  const out = {} as EngineFlowMetrics;
+  for (const key of ENGINE_FLOW_METRIC_KEYS) out[key] = Number(row[key] ?? 0) || 0;
+  return out;
+}
+
+function sumEngineFlowMetrics(list: EngineFlowMetrics[]): EngineFlowMetrics {
+  const out = {} as EngineFlowMetrics;
+  for (const key of ENGINE_FLOW_METRIC_KEYS) out[key] = list.reduce((acc, m) => acc + m[key], 0);
+  return out;
+}
+
+/** Нули в бумажной таблице глушим прочерком — иначе колонки утиля рябят от «0» и мешают читать. */
+function engineFlowCells(metrics: EngineFlowMetrics): string {
+  return ENGINE_FLOW_METRIC_KEYS.map((key) => {
+    const value = metrics[key];
+    return `<td class="num">${value === 0 && key !== 'arrivedQty' ? '—' : String(value)}</td>`;
+  }).join('');
+}
+
+/**
+ * Печатная форма А4 «Движение двигателей по заказчикам»: блок на заказчика, внутри
+ * строки договоров (метка объединена по вертикали) и марок, с подытогами договора,
+ * заказчика и общим итогом. Плоские rows билдера группируются здесь по служебным
+ * ключам `_counterpartyKey`/`_contractKey` — подписи для группировки не годятся,
+ * два заказчика могут называться одинаково.
+ */
+export function renderEngineFlowPrintHtml(report: OkPreview): string {
+  type Group<T> = { key: string; rows: T[] };
+  const groupBy = <T,>(items: T[], keyOf: (item: T) => string): Group<T>[] => {
+    const out: Group<T>[] = [];
+    const index = new Map<string, Group<T>>();
+    for (const item of items) {
+      const key = keyOf(item);
+      let group = index.get(key);
+      if (!group) {
+        group = { key, rows: [] };
+        index.set(key, group);
+        out.push(group);
+      }
+      group.rows.push(item);
+    }
+    return out;
+  };
+
+  const rows = report.rows as Array<Record<string, unknown>>;
+  const counterpartyGroups = groupBy(rows, (row) => String(row._counterpartyKey ?? row.counterpartyLabel ?? ''));
+
+  const headRow = `<tr>
+<th class="col-contract">Договор</th>
+<th class="col-brand">Марка</th>
+<th class="num">Пришло</th>
+<th class="num">Отправлено<br/>заказчику</th>
+<th class="num">Утиль<br/>всего</th>
+<th class="num">Утиль<br/>на заводе</th>
+<th class="num">Утиль<br/>отправлен</th>
+<th class="num">На заводе<br/>всего</th>
+<th class="num">из них<br/>в ремонте</th>
+</tr>`;
+
+  const sections = counterpartyGroups
+    .map((counterparty) => {
+      const contractGroups = groupBy(counterparty.rows, (row) => String(row._contractKey ?? row.contractShortLabel ?? ''));
+      const body = contractGroups
+        .map((contract) => {
+          const brandMetrics = contract.rows.map(engineFlowMetrics);
+          const withSubtotal = contract.rows.length > 1;
+          const span = contract.rows.length + (withSubtotal ? 1 : 0);
+          const first = contract.rows[0] ?? {};
+          const shortLabel = String(first.contractShortLabel ?? '');
+          const fullLabel = String(first.contractFullLabel ?? '');
+          const contractCell = `<td class="c-contract" rowspan="${span}"><div class="c-short">${htmlEscape(shortLabel)}</div>${
+            fullLabel ? `<div class="c-full">${htmlEscape(fullLabel)}</div>` : ''
+          }</td>`;
+          const brandRows = contract.rows
+            .map((row, index) => {
+              const metrics = brandMetrics[index] ?? engineFlowMetrics(row);
+              const lead = index === 0 ? contractCell : '';
+              return `<tr>${lead}<td class="c-brand">${htmlEscape(String(row.engineBrand ?? ''))}</td>${engineFlowCells(metrics)}</tr>`;
+            })
+            .join('');
+          const subtotal = withSubtotal
+            ? `<tr class="sub"><td class="c-brand">Итого по договору</td>${engineFlowCells(sumEngineFlowMetrics(brandMetrics))}</tr>`
+            : '';
+          return `${brandRows}${subtotal}`;
+        })
+        .join('');
+      const counterpartyTotal = sumEngineFlowMetrics(counterparty.rows.map(engineFlowMetrics));
+      const totalRow = `<tr class="cp-sum"><td colspan="2">Итого по заказчику</td>${engineFlowCells(counterpartyTotal)}</tr>`;
+      const name = String(counterparty.rows[0]?.counterpartyLabel ?? '');
+      return `<section class="cp">
+<div class="cp-head">${htmlEscape(name)}</div>
+<table><thead>${headRow}</thead><tbody>${body}${totalRow}</tbody></table>
+</section>`;
+    })
+    .join('');
+
+  const grand = sumEngineFlowMetrics(rows.map(engineFlowMetrics));
+  const grandBlock =
+    rows.length > 0
+      ? `<section class="grand"><table><thead>${headRow}</thead><tbody><tr class="cp-sum"><td colspan="2">Итого по всем заказчикам</td>${engineFlowCells(
+          grand,
+        )}</tr></tbody></table></section>`
+      : '<div class="empty">Нет данных</div>';
+
+  const notes =
+    report.footerNotes && report.footerNotes.length > 0
+      ? `<div class="notes"><div class="notes-h">Пояснения</div>${report.footerNotes
+          .map((line) => `<div class="notes-line">${htmlEscape(line)}</div>`)
+          .join('')}</div>`
+      : '';
+
+  return `<!doctype html>
+<html><head><meta charset="utf-8"/>
+<style>
+@page{size:A4 portrait;margin:12mm}
+body{font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#0b1220;margin:0}
+h1{font-size:15px;margin:0 0 4px 0}
+.meta{color:#475569;font-size:10.5px;margin-bottom:10px}
+.cp{margin-bottom:11px}
+.cp-head{font-size:12px;font-weight:800;padding:5px 7px;background:#eef2f7;border:1px solid #cbd5e1;border-bottom:none;break-after:avoid}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+thead{display:table-header-group}
+tr{break-inside:avoid}
+th,td{border:1px solid #cbd5e1;padding:3px 5px;vertical-align:middle;overflow-wrap:anywhere}
+th{background:#f8fafc;font-size:9.5px;font-weight:700;line-height:1.2;text-align:center}
+th.col-contract,th.col-brand{text-align:left}
+.col-contract{width:15%}
+.col-brand{width:19%}
+td.num,th.num{text-align:right;width:9.4%}
+th.num{text-align:center}
+.c-contract{vertical-align:top}
+.c-short{font-weight:700}
+.c-full{color:#64748b;font-size:9px;margin-top:1px}
+tr.sub td{background:#f8fafc;font-weight:700}
+tr.cp-sum td{background:#e2e8f0;font-weight:800}
+.grand{margin-top:14px}
+.empty{padding:14px;text-align:center;color:#64748b;border:1px dashed #cbd5e1}
+.notes{margin-top:12px;border:1px solid #cbd5e1;break-inside:avoid}
+.notes-h{padding:4px 7px;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;background:#f1f5f9;border-bottom:1px solid #e2e8f0}
+.notes-line{padding:4px 7px;color:#475569;border-bottom:1px solid #f1f5f9}
+.notes-line:last-child{border-bottom:none}
+</style>
+</head><body>
+<h1>${htmlEscape(report.title)}</h1>
+<div class="meta">${htmlEscape(report.subtitle ?? '')}</div>
+${sections}
+${grandBlock}
+${notes}
+</body></html>`;
+}
+
 export function renderReportHtml(report: OkPreview): string {
   if (report.presetId === 'work_order_payroll') {
     return renderWorkOrderPayrollFullHtml(report);
+  }
+  if (report.presetId === 'engine_flow_by_counterparty') {
+    return renderEngineFlowPrintHtml(report);
   }
   if (report.presetId === 'assembly_forecast_7d') {
     const subtitleChips = (report.subtitle ?? '')

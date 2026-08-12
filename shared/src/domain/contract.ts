@@ -503,6 +503,45 @@ export function classifyEngineContractBinding(args: {
   return isContractAddonToken(args.contractSectionNumber) ? 'addon' : 'contract';
 }
 
+/** Длинный сегмент номера ужимаем до узнаваемого хвоста: 25-значный ИГК → «397», «…-953-3-14» → «14». */
+function shortenContractSegment(segment: string): string {
+  if (segment.length <= 8) return segment;
+  const dashTail = segment.split('-').pop() ?? '';
+  if (dashTail && dashTail.length <= 8) return dashTail;
+  const digits = segment.match(/\d+/g)?.pop() ?? segment;
+  return digits.length > 3 ? digits.slice(-3) : digits;
+}
+
+/**
+ * Короткая метка договора для печатных форм («№ 10», «№ 10 / ДС 2»).
+ *
+ * В бумажном отчёте нужен узнаваемый хвост номера, а не «2425187912371412245237126/10/ГОЗ-25»
+ * целиком: колонка договора в А4-таблице узкая. Берём последний значащий сегмент, отбросив
+ * хвостовые «ГОЗ-NN» и год: у ГОЗ-номеров различает договоры именно сегмент перед маркером,
+ * а сам маркер общий на весь год — по нему все договоры заказчика слились бы в одну метку.
+ *
+ * `depth` берёт больше хвостовых сегментов («9012/2325» вместо «2325») — этим вызывающий код
+ * разводит договоры одного заказчика, у которых хвост совпал. Полный номер всё равно печатается
+ * рядом мелким шрифтом.
+ */
+export function shortContractLabel(
+  contractNumber: string | null | undefined,
+  sectionNumber?: string | null,
+  depth = 1,
+): string {
+  const raw = String(contractNumber ?? '').trim();
+  let segments = raw
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  while (segments.length > 1 && /^(ГОЗ[-\s]?\d*|(19|20)\d{2})$/i.test(segments[segments.length - 1] ?? '')) {
+    segments = segments.slice(0, -1);
+  }
+  const tail = segments.slice(-Math.max(1, depth)).map(shortenContractSegment);
+  const head = tail.length > 0 ? `№ ${tail.join('/')}` : raw || '(без номера)';
+  return isContractAddonToken(sectionNumber) ? `${head} / ${String(sectionNumber).trim()}` : head;
+}
+
 /** Дата в формате ДД.ММ.ГГГГ для человекочитаемых лейблов секций контракта. */
 export function formatContractDate(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return '';
