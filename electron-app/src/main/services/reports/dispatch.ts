@@ -17,6 +17,7 @@ import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListRe
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
+import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
 import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
 import { type ReportBuildContext } from './context.js';
@@ -66,6 +67,8 @@ export async function buildReportByPreset(
         return buildEnginesListReport(db, args.filters);
       case 'engines_contracts_overview':
         return buildEnginesContractsOverviewReport(db, args.filters);
+      case 'engine_flow_by_counterparty':
+        return buildEngineFlowByCounterpartyReport(db, args.filters);
       case 'scrap_register':
         return buildScrapRegisterReport(db, args.filters);
       case 'warehouse_stock_path_audit':

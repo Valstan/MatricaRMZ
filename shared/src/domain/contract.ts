@@ -503,6 +503,24 @@ export function classifyEngineContractBinding(args: {
   return isContractAddonToken(args.contractSectionNumber) ? 'addon' : 'contract';
 }
 
+/**
+ * Короткая метка договора для печатных форм («№ 158», «№ 158 / ДС 2»).
+ *
+ * Владельцу в бумажном отчёте нужен узнаваемый хвост номера, а не «125/2026» целиком:
+ * колонка договора в А4-таблице узкая. Год отбрасываем — из групп цифр берём последнюю,
+ * пропуская хвостовую четырёхзначную «19xx/20xx», если групп больше одной («125/2026» →
+ * «125», «РМЗ-2026-0158» → «158»). Полный номер печатается рядом мелким шрифтом, поэтому
+ * совпадение хвостов у двух договоров не создаёт неоднозначности.
+ */
+export function shortContractLabel(contractNumber: string | null | undefined, sectionNumber?: string | null): string {
+  const raw = String(contractNumber ?? '').trim();
+  const groups = raw.match(/\d+/g) ?? [];
+  const meaningful = groups.length > 1 && /^(19|20)\d{2}$/.test(groups[groups.length - 1] ?? '') ? groups.slice(0, -1) : groups;
+  const tail = meaningful[meaningful.length - 1] ?? '';
+  const head = tail ? `№ ${tail.length > 3 ? tail.slice(-3) : tail}` : raw || '(без номера)';
+  return isContractAddonToken(sectionNumber) ? `${head} / ${String(sectionNumber).trim()}` : head;
+}
+
 /** Дата в формате ДД.ММ.ГГГГ для человекочитаемых лейблов секций контракта. */
 export function formatContractDate(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return '';
