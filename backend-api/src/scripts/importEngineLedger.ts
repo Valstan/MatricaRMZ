@@ -17,11 +17,13 @@
  */
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
-import { ENGINE_FLAT_FIELDS } from '@matricarmz/shared';
+import { ENGINE_FLAT_FIELDS, SyncTableName } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
 import { createEntity, setEntityAttribute, upsertAttributeDef } from '../services/adminMasterdataService.js';
+import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 const APPLY = process.argv.includes('--apply');
 const arg = (name: string) => {
@@ -470,13 +472,42 @@ async function main() {
   }
   log(`   заведено контрагентов: ${newCustomers.size}, марок: ${newBrands.size}`);
 
-  let done = 0, failed = 0;
+  // ── запись двигателей: ПАКЕТАМИ, а не по атрибуту ────────────────────────
+  // Поатрибутный `setEntityAttribute` делает ledger-append на КАЖДОЕ значение, а
+  // append переписывает `state.json` целиком (на проде это 164 МБ) — замер 13.08
+  // дал ~1 двигатель в минуту, то есть сутки на файл. `writeSyncChanges` делает
+  // РОВНО ОДИН append на весь переданный пакет, поэтому пишем чанками.
+  const ts = Date.now();
+  const defIdByCode = new Map<string, string>();
+  {
+    const r = await pool.query(
+      'select code, id from attribute_defs where entity_type_id=$1 and deleted_at is null',
+      [engineTypeId],
+    );
+    for (const row of r.rows as any[]) defIdByCode.set(String(row.code), String(row.id));
+  }
+
+  // id существующих значений: на (entity_id, attribute_def_id) висит unique,
+  // поэтому обновление обязано переиспользовать прежний id строки.
+  const existingValueId = new Map<string, string>();
+  {
+    const r = await pool.query(
+      `select av.id::text as id, av.entity_id::text as eid, av.attribute_def_id::text as did
+         from attribute_values av
+         join entities e on e.id = av.entity_id and e.type_id = $1 and e.deleted_at is null`,
+      [engineTypeId],
+    );
+    for (const row of r.rows as any[]) existingValueId.set(`${row.eid}:${row.did}`, String(row.id));
+  }
+
+  const entityRows: Record<string, unknown>[] = [];
+  const valueRows: Record<string, unknown>[] = [];
+  let skippedCodes = 0;
   for (const p of plans) {
     let engineId = p.engineId;
     if (!engineId) {
-      const ce = await createEntity(actor, engineTypeId);
-      if (!ce.ok) { failed++; log(`   ✗ create ${p.number}: ${(ce as any).error}`); continue; }
-      engineId = ce.id;
+      engineId = randomUUID();
+      entityRows.push({ id: engineId, type_id: engineTypeId, created_at: ts, updated_at: ts, deleted_at: null });
     }
     const values = { ...p.values };
     const ck = values.__customerKey as string | undefined;
@@ -486,16 +517,46 @@ async function main() {
     if (ck && custIdByKey.has(ck)) values.customer_id = custIdByKey.get(ck);
     if (bk && brandIdByKey.has(bk)) values.engine_brand_id = brandIdByKey.get(bk);
 
-    let ok = true;
     for (const [code, value] of Object.entries(values)) {
-      const r = await setEntityAttribute(actor, engineId, code, value, { allowSyncConflicts: true });
-      if (!r.ok) { ok = false; log(`   ✗ ${p.number}.${code}: ${(r as any).error}`); }
+      const did = defIdByCode.get(code);
+      if (!did) { skippedCodes++; continue; }
+      const key = `${engineId}:${did}`;
+      valueRows.push({
+        id: existingValueId.get(key) ?? randomUUID(),
+        entity_id: engineId,
+        attribute_def_id: did,
+        value_json: JSON.stringify(value),
+        created_at: ts,
+        updated_at: ts,
+        deleted_at: null,
+      });
     }
-    if (ok) done++; else failed++;
-    if (done % 100 === 0 && ok) log(`   … ${done}/${plans.length}`);
   }
+  log(`   к записи: карточек ${entityRows.length} новых, значений ${valueRows.length}` +
+      (skippedCodes ? `, пропущено кодов без def: ${skippedCodes}` : ''));
+
+  async function pushChunk(table: SyncTableName, rows: Record<string, unknown>[]) {
+    await recordSyncChanges(
+      actor,
+      rows.map((row) => ({ op: 'upsert' as const, tableName: table, rowId: String(row.id), payload: row })),
+      { allowSyncConflicts: true },
+    );
+  }
+
+  // Карточки — до значений: у attribute_values FK на entities.
+  const CHUNK = Number(arg('chunk') ?? '1000') || 1000;
+  for (let i = 0; i < entityRows.length; i += CHUNK) {
+    await pushChunk(SyncTableName.Entities, entityRows.slice(i, i + CHUNK));
+    log(`   карточки: ${Math.min(i + CHUNK, entityRows.length)}/${entityRows.length}`);
+  }
+  for (let i = 0; i < valueRows.length; i += CHUNK) {
+    await pushChunk(SyncTableName.AttributeValues, valueRows.slice(i, i + CHUNK));
+    log(`   значения: ${Math.min(i + CHUNK, valueRows.length)}/${valueRows.length}`);
+  }
+
   log(`\n=== ИТОГО (applied) ===`);
-  log(`двигателей обработано: ${done}, с ошибками: ${failed}`);
+  log(`карточек заведено: ${entityRows.length}, значений записано: ${valueRows.length}`);
+  log(`ledger-append'ов: ${Math.ceil(entityRows.length / CHUNK) + Math.ceil(valueRows.length / CHUNK)}`);
   await pool.end();
 }
 
