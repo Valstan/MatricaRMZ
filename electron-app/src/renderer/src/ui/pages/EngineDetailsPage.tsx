@@ -43,7 +43,7 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'details' | 'history' | 'files' | 'reclamation' | 'payments';
+export type EngineCardTab = 'main' | 'details' | 'history' | 'files' | 'reclamation' | 'payments' | 'docs';
 
 const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
@@ -53,7 +53,36 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   // Платежи остаются вне цеховой рамки планшета.
   ...(isAndroidPlatform() ? [] : ([{ key: 'payments', label: 'Платежи' }] as { key: EngineCardTab; label: string }[])),
   { key: 'reclamation', label: 'Рекламация' },
+  { key: 'docs', label: 'Отчётные документы' },
 ];
+
+/** Реквизиты сопроводительных документов заезда: накладные, дефектовка, свободное примечание.
+ * Живут на вкладке «Основное» рядом со «своей» датой (накладная прихода — за датой прихода,
+ * накладная отгрузки — за датой отгрузки). */
+const ENGINE_EXTRA_MAIN_FIELDS = [
+  { code: 'arrival_invoice', label: 'Номер накладной (приход)', kind: 'text', order: 51 },
+  { code: 'defect_date', label: 'Дата дефектовки', kind: 'date', order: 52 },
+  { code: 'shipment_invoice', label: 'Номер накладной (отгрузка)', kind: 'text', order: 71 },
+  { code: 'engine_note', label: 'Примечание', kind: 'text', order: 79 },
+] as const;
+
+/** Вкладка «Отчётные документы». Пары «скан/оригинал» и «отправка/возврат» в источнике
+ * записаны через слэш одной ячейкой — здесь это два самостоятельных поля. */
+const ENGINE_DOC_FIELDS = [
+  { code: 'docs_state', label: 'Состояние', kind: 'text', order: 100 },
+  { code: 'docs_aspvr_contractor_date', label: 'Подписан АСПВР исполнителем', kind: 'date', order: 101 },
+  { code: 'docs_vp_sent_date', label: 'Отправка ВП', kind: 'date', order: 102 },
+  { code: 'docs_vp_returned_date', label: 'Возврат ВП', kind: 'date', order: 103 },
+  { code: 'docs_aspvr_customer_scan_date', label: 'АСПВР заказчику — скан', kind: 'date', order: 104 },
+  { code: 'docs_aspvr_customer_original_date', label: 'АСПВР заказчику — оригинал', kind: 'date', order: 105 },
+  { code: 'docs_track_or_act', label: 'Трек-номер или акт приёма-передачи', kind: 'text', order: 106 },
+  { code: 'docs_aspvr_signed_customer_date', label: 'Подписан АСПВР заказчиком', kind: 'date', order: 107 },
+  { code: 'docs_return_scan_date', label: 'Возврат от заказчика — скан', kind: 'date', order: 108 },
+  { code: 'docs_return_original_date', label: 'Возврат от заказчика — оригинал', kind: 'date', order: 109 },
+  { code: 'docs_note', label: 'Примечание по документам', kind: 'text', order: 110 },
+] as const;
+
+const ENGINE_FLAT_FIELDS = [...ENGINE_EXTRA_MAIN_FIELDS, ...ENGINE_DOC_FIELDS];
 
 function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
@@ -502,6 +531,16 @@ export function EngineDetailsPage(props: {
   const [reclComment, setReclComment] = useState(String(props.engine.attributes?.reclamation_comment ?? ''));
   // Причина утиля двигателя (scrap-transparency 2026-07): показывается при утильных статусах.
   const [scrapReason, setScrapReason] = useState(String(props.engine.attributes?.scrap_reason ?? ''));
+  // Реквизиты накладных/дефектовки/отчётных документов: однотипные поля, поэтому
+  // держатся одной картой code -> строка, а не отдельным useState на каждое.
+  const [flatValues, setFlatValues] = useState<Record<string, string>>(() => {
+    const a = props.engine.attributes ?? {};
+    const init: Record<string, string> = {};
+    for (const f of ENGINE_FLAT_FIELDS) {
+      init[f.code] = f.kind === 'date' ? toInputDate(a[f.code] as number | null | undefined) : String(a[f.code] ?? '');
+    }
+    return init;
+  });
 
   // Повторный заезд / коллизия номера (Ф2): осознанный обход запрета дублей.
   const [repeatArrivalFlag, setRepeatArrivalFlag] = useState(Boolean(props.engine.attributes?.repeat_arrival_flag));
@@ -537,6 +576,10 @@ export function EngineDetailsPage(props: {
   const setSessionChanged = (v: boolean) => {
     sessionHadChanges.current = v;
     setMainDirty(v);
+  };
+  const setFlatValue = (code: string, v: string) => {
+    setSessionChanged(true);
+    setFlatValues((prev) => ({ ...prev, [code]: v }));
   };
   const [activeTab, setActiveTab] = useState<EngineCardTab>(props.initialTab ?? 'main');
   // Phase 3d: recovery-draft движок пилота. Снимок = локальные несохранённые поля карточки
@@ -1045,6 +1088,9 @@ export function EngineDetailsPage(props: {
       nextValues.reclamation_shipped_date = fromInputDate(reclShippedDate);
       nextValues.reclamation_comment = asNullableText(reclComment);
       nextValues.scrap_reason = asNullableText(scrapReason);
+      for (const f of ENGINE_FLAT_FIELDS) {
+        nextValues[f.code] = f.kind === 'date' ? fromInputDate(flatValues[f.code] ?? '') : asNullableText(flatValues[f.code]);
+      }
 
       const currentValues: Record<string, unknown> = {
         repeat_arrival_flag: Boolean(attrs.repeat_arrival_flag),
@@ -1077,6 +1123,9 @@ export function EngineDetailsPage(props: {
       currentValues.reclamation_shipped_date = normalizeDateInput(attrs.reclamation_shipped_date);
       currentValues.reclamation_comment = asNullableText(attrs.reclamation_comment);
       currentValues.scrap_reason = asNullableText(attrs.scrap_reason);
+      for (const f of ENGINE_FLAT_FIELDS) {
+        currentValues[f.code] = f.kind === 'date' ? normalizeDateInput(attrs[f.code]) : asNullableText(attrs[f.code]);
+      }
 
       const changedEntries = Object.entries(nextValues).filter(([code, nextValue]) => !sameValue(currentValues[code], nextValue));
       if (changedEntries.length > 0) {
@@ -1379,6 +1428,12 @@ export function EngineDetailsPage(props: {
       { code: 'repeat_arrival_flag', name: 'Повторный заезд', dataType: 'boolean', sortOrder: 90 },
       { code: 'number_collision_flag', name: 'Коллизия номера', dataType: 'boolean', sortOrder: 91 },
       { code: 'previous_arrival_id', name: 'Прежний заезд (ссылка)', dataType: 'text', sortOrder: 92 },
+      ...ENGINE_FLAT_FIELDS.map((f) => ({
+        code: f.code,
+        name: f.label,
+        dataType: f.kind === 'date' ? ('date' as const) : ('text' as const),
+        sortOrder: f.order,
+      })),
     ];
     void ensureAttributeDefs(engineTypeId, desired, engineDefs).then((next) => {
       const orderedCodes = desired.map((f) => f.code);
@@ -1620,6 +1675,22 @@ export function EngineDetailsPage(props: {
         />
       ),
     },
+    ...ENGINE_EXTRA_MAIN_FIELDS.map((f) => ({
+      code: f.code,
+      defaultOrder: f.order,
+      label: f.label,
+      value: flatValues[f.code] ?? '',
+      render: (
+        <Input
+          {...(f.kind === 'date' ? { type: 'date' as const } : {})}
+          value={flatValues[f.code] ?? ''}
+          disabled={!canEditEnginesEff}
+          data-autogrow="off"
+          style={{ ...elasticFieldStyle, width: '100%' }}
+          onChange={(e) => setFlatValue(f.code, e.target.value)}
+        />
+      ),
+    })),
     props.canViewMasterData
       ? {
           code: 'customer_id',
@@ -2198,6 +2269,28 @@ export function EngineDetailsPage(props: {
           canUpload={props.canUploadFiles && canEditEnginesEff}
           onChange={saveAttachments}
         />
+      </div>
+
+      <div className="entity-card-span-full" hidden={activeTab !== 'docs'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
+        <SectionCard title="Отчётные документы" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {ENGINE_DOC_FIELDS.map((f) => (
+              <div key={f.code} style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 260px) 1fr', gap: 8, alignItems: 'center' }}>
+                <div style={{ color: 'var(--subtle)' }}>{f.label}</div>
+                <Input
+                  {...(f.kind === 'date' ? { type: 'date' as const } : {})}
+                  value={flatValues[f.code] ?? ''}
+                  disabled={!canEditEnginesEff}
+                  // Без data-autogrow="off" глобальный auto-grow ужимает пустое текстовое
+                  // поле до ~80px, и колонка ввода получается рваной.
+                  data-autogrow="off"
+                  style={{ ...elasticFieldStyle, width: '100%' }}
+                  onChange={(e) => setFlatValue(f.code, e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
       <div className="entity-card-span-full" hidden={activeTab !== 'reclamation'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
