@@ -1480,6 +1480,13 @@ export async function upsertWarehouseNomenclature(args: {
   category?: string | null;
   directoryKind?: string | null;
   directoryRefId?: string | null;
+  /**
+   * Имя карточки-источника — чтобы сервер мог завести её сам, если ещё не видит.
+   * Клиент создаёт карточку локально (sqlite + ledger-push), а сюда ходит REST'ом: без этого
+   * поля создание позиции падало «Источник … не найден», а локальная карточка оставалась
+   * сиротой без позиции — ровно тем зеркалом, которое чистит план tools-catalog-unify-2026-08-13.
+   */
+  directoryRefName?: string | null;
   groupId?: string | null;
   unitId?: string | null;
   barcode?: string | null;
@@ -1638,6 +1645,36 @@ export async function upsertWarehouseNomenclature(args: {
           }
         }
       }
+      // Карточка ещё не доехала синхронизацией — заводим зеркало по присланному имени.
+      // Id задаёт клиент, поэтому когда его запись приедет, она ляжет в ту же строку.
+      if (!resolvedSourceName) {
+        const providedName = String(args.directoryRefName ?? '').trim();
+        const dirTable =
+          sourceKind === 'part' ? directoryParts
+          : sourceKind === 'tool' ? directoryTools
+          : (sourceKind === 'good' || sourceKind === 'product') ? directoryGoods
+          : sourceKind === 'service' ? directoryServices
+          : sourceKind === 'engine_brand' ? directoryEngineBrands
+          : null;
+        if (providedName && dirTable) {
+          const ts = nowMs();
+          await db
+            .insert(dirTable as any)
+            .values({
+              id: sourceRefId,
+              name: providedName,
+              isActive: true,
+              metadataJson: null,
+              deprecatedAt: null,
+              createdAt: ts,
+              updatedAt: ts,
+              deletedAt: null,
+            })
+            .onConflictDoNothing({ target: (dirTable as any).id });
+          resolvedSourceName = providedName;
+        }
+      }
+
       // Жёсткая проверка только для kinds, у которых обязателен directory-источник.
       // Для assembly/engine/component/material/consumable resolvedSourceName остаётся null —
       // это нормально, у них нет отдельной карточки-источника, имя берётся из args.name.

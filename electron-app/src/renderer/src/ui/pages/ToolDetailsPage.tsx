@@ -7,6 +7,8 @@ import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { SuggestInput } from '../components/SuggestInput.js';
+import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
+import { TOOLS_PRESET } from './nomenclatureDirectoryPresets.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
@@ -590,17 +592,30 @@ export function ToolDetailsPage(props: {
               if (label) setName(label);
             }}
             onCreate={async (label) => {
-              const r = await window.matrica.tools.catalog.create({ name: label.trim() });
+              // Наименование и позиция номенклатуры создаются ОДНИМ путём. Прежний вызов
+              // tools.catalog.create заводил только EAV-карточку, и каждое новое наименование
+              // становилось очередным зеркалом — именем без позиции, невидимым на складе
+              // (план tools-catalog-unify-2026-08-13).
+              const clean = label.trim();
+              const r = await createNomenclatureLineFromPreset({
+                directoryKind: TOOLS_PRESET.directoryKind,
+                createConfig: TOOLS_PRESET.createConfig,
+                displayName: clean,
+                article: '',
+              });
               if (!r.ok) {
-                setStatus(`Ошибка: ${r.error}`);
+                setStatus(`Ошибка: ${'error' in r ? r.error : r.message}`);
                 return null;
               }
-              const id = (r as any).id as string;
-              setToolCatalogOptions((prev) => [...prev, { id, label }]);
+              if (!r.sourceId) {
+                setStatus('Ошибка: позиция создана, но карточка наименования не вернулась — обновите список.');
+                return null;
+              }
+              setToolCatalogOptions((prev) => [...prev, { id: r.sourceId as string, label: clean }]);
               dirtyRef.current = true;
-              setToolCatalogId(id);
-              setName(label);
-              return id;
+              setToolCatalogId(r.sourceId);
+              setName(clean);
+              return r.sourceId;
             }}
           />
         </div>
