@@ -36,8 +36,11 @@ function nameKey(value: string | null | undefined): string {
   return String(value ?? '').trim().toLowerCase().replaceAll('ё', 'е').replaceAll(/\s+/g, ' ');
 }
 
-/** Имена, встречающиеся ровно один раз. Остальные — неоднозначные, их не трогаем. */
-function uniqueByName<T extends { name: string | null }>(rows: T[]): Map<string, T> {
+/**
+ * Раскладка по нормализованному имени, каждая корзина в стабильном порядке
+ * (дата создания, затем id) — чтобы повторный прогон дал ту же пару.
+ */
+function bucketByName<T extends { name: string | null; id: unknown; createdAt?: number | null }>(rows: T[]): Map<string, T[]> {
   const buckets = new Map<string, T[]>();
   for (const row of rows) {
     const key = nameKey(row.name);
@@ -46,11 +49,10 @@ function uniqueByName<T extends { name: string | null }>(rows: T[]): Map<string,
     if (bucket) bucket.push(row);
     else buckets.set(key, [row]);
   }
-  const out = new Map<string, T>();
-  for (const [key, bucket] of buckets) {
-    if (bucket.length === 1 && bucket[0]) out.set(key, bucket[0]);
+  for (const bucket of buckets.values()) {
+    bucket.sort((a, b) => Number(a.createdAt ?? 0) - Number(b.createdAt ?? 0) || String(a.id).localeCompare(String(b.id)));
   }
-  return out;
+  return buckets;
 }
 
 async function main() {
@@ -63,7 +65,7 @@ async function main() {
     .limit(20_000);
 
   const sources = await db
-    .select({ id: directoryGoods.id, name: directoryGoods.name })
+    .select({ id: directoryGoods.id, name: directoryGoods.name, createdAt: directoryGoods.createdAt })
     .from(directoryGoods)
     .where(isNull(directoryGoods.deletedAt))
     .limit(20_000);
@@ -77,41 +79,53 @@ async function main() {
     return;
   }
 
-  const uniqueTargets = uniqueByName(targets.map((r) => ({ ...r, name: r.name })) as Array<typeof targets[number]>);
-  const uniqueSources = uniqueByName(sources);
+  const targetBuckets = bucketByName(targets);
+  const sourceBuckets = bucketByName(sources);
 
-  const linked: Array<{ id: string; code: string; name: string; refId: string }> = [];
-  const ambiguous: Array<{ id: string; code: string; name: string; why: string }> = [];
-  const unmatched: Array<{ id: string; code: string; name: string }> = [];
+  const linked: Array<{ id: string; code: string; name: string; refId: string; paired: boolean }> = [];
+  const skipped: Array<{ id: string; code: string; name: string; why: string }> = [];
 
-  for (const row of targets) {
-    const key = nameKey(row.name);
-    const rowId = String(row.id);
-    const info = { id: rowId, code: String(row.code ?? ''), name: String(row.name ?? '') };
-    if (!key) {
-      unmatched.push(info);
+  for (const [key, bucket] of targetBuckets) {
+    const info = (row: (typeof bucket)[number]) => ({
+      id: String(row.id),
+      code: String(row.code ?? ''),
+      name: String(row.name ?? ''),
+    });
+    const source = sourceBuckets.get(key) ?? [];
+    if (source.length === 0) {
+      for (const row of bucket) skipped.push({ ...info(row), why: 'карточка-источник не найдена' });
       continue;
     }
-    if (!uniqueTargets.has(key)) {
-      ambiguous.push({ ...info, why: 'имя встречается у нескольких позиций номенклатуры' });
+    // Тёзок связываем попарно в стабильном порядке — по решению владельца 2026-08-13
+    // («особой роли не играют, главное чтобы всё перенеслось»). Ярлык у обеих один и тот же,
+    // поэтому какая к какой — на видимое поведение не влияет.
+    // Отказываемся только когда количества НЕ сходятся: там пара была бы выдумана.
+    if (source.length !== bucket.length) {
+      for (const row of bucket) {
+        skipped.push({ ...info(row), why: `позиций ${bucket.length}, карточек ${source.length} — пару пришлось бы выдумать` });
+      }
       continue;
     }
-    const source = uniqueSources.get(key);
-    if (!source) {
-      const anySource = sources.some((s) => nameKey(s.name) === key);
-      if (anySource) ambiguous.push({ ...info, why: 'имя встречается у нескольких карточек directory_goods' });
-      else unmatched.push(info);
-      continue;
-    }
-    linked.push({ ...info, refId: String(source.id) });
+    bucket.forEach((row, idx) => {
+      const pick = source[idx];
+      if (!pick) return;
+      linked.push({ ...info(row), refId: String(pick.id), paired: bucket.length > 1 });
+    });
   }
 
-  console.log(`\nоднозначно сопоставлено: ${linked.length}`);
-  console.log(`неоднозначно (не трогаем): ${ambiguous.length}`);
-  console.log(`без пары в справочнике: ${unmatched.length}`);
+  for (const row of targets) {
+    if (nameKey(row.name)) continue;
+    skipped.push({ id: String(row.id), code: String(row.code ?? ''), name: '', why: 'пустое имя' });
+  }
 
-  for (const row of ambiguous) console.log(`  ~ ${row.code || '(без кода)'} «${row.name}» — ${row.why}`);
-  for (const row of unmatched) console.log(`  ? ${row.code || '(без кода)'} «${row.name}» — карточка-источник не найдена`);
+  const pairedCount = linked.filter((x) => x.paired).length;
+  console.log(`\nсопоставлено: ${linked.length} (из них тёзок, связанных попарно: ${pairedCount})`);
+  console.log(`пропущено: ${skipped.length}`);
+
+  for (const row of linked.filter((x) => x.paired)) {
+    console.log(`  = ${row.code || '(без кода)'} «${row.name}» → ${row.refId} (тёзка, пара по порядку создания)`);
+  }
+  for (const row of skipped) console.log(`  ? ${row.code || '(без кода)'} «${row.name}» — ${row.why}`);
 
   if (!apply) {
     console.log('\nDRY-RUN: ничего не записано. Повторить с --apply.');
