@@ -23,6 +23,7 @@
     "contracts:resync-slots": "tsx src/scripts/resyncContractSlots.ts",
     "contracts:resync-slots:apply": "tsx src/scripts/resyncContractSlots.ts --apply",
     "positions:backfill": "tsx src/scripts/backfillEmployeePositions.ts",
+    "engines:import": "tsx src/scripts/importEngineLedger.ts",
     "positions:backfill:apply": "tsx src/scripts/backfillEmployeePositions.ts --apply",
     "access:backfill-sections": "tsx src/scripts/backfillSectionAccess.ts",
     "fix:owner-batch-20260710": "tsx src/scripts/fixOwnerBatch20260710.ts",

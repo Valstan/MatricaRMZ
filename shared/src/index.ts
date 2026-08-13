@@ -14,6 +14,7 @@ export * from './domain/repairNorm.js';
 export * from './domain/engineActSnapshot.js';
 export * from './domain/engineInternalNumber.js';
 export * from './domain/engineReservation.js';
+export * from './domain/engineFlatFields.js';
 export * from './domain/engineTimeline.js';
 export * from './domain/nomenclatureCode.js';
 export * from './domain/partStatusEvent.js';
