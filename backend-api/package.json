@@ -61,6 +61,7 @@
     "warehouse:link-nomenclature-to-part": "tsx src/scripts/linkNomenclatureToPart.ts",
     "warehouse:backfill-goods-directory-ref": "tsx src/scripts/backfillGoodsDirectoryRef.ts",
     "warehouse:migrate-tool-catalog": "tsx src/scripts/migrateToolCatalogToNomenclature.ts",
+    "warehouse:cleanup-tool-mirrors": "tsx src/scripts/cleanupToolMirrors.ts",
     "warehouse:migrate-component-type": "tsx src/scripts/migrateComponentTypeFromSpecJson.ts",
     "warehouse:backfill-locations": "tsx src/scripts/backfillWarehouseLocations.ts",
     "warehouse:backfill-locations:dry-run": "tsx src/scripts/backfillWarehouseLocations.ts --dry-run",
