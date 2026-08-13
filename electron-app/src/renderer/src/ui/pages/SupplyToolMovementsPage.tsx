@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ToolMovementItem, WarehouseNomenclatureListItem } from '@matricarmz/shared';
+import type { ToolListItem, ToolMovementItem, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
@@ -12,10 +12,6 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 
 type Option = { id: string; label: string };
-
-function labelNorm(s: string | null | undefined) {
-  return String(s ?? '').trim().toLowerCase();
-}
 
 function toInputDate(ms: number | null) {
   if (!ms) return '';
@@ -35,22 +31,26 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function isMovementSubjectNomenclatureRow(row: WarehouseNomenclatureListItem): boolean {
-  const ref = String(row.directoryRefId ?? '').trim();
-  if (!ref) return false;
+/**
+ * Товары как субъект движения. Отбор ТОЛЬКО по `directoryKind` — прежняя сверка названия группы
+ * с whitelist'ом («товары» / «готовая продукция» / …) отстала от переименования групп при сидинге
+ * («Закупка · Товары») и обнуляла список целиком. Вид справочника уже отвечает на вопрос «это товар?»,
+ * а название группы оператор вправе поменять, не ломая выдачу.
+ *
+ * Инструменты сюда НЕ попадают: выдаётся конкретный экземпляр, а не наименование, — их субъекты
+ * берутся из `tools.list()` (см. `subjectOptions`).
+ */
+function isMovementSubjectGoodRow(row: WarehouseNomenclatureListItem): boolean {
+  if (!String(row.directoryRefId ?? '').trim()) return false;
   const dk = String(row.directoryKind ?? '').trim().toLowerCase();
-  const g = labelNorm(row.groupName);
-  if (dk === 'tool' && (g === 'инструменты' || g === 'инструмент и оснастка')) return true;
-  if ((dk === 'good' || dk === 'product') && (g === 'товары' || g === 'готовая продукция' || g === 'покупные комплектующие')) {
-    return true;
-  }
-  return false;
+  return dk === 'good' || dk === 'product';
 }
 
 export function SupplyToolMovementsPage(props: {
   canEdit: boolean;
   canViewMasterData: boolean;
   onOpenNomenclature: (id: string) => void;
+  onOpenTool: (toolId: string) => void;
   onOpenEmployee: (employeeId: string) => void;
   canCreateEmployees?: boolean;
 }) {
@@ -67,6 +67,7 @@ export function SupplyToolMovementsPage(props: {
 
   const [status, setStatus] = useState('');
   const [movements, setMovements] = useState<ToolMovementItem[]>([]);
+  const [tools, setTools] = useState<ToolListItem[]>([]);
   const [employeeOptions, setEmployeeOptions] = useState<Option[]>([]);
   const [currentDepartmentId, setCurrentDepartmentId] = useState<string | null>(null);
 
@@ -80,20 +81,35 @@ export function SupplyToolMovementsPage(props: {
   const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
 
+  /** Экземпляры инструмента — субъекты выдачи. Помечаем, чтобы отличать их от товаров при навигации. */
+  const toolSubjectIds = useMemo(() => new Set(tools.map((t) => String(t.id))), [tools]);
+
   const subjectOptions = useMemo(() => {
-    const rows = (nomenclature ?? []).filter(isMovementSubjectNomenclatureRow);
     const out: Option[] = [];
     const seen = new Set<string>();
-    for (const r of rows) {
+
+    // Инструмент выдаётся поштучно: субъект — конкретный экземпляр, а не наименование.
+    // Однотипные экземпляры различимы только табельным/серийным номером, поэтому он в подписи.
+    for (const t of tools) {
+      const id = String(t.id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const base = String(t.name ?? '').trim();
+      const mark = String(t.toolNumber ?? '').trim() || String(t.serialNumber ?? '').trim();
+      out.push({ id, label: [base || id, mark ? `№ ${mark}` : ''].filter(Boolean).join(' · ') });
+    }
+
+    // Товары учитываются по позиции — субъектом остаётся карточка-источник номенклатуры.
+    for (const r of (nomenclature ?? []).filter(isMovementSubjectGoodRow)) {
       const ref = String(r.directoryRefId ?? '').trim();
       if (!ref || seen.has(ref)) continue;
       seen.add(ref);
-      const label = String(r.name ?? '').trim() || ref;
-      out.push({ id: ref, label });
+      out.push({ id: ref, label: String(r.name ?? '').trim() || ref });
     }
+
     out.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
     return out;
-  }, [nomenclature]);
+  }, [nomenclature, tools]);
 
   const nomenclatureIdByRefId = useMemo(() => {
     const m = new Map<string, string>();
@@ -121,6 +137,13 @@ export function SupplyToolMovementsPage(props: {
     }
   }, []);
 
+  const loadTools = useCallback(async () => {
+    const r = await window.matrica.tools.list().catch(() => null);
+    if (r && (r as { ok?: boolean }).ok) {
+      setTools((r as { tools?: ToolListItem[] }).tools ?? []);
+    }
+  }, []);
+
   const loadEmployees = useCallback(async () => {
     const r = await window.matrica.tools.employees.list({ departmentId: null }).catch(() => null);
     if (r && (r as { ok?: boolean }).ok) {
@@ -136,6 +159,7 @@ export function SupplyToolMovementsPage(props: {
 
   useEffect(() => {
     void refreshMovements();
+    void loadTools();
     void loadEmployees();
     void window.matrica.tools
       .scope()
@@ -143,7 +167,7 @@ export function SupplyToolMovementsPage(props: {
         if (s && (s as { ok?: boolean }).ok) setCurrentDepartmentId((s as { departmentId?: string | null }).departmentId ?? null);
       })
       .catch(() => {});
-  }, [refreshMovements, loadEmployees]);
+  }, [refreshMovements, loadTools, loadEmployees]);
 
   useLiveDataRefresh(
     async () => {
@@ -276,7 +300,7 @@ export function SupplyToolMovementsPage(props: {
 
   const hint =
     subjectOptions.length === 0
-      ? 'В номенклатуре склада нет активных позиций в группах «Инструменты» и «Товары» с привязкой к карточке (перенесите справочники производства в складскую номенклатуру).'
+      ? 'Нечего выдавать: не заведено ни одного экземпляра инструмента («Производство → Инструменты») и нет товаров в складской номенклатуре.'
       : '';
 
   return (
@@ -285,7 +309,8 @@ export function SupplyToolMovementsPage(props: {
         <div style={{ flex: '1 1 280px', minWidth: 0 }}>
           <h1 style={{ margin: 0, fontSize: 22 }}>Учёт инструментов и товаров</h1>
           <p style={{ margin: '8px 0 0', color: 'var(--subtle)', fontSize: 13 }}>
-            Движения по выдаче и возврату: позиции выбираются из складской номенклатуры (группы «Инструменты» и «Товары»).
+            Движения по выдаче и возврату: инструмент выбирается экземпляром (с табельным номером), товар — позицией
+            складской номенклатуры.
           </p>
         </div>
         <Button
@@ -295,11 +320,11 @@ export function SupplyToolMovementsPage(props: {
           onClick={() => {
             void (async () => {
               setStatus('');
-              await refreshNomenclature();
+              await Promise.all([refreshNomenclature(), loadTools()]);
             })();
           }}
         >
-          {nomenclatureLoading ? 'Загрузка…' : 'Обновить номенклатуру'}
+          {nomenclatureLoading ? 'Загрузка…' : 'Обновить списки'}
         </Button>
       </div>
 
@@ -318,19 +343,26 @@ export function SupplyToolMovementsPage(props: {
       <SectionCard title="Новое движение">
         {!editingMovementId && (
           <div className="card-row" style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : '160px 1fr', gap: 8, padding: '6px 6px' }}>
-            <div>Позиция (номенклатура)</div>
+            <div>Что выдаём</div>
             <EntityReferenceField
               target="nomenclature"
-              targetLabel="Номенклатура"
-              value={subjectEntityId}
+              targetLabel="Инструмент или товар"
+              // Именно `|| null`: пустая строка для поля — это «значение задано, но не нашлось»,
+              // и оно рисует красное «выбранное значение удалено» на нетронутой форме.
+              // Прежде не проявлялось лишь потому, что список опций всегда был пуст.
+              value={subjectEntityId || null}
               options={subjectOptions}
-              placeholder="Инструмент или товар из номенклатуры"
+              placeholder="Экземпляр инструмента или товар"
               disabled={!props.canEdit}
               canCreate={false}
               createLabel=""
               onChange={(next) => setSubjectEntityId(next ?? '')}
               onCreate={async () => null}
-              onOpen={props.onOpenNomenclature}
+              onOpen={(id) => {
+                if (toolSubjectIds.has(id)) return props.onOpenTool(id);
+                const nomId = nomenclatureIdByRefId.get(id);
+                if (nomId) props.onOpenNomenclature(nomId);
+              }}
             />
           </div>
         )}
@@ -359,7 +391,7 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="employee"
               targetLabel="Сотрудник"
-              value={newMoveEmployeeId}
+              value={newMoveEmployeeId || null}
               options={employeeOptions}
               placeholder="Сотрудник"
               disabled={!props.canEdit}
@@ -380,7 +412,7 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="employee"
               targetLabel="Заведующий"
-              value={newMoveConfirmedById}
+              value={newMoveConfirmedById || null}
               options={employeeOptions}
               placeholder="Заведующий"
               disabled={!props.canEdit || !newMoveConfirmed}
@@ -447,7 +479,9 @@ export function SupplyToolMovementsPage(props: {
                 </tr>
               )}
               {movements.map((m) => {
-                const nomId = nomenclatureIdByRefId.get(m.toolId);
+                // Инструмент открывается своей карточкой (экземпляр), товар — карточкой номенклатуры.
+                const isTool = toolSubjectIds.has(m.toolId);
+                const nomId = isTool ? null : nomenclatureIdByRefId.get(m.toolId) ?? null;
                 const title = m.subjectName?.trim() || subjectOptions.find((o) => o.id === m.toolId)?.label || m.toolId;
                 return (
                   <tr
@@ -465,6 +499,19 @@ export function SupplyToolMovementsPage(props: {
                     <td data-col-kind="name" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span>{title}</span>
+                        {isTool && props.canViewMasterData ? (
+                          <Button
+                            variant="outline"
+                            tone="neutral"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              props.onOpenTool(m.toolId);
+                            }}
+                          >
+                            Карточка инструмента
+                          </Button>
+                        ) : null}
                         {nomId && props.canViewMasterData ? (
                           <Button
                             variant="outline"
