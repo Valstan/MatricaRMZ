@@ -239,7 +239,60 @@ type Plan = {
   manual: string[];
 };
 
+/**
+ * Уборка пустых карточек двигателя: сущность есть, атрибутов нет ни одного.
+ * Появляются, если пакетный прогон оборвался между записью `entities` и записью
+ * `attribute_values` — такая карточка не имеет номера, поэтому следующий заход её
+ * не находит и заводит двигатель заново. Удаляем через sync-путь, чтобы карточка
+ * пропала и в клиентских репликах, а не только на сервере.
+ */
+async function cleanupBlankEngines(engineTypeId: string, actor: Actor): Promise<number> {
+  const r = await pool.query(
+    `select e.id::text as id, e.created_at
+       from entities e
+      where e.type_id = $1 and e.deleted_at is null
+        and not exists (select 1 from attribute_values av where av.entity_id = e.id and av.deleted_at is null)
+        and not exists (select 1 from operations o where o.engine_entity_id = e.id)`,
+    [engineTypeId],
+  );
+  const rows = r.rows as any[];
+  log(`\n=== ПУСТЫЕ КАРТОЧКИ ===`);
+  log(`   без единого атрибута, нарядов и операций: ${rows.length}`);
+  if (!rows.length || !APPLY) {
+    if (rows.length) log('   (dry-run — не удаляю; повторите с --apply)');
+    return rows.length;
+  }
+  const ts = Date.now();
+  const del = rows.map((row) => ({
+    op: 'upsert' as const,
+    tableName: SyncTableName.Entities,
+    rowId: String(row.id),
+    payload: {
+      id: String(row.id),
+      type_id: engineTypeId,
+      created_at: Number(row.created_at) || ts,
+      updated_at: ts,
+      deleted_at: ts,
+    },
+  }));
+  const CH = 400;
+  for (let i = 0; i < del.length; i += CH) {
+    await recordSyncChanges(actor, del.slice(i, i + CH), { allowSyncConflicts: true });
+  }
+  log(`   удалено: ${rows.length}`);
+  return rows.length;
+}
+
 async function main() {
+  if (process.argv.includes('--cleanup-blank-only')) {
+    const engineTypeId = await typeId('engine');
+    const actor = await resolveActor(await typeId('employee'));
+    log(APPLY ? '!!! РЕЖИМ ЗАПИСИ (--apply) !!!' : '--- DRY-RUN ---');
+    log(`actor: ${actor.username}`);
+    await cleanupBlankEngines(engineTypeId, actor);
+    await pool.end();
+    return;
+  }
   if (!FILE) throw new Error('нужен --file=<path к CSV>');
   log('=== Импорт учётной таблицы двигателей ===');
   log(APPLY ? '!!! РЕЖИМ ЗАПИСИ (--apply) !!!' : '--- DRY-RUN (без записей; --apply для выполнения) ---');
@@ -565,6 +618,10 @@ async function main() {
     await pushChunk(SyncTableName.AttributeValues, valueRows.slice(i, i + CHUNK));
     log(`   значения: ${Math.min(i + CHUNK, valueRows.length)}/${valueRows.length}`);
   }
+
+  // Обрыв между записью карточек и записью значений оставляет карточки без
+  // единого атрибута — подчищаем сразу, иначе следующий заход заведёт двойники.
+  await cleanupBlankEngines(engineTypeId, actor);
 
   log(`\n=== ИТОГО (applied) ===`);
   log(`карточек заведено: ${entityRows.length}, значений записано: ${valueRows.length}`);
