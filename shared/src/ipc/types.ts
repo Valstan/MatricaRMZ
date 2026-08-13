@@ -2080,6 +2080,14 @@ export type MatricaApi = {
       category?: string | null;
       directoryKind?: string | null;
       directoryRefId?: string | null;
+      /**
+       * Имя карточки-источника. Клиент заводит её локально (sqlite + ledger-push), а позицию
+       * создаёт REST'ом — сервер источник ещё не видит и без этого поля отвечает
+       * «Источник … не найден», оставляя карточку сиротой без позиции. По имени сервер
+       * заводит строку `directory_*` сам, а приехавшая синхронизацией запись ложится в неё
+       * по тому же id.
+       */
+      directoryRefName?: string | null;
       defaultBrandId?: string | null;
       isSerialTracked?: boolean;
       defaultWarehouseId?: string | null;

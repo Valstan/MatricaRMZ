@@ -25,6 +25,7 @@
 | **BOM спецификация двигателя** | `services/warehouseBomService.ts`, `services/warehouseBomLineMeta.ts` | BOM-refactor (см. план `docs/plans/bom-refactor-2026-05.md`), variantGroup, parentLineKey, схема компонентов |
 | **Номенклатура (Phase 1)** | `services/warehouseService.ts:1500–1700`, `scripts/auditPartsMirror.ts`, `scripts/fixPartsMirror.ts`, `scripts/migrateComponentTypeFromSpecJson.ts` | Component types, `directory_kind`, зеркало parts↔nomenclature, миграция Directories→Nomenclature |
 | **Склад (3 регистра)** | `services/warehouseService.ts`, `services/warehouseLocationsService.ts` | Stock balances, документы прихода/расхода/перемещения, FK warehouse_location_id (Phase 2.x) |
+| **Инструмент: позиция vs экземпляр** | `services/toolsService.ts` (экземпляры), `pages/ToolDetailsPage.tsx`, `scripts/migrateToolCatalogToNomenclature.ts` | Наименование живёт в номенклатуре, конкретная единица — в EAV-`tool`; выдаётся экземпляр. Граница — [`WAREHOUSE.md`](WAREHOUSE.md#инструмент-позиция--экземпляр-2026-08-13) |
 | **Прогноз сборки** | `services/warehouseForecastService.ts` | Прогноз 7 дней, kit-варианты, edge cases (см. v1.22.0 блок A) |
 | **Наряды** | `services/workOrderClosingService.ts`, `services/servicePricingService.ts` | 4 типа нарядов (Regular/Repair/Assembly/Manufacturing), подписи, ценообразование услуг |
 | **Sync + Ledger** | `routes/sync.ts`, `routes/ledger.ts`, `services/masterdataSyncService.ts`, `services/syncPipelineSupervisorService.ts` | Синхронизация клиент↔сервер, ledger event log, supervisor (singleton на primary) |

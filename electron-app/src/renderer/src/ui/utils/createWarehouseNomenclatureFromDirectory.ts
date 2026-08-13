@@ -5,9 +5,13 @@ import type { NomenclatureCreateConfig } from '../pages/nomenclatureDirectoryPre
 export async function createSourceEntityForDirectoryKind(kind: string, label: string): Promise<string | null> {
   const normalizedKind = String(kind ?? '').trim().toLowerCase();
   if (!normalizedKind) return null;
+  // Карточка-источник инструмента — НАИМЕНОВАНИЕ (`tool_catalog`), а не экземпляр (`tool`).
+  // Раньше здесь стоял `tool`, и кнопка «Создать инструмент» заводила сущность-экземпляр:
+  // при обрыве до создания строки номенклатуры оставалась сирота, невидимая во всех списках
+  // (одну такую сняли с прода — план tools-catalog-unify-2026-08-13, Ф1).
   const typeCandidates: Record<string, string[]> = {
     part: ['part'],
-    tool: ['tool'],
+    tool: ['tool_catalog'],
     good: ['good', 'product'],
     service: ['service'],
     engine_brand: ['engine_brand'],
@@ -32,7 +36,8 @@ export async function createSourceEntityForDirectoryKind(kind: string, label: st
 }
 
 export type CreateNomenclatureLineFromPresetResult =
-  | { ok: true; nomenclatureId: string }
+  /** `sourceId` — карточка-источник (`null` у видов, которые её не заводят: assembly/engine/…). */
+  | { ok: true; nomenclatureId: string; sourceId: string | null }
   | { ok: false; error: string }
   | { ok: false; duplicateNomenclatureId: string; message: string };
 
@@ -181,6 +186,10 @@ export async function createNomenclatureRowForSource(args: {
     category: createConfig.category,
     directoryKind: String(args.directoryKind ?? '').trim(),
     directoryRefId: args.sourceId,
+    // Карточка-источник создана локально и на сервер приедет синхронизацией — имя шлём сразу,
+    // иначе сервер отвергает создание «Источник … не найден», а локальная карточка остаётся
+    // сиротой без позиции (так и появился «Новый инструмент» на проде).
+    directoryRefName: nameForRow,
     groupId,
     unitId,
     specJson: JSON.stringify({ templateId: bestTemplate.id, propertyValues: {} }),
@@ -253,11 +262,12 @@ export async function createNomenclatureLineFromPreset(args: {
   // else (assembly/engine/component/material/consumable) — sourceId остаётся null,
   // позиция номенклатуры создаётся без directoryRefId.
 
-  return createNomenclatureRowForSource({
+  const created = await createNomenclatureRowForSource({
     directoryKind: args.directoryKind,
     createConfig,
     displayName: nameForRow,
     sourceId,
     article: String(args.article ?? '').trim(),
   });
+  return created.ok ? { ...created, sourceId } : created;
 }
