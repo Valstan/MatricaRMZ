@@ -490,19 +490,26 @@ async function main() {
   // id существующих значений: на (entity_id, attribute_def_id) висит unique,
   // поэтому обновление обязано переиспользовать прежний id строки.
   const existingValueId = new Map<string, string>();
+  const existingValueJson = new Map<string, string | null>();
   {
     const r = await pool.query(
-      `select av.id::text as id, av.entity_id::text as eid, av.attribute_def_id::text as did
+      `select av.id::text as id, av.entity_id::text as eid, av.attribute_def_id::text as did, av.value_json
          from attribute_values av
-         join entities e on e.id = av.entity_id and e.type_id = $1 and e.deleted_at is null`,
+         join entities e on e.id = av.entity_id and e.type_id = $1 and e.deleted_at is null
+        where av.deleted_at is null`,
       [engineTypeId],
     );
-    for (const row of r.rows as any[]) existingValueId.set(`${row.eid}:${row.did}`, String(row.id));
+    for (const row of r.rows as any[]) {
+      const k = `${row.eid}:${row.did}`;
+      existingValueId.set(k, String(row.id));
+      existingValueJson.set(k, row.value_json == null ? null : String(row.value_json));
+    }
   }
 
   const entityRows: Record<string, unknown>[] = [];
   const valueRows: Record<string, unknown>[] = [];
   let skippedCodes = 0;
+  let unchanged = 0;
   for (const p of plans) {
     let engineId = p.engineId;
     if (!engineId) {
@@ -521,11 +528,15 @@ async function main() {
       const did = defIdByCode.get(code);
       if (!did) { skippedCodes++; continue; }
       const key = `${engineId}:${did}`;
+      const next = JSON.stringify(value);
+      // Уже совпадающее не переписываем: это и лишний ledger-append, и, главное,
+      // делает повторный заход после обрыва движением ВПЕРЁД, а не с нуля.
+      if (existingValueJson.get(key) === next) { unchanged++; continue; }
       valueRows.push({
         id: existingValueId.get(key) ?? randomUUID(),
         entity_id: engineId,
         attribute_def_id: did,
-        value_json: JSON.stringify(value),
+        value_json: next,
         created_at: ts,
         updated_at: ts,
         deleted_at: null,
@@ -533,6 +544,7 @@ async function main() {
     }
   }
   log(`   к записи: карточек ${entityRows.length} новых, значений ${valueRows.length}` +
+      `, уже совпадает ${unchanged}` +
       (skippedCodes ? `, пропущено кодов без def: ${skippedCodes}` : ''));
 
   async function pushChunk(table: SyncTableName, rows: Record<string, unknown>[]) {
