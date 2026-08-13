@@ -18,6 +18,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { CardTabs, type CardTab } from '../components/CardTabs.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
@@ -53,6 +54,8 @@ function parseEnumValuesFromOptionsJson(optionsJson: string | null | undefined):
   return [];
 }
 
+type NomenclatureCardTab = 'main' | 'properties' | 'part' | 'instances' | 'stock';
+
 export function NomenclatureDetailsPage(props: {
   id: string;
   canEdit: boolean;
@@ -75,6 +78,7 @@ export function NomenclatureDetailsPage(props: {
     embeddedPartMetadataRef.current = provider;
   }, []);
   const [partMetadata, setPartMetadata] = useState<PartMetadata | null>(null);
+  const [activeTab, setActiveTab] = useState<NomenclatureCardTab>('main');
   const { lookups, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData();
   const [status, setStatus] = useState('');
   const [row, setRow] = useState<WarehouseNomenclatureListItem | null>(null);
@@ -367,6 +371,26 @@ export function NomenclatureDetailsPage(props: {
   // createPart seeds a stub row); the itemType check is a fallback when the stub is missing.
   const isPartClass = partSpec !== null || itemType === 'part';
 
+  // Состав вкладок зависит от типа позиции, а тип редактируется прямо в карточке:
+  // услуга теряет складские вкладки, смена типа на «деталь» добавляет «Деталь».
+  const cardTabs = useMemo<CardTab<NomenclatureCardTab>[]>(() => {
+    const tabs: CardTab<NomenclatureCardTab>[] = [
+      { key: 'main', label: 'Основное' },
+      { key: 'properties', label: 'Свойства по шаблону' },
+    ];
+    if (isPartClass) tabs.push({ key: 'part', label: 'Деталь' });
+    if (itemType !== 'service') {
+      tabs.push({ key: 'instances', label: `Экземпляры (${instances.length})` });
+      tabs.push({ key: 'stock', label: 'Склад и движения' });
+    }
+    return tabs;
+  }, [isPartClass, itemType, instances.length]);
+
+  // Активная вкладка могла исчезнуть после смены типа позиции — возвращаем на «Основное».
+  useEffect(() => {
+    if (!cardTabs.some((t) => t.key === activeTab)) setActiveTab('main');
+  }, [cardTabs, activeTab]);
+
   useEffect(() => {
     if (!isPartClass) return;
     let alive = true;
@@ -633,6 +657,12 @@ export function NomenclatureDetailsPage(props: {
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      {/* Карточка шла одним полотном; разложена по вкладкам. Панели НЕ размонтируются
+          (hidden) — сохранение читает их state, и размонтирование скрытой вкладки его бы обнулило. */}
+      <CardTabs tabs={cardTabs} active={activeTab} onChange={setActiveTab} className="" />
+
+      {/* Обёртка панели — без инлайнового display: он бы перебил атрибут hidden. */}
+      <div data-card-tab="main" hidden={activeTab !== 'main'}>
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 10 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, alignItems: 'center' }}>
           <div>Код</div>
@@ -862,6 +892,18 @@ export function NomenclatureDetailsPage(props: {
               />
             ) : null}
           </div>
+        </div>
+      </div>
+      </div>
+
+      <div data-card-tab="properties" hidden={activeTab !== 'properties'}>
+      <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 8, alignItems: 'center' }}>
+          {!templateId && selectedTemplateProperties.length === 0 ? (
+            <div style={{ gridColumn: '1 / -1', color: 'var(--subtle)' }}>
+              Шаблон не выбран — свойства появятся после выбора шаблона на вкладке «Основное».
+            </div>
+          ) : null}
           {canEditNomenclatureFields && templateId ? (
             <>
               <div style={{ gridColumn: '1 / -1', fontWeight: 600, marginTop: 4 }}>Добавить свойство в шаблон этой номенклатуры</div>
@@ -949,7 +991,9 @@ export function NomenclatureDetailsPage(props: {
           })}
         </div>
       </div>
+      </div>
 
+      <div data-card-tab="part" hidden={activeTab !== 'part'} style={{ gap: 12, ...(activeTab === 'part' ? { display: 'grid' } : {}) }}>
       {isPartClass && (
         <div style={{ border: '1px solid var(--border)', padding: 12, display: 'grid', gap: 12 }}>
           <div style={{ fontWeight: 700 }}>Спецификация детали</div>
@@ -1270,9 +1314,11 @@ export function NomenclatureDetailsPage(props: {
           />
         </div>
       )}
+      </div>
 
+      <div data-card-tab="instances" hidden={activeTab !== 'instances'}>
       {itemType !== 'service' && (
-        <SectionCard title={`Серийные экземпляры (${instances.length})`} collapsible defaultCollapsed style={{ padding: 12 }}>
+        <SectionCard title={`Серийные экземпляры (${instances.length})`} style={{ padding: 12 }}>
         {canEditNomenclatureFields ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr) auto', gap: 8, marginBottom: 10 }}>
             <Input value={instanceSerial} onChange={(e) => setInstanceSerial(e.target.value)} placeholder="Серийный номер" />
@@ -1388,9 +1434,11 @@ export function NomenclatureDetailsPage(props: {
         </table>
         </SectionCard>
       )}
+      </div>
 
+      <div data-card-tab="stock" hidden={activeTab !== 'stock'} style={{ gap: 12, ...(activeTab === 'stock' ? { display: 'grid' } : {}) }}>
       {itemType !== 'service' && (
-        <SectionCard title={`Остатки по складам (всего: ${totalQty})`} collapsible defaultCollapsed style={{ padding: 12 }}>
+        <SectionCard title={`Остатки по складам (всего: ${totalQty})`} style={{ padding: 12 }}>
         <table className="list-table">
           <thead>
             <tr>
@@ -1426,7 +1474,7 @@ export function NomenclatureDetailsPage(props: {
       )}
 
       {itemType !== 'service' && (
-        <SectionCard title={`Последние движения (${movements.length})`} collapsible defaultCollapsed style={{ padding: 12 }}>
+        <SectionCard title={`Последние движения (${movements.length})`} style={{ padding: 12 }}>
         <table className="list-table">
           <thead>
             <tr>
@@ -1463,6 +1511,7 @@ export function NomenclatureDetailsPage(props: {
         </table>
         </SectionCard>
       )}
+      </div>
 
       {row ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--subtle)', fontSize: 12 }}>
