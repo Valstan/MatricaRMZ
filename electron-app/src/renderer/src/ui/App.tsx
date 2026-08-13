@@ -4798,6 +4798,7 @@ export function App() {
             canEdit={caps.canEditMasterData || caps.canFulfillSupplyRequests}
             canViewMasterData={caps.canViewMasterData}
             onOpenNomenclature={openNomenclature}
+            onOpenTool={(id: string) => void openTool(id)}
             onOpenEmployee={(id: string) => void openEmployee(id)}
             canCreateEmployees={caps.canManageEmployees}
           />
