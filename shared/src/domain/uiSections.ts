@@ -47,7 +47,6 @@ export type TabId =
   | 'work_order'
   | 'work_order_templates'
   | 'parts'
-  | 'part'
   | 'tools'
   | 'tool_accounting'
   | 'tool'
@@ -78,7 +77,6 @@ export type MenuTabId = Exclude<
   | 'engine'
   | 'request'
   | 'work_order'
-  | 'part'
   | 'employee'
   | 'contract'
   | 'engine_brand'
@@ -103,6 +101,9 @@ const PARENT_TAB: Record<string, MenuTabId> = {
   engine_brand: 'engine_brands',
   engine_brand_group: 'engine_brand_groups',
   work_order: 'work_orders',
+  // `part` больше не TabId (карточка детали живёт вкладкой номенклатуры), но ключ
+  // остаётся: в истории визитов и статистике лежат старые строки с `part`, и без него
+  // они показывались бы оператору как «part» вместо «Детали».
   part: 'parts',
   tool: 'tools',
   tool_property: 'tools',

@@ -478,7 +478,6 @@ function appTabTitle(tab: string): string {
     work_order: 'Карточка наряда',
     work_order_templates: 'Шаблоны нарядов',
     parts: 'Детали',
-    part: 'Карточка детали',
     tools: 'Инструменты',
     tool: 'Карточка инструмента',
     tool_properties: 'Свойства инструмента',
@@ -594,8 +593,8 @@ function isFallbackCardTitle(t: string): boolean {
 
 /**
  * Виды карточек, которые умеет вторая панель сравнения (switch в renderSecondaryCard).
- * `part` и `user_screen` в него не входят — там default «нельзя открыть во второй панели»,
- * поэтому ⑃ для них не предлагаем.
+ * `user_screen` в него не входит — там default «нельзя открыть во второй панели»,
+ * поэтому ⑃ для него не предлагаем.
  */
 const SECONDARY_CARD_KINDS: ReadonlyArray<TabId> = [
   'engine',
@@ -622,7 +621,6 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   engine_brand_group: 'engine_brand_groups',
   request: 'requests',
   work_order: 'work_orders',
-  part: 'parts',
   tool: 'tools',
   tool_property: 'tool_properties',
   employee: 'employees',
@@ -644,7 +642,6 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'engine_brand_group',
   'request',
   'work_order',
-  'part',
   'tool',
   'tool_property',
   'employee',
@@ -2247,7 +2244,6 @@ export function App() {
     | 'engine'
     | 'request'
     | 'work_order'
-    | 'part'
     | 'tool'
     | 'tool_properties'
     | 'tool_property'
@@ -2441,7 +2437,6 @@ export function App() {
       tab === 'engine_brand_group' ||
       tab === 'request' ||
       tab === 'work_order' ||
-      tab === 'part' ||
       tab === 'tool' ||
       tab === 'tool_properties' ||
       tab === 'tool_property' ||
@@ -2669,8 +2664,8 @@ export function App() {
   }
 
   // Stage E.2: parts are edited in the nomenclature card now (directory_parts.id ==
-  // nomenclature id). Redirect openPart -> openNomenclature; the standalone 'part' tab
-  // is kept unreachable for one release (removed in Stage F).
+  // nomenclature id), the standalone 'part' tab is gone. Kept as a redirect because the
+  // contract / work-order / supply-request / engine-brand cards still link "деталь" by id.
   async function openPart(id: string, opts?: { from?: TabId }) {
     return openNomenclature(id, { from: opts?.from ?? 'parts' });
   }
@@ -3070,7 +3065,7 @@ export function App() {
 
   // ── Split «2 рядом»: вторая (правая) панель ─────────────────────────────────────
   // Виды, которые умеет renderSecondaryCard. Держать в синхроне с его switch: у
-  // остальных (part, user_screen) там default «нельзя открыть во второй панели»,
+  // остальных (user_screen) там default «нельзя открыть во второй панели»,
   // и предлагать оператору ⑃ для них — значит вести его в тупик.
   async function loadSecondaryEngine(entityId: string) {
     setSecondaryEngineDetails(null);
@@ -3320,7 +3315,6 @@ export function App() {
   async function navigateToRoute(route: DeepLinkRoute) {
     if (route.kind === 'engine') return await openEngine(route.id);
     if (route.kind === 'request') return await openRequest(route.id);
-    if (route.kind === 'part') return await openPart(route.id);
     if (route.kind === 'tool') return await openTool(route.id);
     if (route.kind === 'tool_property') return await openToolProperty(route.id);
     if (route.kind === 'contract') return await openContract(route.id);
@@ -3375,7 +3369,6 @@ export function App() {
       work_order: 'Карточка наряда',
       work_order_templates: 'Шаблоны нарядов',
       parts: 'Детали',
-      part: 'Карточка детали',
       tools: 'Инструменты',
       tool_accounting: 'Учёт инструментов',
       tool: 'Карточка инструмента',
@@ -3412,7 +3405,6 @@ export function App() {
       engine_brand: 'Марки двигателей',
       request: 'Закупка деталей',
       work_order: 'Наряды',
-      part: 'Детали',
       tool: 'Инструменты',
       tool_property: 'Свойства инструментов',
       contract: 'Контракты',

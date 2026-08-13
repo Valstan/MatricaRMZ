@@ -159,20 +159,16 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
 export function PartDetailsPage(props: {
   partId: string;
   canEdit: boolean;
-  canDelete: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onOpenCustomer?: (customerId: string) => void;
   onOpenContract?: (contractId: string) => void;
   onOpenEngineBrand?: (engineBrandId: string) => void;
   onOpenByCode?: Record<string, ((id: string) => void) | undefined>;
-  onClose: () => void;
-  // Phase 2 Stage E.2: when embedded inside the nomenclature card, hide the blocks
-  // owned by the nomenclature base row + E.1 part-spec subpanel (name/article/template/
-  // dimensions/compatibility/metadata + action bar) and let the parent drive Save via
-  // onRegisterSaver. The remaining EAV blocks (description/supplier/status/attachments/
-  // usage/custom fields) render unchanged.
-  embedded?: boolean;
+  // Stage F: standalone-карточки детали больше нет — этот компонент монтируется только
+  // вкладкой «Деталь» карточки номенклатуры. Литерал `true` держит инвариант в типах:
+  // блоки шапки/сохранения принадлежат родителю, свой Save тут отсутствует.
+  embedded: true;
   // Phase 3 Stage E: in embedded mode the residual part fields live in
   // directory_parts.metadataJson — the parent loads the blob (nomenclaturePartSpecGet)
   // and passes it here; the card reads it instead of parts.get and registers a provider
@@ -220,10 +216,6 @@ export function PartDetailsPage(props: {
   const dirtyRef = useRef(false);
   const metadataProviderRef = useRef<(() => PartMetadata) | null>(null);
   const embeddedRevRef = useRef(0);
-  const isSavingAttributeQueueRef = useRef(false);
-  const pendingAttributeSaveValuesRef = useRef(new Map<string, unknown>());
-  const pendingAttributeSaveResolversRef = useRef<Array<(result: SaveAttributeResult) => void>>([]);
-  const attributeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function loadEngineBrands() {
     try {
@@ -381,9 +373,9 @@ export function PartDetailsPage(props: {
   }
 
   const load = useCallback(async () => {
-    // Phase 3 Stage E: embedded card reads residual part fields from the metadata blob
-    // passed by the parent (directory_parts.metadataJson) — not from parts.get. The rev
-    // bump gives the synthetic part a fresh updatedAt so the field-hydration effect re-runs.
+    // Phase 3 Stage E: the card reads residual part fields from the metadata blob passed
+    // by the parent (directory_parts.metadataJson) — not from parts.get. The rev bump
+    // gives the synthetic part a fresh updatedAt so the field-hydration effect re-runs.
     embeddedRevRef.current += 1;
     setPart({
       id: props.partId,
@@ -530,10 +522,10 @@ export function PartDetailsPage(props: {
   }
 
   useEffect(() => {
-    // Stage E: re-hydrate the embedded synthetic part whenever the parent passes a fresh
-    // metadata blob (e.g. after a save → reload). Non-embedded keys on partId only.
+    // Stage E: re-hydrate the synthetic part whenever the parent passes a fresh metadata
+    // blob (e.g. after a save → reload).
     void load();
-  }, [props.partId, props.embedded, props.partMetadata, load]);
+  }, [props.partId, props.partMetadata, load]);
 
   useEffect(() => {
     void loadEngineBrands();
@@ -680,166 +672,29 @@ export function PartDetailsPage(props: {
     return () => onRegisterMetadataProvider(null);
   }, [onRegisterMetadataProvider]);
 
-  useEffect(() => {
-    // The Map instance in pendingAttributeSaveValuesRef.current is created once and never
-    // reassigned, so capturing it here is equivalent to reading the ref at unmount.
-    const pendingValues = pendingAttributeSaveValuesRef.current;
-    return () => {
-      if (attributeSaveTimerRef.current) {
-        clearTimeout(attributeSaveTimerRef.current);
-        attributeSaveTimerRef.current = null;
-      }
-      if (pendingAttributeSaveResolversRef.current.length > 0) {
-        resolvePendingAttributeSaves({ ok: false, error: 'component unmounted' });
-      }
-      pendingValues.clear();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only cleanup; resolvePendingAttributeSaves is recreated each render, and depending on it would run this cleanup (cancelling pending saves) on every render
-  }, []);
-
-  type SaveAttributeOptions = {
-    suppressStatus?: boolean;
-    suppressReload?: boolean;
-  };
-
-  type SaveAttributeResult = { ok: true; queued?: boolean } | { ok: false; error: string };
-
-  const ATTRIBUTE_SAVE_BATCH_DELAY_MS = 220;
+  type SaveAttributeResult = { ok: true } | { ok: false; error: string };
 
   function getAttributeCurrentValue(code: string): unknown {
     const found = part?.attributes.find((a) => a.code === code);
     return found ? found.value : undefined;
   }
 
-  function resolvePendingAttributeSaves(result: SaveAttributeResult) {
-    const resolvers = pendingAttributeSaveResolversRef.current;
-    pendingAttributeSaveResolversRef.current = [];
-    for (const resolve of resolvers) resolve(result);
-  }
-
-  async function flushAttributeSaveQueue() {
-    if (isSavingAttributeQueueRef.current) return;
-    const entries = Array.from(pendingAttributeSaveValuesRef.current.entries());
-    if (!entries.length) return;
-
-    isSavingAttributeQueueRef.current = true;
-    if (attributeSaveTimerRef.current) {
-      clearTimeout(attributeSaveTimerRef.current);
-      attributeSaveTimerRef.current = null;
-    }
-
-    const queue = new Map(entries);
-    pendingAttributeSaveValuesRef.current.clear();
-
-    setStatus('Сохранение…');
-    let hasQueued = false;
-    let lastError: string | null = null;
-
-    for (const [code, value] of queue) {
-      const r = await saveAttributeCore(code, value, { suppressReload: true, suppressStatus: true });
-      if (!r.ok) {
-        lastError = r.error;
-        break;
-      }
-      if ((r as any).queued) {
-        hasQueued = true;
-      }
-    }
-
-    if (lastError) {
-      setStatus(`Ошибка: ${lastError}`);
-      isSavingAttributeQueueRef.current = false;
-      resolvePendingAttributeSaves({ ok: false, error: lastError });
-      if (pendingAttributeSaveValuesRef.current.size > 0) {
-        void flushAttributeSaveQueue();
-      }
-      return;
-    }
-
-    await load();
-    isSavingAttributeQueueRef.current = false;
-    const finalResult = hasQueued ? { ok: true as const, queued: true } : { ok: true as const };
-    setStatus(hasQueued ? 'Отправлено на утверждение (см. «Изменения»)' : 'Сохранено');
-    setTimeout(() => setStatus(''), 2000);
-    resolvePendingAttributeSaves(finalResult);
-    if (pendingAttributeSaveValuesRef.current.size > 0) {
-      void flushAttributeSaveQueue();
-    }
-  }
-
+  // Phase 3 Stage E: the card never writes parts.* — edits (e.g. attachments) update the
+  // in-memory synthetic part; buildMetadataFromState reads them back into the blob the
+  // parent persists via nomenclaturePartSpecUpdate({ metadata }).
   async function saveAttribute(code: string, value: unknown): Promise<SaveAttributeResult> {
     if (!props.canEdit) return { ok: false, error: 'no permission' };
     if (!part) return { ok: false, error: 'part not loaded' };
 
     const previous = getAttributeCurrentValue(code);
-    if (Object.is(normalizeCoreFieldValue(previous), normalizeCoreFieldValue(value))) {
+    const normalized = normalizeCoreFieldValue(value);
+    if (Object.is(normalizeCoreFieldValue(previous), normalized)) {
       return { ok: true };
     }
 
-    // Phase 3 Stage E: embedded card never writes parts.* — edits (e.g. attachments) update
-    // the in-memory synthetic part; buildMetadataFromState reads them back into the blob the
-    // parent persists via nomenclaturePartSpecUpdate({ metadata }).
-    if (props.embedded) {
-      const normalized = normalizeCoreFieldValue(value);
-      setPart((prev) => (prev ? applyAttrToSyntheticPart(prev, code, normalized) : prev));
-      dirtyRef.current = true;
-      return { ok: true };
-    }
-
-    pendingAttributeSaveValuesRef.current.set(code, normalizeCoreFieldValue(value));
+    setPart((prev) => (prev ? applyAttrToSyntheticPart(prev, code, normalized) : prev));
     dirtyRef.current = true;
-
-    const result = await new Promise<SaveAttributeResult>((resolve) => {
-      pendingAttributeSaveResolversRef.current.push((payload) => {
-        resolve(payload);
-      });
-      if (attributeSaveTimerRef.current) {
-        clearTimeout(attributeSaveTimerRef.current);
-      }
-      attributeSaveTimerRef.current = setTimeout(() => {
-        void flushAttributeSaveQueue();
-      }, ATTRIBUTE_SAVE_BATCH_DELAY_MS);
-    });
-
-    return result;
-  }
-
-  async function saveAttributeCore(
-    code: string,
-    value: unknown,
-    options: SaveAttributeOptions = {},
-  ): Promise<SaveAttributeResult> {
-    if (!props.canEdit) return { ok: false, error: 'no permission' };
-    try {
-      if (!options.suppressStatus) setStatus('Сохранение…');
-      // Phase 3 pre-H cleanup: unreachable — only the embedded card mounts and its saveAttribute()
-      // short-circuits to the metadata blob before reaching here (non-embedded card is never rendered).
-      // Stubbed off the Stage-H-removed PUT /parts/:id/attributes/:code route.
-      void code;
-      void value;
-      const r: SaveAttributeResult = { ok: false, error: 'устаревшая карточка детали (non-embedded) отключена' };
-      if (!r.ok) {
-        if (!options.suppressStatus) setStatus(`Ошибка: ${r.error}`);
-        return r;
-      }
-      if (!options.suppressReload) {
-        void load();
-      }
-      if (!options.suppressStatus) {
-        if ((r as any).queued) {
-          setStatus('Отправлено на утверждение (см. «Изменения»)');
-          setTimeout(() => setStatus(''), 2500);
-        } else {
-          setStatus('Сохранено');
-          setTimeout(() => setStatus(''), 2000);
-        }
-      }
-      return r as any;
-    } catch (e) {
-      const err = String(e);
-      if (!options.suppressStatus) setStatus(`Ошибка: ${err}`);
-      return { ok: false, error: err };
-    }
+    return { ok: true };
   }
 
   if (!part) {

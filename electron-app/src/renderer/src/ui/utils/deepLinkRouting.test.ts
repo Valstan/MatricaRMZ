@@ -23,6 +23,16 @@ describe('resolveDeepLinkRoute', () => {
     expect(route).toEqual({ kind: 'report_preset', id: 'assembly_forecast_7d' });
   });
 
+  it('routes a legacy part link to the nomenclature card', () => {
+    const route = resolveDeepLinkRoute({
+      kind: 'app_link',
+      tab: 'part' as any,
+      partId: 'p-1',
+    } as any);
+
+    expect(route).toEqual({ kind: 'nomenclature', id: 'p-1' });
+  });
+
   it('falls back to tab when entity IDs are missing', () => {
     const route = resolveDeepLinkRoute({
       kind: 'app_link',

@@ -1301,14 +1301,12 @@ export function NomenclatureDetailsPage(props: {
             embedded
             partId={props.id}
             canEdit={props.canEdit}
-            canDelete={false}
             canViewFiles={props.canViewFiles ?? false}
             canUploadFiles={props.canUploadFiles ?? false}
             {...(props.onOpenCustomer ? { onOpenCustomer: props.onOpenCustomer } : {})}
             {...(props.onOpenContract ? { onOpenContract: props.onOpenContract } : {})}
             {...(props.onOpenEngineBrand ? { onOpenEngineBrand: props.onOpenEngineBrand } : {})}
             {...(props.onOpenByCode ? { onOpenByCode: props.onOpenByCode } : {})}
-            onClose={() => {}}
             {...(partMetadata ? { partMetadata } : {})}
             onRegisterMetadataProvider={registerEmbeddedPartMetadata}
           />
