@@ -1559,14 +1559,19 @@ export async function upsertWarehouseNomenclature(args: {
       // Если source не нашёлся в directory_*, ищем его в общем EAV-хранилище (entities +
       // attribute_values) и зеркалим на лету. Это чинит «висячие» orphan-записи без падения.
       if (!resolvedSourceName) {
-        const entityTypeCode =
-          sourceKind === 'part' ? 'part'
-          : sourceKind === 'tool' ? 'tool'
-          : (sourceKind === 'good' || sourceKind === 'product') ? 'product'
-          : sourceKind === 'service' ? 'service'
-          : sourceKind === 'engine_brand' ? 'engine_brand'
-          : null;
-        if (entityTypeCode) {
+        // Карточка-источник инструмента — НАИМЕНОВАНИЕ (`tool_catalog`), а не экземпляр (`tool`).
+        // Экземпляр оставлен вторым кандидатом ради строк, зеркалённых миграцией 0045 до сведения
+        // справочников (план tools-catalog-unify-2026-08-13): она набила directory_tools
+        // экземплярами, и без этого запасного варианта их upsert перестал бы резолвиться.
+        const entityTypeCodes =
+          sourceKind === 'part' ? ['part']
+          : sourceKind === 'tool' ? ['tool_catalog', 'tool']
+          : (sourceKind === 'good' || sourceKind === 'product') ? ['product']
+          : sourceKind === 'service' ? ['service']
+          : sourceKind === 'engine_brand' ? ['engine_brand']
+          : [];
+        for (const entityTypeCode of entityTypeCodes) {
+          if (resolvedSourceName) break;
           const ts = nowMs();
           const typeRows = await db
             .select({ id: entityTypes.id })
