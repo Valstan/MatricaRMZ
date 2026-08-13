@@ -3,7 +3,6 @@ import type { ChatDeepLinkPayload, GlobalSearchHit } from '@matricarmz/shared';
 export type DeepLinkRoute =
   | { kind: 'engine'; id: string }
   | { kind: 'request'; id: string }
-  | { kind: 'part'; id: string }
   | { kind: 'tool'; id: string }
   | { kind: 'tool_property'; id: string }
   | { kind: 'contract'; id: string }
@@ -27,7 +26,9 @@ export function resolveDeepLinkRoute(link: ChatDeepLinkPayload): DeepLinkRoute {
   const pairs: Array<[DeepLinkRoute['kind'], string | null]> = [
     ['engine', asId(link?.engineId)],
     ['request', asId(link?.requestId)],
-    ['part', asId(link?.partId)],
+    // Stage E.2: у детали нет своей карточки — directory_parts.id == id номенклатуры,
+    // поэтому старые ссылки с partId (журнал, чат, заметки) ведут в карточку номенклатуры.
+    ['nomenclature', asId(link?.partId)],
     ['tool', asId(link?.toolId)],
     ['tool_property', asId(link?.toolPropertyId)],
     ['contract', asId(link?.contractId)],
