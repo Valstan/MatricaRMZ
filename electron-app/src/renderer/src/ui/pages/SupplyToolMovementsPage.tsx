@@ -347,7 +347,10 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="nomenclature"
               targetLabel="Инструмент или товар"
-              value={subjectEntityId}
+              // Именно `|| null`: пустая строка для поля — это «значение задано, но не нашлось»,
+              // и оно рисует красное «выбранное значение удалено» на нетронутой форме.
+              // Прежде не проявлялось лишь потому, что список опций всегда был пуст.
+              value={subjectEntityId || null}
               options={subjectOptions}
               placeholder="Экземпляр инструмента или товар"
               disabled={!props.canEdit}
@@ -388,7 +391,7 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="employee"
               targetLabel="Сотрудник"
-              value={newMoveEmployeeId}
+              value={newMoveEmployeeId || null}
               options={employeeOptions}
               placeholder="Сотрудник"
               disabled={!props.canEdit}
@@ -409,7 +412,7 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="employee"
               targetLabel="Заведующий"
-              value={newMoveConfirmedById}
+              value={newMoveConfirmedById || null}
               options={employeeOptions}
               placeholder="Заведующий"
               disabled={!props.canEdit || !newMoveConfirmed}
