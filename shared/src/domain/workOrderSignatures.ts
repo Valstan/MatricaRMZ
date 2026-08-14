@@ -19,6 +19,22 @@ export type WorkOrderSignatureDecryptions = {
   hrHead: string;
 };
 
+/** True when a template/order contains at least one explicitly configured signature. */
+export function hasConfiguredWorkOrderSignatures(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some((block) => {
+    if (!block || typeof block !== 'object') return false;
+    const slots = (block as { slots?: unknown }).slots;
+    if (!Array.isArray(slots)) return false;
+    return slots.some(
+      (slot) =>
+        Boolean(slot && typeof slot === 'object') &&
+        (String((slot as { caption?: unknown }).caption ?? '').trim().length > 0 ||
+          String((slot as { employeeId?: unknown }).employeeId ?? '').trim().length > 0),
+    );
+  });
+}
+
 function normalizePosition(value: string | null | undefined): string {
   return String(value ?? '')
     .trim()

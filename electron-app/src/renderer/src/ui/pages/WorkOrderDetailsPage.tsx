@@ -14,6 +14,7 @@ import {
   workOrderWithdrawnAt,
   formatEmployeeInitialsSurname,
   getWorkOrderSignatureBlocks,
+  hasConfiguredWorkOrderSignatures,
   resolveWorkOrderSignatureSlots,
   workOrderSignatureBlockAliases,
   isWorkOrderTemplateKind,
@@ -418,6 +419,7 @@ export function WorkOrderDetailsPage(props: {
   const [availableWorkOrderTemplates, setAvailableWorkOrderTemplates] = useState<WorkOrderTemplateSummary[]>([]);
   const [selectedWorkOrderTemplateId, setSelectedWorkOrderTemplateId] = useState<string>('');
   const [workOrderTemplateBusy, setWorkOrderTemplateBusy] = useState(false);
+  const [templateWithoutSignatures, setTemplateWithoutSignatures] = useState<{ id: string; name: string } | null>(null);
   const [workOrderTemplateEditor, setWorkOrderTemplateEditor] = useState<
     {
       templateId: string | null;
@@ -1271,6 +1273,9 @@ export function WorkOrderDetailsPage(props: {
       const next = { ...payload, ...overrides, freeWorks: newLines } as WorkOrderPayload;
       patch(next);
       setAppliedHiddenFields(new Set(tmpl.hiddenFields));
+      setTemplateWithoutSignatures(
+        hasConfiguredWorkOrderSignatures(next.signatureBlocks) ? null : { id: tmpl.id, name: tmpl.name },
+      );
       const hidNote = tmpl.hiddenFields.length > 0 ? `, скрыто полей: ${tmpl.hiddenFields.length}` : '';
       setStatus(`Применён шаблон «${tmpl.name}»: ${newLines.length} строк${hidNote}.`);
     } finally {
@@ -1580,6 +1585,7 @@ export function WorkOrderDetailsPage(props: {
     const others = (payload.signatureBlocks ?? []).filter((b) => !aliases.includes(b.blockId));
     const next: WorkOrderSignatureBlockSelection[] = slots.length ? [...others, { blockId, slots }] : others;
     patch({ ...payload, signatureBlocks: next });
+    if (hasConfiguredWorkOrderSignatures(next)) setTemplateWithoutSignatures(null);
   }
 
   /**
@@ -1880,6 +1886,56 @@ export function WorkOrderDetailsPage(props: {
           содержимое, и вкладка выглядела бы пустой). */}
       <CollapsibleSection title="Подписи" defaultOpen>
       <div style={{ display: 'grid', gap: 16 }}>
+        {isWorkOrderTemplateKind(payload.workOrderKind) ? (
+          <div style={{ display: 'grid', gap: 8, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ fontWeight: 600 }}>Применить подписи и настройки из шаблона наряда</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <select
+                value={selectedWorkOrderTemplateId}
+                disabled={availableWorkOrderTemplates.length === 0 || workOrderTemplateBusy}
+                onChange={(e) => {
+                  setSelectedWorkOrderTemplateId(e.target.value);
+                  setTemplateWithoutSignatures(null);
+                }}
+                style={{ minWidth: 240, padding: '4px 6px' }}
+                title="Шаблон для текущего типа наряда"
+              >
+                <option value="">
+                  {availableWorkOrderTemplates.length === 0 ? '— нет шаблонов —' : '— выберите шаблон —'}
+                </option>
+                {availableWorkOrderTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name} ({template.lineCount} строк)
+                  </option>
+                ))}
+              </select>
+              <Button
+                disabled={!canEditNow || !selectedWorkOrderTemplateId || workOrderTemplateBusy}
+                onClick={() => void applyWorkOrderTemplate(selectedWorkOrderTemplateId)}
+              >
+                {workOrderTemplateBusy ? 'Применение…' : 'Применить шаблон наряда'}
+              </Button>
+            </div>
+            {templateWithoutSignatures ? (
+              <div style={{ padding: '8px 10px', borderRadius: 6, background: 'var(--warning-bg, #fff7ed)', color: 'var(--text)' }}>
+                В шаблоне «{templateWithoutSignatures.name}» подписи не определены. Добавьте подписантов в настройках этого шаблона.
+                {props.canEditWorkOrderTemplates ? (
+                  <>{' '}<Button
+                    variant="ghost"
+                    onClick={() =>
+                      setWorkOrderTemplateEditor({
+                        templateId: templateWithoutSignatures.id,
+                        defaultKind: payload.workOrderKind as WorkOrderKind,
+                      })
+                    }
+                  >
+                    Открыть шаблон
+                  </Button></>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {/* Собранный здесь набор подписей — это и есть заготовка шаблона: сохраняем его
             прямо со вкладки, чтобы не пересобирать тот же список в разделе шаблонов.
             Шаблоны общие на завод, поэтому правка видна всем — так и задумано. */}
@@ -2328,7 +2384,10 @@ export function WorkOrderDetailsPage(props: {
             <select
               value={selectedWorkOrderTemplateId}
               disabled={availableWorkOrderTemplates.length === 0}
-              onChange={(e) => setSelectedWorkOrderTemplateId(e.target.value)}
+              onChange={(e) => {
+                setSelectedWorkOrderTemplateId(e.target.value);
+                setTemplateWithoutSignatures(null);
+              }}
               style={{ minWidth: 200, padding: '4px 6px' }}
               title="Список шаблонов для текущего типа наряда"
             >
