@@ -2537,19 +2537,20 @@ export function App() {
     await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
   }
 
-  function shortcutForOpenCard(openTab: OpenTab): string | null {
+  function shortcutForOpenTab(openTab: OpenTab): string | null {
+    if (openTab.kind === 'list' && openTab.tabId) return `tab:${openTab.tabId}`;
     if (openTab.kind !== 'card' || !openTab.cardKind || !openTab.entityId) return null;
     if (openTab.cardKind === 'report_preset') return `report:${openTab.entityId}`;
     return buildFavoriteShortcut(openTab.cardKind, openTab.entityId, openTab.label);
   }
 
-  function isOpenCardFavorite(openTab: OpenTab): boolean {
-    const shortcut = shortcutForOpenCard(openTab);
+  function isOpenTabFavorite(openTab: OpenTab): boolean {
+    const shortcut = shortcutForOpenTab(openTab);
     return shortcut != null && pinnedShortcuts.includes(shortcut);
   }
 
-  function toggleOpenCardFavorite(openTab: OpenTab) {
-    const shortcut = shortcutForOpenCard(openTab);
+  function toggleOpenTabFavorite(openTab: OpenTab) {
+    const shortcut = shortcutForOpenTab(openTab);
     if (!shortcut) return;
     if (pinnedShortcuts.includes(shortcut)) void removePinnedShortcut(shortcut);
     else void addPinnedShortcut(shortcut);
@@ -5507,8 +5508,8 @@ export function App() {
               activeTabId={activeTabKey}
               onSelectTab={selectTab}
               onCloseTab={closeTabById}
-              isFavorite={isOpenCardFavorite}
-              onToggleFavorite={toggleOpenCardFavorite}
+              isFavorite={isOpenTabFavorite}
+              onToggleFavorite={toggleOpenTabFavorite}
               secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}
               onCloseSecondary={closeSecondaryCard}

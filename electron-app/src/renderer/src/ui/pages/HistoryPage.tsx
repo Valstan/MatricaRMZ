@@ -489,8 +489,8 @@ export function HistoryPage(props: {
             padding: 12,
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4 }}>⭐ Избранное</div>
-          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Карточки и отчёты для быстрого запуска.</div>
+          <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4 }}>⭐ Быстрый запуск</div>
+          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Ваши списки, карточки, документы и отчёты.</div>
           <div
             style={{
               display: 'grid',
@@ -520,7 +520,7 @@ export function HistoryPage(props: {
                   minHeight: 66,
                   width: '100%',
                 }}
-                title={`${tile.title} (правый клик — убрать)`}
+                title={`${tile.title} (правый клик — убрать из Быстрого запуска)`}
               >
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 8, rowGap: 4, alignItems: 'center', minWidth: 0 }}>
                   <span style={{ gridRow: 1, gridColumn: 1, fontSize: 20, lineHeight: 1 }}>{tile.icon}</span>
@@ -565,7 +565,7 @@ export function HistoryPage(props: {
               borderRadius: 6,
             }}
           >
-            Убрать из избранного
+            Убрать из Быстрого запуска
           </button>
         </div>
       )}
@@ -579,7 +579,7 @@ export function HistoryPage(props: {
           padding: 12,
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a8a', marginBottom: 8 }}>Быстрый старт</div>
+        <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a8a', marginBottom: 8 }}>Часто используемое</div>
         <div style={{ fontSize: 13, color: '#475569', marginBottom: 10 }}>
           Показаны 3 самых часто используемых раздела для вашего пользователя.
         </div>

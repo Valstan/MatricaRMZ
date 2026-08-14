@@ -336,12 +336,13 @@ export function V3TabShell(props: {
                   ⑃
                 </button>
               )}
-              {tab.kind === 'card' && props.onToggleFavorite && (
+              {(tab.kind === 'card' || tab.kind === 'list') && props.onToggleFavorite && (
                 <button
                   type="button"
                   className="v3-tab-favorite"
                   data-active={props.isFavorite?.(tab) ? '1' : undefined}
-                  title={props.isFavorite?.(tab) ? 'Убрать из избранного' : 'Добавить в избранное'}
+                  title={props.isFavorite?.(tab) ? 'Убрать из Быстрого запуска' : 'В Быстрый запуск'}
+                  aria-label={props.isFavorite?.(tab) ? 'Убрать из Быстрого запуска' : 'В Быстрый запуск'}
                   onClick={(e) => { e.stopPropagation(); props.onToggleFavorite?.(tab); }}
                 >
                   {props.isFavorite?.(tab) ? '★' : '☆'}

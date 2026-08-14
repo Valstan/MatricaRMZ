@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { __historyPageTestUtils } from './HistoryPage.js';
 
 describe('HistoryPage pinned shortcuts', () => {
+  it('resolves a pinned list as a quick-launch tile', () => {
+    const tile = __historyPageTestUtils.resolveShortcutTile('tab:employees');
+
+    expect(tile).not.toBeNull();
+    expect(tile?.title).toBe('Сотрудники');
+    expect(tile?.link).toMatchObject({ kind: 'app_link', tab: 'employees' });
+  });
+
   it('resolves report shortcut deep-link with reportPresetId', () => {
     const tile = __historyPageTestUtils.resolveShortcutTile('report:assembly_forecast_7d', [
       { id: 'assembly_forecast_7d', title: 'Прогноз сборки двигателей' },
