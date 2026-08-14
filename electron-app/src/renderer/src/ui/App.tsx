@@ -89,6 +89,7 @@ import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyD
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
+import { buildFavoriteShortcut } from './utils/favoriteShortcut.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { buildV2Buttons } from './shellV2/v2ButtonCatalog.js';
@@ -324,7 +325,7 @@ function quickStartRatingsStorageKey(userId: string) {
 }
 
 // Default «Табель» shortcut in «Мой круг»: seeded once per client (this flag), so the
-// client can later remove the tile (right-click → «Убрать из Моего круга») and it stays
+// client can later remove the tile (right-click → «Убрать из избранного») and it stays
 // removed instead of being re-added on every login.
 const TIMESHEET_SHORTCUT_ID = 'tab:timesheets';
 function timesheetShortcutSeededKey(userId: string) {
@@ -2536,6 +2537,24 @@ export function App() {
     await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
   }
 
+  function shortcutForOpenCard(openTab: OpenTab): string | null {
+    if (openTab.kind !== 'card' || !openTab.cardKind || !openTab.entityId) return null;
+    if (openTab.cardKind === 'report_preset') return `report:${openTab.entityId}`;
+    return buildFavoriteShortcut(openTab.cardKind, openTab.entityId, openTab.label);
+  }
+
+  function isOpenCardFavorite(openTab: OpenTab): boolean {
+    const shortcut = shortcutForOpenCard(openTab);
+    return shortcut != null && pinnedShortcuts.includes(shortcut);
+  }
+
+  function toggleOpenCardFavorite(openTab: OpenTab) {
+    const shortcut = shortcutForOpenCard(openTab);
+    if (!shortcut) return;
+    if (pinnedShortcuts.includes(shortcut)) void removePinnedShortcut(shortcut);
+    else void addPinnedShortcut(shortcut);
+  }
+
   async function _persistChatSide(next: 'left' | 'right') {
     setUiPrefs((prev) => ({ ...prev, chatSide: next }));
     const userId = authStatus.user?.id;
@@ -3313,6 +3332,7 @@ export function App() {
   }
 
   async function navigateToRoute(route: DeepLinkRoute) {
+    if (route.kind === 'card') return reopenV2Card(route.cardKind as TabId, route.id);
     if (route.kind === 'engine') return await openEngine(route.id);
     if (route.kind === 'request') return await openRequest(route.id);
     if (route.kind === 'tool') return await openTool(route.id);
@@ -5487,6 +5507,8 @@ export function App() {
               activeTabId={activeTabKey}
               onSelectTab={selectTab}
               onCloseTab={closeTabById}
+              isFavorite={isOpenCardFavorite}
+              onToggleFavorite={toggleOpenCardFavorite}
               secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}
               onCloseSecondary={closeSecondaryCard}

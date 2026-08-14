@@ -1,6 +1,7 @@
 import type { ChatDeepLinkPayload, GlobalSearchHit } from '@matricarmz/shared';
 
 export type DeepLinkRoute =
+  | { kind: 'card'; cardKind: string; id: string }
   | { kind: 'engine'; id: string }
   | { kind: 'request'; id: string }
   | { kind: 'tool'; id: string }
@@ -45,6 +46,9 @@ export function resolveDeepLinkRoute(link: ChatDeepLinkPayload): DeepLinkRoute {
   for (const [kind, id] of pairs) {
     if (id) return { kind, id } as DeepLinkRoute;
   }
+  const genericEntityId = asId(link?.entityId);
+  const genericCardKind = asId(link?.cardKind);
+  if (genericEntityId && genericCardKind) return { kind: 'card', cardKind: genericCardKind, id: genericEntityId };
   return { kind: 'tab', id: String(link?.tab ?? '') };
 }
 

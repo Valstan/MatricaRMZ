@@ -66,6 +66,8 @@ export function V3TabShell(props: {
   activeSectionTabId: TabId;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+  isFavorite?: (tab: OpenTab) => boolean;
+  onToggleFavorite?: (tab: OpenTab) => void;
   /** Закрепить карточку второй панелью рядом с активной («2 рядом»). */
   onSplitCard?: (card: OpenTab) => void;
   /** Вторая панель умеет не все виды карточек — у остальных ⑃ не показываем. */
@@ -332,6 +334,17 @@ export function V3TabShell(props: {
                   onClick={(e) => { e.stopPropagation(); props.onSplitCard?.(tab); }}
                 >
                   ⑃
+                </button>
+              )}
+              {tab.kind === 'card' && props.onToggleFavorite && (
+                <button
+                  type="button"
+                  className="v3-tab-favorite"
+                  data-active={props.isFavorite?.(tab) ? '1' : undefined}
+                  title={props.isFavorite?.(tab) ? 'Убрать из избранного' : 'Добавить в избранное'}
+                  onClick={(e) => { e.stopPropagation(); props.onToggleFavorite?.(tab); }}
+                >
+                  {props.isFavorite?.(tab) ? '★' : '☆'}
                 </button>
               )}
               {tab.canClose && (

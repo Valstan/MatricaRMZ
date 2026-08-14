@@ -45,6 +45,7 @@ export type UserUiProfile = {
 
 const MAX_LIST = 200;
 const MAX_STR = 300;
+const MAX_SHORTCUT_STR = 1200;
 const MAX_RATING_KEYS = 500;
 const MAX_LINK_JSON = 4000;
 
@@ -55,6 +56,14 @@ function sanitizeStringArray(raw: unknown): string[] | undefined {
     .filter(Boolean)
     .slice(0, MAX_LIST);
   return out;
+}
+
+function sanitizeShortcuts(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .map((x) => String(x ?? '').trim().slice(0, MAX_SHORTCUT_STR))
+    .filter(Boolean)
+    .slice(0, MAX_LIST);
 }
 
 function sanitizeTabsLayout(raw: unknown): UserUiProfileTabsLayout | null | undefined {
@@ -155,7 +164,7 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   const out: UserUiProfile = { updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0 };
   const tabsLayout = sanitizeTabsLayout(r.tabsLayout);
   if (tabsLayout !== undefined) out.tabsLayout = tabsLayout;
-  const shortcuts = sanitizeStringArray(r.shortcuts);
+  const shortcuts = sanitizeShortcuts(r.shortcuts);
   if (shortcuts !== undefined) out.shortcuts = shortcuts;
   const recentVisits = sanitizeRecentVisits(r.recentVisits);
   if (recentVisits !== undefined) out.recentVisits = recentVisits;

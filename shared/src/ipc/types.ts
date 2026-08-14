@@ -456,6 +456,9 @@ export type ChatDeepLinkPayload = {
   stockDocumentId?: string | null;
   workOrderId?: string | null;
   reportPresetId?: string | null;
+  /** Универсальная ссылка на карточку для персонального избранного. */
+  cardKind?: string | null;
+  entityId?: string | null;
   breadcrumbs?: string[];
 };
 

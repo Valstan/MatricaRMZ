@@ -8,6 +8,7 @@ import { loadContractActivityAlerts } from '../utils/contractAlerts.js';
 import { theme } from '../theme.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
+import { parseFavoriteShortcut } from '../utils/favoriteShortcut.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
 
 type RecentVisitEntry = {
@@ -113,6 +114,18 @@ const TAB_SHORTCUT_META: Record<string, { icon: string; title: string; gradient:
 function resolveShortcutTile(shortcutId: string, reportPresets?: Array<{ id: string; title: string }>): PinnedTile | null {
   const normalized = String(shortcutId ?? '').trim();
   if (!normalized) return null;
+  const favorite = parseFavoriteShortcut(normalized);
+  if (favorite) {
+    return {
+      shortcutId: normalized,
+      icon: favorite.link.tab === 'report_preset' ? '📊' : '⭐',
+      title: favorite.title,
+      gradient: favorite.link.tab === 'report_preset'
+        ? 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)'
+        : 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)',
+      link: favorite.link,
+    };
+  }
   if (normalized.toLowerCase().startsWith('tab:')) {
     const tabId = normalized.slice(4);
     const meta = TAB_SHORTCUT_META[tabId];
@@ -476,12 +489,12 @@ export function HistoryPage(props: {
             padding: 12,
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 8 }}>Мои ярлыки</div>
+          <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4 }}>⭐ Избранное</div>
+          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Карточки и отчёты для быстрого запуска.</div>
           <div
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
               gap: 10,
             }}
           >
@@ -505,8 +518,7 @@ export function HistoryPage(props: {
                   background: tile.gradient,
                   boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
                   minHeight: 66,
-                  width: 'fit-content',
-                  maxWidth: 240,
+                  width: '100%',
                 }}
                 title={`${tile.title} (правый клик — убрать)`}
               >
@@ -553,7 +565,7 @@ export function HistoryPage(props: {
               borderRadius: 6,
             }}
           >
-            Убрать из Моего круга
+            Убрать из избранного
           </button>
         </div>
       )}
