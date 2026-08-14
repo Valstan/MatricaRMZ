@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { formatEmploymentStatusAttrForUi } from '@matricarmz/shared';
+import {
+  employmentStatusLabelRu,
+  resolveEmploymentStatusCode,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -39,7 +42,9 @@ type Row = {
   displayName?: string;
   position?: string | null;
   departmentName?: string | null;
+  workshopId?: string | null;
   employmentStatus?: string | null;
+  terminationDate?: number | null;
   accessEnabled?: boolean;
   systemRole?: string | null;
   deleteRequestedAt?: number | null;
@@ -50,7 +55,7 @@ type Row = {
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 
-type SortKey = 'displayName' | 'position' | 'departmentName' | 'employmentStatus' | 'access' | 'updatedAt';
+type SortKey = 'displayName' | 'personnelNumber' | 'position' | 'departmentName' | 'employmentStatus' | 'access' | 'updatedAt';
 
 function formatAccessRole(role: string | null | undefined) {
   const normalized = String(role ?? '').trim().toLowerCase();
@@ -130,28 +135,55 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   // Верхний поиск: поля строки + внутрь карточки (EAV).
   const getRowId = useCallback((row: Row) => String(row.id), []);
   const deepIds = useCardContentIds(rows, getRowId, query);
+  const workshopNameById = useMemo(
+    () => new Map(workshops.map((workshop) => [workshop.id, workshop.label])),
+    [workshops],
+  );
+  const formatDepartment = useCallback(
+    (row: Row) => {
+      const department = String(row.departmentName ?? '').trim();
+      const workshop = row.workshopId ? String(workshopNameById.get(row.workshopId) ?? '').trim() : '';
+      if (department && workshop) return `${department} · ${workshop}`;
+      return department || workshop || '—';
+    },
+    [workshopNameById],
+  );
   const filtered = useMemo(() => {
     return rows.filter(
       (row) =>
         matchesQueryInRecord(query, row, [
-          formatEmploymentStatusAttrForUi(row.employmentStatus),
+          formatDepartment(row),
+          employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate)),
           row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
         ]) || (deepIds?.has(String(row.id)) ?? false),
     );
-  }, [rows, query, deepIds]);
+  }, [deepIds, formatDepartment, query, rows]);
+  const summary = useMemo(() => {
+    let working = 0;
+    let fired = 0;
+    let accessEnabled = 0;
+    for (const row of rows) {
+      if (resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate) === 'fired') fired += 1;
+      else working += 1;
+      if (row.accessEnabled === true) accessEnabled += 1;
+    }
+    return { total: rows.length, working, fired, accessEnabled };
+  }, [rows]);
   const sortKey = listState.sortKey as SortKey;
   const sortDir = listState.sortDir as 'asc' | 'desc';
 
-  const sortValue = (row: Row, key: SortKey) => {
+  const sortValue = useCallback((row: Row, key: SortKey) => {
     switch (key) {
       case 'displayName':
         return String(row.displayName ?? '').toLowerCase();
+      case 'personnelNumber':
+        return String(row.personnelNumber ?? '').toLowerCase();
       case 'position':
         return String(row.position ?? '').toLowerCase();
       case 'departmentName':
-        return String(row.departmentName ?? '').toLowerCase();
+        return formatDepartment(row).toLowerCase();
       case 'employmentStatus':
-        return formatEmploymentStatusAttrForUi(row.employmentStatus);
+        return employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate));
       case 'access':
         return row.accessEnabled === true ? formatAccessRole(row.systemRole).toLowerCase() : 'запрещено';
       case 'updatedAt':
@@ -159,7 +191,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       default:
         return String(row.displayName ?? '').toLowerCase();
     }
-  };
+  }, [formatDepartment]);
 
   const sorted = useMemo(() => {
     const sortKey = listState.sortKey as SortKey;
@@ -177,7 +209,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       if (as === bs) return a.id.localeCompare(b.id, 'ru') * dir;
       return as.localeCompare(bs, 'ru') * dir;
     });
-  }, [filtered, listState.sortDir, listState.sortKey]);
+  }, [filtered, listState.sortDir, listState.sortKey, sortValue]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
   const displayRows = sorted;
 
@@ -253,9 +285,23 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           </div>
         ),
       },
+      {
+        id: 'personnelNumber',
+        label: 'Табельный номер',
+        tabletLabel: 'Таб. №',
+        sortKey: 'personnelNumber',
+        kind: 'num',
+        render: (row) => row.personnelNumber || '—',
+      },
       { id: 'position', label: 'Должность', sortKey: 'position', kind: 'name', render: (row) => row.position || '—' },
-      { id: 'departmentName', label: 'Подразделение', tabletLabel: 'Подразд.', sortKey: 'departmentName', kind: 'name', render: (row) => row.departmentName || '—' },
-      { id: 'employmentStatus', label: 'Статус', sortKey: 'employmentStatus', kind: 'flag', render: (row) => formatEmploymentStatusAttrForUi(row.employmentStatus) },
+      { id: 'departmentName', label: 'Подразделение', tabletLabel: 'Подразд.', sortKey: 'departmentName', kind: 'name', render: formatDepartment },
+      {
+        id: 'employmentStatus',
+        label: 'Статус',
+        sortKey: 'employmentStatus',
+        kind: 'flag',
+        render: (row) => employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate)),
+      },
       {
         id: 'updatedAt',
         label: 'Дата изменения',
@@ -277,7 +323,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       },
       { id: 'previews', label: 'Превью', cellAlign: 'right', kind: 'thumbs', requireShowPreviews: true, render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} /> },
     ],
-    [],
+    [formatDepartment],
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
@@ -336,18 +382,19 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const contextColumns = useMemo(
     () => [
       { title: 'Сотрудник', value: (row: Row) => row.displayName || '(без ФИО)' },
+      { title: 'Табельный номер', value: (row: Row) => row.personnelNumber || '—' },
       { title: 'Должность', value: (row: Row) => row.position || '—' },
-      { title: 'Подразделение', value: (row: Row) => row.departmentName || '—' },
+      { title: 'Подразделение', value: formatDepartment },
       {
         title: 'Статус',
-        value: (row: Row) => formatEmploymentStatusAttrForUi(row.employmentStatus),
+        value: (row: Row) => employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate)),
       },
       {
         title: 'Доступ',
         value: (row: Row) => (row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено'),
       },
     ],
-    [],
+    [formatDepartment],
   );
 
   const printRows = useCallback((items: Row[]) => {
@@ -488,6 +535,17 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         )}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
+        </div>
+        <div
+          aria-label="Сводка по сотрудникам"
+          style={{
+            color: '#4b5563',
+            fontSize: 13,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Всего: {summary.total} · Работает: {summary.working} · Уволено: {summary.fired} · Доступ открыт: {summary.accessEnabled}
         </div>
         {props.canCreate && selection.selectedCount > 0 && (
           <Button variant="ghost" onClick={() => { setAssignWorkshopId(''); setAssignOpen(true); }}>
