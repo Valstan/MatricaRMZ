@@ -26,6 +26,11 @@ function normalizeList(v: unknown): GalleryFile[] {
   return v.filter((x): x is GalleryFile => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string');
 }
 
+export function stepGalleryIndex(current: number, delta: -1 | 1, length: number): number {
+  if (length <= 0) return 0;
+  return (current + delta + length) % length;
+}
+
 type EnginePhotoGalleryProps = {
   value: unknown; // FileRef[] (все вложения; галерея сама отфильтрует фото)
   canView: boolean;
@@ -118,8 +123,8 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
     if (activeIndex == null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setActiveIndex(null);
-      else if (e.key === 'ArrowLeft') setActiveIndex((i) => (i == null ? i : (i - 1 + photos.length) % photos.length));
-      else if (e.key === 'ArrowRight') setActiveIndex((i) => (i == null ? i : (i + 1) % photos.length));
+      else if (e.key === 'ArrowLeft') setActiveIndex((i) => (i == null ? i : stepGalleryIndex(i, -1, photos.length)));
+      else if (e.key === 'ArrowRight') setActiveIndex((i) => (i == null ? i : stepGalleryIndex(i, 1, photos.length)));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -221,7 +226,14 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
     else flash('PDF сохранён');
   }
 
-  const tbBtn: React.CSSProperties = { color: '#fff', borderColor: 'rgba(255,255,255,0.5)' };
+  const tbBtn: React.CSSProperties = {
+    color: '#111827',
+    background: '#fff',
+    border: '1px solid rgba(255,255,255,0.78)',
+    borderRadius: 999,
+    boxShadow: '0 5px 16px rgba(0,0,0,0.2)',
+    fontWeight: 650,
+  };
 
   return (
     <div style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}>
@@ -311,17 +323,30 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
       {active && (
         <div
           onClick={() => setActiveIndex(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', zIndex: 1000, display: 'flex', flexDirection: 'column' }}
+          style={{ position: 'fixed', inset: 0, background: 'radial-gradient(circle at center, rgba(30,41,59,0.94), rgba(2,6,23,0.98))', zIndex: 1000, display: 'flex', flexDirection: 'column' }}
         >
           {/* Тулбар */}
-          <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', flexWrap: 'wrap' }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: '12px 16px',
+              flexWrap: 'wrap',
+              background: 'rgba(15,23,42,0.9)',
+              borderBottom: '1px solid rgba(255,255,255,0.14)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.24)',
+              zIndex: 3,
+            }}
+          >
             {!isAndroid && <Button variant="ghost" style={tbBtn} onClick={doCopy}>Копировать</Button>}
             {props.canDelete && <Button variant="ghost" style={tbBtn} onClick={doDelete}>Удалить</Button>}
             {/* Кнопка добавляет/убирает ТЕКУЩЕЕ фото и набор не обнуляет: листаешь —
                 выбранное копится, а действия тулбара идут по всему набору. */}
             <Button
               variant="ghost"
-              style={activeSelected ? { ...tbBtn, background: 'rgba(37,99,235,0.4)' } : tbBtn}
+              style={activeSelected ? { ...tbBtn, background: '#2563eb', color: '#fff', borderColor: '#60a5fa' } : tbBtn}
               onClick={() => {
                 if (!active) return;
                 setSelectMode(true);
@@ -358,15 +383,36 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
           </div>
           {busy && <div onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center', color: busy.startsWith('Ошибка') ? '#fca5a5' : '#e2e8f0', fontSize: 13, paddingBottom: 4 }}>{busy}</div>}
 
-          {/* Картинка + стрелки */}
-          <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '0 14px 14px', minHeight: 0 }}>
-            <button onClick={() => setActiveIndex((i) => (i == null ? i : (i - 1 + photos.length) % photos.length))} style={arrowStyle} aria-label="Предыдущее">‹</button>
+          {/* Изображение занимает центр независимо от своих пропорций. Навигация прибита
+              к краям viewport, поэтому не прыгает между узкими и широкими фотографиями. */}
+          <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '18px 28px', minHeight: 0 }}>
             {bigUrl ? (
-              <img src={bigUrl} alt={active.name} style={{ maxWidth: '82vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
+              <img src={bigUrl} alt={active.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 18px 60px rgba(0,0,0,0.42)' }} />
             ) : (
               <div style={{ color: '#cbd5e1' }}>Загрузка…</div>
             )}
-            <button onClick={() => setActiveIndex((i) => (i == null ? i : (i + 1) % photos.length))} style={arrowStyle} aria-label="Следующее">›</button>
+            {photos.length > 1 ? (
+              <>
+                <button
+                  onClick={() => setActiveIndex((i) => (i == null ? i : stepGalleryIndex(i, -1, photos.length)))}
+                  style={{ ...arrowStyle, left: 24 }}
+                  aria-label="Предыдущее изображение"
+                  title="Предыдущее изображение (←)"
+                >
+                  <span aria-hidden="true" style={{ fontSize: 34, lineHeight: 1 }}>‹</span>
+                  <span>Предыдущее</span>
+                </button>
+                <button
+                  onClick={() => setActiveIndex((i) => (i == null ? i : stepGalleryIndex(i, 1, photos.length)))}
+                  style={{ ...arrowStyle, right: 24 }}
+                  aria-label="Следующее изображение"
+                  title="Следующее изображение (→)"
+                >
+                  <span>Следующее</span>
+                  <span aria-hidden="true" style={{ fontSize: 34, lineHeight: 1 }}>›</span>
+                </button>
+              </>
+            ) : null}
           </div>
           <div onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center', color: '#cbd5e1', fontSize: 13, paddingBottom: 12 }}>{active.name}</div>
         </div>
@@ -388,14 +434,25 @@ const shareItemStyle: React.CSSProperties = {
 };
 
 const arrowStyle: React.CSSProperties = {
-  flex: '0 0 auto',
-  width: 44,
-  height: 64,
-  borderRadius: 10,
-  border: '1px solid rgba(255,255,255,0.3)',
-  background: 'rgba(255,255,255,0.1)',
+  position: 'absolute',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  minWidth: 154,
+  height: 68,
+  padding: '0 18px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 10,
+  borderRadius: 999,
+  border: '1px solid rgba(255,255,255,0.5)',
+  background: 'rgba(15,23,42,0.82)',
+  backdropFilter: 'blur(12px)',
   color: '#fff',
-  fontSize: 32,
-  lineHeight: 1,
+  fontSize: 15,
+  fontWeight: 750,
+  letterSpacing: '0.01em',
+  boxShadow: '0 10px 32px rgba(0,0,0,0.34)',
   cursor: 'pointer',
+  zIndex: 2,
 };
