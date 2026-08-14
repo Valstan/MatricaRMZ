@@ -9,6 +9,7 @@ import {
   WorkOrderKind,
   getWorkOrderSignatureBlocks,
   isHidableField,
+  isWorkOrderTemplateFieldVisible,
   resolveWorkOrderSignatureSlots,
   workOrderSignatureBlockAliases,
   type WorkOrderSignatureBlockSelection,
@@ -737,9 +738,9 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
             </div>
 
             <div style={{ marginBottom: 12, padding: 8, border: '1px solid var(--border)', borderRadius: 6 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Скрытые поля в карточке наряда</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Поля в карточке наряда</div>
               <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 8 }}>
-                Отмеченные поля будут спрятаны под раскрывающимся блоком «Дополнительные поля» в карточке наряда, открытого по этому шаблону. В БД эти поля остаются — это только UI.
+                Отмеченные поля показываются в карточке наряда. Снимите галочку, чтобы спрятать поле под раскрывающимся блоком «Дополнительные поля». В БД значение останется — изменится только отображение.
               </div>
               {hidableCatalog.length === 0 ? (
                 <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Для этого типа нет полей, доступных для скрытия.</div>
@@ -749,7 +750,7 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                     <label key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
                       <input
                         type="checkbox"
-                        checked={editor.hiddenFields.has(f.key)}
+                        checked={isWorkOrderTemplateFieldVisible(editor.hiddenFields, f.key)}
                         disabled={!props.canEdit || submitting}
                         onChange={() => toggleHidden(f.key)}
                       />
