@@ -16,7 +16,7 @@ import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovement
 import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEnginesContractsOverviewReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
-import { buildEmployeesRosterReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
+import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
 import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
 import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
@@ -44,13 +44,15 @@ export async function buildReportByPreset(
       case 'work_order_costs':
         return buildWorkOrderCostsReport(db, args.filters);
       case 'work_orders_report':
-        return buildWorkOrdersReport(db, args.filters);
+        return buildWorkOrdersReport(db, args.filters, ctx);
       case 'work_order_payroll':
         return buildWorkOrderPayrollReport(db, args.filters);
       case 'work_order_payroll_summary':
         return buildWorkOrderPayrollSummaryReport(db, args.filters);
       case 'employees_roster':
-        return buildEmployeesRosterReport(db, args.filters);
+        return buildEmployeesRosterReport(db, args.filters, ctx);
+      case 'organization_structure':
+        return buildOrganizationStructureReport(db, args.filters, ctx);
       case 'tools_inventory':
         return buildToolsInventoryReport(db, args.filters);
       case 'services_pricelist':

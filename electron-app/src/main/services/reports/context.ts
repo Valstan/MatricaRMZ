@@ -48,6 +48,7 @@ export type ReportBuildContext = {
 export const WAREHOUSE_LOCATION_OPTIONS_TTL_MS = 60_000;
 
 export type WarehouseLocationLookup = { code: string; name: string; type: string };
+export type WorkshopLookup = { id: string; code: string; name: string; isActive: boolean; displayOrder: number };
 export let warehouseLocationByIdCache:
   | {
       apiBaseUrl: string;
@@ -98,6 +99,38 @@ export async function getWarehouseLocationsById(ctx?: ReportBuildContext): Promi
   }
   warehouseLocationByIdCache = { apiBaseUrl: normalizedApiBase, expiresAt: now + WAREHOUSE_LOCATION_OPTIONS_TTL_MS, byId };
   return byId;
+}
+
+/** Канонические цеха живут только на backend в directory_workshops, не в клиентской EAV-реплике. */
+export async function getWorkshops(ctx?: ReportBuildContext): Promise<WorkshopLookup[]> {
+  const normalizedApiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  if (!ctx?.sysDb || !normalizedApiBase) return [];
+  try {
+    const res = await httpAuthed(
+      ctx.sysDb,
+      normalizedApiBase,
+      '/workshops',
+      { method: 'GET' },
+      { timeoutMs: 15_000 },
+    );
+    if (!res.ok || !res.json || typeof res.json !== 'object') return [];
+    const rows = Array.isArray((res.json as Record<string, unknown>).rows)
+      ? ((res.json as Record<string, unknown>).rows as unknown[])
+      : [];
+    return rows
+      .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object'))
+      .map((row) => ({
+        id: String(row.id ?? '').trim(),
+        code: String(row.code ?? '').trim(),
+        name: String(row.name ?? '').trim(),
+        isActive: row.isActive !== false,
+        displayOrder: Number(row.displayOrder ?? 0),
+      }))
+      .filter((row) => row.id && row.name)
+      .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name, 'ru'));
+  } catch {
+    return [];
+  }
 }
 
 

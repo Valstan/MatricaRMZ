@@ -22,7 +22,7 @@ import { httpAuthed } from '../httpClient.js';
 
 
 import { UNKNOWN_CONTRACT_LABEL, toNumber, normalizeText, asArray, entityLabel } from './format.js';
-import { isSqliteMissingEngineBrandIdColumn, isSqliteMissingBomBrandLinksTable, loadSnapshot, getIdsByType, getIdsByTypeCodes, WAREHOUSE_LOCATION_OPTIONS_TTL_MS, type Snapshot, type ReportBuildContext } from './context.js';
+import { isSqliteMissingEngineBrandIdColumn, isSqliteMissingBomBrandLinksTable, loadSnapshot, getIdsByType, getIdsByTypeCodes, getWorkshops, WAREHOUSE_LOCATION_OPTIONS_TTL_MS, type Snapshot, type ReportBuildContext } from './context.js';
 
 export const ASSEMBLY_BOM_BRAND_OPTIONS_TTL_MS = 60_000;
 export let assemblyBomBrandOptionsCache:
@@ -472,6 +472,7 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
+        workshops: (await getWorkshops(ctx)).map((row) => ({ value: row.id, label: row.name })),
         warehouses: await buildWarehouseLocationOptions(snapshot, ctx),
       },
     };

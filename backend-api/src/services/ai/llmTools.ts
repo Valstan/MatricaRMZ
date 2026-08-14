@@ -74,6 +74,16 @@ function asLimit(input: Record<string, unknown>): number {
   return Math.max(1, Math.min(Math.floor(raw), MAX_ROWS));
 }
 
+function decodeAttributeValue(value: unknown): unknown {
+  if (value == null) return null;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 async function queryNomenclature(input: Record<string, unknown>): Promise<ToolResult> {
   const search = asString(input, 'search').trim();
   const limit = asLimit(input);
@@ -195,7 +205,7 @@ async function getEmployeesList(input: Record<string, unknown>): Promise<ToolRes
     params.push(`%${search.toLowerCase()}%`);
     where +=
       ` and exists (select 1 from attribute_values av join attribute_defs d on d.id = av.attribute_def_id ` +
-      `where av.entity_id = e.id and av.deleted_at is null and d.code in ('fullname','name','last_name') ` +
+      `where av.entity_id = e.id and av.deleted_at is null and d.code in ('full_name','fullname','name','last_name') ` +
       `and lower(coalesce(av.value_json, '')) like $${params.length})`;
   }
   const sql =
@@ -221,6 +231,73 @@ async function getEmployeesList(input: Record<string, unknown>): Promise<ToolRes
   }
   const rows = heads.map((h: any) => ({ id: h.id, attributes: byId.get(h.id) ?? [] }));
   return jsonResult(rows);
+}
+
+async function getOrganizationStructure(input: Record<string, unknown>): Promise<ToolResult> {
+  const includeEmpty = input.includeEmpty !== false;
+  const [workshopsResult, departmentsResult, employeeAttrsResult] = await Promise.all([
+    pool.query(
+      'select id, code, name, is_active, display_order from directory_workshops ' +
+        'where deleted_at is null order by display_order asc, name asc',
+    ),
+    pool.query(
+      "select e.id, av.value_json as name_json from entities e " +
+        "join entity_types t on t.id = e.type_id and t.code = 'department' " +
+        "left join attribute_defs d on d.entity_type_id = t.id and d.code in ('name','title') and d.deleted_at is null " +
+        'left join attribute_values av on av.entity_id = e.id and av.attribute_def_id = d.id and av.deleted_at is null ' +
+        'where e.deleted_at is null order by av.value_json asc nulls last',
+    ),
+    pool.query(
+      "select e.id as entity_id, d.code, av.value_json from entities e " +
+        "join entity_types t on t.id = e.type_id and t.code = 'employee' " +
+        "left join (attribute_values av join attribute_defs d on d.id = av.attribute_def_id " +
+        "and d.deleted_at is null and d.code in ('department_id','workshop_id','employment_status','termination_date')) " +
+        'on av.entity_id = e.id and av.deleted_at is null ' +
+        'where e.deleted_at is null',
+    ),
+  ]);
+
+  const employeeAttrs = new Map<string, Record<string, unknown>>();
+  for (const row of employeeAttrsResult.rows ?? []) {
+    const id = String(row.entity_id ?? '');
+    const attrs = employeeAttrs.get(id) ?? {};
+    const code = String(row.code ?? '');
+    if (code) attrs[code] = decodeAttributeValue(row.value_json);
+    employeeAttrs.set(id, attrs);
+  }
+  const counts = new Map<string, { employees: number; workingEmployees: number; firedEmployees: number }>();
+  let unassignedEmployees = 0;
+  for (const attrs of employeeAttrs.values()) {
+    const structureId = String(attrs.workshop_id ?? attrs.department_id ?? '').trim();
+    if (!structureId) {
+      unassignedEmployees += 1;
+      continue;
+    }
+    const fired = String(attrs.employment_status ?? '').trim().toLowerCase() === 'fired' || attrs.termination_date != null;
+    const current = counts.get(structureId) ?? { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+    current.employees += 1;
+    if (fired) current.firedEmployees += 1;
+    else current.workingEmployees += 1;
+    counts.set(structureId, current);
+  }
+  const emptyCount = { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+  const workshops = (workshopsResult.rows ?? [])
+    .map((row: any) => ({
+      kind: 'workshop',
+      code: String(row.code ?? ''),
+      name: String(row.name ?? ''),
+      isActive: row.is_active !== false,
+      ...(counts.get(String(row.id)) ?? emptyCount),
+    }))
+    .filter((row) => includeEmpty || row.employees > 0);
+  const departments = (departmentsResult.rows ?? [])
+    .map((row: any) => ({
+      kind: 'department',
+      name: String(decodeAttributeValue(row.name_json) ?? '').trim() || '(без названия)',
+      ...(counts.get(String(row.id)) ?? emptyCount),
+    }))
+    .filter((row) => includeEmpty || row.employees > 0);
+  return jsonResult({ workshops, departments, unassignedEmployees });
 }
 
 async function getContracts(input: Record<string, unknown>): Promise<ToolResult> {
@@ -342,7 +419,9 @@ export function buildAllowedTablesFromPerms(perms: Record<string, boolean>): Set
   }
   if (perms['employees.view']) {
     allowed.add('erp_employee_cards');
+    allowed.add('directory_workshops');
   }
+  if (perms['masterdata.view']) allowed.add('directory_workshops');
   if (perms['supply_requests.view'] || perms['work_orders.view']) allowed.add('operations');
   if (perms['files.view']) allowed.add('file_assets');
   if (perms['reports.view']) {
@@ -498,6 +577,23 @@ const TOOLS: Record<string, ToolEntry> = {
     },
     requires: ['employees.view'],
     handler: (input) => getEmployeesList(input),
+  },
+  get_organization_structure: {
+    def: {
+      name: 'get_organization_structure',
+      description:
+        'Официальная структура предприятия: цеха из directory_workshops и подразделения из справочника department. ' +
+        'Возвращает названия, коды цехов, активность и количество работающих/уволенных сотрудников. ' +
+        'Используй для вопросов о списке цехов, подразделений и численности; не показывай UUID пользователю.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          includeEmpty: { type: 'boolean', description: 'Включать структуры без сотрудников; по умолчанию true.' },
+        },
+      },
+    },
+    requires: ['employees.view', 'masterdata.view', 'reports.view'],
+    handler: (input) => getOrganizationStructure(input),
   },
   get_contracts: {
     def: {

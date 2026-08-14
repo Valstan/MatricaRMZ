@@ -21,6 +21,7 @@ describe('report presets regressions', () => {
   it('contains all list-oriented presets added in this session', () => {
     const ids = new Set(REPORT_PRESET_DEFINITIONS.map((item) => item.id));
     expect(ids.has('employees_roster')).toBe(true);
+    expect(ids.has('organization_structure')).toBe(true);
     expect(ids.has('tools_inventory')).toBe(true);
     expect(ids.has('services_pricelist')).toBe(true);
     expect(ids.has('products_catalog')).toBe(true);
@@ -35,6 +36,7 @@ describe('report presets regressions', () => {
     expect(employeesRoster?.filters).toEqual([
       { type: 'date_range', key: 'period', label: 'Период (дата приема)', startKey: 'startMs', endKey: 'endMs' },
       { type: 'multi_select', key: 'departmentIds', label: 'Подразделения', optionsSource: 'departments' },
+      { type: 'multi_select', key: 'workshopIds', label: 'Цеха', optionsSource: 'workshops' },
       {
         type: 'select',
         key: 'employmentStatus',
@@ -51,10 +53,29 @@ describe('report presets regressions', () => {
       'personnelNumber',
       'position',
       'departmentName',
+      'workshopName',
+      'structureKind',
+      'structureName',
+      'birthDate',
+      'birthday',
       'hireDate',
       'terminationDate',
       'employmentStatus',
     ]);
+  });
+
+  it('keeps the organization structure source printable and countable', () => {
+    const structure = preset('organization_structure');
+    expect(structure?.columns.map((column) => column.key)).toEqual([
+      'structureKind',
+      'code',
+      'name',
+      'employees',
+      'workingEmployees',
+      'firedEmployees',
+      'isActive',
+    ]);
+    expect(REPORT_PRESET_THEMES.organization_structure).toContain('catalogs');
   });
 
   it('keeps tool inventory, services, products and compatibility presets business-critical columns', () => {

@@ -17,6 +17,7 @@ import type { ReportCellValue, ReportColumn, ReportRow, ReportTotals } from './r
 export const CUSTOM_REPORT_SOURCE_PRESET_IDS = [
   'engines_list',
   'work_orders_report',
+  'organization_structure',
   'employees_roster',
   'tools_inventory',
   'services_pricelist',
