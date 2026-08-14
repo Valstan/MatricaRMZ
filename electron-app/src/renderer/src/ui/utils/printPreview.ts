@@ -84,7 +84,7 @@ export function buildWorkOrderA4PreviewHtml(opts: { sections: PrintSection[]; ex
  * Состав секций выбирает вызывающий (например, диалог настроек печати табеля).
  * NB: inline <script> в document.write-окне Electron не исполняется — print() зовём из opener.
  */
-export function printSectionsDirect(opts: { title: string; sections: PrintSection[]; extraCss?: string }) {
+export function printSectionsDirect(opts: { title: string; sections: PrintSection[]; extraCss?: string; targetWindow?: Window | null }) {
   const html = `<!doctype html>
 <html>
 <head>
@@ -99,16 +99,25 @@ export function printSectionsDirect(opts: { title: string; sections: PrintSectio
 ${renderSectionsHtml(opts.sections)}
 </body>
 </html>`;
-  const w = window.open('', '_blank');
+  const w = opts.targetWindow ?? window.open('', '_blank');
   if (!w) return;
   w.document.open();
   w.document.write(html);
   w.document.close();
-  setTimeout(() => {
+  const imagesReady = Promise.all(
+    Array.from(w.document.images).map((img) => {
+      if (img.complete) return img.decode?.().catch(() => undefined) ?? Promise.resolve();
+      return new Promise<void>((resolve) => {
+        img.addEventListener('load', () => resolve(), { once: true });
+        img.addEventListener('error', () => resolve(), { once: true });
+      });
+    }),
+  );
+  void imagesReady.then(() => setTimeout(() => {
     w.addEventListener('afterprint', () => w.close());
     w.focus();
     w.print();
-  }, 250);
+  }, 100));
 }
 
 export function openPrintPreview(opts: { title: string; subtitle?: string; sections: PrintSection[]; extraCss?: string }) {

@@ -126,6 +126,8 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   // Групповые операции: чекбоксы в списке → печать / копирование / отправка пачкой.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printNames, setPrintNames] = useState(true);
+  const [printContents, setPrintContents] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   // На планшете нет ни файловых диалогов, ни кэша на диске, ни Проводника: часть
   // кнопок панели там просто не имеет смысла — гейтим их поштучно, а не панель целиком.
@@ -351,31 +353,70 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     }
   }
 
-  /** Печать имён — обычный список; печать содержимого — существующий фото-конвейер main'а. */
-  async function printSelected(mode: 'names' | 'contents') {
-    setPrintDialogOpen(false);
+  /** Список и изображения печатаются одним проверенным renderer-конвейером и одним системным диалогом. */
+  async function printSelected() {
     const files = filteredList.filter((f) => selected.has(f.id));
-    if (files.length === 0) return;
-    if (mode === 'names') {
-      printSectionsDirect({
-        title: objectLabel,
-        sections: [
-          {
-            id: 'files',
-            title: `Файлы — ${objectLabel}`,
-            html: `<ol>${files.map((f) => `<li>${escapeHtml(f.name)}${isObsoleteFile(f) ? ' — устаревшая версия' : ''}</li>`).join('')}</ol>`,
-          },
-        ],
-      });
-      return;
-    }
+    if (files.length === 0 || (!printNames && !printContents)) return;
     const printable = files.filter((f) => isPrintableImage(f.name));
-    if (printable.length === 0) {
+    if (printContents && printable.length === 0 && !printNames) {
       setBusy('Ошибка: среди выбранных нет изображений — печатать нечего');
       setTimeout(() => setBusy(''), 3500);
       return;
     }
-    await runBatch('Печать файлов', () => window.matrica.files.print({ fileIds: printable.map((f) => f.id) }));
+
+    // Окно нужно открыть синхронно по клику, иначе Chromium может счесть его всплывающим и заблокировать после загрузки оригиналов.
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setBusy('Ошибка: не удалось открыть окно печати');
+      setTimeout(() => setBusy(''), 3500);
+      return;
+    }
+    printWindow.document.write('<!doctype html><meta charset="utf-8"><title>Печать</title><body style="font-family:system-ui;padding:24px">Подготовка файлов к печати…</body>');
+    printWindow.document.close();
+    setPrintDialogOpen(false);
+    setBusy('Подготовка печати...');
+
+    try {
+      const imageSections = [];
+      if (printContents) {
+        for (const file of printable) {
+          const result = await window.matrica.files.originalGet({ fileId: file.id });
+          if (!result.ok || !result.dataUrl) throw new Error(result.ok ? 'Файл не содержит изображения' : result.error);
+          imageSections.push({
+            id: `image-${file.id}`,
+            title: file.name,
+            html: `<div class="attachment-print-image"><img src="${escapeHtml(result.dataUrl)}" alt="${escapeHtml(file.name)}" /></div>`,
+          });
+        }
+      }
+      const sections = [
+        ...(printNames
+          ? [{
+              id: 'files',
+              title: `Файлы — ${objectLabel}`,
+              html: `<ol>${files.map((f) => `<li>${escapeHtml(f.name)}${isObsoleteFile(f) ? ' — устаревшая версия' : ''}</li>`).join('')}</ol>`,
+            }]
+          : []),
+        ...imageSections,
+      ];
+      printSectionsDirect({
+        title: objectLabel,
+        sections,
+        targetWindow: printWindow,
+        extraCss: `
+          .attachment-print-image { height: 245mm; display: flex; align-items: center; justify-content: center; }
+          .attachment-print-image img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+          @media print { .section + .section { break-before: page; page-break-before: always; } }
+        `,
+      });
+      const skipped = printContents ? files.length - printable.length : 0;
+      setBusy(skipped > 0 ? `Печать: пропущено неподдерживаемых файлов: ${skipped}` : '');
+      if (skipped > 0) setTimeout(() => setBusy(''), 3500);
+    } catch (e) {
+      printWindow.close();
+      setBusy(`Ошибка подготовки печати: ${String(e)}`);
+      setTimeout(() => setBusy(''), 4000);
+    }
   }
 
   if (!props.canView) return null;
@@ -542,16 +583,24 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       {printDialogOpen && (
         <div style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Что напечатать по выбранным файлам ({selectedIds.length})?</div>
+          <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={printNames} onChange={(e) => setPrintNames(e.target.checked)} />
+              <span>Список названий файлов</span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={printContents} onChange={(e) => setPrintContents(e.target.checked)} />
+              <span>Содержимое файлов (изображения)</span>
+            </label>
+          </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Button onClick={() => void printSelected('names')}>Список названий</Button>
-            <Button onClick={() => void printSelected('contents')}>Сами файлы</Button>
+            <Button disabled={!printNames && !printContents} onClick={() => void printSelected()}>Печатать</Button>
             <Button variant="ghost" onClick={() => setPrintDialogOpen(false)}>
               Отмена
             </Button>
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-            «Сами файлы» печатает изображения — по одному на лист A4. Документы (PDF, Word, Excel) так не печатаются:
-            для них выбирайте «Список названий» или открывайте файл кнопкой «Открыть».
+            Можно выбрать один или оба варианта. Изображения печатаются по одному на лист A4. PDF, Word и Excel в печать содержимого не входят — их можно открыть и напечатать отдельно.
           </div>
         </div>
       )}
