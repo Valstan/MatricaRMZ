@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { resolveDeepLinkRoute } from './deepLinkRouting.js';
 
 describe('resolveDeepLinkRoute', () => {
+  it('resolves a generic favorite card link', () => {
+    expect(resolveDeepLinkRoute({
+      kind: 'app_link',
+      tab: 'engine_assembly_bom_item' as any,
+      cardKind: 'engine_assembly_bom_item',
+      entityId: 'bom-1',
+    })).toEqual({ kind: 'card', cardKind: 'engine_assembly_bom_item', id: 'bom-1' });
+  });
   it('routes report preset link to report_preset entity', () => {
     const route = resolveDeepLinkRoute({
       kind: 'app_link',

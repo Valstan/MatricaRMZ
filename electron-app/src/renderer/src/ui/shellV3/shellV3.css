@@ -86,6 +86,22 @@
   color: var(--accent, #2563eb);
 }
 
+.v3-tab-favorite {
+  flex: 0 0 auto;
+  padding: 4px 3px;
+  background: none;
+  border: none;
+  color: var(--muted, #6b7280);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.v3-tab-favorite:hover,
+.v3-tab-favorite[data-active='1'] {
+  color: #d97706;
+}
+
 .v3-tab-close {
   flex: 0 0 auto;
   padding: 4px 8px;

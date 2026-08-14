@@ -398,7 +398,7 @@ export function ReportsCatalogPage(props: {
                   borderRadius: 6,
                 }}
               >
-                {isPinned ? 'Убрать из Моего круга' : 'Добавить в Мой круг'}
+                {isPinned ? 'Убрать из избранного' : 'Добавить в избранное'}
               </button>
             );
           })()}
