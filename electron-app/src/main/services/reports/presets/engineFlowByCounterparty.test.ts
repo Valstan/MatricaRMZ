@@ -279,6 +279,19 @@ describe('renderEngineFlowPrintHtml', () => {
     expect(renderEngineFlowPrintHtml(report)).toContain('Нет данных');
   });
 
+  it('единственная таблица года не дублируется сводами по маркам', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(stubDb(), { counterpartyIds: ['CP2'] });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const html = renderEngineFlowPrintHtml(report);
+
+    expect(report.rows).toHaveLength(1);
+    expect(html).not.toContain('Свод по маркам · 2026 год');
+    expect(html).not.toContain('Свод по маркам · все годы');
+    expect(html).toContain('Итого за 2026 год');
+    expect(html).toContain('Итого по всем годам');
+  });
+
   it('шрифты из настроек печати попадают в бумагу, скрытая колонка — нет', async () => {
     const report = await buildEngineFlowByCounterpartyReport(stubDb(), {
       printLayout: { basePx: 16, headerPx: 11, hidden: ['contractFullLabel', 'inRepairQty'], fontPx: { engineBrand: 18 } },
@@ -395,6 +408,7 @@ describe('разбивка по годам', () => {
     expect(html).toContain('Итого за 2025 год');
     expect(html).toContain('Итого за Без даты прихода');
     expect(html).toContain('Свод по маркам · все годы');
+    expect(html.indexOf('Свод по маркам · все годы')).toBeLessThan(html.indexOf('Итого по всем годам'));
   });
 
   it('фильтр по дате прихода оставляет только свой год', async () => {

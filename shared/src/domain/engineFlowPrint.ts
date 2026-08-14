@@ -258,7 +258,9 @@ ${metricKeys.map((key) => `<th class="num col-${key} w-metric">${METRIC_PRINT_HE
         year.rows.map((row) => metricsOf(row, metricKeys)),
         metricKeys,
       );
-      const summary = brandSummaryTable(year.rows, `Свод по маркам · ${yearLabel}`);
+      // Одна агрегированная строка уже является единственной таблицей
+      // «заказчик × договор × марка»: свод повторил бы её без новой информации.
+      const summary = year.rows.length > 1 ? brandSummaryTable(year.rows, `Свод по маркам · ${yearLabel}`) : '';
       const totalTable = `<div class="sum-table"><table><tbody><tr class="yr-sum"><td class="w-contract" colspan="2">Итого за ${htmlEscape(
         yearLabel,
       )}</td>${metricCells(yearTotal, metricKeys)}</tr></tbody></table></div>`;
@@ -277,10 +279,10 @@ ${totalTable}
   );
   const grandBlock =
     rows.length > 0
-      ? `<section class="grand"><table><thead>${headRow}</thead><tbody><tr class="cp-sum"><td colspan="2">Итого по всем годам</td>${metricCells(
+      ? `<section class="grand">${yearGroups.length > 1 ? brandSummaryTable(rows, 'Свод по маркам · все годы') : ''}<table><thead>${headRow}</thead><tbody><tr class="cp-sum"><td colspan="2">Итого по всем годам</td>${metricCells(
           grandTotal,
           metricKeys,
-        )}</tr></tbody></table>${yearGroups.length > 1 ? brandSummaryTable(rows, 'Свод по маркам · все годы') : ''}</section>`
+        )}</tr></tbody></table></section>`
       : '<div class="empty">Нет данных</div>';
 
   const notes =
