@@ -4,6 +4,7 @@ import {
   formatEmployeeInitialsSurname,
   formatEmployeeSurnameInitials,
   getWorkOrderSignatureBlocks,
+  hasConfiguredWorkOrderSignatures,
   resolveWorkOrderSignatureDecryptions,
   resolveWorkOrderSignatureSlots,
   findWorkOrderSignatureSlots,
@@ -54,6 +55,14 @@ const employees: WorkOrderSignatureEmployee[] = [
 ];
 
 describe('workOrderSignatures', () => {
+  it('distinguishes configured template signatures from an empty override', () => {
+    expect(hasConfiguredWorkOrderSignatures(undefined)).toBe(false);
+    expect(hasConfiguredWorkOrderSignatures([])).toBe(false);
+    expect(hasConfiguredWorkOrderSignatures([{ blockId: 'issue', slots: [{}] }])).toBe(false);
+    expect(hasConfiguredWorkOrderSignatures([{ blockId: 'issue', slots: [{ caption: 'Наряд выдал' }] }])).toBe(true);
+    expect(hasConfiguredWorkOrderSignatures([{ blockId: 'issue', slots: [{ employeeId: 'employee-1' }] }])).toBe(true);
+  });
+
   it('formats surname and initials', () => {
     expect(formatEmployeeSurnameInitials(employees[0]!)).toBe('Иванов И.И.');
   });
