@@ -18,19 +18,22 @@ import {
 
 
 import { toNumber, normalizeText, asArray, asBool, asNumberOrNull, readPeriod, msToDate, entityLabel } from '../format.js';
-import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
+import { getPreset, getWorkshops, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
 import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
 import { collectContractTotals, collectContractEngineQty } from './contracts.js';
 
 export async function buildEmployeesRosterReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const departmentFilter = asArray(filters?.departmentIds);
+  const workshopFilter = asArray(filters?.workshopIds);
   const employmentFilter = normalizeText(filters?.employmentStatus, 'all');
   const snapshot = await loadSnapshot(db);
   const departmentOptions = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
+  const workshopOptions = new Map((await getWorkshops(ctx)).map((row) => [row.id, row.name] as const));
   const rows: Array<Record<string, ReportCellValue>> = [];
   const periodStart = period.startMs ?? Number.NEGATIVE_INFINITY;
 
@@ -45,7 +48,12 @@ export async function buildEmployeesRosterReport(
     }
 
     const departmentId = normalizeText(attrs.department_id, '');
-    if (departmentFilter.length > 0 && (!departmentId || !departmentFilter.includes(departmentId))) continue;
+    const workshopId = normalizeText(attrs.workshop_id, '');
+    if (
+      (departmentFilter.length > 0 || workshopFilter.length > 0) &&
+      !departmentFilter.includes(departmentId) &&
+      !workshopFilter.includes(workshopId)
+    ) continue;
     const terminationDate = asNumberOrNull(attrs.termination_date);
     const employmentCode = resolveEmploymentStatusCode(normalizeText(attrs.employment_status, ''), terminationDate);
     if (employmentFilter !== 'all' && employmentCode !== employmentFilter) continue;
@@ -61,6 +69,18 @@ export async function buildEmployeesRosterReport(
       personnelNumber: normalizeText(attrs.personnel_number, ''),
       position: normalizeText(attrs.role, ''),
       departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)'),
+      workshopName: workshopOptions.get(workshopId) ?? (workshopId || ''),
+      structureKind: workshopId ? 'Цех' : departmentId ? 'Подразделение' : 'Не назначено',
+      structureName:
+        workshopOptions.get(workshopId) ??
+        departmentOptions.get(departmentId) ??
+        normalizeText(attrs.department, workshopId || departmentId || '(не указано)'),
+      birthDate: asNumberOrNull(attrs.birth_date),
+      birthday: (() => {
+        const birthDate = asNumberOrNull(attrs.birth_date);
+        if (birthDate == null) return '';
+        return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit' }).format(new Date(birthDate));
+      })(),
       hireDate,
       terminationDate,
       employmentStatus: employmentStatusLabelRu(employmentCode),
@@ -104,6 +124,84 @@ export async function buildEmployeesRosterReport(
     totalsByGroup: Array.from(totalsByDepartment.entries())
       .map(([group, totals]) => ({ group, totals }))
       .sort((a, b) => a.group.localeCompare(b.group, 'ru')),
+    generatedAt: Date.now(),
+  };
+}
+
+export async function buildOrganizationStructureReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  const snapshot = await loadSnapshot(db);
+  const kindFilter = normalizeText(filters?.structureKind, 'all');
+  const includeInactive = asBool(filters?.includeInactive);
+  const includeEmpty = filters?.includeEmpty !== false;
+  const departments = buildOptions(snapshot, 'department');
+  const workshops = await getWorkshops(ctx);
+  const counts = new Map<string, { employees: number; workingEmployees: number; firedEmployees: number }>();
+
+  for (const employeeId of getIdsByType(snapshot, 'employee')) {
+    const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
+    const structureId = normalizeText(attrs.workshop_id, '') || normalizeText(attrs.department_id, '');
+    if (!structureId) continue;
+    const terminationDate = asNumberOrNull(attrs.termination_date);
+    const status = resolveEmploymentStatusCode(normalizeText(attrs.employment_status, ''), terminationDate);
+    const current = counts.get(structureId) ?? { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+    current.employees += 1;
+    if (status === 'fired') current.firedEmployees += 1;
+    else current.workingEmployees += 1;
+    counts.set(structureId, current);
+  }
+
+  const rows: Array<Record<string, ReportCellValue>> = [];
+  if (kindFilter === 'all' || kindFilter === 'workshop') {
+    for (const workshop of workshops) {
+      if (!includeInactive && !workshop.isActive) continue;
+      const c = counts.get(workshop.id) ?? { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+      if (!includeEmpty && c.employees === 0) continue;
+      rows.push({
+        structureKind: 'Цех',
+        code: workshop.code,
+        name: workshop.name,
+        ...c,
+        isActive: workshop.isActive ? 'Да' : 'Нет',
+      });
+    }
+  }
+  if (kindFilter === 'all' || kindFilter === 'department') {
+    for (const department of departments) {
+      const attrs = snapshot.attrsByEntity.get(department.value) ?? {};
+      const c = counts.get(department.value) ?? { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+      if (!includeEmpty && c.employees === 0) continue;
+      rows.push({
+        structureKind: 'Подразделение',
+        code: normalizeText(attrs.code, ''),
+        name: department.label,
+        ...c,
+        isActive: 'Да',
+      });
+    }
+  }
+  rows.sort(
+    (a, b) =>
+      String(a.structureKind).localeCompare(String(b.structureKind), 'ru') ||
+      String(a.name).localeCompare(String(b.name), 'ru', { numeric: true }),
+  );
+  const preset = getPreset('organization_structure');
+  return {
+    ok: true,
+    presetId: 'organization_structure',
+    title: preset.title,
+    subtitle: 'Цеха из directory_workshops · подразделения из справочника department',
+    columns: preset.columns,
+    rows,
+    totals: {
+      structures: rows.length,
+      employees: rows.reduce((sum, row) => sum + toNumber(row.employees), 0),
+      workingEmployees: rows.reduce((sum, row) => sum + toNumber(row.workingEmployees), 0),
+      firedEmployees: rows.reduce((sum, row) => sum + toNumber(row.firedEmployees), 0),
+    },
     generatedAt: Date.now(),
   };
 }

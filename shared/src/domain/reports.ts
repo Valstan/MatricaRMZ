@@ -13,6 +13,7 @@ export type ReportPresetId =
   | 'work_order_payroll'
   | 'work_order_payroll_summary'
   | 'work_orders_report'
+  | 'organization_structure'
   | 'employees_roster'
   | 'tools_inventory'
   | 'services_pricelist'
@@ -52,6 +53,7 @@ export type ReportOptionSource =
   | 'counterparties'
   | 'employees'
   | 'departments'
+  | 'workshops'
   | 'warehouses'
   | 'assemblyBrands'
   | 'assemblySleeves'
@@ -377,6 +379,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   work_order_payroll: ['payroll', 'work_orders'],
   work_order_payroll_summary: ['payroll', 'work_orders'],
   work_orders_report: ['work_orders'],
+  organization_structure: ['catalogs', 'payroll'],
   employees_roster: ['catalogs', 'payroll'],
   tools_inventory: ['catalogs'],
   services_pricelist: ['catalogs', 'supply'],
@@ -866,6 +869,9 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         labelHint: 'Пусто — все типы',
       },
       { type: 'multi_select', key: 'responsibleIds', label: 'Ответственный', optionsSource: 'employees', labelHint: 'Первый подписант блока «Выдача наряда»' },
+      { type: 'multi_select', key: 'createdByIds', label: 'Кто создал', optionsSource: 'employees' },
+      { type: 'multi_select', key: 'departmentIds', label: 'Подразделения автора', optionsSource: 'departments' },
+      { type: 'multi_select', key: 'workshopIds', label: 'Цех наряда/автора', optionsSource: 'workshops' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагент', optionsSource: 'counterparties', labelHint: 'Заказчик из контракта двигателя наряда' },
       { type: 'text', key: 'numberQuery', label: '№ наряда', placeholder: 'напр. 1024', labelHint: 'Фильтр по номеру наряда (вхождение)' },
@@ -945,12 +951,41 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
   },
   {
+    id: 'organization_structure',
+    title: 'Структура предприятия',
+    description: 'Официальный список цехов и подразделений с численностью работников.',
+    filters: [
+      {
+        type: 'select',
+        key: 'structureKind',
+        label: 'Вид структуры',
+        options: [
+          { value: 'all', label: 'Цеха и подразделения' },
+          { value: 'workshop', label: 'Только цеха' },
+          { value: 'department', label: 'Только подразделения' },
+        ],
+      },
+      { type: 'checkbox', key: 'includeInactive', label: 'Показывать неактивные цеха' },
+      { type: 'checkbox', key: 'includeEmpty', label: 'Показывать структуры без сотрудников', defaultValue: true },
+    ],
+    columns: [
+      { key: 'structureKind', label: 'Вид' },
+      { key: 'code', label: 'Код' },
+      { key: 'name', label: 'Наименование' },
+      { key: 'employees', label: 'Всего сотрудников', kind: 'number', align: 'right' },
+      { key: 'workingEmployees', label: 'Работает', kind: 'number', align: 'right' },
+      { key: 'firedEmployees', label: 'Уволено', kind: 'number', align: 'right' },
+      { key: 'isActive', label: 'Активно' },
+    ],
+  },
+  {
     id: 'employees_roster',
     title: 'Кадровый реестр сотрудников',
     description: 'Сотрудники, табельные номера, должности и статус занятости с группировкой по подразделениям.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период (дата приема)', startKey: 'startMs', endKey: 'endMs' },
       { type: 'multi_select', key: 'departmentIds', label: 'Подразделения', optionsSource: 'departments' },
+      { type: 'multi_select', key: 'workshopIds', label: 'Цеха', optionsSource: 'workshops' },
       {
         type: 'select',
         key: 'employmentStatus',
@@ -967,6 +1002,11 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'personnelNumber', label: 'Табельный номер' },
       { key: 'position', label: 'Должность' },
       { key: 'departmentName', label: 'Подразделение' },
+      { key: 'workshopName', label: 'Цех' },
+      { key: 'structureKind', label: 'Вид структуры' },
+      { key: 'structureName', label: 'Структурная единица' },
+      { key: 'birthDate', label: 'Дата рождения', kind: 'date' },
+      { key: 'birthday', label: 'День рождения' },
       { key: 'hireDate', label: 'Дата приема', kind: 'date' },
       { key: 'terminationDate', label: 'Дата увольнения', kind: 'date' },
       { key: 'employmentStatus', label: 'Статус' },

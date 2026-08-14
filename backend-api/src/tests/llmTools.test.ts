@@ -113,6 +113,31 @@ describe('llmTools.executeTool', () => {
     expect(codes).not.toContain('passport_no');
   });
 
+  it('get_organization_structure resolves names and employee counts without exposing UUIDs', async () => {
+    poolQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'w1', code: '2', name: 'Цех №2', is_active: true, display_order: 2 }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'd1', name_json: '"Отдел кадров"' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          { entity_id: 'e1', code: 'workshop_id', value_json: '"w1"' },
+          { entity_id: 'e1', code: 'employment_status', value_json: '"working"' },
+          { entity_id: 'e2', code: 'department_id', value_json: '"d1"' },
+          { entity_id: 'e2', code: 'employment_status', value_json: '"fired"' },
+        ],
+      });
+    const res = await executeTool({ id: 'x', name: 'get_organization_structure', input: {} }, partsViewer);
+    expect(res.isError).toBeFalsy();
+    const payload = JSON.parse(res.content);
+    expect(payload.workshops[0]).toMatchObject({ code: '2', name: 'Цех №2', workingEmployees: 1 });
+    expect(payload.departments[0]).toMatchObject({ name: 'Отдел кадров', firedEmployees: 1 });
+    expect(JSON.stringify(payload)).not.toContain('"w1"');
+    expect(JSON.stringify(payload)).not.toContain('"d1"');
+  });
+
   it('execute_safe_sql rejects writes, comments, semicolons, hidden tables', async () => {
     for (const bad of [
       { sql: 'INSERT INTO users VALUES (1)' },
@@ -141,6 +166,15 @@ describe('llmTools.executeTool', () => {
     expect(res.isError).toBeFalsy();
     expect(poolQuery).toHaveBeenCalledOnce();
     expect(poolQuery.mock.calls[0]![0]).toMatch(/LIMIT 200/i);
+  });
+
+  it('execute_safe_sql allows canonical workshops for readers', async () => {
+    poolQuery.mockResolvedValueOnce({ rows: [{ code: '1', name: 'Цех №1' }] });
+    const res = await executeTool(
+      { id: 'x', name: 'execute_safe_sql', input: { sql: 'SELECT code, name FROM directory_workshops' } },
+      partsViewer,
+    );
+    expect(res.isError).toBeFalsy();
   });
 
   it('execute_safe_sql denies access to tables not granted by permissions', async () => {

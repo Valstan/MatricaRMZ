@@ -34,7 +34,7 @@ import { formatMoscowDate } from '../../../utils/dateUtils.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { safeJsonParse, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate } from '../format.js';
-import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
+import { getPreset, getWorkshops, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
 import { relatedEntityLabel, buildOptions, buildCounterpartyOptions } from '../options.js';
 
 export type NormalizedWorkOrderReportLine = {
@@ -233,6 +233,7 @@ export async function buildWorkOrderCostsReport(
 export async function buildWorkOrdersReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   const now = Date.now();
   const issuedStart = asNumberOrNull(filters?.issuedStartMs);
@@ -244,6 +245,9 @@ export async function buildWorkOrdersReport(
   const statusCodes = new Set(asArray(filters?.statusCodes));
   const kinds = new Set(asArray(filters?.kinds));
   const responsibleFilter = asArray(filters?.responsibleIds);
+  const createdByFilter = asArray(filters?.createdByIds);
+  const departmentFilter = asArray(filters?.departmentIds);
+  const workshopFilter = asArray(filters?.workshopIds);
   const brandFilter = asArray(filters?.brandIds);
   const counterpartyFilter = asArray(filters?.counterpartyIds);
   const numberQuery = normalizeText(filters?.numberQuery, '').trim();
@@ -256,6 +260,20 @@ export async function buildWorkOrdersReport(
 
   const snapshot = await loadSnapshot(db);
   const employeeNames = new Map(buildOptions(snapshot, 'employee').map((o) => [o.value, o.label] as const));
+  const departmentNames = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
+  const workshopNames = new Map((await getWorkshops(ctx)).map((row) => [row.id, row.name] as const));
+  const employeeMetaByLogin = new Map<string, { id: string; name: string; departmentId: string; workshopId: string }>();
+  for (const employeeId of getIdsByType(snapshot, 'employee')) {
+    const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
+    const login = normalizeText(attrs.login, '').toLowerCase();
+    if (!login) continue;
+    employeeMetaByLogin.set(login, {
+      id: employeeId,
+      name: employeeNames.get(employeeId) ?? normalizeText(attrs.full_name, login),
+      departmentId: normalizeText(attrs.department_id, ''),
+      workshopId: normalizeText(attrs.workshop_id, ''),
+    });
+  }
   const brandNames = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const counterpartyNames = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const brandFilterNamesLc = new Set(
@@ -285,6 +303,16 @@ export async function buildWorkOrdersReport(
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
+    const createdByLogin = normalizeText(op.performedBy, '').toLowerCase();
+    const creator = employeeMetaByLogin.get(createdByLogin);
+    if (createdByFilter.length > 0 && (!creator?.id || !createdByFilter.includes(creator.id))) continue;
+    const departmentId = creator?.departmentId ?? '';
+    const workshopId = normalizeText(payload.workshopId, '') || creator?.workshopId || '';
+    if (
+      (departmentFilter.length > 0 || workshopFilter.length > 0) &&
+      !departmentFilter.includes(departmentId) &&
+      !workshopFilter.includes(workshopId)
+    ) continue;
 
     const orderDate = Number(payload.orderDate ?? op.createdAt ?? 0);
     if (issuedStart != null && orderDate < issuedStart) continue;
@@ -393,6 +421,10 @@ export async function buildWorkOrdersReport(
       engineNumber,
       engineInternalNumber,
       counterparty,
+      createdBy: creator?.name ?? createdByLogin,
+      workshopName: workshopNames.get(workshopId) ?? (workshopId || ''),
+      departmentName: departmentNames.get(departmentId) ?? (departmentId || ''),
+      structureName: workshopNames.get(workshopId) || departmentNames.get(departmentId) || workshopId || departmentId,
       performers,
       crewCount: crew.length,
       responsible,
