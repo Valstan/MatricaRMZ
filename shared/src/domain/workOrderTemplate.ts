@@ -50,6 +50,17 @@ export type WorkOrderTemplateLine = {
 export type WorkOrderTemplateHiddenFields = string[];
 
 /**
+ * The editor presents a positive "show field" checkbox while persistence keeps
+ * the historical negative hiddenFields representation.
+ */
+export function isWorkOrderTemplateFieldVisible(
+  hiddenFields: ReadonlySet<string> | readonly string[],
+  fieldKey: string,
+): boolean {
+  return !('has' in hiddenFields ? hiddenFields.has(fieldKey) : hiddenFields.includes(fieldKey));
+}
+
+/**
  * Payload field overrides applied via Object.assign when the operator clicks
  * [Apply template]. Open record — narrow-typing belongs to the UI layer.
  */
