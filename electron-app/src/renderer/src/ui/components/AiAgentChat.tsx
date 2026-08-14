@@ -1,6 +1,6 @@
 // Асинхронный AI-чат: очередь вопросов (≤5/час). Ответ пишет сервер прямым вызовом
-// нейросети (D-024) — обычно за десятки секунд, поэтому пока вопрос в работе панель
-// опрашивает реплику часто и сама пинает синк (авто-синк ходит раз в 5 минут).
+// нейросети (D-024) — обычно за десятки секунд. После вопроса панель выдерживает
+// паузу, затем сама подтягивает ответ спокойным последовательным синком.
 // Вопрос можно редактировать/удалять, пока ИИваныч за него не взялся.
 // Файлы — через существующий files-контур (Яндекс.Диск).
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
@@ -14,10 +14,9 @@ import { theme } from '../theme.js';
 import { formatMoscowTime } from '../utils/dateUtils.js';
 import { renderMarkdown } from '../utils/markdownLite.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
+import { ivanychWaitingText, startIvanychAnswerPolling } from './ivanychWaiting.js';
 
 const REFRESH_IDLE_MS = 60_000;
-/** Вопрос в работе: чаще перечитываем реплику и подтягиваем ответ синком. */
-const REFRESH_ACTIVE_MS = 2_500;
 
 // Чипы-подсказки: оператор забывает уточнить формат/период — тумблеры дописывают
 // требования к вопросу при отправке (см. план ai-chat-ux-drafts-telemetry-2026-07, задача D).
@@ -91,8 +90,8 @@ function formatElapsed(ms: number): string {
 }
 
 /** Плашка «ИИваныч думает»: показывает, что вопрос дошёл и над ним работают. */
-function ThinkingBanner(props: { status: 'pending' | 'processing'; sinceMs: number }) {
-  const text = props.status === 'processing' ? 'ИИваныч думает и собирает данные' : 'ИИваныч принял вопрос';
+function ThinkingBanner(props: { status: 'pending' | 'processing'; sinceMs: number; completedPolls: number }) {
+  const text = ivanychWaitingText(props.status, props.completedPolls);
   return (
     <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg, display: 'flex', alignItems: 'center', gap: 8 }}>
       <IvanychFigure size={26} />
@@ -134,6 +133,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [activeHints, setActiveHints] = useState<string[]>([]);
   const [templates, setTemplates] = useState<AiChatTemplate[]>([]);
   const [savedTemplateFor, setSavedTemplateFor] = useState<string | null>(null);
+  const [completedAnswerPolls, setCompletedAnswerPolls] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -189,18 +189,34 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     () => (me ? items.some((i) => i.userId === me.id && isAiChatInFlight(i.status)) : false),
     [items, me],
   );
+  const inFlightKey = useMemo(
+    () => (me ? items.filter((i) => i.userId === me.id && isAiChatInFlight(i.status)).map((i) => i.id).sort().join('|') : ''),
+    [items, me],
+  );
 
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(
-      () => {
+    if (!hasInFlight) {
+      const idleTimer = window.setInterval(() => {
         setNow(Date.now());
-        void (hasInFlight ? pullAnswers() : refresh());
-      },
-      hasInFlight ? REFRESH_ACTIVE_MS : REFRESH_IDLE_MS,
-    );
-    return () => clearInterval(t);
-  }, [active, hasInFlight, pullAnswers, refresh]);
+        void refresh();
+      }, REFRESH_IDLE_MS);
+      return () => window.clearInterval(idleTimer);
+    }
+
+    setCompletedAnswerPolls(0);
+    return startIvanychAnswerPolling(pullAnswers, () => {
+      setNow(Date.now());
+      setCompletedAnswerPolls((value) => value + 1);
+    });
+  }, [active, hasInFlight, inFlightKey, pullAnswers, refresh]);
+
+  // Секундомер оживляет плашку только локально; сетевых запросов и токенов ИИ не расходует.
+  useEffect(() => {
+    if (!active || !hasInFlight) return;
+    const clock = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(clock);
+  }, [active, hasInFlight]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -429,7 +445,11 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         </div>
 
         {!foreign && isAiChatInFlight(item.status) && (
-          <ThinkingBanner status={item.status as 'pending' | 'processing'} sinceMs={now - item.createdAt} />
+          <ThinkingBanner
+            status={item.status as 'pending' | 'processing'}
+            sinceMs={now - item.createdAt}
+            completedPolls={completedAnswerPolls}
+          />
         )}
 
         {item.status === 'answered' && item.answerText != null && (
