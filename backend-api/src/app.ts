@@ -20,6 +20,7 @@ import { logsRouter } from './routes/logs.js';
 import { changesRouter } from './routes/changes.js';
 import { backupsRouter } from './routes/backups.js';
 import { updatesRouter } from './routes/updates.js';
+import { dispatcherRouter } from './routes/dispatcher.js';
 import { clientSettingsRouter } from './routes/clientSettings.js';
 import { adminClientsRouter } from './routes/adminClients.js';
 import { employeesRouter } from './routes/employees.js';
@@ -162,6 +163,7 @@ export function createApp() {
   app.use('/logs', logsRouter);
   app.use('/backups', backupsRouter);
   app.use('/updates', updatesRouter);
+  app.use('/dispatcher', dispatcherRouter);
   app.use('/client', clientSettingsRouter);
   app.use('/employees', employeesRouter);
   app.use('/engines', enginesRouter);

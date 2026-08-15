@@ -5,6 +5,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import type { ChatDeepLinkPayload } from '@matricarmz/shared';
 import { formatAppVersionLabel } from '@matricarmz/shared';
+import { dispatcherCheckin } from './services/dispatcherClient.js';
 
 if (!process.env.TZ) {
   process.env.TZ = 'Europe/Moscow';
@@ -348,6 +349,8 @@ app.whenReady().then(() => {
   void initNetworkService({ probeUrl: `${apiBaseUrl.replace(/\/+$/, '')}/health` });
 
   initAutoUpdate();
+  // Приветствие Диспетчера: сообщаем версию/hostname, получаем план обновления.
+  void dispatcherCheckin(apiBaseUrl);
   process.on('uncaughtException', (e) => logToFile(`uncaughtException: ${String(e)}`));
   process.on('unhandledRejection', (e) => logToFile(`unhandledRejection: ${String(e)}`));
   setupMenu();

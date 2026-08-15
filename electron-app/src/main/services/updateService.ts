@@ -459,7 +459,9 @@ async function fetchLatestUpdateMetaFromServer(): Promise<ServerUpdateMeta | nul
   const apiBaseUrl = await resolveUpdateApiBaseUrl();
   if (!apiBaseUrl) return null;
   try {
-    const url = joinUrl(apiBaseUrl, '/updates/latest-meta');
+    // `current` — маркер клиента новой эпохи: без него сервер отдаёт заглушку для
+    // старых сборок (см. backend updateDispatcherService), с ним — настоящий latest.
+    const url = joinUrl(apiBaseUrl, `/updates/latest-meta?current=${encodeURIComponent(app.getVersion())}`);
     const res = await fetchWithRetry(
       url,
       { method: 'GET' },
