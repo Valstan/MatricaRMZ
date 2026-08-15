@@ -1,7 +1,16 @@
-import { compareCalver, parseCalver } from './calver.js';
+import { compareAppVersion } from './appVersion.js';
+import { parseCalver } from './calver.js';
 
 export type ReleaseWelcomeContent = {
   releaseLabel: string;
+  /**
+   * Дата выката, `YYYY-MM-DD`. Нужна с переходом на нумерацию `3.N.0`: прежний CalVer
+   * нёс дату прямо в номере, а порядковый номер выпуска её не несёт — без этого поля
+   * окно «Что нового» не может собрать новинки за последние дни (см.
+   * `buildReleaseWelcomeDigest`). У записей эпохи CalVer поля нет и не нужно: дата
+   * читается из самого `releaseLabel`. Заполняется при выпуске релиза.
+   */
+  releaseDate?: string;
   /**
    * Эпиграф-цитата вверху welcome-окна — вместо заголовка по теме, мельче шрифтом,
    * «как высказывание великого философа». Юмор (или серьёзное с намёком на юмор) про
@@ -4310,9 +4319,16 @@ export const RELEASE_WELCOME_DAYS = 2;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Календарный день релиза (локальная полночь) — не-CalVer (старые 1.x) → null. */
-function releaseDayMs(releaseLabel: string): number | null {
-  const p = parseCalver(releaseLabel);
+/**
+ * Календарный день релиза (локальная полночь). У новой нумерации дату несёт поле
+ * `releaseDate`, у CalVer — сам номер. Ни того, ни другого (старые 1.x) → null.
+ */
+function releaseDayMs(release: Pick<ReleaseWelcomeContent, 'releaseLabel' | 'releaseDate'>): number | null {
+  const explicit = String(release.releaseDate ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (explicit) {
+    return new Date(Number(explicit[1]), Number(explicit[2]) - 1, Number(explicit[3])).getTime();
+  }
+  const p = parseCalver(release.releaseLabel);
   return p ? new Date(p.year, p.month - 1, p.day).getTime() : null;
 }
 
@@ -4335,16 +4351,16 @@ export function buildReleaseWelcomeDigest(
     RELEASE_WELCOME_HISTORY[0] ??
     FALLBACK_RELEASE_WELCOME;
 
-  const anchorDay = releaseDayMs(anchor.releaseLabel);
+  const anchorDay = releaseDayMs(anchor);
   if (anchorDay == null) return anchor;
 
   const cutoff = anchorDay - Math.max(0, days - 1) * DAY_MS;
   const inWindow = RELEASE_WELCOME_HISTORY.filter((r) => {
-    const day = releaseDayMs(r.releaseLabel);
+    const day = releaseDayMs(r);
     if (day == null || day < cutoff || day > anchorDay) return false;
     // Новее якоря быть не должно: клиент на старой версии не хвастается чужими новинками.
-    const cmp = compareCalver(r.releaseLabel, anchor.releaseLabel);
-    return cmp != null && cmp <= 0;
+    // Сравнение эпохо-зависимое — в истории соседствуют обе схемы нумерации.
+    return compareAppVersion(r.releaseLabel, anchor.releaseLabel) <= 0;
   });
 
   const seen = new Set<string>();

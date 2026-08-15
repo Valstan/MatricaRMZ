@@ -1,21 +1,34 @@
 apply plugin: 'com.android.application'
 
-// Версия берётся из общего для репо файла VERSION (CalVer, см. AGENTS.md
-// §Release process) — чтобы APK нельзя было выпустить с номером, разошедшимся с
-// сервером и Windows-клиентом. versionCode Android требует целым и строго
-// растущим (иначе самообновление откажется ставить), поэтому CalVer
-// `YYYY.(MM*100+DD).(HH*100+MM)` разворачивается в минуты от начала 2026 года.
-def calverName = { ->
+// Версия берётся из общего для репо файла VERSION (см. AGENTS.md §Release process) —
+// чтобы APK нельзя было выпустить с номером, разошедшимся с сервером и Windows-клиентом.
+// versionCode Android требует целым и строго растущим: меньший код Android считает
+// откатом и обновление ставить отказывается.
+//
+// Схем нумерации в VERSION за жизнь проекта было две, и коды считаются по-разному:
+//   CalVer `YYYY.(MM*100+DD).(HH*100+MM)` — минуты от начала 2026 года (до ~326 000);
+//   `<поколение>.<выпуск>.0` — своя область НАД прежней, чтобы смена схемы не выглядела
+//   откатом: миллион + поколение и номер выпуска. 3.1 → 1030001, 3.27 → 1030027, 4.1 → 1040001.
+def versionNameFromFile = { ->
     return new File(rootProject.projectDir, "../../VERSION").text.trim()
 }
-def calverCode = { String version ->
-    def m = version =~ /^(\d{4})\.(\d{1,4})\.(\d{1,4})$/
-    if (!m.matches()) throw new GradleException("VERSION не в формате CalVer: ${version}")
-    int year = m[0][1] as int
-    int mmdd = m[0][2] as int
-    int hhmm = m[0][3] as int
-    def day = java.time.LocalDate.of(year, (int) (mmdd / 100), mmdd % 100)
-    return ((year - 2026) * 366 + day.dayOfYear) * 1440 + (int) (hhmm / 100) * 60 + hhmm % 100
+def versionCodeFrom = { String version ->
+    def generation = version =~ /^(\d{1,3})\.(\d{1,4})\.(\d+)$/
+    if (generation.matches()) {
+        int gen = generation[0][1] as int
+        int release = generation[0][2] as int
+        if (release < 1) throw new GradleException("Номер выпуска должен быть ≥ 1: ${version}")
+        return 1_000_000 + gen * 10_000 + release
+    }
+    def calver = version =~ /^(\d{4})\.(\d{1,4})\.(\d{1,4})$/
+    if (calver.matches()) {
+        int year = calver[0][1] as int
+        int mmdd = calver[0][2] as int
+        int hhmm = calver[0][3] as int
+        def day = java.time.LocalDate.of(year, (int) (mmdd / 100), mmdd % 100)
+        return ((year - 2026) * 366 + day.dayOfYear) * 1440 + (int) (hhmm / 100) * 60 + hhmm % 100
+    }
+    throw new GradleException("VERSION не в известном формате версии: ${version}")
 }
 
 android {
@@ -25,8 +38,8 @@ android {
         applicationId "ru.matricarmz.tablet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionName calverName()
-        versionCode calverCode(versionName)
+        versionName versionNameFromFile()
+        versionCode versionCodeFrom(versionName)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
