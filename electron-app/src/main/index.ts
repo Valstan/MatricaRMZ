@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import type { ChatDeepLinkPayload } from '@matricarmz/shared';
+import { formatAppVersionLabel } from '@matricarmz/shared';
 
 if (!process.env.TZ) {
   process.env.TZ = 'Europe/Moscow';
@@ -43,7 +44,7 @@ let writeSessionAuditEvent:
 let stopAuditWritten = false;
 let flushSyncBeforeQuit: (() => Promise<unknown>) | null = null;
 let quitSyncFlushDone = false;
-const APP_TITLE = () => `Матрица РМЗ v${app.getVersion()}`;
+const APP_TITLE = () => formatAppVersionLabel(app.getVersion());
 
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);

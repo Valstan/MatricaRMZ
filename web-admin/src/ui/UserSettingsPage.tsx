@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { formatAppVersionLabel } from '@matricarmz/shared';
 
 import { profileGet, profileUpdate } from '../api/auth.js';
 import { getLatestUpdateInfo, getUpdateStatus } from '../api/updates.js';
@@ -261,7 +262,7 @@ export function UserSettingsPage(props: {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Обновление клиента</h3>
         <div className="muted" style={{ marginBottom: 12 }}>
-          Ссылка на торрент последней версии «Матрица РМЗ» и скачивание qBittorrent.
+          Ссылка на торрент последней версии «Матрица3-РМЗ» и скачивание qBittorrent.
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
           <Button variant="ghost" onClick={() => void refreshUpdateInfo()} disabled={updateLoading}>
@@ -278,7 +279,7 @@ export function UserSettingsPage(props: {
           <div className="muted">Загрузка…</div>
         ) : updateInfo && updateInfo.torrentUrl ? (
           <div style={{ display: 'grid', gap: 8, maxWidth: 720 }}>
-            <div className="muted">Версия: {updateInfo.version || '—'}</div>
+            <div className="muted">Версия: {updateInfo.version ? formatAppVersionLabel(updateInfo.version) : '—'}</div>
             <Input value={updateInfo.torrentUrl} readOnly />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={() => void handleCopy(updateInfo.torrentUrl)}>

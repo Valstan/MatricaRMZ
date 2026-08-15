@@ -14,6 +14,8 @@
 // (последним CalVer) ДО того, как появился первый 3.x. Клиент, пропустивший мост,
 // на 3.x сам не обновится — только переустановкой руками.
 
+import { formatCalverBuildDate } from './calver.js';
+
 // Текущее поколение программы. Заодно нижняя граница эпохи 2: всё, что меньше,
 // относится к добро-CalVer'ной нумерации 1.x/2.x.
 export const APP_GENERATION = 3;
@@ -63,4 +65,47 @@ export function compareAppVersion(a: string, b: string): number {
     if (da !== db) return da > db ? 1 : -1;
   }
   return 0;
+}
+
+// Номер поколения и порядковый номер релиза внутри него: 3.27.0 → { generation: 3,
+// release: 27 }. Патч-сегмент всегда 0 — он есть только потому, что semver требует
+// три сегмента, смысла не несёт и в нумерацию не входит.
+export type GenerationVersionParts = { generation: number; release: number };
+
+export function parseGenerationVersion(version: string): GenerationVersionParts | null {
+  if (versionEpoch(version) !== VERSION_EPOCH_GENERATION) return null;
+  const parts = versionSegments(version);
+  if (!parts) return null;
+  const generation = parts[0] ?? 0;
+  const release = parts[1] ?? 0;
+  if (release < 1) return null;
+  return { generation, release };
+}
+
+// Следующая версия: по умолчанию — следующий порядковый номер в текущем поколении.
+// Переход с CalVer (или с любой чужой схемы) открывает новое поколение с выпуска 1.
+// `bumpGeneration` — смена поколения программы вручную (3 → 4), счёт выпусков с начала.
+export function nextGenerationVersion(currentVersion: string, opts?: { bumpGeneration?: boolean }): string {
+  const current = parseGenerationVersion(currentVersion);
+  if (opts?.bumpGeneration) {
+    return `${(current?.generation ?? APP_GENERATION) + 1}.1.0`;
+  }
+  if (!current) return `${APP_GENERATION}.1.0`;
+  return `${current.generation}.${current.release + 1}.0`;
+}
+
+// Название программы несёт номер поколения: «Матрица3-РМЗ».
+export function appProductName(version?: string): string {
+  const generation = parseGenerationVersion(String(version ?? ''))?.generation ?? APP_GENERATION;
+  return `Матрица${generation}-РМЗ`;
+}
+
+// Как версия называется для человека: «Матрица3-РМЗ (27)». Для версий прежней схемы
+// (в админке ещё какое-то время видны клиенты на CalVer) остаётся прежний вид — дата
+// сборки, а если и её не разобрать, сырая строка.
+export function formatAppVersionLabel(version: string): string {
+  const raw = String(version ?? '').trim();
+  const parts = parseGenerationVersion(raw);
+  if (parts) return `Матрица${parts.generation}-РМЗ (${parts.release})`;
+  return formatCalverBuildDate(raw) ?? raw;
 }

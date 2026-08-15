@@ -6,7 +6,7 @@ import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-import { compareAppVersion, formatCalverBuildDate } from '@matricarmz/shared';
+import { compareAppVersion, formatAppVersionLabel } from '@matricarmz/shared';
 
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
@@ -971,11 +971,11 @@ async function setUpdateUi(msg: string, pct?: number, version?: string, opts?: U
   const next: UpdateUiViewState = { ...updateUiViewState, message: msg, pct: nextPct };
   if (!next.versionFromLabel) {
     const cur = app.getVersion();
-    next.versionFromLabel = formatCalverBuildDate(cur) ?? cur;
+    next.versionFromLabel = formatAppVersionLabel(cur);
   }
   if (version != null && String(version).trim()) {
     next.version = String(version);
-    next.versionToLabel = formatCalverBuildDate(next.version) ?? next.version;
+    next.versionToLabel = formatAppVersionLabel(next.version);
   }
   if (opts?.stage) next.stage = opts.stage;
   if (opts && Object.prototype.hasOwnProperty.call(opts, 'errorText')) {

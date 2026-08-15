@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AuthStatus } from '@matricarmz/shared';
+import { appProductName, formatAppVersionLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -336,9 +337,10 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
             М
           </div>
           <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>Матрица РМЗ</div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>
+              {appVersion ? formatAppVersionLabel(appVersion) : appProductName()}
+            </div>
             <div style={{ fontSize: 12, color: palette.muted }}>
-              {appVersion ? `v${appVersion} · ` : ''}
               сервер:{' '}
               <span style={{ color: serverOnline ? '#34d399' : '#f87171' }}>{serverOnline ? 'онлайн' : 'нет связи'}</span>
             </div>
