@@ -15,6 +15,7 @@ import {
   registerLanHttpPeers,
   registerUpdatePeers,
 } from '../services/updateTorrentService.js';
+import { getStubMeta } from '../services/updateDispatcherService.js';
 
 export const updatesRouter = Router();
 
@@ -54,8 +55,20 @@ updatesRouter.get('/status', async (_req, res) => {
   return res.json({ ok: true, status: await getUpdateTorrentStatusResolved() });
 });
 
-updatesRouter.get('/latest-meta', async (_req, res) => {
+updatesRouter.get('/latest-meta', async (req, res) => {
   try {
+    // Клиенты ДО перехода на нумерацию поколений не передают `current` и сравнивают
+    // версии по числам (3 < 2026 → «откат», обновление встаёт). Им канал навсегда
+    // отдаёт ЗАГЛУШКУ с CalVer-огромным номером: она скачается и установится штатно,
+    // спросит Диспетчер и поставит настоящий свежий дистрибутив. Новые клиенты
+    // передают `current` — им отдаётся настоящий latest. См. updateDispatcherService.
+    const current = String(req.query.current ?? '').trim();
+    if (!current) {
+      const stub = await getStubMeta();
+      if (stub) {
+        return res.json({ ok: true, version: stub.version, fileName: stub.fileName, size: stub.size, sha256: stub.sha256 });
+      }
+    }
     const meta = await getLatestUpdateFileMeta();
     if (!meta) {
       const status = getUpdateTorrentStatus();
@@ -96,10 +109,32 @@ function parseRangeHeader(rangeHeader: string | undefined, size: number): { star
 // blockmap-delta на клиенте (ADR-0001 Этап-2, Путь B).
 updatesRouter.get('/file/:name', async (req, res) => {
   const st = getLatestTorrentState();
+  const name = String(req.params.name ?? '').trim();
+  // Заглушка раздаётся тем же маршрутом: старый клиент качает её как обычный installer.
+  const stub = name ? await getStubMeta() : null;
+  if (stub && name === stub.fileName) {
+    const stubStat = await stat(stub.filePath).catch(() => null);
+    if (!stubStat?.isFile()) {
+      return res.status(404).json({ ok: false, error: 'файл не найден' });
+    }
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const stubRange = parseRangeHeader(req.headers.range, stubStat.size);
+    if (stubRange) {
+      res.status(206);
+      res.setHeader('Content-Length', stubRange.end - stubRange.start + 1);
+      res.setHeader('Content-Range', `bytes ${stubRange.start}-${stubRange.end}/${stubStat.size}`);
+      createReadStream(stub.filePath, { start: stubRange.start, end: stubRange.end }).pipe(res);
+      return;
+    }
+    res.setHeader('Content-Length', stubStat.size);
+    createReadStream(stub.filePath).pipe(res);
+    return;
+  }
   if (!st?.filePath) {
     return res.status(404).json({ ok: false, error: 'файл обновления не найден' });
   }
-  const name = String(req.params.name ?? '').trim();
   const isInstaller = !!name && name === st.fileName;
   const isBlockmap = !!name && name === `${st.fileName}.blockmap`;
   if (!isInstaller && !isBlockmap) {

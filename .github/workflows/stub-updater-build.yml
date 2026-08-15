@@ -1,0 +1,46 @@
+# Заглушка-обновлятор (stub-updater/): мост со старой CalVer-нумерации на нумерацию
+# поколений. Артефакт кладётся на прод в /opt/matricarmz/updates/stub/ под именем
+# MatricaRMZ-Setup-2026.1231.2359.exe и живёт там навсегда — см. stub-updater/main.go.
+name: Stub Updater Build (Go)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stub-updater/**"
+      - ".github/workflows/stub-updater-build.yml"
+  pull_request:
+    paths:
+      - "stub-updater/**"
+      - ".github/workflows/stub-updater-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+
+      - name: go vet
+        run: cd stub-updater && GOOS=windows go vet ./...
+
+      - name: Build (windows/amd64)
+        # Имя файла = версия-приманка для старых клиентов: CalVer-огромная, чтобы любой
+        # из них счёл её новее себя. -H=windowsgui — без консольного окна у оператора.
+        run: cd stub-updater && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H=windowsgui" -o "MatricaRMZ-Setup-2026.1231.2359.exe" .
+
+      - name: Report size
+        run: ls -la "stub-updater/MatricaRMZ-Setup-2026.1231.2359.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matricarmz-stub-updater
+          path: stub-updater/MatricaRMZ-Setup-2026.1231.2359.exe

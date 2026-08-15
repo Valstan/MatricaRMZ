@@ -59,7 +59,8 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 
 async function fetchLatestMeta(apiBaseUrl: string): Promise<LatestMeta | null> {
   try {
-    const url = joinUrl(apiBaseUrl, '/updates/latest-meta');
+    // `current` — маркер новой эпохи: без него сервер отдал бы заглушку для старых сборок.
+    const url = joinUrl(apiBaseUrl, `/updates/latest-meta?current=${encodeURIComponent(app.getVersion())}`);
     const res = await fetchWithTimeout(url, META_FETCH_TIMEOUT_MS);
     if (!res.ok) return null;
     const json = (await res.json().catch(() => null)) as unknown;
