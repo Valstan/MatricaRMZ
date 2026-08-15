@@ -7,6 +7,7 @@
 // it off to the OS.
 
 import { app, shell } from 'electron';
+import { compareAppVersion } from '@matricarmz/shared';
 import { spawn } from 'node:child_process';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -39,15 +40,11 @@ function parseSemver(v: string): number[] | null {
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
+// Аварийный путь обязан понимать смену схемы нумерации так же, как основной:
+// иначе после перехода на 3.x он навсегда решит, что новее ничего нет, и
+// промолчит — ровно в том состоянии, когда починить клиента больше нечем.
 export function compareSemver(a: string, b: string): number {
-  const pa = parseSemver(a);
-  const pb = parseSemver(b);
-  if (!pa || !pb) return 0;
-  for (let i = 0; i < 3; i += 1) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff > 0 ? 1 : -1;
-  }
-  return 0;
+  return compareAppVersion(a, b);
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {

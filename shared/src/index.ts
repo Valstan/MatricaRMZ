@@ -59,6 +59,7 @@ export * from './domain/assemblyForecast.js';
 export * from './domain/analytics.js';
 export * from './domain/releaseWelcome.js';
 export * from './domain/calver.js';
+export * from './domain/appVersion.js';
 export * from './domain/clientLabel.js';
 export * from './domain/watchdog.js';
 export * from './domain/globalSearch.js';
