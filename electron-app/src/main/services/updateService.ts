@@ -6,7 +6,7 @@ import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-import { formatCalverBuildDate } from '@matricarmz/shared';
+import { compareAppVersion, formatCalverBuildDate } from '@matricarmz/shared';
 
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
@@ -3396,16 +3396,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Сравнение эпохо-зависимое: нумерация поколения (3.x) новее любого CalVer,
+// хотя числом мажора меньше. См. shared/src/domain/appVersion.ts.
 function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map((x) => Number(x));
-  const pb = b.split('.').map((x) => Number(x));
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da > db) return 1;
-    if (da < db) return -1;
-  }
-  return 0;
+  return compareAppVersion(a, b);
 }
 
 

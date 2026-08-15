@@ -1,4 +1,4 @@
-import { compareCalver } from './calver.js';
+import { compareAppVersion } from './appVersion.js';
 
 // The external watchdog (recovery agent) ships in every client build AFTER this
 // version — it was merged right after the 2026.622.1241 release, and since then
@@ -10,8 +10,10 @@ import { compareCalver } from './calver.js';
 export const WATCHDOG_ROLLOUT_AFTER_VERSION = '2026.622.1241';
 
 // Whether the client's last reported version is new enough to carry the watchdog.
-// A non-CalVer or absent version (old build, never seen) → treated as no watchdog.
+// Comparison is epoch-aware (see appVersion.ts): the generation numbering (3.x)
+// is newer than any CalVer, so those clients keep the watchdog even though their
+// major is numerically smaller. An unparseable or absent version (old build,
+// never seen) → treated as no watchdog.
 export function clientHasWatchdog(lastVersion: string | null | undefined): boolean {
-  const cmp = compareCalver(String(lastVersion ?? ''), WATCHDOG_ROLLOUT_AFTER_VERSION);
-  return cmp !== null && cmp > 0;
+  return compareAppVersion(String(lastVersion ?? ''), WATCHDOG_ROLLOUT_AFTER_VERSION) > 0;
 }

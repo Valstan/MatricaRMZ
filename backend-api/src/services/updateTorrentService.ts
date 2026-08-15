@@ -5,6 +5,7 @@ import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, lt } from 'drizzle-orm';
+import { compareAppVersion } from '@matricarmz/shared';
 
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { describeError, logError, logInfo, logWarn } from '../utils/logger.js';
@@ -173,16 +174,10 @@ function extractVersionFromFileName(fileName: string): string | null {
   return m?.[1] ?? null;
 }
 
+// Эпохо-зависимое сравнение: в каталоге обновлений какое-то время будут лежать
+// рядом инсталляторы обеих схем, и 3.1.0 обязан выиграть у 2026.814.1503.
 function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map((x) => Number(x));
-  const pb = b.split('.').map((x) => Number(x));
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da > db) return 1;
-    if (da < db) return -1;
-  }
-  return 0;
+  return compareAppVersion(a, b);
 }
 
 function isSetupInstaller(name: string) {

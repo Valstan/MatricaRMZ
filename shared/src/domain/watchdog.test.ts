@@ -9,6 +9,11 @@ describe('clientHasWatchdog', () => {
     expect(clientHasWatchdog('2027.101.0')).toBe(true); // next year
   });
 
+  it('is true for the generation numbering, whose major is numerically smaller', () => {
+    expect(clientHasWatchdog('3.1.0')).toBe(true);
+    expect(clientHasWatchdog('3.27.0')).toBe(true);
+  });
+
   it('is false for the boundary release itself and older', () => {
     expect(clientHasWatchdog(WATCHDOG_ROLLOUT_AFTER_VERSION)).toBe(false); // 2026.622.1241
     expect(clientHasWatchdog('2026.621.1815')).toBe(false);
