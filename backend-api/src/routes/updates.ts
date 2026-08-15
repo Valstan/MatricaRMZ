@@ -15,7 +15,7 @@ import {
   registerLanHttpPeers,
   registerUpdatePeers,
 } from '../services/updateTorrentService.js';
-import { getStubMeta } from '../services/updateDispatcherService.js';
+import { getArchiveMeta, getStubMeta } from '../services/updateDispatcherService.js';
 
 export const updatesRouter = Router();
 
@@ -130,6 +130,24 @@ updatesRouter.get('/file/:name', async (req, res) => {
     }
     res.setHeader('Content-Length', stubStat.size);
     createReadStream(stub.filePath).pipe(res);
+    return;
+  }
+  // Промежуточные версии каскада обновлений — из <updatesDir>/archive/.
+  const archived = name.toLowerCase().endsWith('.exe') ? await getArchiveMeta(name) : null;
+  if (archived) {
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const archRange = parseRangeHeader(req.headers.range, archived.size);
+    if (archRange) {
+      res.status(206);
+      res.setHeader('Content-Length', archRange.end - archRange.start + 1);
+      res.setHeader('Content-Range', `bytes ${archRange.start}-${archRange.end}/${archived.size}`);
+      createReadStream(archived.filePath, { start: archRange.start, end: archRange.end }).pipe(res);
+      return;
+    }
+    res.setHeader('Content-Length', archived.size);
+    createReadStream(archived.filePath).pipe(res);
     return;
   }
   if (!st?.filePath) {
