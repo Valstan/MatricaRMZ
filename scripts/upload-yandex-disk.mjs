@@ -116,9 +116,21 @@ function extractVersion(name) {
   return m ? m[1] : null;
 }
 
+// Эпоха схемы нумерации: CalVer начинается с года, новая — с номера поколения.
+// Дублирует shared/src/domain/appVersion.ts намеренно — скрипт остаётся dependency-free.
+function versionEpoch(parts) {
+  return (parts[0] ?? 0) >= 2000 ? 1 : 2;
+}
+
+// Ротация оставляет три свежайших сборки и удаляет остальные, поэтому сравнение здесь
+// решает, что стереть. Числами 3.1.0 меньше 2026.814.1503 — без учёта эпохи ротация
+// снесла бы как раз новый релиз, сохранив старые.
 function compareSemver(a, b) {
   const pa = String(a).split('.').map((x) => Number(x));
   const pb = String(b).split('.').map((x) => Number(x));
+  const ea = versionEpoch(pa);
+  const eb = versionEpoch(pb);
+  if (ea !== eb) return ea > eb ? 1 : -1;
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const da = pa[i] ?? 0;
     const db = pb[i] ?? 0;

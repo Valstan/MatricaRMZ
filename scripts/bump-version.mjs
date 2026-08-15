@@ -1,19 +1,26 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-// Релизная версия — CalVer от даты сборки (канонический парсер: shared/src/domain/calver.ts).
-// Формат: YYYY.(MM*100+DD).(HH*100+MM), напр. 2026.614.1530 (14 июня 2026, 15:30).
-// Без ведущих нулей → валидный монотонный semver; весь downstream-конвейер совместим.
-// Никакого ручного выбора patch/minor/major: по умолчанию штампит текущую дату.
+// Релизная версия — поколение программы + порядковый номер выпуска: 3.1.0, 3.2.0, …
+// Оператору она показывается как «Матрица3-РМЗ (1)». Патч-сегмент всегда 0: он есть
+// только потому, что semver требует три сегмента, и в нумерацию не входит.
+// Канонический парсер/генератор — shared/src/domain/appVersion.ts; формула прибавления
+// единицы продублирована здесь намеренно, чтобы скрипт оставался dependency-free (не
+// требовал собранного @matricarmz/shared для запуска) — как раньше делал CalVer.
+// Номер не выбирается «на глаз»: следующий выпуск считается от текущего VERSION.
+//
+// До 2026.814 версия была CalVer от даты сборки (shared/src/domain/calver.ts); клиенты
+// на ней ещё в парке, поэтому сравнение версий эпохо-зависимое — см. appVersion.ts.
 
 function usage() {
   // eslint-disable-next-line no-console
   console.log(`Usage:
-  node scripts/bump-version.mjs                          # штампит CalVer от текущей даты
-  node scripts/bump-version.mjs --date 2026-06-14T15:30  # CalVer от заданной даты (детерминизм/тесты)
-  node scripts/bump-version.mjs --set 2026.614.1530      # аварийный ручной оверрайд
+  node scripts/bump-version.mjs                 # следующий выпуск текущего поколения (3.27.0 -> 3.28.0)
+  node scripts/bump-version.mjs --major         # новое поколение программы, счёт выпусков заново (3.27.0 -> 4.1.0)
+  node scripts/bump-version.mjs --set 3.28.0    # аварийный ручной оверрайд
 
-CalVer: YYYY.(MM*100+DD).(HH*100+MM) — валидный монотонный semver без ведущих нулей.`);
+Формат: <поколение>.<номер выпуска>.0 — валидный semver без ведущих нулей.
+Первый выпуск после CalVer — ${APP_GENERATION}.1.0.`);
 }
 
 function getFlag(name) {
@@ -26,13 +33,26 @@ function getArg(name) {
   return process.argv[idx + 1] ?? null;
 }
 
-// Дублирует формулу из shared/src/domain/calver.ts намеренно — чтобы скрипт оставался
-// dependency-free (не требовал собранного @matricarmz/shared для запуска).
-function calverFromDate(d) {
-  const year = d.getFullYear();
-  const monthDay = (d.getMonth() + 1) * 100 + d.getDate();
-  const hourMinute = d.getHours() * 100 + d.getMinutes();
-  return `${year}.${monthDay}.${hourMinute}`;
+// Текущее поколение программы; заодно нижняя граница новой нумерации — всё, что
+// меньше, относится к прежним схемам (CalVer с четырёхзначным годом, доисторические 1.x).
+const APP_GENERATION = 3;
+
+function parseGenerationVersion(version) {
+  const m = String(version ?? '')
+    .trim()
+    .match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return null;
+  const generation = Number(m[1]);
+  const release = Number(m[2]);
+  if (generation < APP_GENERATION || generation >= 2000 || release < 1) return null;
+  return { generation, release };
+}
+
+function nextGenerationVersion(currentVersion, { bumpGeneration = false } = {}) {
+  const current = parseGenerationVersion(currentVersion);
+  if (bumpGeneration) return `${(current?.generation ?? APP_GENERATION) + 1}.1.0`;
+  if (!current) return `${APP_GENERATION}.1.0`;
+  return `${current.generation}.${current.release + 1}.0`;
 }
 
 function validateSemver(v) {
@@ -68,19 +88,11 @@ async function main() {
 
   const root = process.cwd();
   const setTo = getArg('--set');
-  const dateArg = getArg('--date');
-  if (setTo && dateArg) throw new Error('Use either --set or --date, not both');
-
-  let next;
-  if (setTo) {
-    next = validateSemver(setTo);
-  } else {
-    const d = dateArg ? new Date(dateArg) : new Date();
-    if (Number.isNaN(d.getTime())) throw new Error(`Invalid --date "${dateArg}"`);
-    next = validateSemver(calverFromDate(d));
-  }
+  const bumpGeneration = getFlag('--major');
+  if (setTo && bumpGeneration) throw new Error('Use either --set or --major, not both');
 
   const currentRaw = (await readFile(join(root, 'VERSION'), 'utf8').catch(() => '')).trim();
+  const next = validateSemver(setTo ?? nextGenerationVersion(currentRaw, { bumpGeneration }));
 
   // Single release version for all modules
   await writeFile(join(root, 'VERSION'), `${next}\n`, 'utf8');
