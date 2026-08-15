@@ -55,6 +55,15 @@
 - Backend dev — Node, PostgreSQL → better-sqlite3 НЕ требуется (не ребилдить ради backend).
 - Electron-клиент → better-sqlite3 должен быть под Electron-ABI (см. выше).
 
+## Плагины Claude Code (поставлены 2026-08-15)
+
+Все шесть стоят **user-scope** (`C:\Users\Valstan\.claude\plugins\`), то есть это настройка **только этого компа** — в Git их нет, реклон репо их не принесёт, на других машинах проекта их не будет. Маркетплейсы: `anthropics/claude-plugins-official` + `obra/superpowers-marketplace`.
+
+- **Работают сами, без включения:** `superpowers` (6.3.0 — процессные скиллы brainstorming / systematic-debugging / TDD / writing-plans / verification-before-completion; подключается SessionStart-хуком, ест заметный кусок контекста на старте), `pr-review-toolkit` (агенты code-reviewer, code-simplifier, silent-failure-hunter, pr-test-analyzer, comment-analyzer, type-design-analyzer + `/review-pr`), `commit-commands` (`/commit`, `/commit-push-pr`, `/clean_gone`), `frontend-design`.
+- **Приоритет правил:** при расхождении `AGENTS.md` / `CLAUDE.md` этого репо бьёт указания скиллов — так записано в самом `using-superpowers`. Наш цикл `/start` → работа → `/close_session` остаётся каноном.
+- **`typescript-lsp` — плагин это только обёртка, бинарь ставится отдельно.** Без него инструмент LSP отвечает `Command 'typescript-language-server' not found`. Лечение (сделано 2026-08-15): `npm install -g typescript-language-server typescript` → на этом компе `typescript-language-server` 5.3.0 + `tsc` 7.0.2 в `C:\Users\Valstan\AppData\Roaming\npm\`. После установки нужен **перезапуск сессии** — в уже идущей сессии LSP-сервер не переподключается.
+- **`context7` (документация библиотек) — MCP через `npx -y @upstash/context7-mcp`.** В первую сессию не успел подняться (npx тянул пакет из сети, инструменты так и не появились). Пакет проверен вручную, теперь в кэше npx и стартует за секунды → подхватывается со следующего запуска Claude Code. Опционально `CONTEXT7_API_KEY` (иначе анонимные лимиты).
+
 ## Машинные грабли
 - **`python - <<'PY'` с `open(p,'w')` УНИЧТОЖАЕТ файл при исключении внутри `.write()` (выучено 2026-08-02).** Открытие на запись усекает файл до нуля ДО того, как отработает выражение аргумента; у меня на суррогатных парах в эмодзи упал `.write()`, и `shared/src/domain/releaseWelcome.ts` (4080 строк) остался пустым — спасло `git checkout --`. Для правок файлов брать Edit; если всё же python — собирать строку заранее и писать через временный файл. Отдельно: `print()` с юникодом (`×`, эмодзи) падает `UnicodeEncodeError` на cp1251-stdout — в скриптах печатать только ASCII.
 - **PG-служба не поднимается из обычной сессии агента (выучено 2026-08-02).** `Start-Service postgresql-x64-17` → `Не удалось запустить службу … на компьютере '.'`, `net start` → `Системная ошибка 5. Отказано в доступе` — сессия не elevated. Рабочая форма (один UAC-промпт владельцу на экране): `Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-Command','Start-Service postgresql-x64-17' -Wait -WindowStyle Hidden`. После ребута/выключения служба Stopped штатно (в логе `shutdown immediate`) — это не поломка БД.
