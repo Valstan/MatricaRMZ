@@ -14,9 +14,9 @@ import { getUpdatePlan } from '../services/updateDispatcherService.js';
 
 export const dispatcherRouter = Router();
 
-function planUrls(base: string, latest: { fileName: string; blockmapFileName?: string }) {
+function planUrls(base: string, latest: { fileName: string; blockmapFileName?: string; url?: string }) {
   return {
-    url: `${base}/updates/file/${encodeURIComponent(latest.fileName)}`,
+    url: latest.url ?? `${base}/updates/file/${encodeURIComponent(latest.fileName)}`,
     ...(latest.blockmapFileName
       ? { blockmapUrl: `${base}/updates/file/${encodeURIComponent(latest.blockmapFileName)}` }
       : {}),
@@ -28,7 +28,8 @@ function planUrls(base: string, latest: { fileName: string; blockmapFileName?: s
 dispatcherRouter.get('/update-plan', async (req, res) => {
   try {
     const current = String(req.query.current ?? '').trim();
-    const plan = await getUpdatePlan(current);
+    const platform = String(req.query.platform ?? 'windows').trim() || 'windows';
+    const plan = await getUpdatePlan(current, platform);
     if (plan.action === 'none') return res.json({ ok: false, error: plan.reason });
     const base = `${req.protocol}://${req.get('host')}`;
     return res.json({
@@ -51,7 +52,7 @@ dispatcherRouter.post('/checkin', async (req, res) => {
     const hostname = String(body.hostname ?? '').trim();
     const platform = String(body.platform ?? '').trim();
     logInfo(`dispatcher checkin: version=${version || '?'} host=${hostname || '?'} platform=${platform || '?'}`);
-    const plan = await getUpdatePlan(version);
+    const plan = await getUpdatePlan(version, platform === 'android' ? 'android' : 'windows');
     const base = `${req.protocol}://${req.get('host')}`;
     return res.json({
       ok: true,
