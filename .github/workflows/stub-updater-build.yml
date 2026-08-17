@@ -33,8 +33,10 @@ jobs:
 
       - name: Build (windows/amd64)
         # Имя файла = версия-приманка для старых клиентов: CalVer-огромная, чтобы любой
-        # из них счёл её новее себя. -H=windowsgui — без консольного окна у оператора.
-        run: cd stub-updater && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H=windowsgui" -o "MatricaRMZ-Setup-2026.1231.2359.exe" .
+        # из них счёл её новее себя. Консольная сборка (БЕЗ -H=windowsgui) — намеренно:
+        # оператор должен видеть ход обновления, GUI-вариант выглядел как «ничего не
+        # происходит» (жалоба владельца 2026-08-17).
+        run: cd stub-updater && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "MatricaRMZ-Setup-2026.1231.2359.exe" .
 
       - name: Report size
         run: ls -la "stub-updater/MatricaRMZ-Setup-2026.1231.2359.exe"
