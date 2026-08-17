@@ -196,6 +196,83 @@ async function getEngineDetails(input: Record<string, unknown>): Promise<ToolRes
   return jsonResult({ found: true, engine: head.rows[0], attributes });
 }
 
+// Рекламации — НЕ отдельная таблица: это EAV-атрибуты reclamation_* на самой
+// сущности двигателя (см. shared/src/domain/reclamation.ts). Без этого tool
+// модель ищет несуществующую таблицу claims, получает отказ и неверно
+// докладывает «нет прав» (кейс sapegin / «вся рекламация ОВК», 2026-08-17).
+async function getReclamations(input: Record<string, unknown>): Promise<ToolResult> {
+  const search = asString(input, 'counterparty').trim();
+  const limit = asLimit(input);
+  const params: unknown[] = [];
+  let counterpartyFilter = '';
+  if (search) {
+    params.push(`%${search.toLowerCase()}%`);
+    counterpartyFilter =
+      ` and exists (select 1 from attribute_values avc join attribute_defs dc on dc.id = avc.attribute_def_id ` +
+      `left join erp_counterparties c on c.id::text = trim(both '\"' from coalesce(avc.value_json, '')) ` +
+      `where avc.entity_id = e.id and avc.deleted_at is null and dc.code = 'customer_id' ` +
+      `and lower(coalesce(c.name, '')) like $${params.length})`;
+  }
+  const headSql =
+    'select e.id, e.created_at, e.updated_at from entities e ' +
+    'join entity_types t on t.id = e.type_id ' +
+    "where t.code in ('engine','engine_instance') and e.deleted_at is null " +
+    'and exists (select 1 from attribute_values avf join attribute_defs df on df.id = avf.attribute_def_id ' +
+    "where avf.entity_id = e.id and avf.deleted_at is null and df.code = 'reclamation_flag' " +
+    "and lower(coalesce(avf.value_json, '')) in ('true', '\"true\"'))" +
+    counterpartyFilter +
+    ` order by e.updated_at desc limit ${limit}`;
+  const head = await pool.query(headSql, params as any[]);
+  const ids = (head.rows ?? []).map((r: any) => r.id);
+  if (ids.length === 0) return jsonResult([]);
+  const attrSql =
+    'select av.entity_id, d.code as attribute_code, d.name as attribute_name, av.value_json ' +
+    'from attribute_values av join attribute_defs d on d.id = av.attribute_def_id ' +
+    'where av.deleted_at is null and d.deleted_at is null and av.entity_id = ANY($1::uuid[]) ' +
+    "and (d.code like 'reclamation%' or d.code in ('engine_number','engine_internal_number','engine_brand','engine_brand_id','contract_id','customer_id'))";
+  const attrs = await pool.query(attrSql, [ids]);
+  const byId = new Map<string, Record<string, unknown>>();
+  const counterpartyIds = new Set<string>();
+  const contractIds = new Set<string>();
+  for (const a of attrs.rows ?? []) {
+    const rec = byId.get(a.entity_id) ?? {};
+    let value: unknown = a.value_json;
+    try {
+      value = JSON.parse(String(a.value_json ?? 'null'));
+    } catch {
+      /* сырые строки оставляем как есть */
+    }
+    rec[a.attribute_code] = value;
+    byId.set(a.entity_id, rec);
+    if (a.attribute_code === 'customer_id' && typeof value === 'string') counterpartyIds.add(value);
+    if (a.attribute_code === 'contract_id' && typeof value === 'string') contractIds.add(value);
+  }
+  const names = new Map<string, string>();
+  if (counterpartyIds.size > 0) {
+    const r = await pool.query('select id, name from erp_counterparties where id = ANY($1::uuid[])', [
+      [...counterpartyIds],
+    ]);
+    for (const row of r.rows ?? []) names.set(row.id, row.name);
+  }
+  const contractNames = new Map<string, string>();
+  if (contractIds.size > 0) {
+    const r = await pool.query('select id, name from erp_contracts where id = ANY($1::uuid[])', [[...contractIds]]);
+    for (const row of r.rows ?? []) contractNames.set(row.id, row.name);
+  }
+  const rows = ids.map((id: string) => {
+    const rec = byId.get(id) ?? {};
+    const customerId = typeof rec['customer_id'] === 'string' ? (rec['customer_id'] as string) : '';
+    const contractId = typeof rec['contract_id'] === 'string' ? (rec['contract_id'] as string) : '';
+    return {
+      engineId: id,
+      ...rec,
+      customer_name: names.get(customerId) ?? null,
+      contract_name: contractNames.get(contractId) ?? null,
+    };
+  });
+  return jsonResult(rows);
+}
+
 async function getEmployeesList(input: Record<string, unknown>): Promise<ToolResult> {
   const search = asString(input, 'search').trim();
   const limit = asLimit(input);
@@ -561,6 +638,24 @@ const TOOLS: Record<string, ToolEntry> = {
     requires: ['engines.view'],
     handler: (input) => getEngineDetails(input),
   },
+  get_reclamations: {
+    def: {
+      name: 'get_reclamations',
+      description:
+        'Рекламации по двигателям: дата приёма, причина заказчика, вердикт, статус ремонта, отгрузка, ' +
+        'контрагент и контракт. Рекламации хранятся атрибутами reclamation_* на двигателе — отдельной ' +
+        'таблицы claims НЕТ, используй этот tool. Фильтр counterparty — подстрока имени контрагента (например «ОВК»).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          counterparty: { type: 'string', description: 'Подстрока имени контрагента-заказчика.' },
+          limit: { type: 'integer', description: 'Максимум строк (1..200, default 50).' },
+        },
+      },
+    },
+    requires: ['engines.view'],
+    handler: (input) => getReclamations(input),
+  },
   get_employees_list: {
     def: {
       name: 'get_employees_list',
@@ -653,7 +748,10 @@ const TOOLS: Record<string, ToolEntry> = {
       description:
         'Выполнить произвольный SELECT-запрос (PostgreSQL, LIMIT 200) ' +
         'если других tools не хватает. Запрещены write-операции, комментарии, ' +
-        'обращения к refresh_tokens, ledger_data_keys, password_hash и пр.',
+        'обращения к refresh_tokens, ledger_data_keys, password_hash и пр. ' +
+        'Подсказки по схеме: контрагенты — erp_counterparties (не counterparties); ' +
+        'рекламации — НЕ таблица claims, а атрибуты reclamation_* двигателя (tool get_reclamations); ' +
+        'двигатели/детали/сотрудники — EAV: entities + attribute_values + attribute_defs.',
       input_schema: {
         type: 'object',
         properties: {

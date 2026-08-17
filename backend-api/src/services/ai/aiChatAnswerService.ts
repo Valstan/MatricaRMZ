@@ -35,6 +35,7 @@ import {
 } from './llmProvider.js';
 import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
 import { buildAnswerWorkbook, type AnswerTable } from './answerWorkbook.js';
+import { buildAnswerDocx } from './answerDocument.js';
 
 const TICK_MS = Math.max(500, Number(process.env.AI_CHAT_DIRECT_TICK_MS ?? 2_000));
 /** Строка зависла в `processing` (рестарт сервера посреди ответа) — вернуть в очередь. */
@@ -86,7 +87,8 @@ const BASE_PROMPT =
   'Данные бери ТОЛЬКО из tools (read-only доступ к базе) — не выдумывай числа, названия и функции программы. ' +
   'Если данных для точного ответа нет или прав пользователя не хватает — вызови escalate_to_admin, а не гадай. ' +
   'Ответ оформляй простым markdown (заголовки, списки, таблицы до ~15 строк). ' +
-  'Длинные таблицы отдавай файлом через attach_table.';
+  'Длинные таблицы отдавай файлом через attach_table. ' +
+  'К каждому текстовому ответу сервер сам прикладывает документ Word — отдельно собирать его не нужно.';
 
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS ?? 3));
 
@@ -259,6 +261,17 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
       attachRefs.push(await uploadAnswerBuffer(requestId, `${table.filename}.xlsx`, bytes, actor.id));
     } catch (e) {
       logError('ai chat direct: attachment failed', { id: requestId, error: String(e) });
+    }
+  }
+  // По умолчанию ответ дублируется документом Word (решение владельца 2026-08-17):
+  // пользователь открывает, правит и печатает. Если модель уже приложила файл
+  // (пользователь выбрал другой формат, напр. Excel) — docx не дублируем.
+  if (attachRefs.length === 0) {
+    try {
+      const bytes = await buildAnswerDocx({ question: String(row.questionText ?? ''), answerMarkdown: answerText });
+      attachRefs.push(await uploadAnswerBuffer(requestId, 'Ответ ИИваныча.docx', bytes, actor.id));
+    } catch (e) {
+      logError('ai chat direct: docx attachment failed', { id: requestId, error: String(e) });
     }
   }
 
