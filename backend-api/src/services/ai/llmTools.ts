@@ -206,12 +206,16 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
   const params: unknown[] = [];
   let counterpartyFilter = '';
   if (search) {
+    // customer_id двигателя указывает на EAV-сущность типа customer (не на
+    // erp_counterparties) — имя заказчика лежит атрибутом name этой сущности.
     params.push(`%${search.toLowerCase()}%`);
     counterpartyFilter =
       ` and exists (select 1 from attribute_values avc join attribute_defs dc on dc.id = avc.attribute_def_id ` +
-      `left join erp_counterparties c on c.id::text = trim(both '"' from coalesce(avc.value_json, '')) ` +
+      `join attribute_values avn join attribute_defs dn on dn.id = avn.attribute_def_id ` +
+      `on avn.entity_id::text = trim(both '"' from coalesce(avc.value_json, '')) ` +
       `where avc.entity_id = e.id and avc.deleted_at is null and dc.code = 'customer_id' ` +
-      `and lower(coalesce(c.name, '')) like $${params.length})`;
+      `and dn.code in ('name', 'full_name', 'short_name') and avn.deleted_at is null ` +
+      `and lower(coalesce(avn.value_json, '')) like $${params.length})`;
   }
   const headSql =
     'select e.id, e.created_at, e.updated_at from entities e ' +
@@ -249,10 +253,27 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
   }
   const names = new Map<string, string>();
   if (counterpartyIds.size > 0) {
-    const r = await pool.query('select id, name from erp_counterparties where id = ANY($1::uuid[])', [
-      [...counterpartyIds],
-    ]);
-    for (const row of r.rows ?? []) names.set(row.id, row.name);
+    // Имя заказчика — атрибут name EAV-сущности customer; фолбэк на ERP-справочник.
+    const r = await pool.query(
+      'select av.entity_id as id, av.value_json as name from attribute_values av ' +
+        'join attribute_defs d on d.id = av.attribute_def_id ' +
+        "where av.entity_id = ANY($1::uuid[]) and av.deleted_at is null and d.code in ('name', 'full_name', 'short_name')",
+      [[...counterpartyIds]],
+    );
+    for (const row of r.rows ?? []) {
+      let value = String(row.name ?? '');
+      try {
+        value = String(JSON.parse(value));
+      } catch {
+        /* не-JSON — как есть */
+      }
+      if (value && !names.has(row.id)) names.set(row.id, value);
+    }
+    const missing = [...counterpartyIds].filter((id) => !names.has(id));
+    if (missing.length > 0) {
+      const erp = await pool.query('select id, name from erp_counterparties where id = ANY($1::uuid[])', [missing]);
+      for (const row of erp.rows ?? []) names.set(row.id, row.name);
+    }
   }
   const contractNames = new Map<string, string>();
   if (contractIds.size > 0) {
