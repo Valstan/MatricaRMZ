@@ -7,6 +7,7 @@ import { setAndroidPlatformHooks } from '../shims/platform.js';
 import { bootAndroidCore, type AndroidCore } from '../core/boot.js';
 import { installAndroidBridge } from '../core/ipcWiring.js';
 import { openAndroidReplica } from './replica.js';
+import { checkAndOfferSelfUpdate } from '../core/selfUpdate.js';
 
 declare const __MATRICA_APP_VERSION__: string;
 declare const __MATRICA_DEFAULT_API_BASE_URL__: string;
@@ -45,6 +46,17 @@ export async function bootCapacitorClient(): Promise<AndroidCore> {
   globalThis.addEventListener?.('online', () => {
     void core.syncManager.runOnce().catch(() => {});
   });
+
+  // Самообновление «как на Винде»: чек-ин Диспетчеру после того, как UI встал
+  // (пауза — чтобы диалог не выскакивал поверх экрана загрузки).
+  setTimeout(() => {
+    void checkAndOfferSelfUpdate({
+      apiBaseUrl: core.apiBaseUrl,
+      currentVersion: __MATRICA_APP_VERSION__,
+      clientId: core.clientId,
+      log: (msg) => console.info(`[android-main] ${msg}`),
+    }).catch(() => {});
+  }, 5000);
 
   return core;
 }

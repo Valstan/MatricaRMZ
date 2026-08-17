@@ -15,7 +15,7 @@ import {
   registerLanHttpPeers,
   registerUpdatePeers,
 } from '../services/updateTorrentService.js';
-import { getArchiveMeta, getStubMeta } from '../services/updateDispatcherService.js';
+import { getArchiveMeta, getLatestAndroidApkMeta, getStubMeta } from '../services/updateDispatcherService.js';
 
 export const updatesRouter = Router();
 
@@ -130,6 +130,28 @@ updatesRouter.get('/file/:name', async (req, res) => {
     }
     res.setHeader('Content-Length', stubStat.size);
     createReadStream(stub.filePath).pipe(res);
+    return;
+  }
+  // APK планшетного клиента — из <updatesDir>/android/ (самообновление Android).
+  const apk = name.toLowerCase().endsWith('.apk') ? await getLatestAndroidApkMeta() : null;
+  if (apk && name === apk.fileName) {
+    const apkStat = await stat(apk.filePath).catch(() => null);
+    if (!apkStat?.isFile()) {
+      return res.status(404).json({ ok: false, error: 'файл не найден' });
+    }
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const apkRange = parseRangeHeader(req.headers.range, apkStat.size);
+    if (apkRange) {
+      res.status(206);
+      res.setHeader('Content-Length', apkRange.end - apkRange.start + 1);
+      res.setHeader('Content-Range', `bytes ${apkRange.start}-${apkRange.end}/${apkStat.size}`);
+      createReadStream(apk.filePath, { start: apkRange.start, end: apkRange.end }).pipe(res);
+      return;
+    }
+    res.setHeader('Content-Length', apkStat.size);
+    createReadStream(apk.filePath).pipe(res);
     return;
   }
   // Промежуточные версии каскада обновлений — из <updatesDir>/archive/.

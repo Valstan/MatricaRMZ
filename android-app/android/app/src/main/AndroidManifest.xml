@@ -43,4 +43,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Самообновление: передача скачанного APK системному установщику
+         (ApkUpdaterPlugin). Разовое согласие пользователь даёт на системном
+         экране «Установка из неизвестных источников». -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>
