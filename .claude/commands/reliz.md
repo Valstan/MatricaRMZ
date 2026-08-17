@@ -24,8 +24,9 @@ description: Выпусти новый релиз согласно инстру�
    - письмо `mailbox/to-brain/` — если находка прошла фильтр #009 (значимость + переносимость + неочевидность).
 4. Локальная проверка: `corepack pnpm -F @matricarmz/shared -F @matricarmz/backend-api -F @matricarmz/web-admin build` + `corepack pnpm -r typecheck`. Красное → стоп, не коммить.
 5. PR-flow (ADR-0002, прямой push в `main` запрещён): ветка `release/vX.Y.Z` → коммит(ы) `release: vX.Y.Z — <описание>` (код + closeout-доки одной веткой) → push → `gh pr create`. **НЕ показывать diff, НЕ ждать OK** — авто-мерж на зелёных гейтах (постулат 30): `gh pr checks` до зелёного → `gh pr merge --squash --delete-branch`. Красный гейт → стоп + диагностика.
-6. После merge: `git checkout main && git pull --ff-only`, тег на свежем `main` + пуш **только тега**: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-7. Дождись сборки installer'а сам: `gh run watch <id>` (найди run по тегу через `gh run list`). Не «напоминай владельцу подождать».
+6. После merge: `git checkout main && git pull --ff-only`, тег на свежем `main` + пуш **только тега**: `git tag vX.Y.Z && git push origin vX.Y.Z`. **Плюс тег планшета там же:** `git tag android-vX.Y.Z && git push origin android-vX.Y.Z` — префиксы разведены, `v*` собирает только Electron-инсталлятор, APK собирает `android-v*`.
+7. Дождись сборки сам: `gh run watch <id>` (найди run'ы по тегам через `gh run list`) — и installer, и APK планшета. Не «напоминай владельцу подождать».
+7a. **APK планшета — на прод руками, качать ЛОКАЛЬНО** (иначе планшеты не обновятся: Диспетчер скажет `up-to-date`). `gh release download android-vX.Y.Z --pattern "*.apk"` в темп локально → `scp` на прод как `/opt/matricarmz/updates/android/MatricaRMZ-X.Y.Z.apk` (**номер в имени обязателен** — сервер читает версию из имени файла). С прода `gh release download` таймаутит по TLS. Рестарт и `latest.yml` для Android не нужны. Детали — AGENTS.md §Release process шаг 8a.
 
 ## Прод-деплой — авто (без «явного да», кроме #025)
 
