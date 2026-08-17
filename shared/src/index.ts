@@ -12,6 +12,7 @@ export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/repairNorm.js';
 export * from './domain/engineActSnapshot.js';
+export * from './domain/contractInternalNumber.js';
 export * from './domain/engineInternalNumber.js';
 export * from './domain/engineReservation.js';
 export * from './domain/engineFlatFields.js';

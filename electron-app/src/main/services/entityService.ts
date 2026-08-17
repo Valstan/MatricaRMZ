@@ -3,8 +3,12 @@ import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  CONTRACT_ENTITY_TYPE_CODE,
+  CONTRACT_INTERNAL_NUMBER_CODE,
   CONTRACT_PAYMENTS_ATTR_CODE,
   ENGINE_RESERVATION_CODE,
+  contractInternalNumberDuplicateMessage,
+  contractInternalNumberKey,
   collectContractEntityReferences,
   collectContractPaymentsEngineIds,
   parseContractPayments,
@@ -265,6 +269,75 @@ export async function getEntityDetails(db: BetterSQLite3Database, id: string, fa
   };
 }
 
+function parseTextAttr(valueJson: string | null | undefined): string {
+  if (valueJson == null) return '';
+  try {
+    const parsed = JSON.parse(String(valueJson));
+    return typeof parsed === 'string' ? parsed.trim() : '';
+  } catch {
+    return String(valueJson).trim();
+  }
+}
+
+/**
+ * Живой договор, уже занявший этот внутренний номер («20/ГОЗ-25»), — или null.
+ *
+ * Клиентская половина гейта: серверная живёт в `contractNumberGuard`. Обе нужны.
+ * Сервер закрывает web-admin и pending-строки, но карточка договора в клиенте
+ * пишет в ЛОКАЛЬНУЮ базу и уезжает синком — без проверки здесь дубль спокойно
+ * лёг бы на месте, а на сервере отбился бы уже после, оставив строку висеть в
+ * pending. Нормализатор ключа общий с сервером (`contractInternalNumberKey`),
+ * иначе половины гейта разошлись бы в понимании «это один и тот же номер».
+ */
+async function findLocalContractInternalNumberDuplicate(
+  db: BetterSQLite3Database,
+  internalNumber: unknown,
+  excludeEntityId: string,
+): Promise<{ id: string; internalNumber: string; contractNumber: string } | null> {
+  const key = contractInternalNumberKey(internalNumber);
+  if (!key) return null;
+
+  const rows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      code: attributeDefs.code,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
+    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(
+      and(
+        eq(entityTypes.code, CONTRACT_ENTITY_TYPE_CODE),
+        inArray(attributeDefs.code, [CONTRACT_INTERNAL_NUMBER_CODE, 'number']),
+        isNull(attributeDefs.deletedAt),
+        isNull(attributeValues.deletedAt),
+        isNull(entities.deletedAt),
+        isNull(entityTypes.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const byContract = new Map<string, Record<string, string>>();
+  for (const r of rows) {
+    const id = String(r.entityId);
+    if (id === excludeEntityId) continue;
+    const value = parseTextAttr(r.valueJson);
+    if (!value) continue;
+    const entry = byContract.get(id) ?? {};
+    entry[String(r.code)] = value;
+    byContract.set(id, entry);
+  }
+
+  for (const [id, entry] of byContract) {
+    const number = entry[CONTRACT_INTERNAL_NUMBER_CODE] ?? '';
+    if (!number || contractInternalNumberKey(number) !== key) continue;
+    return { id, internalNumber: number, contractNumber: entry['number'] ?? '' };
+  }
+  return null;
+}
+
 export async function setEntityAttribute(
   db: BetterSQLite3Database,
   entityId: string,
@@ -321,6 +394,21 @@ export async function setEntityAttribute(
       if (def) {
         const referenceError = await validateLinkValue(db, def, value);
         if (referenceError) return { ok: false as const, error: referenceError };
+      }
+      // Внутренний номер договора обязан быть уникальным («20/ГОЗ-25» = 20-й
+      // договор ГОЗ-25). Проверяем только при РЕАЛЬНОЙ смене значения: иначе
+      // повторное сохранение карточки без правки номера отбивалось бы само на
+      // себе. Себя из поиска исключаем по entityId.
+      if (code === CONTRACT_INTERNAL_NUMBER_CODE) {
+        const contractType = await db
+          .select({ code: entityTypes.code })
+          .from(entityTypes)
+          .where(eq(entityTypes.id, typeId))
+          .limit(1);
+        if (String(contractType[0]?.code ?? '').toLowerCase() === CONTRACT_ENTITY_TYPE_CODE) {
+          const dup = await findLocalContractInternalNumberDuplicate(db, value, entityId);
+          if (dup) return { ok: false as const, error: contractInternalNumberDuplicateMessage(dup) };
+        }
       }
     }
 

@@ -2,6 +2,8 @@ import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import {
+  CONTRACT_ENTITY_TYPE_CODE,
+  CONTRACT_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   STATUS_CODES,
@@ -15,6 +17,7 @@ import {
   parseContractPayments,
   collectSupplyRequestEntityReferences,
   collectWorkOrderEntityReferences,
+  contractInternalNumberDuplicateMessage,
   engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
@@ -22,6 +25,7 @@ import {
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
+import { findContractInternalNumberDuplicate } from './contractNumberGuard.js';
 import {
   engineHasDuplicateBypassFlag,
   findEngineDuplicateByNumber,
@@ -1131,6 +1135,15 @@ async function isEngineEntityType(entityTypeId: string): Promise<boolean> {
   return String(rows[0]?.code ?? '').toLowerCase() === 'engine';
 }
 
+async function isContractEntityType(entityTypeId: string): Promise<boolean> {
+  const rows = await db
+    .select({ code: entityTypes.code })
+    .from(entityTypes)
+    .where(eq(entityTypes.id, entityTypeId as any))
+    .limit(1);
+  return String(rows[0]?.code ?? '').toLowerCase() === CONTRACT_ENTITY_TYPE_CODE;
+}
+
 async function recordEngineStatusAudit(args: {
   actor: Actor;
   entityId: string;
@@ -1236,6 +1249,16 @@ export async function setEntityAttribute(
     const dup = await findEngineInternalNumberDuplicate(number, year, entityId);
     if (dup) {
       return { ok: false as const, error: engineInternalNumberDuplicateMessage(dup) };
+    }
+  }
+  // Внутренний номер ДОГОВОРА («20/ГОЗ-25») тоже обязан быть уникальным — он
+  // означает «20-й договор ГОЗ-25», двух таких быть не может. Гейта не было, и
+  // на проде накопились три живых договора с одним номером (2026-08-17).
+  // Здесь ключ — сама строка, а не пара с годом: год уже внутри неё.
+  if (code === CONTRACT_INTERNAL_NUMBER_CODE && (await isContractEntityType(String(e[0].typeId)))) {
+    const dup = await findContractInternalNumberDuplicate(value, entityId);
+    if (dup) {
+      return { ok: false as const, error: contractInternalNumberDuplicateMessage(dup) };
     }
   }
   if (existing[0]) {
