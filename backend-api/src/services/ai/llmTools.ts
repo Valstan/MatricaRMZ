@@ -201,6 +201,25 @@ async function getEngineDetails(input: Record<string, unknown>): Promise<ToolRes
 // Ищем по подстроке (регистронезависимо) и, если установлен pg_trgm, добираем
 // похожие по триграммной близости. Покрывает EAV-сущности (заказчики,
 // двигатели, сотрудники, детали…) и ERP-справочники контрагентов/номенклатуры.
+// Атрибуты, по которым человек опознаёт сущность вслух. Не «все текстовые» —
+// иначе в кандидаты полезут комментарии и реквизиты счетов, и нечёткий поиск
+// начнёт возвращать шум вместо ответа.
+const SEARCHABLE_IDENTIFIER_CODES = [
+  'name',
+  'full_name',
+  'short_name',
+  'login',
+  'goz_name', // у договора нет `name` — по-человечески он зовётся наименованием ГОЗ
+  'number', // номер договора
+  'internal_number', // внутренний номер договора («20/ГОЗ-25»)
+  'engine_number',
+  'engine_internal_number', // клеймо на безымянных деталях («41/26»)
+  'personnel_number', // табельный номер сотрудника
+  'assembly_unit_number',
+  'code',
+  'short_code',
+] as const;
+
 let trgmAvailable: boolean | null = null;
 async function hasTrgm(): Promise<boolean> {
   if (trgmAvailable !== null) return trgmAvailable;
@@ -221,10 +240,15 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
   const trgm = await hasTrgm();
   const results: Array<Record<string, unknown>> = [];
 
-  // 1. EAV: имена лежат в атрибутах name/full_name/short_name/engine_number/login.
+  // 1. EAV: человеческий идентификатор сущности лежит не только в name — у
+  // договора имени нет вовсе, он опознаётся НОМЕРОМ (`number` /
+  // `internal_number`), у сотрудника есть табельный, у двигателя — клеймо.
+  // Пока список был только name/full_name/short_name/engine_number/login,
+  // вопрос «сводка по договору 425» давал 0 строк: номер договора не искался
+  // ни одним tool'ом (кейс владельца 2026-08-17).
   const eavParams: unknown[] = [query.toLowerCase()];
   let eavWhere =
-    "d.code in ('name', 'full_name', 'short_name', 'engine_number', 'login') " +
+    `d.code in (${SEARCHABLE_IDENTIFIER_CODES.map((c) => `'${c}'`).join(', ')}) ` +
     'and av.deleted_at is null and e.deleted_at is null ' +
     `and (lower(coalesce(av.value_json, '')) like '%' || $1 || '%'` +
     (trgm ? ` or similarity(lower(coalesce(av.value_json, '')), $1) > 0.25` : '') +
@@ -233,14 +257,19 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
     eavParams.push(typeFilter);
     eavWhere += ` and t.code = $${eavParams.length}`;
   }
+  // Точное вхождение подстроки должно бить нечёткое совпадение, иначе длинный
+  // номер договора («…5215425/641/25/…», similarity ≈ 0.05) вытесняется из
+  // выдачи короткими похожими номерами двигателей («Ф07АТ2425», similarity
+  // высокая) — ровно этот перевёрнутый порядок владелец и увидел 2026-08-17.
   const eavSql =
     'select e.id, t.code as entity_type, d.code as matched_attr, av.value_json as matched_value ' +
+    `, (lower(coalesce(av.value_json, '')) like '%' || $1 || '%') as exact_hit ` +
     (trgm ? `, similarity(lower(coalesce(av.value_json, '')), $1) as score ` : ', 1.0 as score ') +
     'from attribute_values av ' +
     'join attribute_defs d on d.id = av.attribute_def_id ' +
     'join entities e on e.id = av.entity_id ' +
     'join entity_types t on t.id = e.type_id ' +
-    `where ${eavWhere} order by score desc limit ${limit}`;
+    `where ${eavWhere} order by exact_hit desc, score desc limit ${limit}`;
   const eav = await pool.query(eavSql, eavParams as any[]);
   for (const r of eav.rows ?? []) {
     let value = String(r.matched_value ?? '');
@@ -868,7 +897,17 @@ const TOOLS: Record<string, ToolEntry> = {
         'Выполнить произвольный SELECT-запрос (PostgreSQL, LIMIT 200) ' +
         'если других tools не хватает. Запрещены write-операции, комментарии, ' +
         'обращения к refresh_tokens, ledger_data_keys, password_hash и пр. ' +
+        '⚠️ ОБЯЗАТЕЛЬНО: удаление в этой базе — мягкое. В КАЖДОМ запросе к ' +
+        'entities / attribute_values / attribute_defs ставь `deleted_at is null` ' +
+        'на каждую таблицу, иначе в ответ попадут УДАЛЁННЫЕ записи и ты доложишь ' +
+        'их как действующие данные учёта. Так родился ложный доклад «у договора ' +
+        'есть дубль» (2026-08-17): «дубль» был удалён ещё 2026-03-19, а запрос ' +
+        'этого не отфильтровал. Если удалённые нужны намеренно — скажи об этом в ' +
+        'ответе прямо. ' +
         'Подсказки по схеме: контрагенты — erp_counterparties (не counterparties); ' +
+        'договор опознаётся НОМЕРОМ, а не именем: атрибуты `number` (длинный ' +
+        'казённый номер) и `internal_number` («20/ГОЗ-25»), поле `name` у него ' +
+        'отсутствует; двигатель ссылается на договор атрибутом `contract_id`; ' +
         'рекламации — НЕ таблица claims, а атрибуты reclamation_* двигателя (tool get_reclamations); ' +
         'двигатели/детали/сотрудники — EAV: entities + attribute_values + attribute_defs.',
       input_schema: {

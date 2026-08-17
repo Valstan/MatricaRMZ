@@ -43,7 +43,13 @@ const TICK_MS = Math.max(500, Number(process.env.AI_CHAT_DIRECT_TICK_MS ?? 2_000
 const STALE_PROCESSING_MS = Math.max(60_000, Number(process.env.AI_CHAT_DIRECT_STALE_MS ?? 10 * 60_000));
 const ANSWER_TIMEOUT_MS = Math.max(30_000, Number(process.env.AI_CHAT_ANSWER_TIMEOUT_MS ?? 5 * 60_000));
 const ANSWER_MAX_TOKENS = Math.max(512, Number(process.env.AI_CHAT_ANSWER_MAX_TOKENS ?? 4_000));
-const ANSWER_MAX_STEPS = Math.max(1, Math.min(Number(process.env.AI_CHAT_ANSWER_MAX_STEPS ?? 10), 12));
+// Потолок 12 — жёсткий (MAX_TOOL_STEPS в llmProvider). Дефолт поднят 10 → 12
+// после кейса владельца 2026-08-17: сводка по договору обрывалась на «выборка
+// не завершилась из-за исчерпания лимита обращений к инструментам», причём
+// половину шагов съедали безрезультатные поиски. Оборванный ответ всё равно
+// стоит полного набора токенов и вынуждает переспрашивать — то есть экономии
+// на низком дефолте не было.
+const ANSWER_MAX_STEPS = Math.max(1, Math.min(Number(process.env.AI_CHAT_ANSWER_MAX_STEPS ?? 12), 12));
 /** Текстовое вложение к вопросу инлайнится в промпт — картинки/офис движок не читает. */
 const INLINE_FILE_MAX_BYTES = 200_000;
 const INLINE_FILE_EXTENSIONS = ['.txt', '.csv', '.md', '.json', '.log', '.xml', '.yaml', '.yml'];
