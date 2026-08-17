@@ -7,7 +7,7 @@
 // в БД тулами, держать на нём транзакцию синка нельзя. Фоновые джобы крутятся только
 // на primary-инстансе (shouldRunBackgroundJobs), поэтому гонки двух воркеров нет;
 // внутрипроцессная защита — единственный тик в полёте плюс реклейм зависших строк.
-import { and, asc, eq, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
 
 import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { db } from '../../database/db.js';
@@ -36,6 +36,7 @@ import {
 import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
 import { buildAnswerWorkbook, type AnswerTable } from './answerWorkbook.js';
 import { buildAnswerDocx } from './answerDocument.js';
+import { appendLearningNote, getLearningNotes } from './aiChatLearningNotes.js';
 
 const TICK_MS = Math.max(500, Number(process.env.AI_CHAT_DIRECT_TICK_MS ?? 2_000));
 /** Строка зависла в `processing` (рестарт сервера посреди ответа) — вернуть в очередь. */
@@ -85,10 +86,31 @@ const BASE_PROMPT =
   'Ты ИИваныч — помощник работников ремонтно-механического завода в ERP-программе «Матрица РМЗ». ' +
   'Отвечай по-русски, по делу, без воды: сначала прямой ответ, затем при необходимости пояснение. ' +
   'Данные бери ТОЛЬКО из tools (read-only доступ к базе) — не выдумывай числа, названия и функции программы. ' +
+  'Пользователи пишут неточно: сокращённые названия, опечатки, внутренний жаргон. ' +
+  'Прежде чем сказать «не найдено / не существует» — ОБЯЗАТЕЛЬНО поищи через find_entity (нечёткий поиск). ' +
+  'Если запрос неоднозначен или кандидатов несколько — задай пользователю короткий уточняющий вопрос ' +
+  'обычным ответом (перечисли найденные варианты); его следующее сообщение придёт с контекстом этого диалога. ' +
+  'Когда уточнение раскрыло, что пользователь имел в виду (синоним, сокращение, где лежат данные) — ' +
+  'сохрани это одной фразой через save_learning_note, чтобы в следующий раз не переспрашивать. ' +
   'Если данных для точного ответа нет или прав пользователя не хватает — вызови escalate_to_admin, а не гадай. ' +
   'Ответ оформляй простым markdown (заголовки, списки, таблицы до ~15 строк). ' +
   'Длинные таблицы отдавай файлом через attach_table. ' +
   'К каждому текстовому ответу сервер сам прикладывает документ Word — отдельно собирать его не нужно.';
+
+const SAVE_LEARNING_NOTE_TOOL: LlmToolDef = {
+  name: 'save_learning_note',
+  description:
+    'Сохранить короткую заметку самообучения: как понимать пользователей в будущем. ' +
+    'Примеры: «ОВК = заказчик ООО "ОВК" (тип customer)», «рекламации ищи через get_reclamations». ' +
+    'Вызывай после успешного уточнения или когда обнаружил неочевидное соответствие. Одна фраза, без воды.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      note: { type: 'string', description: 'Одна короткая фраза-правило.' },
+    },
+    required: ['note'],
+  },
+};
 
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS ?? 3));
 
@@ -176,6 +198,45 @@ async function finish(
   });
 }
 
+const DIALOGUE_WINDOW_MS = 6 * 60 * 60_000;
+const DIALOGUE_MAX_TURNS = 3;
+const DIALOGUE_TEXT_CAP = 1_200;
+
+/**
+ * Последние отвеченные вопросы того же сотрудника — контекст диалога.
+ * Без него каждое сообщение — «с чистого листа», и уточняющий вопрос модели
+ * («какого именно контрагента?») не может получить осмысленный ответ.
+ */
+async function recentDialogueForUser(userId: string, excludeRequestId: string): Promise<string | null> {
+  const rows = await db
+    .select({
+      id: aiChatRequests.id,
+      questionText: aiChatRequests.questionText,
+      answerText: aiChatRequests.answerText,
+      answeredAt: aiChatRequests.answeredAt,
+    })
+    .from(aiChatRequests)
+    .where(
+      and(
+        isNull(aiChatRequests.deletedAt),
+        eq(aiChatRequests.userId, userId),
+        eq(aiChatRequests.status, 'answered'),
+        gt(aiChatRequests.answeredAt, nowMs() - DIALOGUE_WINDOW_MS),
+      ),
+    )
+    .orderBy(desc(aiChatRequests.answeredAt))
+    .limit(DIALOGUE_MAX_TURNS + 1);
+  const turns = rows
+    .filter((r) => String(r.id) !== excludeRequestId && r.answerText)
+    .slice(0, DIALOGUE_MAX_TURNS)
+    .reverse();
+  if (turns.length === 0) return null;
+  const cap = (t: string) => (t.length > DIALOGUE_TEXT_CAP ? `${t.slice(0, DIALOGUE_TEXT_CAP)}…` : t);
+  return turns
+    .map((t) => `Сотрудник: ${cap(String(t.questionText))}\nИИваныч: ${cap(String(t.answerText))}`)
+    .join('\n---\n');
+}
+
 async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   const requestId = String(row.id);
   const userId = String(row.userId);
@@ -186,6 +247,13 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
 
   const systemBlocks: SystemBlock[] = [{ type: 'text', text: BASE_PROMPT }];
   if (rulesMd) systemBlocks.push({ type: 'text', text: `Правила ответов, заданные администратором:\n${rulesMd}` });
+  const learningMd = await getLearningNotes().catch(() => null);
+  if (learningMd) {
+    systemBlocks.push({
+      type: 'text',
+      text: `Твои накопленные заметки о том, как понимать пользователей (самообучение):\n${learningMd}`,
+    });
+  }
   if (row.verdictText) {
     systemBlocks.push({
       type: 'text',
@@ -194,7 +262,12 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   }
 
   const personLabel = await personLabelForLogin(String(row.username));
+  // Недавний диалог того же сотрудника — контекст для уточняющих вопросов:
+  // «какого именно?» → следующее сообщение пользователя должно пониматься
+  // как ответ на уточнение, а не как вопрос с чистого листа.
+  const recent = await recentDialogueForUser(userId, requestId);
   const userMessage = [
+    ...(recent ? [`Недавний диалог с этим сотрудником (для контекста):\n${recent}`, ''] : []),
     `Вопрос сотрудника ${personLabel}:`,
     String(row.questionText),
     ...(fileBlock ? ['', fileBlock] : []),
@@ -207,13 +280,19 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     model: AI_MODEL_ANALYTICS,
     systemBlocks,
     userMessage,
-    tools: [...getToolDefinitions(FULL_TOOL_NAMES), ESCALATE_TOOL, ATTACH_TABLE_TOOL],
+    tools: [...getToolDefinitions(FULL_TOOL_NAMES), ESCALATE_TOOL, ATTACH_TABLE_TOOL, SAVE_LEARNING_NOTE_TOOL],
     options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
     maxSteps: ANSWER_MAX_STEPS,
     executeTool: async (toolUse: LlmToolUse) => {
       if (toolUse.name === ESCALATE_TOOL.name) {
         escalationReason = String(toolUse.input?.reason ?? '').trim() || 'причина не указана';
         return { content: 'Вопрос передан администратору. Заверши ответ короткой фразой об этом.' };
+      }
+      if (toolUse.name === SAVE_LEARNING_NOTE_TOOL.name) {
+        const res = await appendLearningNote(String(toolUse.input?.note ?? ''));
+        return res.ok
+          ? { content: 'Заметка сохранена.' }
+          : { content: `Заметка не сохранена: ${res.error}`, isError: true };
       }
       if (toolUse.name === ATTACH_TABLE_TOOL.name) {
         const table = parseAttachTable(toolUse.input ?? {});
