@@ -175,6 +175,43 @@ function getArchiveDir(): string | null {
   return dir ? join(dir, 'archive') : null;
 }
 
+function getAndroidDir(): string | null {
+  const dir = getUpdatesDir();
+  return dir ? join(dir, 'android') : null;
+}
+
+let cachedAndroidApk: (LatestMetaLike & { filePath: string; mtimeMs: number }) | null = null;
+
+/**
+ * Свежайший APK планшетного клиента из <updatesDir>/android/. Версия — из имени
+ * файла; если файлов несколько, берётся старший по эпохо-зависимому сравнению.
+ * null — каталога нет или пуст (тогда план честно скажет «нет файла»).
+ */
+export async function getLatestAndroidApkMeta(): Promise<(LatestMetaLike & { filePath: string }) | null> {
+  const dir = getAndroidDir();
+  if (!dir) return null;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const apks = entries
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.apk'))
+    .map((e) => ({ name: e.name, version: extractVersionFromFileName(e.name) }))
+    .filter((e): e is { name: string; version: string } => !!e.version)
+    .sort((a, b) => compareAppVersion(b.version, a.version));
+  const top = apks[0];
+  if (!top) return null;
+  const filePath = join(dir, top.name);
+  const st = await stat(filePath).catch(() => null);
+  if (!st?.isFile()) return null;
+  const mtimeMs = Number(st.mtimeMs ?? 0);
+  if (cachedAndroidApk && cachedAndroidApk.filePath === filePath && cachedAndroidApk.mtimeMs === mtimeMs && cachedAndroidApk.size === st.size) {
+    return cachedAndroidApk;
+  }
+  const buf = await readFile(filePath);
+  const sha256 = createHash('sha256').update(buf).digest('hex');
+  cachedAndroidApk = { version: top.version, fileName: top.name, filePath, size: st.size, sha256, mtimeMs };
+  logInfo(`android update apk loaded: ${top.name} (${st.size} bytes)`);
+  return cachedAndroidApk;
+}
+
 const archiveMetaCache = new Map<string, { mtimeMs: number; size: number; sha256: string }>();
 
 /** Метаданные файла из <updatesDir>/archive/ (промежуточные версии каскада). */
@@ -230,6 +267,8 @@ export async function getUpdatePlan(current: string, platform = 'windows'): Prom
     logWarn(`upgrade cascade misconfigured: step ${hop.version} (${hop.fileName}) has no archive file and no url+size+sha256`);
     return { action: 'none', reason: `промежуточная версия ${hop.version} недоступна на сервере` };
   }
-  const latest = await getLatestUpdateFileMeta();
+  // Планшетный клиент обновляется собственным APK (<updatesDir>/android/), а не
+  // Windows-инсталлятором; решение «свежий/нет» — тем же эпохо-зависимым сравнением.
+  const latest = platform === 'android' ? await getLatestAndroidApkMeta() : await getLatestUpdateFileMeta();
   return decideUpdatePlan(current, latest);
 }
