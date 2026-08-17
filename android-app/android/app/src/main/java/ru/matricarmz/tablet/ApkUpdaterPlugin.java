@@ -13,8 +13,10 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -50,6 +52,28 @@ public class ApkUpdaterPlugin extends Plugin {
 
     final Handler ui = new Handler(Looper.getMainLooper());
     final Context ctx = getContext();
+
+    // Без разрешения «установка из неизвестных источников» система молча
+    // отшивает установщик «permission denied» (поймано владельцем 2026-08-17).
+    // Проверяем ЗАРАНЕЕ и ведём пользователя на нужный экран настроек.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        && !ctx.getPackageManager().canRequestPackageInstalls()) {
+      ui.post(() -> new AlertDialog.Builder(getActivity())
+          .setTitle("Нужно разрешение на установку")
+          .setMessage("Сейчас откроются настройки. Включите «Разрешить установку из этого источника», "
+              + "вернитесь в программу и согласитесь на обновление ещё раз.")
+          .setCancelable(false)
+          .setPositiveButton("Открыть настройки", (d, w) -> {
+            Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + ctx.getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+          })
+          .setNegativeButton("Отмена", null)
+          .show());
+      call.reject("нет разрешения на установку — открыт экран настроек");
+      return;
+    }
 
     // Нативный диалог прогресса — виден поверх WebView, обновление нельзя
     // перепутать с зависанием (тот же урок, что у Windows-заглушки).
