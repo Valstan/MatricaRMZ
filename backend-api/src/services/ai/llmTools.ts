@@ -209,7 +209,7 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
     params.push(`%${search.toLowerCase()}%`);
     counterpartyFilter =
       ` and exists (select 1 from attribute_values avc join attribute_defs dc on dc.id = avc.attribute_def_id ` +
-      `left join erp_counterparties c on c.id::text = trim(both '\"' from coalesce(avc.value_json, '')) ` +
+      `left join erp_counterparties c on c.id::text = trim(both '"' from coalesce(avc.value_json, '')) ` +
       `where avc.entity_id = e.id and avc.deleted_at is null and dc.code = 'customer_id' ` +
       `and lower(coalesce(c.name, '')) like $${params.length})`;
   }
