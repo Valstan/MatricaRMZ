@@ -561,6 +561,13 @@
       "when": 1784876400000,
       "tag": "0080_defect_instance_reservations",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1786968000000,
+      "tag": "0081_pg_trgm_extension",
+      "breakpoints": true
     }
   ]
 }
