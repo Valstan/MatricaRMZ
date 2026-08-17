@@ -269,6 +269,14 @@ export async function getUpdatePlan(current: string, platform = 'windows'): Prom
   }
   // Планшетный клиент обновляется собственным APK (<updatesDir>/android/), а не
   // Windows-инсталлятором; решение «свежий/нет» — тем же эпохо-зависимым сравнением.
-  const latest = platform === 'android' ? await getLatestAndroidApkMeta() : await getLatestUpdateFileMeta();
+  // filePath/mtimeMs — внутренняя кухня кэша, наружу отдаём только мету файла.
+  if (platform === 'android') {
+    const apk = await getLatestAndroidApkMeta();
+    return decideUpdatePlan(
+      current,
+      apk ? { version: apk.version, fileName: apk.fileName, size: apk.size, sha256: apk.sha256 } : null,
+    );
+  }
+  const latest = await getLatestUpdateFileMeta();
   return decideUpdatePlan(current, latest);
 }
