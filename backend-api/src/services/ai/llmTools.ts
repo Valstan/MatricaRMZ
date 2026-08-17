@@ -196,6 +196,83 @@ async function getEngineDetails(input: Record<string, unknown>): Promise<ToolRes
   return jsonResult({ found: true, engine: head.rows[0], attributes });
 }
 
+// Нечёткий поиск сущностей по имени: пользователи пишут сокращённо и с
+// ошибками («ОВК» вместо «ООО "ОВК"», «гранит» вместо «АО "РПТП "ГРАНИТ"»).
+// Ищем по подстроке (регистронезависимо) и, если установлен pg_trgm, добираем
+// похожие по триграммной близости. Покрывает EAV-сущности (заказчики,
+// двигатели, сотрудники, детали…) и ERP-справочники контрагентов/номенклатуры.
+let trgmAvailable: boolean | null = null;
+async function hasTrgm(): Promise<boolean> {
+  if (trgmAvailable !== null) return trgmAvailable;
+  try {
+    const r = await pool.query("select 1 from pg_extension where extname = 'pg_trgm'");
+    trgmAvailable = (r.rows ?? []).length > 0;
+  } catch {
+    trgmAvailable = false;
+  }
+  return trgmAvailable;
+}
+
+async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
+  const query = asString(input, 'query').trim();
+  if (!query) return { content: 'Параметр query обязателен.', isError: true };
+  const typeFilter = asString(input, 'type').trim().toLowerCase();
+  const limit = Math.min(asLimit(input), 25);
+  const trgm = await hasTrgm();
+  const results: Array<Record<string, unknown>> = [];
+
+  // 1. EAV: имена лежат в атрибутах name/full_name/short_name/engine_number/login.
+  const eavParams: unknown[] = [query.toLowerCase()];
+  let eavWhere =
+    "d.code in ('name', 'full_name', 'short_name', 'engine_number', 'login') " +
+    'and av.deleted_at is null and e.deleted_at is null ' +
+    `and (lower(coalesce(av.value_json, '')) like '%' || $1 || '%'` +
+    (trgm ? ` or similarity(lower(coalesce(av.value_json, '')), $1) > 0.25` : '') +
+    ')';
+  if (typeFilter) {
+    eavParams.push(typeFilter);
+    eavWhere += ` and t.code = $${eavParams.length}`;
+  }
+  const eavSql =
+    'select e.id, t.code as entity_type, d.code as matched_attr, av.value_json as matched_value ' +
+    (trgm ? `, similarity(lower(coalesce(av.value_json, '')), $1) as score ` : ', 1.0 as score ') +
+    'from attribute_values av ' +
+    'join attribute_defs d on d.id = av.attribute_def_id ' +
+    'join entities e on e.id = av.entity_id ' +
+    'join entity_types t on t.id = e.type_id ' +
+    `where ${eavWhere} order by score desc limit ${limit}`;
+  const eav = await pool.query(eavSql, eavParams as any[]);
+  for (const r of eav.rows ?? []) {
+    let value = String(r.matched_value ?? '');
+    try {
+      value = String(JSON.parse(value));
+    } catch {
+      /* как есть */
+    }
+    if (isHiddenAttributeName(r.matched_attr)) continue;
+    results.push({ id: r.id, entityType: r.entity_type, matchedAttr: r.matched_attr, name: value, score: r.score });
+  }
+
+  // 2. ERP-справочники с прямыми колонками имён.
+  if (!typeFilter || ['counterparty', 'erp_counterparty', 'nomenclature'].includes(typeFilter)) {
+    const erpSql =
+      `select id, name, 'erp_counterparty' as entity_type from erp_counterparties ` +
+      `where lower(name) like '%' || $1 || '%'` +
+      (trgm ? ` or similarity(lower(name), $1) > 0.25` : '') +
+      ` limit ${limit}`;
+    const erp = await pool.query(erpSql, [query.toLowerCase()]);
+    for (const r of erp.rows ?? []) results.push({ id: r.id, entityType: r.entity_type, name: r.name });
+  }
+
+  if (results.length === 0) {
+    return jsonResult({
+      found: false,
+      hint: 'Ничего похожего. Попробуй другой вариант написания или спроси пользователя, что он имел в виду.',
+    });
+  }
+  return jsonResult({ found: true, candidates: results.slice(0, limit) });
+}
+
 // Рекламации — НЕ отдельная таблица: это EAV-атрибуты reclamation_* на самой
 // сущности двигателя (см. shared/src/domain/reclamation.ts). Без этого tool
 // модель ищет несуществующую таблицу claims, получает отказ и неверно
@@ -658,6 +735,27 @@ const TOOLS: Record<string, ToolEntry> = {
     },
     requires: ['engines.view'],
     handler: (input) => getEngineDetails(input),
+  },
+  find_entity: {
+    def: {
+      name: 'find_entity',
+      description:
+        'Нечёткий поиск сущности по имени/номеру: заказчики, контрагенты, двигатели, сотрудники, детали. ' +
+        'Понимает сокращения, подстроки и опечатки («ОВК» найдёт ООО «ОВК»). ВСЕГДА вызывай этот tool, ' +
+        'если названная пользователем сущность не нашлась точным запросом — прежде чем отвечать «не существует». ' +
+        'Параметр type (опционально): customer, engine, employee, part, erp_counterparty.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Имя/номер как написал пользователь.' },
+          type: { type: 'string', description: 'Тип сущности, если известен.' },
+          limit: { type: 'integer', description: 'Максимум кандидатов (default 25).' },
+        },
+        required: ['query'],
+      },
+    },
+    requires: ['engines.view', 'employees.view', 'parts.view', 'reports.view'],
+    handler: (input) => findEntity(input),
   },
   get_reclamations: {
     def: {
