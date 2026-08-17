@@ -199,8 +199,13 @@ func main() {
 	sayf("")
 	logf(logFile, "stub-updater start, server=%s", server)
 
-	client := &http.Client{Timeout: 15 * time.Minute}
-	planClient := &http.Client{Timeout: 30 * time.Second}
+	// Заводские/офисные сети режут TLS к нашему VPS: хендшейк там стабильно
+	// ~12,5 с (замерено 2026-08-17; с самого сервера — 5 мс, это DPI по пути).
+	// Дефолтный TLSHandshakeTimeout Go — 10 с, из-за него заглушка падала на
+	// рабочем ПК владельца при живом сервере. Даём хендшейку минуту.
+	transport := &http.Transport{TLSHandshakeTimeout: 60 * time.Second}
+	client := &http.Client{Timeout: 15 * time.Minute, Transport: transport}
+	planClient := &http.Client{Timeout: 90 * time.Second, Transport: transport}
 
 	// Несколько попыток с паузой: заглушку часто запускают сразу после скачивания,
 	// сеть может ещё моргать. Больше трёх не имеет смысла — старый updater перезапустит
