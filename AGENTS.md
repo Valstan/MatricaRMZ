@@ -122,6 +122,14 @@ git checkout main && git pull
 
 Мост между режимами — [`docs/zavod/PROGRAM_EFFECTS.md`](docs/zavod/PROGRAM_EFFECTS.md): журнал эффектов программы (зачем сделано → что улучшило, в каком модуле), заполняется в dev-`/close_session` §7.5 при отгруженной функциональности. Обратный мост: идеи ППО, дозревшие до «делаем в программе», приходят в dev-поток задачами (через владельца или PENDING_FOLLOWUPS).
 
+## Два поколения программы (гейт смешения, D-031)
+
+Матрица 4 строится в **отдельном репозитории [`Matrica4`](https://github.com/Valstan/Matrica4)** (директива D-031, план — [`docs/plans/matrica-v4-kickoff-2026-08.md`](docs/plans/matrica-v4-kickoff-2026-08.md)). Требование владельца 2026-08-17: «чтобы проекты сами меня контролировали, если я забуду, в каком я репо».
+
+- **Стройка ядра v4 (контракт, kernel, манифесты, модули) — НЕ здесь.** На просьбу про v4-ядро отвечай «это делается в Matrica4, ты в MatricaRMZ» и требуй явного подтверждения, прежде чем что-либо делать тут.
+- **Релизы и деплой клиентов парка — ТОЛЬКО отсюда** (из MatricaRMZ). В Matrica4 до стадии клиентских релизов физически нет релизных механизмов — не заводить их там.
+- Что **остаётся здесь** по плану v4: трек B — финиш миграции EAV→erp_* (этапы 0–6), обычные релизные циклы v3.
+
 ## Команды управления сессией
 
 Исполняемые памятки лежат в [`.claude/commands/`](.claude/commands/), скиллы — в [`.claude/skills/`](.claude/skills/). Несмотря на имя каталога, **их workflow применим любому агенту** — агент без slash-команд читает соответствующий `.md` и выполняет описанный порядок шагов. **Зеркал в vendor-каталогах не заводим** (`.agents/skills/` и т.п.): рваное зеркало хуже отсутствующего — агент решает, что видит всё, и молча теряет половину команд.
@@ -172,6 +180,8 @@ Use conditional spread instead: `...(x.val ? { field: String(x.val) } : {})`
 Entity attributes are stored in the `attribute_values` table (EAV pattern).
 No DDL migrations needed when adding a new attribute — use `setAttr(entityId, attrName, value)`.
 New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterdataDetailsPage.tsx`.
+
+**EAV-freeze (с 2026-08-18, план v4 трек B):** EAV дожимается и выводится — **новые фичи не добавляют новых EAV-атрибутов**. Новые данные идут в строгие таблицы (`erp_*` / `directory_*` / отдельная таблица); каждый новый атрибут удорожает миграцию доменов (двигатели — 28k значений). Исключение — только с явной отсылкой к [`docs/plans/matrica-v4-kickoff-2026-08.md`](docs/plans/matrica-v4-kickoff-2026-08.md) и обоснованием в PR.
 
 ## Release process
 
