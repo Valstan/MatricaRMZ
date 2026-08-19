@@ -84,6 +84,12 @@ import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
+import {
+  COLUMN_LAYOUT_CHANGE_EVENT,
+  hydrateColumnLayouts,
+  readAllColumnLayouts,
+  setColumnLayoutUser,
+} from './hooks/columnLayoutStore.js';
 import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
@@ -924,6 +930,10 @@ export function App() {
   // когда локальный блоб загружен (порядок GET-профиля и ui:prefs:get не определён).
   const roamedShellPrefsRef = useRef<{ value: UserUiProfileShellPrefs; stamp: number } | null>(null);
   const [roamedShellPrefsNonce, setRoamedShellPrefsNonce] = useState(0);
+  // Раскладки колонок списков живут в localStorage (синхронное чтение при
+  // маунте страницы), в профиль едут отдельной секцией: событие об изменении
+  // поднимает nonce → пуш перечитывает актуальный набор.
+  const [columnLayoutsNonce, setColumnLayoutsNonce] = useState(0);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
@@ -1755,6 +1765,9 @@ export function App() {
         /* localStorage недоступен — пропускаем посев */
       }
     };
+    // Скоуп ключей раскладок колонок: на общей рабочей станции раскладки одного
+    // оператора не должны быть видны другому (до v3.5.0 ключ был общим).
+    setColumnLayoutUser(userId);
     let retryTimer: number | null = null;
     const scheduleRetry = () => {
       // Push остаётся выключенным (ready не выставлен) до первого успешного GET:
@@ -1815,6 +1828,15 @@ export function App() {
             };
             setRoamedShellPrefsNonce((n) => n + 1);
           }
+          // Раскладки колонок применяются сразу (у каждой свой updatedAt — LWW
+          // по-раскладочно, локально более свежие не затираются). Открытые
+          // страницы перечитывают состояние по событию из hydrate.
+          const layouts = p.columnLayouts as Record<string, { order: string[]; hidden: string[]; updatedAt: number }> | undefined;
+          if (layouts) {
+            const applied = hydrateColumnLayouts(layouts);
+            uiProfileKeySigsRef.current.columnLayouts = JSON.stringify(readAllColumnLayouts());
+            if (applied > 0) setColumnLayoutsNonce((n) => n + 1);
+          }
         } else {
           uiProfileKeyStampsRef.current = {};
           uiProfileKeySigsRef.current = {};
@@ -1850,6 +1872,8 @@ export function App() {
     if (shellPrefs && shellPrefsLoadedForRef.current === userId) {
       snapshot.shellPrefs = extractUserUiProfileShellPrefs(shellPrefs);
     }
+    const layouts = readAllColumnLayouts();
+    if (Object.keys(layouts).length > 0) snapshot.columnLayouts = layouts;
     const keySigs: Record<string, string> = {};
     const changed: string[] = [];
     for (const [k, v] of Object.entries(snapshot)) {
@@ -1885,7 +1909,27 @@ export function App() {
       window.clearTimeout(timer);
       if (retryTimer != null) window.clearTimeout(retryTimer);
     };
-  }, [authStatus.loggedIn, authStatus.user?.id, tabsLayout, pinnedShortcuts, recentVisits, quickStartScores, shellPrefs, uiProfilePushNonce]);
+  }, [
+    authStatus.loggedIn,
+    authStatus.user?.id,
+    tabsLayout,
+    pinnedShortcuts,
+    recentVisits,
+    quickStartScores,
+    shellPrefs,
+    uiProfilePushNonce,
+    columnLayoutsNonce,
+  ]);
+
+  // Правка колонок на любой странице (порядок/скрытие) поднимает nonce —
+  // push-эффект перечитывает раскладки и отправляет секцию своим ключом.
+  useEffect(() => {
+    function onChange() {
+      setColumnLayoutsNonce((n) => n + 1);
+    }
+    window.addEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
+  }, []);
 
   // Применение roaming shell-настроек с сервера: ждём, пока загрузится локальный
   // блоб (порядок ответов GET-профиля и ui:prefs:get не определён), сравниваем

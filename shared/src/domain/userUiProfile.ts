@@ -77,6 +77,18 @@ export type UserUiProfile = {
   aiChatTemplates?: AiChatTemplate[];
   /** Roaming shell-настроек (закреплённые кнопки меню и пр.) — v3.5.0. */
   shellPrefs?: UserUiProfileShellPrefs;
+  /**
+   * Раскладки колонок списков (`list:engines:columns` → порядок + скрытые),
+   * v3.5.0. У каждой раскладки свой `updatedAt` — LWW решается по-раскладочно,
+   * поэтому правка колонок в одном списке не откатывает другой.
+   */
+  columnLayouts?: Record<string, UserUiProfileColumnLayout>;
+};
+
+export type UserUiProfileColumnLayout = {
+  order: string[];
+  hidden: string[];
+  updatedAt: number;
 };
 
 const MAX_LIST = 200;
@@ -235,6 +247,28 @@ export function extractUserUiProfileShellPrefs(prefs: UiShellPrefs): UserUiProfi
   };
 }
 
+const MAX_LAYOUTS = 200;
+
+function sanitizeColumnLayouts(raw: unknown): Record<string, UserUiProfileColumnLayout> | undefined {
+  if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return undefined;
+  const out: Record<string, UserUiProfileColumnLayout> = {};
+  let n = 0;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const layoutId = String(key).trim().slice(0, MAX_STR);
+    if (!layoutId || typeof value !== 'object' || value == null) continue;
+    const v = value as Record<string, unknown>;
+    const updatedAt = Number(v.updatedAt);
+    out[layoutId] = {
+      order: sanitizeStringArray(v.order) ?? [],
+      hidden: sanitizeStringArray(v.hidden) ?? [],
+      updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
+    };
+    n += 1;
+    if (n >= MAX_LAYOUTS) break;
+  }
+  return out;
+}
+
 const MAX_KEY_STAMPS = 32;
 const MAX_KEY_NAME = 64;
 
@@ -271,6 +305,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (aiChatTemplates !== undefined) out.aiChatTemplates = aiChatTemplates;
   const shellPrefs = sanitizeShellPrefsSection(r.shellPrefs);
   if (shellPrefs !== undefined) out.shellPrefs = shellPrefs;
+  const columnLayouts = sanitizeColumnLayouts(r.columnLayouts);
+  if (columnLayouts !== undefined) out.columnLayouts = columnLayouts;
   return out;
 }
 

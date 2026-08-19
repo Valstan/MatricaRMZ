@@ -115,6 +115,21 @@ describe('mergeUserUiProfiles', () => {
     expect(profile.aiChatTemplates?.[0]?.id).toBe('tpl9');
   });
 
+  it('columnLayouts section survives merge and is sanitized per layout', () => {
+    const { profile } = mergeUserUiProfiles(storedProfile(), {
+      updatedAt: T3,
+      keyUpdatedAt: { columnLayouts: T3 },
+      columnLayouts: {
+        'list:engines:columns': { order: ['num', 'brand'], hidden: ['brand'], updatedAt: T3 },
+        'list:bad': 'not an object',
+      },
+    });
+    expect(profile.columnLayouts?.['list:engines:columns']?.hidden).toEqual(['brand']);
+    expect(profile.columnLayouts?.['list:bad']).toBeUndefined();
+    // Другие секции не задеты.
+    expect(profile.shortcuts).toEqual(storedProfile().shortcuts);
+  });
+
   it('sanitizer keeps keyUpdatedAt and drops garbage entries', () => {
     const p = sanitizeUserUiProfile({
       updatedAt: T1,

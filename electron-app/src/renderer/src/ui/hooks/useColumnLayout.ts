@@ -1,48 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const STORAGE_PREFIX = 'matrica:columnLayout:';
-const CHANGE_EVENT = 'matrica:column-layout-changed';
+import {
+  COLUMN_LAYOUT_CHANGE_EVENT,
+  clearColumnLayout,
+  readColumnLayout,
+  writeColumnLayout,
+  type ColumnLayoutState,
+} from './columnLayoutStore.js';
 
-export type ColumnLayoutState = {
-  order: string[];
-  hidden: string[];
-};
-
-function storageKeyFor(layoutId: string) {
-  return `${STORAGE_PREFIX}${layoutId}`;
-}
-
-function readPersisted(layoutId: string): ColumnLayoutState | null {
-  try {
-    const raw = window.localStorage.getItem(storageKeyFor(layoutId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ColumnLayoutState>;
-    return {
-      order: Array.isArray(parsed.order) ? parsed.order.map(String) : [],
-      hidden: Array.isArray(parsed.hidden) ? parsed.hidden.map(String) : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writePersisted(layoutId: string, state: ColumnLayoutState) {
-  try {
-    window.localStorage.setItem(storageKeyFor(layoutId), JSON.stringify(state));
-    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { layoutId } }));
-  } catch {
-    // ignore
-  }
-}
-
-function clearPersisted(layoutId: string) {
-  try {
-    window.localStorage.removeItem(storageKeyFor(layoutId));
-    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { layoutId } }));
-  } catch {
-    // ignore
-  }
-}
+export type { ColumnLayoutState };
 
 function normalizeOrder(persisted: string[], allColumnIds: string[]): string[] {
   const known = new Set(allColumnIds);
@@ -75,7 +41,7 @@ export function useColumnLayout(
   defaultHidden: string[] = [],
 ): UseColumnLayoutResult {
   const [state, setState] = useState<ColumnLayoutState>(() => {
-    const persisted = readPersisted(layoutId);
+    const persisted = readColumnLayout(layoutId);
     if (persisted) {
       return {
         order: normalizeOrder(persisted.order, allColumnIds),
@@ -106,7 +72,7 @@ export function useColumnLayout(
     function onChange(ev: Event) {
       const detail = (ev as CustomEvent<{ layoutId?: string }>).detail;
       if (!detail || detail.layoutId !== layoutId) return;
-      const persisted = readPersisted(layoutId);
+      const persisted = readColumnLayout(layoutId);
       if (persisted) {
         setState({
           order: normalizeOrder(persisted.order, allColumnIds),
@@ -116,8 +82,8 @@ export function useColumnLayout(
         setState({ order: [...allColumnIds], hidden: [...defaultHidden] });
       }
     }
-    window.addEventListener(CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(CHANGE_EVENT, onChange);
+    window.addEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
   }, [layoutId, allColumnIds, defaultHidden]);
 
   const hiddenSet = useMemo(() => new Set(state.hidden), [state.hidden]);
@@ -129,7 +95,7 @@ export function useColumnLayout(
         if (visible) set.delete(id);
         else set.add(id);
         const next = { ...prev, hidden: Array.from(set) };
-        writePersisted(layoutId, next);
+        writeColumnLayout(layoutId, next);
         return next;
       });
     },
@@ -148,7 +114,7 @@ export function useColumnLayout(
         order[idx] = order[swapWith]!;
         order[swapWith] = tmp;
         const next = { ...prev, order };
-        writePersisted(layoutId, next);
+        writeColumnLayout(layoutId, next);
         return next;
       });
     },
@@ -156,7 +122,7 @@ export function useColumnLayout(
   );
 
   const resetToDefault = useCallback(() => {
-    clearPersisted(layoutId);
+    clearColumnLayout(layoutId);
     setState({ order: [...allColumnIds], hidden: [...defaultHidden] });
   }, [layoutId, allColumnIds, defaultHidden]);
 
