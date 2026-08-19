@@ -49,6 +49,9 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
         // Watchdog — внешний десктоп-процесс; его handshake шимится и в vitest:
         // electron-шим app не имеет getPath, реальный модуль упал бы fire-and-forget'ом.
         if (source.endsWith('/watchdogHandshakeService.js')) return resolve(shimsDir, 'watchdogHandshake.ts');
+        // Sidecar-копия сессии (%APPDATA%) — десктопный механизм на sync node:fs;
+        // в браузерном бандле его нет, на планшете reset и так перекрыт портом.
+        if (browser && source.endsWith('/sessionSidecarStore.js')) return resolve(shimsDir, 'sessionSidecarStore.ts');
         if (browser) {
           if (source.endsWith('/utils/logger.js')) return resolve(shimsDir, 'logger.ts');
           if (source.endsWith('/database/db.js')) return resolve(shimsDir, 'dbHandle.ts');

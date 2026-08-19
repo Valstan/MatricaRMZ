@@ -38,10 +38,11 @@ describe('sessionSidecarStore', () => {
   });
 
   it('rejects garbage or non-hex payloads on read', () => {
-    fsState.files.set('\\appdata\\MatricaRMZ\\auth-session.json', 'not json');
-    expect(readSidecarSession()).toBeNull();
+    // Use the store's own write to learn the real path (separator differs per OS).
     writeSidecarSession({ enc: true, data: 'deadbeef01' });
-    const key = [...fsState.files.keys()].find((k) => k.includes('auth-session'))!;
+    const key = [...fsState.files.keys()][0]!;
+    fsState.files.set(key, 'not json');
+    expect(readSidecarSession()).toBeNull();
     fsState.files.set(key, JSON.stringify({ enc: true, data: 'не-hex!' }));
     expect(readSidecarSession()).toBeNull();
   });
