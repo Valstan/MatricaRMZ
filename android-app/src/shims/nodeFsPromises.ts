@@ -32,12 +32,37 @@ export async function writeFile(path: string, data: string, _encoding?: unknown)
   store()?.setItem(PREFIX + path, String(data));
 }
 
-export async function rm(_path: string, _opts?: unknown): Promise<never> {
-  throw new Error('node:fs/promises shim: rm недоступен в android-клиенте');
+export async function readdir(dir: string): Promise<string[]> {
+  // «Каталог» — общий префикс ключей; отдаём только прямых детей (без подпапок).
+  const s = store();
+  if (!s) return [];
+  const prefix = PREFIX + String(dir).replace(/[\\/]+$/, '');
+  const names: string[] = [];
+  for (let i = 0; i < s.length; i += 1) {
+    const key = s.key(i) ?? '';
+    if (!key.startsWith(prefix)) continue;
+    const rest = key.slice(prefix.length).replace(/^[\\/]/, '');
+    if (rest && !/[\\/]/.test(rest)) names.push(rest);
+  }
+  return names;
+}
+
+export async function rm(path: string, opts?: { force?: boolean }): Promise<void> {
+  // Одиночный «файл» удаляем (нужно pending-export'у синка); рекурсивное
+  // удаление каталогов остаётся недоступным — desktop-ветка resetLocalDatabase
+  // на android перекрыта setResetLocalDatabaseImpl.
+  const s = store();
+  const key = PREFIX + path;
+  if (s?.getItem(key) != null) {
+    s.removeItem(key);
+    return;
+  }
+  if (opts?.force) return;
+  throw new Error('node:fs/promises shim: rm каталога недоступен в android-клиенте');
 }
 
 export async function stat(_path: string): Promise<never> {
   throw new Error('node:fs/promises shim: stat недоступен в android-клиенте');
 }
 
-export default { readFile, writeFile, rm, stat };
+export default { readFile, writeFile, readdir, rm, stat };

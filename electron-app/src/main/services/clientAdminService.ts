@@ -137,8 +137,14 @@ export async function applyRemoteClientSettings(args: {
   version: string;
   log?: (msg: string) => void;
   onSyncProgress?: (event: SyncProgressEvent) => void;
+  // Sync gate (SyncManager.runOnce): admin-triggered syncs must go through the
+  // same single-flight guard as scheduled ones — two concurrent runSync calls
+  // are exactly the setup for refresh races and duplicated pulls.
+  runSyncGate?: (opts?: Parameters<typeof runSync>[3]) => ReturnType<typeof runSync>;
 }): Promise<RemoteClientSettings> {
   const { db, apiBaseUrl, clientId, version } = args;
+  const runSyncGated = (opts?: Parameters<typeof runSync>[3]) =>
+    args.runSyncGate ? args.runSyncGate(opts) : runSync(db, args.clientId, args.apiBaseUrl, opts);
   // Refresh the watchdog handshake on every heartbeat so the external watchdog
   // always has the current clientId / apiBaseUrl / install path. Fire-and-forget.
   void writeWatchdogHandshake({ clientId, apiBaseUrl, version });
@@ -216,7 +222,7 @@ export async function applyRemoteClientSettings(args: {
               progress: 0,
             });
             await resetSyncState(db);
-            const result = await runSync(db, args.clientId, args.apiBaseUrl, {
+            const result = await runSyncGated({
               fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress as any },
             });
             if (!result.ok) {
@@ -227,7 +233,7 @@ export async function applyRemoteClientSettings(args: {
           } else if (syncReqType === 'reset_sync_state_and_pull') {
             args.log?.(`sync request: reset_sync_state_and_pull id=${syncReqId}`);
             await resetSyncState(db);
-            const result = await runSync(db, args.clientId, args.apiBaseUrl);
+            const result = await runSyncGated();
             if (!result.ok) {
               requestStatus = 'error';
               requestError = result.error ?? 'reset_sync_state_and_pull failed';
@@ -238,7 +244,7 @@ export async function applyRemoteClientSettings(args: {
             await resetSyncState(db);
             const startedAt = Date.now();
             const estimateMs = Math.max(120_000, Math.min(20 * 60_000, (await settingsGetNumber(db, SettingsKey.LastFullPullDurationMs, 0)) || 300_000));
-            const result = await runSync(db, args.clientId, args.apiBaseUrl, {
+            const result = await runSyncGated({
               fullPull: { reason: 'force_full_pull', startedAt, estimateMs, onProgress: args.onSyncProgress as any },
             });
             if (!result.ok) {
@@ -275,7 +281,7 @@ export async function applyRemoteClientSettings(args: {
             }
           }
           if (!skipDefaultSync) {
-            const result = await runSync(db, args.clientId, args.apiBaseUrl);
+            const result = await runSyncGated();
             if (!result.ok) {
               requestStatus = 'error';
               requestError = result.error ?? 'sync request failed';
@@ -316,6 +322,7 @@ export function startClientSettingsPolling(args: {
   log?: (msg: string) => void;
   onApplied?: (settings: RemoteClientSettings) => void;
   onSyncProgress?: (event: SyncProgressEvent) => void;
+  runSyncGate?: (opts?: Parameters<typeof runSync>[3]) => ReturnType<typeof runSync>;
 }) {
   const intervalMs = 60_000;
   const tick = () =>

@@ -551,7 +551,7 @@ export async function ensureClientSchemaCompatible(
   db: BetterSQLite3Database,
   serverSchema: SyncSchemaSnapshot | null,
   opts?: { log?: (message: string) => void },
-): Promise<{ action: 'ok' | 'migrated' | 'rebuild'; reason?: string; serverHash?: string | null }> {
+): Promise<{ action: 'ok' | 'migrated' | 'rebuild' | 'server_schema_changed'; reason?: string; serverHash?: string | null }> {
   const log = opts?.log ?? (() => {});
   const storedVersion = await settingsGetNumber(db, SettingsKey.ClientSchemaVersion, 0);
   const storedHash = await settingsGetString(db, SettingsKey.ServerSchemaHash);
@@ -588,7 +588,16 @@ export async function ensureClientSchemaCompatible(
   }
 
   if (serverHash && storedHash && serverHash !== storedHash) {
-    return { action: 'rebuild', reason: 'server schema hash mismatch', serverHash };
+    // A changed SERVER schema hash is not a reason to destroy the local DB:
+    // rebuilding recreates the exact same client schema (same app version, same
+    // migrations) while wiping unpushed work and the session. Before v3.5.0 this
+    // branch returned 'rebuild' — every backend-only migration of a sync table
+    // wiped the whole fleet within the 6h schema-cache window. Additive server
+    // changes are absorbed by alignSchemaWithServer + repairLocalSyncTables right
+    // after this check; a truly incompatible change surfaces as sync errors and
+    // is fixed by a client release, which a wipe would not have fixed anyway.
+    await settingsSetString(db, SettingsKey.ServerSchemaHash, serverHash);
+    return { action: 'server_schema_changed', reason: 'server schema hash changed', serverHash };
   }
 
   if (serverHash && serverHash !== storedHash) {

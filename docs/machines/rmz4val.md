@@ -39,7 +39,7 @@
   ```bash
   cd electron-app && node ../node_modules/.pnpm/@electron+rebuild@4.0.4/node_modules/@electron/rebuild/lib/cli.js --force --version 41.7.1 --arch x64 --only better-sqlite3
   ```
-  (реально компилирует ~30с, бинарь обновляется). Версию Electron брать из `electron-app/node_modules/electron/package.json` (на 2026-06-27 = 41.7.1 → ABI 145). После — перезапустить только `electron.exe` (backend на Node-ABI не зависит).
+  (реально компилирует ~30с, бинарь обновляется). Версию Electron брать из `electron-app/node_modules/electron/package.json` (на 2026-08-19 = **43.0.0**; раньше 41.7.1). Команда с 43.0.0 проверена 2026-08-19. После — перезапустить только `electron.exe` (backend на Node-ABI не зависит).
 - **Клиентский лог verify-стека:** `C:\Users\Valstan\AppData\Roaming\@matricarmz\electron-app-cdp-9222\matricarmz.log` (изолированный userData при `MATRICA_CDP_PORT`). Грепать тут sqlite/ABI/cold-sync ошибки клиента — в `electron.log` стенда их НЕТ (там только stdout `pnpm dev`).
 
 ## Планшетный режим проверяется БЕЗ планшета и без Android-тулчейна (выучено 2026-08-09)

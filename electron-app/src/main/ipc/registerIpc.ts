@@ -136,6 +136,9 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     version: app.getVersion(),
     log: logToFile,
     onSyncProgress: emitSyncProgress,
+    // Admin-triggered syncs share SyncManager's single-flight guard: no second
+    // runSync may run alongside the scheduled one (refresh races, double pulls).
+    runSyncGate: (o) => mgr.runOnce(o),
   });
 
   // Register IPC domains. Section-гейт (Ф2 «доступа по разделам») оборачивает все

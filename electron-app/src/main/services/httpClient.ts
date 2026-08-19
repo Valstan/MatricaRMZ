@@ -60,16 +60,19 @@ export async function httpAuthed(
   headers.set('Authorization', `Bearer ${session.accessToken}`);
 
   const r1 = await fetchWithTimeout(url, { ...init, headers }, timeoutMs, attempts, opts?.retryOnStatuses);
-  if (r1.status !== 401 && r1.status !== 403) {
+  // Only 401 means "the access token is bad" and is worth a refresh. 403 is a
+  // permission verdict for a valid session (role edit, gate) — refreshing cannot
+  // change it and it must never cost the operator their session.
+  if (r1.status !== 401) {
     const body = await readBody(r1);
     return { ok: r1.ok, status: r1.status, ...body };
   }
 
-  // Refresh once and retry.
+  // Refresh once and retry. authRefresh itself clears the session on a
+  // definitive 401 rejection; transient refresh failures keep it.
   if (session.refreshToken) {
     const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
     if (!refreshed.ok) {
-      await clearSession(db).catch(() => {});
       const body = await readBody(r1);
       return { ok: false, status: r1.status, ...body };
     }
@@ -81,6 +84,7 @@ export async function httpAuthed(
     return { ok: r2.ok, status: r2.status, ...body2 };
   }
 
+  // 401 with no refresh token at all: the stored session is unusable.
   await clearSession(db).catch(() => {});
   const body = await readBody(r1);
   return { ok: false, status: r1.status, ...body };
