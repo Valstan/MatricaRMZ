@@ -1,5 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatDeepLinkPayload, ChatMessageItem, ChatUnreadCountResult, ChatUserItem } from '@matricarmz/shared';
 
@@ -7,55 +6,45 @@ import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { theme } from '../theme.js';
-import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
+import { formatChatDaySeparator, formatMoscowTime, moscowDayKey } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
 
-function dot(color: string) {
+function onlineDot(online: boolean | null | undefined, size = 9) {
+  if (online == null) return null;
   return (
     <span
       style={{
-        width: 10,
-        height: 10,
+        width: size,
+        height: size,
         borderRadius: 999,
         display: 'inline-block',
-        background: color,
-        boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
+        flexShrink: 0,
+        background: online ? 'var(--success)' : 'var(--border)',
+        boxShadow: online ? '0 0 0 2px rgba(22, 163, 74, 0.18)' : 'none',
       }}
+      title={online ? 'В сети' : 'Не в сети'}
     />
   );
 }
 
-function roleStyles(roleRaw: string) {
-  const role = String(roleRaw ?? '').toLowerCase();
-  if (role === 'superadmin') {
-    return {
-      background: 'var(--role-superadmin-bg)',
-      border: 'var(--role-superadmin-border)',
-      color: 'var(--role-superadmin-text)',
-    };
-  }
-  if (role === 'admin') {
-    return { background: 'var(--role-admin-bg)', border: 'var(--role-admin-border)', color: 'var(--role-admin-text)' };
-  }
-  return { background: 'var(--role-user-bg)', border: 'var(--role-user-border)', color: 'var(--role-user-text)' };
-}
-
-function formatMessageDate(ts: number) {
-  return formatMoscowLongDateTime(ts);
-}
+/** Собеседник в левой колонке: общий чат — псевдо-собеседник с id `null`. */
+type ConversationItem = {
+  id: string | null;
+  title: string;
+  online: boolean | null;
+  unread: number;
+  role: string;
+};
 
 export function ChatPanel(props: {
   meUserId: string;
   meRole: string;
   canExport: boolean;
   canAdminViewAll: boolean;
-  onHide: () => void;
-  onToggleSide: () => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
-  chatSide: 'left' | 'right';
 }) {
   const { confirm } = useConfirm();
   // Скрытая вкладка чата не поллит и, что важнее, не помечает входящие прочитанными.
@@ -67,14 +56,13 @@ export function ChatPanel(props: {
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [text, setText] = useState<string>('');
   const [unread, setUnread] = useState<ChatUnreadCountResult | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [exportRange, setExportRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+  const [peopleQuery, setPeopleQuery] = useState('');
+  const [dropActive, setDropActive] = useState(false);
+  const [busyNote, setBusyNote] = useState('');
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [openInfoId, setOpenInfoId] = useState<string | null>(null);
-  const [othersOpen, setOthersOpen] = useState<boolean>(false);
-  const othersButtonRef = useRef<HTMLButtonElement | null>(null);
-  const othersMenuRef = useRef<HTMLDivElement | null>(null);
-  const [othersMenuPos, setOthersMenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
   const chatRootRef = useRef<HTMLDivElement | null>(null);
   const [noteDialog, setNoteDialog] = useState<{ open: boolean; message: ChatMessageItem | null; title: string }>({
     open: false,
@@ -82,13 +70,13 @@ export function ChatPanel(props: {
     title: '',
   });
 
-  const modeLabel = adminMode ? `Админ просмотр` : selectedUserId ? `Приватный чат` : `Общий чат`;
-  const privateWith = !adminMode && selectedUserId ? users.find((u) => u.id === selectedUserId) ?? null : null;
-  const isPrivate = !!privateWith;
-
   const byUserUnread = useMemo(() => {
-    if (!unread || (unread as any).ok !== true) return {};
-    return (unread as any).byUser as Record<string, number>;
+    if (!unread || (unread as any).ok !== true) return {} as Record<string, number>;
+    return ((unread as any).byUser ?? {}) as Record<string, number>;
+  }, [unread]);
+  const globalUnread = useMemo(() => {
+    if (!unread || (unread as any).ok !== true) return 0;
+    return Number((unread as any).global ?? 0);
   }, [unread]);
 
   const usersById = useMemo(() => {
@@ -100,18 +88,44 @@ export function ChatPanel(props: {
   const role = String(props.meRole ?? '').toLowerCase();
   const isAdmin = ['admin', 'superadmin'].includes(role);
   const isPending = role === 'pending';
-  const onlineUsers = useMemo(() => {
+
+  // Левая колонка: общий чат + все активные собеседники. Порядок — сначала те, кто
+  // ждёт ответа (непрочитанные), затем кто в сети, затем по имени: оператору важен
+  // не алфавит, а «кому я не ответил».
+  const conversations = useMemo<ConversationItem[]>(() => {
     const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
-    return base.filter((u) => u.isActive && u.online);
-  }, [users, isPending]);
-  const availableUsers = useMemo(() => {
-    const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
-    return base.filter((u) => u.isActive && u.id !== props.meUserId);
-  }, [users, isPending, props.meUserId]);
+    const people = base
+      .filter((u) => u.isActive && u.id !== props.meUserId)
+      .map<ConversationItem>((u) => ({
+        id: u.id,
+        title: (u.chatDisplayName || u.username || '').trim() || 'Пользователь',
+        online: u.online ?? false,
+        unread: byUserUnread[u.id] ?? 0,
+        role: u.role ?? '',
+      }))
+      .sort((a, b) => {
+        if ((b.unread > 0 ? 1 : 0) !== (a.unread > 0 ? 1 : 0)) return (b.unread > 0 ? 1 : 0) - (a.unread > 0 ? 1 : 0);
+        if ((b.online ? 1 : 0) !== (a.online ? 1 : 0)) return (b.online ? 1 : 0) - (a.online ? 1 : 0);
+        return a.title.localeCompare(b.title, 'ru');
+      });
+    const q = peopleQuery.trim().toLowerCase();
+    const filtered = q ? people.filter((p) => p.title.toLowerCase().includes(q)) : people;
+    const general: ConversationItem[] = isPending
+      ? []
+      : [{ id: null, title: 'Общий чат', online: null, unread: globalUnread, role: '' }];
+    return [...general, ...filtered];
+  }, [users, isPending, props.meUserId, byUserUnread, globalUnread, peopleQuery]);
+
+  const privateWith = !adminMode && selectedUserId ? usersById.get(selectedUserId) ?? null : null;
+  const isPrivate = !!privateWith;
+  const conversationTitle = adminMode
+    ? 'Админ: просмотр переписки'
+    : privateWith
+      ? (privateWith.chatDisplayName || privateWith.username || 'Пользователь')
+      : 'Общий чат';
 
   // Destructured on purpose: this effect keeps the callback in its deps, so a caller passing an inline arrow
   // would re-fire it on every parent render and store a new context object each time (a render feedback loop).
-  // Both call sites in App.tsx pass a useCallback-stabilised handler.
   const { onChatContextChange } = props;
   useEffect(() => {
     onChatContextChange?.({ selectedUserId, adminMode });
@@ -141,19 +155,22 @@ export function ChatPanel(props: {
     }
 
     if (isPending && !selectedUserId) return;
-    const r = await window.matrica.chat.list({ mode: selectedUserId ? 'private' : 'global', withUserId: selectedUserId, limit: 200 }).catch(() => null);
+    const r = await window.matrica.chat
+      .list({ mode: selectedUserId ? 'private' : 'global', withUserId: selectedUserId, limit: 200 })
+      .catch(() => null);
     if (r && (r as any).ok) {
       const msgs = (r as any).messages as ChatMessageItem[];
       setMessages(msgs);
-      // mark read (best-effort)
-      const ids = msgs.filter((m) => m.senderUserId !== props.meUserId).map((m) => m.id);
-      if (ids.length > 0) void window.matrica.chat.markRead({ messageIds: ids }).catch(() => {});
+      // mark read (best-effort); в режиме бэкапа лента — снимок, пометка прочтения
+      // ушла бы в живую базу (её же теперь отклоняет и main-процесс).
+      if (!props.viewMode) {
+        const ids = msgs.filter((m) => m.senderUserId !== props.meUserId).map((m) => m.id);
+        if (ids.length > 0) void window.matrica.chat.markRead({ messageIds: ids }).catch(() => {});
+      }
     }
   }
 
   // When chat is open: more frequent sync & refresh for responsiveness.
-  // Пауза при скрытом окне: фоновый синк идёт в main-процессе своим темпом, а звук
-  // новых сообщений — App-уровневый полл (не здесь), так что скрытая панель не нужна.
   useEffect(() => {
     if (props.viewMode || !tabVisible) return;
     const stop = pollWhenVisible(() => {
@@ -179,8 +196,8 @@ export function ChatPanel(props: {
       alive = false;
       stop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the poll is keyed to the chat selection only; refreshMessages is re-created on every render, so depending on it would tear down and restart the poll (refetching messages and marking them read) on every render. KNOWN GAP: the running tick keeps the refreshMessages of the render that installed it, so later changes to props.meRole (via isPending), props.canAdminViewAll and props.meUserId do not reach the poll until selectedUserId/adminMode/adminPair changes
-  }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId, tabVisible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the poll is keyed to the chat selection only; refreshMessages is re-created on every render, so depending on it would tear down and restart the poll (refetching messages and marking them read) on every render
+  }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId, tabVisible, props.meUserId, props.meRole, props.canAdminViewAll]);
 
   useEffect(() => {
     if (!isPending) return;
@@ -192,69 +209,6 @@ export function ChatPanel(props: {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages.length]);
-
-  useLayoutEffect(() => {
-    if (!othersOpen) return;
-    const updatePosition = () => {
-      const btn = othersButtonRef.current;
-      const menu = othersMenuRef.current;
-      if (!btn || !menu) return;
-      const rect = btn.getBoundingClientRect();
-      const menuRect = menu.getBoundingClientRect();
-      const chatRect = chatRootRef.current?.getBoundingClientRect() ?? null;
-      const padding = 8;
-      const viewportW = window.innerWidth;
-      const viewportH = window.innerHeight;
-      const maxHeight = Math.min(360, viewportH - padding * 2);
-      let left = rect.right - menuRect.width;
-      if (chatRect) {
-        if (props.chatSide === 'right') {
-          left = chatRect.left - menuRect.width - padding;
-        } else {
-          left = chatRect.right + padding;
-        }
-      }
-      if (left < padding) left = padding;
-      if (left + menuRect.width > viewportW - padding) left = viewportW - padding - menuRect.width;
-      let top = rect.bottom + 6;
-      if (top + menuRect.height > viewportH - padding) {
-        top = rect.top - menuRect.height - 6;
-      }
-      if (top < padding) top = padding;
-      setOthersMenuPos({ left, top, maxHeight });
-    };
-    const id = requestAnimationFrame(updatePosition);
-    const onScroll = () => updatePosition();
-    const onResize = () => updatePosition();
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onResize);
-    return () => {
-      cancelAnimationFrame(id);
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [othersOpen, availableUsers.length, props.chatSide]);
-
-  // Меню «Другие» — портал в body, закрывается ТОЛЬКО по document mousedown: уходя на
-  // другую вкладку, оператор оставил бы его висеть поверх, а вкладка чата keep-alive.
-  useEffect(() => {
-    if (!tabVisible) setOthersOpen(false);
-  }, [tabVisible]);
-
-  useEffect(() => {
-    if (!othersOpen) return;
-    const onDocClick = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      const menu = othersMenuRef.current;
-      const btn = othersButtonRef.current;
-      if (menu && menu.contains(target)) return;
-      if (btn && btn.contains(target)) return;
-      setOthersOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [othersOpen]);
 
   function getMessageUser(m: ChatMessageItem) {
     const u = usersById.get(m.senderUserId) ?? null;
@@ -276,9 +230,7 @@ export function ChatPanel(props: {
   }
 
   function handleReply(message: ChatMessageItem) {
-    const info = getMessageUser(message);
-    insertMention(info.name);
-    setOpenInfoId(null);
+    insertMention(getMessageUser(message).name);
   }
 
   function handleReplyPrivate(message: ChatMessageItem) {
@@ -289,7 +241,6 @@ export function ChatPanel(props: {
     setAdminMode(false);
     setSelectedUserId(targetUserId);
     insertMention(info.name);
-    setOpenInfoId(null);
   }
 
   async function handleDeleteMessage(message: ChatMessageItem) {
@@ -305,11 +256,8 @@ export function ChatPanel(props: {
     if (!ok) return;
     const r = await window.matrica.chat.deleteMessage({ messageId: message.id }).catch(() => null);
     if (r && (r as any).ok) {
-      setOpenInfoId(null);
       await refreshMessages();
       await refreshUnread();
-    } else {
-      setOpenInfoId(null);
     }
   }
 
@@ -368,17 +316,60 @@ export function ChatPanel(props: {
     await refreshUnread();
   }
 
+  /** Общий хвост отправки файлов: и для выбора через диалог, и для перетаскивания. */
+  async function sendFilePaths(paths: string[]) {
+    const list = paths.map((p) => String(p ?? '').trim()).filter(Boolean);
+    if (list.length === 0 || adminMode) return;
+    let sent = 0;
+    for (const [i, path] of list.entries()) {
+      setBusyNote(list.length > 1 ? `Отправка файлов: ${i + 1} из ${list.length}…` : 'Отправка файла…');
+      const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path }).catch(() => null);
+      if ((r as any)?.ok) sent += 1;
+    }
+    setBusyNote(sent < list.length ? `Отправлено ${sent} из ${list.length}: часть файлов не ушла` : '');
+    if (sent > 0 && !props.viewMode) void window.matrica.sync.run().catch(() => {});
+    await refreshMessages();
+    await refreshUnread();
+    if (sent === list.length) setTimeout(() => setBusyNote(''), 1500);
+  }
+
   async function sendFile() {
     if (adminMode) return;
     const picked = await window.matrica.files.pick().catch(() => null);
     if (!picked || !(picked as any).ok) return;
-    const paths = (picked as any).paths as string[];
-    const path = paths?.[0] ? String(paths[0]) : '';
-    if (!path) return;
-    const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path });
-    if ((r as any)?.ok && !props.viewMode) void window.matrica.sync.run().catch(() => {});
-    await refreshMessages();
-    await refreshUnread();
+    await sendFilePaths(((picked as any).paths ?? []) as string[]);
+  }
+
+  // Перетаскивание из проводника: реальный путь брошенного файла умеет достать
+  // только preload (webUtils) и только у настоящего File из события drop.
+  async function onDrop(event: React.DragEvent) {
+    event.preventDefault();
+    setDropActive(false);
+    if (adminMode || props.viewMode) return;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    const res = await window.matrica.files.dropped(files).catch(() => null);
+    const paths = ((res as any)?.paths ?? []) as string[];
+    if (paths.length === 0) {
+      setBusyNote('Не удалось прочитать перетащенные файлы (папки отправлять нельзя)');
+      return;
+    }
+    await sendFilePaths(paths);
+  }
+
+  const fileMessages = useMemo(
+    () => messages.filter((m) => m.messageType === 'file' && (m.payload as any)?.id),
+    [messages],
+  );
+
+  /** «Сохранить все» — все файлы открытой переписки одной папкой. */
+  async function saveAllFiles() {
+    const ids = fileMessages.map((m) => String((m.payload as any).id)).filter(Boolean);
+    if (ids.length === 0) return;
+    setBusyNote(`Сохранение файлов: ${ids.length} шт…`);
+    const r = await window.matrica.files.copyToFolder({ fileIds: ids }).catch(() => null);
+    setBusyNote((r as any)?.ok ? `Сохранено файлов: ${ids.length}` : 'Не удалось сохранить файлы');
+    setTimeout(() => setBusyNote(''), 2500);
   }
 
   async function exportChats() {
@@ -389,138 +380,160 @@ export function ChatPanel(props: {
     void window.matrica.chat.export({ startMs, endMs });
   }
 
+  // Лента режется на дни: подпись ставится перед первым сообщением каждых
+  // московских суток (иначе у машин в разных поясах разделители встали бы
+  // в разных местах одной переписки).
+  const feed = useMemo(() => {
+    const out: Array<{ kind: 'day'; key: string; label: string } | { kind: 'msg'; message: ChatMessageItem }> = [];
+    let lastDay = '';
+    for (const m of messages) {
+      const day = moscowDayKey(m.createdAt);
+      if (day !== lastDay) {
+        out.push({ kind: 'day', key: day, label: formatChatDaySeparator(m.createdAt) });
+        lastDay = day;
+      }
+      out.push({ kind: 'msg', message: m });
+    }
+    return out;
+  }, [messages]);
+
+  const composerDisabled = adminMode || props.viewMode;
+
   return (
-    <div ref={chatRootRef} data-input-assist="off" style={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontWeight: 900, color: theme.colors.text, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          Чат с пользователями
-        </div>
-        {props.canAdminViewAll && (
-          <Button variant="ghost" onClick={() => setAdminMode((v) => !v)} title="Админ просмотр всех чатов">
-            {adminMode ? 'Обычный режим' : 'Админ режим'}
-          </Button>
-        )}
-        {!adminMode && (
-          <div>
-            <Button ref={othersButtonRef} variant="ghost" onClick={() => setOthersOpen((v) => !v)}>
-              Другие
-            </Button>
-            {othersOpen &&
-              availableUsers.length > 0 &&
-              createPortal(
-                <div
-                  ref={othersMenuRef}
+    <div ref={chatRootRef} data-input-assist="off" style={{ height: '100%', display: 'flex', minWidth: 0 }}>
+      {/* Левая колонка: собеседники */}
+      {!adminMode && (
+        <div
+          data-chat-people
+          style={{
+            width: 232,
+            flexShrink: 0,
+            borderRight: `1px solid ${theme.colors.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            background: theme.colors.surface2,
+          }}
+        >
+          <div style={{ padding: 8, borderBottom: `1px solid ${theme.colors.border}` }}>
+            <Input
+              value={peopleQuery}
+              data-autogrow="off"
+              onChange={(e) => setPeopleQuery(e.target.value)}
+              placeholder="Поиск человека…"
+            />
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 6 }}>
+            {conversations.length === 0 && (
+              <div style={{ color: theme.colors.muted, fontSize: 12, padding: 8 }}>Собеседников нет.</div>
+            )}
+            {conversations.map((c) => {
+              const active = selectedUserId === c.id;
+              return (
+                <button
+                  key={c.id ?? '__global__'}
+                  type="button"
+                  data-chat-person={c.id ?? 'global'}
+                  data-active={active ? '1' : undefined}
+                  onClick={() => setSelectedUserId(c.id)}
+                  title={c.online == null ? 'Общий чат' : c.online ? 'В сети' : 'Не в сети'}
                   style={{
-                    position: 'fixed',
-                    left: othersMenuPos?.left ?? 0,
-                    top: othersMenuPos?.top ?? 0,
-                    zIndex: 10000,
-                    minWidth: 220,
-                    maxWidth: 320,
-                    maxHeight: othersMenuPos?.maxHeight ?? 360,
-                    overflowY: 'auto',
-                    background: theme.colors.surface,
-                    border: `1px solid ${theme.colors.border}`,
-                    boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
-                    borderRadius: 10,
-                    padding: 8,
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 10px',
+                    marginBottom: 4,
+                    textAlign: 'left',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    border: `1px solid ${active ? theme.colors.chatOtherBorder : 'transparent'}`,
+                    background: active ? theme.colors.chatOtherBg : 'transparent',
+                    color: theme.colors.text,
+                    fontWeight: c.unread > 0 ? 800 : 500,
                   }}
                 >
-                  {availableUsers.map((u) => {
-                    const uUnread = byUserUnread[u.id] ?? 0;
-                    const label = `${u.chatDisplayName || u.username}${uUnread > 0 ? ` (${uUnread})` : ''}`;
-                    const roleStyle = roleStyles(u.role);
-                    return (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          setSelectedUserId(u.id);
-                          setOthersOpen(false);
-                        }}
-                        style={{
-                          width: '100%',
-                          textAlign: 'left',
-                          marginBottom: 6,
-                          padding: '6px 8px',
-                          border: `1px solid ${roleStyle.border}`,
-                          background: roleStyle.background,
-                          color: roleStyle.color,
-                          borderRadius: 8,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                        }}
-                        title={u.online ? 'Онлайн' : 'Оффлайн'}
-                      >
-                        {dot(u.online ? 'var(--success)' : 'var(--danger)')}
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                      </button>
-                    );
-                  })}
-                </div>,
-                document.body,
-              )}
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: 10, borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {!adminMode ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {!isPending && (
-              <Button
-                variant={selectedUserId == null ? 'primary' : 'ghost'}
-                onClick={() => setSelectedUserId(null)}
-                title="Перейти в общий чат"
-              >
-                Общий чат{unread && (unread as any).ok === true && (unread as any).global > 0 ? ` (${(unread as any).global})` : ''}
-              </Button>
-            )}
-            {onlineUsers
-              .map((u) => {
-                const uUnread = byUserUnread[u.id] ?? 0;
-                const isSel = selectedUserId === u.id;
-                const indicator = dot('var(--success)');
-                const display = u.chatDisplayName || u.username;
-                const label = `${display}${uUnread > 0 ? ` (${uUnread})` : ''}`;
-                const roleStyle = roleStyles(u.role);
-                return (
-                  <Button
-                    key={u.id}
-                    variant={isSel ? 'primary' : 'ghost'}
-                    onClick={() => setSelectedUserId(u.id)}
-                    title={u.online ? 'Онлайн' : 'Оффлайн'}
-                    style={{
-                      border: `1px solid ${roleStyle.border}`,
-                      background: roleStyle.background,
-                      color: roleStyle.color,
-                      boxShadow: isSel ? '0 0 0 2px rgba(15, 23, 42, 0.35)' : undefined,
-                    }}
-                  >
-                    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                      {indicator}
-                      {uUnread > 0 ? (
-                        <span
-                          className="chatBlink"
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 999,
-                            display: 'inline-block',
-                            background: 'var(--danger)',
-                          }}
-                          title="Непрочитанные сообщения"
-                        />
-                      ) : null}
-                      <span>{label}</span>
+                  {c.id == null ? <span style={{ fontSize: 14 }}>#</span> : onlineDot(c.online)}
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.title}
+                  </span>
+                  {c.unread > 0 ? (
+                    <span
+                      className="chatBlink"
+                      style={{
+                        minWidth: 20,
+                        height: 20,
+                        padding: '0 6px',
+                        borderRadius: 999,
+                        background: 'var(--danger)',
+                        color: '#fff',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title="Непрочитанные сообщения"
+                    >
+                      {c.unread}
                     </span>
-                  </Button>
-                );
-              })}
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
+        </div>
+      )}
+
+      {/* Правая колонка: переписка */}
+      <div
+        style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}
+        onDragOver={(e) => {
+          if (composerDisabled) return;
+          if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+          e.preventDefault();
+          setDropActive(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          setDropActive(false);
+        }}
+        onDrop={(e) => void onDrop(e)}
+      >
+        <div
+          style={{
+            padding: '8px 10px',
+            borderBottom: `1px solid ${theme.colors.border}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            minHeight: 44,
+          }}
+        >
+          <div style={{ fontWeight: 900, color: theme.colors.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {conversationTitle}
+          </div>
+          {isPrivate ? <span style={{ fontSize: 12, color: theme.colors.muted }}>личная переписка</span> : null}
+          <span style={{ flex: 1 }} />
+          {fileMessages.length > 0 && !adminMode ? (
+            <Button variant="ghost" onClick={() => void saveAllFiles()} title="Сохранить все файлы этой переписки в папку">
+              Сохранить все ({fileMessages.length})
+            </Button>
+          ) : null}
+          {props.canAdminViewAll && (
+            <Button variant="ghost" onClick={() => setAdminMode((v) => !v)} title="Админ просмотр всех чатов">
+              {adminMode ? 'Обычный режим' : 'Админ режим'}
+            </Button>
+          )}
+          {props.canAdminViewAll && props.canExport && (
+            <Button variant="ghost" onClick={() => setExportOpen((v) => !v)} title="Выгрузка переписки за период">
+              Экспорт
+            </Button>
+          )}
+        </div>
+
+        {adminMode && (
+          <div style={{ display: 'flex', gap: 8, padding: 8, borderBottom: `1px solid ${theme.colors.border}` }}>
             <select
               value={adminPair.aId}
               onChange={(e) => setAdminPair((s) => ({ ...s, aId: e.target.value }))}
@@ -549,189 +562,169 @@ export function ChatPanel(props: {
             </select>
           </div>
         )}
-        <div style={{ color: theme.colors.muted, fontSize: 12 }}>
-          {isPrivate ? (
-            <span style={{ fontWeight: 900, color: '#c2410c' }}>
-              Приватный чат с {privateWith?.chatDisplayName || privateWith?.username}
-            </span>
-          ) : (
-            <>
-              {modeLabel}
-              {selectedUserId ? `: ${selectedUserId}` : ''}
-            </>
-          )}
-        </div>
-      </div>
 
-      <div
-        style={{
-          flex: '1 1 auto',
-          minHeight: 0,
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          padding: 10,
-          background: isPrivate ? '#fff7ed' : '#ffffff',
-        }}
-      >
-        {messages.length === 0 && <div style={{ color: theme.colors.muted }}>Сообщений пока нет.</div>}
-        {messages.map((m) => {
-          const mine = m.senderUserId === props.meUserId;
-          const info = getMessageUser(m);
-          const roleStyle = roleStyles(info.role);
-          const canDelete = (mine || isAdmin) && !props.viewMode;
-          const infoOpen = openInfoId === m.id;
-          const linkPayload = m.messageType === 'deep_link' ? (m.payload as any) : null;
-          const breadcrumbsRaw = Array.isArray(linkPayload?.breadcrumbs) ? linkPayload.breadcrumbs : [];
-          const breadcrumbs = breadcrumbsRaw.map((x: any) => String(x ?? '').trim()).filter(Boolean);
-          const breadcrumbText = breadcrumbs.join(' / ');
-          const isClickable = m.messageType === 'file' || m.messageType === 'deep_link';
-          return (
-            <div key={m.id} style={{ marginBottom: 6 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  padding: '6px 8px',
-                  border: `1px solid ${mine ? theme.colors.chatMineBorder : theme.colors.chatOtherBorder}`,
-                  background: mine ? theme.colors.chatMineBg : theme.colors.chatOtherBg,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {exportOpen && props.canAdminViewAll && props.canExport && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, borderBottom: `1px dashed ${theme.colors.border}` }}>
+            <Input
+              value={exportRange.start}
+              onChange={(e) => setExportRange((s) => ({ ...s, start: e.target.value }))}
+              placeholder="с (2026-01-01)"
+            />
+            <Input
+              value={exportRange.end}
+              onChange={(e) => setExportRange((s) => ({ ...s, end: e.target.value }))}
+              placeholder="по (2026-01-31)"
+            />
+            <Button variant="ghost" onClick={() => void exportChats()}>
+              Выгрузить…
+            </Button>
+          </div>
+        )}
+
+        <div
+          data-chat-feed
+          style={{
+            flex: '1 1 auto',
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            padding: 12,
+            background: theme.colors.chatFeedBg,
+          }}
+        >
+          {feed.length === 0 && <div style={{ color: theme.colors.muted }}>Сообщений пока нет.</div>}
+          {feed.map((item) => {
+            if (item.kind === 'day') {
+              return (
+                <div key={`day-${item.key}`} style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 12px' }}>
                   <span
+                    data-chat-day
                     style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '2px 8px',
-                      border: `1px solid ${roleStyle.border}`,
-                      background: roleStyle.background,
-                      color: roleStyle.color,
-                      fontWeight: 800,
-                      fontSize: 12,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      {info.online == null ? null : (
-                        <span
-                          style={{
-                            width: 9,
-                            height: 9,
-                            borderRadius: 999,
-                            display: 'inline-block',
-                            background: info.online ? 'var(--success)' : 'var(--danger)',
-                            boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
-                          }}
-                          title={info.online ? 'В сети' : 'Не в сети'}
-                        />
-                      )}
-                      <span>{info.name}</span>
-                      {info.role ? <span style={{ fontSize: 11, opacity: 0.9 }}>({info.role})</span> : null}
-                      {info.online != null ? (
-                        <span style={{ fontSize: 11, opacity: 0.85 }}>{info.online ? 'В сети' : 'Не в сети'}</span>
-                      ) : null}
-                    </span>
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenInfoId((prev) => (prev === m.id ? null : m.id));
-                    }}
-                    title="Доп. сведения"
-                    style={{
-                      border: `1px solid ${theme.colors.border}`,
+                      padding: '3px 12px',
+                      borderRadius: 999,
                       background: theme.colors.surface2,
-                      color: theme.colors.text,
-                      width: 22,
-                      height: 22,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      border: `1px solid ${theme.colors.border}`,
+                      color: theme.colors.muted,
                       fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
+                      fontWeight: 700,
                     }}
                   >
-                    i
-                  </button>
+                    {item.label}
+                  </span>
                 </div>
+              );
+            }
+            const m = item.message;
+            const mine = m.senderUserId === props.meUserId;
+            const info = getMessageUser(m);
+            const canDelete = (mine || isAdmin) && !props.viewMode;
+            const linkPayload = m.messageType === 'deep_link' ? (m.payload as any) : null;
+            const breadcrumbs = (Array.isArray(linkPayload?.breadcrumbs) ? linkPayload.breadcrumbs : [])
+              .map((x: any) => String(x ?? '').trim())
+              .filter(Boolean);
+            const breadcrumbText = breadcrumbs.join(' / ');
+            const isClickable = m.messageType === 'file' || m.messageType === 'deep_link';
+            return (
+              <div
+                key={m.id}
+                data-chat-message={mine ? 'mine' : 'other'}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', marginBottom: 10 }}
+              >
                 <div
-                  onClick={() => {
-                    if (m.messageType === 'file') {
-                      const fileId = (m.payload as any)?.id ? String((m.payload as any).id) : '';
-                      if (fileId) void window.matrica.files.open({ fileId });
-                    }
-                    if (m.messageType === 'deep_link') {
-                      const link = m.payload as any;
-                      if (link && link.kind === 'app_link') props.onNavigate(link as ChatDeepLinkPayload);
-                    }
-                  }}
                   style={{
-                    color: theme.colors.text,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    cursor: isClickable ? 'pointer' : 'text',
-                    textDecoration: isClickable ? 'underline' : 'none',
+                    maxWidth: 'min(78%, 640px)',
+                    minWidth: 120,
+                    padding: '8px 10px',
+                    borderRadius: 12,
+                    // Свои — на белом, собеседника — на голубоватом: различие
+                    // видно даже боковым зрением, не вчитываясь в имя.
+                    background: mine ? theme.colors.chatMineBg : theme.colors.chatOtherBg,
+                    border: `1px solid ${mine ? theme.colors.chatMineBorder : theme.colors.chatOtherBorder}`,
                   }}
                 >
-                  {(m.messageType === 'text' || m.messageType === 'text_notify') && (m.bodyText || '')}
-                  {m.messageType === 'file' && (m.bodyText || 'Файл')}
-                  {m.messageType === 'deep_link' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <span>Ссылка на раздел</span>
-                      {breadcrumbText ? <span style={{ fontSize: 12, color: theme.colors.muted }}>{breadcrumbText}</span> : null}
+                  {!mine && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      {onlineDot(info.online, 8)}
+                      <span style={{ fontWeight: 800, fontSize: 12, color: theme.colors.text }}>{info.name}</span>
+                      {info.role ? <span style={{ fontSize: 11, color: theme.colors.muted }}>({info.role})</span> : null}
                     </div>
                   )}
-                </div>
-              </div>
-              {infoOpen && (
-                <div
-                  style={{
-                    marginTop: 6,
-                    border: `1px solid ${theme.colors.chatMenuBorder}`,
-                    background: theme.colors.chatMenuBg,
-                    boxShadow: theme.colors.chatMenuShadow,
-                    padding: 10,
-                  }}
-                >
-                  <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 6 }}>{formatMessageDate(m.createdAt)}</div>
-                  {breadcrumbText ? (
-                    <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 8 }}>Путь: {breadcrumbText}</div>
-                  ) : null}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    <Button variant="ghost" onClick={() => handleReply(m)}>
-                      Ответить
-                    </Button>
-                    <Button variant="ghost" onClick={() => handleReplyPrivate(m)}>
-                      Ответить лично
-                    </Button>
-                    <Button variant="ghost" onClick={() => openNoteDialog(m)}>
-                      Отправить в заметки
-                    </Button>
-                    {canDelete ? (
-                      <Button variant="ghost" onClick={() => void handleDeleteMessage(m)}>
-                        Удалить
-                      </Button>
-                    ) : null}
+                  <div
+                    onClick={() => {
+                      if (m.messageType === 'file') {
+                        const fileId = (m.payload as any)?.id ? String((m.payload as any).id) : '';
+                        if (fileId) void window.matrica.files.open({ fileId });
+                      }
+                      if (m.messageType === 'deep_link') {
+                        const link = m.payload as any;
+                        if (link && link.kind === 'app_link') props.onNavigate(link as ChatDeepLinkPayload);
+                      }
+                    }}
+                    style={{
+                      color: theme.colors.text,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      cursor: isClickable ? 'pointer' : 'text',
+                      textDecoration: isClickable ? 'underline' : 'none',
+                    }}
+                  >
+                    {(m.messageType === 'text' || m.messageType === 'text_notify') && (m.bodyText || '')}
+                    {m.messageType === 'file' && `📎 ${m.bodyText || 'Файл'}`}
+                    {m.messageType === 'deep_link' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span>Ссылка на раздел</span>
+                        {breadcrumbText ? <span style={{ fontSize: 12, color: theme.colors.muted }}>{breadcrumbText}</span> : null}
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
-      </div>
+                {/* Действия — сразу под сообщением, без разворачивания: раньше они
+                    прятались за кнопкой «i», и оператор о них не знал. */}
+                <div
+                  data-chat-actions
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginTop: 3,
+                    padding: mine ? '0 4px 0 0' : '0 0 0 4px',
+                    fontSize: 11,
+                    color: theme.colors.muted,
+                  }}
+                >
+                  <span title={new Date(m.createdAt).toISOString()}>{formatMoscowTime(m.createdAt)}</span>
+                  {!props.viewMode && !adminMode ? (
+                    <>
+                      <ChatActionLink onClick={() => handleReply(m)}>Ответить</ChatActionLink>
+                      <ChatActionLink onClick={() => handleReplyPrivate(m)}>Ответить лично</ChatActionLink>
+                      <ChatActionLink onClick={() => openNoteDialog(m)}>В заметки</ChatActionLink>
+                    </>
+                  ) : null}
+                  {canDelete ? <ChatActionLink onClick={() => void handleDeleteMessage(m)}>Удалить</ChatActionLink> : null}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={bottomRef} />
+        </div>
 
-      <div style={{ borderTop: `1px solid ${theme.colors.border}`, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {busyNote ? (
+          <div style={{ padding: '4px 10px', fontSize: 12, color: theme.colors.muted, borderTop: `1px solid ${theme.colors.border}` }}>
+            {busyNote}
+          </div>
+        ) : null}
+
+        <div style={{ borderTop: `1px solid ${theme.colors.border}`, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Input
             ref={inputRef}
             value={text}
+            // Поле сообщения занимает всю ширину: авто-подгонка по длине текста
+            // (общая для полей форм) ужимала бы его до ширины плейсхолдера.
+            data-autogrow="off"
             onChange={(e) => setText(e.target.value)}
-            placeholder="Введите сообщение…"
-            disabled={adminMode}
+            placeholder={composerDisabled ? 'Отправка недоступна в этом режиме' : 'Введите сообщение… (файлы можно перетащить сюда)'}
+            disabled={composerDisabled}
             onKeyDown={(e: any) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -739,37 +732,36 @@ export function ChatPanel(props: {
               }
             }}
           />
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button onClick={() => void sendText()} disabled={adminMode || !text.trim()}>
-            Отправить
-          </Button>
-          <Button variant="ghost" onClick={() => void sendTextEverywhere()} disabled={adminMode || !text.trim()}>
-            Отправить везде
-          </Button>
-          <Button variant="ghost" onClick={() => void sendFile()} disabled={adminMode}>
-            Файл…
-          </Button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button onClick={() => void sendText()} disabled={composerDisabled || !text.trim()}>
+              Отправить
+            </Button>
+            <Button variant="ghost" onClick={() => void sendTextEverywhere()} disabled={composerDisabled || !text.trim()}>
+              Отправить везде
+            </Button>
+            <Button variant="ghost" onClick={() => void sendFile()} disabled={composerDisabled}>
+              Файл…
+            </Button>
+          </div>
         </div>
 
-        {props.canAdminViewAll && props.canExport && (
-          <div style={{ marginTop: 4, paddingTop: 10, borderTop: `1px dashed ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontWeight: 900, color: theme.colors.text }}>Админ: экспорт чатов</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Input
-                value={exportRange.start}
-                onChange={(e) => setExportRange((s) => ({ ...s, start: e.target.value }))}
-                placeholder="start (например, 2026-01-01)"
-              />
-              <Input
-                value={exportRange.end}
-                onChange={(e) => setExportRange((s) => ({ ...s, end: e.target.value }))}
-                placeholder="end (например, 2026-01-31)"
-              />
-            </div>
-            <Button variant="ghost" onClick={() => void exportChats()}>
-              Выгрузить в файл…
-            </Button>
+        {dropActive && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 5,
+              border: `2px dashed ${theme.colors.chatMineBorder}`,
+              background: 'rgba(37, 99, 235, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+              fontWeight: 800,
+              color: theme.colors.text,
+            }}
+          >
+            Отпустите файлы — отправлю их в переписку
           </div>
         )}
       </div>
@@ -814,3 +806,23 @@ export function ChatPanel(props: {
   );
 }
 
+/** Мелкая текстовая кнопка-действие под сообщением. */
+function ChatActionLink(props: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      style={{
+        border: 'none',
+        background: 'transparent',
+        padding: 0,
+        color: theme.colors.muted,
+        fontSize: 11,
+        cursor: 'pointer',
+        textDecoration: 'underline',
+      }}
+    >
+      {props.children}
+    </button>
+  );
+}

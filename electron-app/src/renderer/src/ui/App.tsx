@@ -5560,9 +5560,6 @@ export function App() {
       canExport={canChatExport}
       canAdminViewAll={canChatAdminView}
       viewMode={viewMode}
-      chatSide="left"
-      onHide={() => dispatchTabs({ type: 'CLOSE', id: 'chat' })}
-      onToggleSide={() => {}}
       onChatContextChange={handleChatContextChange}
       onNavigate={(link) => { void navigateDeepLink(link); }}
     />

@@ -76,3 +76,33 @@ export function formatRuMoney(value: number, options: Intl.NumberFormatOptions =
 export function formatRuPercent(value: number, options: Intl.NumberFormatOptions = { minimumFractionDigits: 1, maximumFractionDigits: 1 }) {
   return `${formatRuNumber(value, options)}%`;
 }
+
+// Ключ московских суток «YYYY-MM-DD» — по нему чат режет ленту на дни. Считать
+// день по локальной дате клиента нельзя: у машин в разных поясах разделители
+// встали бы в разных местах одной и той же переписки.
+export function moscowDayKey(value: number | Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MOSCOW_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(toDate(value));
+  return parts;
+}
+
+// Подпись разделителя дня в ленте чата: «Сегодня» / «Вчера» / «15 августа 2026».
+export function formatChatDaySeparator(value: number | Date, now: number | Date = Date.now()): string {
+  const dayKey = moscowDayKey(value);
+  const todayKey = moscowDayKey(now);
+  if (dayKey === todayKey) return 'Сегодня';
+  const yesterdayKey = moscowDayKey(toDate(now).getTime() - 24 * 60 * 60 * 1000);
+  if (dayKey === yesterdayKey) return 'Вчера';
+  return new Intl.DateTimeFormat(RU_LOCALE, {
+    timeZone: MOSCOW_TIME_ZONE,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+    .format(toDate(value))
+    .replace(/\s*г\.?$/u, '');
+}

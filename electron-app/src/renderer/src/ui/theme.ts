@@ -14,6 +14,7 @@ export const theme = {
     danger: 'var(--danger)',
     success: 'var(--success)',
     warn: 'var(--warn)',
+    chatFeedBg: 'var(--chat-feed-bg)',
     chatMineBg: 'var(--chat-mine-bg)',
     chatMineBorder: 'var(--chat-mine-border)',
     chatOtherBg: 'var(--chat-other-bg)',
