@@ -575,6 +575,13 @@
       "when": 1787000000000,
       "tag": "0082_drop_erp_prototype_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1787003600000,
+      "tag": "0083_engine_brands_mirror_flip",
+      "breakpoints": true
     }
   ]
 }

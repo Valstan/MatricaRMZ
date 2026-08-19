@@ -900,6 +900,21 @@ async function listContractLookup(): Promise<LookupOption[]> {
     .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
 }
 
+/**
+ * B1: марки двигателей — источник правды перевёрнут на directory_engine_brands
+ * (миграция 0083 держит зеркало триггерами, FK строгих таблиц перевешены).
+ * Складской контур читает строгую таблицу, а не EAV.
+ */
+async function listEngineBrandLookup(): Promise<LookupOption[]> {
+  const rows = await db
+    .select({ id: directoryEngineBrands.id, name: directoryEngineBrands.name })
+    .from(directoryEngineBrands)
+    .where(and(isNull(directoryEngineBrands.deletedAt), eq(directoryEngineBrands.isActive, true)));
+  return rows
+    .map((row) => ({ id: String(row.id), label: String(row.name), code: null }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+}
+
 async function listWarehouseReferenceData() {
   // Phase 2.3: warehouses теперь читаются из централизованного warehouse_locations,
   // а не из устаревшего EAV `warehouse_ref` + ensureDefaultWarehouse(). Старый источник
@@ -917,7 +932,7 @@ async function listWarehouseReferenceData() {
     listMasterdataLookup('stock_write_off_reason'),
     listMasterdataLookup('customer'),
     listMasterdataLookup('employee'),
-    listMasterdataLookup('engine_brand'),
+    listEngineBrandLookup(),
     listContractLookup(),
   ]);
 
