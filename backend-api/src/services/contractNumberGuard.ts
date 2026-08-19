@@ -3,25 +3,13 @@
 // Leaf-модуль по образцу engineNumberGuard: импортируется гейтом записи
 // (adminMasterdataService) и не тянет за собой сервисы.
 import {
-  CONTRACT_ENTITY_TYPE_CODE,
-  CONTRACT_INTERNAL_NUMBER_CODE,
   contractInternalNumberKey,
   type ContractInternalNumberDuplicate,
 } from '@matricarmz/shared';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
-
-function parseTextAttr(valueJson: string | null | undefined): string {
-  if (valueJson == null) return '';
-  try {
-    const parsed = JSON.parse(String(valueJson));
-    return typeof parsed === 'string' ? parsed.trim() : '';
-  } catch {
-    return String(valueJson).trim();
-  }
-}
+import { erpContracts } from '../database/schema.js';
 
 /**
  * Живой договор, уже занявший этот внутренний номер, — или null.
@@ -29,6 +17,11 @@ function parseTextAttr(valueJson: string | null | undefined): string {
  * Сравнение по нормализованному ключу, а не по строке: «20/ГОЗ-25» и «20 гоз 25»
  * должны считаться одним номером. Удалённые записи (`deleted_at`) не мешают:
  * освободить номер, удалив договор, — законный сценарий.
+ *
+ * B2 (миграция 0084): читает строгую erp_contracts — триггерное зеркало EAV,
+ * синхронное с любым путём записи, — вместо скана attribute_values. Нормализация
+ * ключа остаётся в TS (contractInternalNumberKey), поэтому сравниваем в памяти:
+ * живых договоров десятки, полный проход дешевле дублирования нормализации в SQL.
  */
 export async function findContractInternalNumberDuplicate(
   internalNumber: unknown,
@@ -38,44 +31,16 @@ export async function findContractInternalNumberDuplicate(
   if (!key) return null;
 
   const rows = await db
-    .select({
-      entityId: attributeValues.entityId,
-      code: attributeDefs.code,
-      valueJson: attributeValues.valueJson,
-    })
-    .from(attributeValues)
-    .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
-    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
-    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-    .where(
-      and(
-        eq(entityTypes.code, CONTRACT_ENTITY_TYPE_CODE),
-        // Казённый номер дочитываем той же выборкой: он нужен только для текста
-        // ошибки, но без него владелец не поймёт, тот же это договор или другой.
-        inArray(attributeDefs.code, [CONTRACT_INTERNAL_NUMBER_CODE, 'number']),
-        isNull(attributeDefs.deletedAt),
-        isNull(attributeValues.deletedAt),
-        isNull(entities.deletedAt),
-        isNull(entityTypes.deletedAt),
-      ),
-    )
-    .limit(200_000);
+    .select({ id: erpContracts.id, internalNumber: erpContracts.internalNumber, number: erpContracts.number })
+    .from(erpContracts)
+    .where(isNull(erpContracts.deletedAt));
 
-  const byContract = new Map<string, Record<string, string>>();
-  for (const r of rows) {
-    const id = String(r.entityId);
+  for (const row of rows) {
+    const id = String(row.id);
     if (excludeEntityId && id === excludeEntityId) continue;
-    const value = parseTextAttr(r.valueJson);
-    if (!value) continue;
-    const entry = byContract.get(id) ?? {};
-    entry[String(r.code)] = value;
-    byContract.set(id, entry);
-  }
-
-  for (const [id, entry] of byContract) {
-    const number = entry[CONTRACT_INTERNAL_NUMBER_CODE] ?? '';
+    const number = String(row.internalNumber ?? '').trim();
     if (!number || contractInternalNumberKey(number) !== key) continue;
-    return { id, internalNumber: number, contractNumber: entry['number'] ?? '' };
+    return { id, internalNumber: number, contractNumber: String(row.number ?? '').trim() };
   }
   return null;
 }
