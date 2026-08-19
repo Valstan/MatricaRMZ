@@ -3,6 +3,8 @@ import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, typ
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -16,7 +18,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
-import { tabletColumnLabel } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 
 type CreateConfig = {
   codePrefix: string;
@@ -257,7 +259,7 @@ export function NomenclatureDirectoryPage(props: {
     return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
   }
 
-  type ServiceColumnDef = {
+  type DirectoryColumnDef = {
     id: string;
     label: string;
     tabletLabel?: string;
@@ -265,9 +267,11 @@ export function NomenclatureDirectoryPage(props: {
     align?: 'left' | 'right' | 'center';
     kind?: ListColumnKind;
     render: (row: WarehouseNomenclatureListItem) => React.ReactNode;
+    printValue?: (row: WarehouseNomenclatureListItem) => string;
+    printSkip?: boolean;
   };
 
-  const serviceColumns = useMemo<ServiceColumnDef[]>(
+  const serviceColumns = useMemo<DirectoryColumnDef[]>(
     () => [
       { id: 'name', label: 'Наименование', sortKey: 'name', kind: 'name', render: (row) => row.name || '—' },
       {
@@ -335,29 +339,71 @@ export function NomenclatureDirectoryPage(props: {
     ],
     [servicePrices, serviceBrandIds, engineBrandNames, serviceUnits, serviceDescriptions, serviceAttachmentsCount],
   );
-  const serviceColumnIds = useMemo(() => serviceColumns.map((c) => c.id), [serviceColumns]);
-  const serviceDefaultHidden = useMemo(() => ['code', 'sku', 'description', 'attachments'], []);
-  const serviceColumnLayout = useColumnLayout('list:supply-services', serviceColumnIds, serviceDefaultHidden);
-  const serviceColumnsById = useMemo(() => new Map(serviceColumns.map((c) => [c.id, c])), [serviceColumns]);
-  const visibleServiceColumns = useMemo(
-    () =>
-      serviceColumnLayout.order
-        .map((id) => serviceColumnsById.get(id))
-        .filter((c): c is ServiceColumnDef => Boolean(c))
-        .filter((c) => serviceColumnLayout.isVisible(c.id)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only reads serviceColumnLayout.hidden, which is already a dep; useColumnLayout returns a fresh object/isVisible closure on every render, so listing serviceColumnLayout would recompute this memo on every render
-    [serviceColumnLayout.order, serviceColumnLayout.hidden, serviceColumnsById],
+  // Прочие виды каталога (детали, инструмент, товары, марки) раньше рисовали жёстко зашитый
+  // <thead> и парный жёсткий набор <td>. Теперь у них тот же массив колонок, что у услуг, —
+  // отсюда и настройка колонок, и печать, и общий рендер без развилки по виду.
+  const otherColumns = useMemo<DirectoryColumnDef[]>(
+    () => [
+      { id: 'code', label: 'Код', sortKey: 'code', kind: 'name', render: (row) => row.code || '—' },
+      { id: 'name', label: 'Наименование', sortKey: 'name', kind: 'name', render: (row) => row.name || '—' },
+      { id: 'sku', label: 'SKU', sortKey: 'sku', kind: 'name', render: (row) => row.sku || '—' },
+      ...(props.directoryKind === 'engine_brand'
+        ? [
+            {
+              id: 'parts',
+              label: 'Прикреплено деталей',
+              tabletLabel: 'Деталей',
+              sortKey: 'parts' as SortKey,
+              kind: 'num' as ListColumnKind,
+              render: (row: WarehouseNomenclatureListItem) => String(brandPartCounts[String(row.id)] ?? 0),
+            },
+          ]
+        : []),
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        tabletLabel: 'Изм.',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
+      },
+    ],
+    [props.directoryKind, brandPartCounts],
   );
-  const serviceColumnDescriptors = useMemo<ColumnDescriptor[]>(
+
+  const isServiceKind = props.directoryKind === 'service';
+  const columns = isServiceKind ? serviceColumns : otherColumns;
+  const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
+  // Раскладка своя на каждый вид справочника: у деталей и марок колонки значат разное, общая
+  // раскладка слепила бы их в одну. Услуги сохраняют прежний ключ, чтобы не потерять настройки.
+  const layoutId = isServiceKind ? 'list:supply-services' : `list:nomenclature:${props.directoryKind}:columns`;
+  const defaultHidden = useMemo(
+    () => (isServiceKind ? ['code', 'sku', 'description', 'attachments'] : []),
+    [isServiceKind],
+  );
+  const columnLayout = useColumnLayout(layoutId, columnIds, defaultHidden);
+  const columnsById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
+  const visibleColumns = useMemo(
     () =>
-      serviceColumns.map((c) => ({
+      columnLayout.order
+        .map((id) => columnsById.get(id))
+        .filter((c): c is DirectoryColumnDef => Boolean(c))
+        .filter((c) => columnLayout.isVisible(c.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible only reads columnLayout.hidden, which is already a dep; useColumnLayout returns a fresh object/isVisible closure on every render, so listing columnLayout would recompute this memo on every render
+    [columnLayout.order, columnLayout.hidden, columnsById],
+  );
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(
+    () =>
+      columns.map((c) => ({
         id: c.id,
         label: c.label,
         ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}),
         ...(c.id === 'name' ? { alwaysVisible: true } : {}),
       })),
-    [serviceColumns],
+    [columns],
   );
+  const printColumns = useMemo(() => buildListPrintColumns(columns), [columns]);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!canView) return;
@@ -481,86 +527,54 @@ export function NomenclatureDirectoryPage(props: {
     return <div style={{ color: 'var(--subtle)' }}>{props.noAccessText ?? 'Недостаточно прав для просмотра.'}</div>;
   }
 
-  const colCount =
-    (props.directoryKind === 'service'
-      ? Math.max(visibleServiceColumns.length, 1)
-      : 3 + (props.directoryKind === 'engine_brand' ? 1 : 0)) + 1;
+  const colCount = Math.max(visibleColumns.length, 1) + 1;
 
   const tableHeader = (
     <thead>
-      {props.directoryKind === 'service' ? (
-        <tr>
-          {(() => {
-            const allInOrder = serviceColumnLayout.order
-              .map((id) => serviceColumnsById.get(id))
-              .filter((col): col is ServiceColumnDef => Boolean(col));
-            return allInOrder.map((col) => {
-              const visible = serviceColumnLayout.isVisible(col.id);
-              // Hidden columns render nothing at all: a placeholder <th> here had no matching
-              // <td> in the body, so every column past the first hidden one sat under the wrong
-              // header — headers stayed wide while the cells under them narrowed.
-              if (!visible) return null;
-              return (
-                <th
-                  key={col.id}
-                  {...listHeaderKindProps(col.kind, col.label)}
-                  style={{ textAlign: col.align ?? 'left', cursor: 'pointer' }}
-                  onClick={() => onSort(col.sortKey)}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                    <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
-                    <ColumnToggleButton
-                      colId={col.id}
-                      visible
-                      alwaysVisible={col.id === 'name'}
-                      onToggle={() => serviceColumnLayout.setVisible(col.id, false)}
-                    />
-                  </span>
-                </th>
-              );
-            });
-          })()}
-          <th className="list-col-filler" aria-hidden="true" />
-        </tr>
-      ) : (
-        <tr>
-          <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('code')}>{sortLabel('Код', 'code')}</th>
-          <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Наименование', 'name')}</th>
-          <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('sku')}>{sortLabel('SKU', 'sku')}</th>
-          {props.directoryKind === 'engine_brand' ? (
-            <th data-col-kind="num" title="Прикреплено деталей" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('parts')}>
-              {sortLabel('Прикреплено деталей', 'parts')}
-            </th>
-          ) : null}
-          <th data-col-kind="date" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('updatedAt')}>
-            {sortLabel('Дата изменения', 'updatedAt')}
-          </th>
-          <th className="list-col-filler" aria-hidden="true" />
-        </tr>
-      )}
+      <tr>
+        {columnLayout.order
+          .map((id) => columnsById.get(id))
+          .filter((col): col is DirectoryColumnDef => Boolean(col))
+          .map((col) => {
+            // Скрытая колонка не рисует ничего: ячейка-пустышка в шапке не имела пары в теле,
+            // и каждый заголовок за ней вставал над чужими данными.
+            if (!columnLayout.isVisible(col.id)) return null;
+            return (
+              <th
+                key={col.id}
+                {...listHeaderKindProps(col.kind, col.label)}
+                style={{ textAlign: col.align ?? 'left', cursor: 'pointer' }}
+                onClick={() => onSort(col.sortKey)}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.id === 'name'}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+              </th>
+            );
+          })}
+        <th className="list-col-filler" aria-hidden="true" />
+      </tr>
     </thead>
   );
 
   function renderRowCells(row: WarehouseNomenclatureListItem) {
-    if (props.directoryKind === 'service') {
-      return (
-        <>
-          {visibleServiceColumns.map((col) => (
-            <td key={col.id} {...listCellKindProps(col.kind)} style={{ textAlign: col.align ?? 'left', fontSize: col.id === 'brands' || col.id === 'description' ? 12 : undefined }}>
-              {col.render(row)}
-            </td>
-          ))}
-          <td className="list-col-filler" aria-hidden="true" />
-        </>
-      );
-    }
     return (
       <>
-        <td data-col-kind="name">{row.code || '—'}</td>
-        <td data-col-kind="name">{row.name || '—'}</td>
-        <td data-col-kind="name">{row.sku || '—'}</td>
-        {props.directoryKind === 'engine_brand' ? <td data-col-kind="num">{brandPartCounts[String(row.id)] ?? 0}</td> : null}
-        <td data-col-kind="date">{row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}</td>
+        {visibleColumns.map((col) => (
+          <td
+            key={col.id}
+            {...listCellKindProps(col.kind)}
+            style={{ textAlign: col.align ?? 'left', fontSize: col.id === 'brands' || col.id === 'description' ? 12 : undefined }}
+          >
+            {col.render(row)}
+          </td>
+        ))}
         <td className="list-col-filler" aria-hidden="true" />
       </>
     );
@@ -636,16 +650,35 @@ export function NomenclatureDirectoryPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={props.searchPlaceholder} />
         </div>
-        {props.directoryKind === 'service' ? (
-          <ColumnSettingsButton
-            columns={serviceColumnDescriptors}
-            order={serviceColumnLayout.order}
-            isVisible={serviceColumnLayout.isVisible}
-            onToggleVisible={serviceColumnLayout.setVisible}
-            onMove={serviceColumnLayout.moveColumn}
-            onReset={serviceColumnLayout.resetToDefault}
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
+          </Button>
+        )}
+        {printDialogOpen && (
+          <ListPrintDialog
+            title={`Справочник: ${directoryLabel}`}
+            unitLabel="Строк"
+            columns={printColumns}
+            visibleColumnIds={visibleColumns.map((c) => c.id)}
+            rows={sortedRows}
+            selectedRows={[]}
+            storageKey={`${layoutId}:printFields`}
+            onClose={() => setPrintDialogOpen(false)}
           />
-        ) : null}
+        )}
+        <ColumnSettingsButton
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
