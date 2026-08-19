@@ -109,6 +109,14 @@ type AttachmentsPanelProps = {
   objectLabel?: string;
   scope?: { ownerType: string; ownerId: string; category: string };
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
+  /**
+   * Управляемая выборка: когда панель живёт внутри `AttachmentsModule`, выбор
+   * общий с фотогалереей, а групповые кнопки — один раз в модуле. Без этих
+   * пропсов панель работает как раньше, со своей выборкой и своей полосой.
+   */
+  selected?: Set<string>;
+  onSelectedChange?: (next: Set<string>) => void;
+  hideBulkBar?: boolean;
 };
 
 export function AttachmentsPanel(props: AttachmentsPanelProps) {
@@ -124,7 +132,14 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const thumbsRef = useRef(thumbs);
 
   // Групповые операции: чекбоксы в списке → печать / копирование / отправка пачкой.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [ownSelected, setOwnSelected] = useState<Set<string>>(new Set());
+  const controlledSelection = props.selected != null && props.onSelectedChange != null;
+  const selected = controlledSelection ? (props.selected as Set<string>) : ownSelected;
+  const setSelected = (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    const next = typeof updater === 'function' ? (updater as (prev: Set<string>) => Set<string>)(selected) : updater;
+    if (controlledSelection) props.onSelectedChange?.(next);
+    else setOwnSelected(next);
+  };
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [printNames, setPrintNames] = useState(true);
   const [printContents, setPrintContents] = useState(true);
@@ -152,8 +167,9 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   const objectLabel = props.objectLabel?.trim() || props.title?.trim() || 'Карточка';
 
   useEffect(() => {
-    setSelected(new Set());
-  }, [listKey]);
+    // Управляемой выборкой владеет модуль — он же её и сбрасывает.
+    if (!controlledSelection) setOwnSelected(new Set());
+  }, [listKey, controlledSelection]);
 
   useEffect(() => {
     thumbsRef.current = thumbs;
@@ -543,7 +559,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         </Button></>
         )}
       </div>
-      {selectedIds.length > 0 && (
+      {selectedIds.length > 0 && !props.hideBulkBar && (
         <div
           style={{
             marginTop: 10,

@@ -10,8 +10,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
-import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
-import { EnginePhotoGallery } from '../components/EnginePhotoGallery.js';
+import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
@@ -2237,19 +2236,18 @@ export function EngineDetailsPage(props: {
       )}
 
       <div className="entity-card-span-full" hidden={activeTab !== 'files'}>
-        <EnginePhotoGallery
-          value={props.engine.attributes?.attachments}
-          canView={props.canViewFiles}
-          canDelete={props.canUploadFiles && canEditEnginesEff}
-          engineLabel={[engineBrand, engineNumber].filter(Boolean).join(' ')}
-          onChange={saveAttachments}
-        />
-        <AttachmentsPanel
+        {/* Один модуль вместо двух независимых компонентов над одним и тем же
+            массивом `attachments`: выборка общая для фото и списка, групповые
+            кнопки — один тулбар. Scope раньше не передавался, и файлы двигателя
+            уезжали в плоскую папку хранилища вместо своей. */}
+        <AttachmentsModule
           title="Вложения к двигателю"
           objectLabel={`Двигатель ${String(engineNumber || props.engineId).trim()}`}
           value={props.engine.attributes?.attachments}
           canView={props.canViewFiles}
           canUpload={props.canUploadFiles && canEditEnginesEff}
+          canDelete={props.canUploadFiles && canEditEnginesEff}
+          scope={{ ownerType: 'engine', ownerId: String(props.engineId), category: 'attachments' }}
           onChange={saveAttachments}
         />
       </div>

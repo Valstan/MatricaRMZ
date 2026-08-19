@@ -37,6 +37,14 @@ type EnginePhotoGalleryProps = {
   canDelete: boolean;
   engineLabel?: string;
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
+  /**
+   * Управляемая выборка: внутри `AttachmentsModule` фото и строки списка — одна
+   * выборка, а групповые кнопки живут в модуле. Без этих пропсов галерея
+   * работает как раньше, со своей выборкой и своей полосой действий.
+   */
+  selected?: Set<string>;
+  onSelectedChange?: (next: Set<string>) => void;
+  hideBulkBar?: boolean;
 };
 
 export function EnginePhotoGallery(props: EnginePhotoGalleryProps) {
@@ -58,7 +66,14 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [bigUrl, setBigUrl] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [ownSelected, setOwnSelected] = useState<Set<string>>(new Set());
+  const controlledSelection = props.selected != null && props.onSelectedChange != null;
+  const selected = controlledSelection ? (props.selected as Set<string>) : ownSelected;
+  const setSelected = (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    const next = typeof updater === 'function' ? (updater as (prev: Set<string>) => Set<string>)(selected) : updater;
+    if (controlledSelection) props.onSelectedChange?.(next);
+    else setOwnSelected(next);
+  };
   const [busy, setBusy] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
   // Планшет: буфера обмена, печати и папок у WebView нет — эти действия там прячем,
@@ -255,7 +270,7 @@ function EnginePhotoGalleryInner(props: EnginePhotoGalleryProps) {
           {selectMode ? 'Выйти из выбора' : 'Выбрать несколько'}
         </Button>
       </div>
-      {selected.size > 0 && (
+      {selected.size > 0 && !props.hideBulkBar && (
         <div
           style={{
             marginBottom: 10,
