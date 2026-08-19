@@ -4,7 +4,7 @@ import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
-import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -279,16 +279,10 @@ export function CounterpartiesPage(props: {
         <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
-            if (!visible) {
-              return (
-                <HiddenColumnMarker
-                  key={col.id}
-                  colId={col.id}
-                  label={col.label}
-                  onShow={() => columnLayout.setVisible(col.id, true)}
-                />
-              );
-            }
+            // Hidden columns render nothing at all: a placeholder <th> here had no matching
+            // <td> in the body, so every column past the first hidden one sat under the wrong
+            // header — headers stayed wide while the cells under them narrowed.
+            if (!visible) return null;
             return (
               <th
                 key={col.id}
@@ -422,7 +416,7 @@ export function CounterpartiesPage(props: {
             renderCells={(i) => renderCounterpartyCells(sorted[i]!)}
             getRowKey={(i) => sorted[i]!.id}
             getRowProps={(i) => rowProps(sorted[i]!)}
-            colCount={Math.max(1, visibleColumns.length)}
+            colCount={Math.max(1, visibleColumns.length) + 1}
             estimateSize={showPreviews ? 52 : 44}
             emptyState={rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
           />

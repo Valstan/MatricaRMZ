@@ -3,7 +3,7 @@ import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, typ
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
-import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -496,16 +496,10 @@ export function NomenclatureDirectoryPage(props: {
               .filter((col): col is ServiceColumnDef => Boolean(col));
             return allInOrder.map((col) => {
               const visible = serviceColumnLayout.isVisible(col.id);
-              if (!visible) {
-                return (
-                  <HiddenColumnMarker
-                    key={col.id}
-                    colId={col.id}
-                    label={col.label}
-                    onShow={() => serviceColumnLayout.setVisible(col.id, true)}
-                  />
-                );
-              }
+              // Hidden columns render nothing at all: a placeholder <th> here had no matching
+              // <td> in the body, so every column past the first hidden one sat under the wrong
+              // header — headers stayed wide while the cells under them narrowed.
+              if (!visible) return null;
               return (
                 <th
                   key={col.id}

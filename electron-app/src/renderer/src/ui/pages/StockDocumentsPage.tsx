@@ -4,7 +4,7 @@ import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
-import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Stock1cImportDialog } from '../components/Stock1cImportDialog.js';
 import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
 import { Input } from '../components/Input.js';
@@ -218,16 +218,10 @@ export function StockDocumentsPage(props: {
         <tr>
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
-            if (!visible) {
-              return (
-                <HiddenColumnMarker
-                  key={col.id}
-                  colId={col.id}
-                  label={col.label}
-                  onShow={() => columnLayout.setVisible(col.id, true)}
-                />
-              );
-            }
+            // Hidden columns render nothing at all: a placeholder <th> here had no matching
+            // <td> in the body, so every column past the first hidden one sat under the wrong
+            // header — headers stayed wide while the cells under them narrowed.
+            if (!visible) return null;
             return (
               <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort(col.sortKey)}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>

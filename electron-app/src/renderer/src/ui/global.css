@@ -754,6 +754,41 @@ table.list-table td.list-col-filler {
   overflow: hidden;
 }
 
+/* «×» скрытия колонки в шапке. На десктопе проявляется только под курсором — иначе ряд
+   заголовков превращается в ряд крестиков; на планшете hover'а нет, поэтому там он виден
+   всегда (`.list-col-hide-touch`). */
+.list-col-hide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: currentColor;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+table.list-table th:hover .list-col-hide,
+.list-col-hide:focus-visible,
+.list-col-hide-touch {
+  opacity: 0.75;
+}
+
+.list-col-hide:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.18);
+}
+
 table.list-table.work-order-table {
   width: max-content;
   max-width: 100%;
