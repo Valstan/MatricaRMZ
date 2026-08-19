@@ -35,6 +35,14 @@ export type AiChatTemplate = {
 export type UserUiProfile = {
   /** LWW-штамп: PATCH со штампом старше серверного отклоняется (клиент применяет серверный). */
   updatedAt: number;
+  /**
+   * Per-key LWW-штампы (v3.5.0): merge принимает секцию, только если её штамп
+   * не старше сохранённого; отсутствующие в PATCH секции не трогаются вовсе.
+   * Раньше PATCH заменял профиль целиком — клиент, пушащий 4 ключа из 5, молча
+   * стирал пятый (aiChatTemplates). Наличие поля в ответе GET — сигнал клиенту,
+   * что сервер умеет merge.
+   */
+  keyUpdatedAt?: Record<string, number>;
   tabsLayout?: UserUiProfileTabsLayout | null;
   shortcuts?: string[];
   recentVisits?: UserUiProfileRecentVisit[];
@@ -158,10 +166,30 @@ function sanitizeAiChatTemplates(raw: unknown): AiChatTemplate[] | undefined {
   return out;
 }
 
+const MAX_KEY_STAMPS = 32;
+const MAX_KEY_NAME = 64;
+
+function sanitizeKeyUpdatedAt(raw: unknown): Record<string, number> | undefined {
+  if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return undefined;
+  const out: Record<string, number> = {};
+  let n = 0;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const k = String(key).trim().slice(0, MAX_KEY_NAME);
+    const v = Number(value);
+    if (!k || !Number.isFinite(v) || v <= 0) continue;
+    out[k] = v;
+    n += 1;
+    if (n >= MAX_KEY_STAMPS) break;
+  }
+  return out;
+}
+
 export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   const r = (typeof raw === 'object' && raw != null ? raw : {}) as Record<string, unknown>;
   const updatedAt = Number(r.updatedAt ?? 0);
   const out: UserUiProfile = { updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0 };
+  const keyUpdatedAt = sanitizeKeyUpdatedAt(r.keyUpdatedAt);
+  if (keyUpdatedAt !== undefined) out.keyUpdatedAt = keyUpdatedAt;
   const tabsLayout = sanitizeTabsLayout(r.tabsLayout);
   if (tabsLayout !== undefined) out.tabsLayout = tabsLayout;
   const shortcuts = sanitizeShortcuts(r.shortcuts);
@@ -173,4 +201,45 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   const aiChatTemplates = sanitizeAiChatTemplates(r.aiChatTemplates);
   if (aiChatTemplates !== undefined) out.aiChatTemplates = aiChatTemplates;
   return out;
+}
+
+function profileSectionKeys(profile: UserUiProfile): string[] {
+  return Object.keys(profile).filter((k) => k !== 'updatedAt' && k !== 'keyUpdatedAt');
+}
+
+/**
+ * Merge с per-key LWW (v3.5.0). Секция из PATCH применяется, только если её
+ * штамп (`keyUpdatedAt[k]`, фолбэк — верхний `updatedAt`) не старше сохранённого;
+ * отсутствующие в PATCH секции остаются нетронутыми. Легаси-поведение
+ * сохраняется: полный PATCH без keyUpdatedAt со стейл-updatedAt отклоняется
+ * целиком (`stale: true`), клиент подхватывает серверный профиль.
+ */
+export function mergeUserUiProfiles(
+  stored: UserUiProfile | null,
+  incomingRaw: unknown,
+): { profile: UserUiProfile; stale: boolean } {
+  const incoming = sanitizeUserUiProfile(incomingRaw);
+  if (!stored || !(stored.updatedAt > 0)) {
+    const stamps: Record<string, number> = { ...(incoming.keyUpdatedAt ?? {}) };
+    for (const k of profileSectionKeys(incoming)) {
+      if (!(k in stamps)) stamps[k] = incoming.updatedAt;
+    }
+    return { profile: { ...incoming, keyUpdatedAt: stamps }, stale: false };
+  }
+  const out: UserUiProfile = { ...stored };
+  const outStamps: Record<string, number> = { ...(stored.keyUpdatedAt ?? {}) };
+  let stale = false;
+  for (const k of profileSectionKeys(incoming)) {
+    const stampIn = incoming.keyUpdatedAt?.[k] ?? incoming.updatedAt;
+    const stampStored = stored.keyUpdatedAt?.[k] ?? stored.updatedAt;
+    if (stampIn >= stampStored) {
+      (out as Record<string, unknown>)[k] = (incoming as Record<string, unknown>)[k];
+      outStamps[k] = stampIn;
+    } else {
+      stale = true;
+    }
+  }
+  out.keyUpdatedAt = outStamps;
+  out.updatedAt = Math.max(stored.updatedAt, incoming.updatedAt, ...Object.values(outStamps).map(Number));
+  return { profile: out, stale };
 }
