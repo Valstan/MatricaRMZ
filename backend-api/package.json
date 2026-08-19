@@ -45,6 +45,7 @@
     "cleanup:bulk-types": "tsx src/scripts/cleanupBulkEntityTypes.ts",
     "ledger:import": "tsx src/scripts/ledgerImport.ts",
     "backup:nightly": "tsx src/scripts/nightlyBackup.ts",
+    "backup:decrypt": "tsx src/scripts/decryptBackup.ts",
     "counterparties:merge": "tsx src/scripts/mergeCounterparties.ts",
     "masterdata:dedupe-engines": "tsx src/scripts/dedupeEngines.ts",
     "clients:enable-logging": "tsx src/scripts/enableClientLogging.ts",

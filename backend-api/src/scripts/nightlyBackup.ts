@@ -2,13 +2,14 @@ import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 
 import Database from 'better-sqlite3';
 
 import { db, pool } from '../database/db.js';
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations } from '../database/schema.js';
+import { encryptFileHybrid } from '../services/backupCrypto.js';
 import { deletePath, ensureFolderDeep, listFolderAll, uploadFileStream } from '../services/yandexDisk.js';
 
 function pad2(n: number) {
@@ -24,6 +25,28 @@ function requireEnv(name: string): string {
   const v = (process.env[name] ?? '').trim();
   if (!v) throw new Error(`Переменная ${name} не настроена`);
   return v;
+}
+
+// The dump is the whole enterprise database leaving the perimeter. It is encrypted with a
+// public key so this server can only ever write it — the private half lives off-server, so a
+// stolen YANDEX_DISK_TOKEN buys ciphertext. There is deliberately no plaintext fallback: a
+// backup that quietly degrades to plaintext is the failure this guards against.
+function readBackupPublicKey(): string {
+  const fromFile = (process.env.BACKUP_ENCRYPTION_PUBLIC_KEY_FILE ?? '').trim();
+  if (fromFile) {
+    try {
+      return readFileSync(fromFile, 'utf8');
+    } catch (e) {
+      throw new Error(`Не удалось прочитать BACKUP_ENCRYPTION_PUBLIC_KEY_FILE=${fromFile}: ${String(e)}`);
+    }
+  }
+  const inline = (process.env.BACKUP_ENCRYPTION_PUBLIC_KEY ?? '').trim();
+  if (inline) return inline;
+  throw new Error(
+    'Резервное копирование остановлено: не задан публичный ключ шифрования ' +
+      '(BACKUP_ENCRYPTION_PUBLIC_KEY_FILE или BACKUP_ENCRYPTION_PUBLIC_KEY). ' +
+      'Незашифрованный дамп за пределы контура не отправляется.',
+  );
 }
 
 function nowMs() {
@@ -295,9 +318,15 @@ async function buildSqliteSnapshot(outPath: string) {
   }
 }
 
+// Legacy plaintext names stay matched on purpose: retention must keep pruning the
+// pre-encryption artifacts still sitting on the disk, not strand them forever.
 function parseBackupDateFromName(name: string): string | null {
-  const m = String(name).match(/^(\d{4}-\d{2}-\d{2})\.(sqlite|dump)$/);
+  const m = String(name).match(/^(\d{4}-\d{2}-\d{2})\.(sqlite|dump)(\.enc)?$/);
   return m?.[1] ?? null;
+}
+
+function isLegacyPlaintextDump(name: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}\.dump$/.test(String(name));
 }
 
 function dateNameToInt(name: string): number {
@@ -317,7 +346,9 @@ async function applyRetention(args: { folderPath: string; keepDays: number; toda
     if (it.type !== 'file') continue;
     const dn = parseBackupDateFromName(it.name);
     if (!dn) continue;
-    if (dateNameToInt(dn) < cutoffInt) {
+    // Plaintext dumps from before encryption are the very leak being closed — they go now,
+    // not after the retention window drains.
+    if (dateNameToInt(dn) < cutoffInt || isLegacyPlaintextDump(it.name)) {
       // API expects /path, but list returns disk:/...; normalize to /...
       const p = String(it.path || '');
       const diskPath = p.startsWith('disk:') ? p.slice('disk:'.length) : p;
@@ -338,9 +369,14 @@ async function main() {
   mkdirSync(tmpBase, { recursive: true });
 
   const tmpDump = join(tmpBase, `${todayName}.dump`);
+  const tmpDumpEnc = join(tmpBase, `${todayName}.dump.enc`);
   const tmpSqlite = join(tmpBase, `${todayName}.sqlite`);
 
   console.log(`[nightlyBackup] старт date=${todayName} folder=${backupFolder}`);
+
+  // Fail before pg_dump, not after: an unconfigured key must not produce a plaintext dump
+  // on disk at all.
+  const publicKeyPem = readBackupPublicKey();
 
   try {
     await ensureFolderDeep(backupFolder);
@@ -348,11 +384,18 @@ async function main() {
     console.log(`[nightlyBackup] pg_dump -> ${tmpDump}`);
     await runPgDump(tmpDump);
 
+    console.log(`[nightlyBackup] шифрование дампа -> ${tmpDumpEnc}`);
+    await encryptFileHybrid({ inPath: tmpDump, outPath: tmpDumpEnc, publicKeyPem });
+
     console.log(`[nightlyBackup] sqlite-снапшот -> ${tmpSqlite}`);
     await buildSqliteSnapshot(tmpSqlite);
 
-    console.log(`[nightlyBackup] отправка дампа`);
-    await uploadFileStream({ diskPath: `${backupFolder}/${todayName}.dump`, localFilePath: tmpDump, mime: 'application/octet-stream' });
+    console.log(`[nightlyBackup] отправка дампа (шифрованного)`);
+    await uploadFileStream({
+      diskPath: `${backupFolder}/${todayName}.dump.enc`,
+      localFilePath: tmpDumpEnc,
+      mime: 'application/octet-stream',
+    });
 
     console.log(`[nightlyBackup] отправка sqlite`);
     await uploadFileStream({
@@ -367,6 +410,7 @@ async function main() {
     console.log(`[nightlyBackup] выполнено за ${nowMs() - startedAt}ms`);
   } finally {
     await unlink(tmpDump).catch(() => {});
+    await unlink(tmpDumpEnc).catch(() => {});
     await unlink(tmpSqlite).catch(() => {});
     await pool.end().catch(() => {});
   }
