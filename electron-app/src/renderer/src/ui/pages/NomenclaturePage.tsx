@@ -2,7 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { Input } from '../components/Input.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
+import { useColumnLayout } from '../hooks/useColumnLayout.js';
+import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { NomenclaturePropertyEditModal, type NomenclaturePropertyEditRow } from '../components/NomenclaturePropertyEditModal.js';
 import {
   NomenclatureTemplateCompositionEditor,
@@ -309,6 +316,7 @@ export function NomenclaturePage(props: {
     return `${label} ${sortDir === 'asc' ? '↑' : '↓'}`;
   }
 
+
   const itemTypeOptions = useMemo(() => {
     const dynamic = (lookups.nomenclatureItemTypes ?? [])
       .map((row) => ({ id: String(row.code ?? '').trim(), label: String(row.label ?? '').trim() }))
@@ -317,9 +325,84 @@ export function NomenclaturePage(props: {
     return [{ id: '', label: 'Все типы' }, ...dynamic];
   }, [lookups.nomenclatureItemTypes]);
 
-  function itemTypeLabel(itemTypeValue: string | null | undefined): string {
-    return itemTypeOptions.find((item) => item.id === itemTypeValue)?.label ?? String(itemTypeValue ?? '—');
-  }
+  // Колонки списка одним массивом (как в справочниках каталога) — из него растут
+  // и шапка, и тело, и настройка колонок, и печать: второго описания колонок,
+  // способного разойтись с экраном, не появляется.
+  type NomenclatureColumnDef = {
+    id: string;
+    label: string;
+    tabletLabel?: string;
+    sortKey: SortKey;
+    kind?: ListColumnKind;
+    minWidth?: number;
+    render: (row: WarehouseNomenclatureListItem) => React.ReactNode;
+    printValue?: (row: WarehouseNomenclatureListItem) => string;
+  };
+  const columns = useMemo<NomenclatureColumnDef[]>(
+    () => [
+      {
+        id: 'name',
+        label: 'Наименование',
+        sortKey: 'name',
+        kind: 'name',
+        minWidth: 220,
+        render: (row) => row.name || '—',
+      },
+      {
+        id: 'code',
+        label: 'Артикул',
+        sortKey: 'code',
+        kind: 'name',
+        render: (row) => <span style={{ color: 'var(--subtle)' }}>{row.code || '—'}</span>,
+        printValue: (row) => row.code ?? '',
+      },
+      {
+        id: 'itemType',
+        label: 'Тип',
+        sortKey: 'itemType',
+        render: (row) => itemTypeOptions.find((item) => item.id === row.itemType)?.label ?? String(row.itemType ?? '—'),
+      },
+      { id: 'group', label: 'Группа', sortKey: 'group', minWidth: 140, render: (row) => row.groupName || '—' },
+      { id: 'unit', label: 'Ед.', tabletLabel: 'Ед.', sortKey: 'unit', render: (row) => row.unitName || '—' },
+      {
+        id: 'updatedAt',
+        label: 'Дата изменения',
+        tabletLabel: 'Изм.',
+        sortKey: 'updatedAt',
+        kind: 'date',
+        render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
+      },
+    ],
+    [itemTypeOptions],
+  );
+  const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
+  const columnLayout = useColumnLayout('list:nomenclature:columns', columnIds);
+  const columnsById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
+  const visibleColumns = useMemo(
+    () =>
+      columnLayout.order
+        .map((id) => columnsById.get(id))
+        .filter((c): c is NomenclatureColumnDef => Boolean(c))
+        .filter((c) => columnLayout.isVisible(c.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isVisible reads columnLayout.hidden, уже в зависимостях; сам объект хука новый на каждый рендер
+    [columnLayout.order, columnLayout.hidden, columnsById],
+  );
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(
+    () =>
+      columns.map((c) => ({
+        id: c.id,
+        label: c.label,
+        ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}),
+        ...(c.id === 'name' ? { alwaysVisible: true } : {}),
+      })),
+    [columns],
+  );
+  const printColumns = useMemo(() => buildListPrintColumns(columns), [columns]);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  // На печать идёт то, что оператор видит: развёрнутая группа — её позиции;
+  // если ни одна не развёрнута — весь текущий отбор целиком (иначе кнопка печати
+  // на свёрнутом списке печатала бы пустой лист).
+  const printRows = useMemo(() => (expandedGroupKey == null ? rows : sorted), [expandedGroupKey, rows, sorted]);
 
   const onOpen = props.onOpen;
   const runCreateWithPreset = useCallback(
@@ -617,6 +700,23 @@ export function NomenclaturePage(props: {
                 placeholder="Группа номенклатуры"
                 onChange={setGroupId}
               />
+              {!isAndroidPlatform() && (
+                <Button
+                  variant="ghost"
+                  onClick={() => setPrintDialogOpen(true)}
+                  title="Печать текущего списка: колонки как на экране, объём под контролем"
+                >
+                  Печать списка
+                </Button>
+              )}
+              <ColumnSettingsButton
+                columns={columnDescriptors}
+                order={columnLayout.order}
+                isVisible={columnLayout.isVisible}
+                onToggleVisible={columnLayout.setVisible}
+                onMove={columnLayout.moveColumn}
+                onReset={columnLayout.resetToDefault}
+              />
               <Button variant="ghost" onClick={() => void refresh()}>
                 Обновить
               </Button>
@@ -626,6 +726,18 @@ export function NomenclaturePage(props: {
               <Button variant="ghost" onClick={() => void openLabelDialog()} disabled={labelLoading}>
                 {labelLoading ? 'Загрузка…' : 'Печать этикеток'}
               </Button>
+              {printDialogOpen && (
+                <ListPrintDialog
+                  title="Склад · Номенклатура"
+                  unitLabel="Позиций"
+                  columns={printColumns}
+                  visibleColumnIds={visibleColumns.map((c) => c.id)}
+                  rows={printRows}
+                  selectedRows={[]}
+                  storageKey="list:nomenclature:columns:printFields"
+                  onClose={() => setPrintDialogOpen(false)}
+                />
+              )}
             </div>
 
             {refsError ? <div style={{ color: 'var(--danger)', flexShrink: 0 }}>Справочники склада: {refsError}</div> : null}
@@ -697,57 +809,43 @@ export function NomenclaturePage(props: {
                         <table className="list-table">
                           <thead>
                             <tr>
-                              <th
-                                data-col-kind="name"
-                                style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220, top: GROUP_HEADER_HEIGHT }}
-                                onClick={() => onSort('name')}
-                              >
-                                {sortLabel('Наименование', 'name')}
-                              </th>
-                              <th
-                                data-col-kind="name"
-                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
-                                onClick={() => onSort('code')}
-                                title="Артикул / код / сборочный номер"
-                              >
-                                {sortLabel('Артикул', 'code')}
-                              </th>
-                              <th
-                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
-                                onClick={() => onSort('itemType')}
-                              >
-                                {sortLabel('Тип', 'itemType')}
-                              </th>
-                              <th
-                                style={{ textAlign: 'left', cursor: 'pointer', minWidth: 140, top: GROUP_HEADER_HEIGHT }}
-                                onClick={() => onSort('group')}
-                              >
-                                {sortLabel('Группа', 'group')}
-                              </th>
-                              <th
-                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
-                                onClick={() => onSort('unit')}
-                              >
-                                {sortLabel('Ед.', 'unit')}
-                              </th>
-                              <th
-                                data-col-kind="date"
-                                style={{ textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', top: GROUP_HEADER_HEIGHT }}
-                                onClick={() => onSort('updatedAt')}
-                              >
-                                {sortLabel('Дата изменения', 'updatedAt')}
-                              </th>
+                              {visibleColumns.map((col) => (
+                                <th
+                                  key={col.id}
+                                  {...listHeaderKindProps(col.kind, col.label)}
+                                  style={{
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    top: GROUP_HEADER_HEIGHT,
+                                    ...(col.minWidth ? { minWidth: col.minWidth } : { whiteSpace: 'nowrap' }),
+                                  }}
+                                  onClick={() => onSort(col.sortKey)}
+                                >
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                    <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
+                                    <ColumnToggleButton
+                                      colId={col.id}
+                                      visible
+                                      alwaysVisible={col.id === 'name'}
+                                      onToggle={() => columnLayout.setVisible(col.id, false)}
+                                    />
+                                  </span>
+                                </th>
+                              ))}
                             </tr>
                           </thead>
                           <tbody>
                             {pageRowsForGroup.map((row) => (
                               <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
-                                <td data-col-kind="name" style={{ wordBreak: 'break-word' }}>{row.name || '—'}</td>
-                                <td data-col-kind="name" style={{ color: 'var(--subtle)', whiteSpace: 'nowrap' }}>{row.code || '—'}</td>
-                                <td>{itemTypeLabel(row.itemType)}</td>
-                                <td>{row.groupName || '—'}</td>
-                                <td>{row.unitName || '—'}</td>
-                                <td data-col-kind="date" style={{ whiteSpace: 'nowrap' }}>{row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'}</td>
+                                {visibleColumns.map((col) => (
+                                  <td
+                                    key={col.id}
+                                    {...listCellKindProps(col.kind)}
+                                    style={col.minWidth ? { wordBreak: 'break-word' } : { whiteSpace: 'nowrap' }}
+                                  >
+                                    {col.render(row)}
+                                  </td>
+                                ))}
                               </tr>
                             ))}
                           </tbody>
