@@ -31,6 +31,8 @@ import {
   directoryTools,
   entities,
   entityTypes,
+  erpContracts,
+  erpCounterparties,
   erpDocumentHeaders,
   erpDocumentLines,
   erpEngineInstances,
@@ -885,18 +887,32 @@ export async function backfillMissingPartNomenclature(
 }
 
 /**
- * Lookup договоров из EAV. У договора нет атрибута `name` — человекочитаемая метка
- * это внутренний номер («20/ГОЗ-25»), фолбэк — казённый номер контракта.
+ * B2: lookup договоров из строгой erp_contracts (триггерное зеркало EAV, миграция 0084).
+ * У договора нет «имени» — человекочитаемая метка это внутренний номер («20/ГОЗ-25»),
+ * фолбэк — казённый номер контракта, затем наименование ГОЗ.
  */
 async function listContractLookup(): Promise<LookupOption[]> {
-  const rows = await listMasterdataEntitiesWithAttrs('contract');
+  const rows = await db
+    .select({ id: erpContracts.id, number: erpContracts.number, internalNumber: erpContracts.internalNumber, gozName: erpContracts.gozName })
+    .from(erpContracts)
+    .where(isNull(erpContracts.deletedAt));
   return rows
-    .map(({ id, attrs }) => {
-      const internalNumber = String(attrs.internal_number ?? '').trim();
-      const number = String(attrs.number ?? '').trim();
-      const label = internalNumber || number || String(attrs.goz_name ?? '').trim() || id;
-      return { id, label, code: number || null };
+    .map((row) => {
+      const number = String(row.number ?? '').trim();
+      const label = String(row.internalNumber ?? '').trim() || number || String(row.gozName ?? '').trim() || String(row.id);
+      return { id: String(row.id), label, code: number || null };
     })
+    .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+}
+
+/** B2: lookup контрагентов из строгой erp_counterparties (триггерное зеркало EAV). */
+async function listCounterpartyLookup(): Promise<LookupOption[]> {
+  const rows = await db
+    .select({ id: erpCounterparties.id, name: erpCounterparties.name, shortName: erpCounterparties.shortName })
+    .from(erpCounterparties)
+    .where(isNull(erpCounterparties.deletedAt));
+  return rows
+    .map((row) => ({ id: String(row.id), label: String(row.name), code: row.shortName == null ? null : String(row.shortName) }))
     .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
 }
 
@@ -930,7 +946,7 @@ async function listWarehouseReferenceData() {
     listMasterdataLookup('nomenclature_group'),
     listMasterdataLookup('unit'),
     listMasterdataLookup('stock_write_off_reason'),
-    listMasterdataLookup('customer'),
+    listCounterpartyLookup(),
     listMasterdataLookup('employee'),
     listEngineBrandLookup(),
     listContractLookup(),
@@ -4024,34 +4040,19 @@ export async function listWarehouseMovements(args?: {
 
 /**
  * Разделы договора (номер основного + номера ДС) для дропдауна привязки экземпляра.
- * B0: раньше читал erp_contracts мёртвого /erp-прототипа (на проде пуста — всегда
- * «Contract not found»); правда живёт в EAV-атрибуте contract_sections договора.
+ * B2: читает строгую erp_contracts (триггерное зеркало EAV, миграция 0084).
  */
 export async function getContractSections(contractId: string): Promise<{ ok: true; sections: string[] } | { ok: false; error: string }> {
   try {
     const rows = await db
-      .select({ valueJson: attributeValues.valueJson })
-      .from(attributeValues)
-      .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
-      .innerJoin(entities, eq(entities.id, attributeValues.entityId))
-      .where(
-        and(
-          eq(attributeValues.entityId, contractId as any),
-          eq(attributeDefs.code, 'contract_sections'),
-          isNull(attributeValues.deletedAt),
-          isNull(entities.deletedAt),
-        ),
-      )
+      .select({ sectionsJson: erpContracts.sectionsJson })
+      .from(erpContracts)
+      .where(and(eq(erpContracts.id, contractId as any), isNull(erpContracts.deletedAt)))
       .limit(1);
-    const exists = await db
-      .select({ id: entities.id })
-      .from(entities)
-      .where(and(eq(entities.id, contractId as any), isNull(entities.deletedAt)))
-      .limit(1);
-    if (!exists[0]) return { ok: false, error: 'Contract not found' };
+    if (!rows[0]) return { ok: false, error: 'Contract not found' };
     let raw: unknown = null;
     try {
-      raw = rows[0]?.valueJson ? JSON.parse(String(rows[0].valueJson)) : null;
+      raw = rows[0].sectionsJson ? JSON.parse(String(rows[0].sectionsJson)) : null;
     } catch {
       raw = null;
     }
