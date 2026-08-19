@@ -62,7 +62,7 @@ export async function encryptFileHybrid(args: { inPath: string; outPath: string;
     Buffer.concat([key, iv]),
   );
 
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_LEN });
   const out = createWriteStream(args.outPath);
   out.write(buildHeader(wrappedKey));
   out.write(wrappedKey);
@@ -97,7 +97,10 @@ export async function decryptFileHybrid(args: {
   const unwrapped = privateDecrypt({ key: privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, wrappedKey);
   if (unwrapped.length !== KEY_LEN + IV_LEN) throw new Error('Повреждён ключевой блок конверта');
 
-  const decipher = createDecipheriv('aes-256-gcm', unwrapped.subarray(0, KEY_LEN), unwrapped.subarray(KEY_LEN));
+  // Pinning authTagLength keeps a truncated-tag forgery from being accepted as valid.
+  const decipher = createDecipheriv('aes-256-gcm', unwrapped.subarray(0, KEY_LEN), unwrapped.subarray(KEY_LEN), {
+    authTagLength: TAG_LEN,
+  });
   decipher.setAuthTag(body.subarray(body.length - TAG_LEN));
 
   const out = createWriteStream(args.outPath);
