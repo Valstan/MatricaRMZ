@@ -42,6 +42,7 @@ import {
   listWarehouseNomenclature,
   listWarehouseNomenclatureGroupCounts,
   listWarehouseStock,
+  getContractSections,
   postWarehouseDocument,
   planWarehouseDocument,
   reverseWarehouseDocument,
@@ -63,7 +64,6 @@ import { analyzeDirectoryPartDuplicates, mergeDirectoryParts } from '../services
 import { computeAssemblyForecastFromServer } from '../services/warehouseForecastService.js';
 import { getGlobalWarehouseBomRelationSchema, setGlobalWarehouseBomRelationSchema } from '../services/clientSettingsService.js';
 import { getIdempotentCommandResult, saveIdempotentCommandResult } from '../services/commandIdempotencyService.js';
-import { getContractSections } from '../services/erpService.js';
 import { getStockBalanceForWorkshop } from '../services/stockBalanceForWorkshopService.js';
 import { getEngineOutputAnalytics } from '../services/analyticsService.js';
 import { getRepairNormSet, listRepairNormSets, upsertRepairNormSet } from '../services/repairNormService.js';

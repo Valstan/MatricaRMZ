@@ -5,6 +5,7 @@ import {
   WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART,
   filterRowsTiered,
   keyboardLayoutVariants,
+  parseContractSections,
   normalizeLookupCompact,
   resolveNomenclatureComponentTypeId,
 } from '@matricarmz/shared';
@@ -30,12 +31,9 @@ import {
   directoryTools,
   entities,
   entityTypes,
-  erpCounterparties,
-  erpContracts,
   erpDocumentHeaders,
   erpDocumentLines,
   erpEngineInstances,
-  erpEmployeeCards,
   erpJournalDocuments,
   erpNomenclature,
   erpPlannedIncoming,
@@ -596,7 +594,8 @@ async function listMasterdataLookup(typeCode: string): Promise<LookupOption[]> {
     attrsByEntity.set(entityId, current);
   }
 
-  const labelCode = ['name', 'title', 'label'].find((code) => knownCodes.has(code)) ?? (knownCodes.has('code') ? 'code' : null);
+  // full_name — метка сотрудников (EAV employee не имеет привычного `name`).
+  const labelCode = ['name', 'title', 'label', 'full_name'].find((code) => knownCodes.has(code)) ?? (knownCodes.has('code') ? 'code' : null);
   return rows
     .map((row) => {
       const entityId = String(row.id);
@@ -885,21 +884,41 @@ export async function backfillMissingPartNomenclature(
   return { orphans, created, failed };
 }
 
+/**
+ * Lookup договоров из EAV. У договора нет атрибута `name` — человекочитаемая метка
+ * это внутренний номер («20/ГОЗ-25»), фолбэк — казённый номер контракта.
+ */
+async function listContractLookup(): Promise<LookupOption[]> {
+  const rows = await listMasterdataEntitiesWithAttrs('contract');
+  return rows
+    .map(({ id, attrs }) => {
+      const internalNumber = String(attrs.internal_number ?? '').trim();
+      const number = String(attrs.number ?? '').trim();
+      const label = internalNumber || number || String(attrs.goz_name ?? '').trim() || id;
+      return { id, label, code: number || null };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+}
+
 async function listWarehouseReferenceData() {
   // Phase 2.3: warehouses теперь читаются из централизованного warehouse_locations,
   // а не из устаревшего EAV `warehouse_ref` + ensureDefaultWarehouse(). Старый источник
   // оставляли долго совместимости, но он показывал «призраки» (например, в фильтре
   // «Прогноз сборки → Склады» — пользователь жаловался). id = code (warehouseId-string),
   // что сохраняет совместимость со всеми downstream-местами, делающими WHERE warehouse_id = id.
-  const [wlListResult, nomenclatureGroups, units, writeoffReasons, counterpartiesRows, employeesRows, engineBrands, contractsRows] = await Promise.all([
+  // B0 (EAV→erp finish, stage 0): counterparties/employees/contracts раньше читались из
+  // erp_counterparties/erp_employee_cards/erp_contracts — таблиц мёртвого /erp-прототипа,
+  // которые на проде всегда были пусты (дропдауны молча отдавали пустоту). Правда живёт
+  // в EAV — читаем её, как остальные lookups.
+  const [wlListResult, nomenclatureGroups, units, writeoffReasons, counterparties, employees, engineBrands, contracts] = await Promise.all([
     listWarehouseLocations({ activeOnly: true }),
     listMasterdataLookup('nomenclature_group'),
     listMasterdataLookup('unit'),
     listMasterdataLookup('stock_write_off_reason'),
-    db.select().from(erpCounterparties).where(isNull(erpCounterparties.deletedAt)).orderBy(asc(erpCounterparties.name)),
-    db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).orderBy(asc(erpEmployeeCards.fullName)),
+    listMasterdataLookup('customer'),
+    listMasterdataLookup('employee'),
     listMasterdataLookup('engine_brand'),
-    db.select().from(erpContracts).where(isNull(erpContracts.deletedAt)).orderBy(asc(erpContracts.name)),
+    listContractLookup(),
   ]);
 
   const warehouses: LookupOption[] = wlListResult.ok
@@ -915,22 +934,6 @@ async function listWarehouseReferenceData() {
       warehouseByLocationId.set(row.id, { id: row.code, label: row.name, code: row.code });
     }
   }
-  const counterparties: LookupOption[] = counterpartiesRows.map((row) => ({
-    id: String(row.id),
-    label: String(row.name),
-    code: row.code == null ? null : String(row.code),
-  }));
-  const employees: LookupOption[] = employeesRows.map((row) => ({
-    id: String(row.id),
-    label: String(row.fullName),
-    code: row.personnelNo == null ? null : String(row.personnelNo),
-  }));
-  const contracts: LookupOption[] = contractsRows.map((row) => ({
-    id: String(row.id),
-    label: String(row.name),
-    code: row.code == null ? null : String(row.code),
-  }));
-
   return {
     warehouses,
     nomenclatureGroups,
@@ -2149,12 +2152,10 @@ export async function listWarehouseEngineInstances(args?: {
       nomenclatureIds.length > 0
         ? await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds as any), isNull(erpNomenclature.deletedAt)))
         : [];
-    const contractRows =
-      contractIds.length > 0
-        ? await db.select().from(erpContracts).where(and(inArray(erpContracts.id, contractIds as any), isNull(erpContracts.deletedAt)))
-        : [];
+    // B0: имена договоров — из EAV (erp_contracts прототипа всегда была пуста).
+    const contractLookup = contractIds.length > 0 ? await listContractLookup() : [];
     const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
-    const contractsById = new Map(contractRows.map((row) => [String(row.id), row]));
+    const contractsById = new Map(contractLookup.map((row) => [String(row.id), { code: row.code, name: row.label }]));
     const mapped = filtered.map((row) => {
       const n = nomenclatureById.get(String(row.nomenclatureId));
       const c = row.contractId ? contractsById.get(String(row.contractId)) : null;
@@ -4001,6 +4002,51 @@ export async function listWarehouseMovements(args?: {
         };
       }) as Array<Record<string, unknown>>,
     };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Разделы договора (номер основного + номера ДС) для дропдауна привязки экземпляра.
+ * B0: раньше читал erp_contracts мёртвого /erp-прототипа (на проде пуста — всегда
+ * «Contract not found»); правда живёт в EAV-атрибуте contract_sections договора.
+ */
+export async function getContractSections(contractId: string): Promise<{ ok: true; sections: string[] } | { ok: false; error: string }> {
+  try {
+    const rows = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
+      .innerJoin(entities, eq(entities.id, attributeValues.entityId))
+      .where(
+        and(
+          eq(attributeValues.entityId, contractId as any),
+          eq(attributeDefs.code, 'contract_sections'),
+          isNull(attributeValues.deletedAt),
+          isNull(entities.deletedAt),
+        ),
+      )
+      .limit(1);
+    const exists = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, contractId as any), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!exists[0]) return { ok: false, error: 'Contract not found' };
+    let raw: unknown = null;
+    try {
+      raw = rows[0]?.valueJson ? JSON.parse(String(rows[0].valueJson)) : null;
+    } catch {
+      raw = null;
+    }
+    const parsed = parseContractSections({ contract_sections: raw });
+    const sections: string[] = [];
+    if (parsed.primary?.number) sections.push(parsed.primary.number);
+    for (const addon of parsed.addons ?? []) {
+      if (addon.number) sections.push(addon.number);
+    }
+    return { ok: true, sections };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

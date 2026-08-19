@@ -34,7 +34,6 @@ import { searchRouter } from './routes/search.js';
 import { ledgerRouter } from './routes/ledger.js';
 import { notesRouter } from './routes/notes.js';
 import { reportsRouter } from './routes/reports.js';
-import { erpRouter } from './routes/erp.js';
 import { warehouseRouter } from './routes/warehouse.js';
 import { warehouseLocationsRouter } from './routes/warehouseLocations.js';
 import { workOrdersRouter } from './routes/workOrders.js';
@@ -173,7 +172,6 @@ export function createApp() {
   app.use('/ai', aiAgentRouter);
   app.use('/ai-chat', aiChatRouter);
   app.use('/reports', requireAuth, requirePermission(PermissionCode.ReportsView), reportsRouter);
-  app.use('/erp', erpRouter);
   app.use('/warehouse', warehouseRouter);
   app.use('/search', requireAuth, searchRouter);
   app.use('/work-orders', workOrdersRouter);

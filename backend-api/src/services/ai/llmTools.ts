@@ -282,16 +282,8 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
     results.push({ id: r.id, entityType: r.entity_type, matchedAttr: r.matched_attr, name: value, score: r.score });
   }
 
-  // 2. ERP-справочники с прямыми колонками имён.
-  if (!typeFilter || ['counterparty', 'erp_counterparty', 'nomenclature'].includes(typeFilter)) {
-    const erpSql =
-      `select id, name, 'erp_counterparty' as entity_type from erp_counterparties ` +
-      `where lower(name) like '%' || $1 || '%'` +
-      (trgm ? ` or similarity(lower(name), $1) > 0.25` : '') +
-      ` limit ${limit}`;
-    const erp = await pool.query(erpSql, [query.toLowerCase()]);
-    for (const r of erp.rows ?? []) results.push({ id: r.id, entityType: r.entity_type, name: r.name });
-  }
+  // B0: блок «ERP-справочники» удалён — erp_counterparties принадлежала мёртвому
+  // /erp-прототипу и на проде всегда была пуста; контрагенты ищутся EAV-поиском выше.
 
   if (results.length === 0) {
     return jsonResult({
@@ -375,16 +367,33 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
       }
       if (value && !names.has(row.id)) names.set(row.id, value);
     }
-    const missing = [...counterpartyIds].filter((id) => !names.has(id));
-    if (missing.length > 0) {
-      const erp = await pool.query('select id, name from erp_counterparties where id = ANY($1::uuid[])', [missing]);
-      for (const row of erp.rows ?? []) names.set(row.id, row.name);
-    }
   }
   const contractNames = new Map<string, string>();
   if (contractIds.size > 0) {
-    const r = await pool.query('select id, name from erp_contracts where id = ANY($1::uuid[])', [[...contractIds]]);
-    for (const row of r.rows ?? []) contractNames.set(row.id, row.name);
+    // B0: договор в EAV опознаётся номером, не именем (`name` у него нет):
+    // internal_number («20/ГОЗ-25») приоритетнее казённого number.
+    // Раньше имя искалось в erp_contracts мёртвого прототипа — та всегда пуста.
+    const r = await pool.query(
+      'select av.entity_id as id, d.code as attr, av.value_json as val from attribute_values av ' +
+        'join attribute_defs d on d.id = av.attribute_def_id ' +
+        "where av.entity_id = ANY($1::uuid[]) and av.deleted_at is null and d.code in ('internal_number', 'number')",
+      [[...contractIds]],
+    );
+    const byPriority = new Map<string, { internal?: string; number?: string }>();
+    for (const row of r.rows ?? []) {
+      let value = String(row.val ?? '');
+      try {
+        value = String(JSON.parse(value));
+      } catch {
+        /* не-JSON — как есть */
+      }
+      if (!value) continue;
+      const rec = byPriority.get(row.id) ?? {};
+      if (row.attr === 'internal_number') rec.internal = value;
+      else rec.number = value;
+      byPriority.set(row.id, rec);
+    }
+    for (const [id, rec] of byPriority) contractNames.set(id, rec.internal ?? rec.number ?? '');
   }
   const rows = ids.map((id: string) => {
     const rec = byId.get(id) ?? {};
@@ -505,31 +514,76 @@ async function getOrganizationStructure(input: Record<string, unknown>): Promise
 }
 
 async function getContracts(input: Record<string, unknown>): Promise<ToolResult> {
+  // B0: договоры живут в EAV (сущности типа contract), а не в erp_contracts мёртвого
+  // прототипа (та на проде всегда была пуста — тул молча отдавал []).
   const counterpartyId = asString(input, 'counterpartyId').trim();
-  const isActiveRaw = input.isActive;
-  const search = asString(input, 'search').trim();
+  const search = asString(input, 'search').trim().toLowerCase();
   const limit = asLimit(input);
-  const conds: string[] = ['deleted_at is null'];
-  const params: unknown[] = [];
-  if (counterpartyId) {
-    params.push(counterpartyId);
-    conds.push(`counterparty_id = $${params.length}`);
+  const res = await pool.query(
+    'select e.id, e.updated_at, d.code as attribute_code, av.value_json ' +
+      'from entities e ' +
+      "join entity_types t on t.id = e.type_id and t.code = 'contract' and t.deleted_at is null " +
+      'left join attribute_values av on av.entity_id = e.id and av.deleted_at is null ' +
+      'left join attribute_defs d on d.id = av.attribute_def_id and d.deleted_at is null ' +
+      "and d.code in ('number', 'internal_number', 'goz_name', 'customer_id', 'contract_sections') " +
+      'where e.deleted_at is null',
+  );
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const row of res.rows ?? []) {
+    const rec: Record<string, unknown> = byId.get(row.id) ?? { id: row.id, updated_at: Number(row.updated_at ?? 0) };
+    if (row.attribute_code) {
+      let value: unknown = row.value_json;
+      try {
+        value = JSON.parse(String(row.value_json ?? 'null'));
+      } catch {
+        /* сырые строки оставляем как есть */
+      }
+      rec[row.attribute_code] = value;
+    }
+    byId.set(row.id, rec);
   }
-  if (typeof isActiveRaw === 'boolean') {
-    params.push(isActiveRaw);
-    conds.push(`is_active = $${params.length}`);
-  }
-  if (search) {
-    params.push(`%${search.toLowerCase()}%`);
-    conds.push(
-      `(lower(coalesce(code, '')) like $${params.length} or lower(coalesce(name, '')) like $${params.length})`,
-    );
-  }
-  const sql =
-    'select id, code, name, counterparty_id, starts_at, ends_at, is_active ' +
-    `from erp_contracts where ${conds.join(' and ')} order by starts_at desc nulls last limit ${limit}`;
-  const res = await pool.query(sql, params as any[]);
-  return jsonResult(sanitizeRows(res.rows ?? []));
+  const rows = [...byId.values()]
+    .filter((rec) => {
+      if (counterpartyId) {
+        const sections = rec.contract_sections as any;
+        const primaryCustomer = typeof sections?.primary?.customerId === 'string' ? sections.primary.customerId : '';
+        const attrCustomer = typeof rec.customer_id === 'string' ? rec.customer_id : '';
+        if (primaryCustomer !== counterpartyId && attrCustomer !== counterpartyId) return false;
+      }
+      if (search) {
+        const sections = rec.contract_sections as any;
+        const numbers = [
+          String(rec.number ?? ''),
+          String(rec.internal_number ?? ''),
+          typeof sections?.primary?.number === 'string' ? sections.primary.number : '',
+          typeof sections?.primary?.internalNumber === 'string' ? sections.primary.internalNumber : '',
+          ...(Array.isArray(sections?.addons) ? sections.addons.map((a: any) => String(a?.number ?? '')) : []),
+        ];
+        const hay = `${String(rec.goz_name ?? '')} ${numbers.join(' ')}`.toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => Number(b.updated_at ?? 0) - Number(a.updated_at ?? 0))
+    .slice(0, limit)
+    .map((rec) => {
+      const sections = rec.contract_sections as any;
+      return {
+        id: rec.id,
+        goz_name: rec.goz_name ?? null,
+        number: (typeof rec.number === 'string' ? rec.number : null) ?? (typeof sections?.primary?.number === 'string' ? sections.primary.number : null),
+        internal_number:
+          (typeof rec.internal_number === 'string' ? rec.internal_number : null) ??
+          (typeof sections?.primary?.internalNumber === 'string' ? sections.primary.internalNumber : null),
+        customer_id:
+          (typeof rec.customer_id === 'string' ? rec.customer_id : null) ??
+          (typeof sections?.primary?.customerId === 'string' ? sections.primary.customerId : null),
+        addon_numbers: Array.isArray(sections?.addons)
+          ? sections.addons.map((a: any) => String(a?.number ?? '')).filter(Boolean)
+          : [],
+      };
+    });
+  return jsonResult(sanitizeRows(rows));
 }
 
 async function getOperations(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
@@ -622,21 +676,20 @@ export function buildAllowedTablesFromPerms(perms: Record<string, boolean>): Set
     allowed.add('directory_tools');
   }
   if (perms['employees.view']) {
-    allowed.add('erp_employee_cards');
     allowed.add('directory_workshops');
   }
   if (perms['masterdata.view']) allowed.add('directory_workshops');
   if (perms['supply_requests.view'] || perms['work_orders.view']) allowed.add('operations');
   if (perms['files.view']) allowed.add('file_assets');
+  // B0: erp_contracts / erp_counterparties / erp_employee_cards / erp_reg_contract_settlement
+  // убраны из allowlist — таблицы мёртвого /erp-прототипа пусты, запросы к ним рождали
+  // ложные «данных нет» (класс brain #161). Договоры/контрагенты/сотрудники — EAV.
   if (perms['reports.view']) {
-    allowed.add('erp_contracts');
-    allowed.add('erp_counterparties');
     allowed.add('erp_document_headers');
     allowed.add('erp_document_lines');
     allowed.add('erp_journal_documents');
     allowed.add('erp_reg_stock_balance');
     allowed.add('erp_reg_stock_movements');
-    allowed.add('erp_reg_contract_settlement');
   }
   return allowed;
 }
@@ -841,12 +894,12 @@ const TOOLS: Record<string, ToolEntry> = {
   get_contracts: {
     def: {
       name: 'get_contracts',
-      description: 'Список контрактов из ERP.',
+      description:
+        'Список договоров (поиск по номеру контракта, внутреннему номеру «20/ГОЗ-25», наименованию ГОЗ и номерам ДС; фильтр по контрагенту).',
       input_schema: {
         type: 'object',
         properties: {
           counterpartyId: { type: 'string' },
-          isActive: { type: 'boolean' },
           search: { type: 'string' },
           limit: { type: 'integer' },
         },
@@ -904,7 +957,7 @@ const TOOLS: Record<string, ToolEntry> = {
         'есть дубль» (2026-08-17): «дубль» был удалён ещё 2026-03-19, а запрос ' +
         'этого не отфильтровал. Если удалённые нужны намеренно — скажи об этом в ' +
         'ответе прямо. ' +
-        'Подсказки по схеме: контрагенты — erp_counterparties (не counterparties); ' +
+        'Подсказки по схеме: контрагенты — EAV-сущности типа customer (таблиц counterparties/erp_counterparties нет); ' +
         'договор опознаётся НОМЕРОМ, а не именем: атрибуты `number` (длинный ' +
         'казённый номер) и `internal_number` («20/ГОЗ-25»), поле `name` у него ' +
         'отсутствует; двигатель ссылается на договор атрибутом `contract_id`; ' +
