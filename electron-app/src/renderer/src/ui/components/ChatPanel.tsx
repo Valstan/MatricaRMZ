@@ -323,6 +323,9 @@ export function ChatPanel(props: {
     let sent = 0;
     for (const [i, path] of list.entries()) {
       setBusyNote(list.length > 1 ? `Отправка файлов: ${i + 1} из ${list.length}…` : 'Отправка файла…');
+      // IPC bridge to main (not express res.sendFile); main accepts only paths it
+      // issued itself — the file dialog or files:registerDropped — via
+      // consumeIssuedPath, so a renderer-invented path is rejected — nosemgrep
       const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path }).catch(() => null);
       if ((r as any)?.ok) sent += 1;
     }
@@ -672,7 +675,9 @@ export function ChatPanel(props: {
                     {m.messageType === 'file' && `📎 ${m.bodyText || 'Файл'}`}
                     {m.messageType === 'deep_link' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span>Ссылка на раздел</span>
+                        {/* Подпись к ссылке (например, «Правка программы») — текст и
+                            переход на экран приходят одним сообщением. */}
+                        <span>{m.bodyText?.trim() || 'Ссылка на раздел'}</span>
                         {breadcrumbText ? <span style={{ fontSize: 12, color: theme.colors.muted }}>{breadcrumbText}</span> : null}
                       </div>
                     )}
