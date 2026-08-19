@@ -4,6 +4,8 @@ import type { SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
@@ -16,7 +18,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
-import { tabletColumnLabel } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 
 type Row = {
   id: string;
@@ -129,6 +131,8 @@ export function SupplyRequestsPage(props: {
   }
 
   type RequestColumn = ColumnDescriptor & {
+    printValue?: (row: any) => string;
+    printSkip?: boolean;
     sortKey?: SortKey;
     cellAlign?: 'left' | 'right';
     width?: number;
@@ -171,6 +175,8 @@ export function SupplyRequestsPage(props: {
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
+  const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   function renderTableHeader() {
     const allInOrder = columnLayout.order
@@ -286,6 +292,27 @@ export function SupplyRequestsPage(props: {
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
+          </Button>
+        )}
+        {printDialogOpen && (
+          <ListPrintDialog
+            title="Заявки в снабжение"
+            unitLabel="Заявок"
+            columns={printColumns}
+            visibleColumnIds={visibleColumns.map((c) => c.id)}
+            rows={displayRows}
+            selectedRows={[]}
+            storageKey="list:supply-requests:printFields"
+            onClose={() => setPrintDialogOpen(false)}
+          />
+        )}
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}

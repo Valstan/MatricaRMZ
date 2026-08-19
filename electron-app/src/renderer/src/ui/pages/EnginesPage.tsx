@@ -27,7 +27,8 @@ import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
-import { openPrintPreview, escapeHtml } from '../utils/printPreview.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 
 
@@ -105,151 +106,6 @@ function bindingTextLabel(e: EngineListItem): string {
     default:
       return 'Не привязан';
   }
-}
-
-// ── Печать списка двигателей с выбором полей ────────────────────────────────
-// Печатает текущее содержимое списка (фильтры/сортировка как на экране) либо только
-// выделенные строки; состав колонок выбирается галочками и запоминается локально.
-
-type EnginePrintField = { id: string; label: string; value: (e: EngineListItem) => string };
-
-const ENGINE_PRINT_FIELDS: EnginePrintField[] = [
-  { id: 'engineNumber', label: 'Номер', value: (e) => String(e.engineNumber ?? '') },
-  {
-    id: 'internalNumber',
-    label: 'Внутр. №',
-    value: (e) => formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear),
-  },
-  { id: 'engineBrand', label: 'Марка', value: (e) => String(e.engineBrand ?? '') },
-  { id: 'customerName', label: 'Контрагент', value: (e) => String(e.customerName ?? '') },
-  { id: 'contractName', label: 'Договор', value: (e) => String(e.contractName ?? '') },
-  { id: 'binding', label: 'Привязка', value: (e) => bindingTextLabel(e) },
-  { id: 'arrivalDate', label: 'Дата прихода', value: (e) => toDateLabel(e.arrivalDate) },
-  { id: 'shippingDate', label: 'Дата отгрузки', value: (e) => toDateLabel(e.shippingDate) },
-  { id: 'completenessAct', label: 'Акт комплектности', value: (e) => (e.hasCompletenessAct ? 'Да' : 'Нет') },
-  { id: 'isScrap', label: 'Утиль', value: (e) => (e.isScrap ? 'Да' : 'Нет') },
-];
-
-const ENGINE_PRINT_FIELDS_STORAGE_KEY = 'list:engines:printFields';
-const ENGINE_PRINT_DEFAULT_FIELD_IDS = ['engineNumber', 'internalNumber', 'engineBrand', 'customerName', 'arrivalDate'];
-
-function loadPrintFieldIds(): string[] {
-  try {
-    const raw = window.localStorage.getItem(ENGINE_PRINT_FIELDS_STORAGE_KEY);
-    if (!raw) return ENGINE_PRINT_DEFAULT_FIELD_IDS;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return ENGINE_PRINT_DEFAULT_FIELD_IDS;
-    const known = new Set(ENGINE_PRINT_FIELDS.map((f) => f.id));
-    const ids = parsed.map((v) => String(v)).filter((id) => known.has(id));
-    return ids.length > 0 ? ids : ENGINE_PRINT_DEFAULT_FIELD_IDS;
-  } catch {
-    return ENGINE_PRINT_DEFAULT_FIELD_IDS;
-  }
-}
-
-function EngineListPrintDialog(props: {
-  filteredEngines: EngineListItem[];
-  selectedEngines: EngineListItem[];
-  onClose: () => void;
-}) {
-  const [fieldIds, setFieldIds] = React.useState<string[]>(() => loadPrintFieldIds());
-  const hasSelection = props.selectedEngines.length > 0;
-  const [scope, setScope] = React.useState<'selected' | 'filtered'>(hasSelection ? 'selected' : 'filtered');
-  const targets = scope === 'selected' && hasSelection ? props.selectedEngines : props.filteredEngines;
-
-  const toggleField = (id: string) => {
-    setFieldIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id];
-      try {
-        window.localStorage.setItem(ENGINE_PRINT_FIELDS_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // localStorage может быть недоступен — просто не запоминаем выбор
-      }
-      return next;
-    });
-  };
-
-  const doPrint = () => {
-    // Порядок колонок — канонический (как в ENGINE_PRINT_FIELDS), не порядок кликов.
-    const fields = ENGINE_PRINT_FIELDS.filter((f) => fieldIds.includes(f.id));
-    if (fields.length === 0 || targets.length === 0) return;
-    const thead = fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('');
-    const tbody = targets
-      .map((e) => `<tr>${fields.map((f) => `<td>${escapeHtml(f.value(e) || '—')}</td>`).join('')}</tr>`)
-      .join('');
-    openPrintPreview({
-      title: 'Список двигателей',
-      subtitle: `Двигателей: ${targets.length}`,
-      sections: [
-        {
-          id: 'engines-list',
-          title: 'Список двигателей',
-          hideTitle: true,
-          html: `<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
-<div class="muted" style="margin-top:8px">Итого: ${targets.length}</div>`,
-        },
-      ],
-    });
-    props.onClose();
-  };
-
-  return (
-    <div
-      onClick={props.onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 24, overflow: 'auto' }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--card-bg, #fff)', color: 'var(--text)', borderRadius: 12, width: 'min(520px, 96vw)', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid rgba(15,23,42,0.12)' }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Печать списка двигателей</div>
-          <div style={{ flex: 1 }} />
-          <Button variant="ghost" onClick={props.onClose}>
-            Закрыть
-          </Button>
-        </div>
-        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {hasSelection ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input type="radio" checked={scope === 'selected'} onChange={() => setScope('selected')} />
-                Только выделенные ({props.selectedEngines.length})
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input type="radio" checked={scope === 'filtered'} onChange={() => setScope('filtered')} />
-                Весь список по текущему фильтру ({props.filteredEngines.length})
-              </label>
-            </div>
-          ) : (
-            <div className="muted" style={{ fontSize: 13 }}>
-              Будет напечатан список по текущему фильтру: {props.filteredEngines.length} двигател(я/ей).
-              Чтобы напечатать только часть — выделите строки в списке (Shift+клик / Shift+ПКМ).
-            </div>
-          )}
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Поля для печати</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-              {ENGINE_PRINT_FIELDS.map((f) => (
-                <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input type="checkbox" checked={fieldIds.includes(f.id)} onChange={() => toggleField(f.id)} />
-                  {f.label}
-                </label>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <Button variant="ghost" onClick={props.onClose}>
-              Отмена
-            </Button>
-            <Button onClick={doPrint} disabled={fieldIds.length === 0 || targets.length === 0}>
-              Печать…
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export type EnginesPageUiState = {
@@ -634,6 +490,8 @@ export function EnginesPage(props: {
     kind?: ListColumnKind;
     requireShowPreviews?: boolean;
     render: (e: EngineListItem) => React.ReactNode;
+    printValue?: (e: EngineListItem) => string;
+    printSkip?: boolean;
   };
 
   const allColumns = useMemo<EngineColumn[]>(
@@ -644,6 +502,7 @@ export function EnginesPage(props: {
         sortable: true,
         sortKey: 'engineNumber',
         kind: 'name',
+        printValue: (e) => String(e.engineNumber ?? ''),
         render: (e) => (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span>{e.engineNumber ?? '-'}</span>
@@ -698,6 +557,7 @@ export function EnginesPage(props: {
         sortable: true,
         sortKey: 'binding',
         kind: 'name',
+        printValue: (e) => bindingTextLabel(e),
         render: (e) => renderBindingCell(e),
       },
       {
@@ -737,6 +597,7 @@ export function EnginesPage(props: {
         cellAlign: 'right',
         kind: 'thumbs',
         requireShowPreviews: true,
+        printSkip: true,
         render: (e) => <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />,
       },
     ],
@@ -756,6 +617,7 @@ export function EnginesPage(props: {
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
+  const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
 
   const openEngine = (id: string) => {
     void props.onOpen(id);
@@ -1051,9 +913,14 @@ export function EnginesPage(props: {
       />
 
       {printDialogOpen && (
-        <EngineListPrintDialog
-          filteredEngines={displayRows}
-          selectedEngines={displayRows.filter((e) => selection.isSelected(String(e.id)))}
+        <ListPrintDialog
+          title="Список двигателей"
+          unitLabel="Двигателей"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
+          storageKey="list:engines:printFields"
           onClose={() => setPrintDialogOpen(false)}
         />
       )}
