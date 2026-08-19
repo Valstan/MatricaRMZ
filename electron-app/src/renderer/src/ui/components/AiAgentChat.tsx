@@ -160,14 +160,15 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     }
   }, []);
 
-  // Шаблоны живут в синкающемся UserUiProfile: fetch-modify-set, LWW разруливает сервер.
+  // Шаблоны живут в синкающемся UserUiProfile. Сервер (v3.5.0) мержит PATCH
+  // per-key: шлём ТОЛЬКО свою секцию со своим штампом — гонка fetch-modify-set
+  // с параллельным пушем workspace-снапшота из App больше невозможна.
   const persistTemplates = useCallback(async (next: AiChatTemplate[]) => {
     setTemplates(next);
     try {
-      const r = await window.matrica.auth.uiProfileGet();
-      const base = r.ok && r.profile ? r.profile : { updatedAt: 0 };
+      const now = Date.now();
       const saved = await window.matrica.auth.uiProfileSet({
-        profile: { ...base, updatedAt: Date.now(), aiChatTemplates: next },
+        profile: { updatedAt: now, keyUpdatedAt: { aiChatTemplates: now }, aiChatTemplates: next },
       });
       if (saved.ok) setTemplates(saved.profile.aiChatTemplates ?? next);
     } catch {
