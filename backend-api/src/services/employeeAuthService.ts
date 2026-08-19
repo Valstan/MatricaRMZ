@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
+import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens } from '../database/schema.js';
@@ -645,15 +645,16 @@ export async function setEmployeeUiProfile(employeeId: string, rawProfile: unkno
   await ensureEmployeeAuthDefs().catch(() => null);
   const defId = await getEmployeeAttrDefId(AUTH_CODES.uiProfileJson);
   if (!defId) return { ok: false as const, error: 'определение ui_profile не найдено' };
-  const profile = sanitizeUserUiProfile(rawProfile);
-  if (!(profile.updatedAt > 0)) return { ok: false as const, error: 'updatedAt обязателен' };
-  // LWW: не даём стейл-клиенту перетереть более свежий профиль с другой машины.
+  const incoming = sanitizeUserUiProfile(rawProfile);
+  if (!(incoming.updatedAt > 0)) return { ok: false as const, error: 'updatedAt обязателен' };
+  // Merge с per-key LWW (v3.5.0): секция применяется, только если её штамп не
+  // старше сохранённого; отсутствующие в PATCH секции не трогаются. Раньше PATCH
+  // заменял профиль целиком — клиент, пушащий 4 ключа из 5, молча стирал пятый
+  // (aiChatTemplates), а пуш пустого снапшота после неудачного GET стирал пины.
   const existing = await getEmployeeUiProfile(employeeId);
-  if (existing && existing.updatedAt > profile.updatedAt) {
-    return { ok: true as const, profile: existing, stale: true as const };
-  }
+  const { profile, stale } = mergeUserUiProfiles(existing, rawProfile);
   await upsertAttrValue(employeeId, defId, profile);
-  return { ok: true as const, profile, stale: false as const };
+  return { ok: true as const, profile, stale };
 }
 
 export async function setEmployeeUiSettings(employeeId: string, rawSettings: unknown) {
