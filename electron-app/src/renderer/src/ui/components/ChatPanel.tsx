@@ -323,10 +323,9 @@ export function ChatPanel(props: {
     let sent = 0;
     for (const [i, path] of list.entries()) {
       setBusyNote(list.length > 1 ? `Отправка файлов: ${i + 1} из ${list.length}…` : 'Отправка файла…');
-      // IPC bridge to main (not express res.sendFile); main accepts only paths it
-      // issued itself — the file dialog or files:registerDropped — via
-      // consumeIssuedPath, so a renderer-invented path is rejected — nosemgrep
-      const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path }).catch(() => null);
+      // IPC bridge to main (not express res.sendFile); main accepts only paths it issued
+      // itself — the file dialog or files:registerDropped — via consumeIssuedPath.
+      const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path }).catch(() => null); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
       if ((r as any)?.ok) sent += 1;
     }
     setBusyNote(sent < list.length ? `Отправлено ${sent} из ${list.length}: часть файлов не ушла` : '');
