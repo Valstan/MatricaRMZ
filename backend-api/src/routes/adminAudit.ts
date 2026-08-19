@@ -8,11 +8,13 @@ import { ensureAuditStatisticsWarm, getAuditStatisticsStatus, getDailyAuditStati
 export const adminAuditRouter = Router();
 
 adminAuditRouter.use(requireAuth);
-adminAuditRouter.use(requirePermission(PermissionCode.AdminUsersManage));
+// Доступ к журналу — выдаваемое право `audit.view` (решение владельца 2026-08-19),
+// а не жёсткая проверка «роль === superadmin»: раньше добавить человека в список
+// мог только программист следующим релизом. Супер-админ право имеет всегда.
 adminAuditRouter.use((req, res, next) => {
   const role = String((req as AuthenticatedRequest).user?.role ?? '').toLowerCase();
-  if (role !== 'superadmin') return res.status(403).json({ ok: false, error: 'только для супер-админа' });
-  return next();
+  if (role === 'superadmin') return next();
+  return requirePermission(PermissionCode.AuditView)(req, res, next);
 });
 
 adminAuditRouter.get('/list', async (req, res) => {
@@ -60,4 +62,26 @@ adminAuditRouter.get('/statistics-status', async (_req, res) => {
   await ensureAuditStatisticsWarm();
   const status = await getAuditStatisticsStatus();
   return res.json({ ok: true, status });
+});
+
+/**
+ * История одного документа: «кто и когда открывал и правил эту карточку».
+ * Питается тем же журналом, что и общий список, — отдельного хранилища истории
+ * не заводим (EAV-freeze, а ledger уже хранит сами правки построчно).
+ */
+adminAuditRouter.get('/document', async (req, res) => {
+  const parsed = z
+    .object({
+      entityId: z.string().uuid(),
+      limit: z.coerce.number().int().min(1).max(1000).optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  await ensureAuditStatisticsWarm();
+  const rows = await listAuditStatistics({
+    limit: parsed.data.limit ?? 200,
+    entityId: parsed.data.entityId,
+  });
+  return res.json({ ok: true, rows });
 });

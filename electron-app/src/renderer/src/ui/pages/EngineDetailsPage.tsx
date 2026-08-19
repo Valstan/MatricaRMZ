@@ -11,6 +11,7 @@ import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
+import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
@@ -361,6 +362,8 @@ export function EngineDetailsPage(props: {
   canExportReports?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  /** Право «Журнал действий» — открывает историю изменений этой карточки. */
+  canViewAudit?: boolean;
   canConfirmEngineDisassemble?: boolean;
   canAssemblyReturn?: boolean;
   currentUserProfile?: { fullName: string; position: string } | null;
@@ -2232,6 +2235,7 @@ export function EngineDetailsPage(props: {
           style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}
         >
           <EngineTimelinePanel engineId={props.engineId} />
+          <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
         </div>
       )}
 

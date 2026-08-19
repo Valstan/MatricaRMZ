@@ -42,6 +42,11 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
     all[PermissionCode.WarehouseLocationsManage] = false;
     all[PermissionCode.MovementsRevert] = false;
   }
+  // Журнал действий выдаётся поимённо (решение владельца 2026-08-19: «супер-админ
+  // и Сапегин Николай, пока больше никто»). Поэтому по умолчанию он есть только у
+  // супер-админа, а остальным — точечным разрешением в админке; иначе всякий admin
+  // получал бы его молча вместе с ролью.
+  all[PermissionCode.AuditView] = r === 'superadmin';
   return all;
 }
 

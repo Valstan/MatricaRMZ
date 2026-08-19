@@ -45,7 +45,7 @@ import {
   adminUpdateUser,
 } from '../../services/adminUsersService.js';
 import { adminResyncAllMasterdata, adminResyncEntityType } from '../../services/adminMasterdataRemoteService.js';
-import { adminAuditDailySummary, adminAuditList } from '../../services/adminAuditService.js';
+import { adminAuditDailySummary, adminAuditDocument, adminAuditList } from '../../services/adminAuditService.js';
 
 export function registerAdminIpc(ctx: IpcContext) {
   // Master-data: EntityTypes/AttributeDefs/Entities
@@ -307,6 +307,15 @@ export function registerAdminIpc(ctx: IpcContext) {
       return adminAuditList(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
     },
   );
+
+  // История документа гейтится правом `audit.view` (у супер-админа оно есть по
+  // умолчанию, остальным выдаётся в админке) — а НЕ «управлением пользователями»:
+  // карточку открывает обычный работник, и такого права у него быть не должно.
+  ipcMain.handle('admin:audit:document', async (_e, args: { entityId: string; limit?: number }) => {
+    if (isViewMode(ctx)) return viewModeWriteError() as any;
+    await requirePermOrThrow(ctx, 'audit.view');
+    return adminAuditDocument(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+  });
 
   ipcMain.handle('admin:audit:dailySummary', async (_e, args?: { date?: string; cutoffHour?: number }) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;

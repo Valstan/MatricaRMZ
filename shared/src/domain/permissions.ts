@@ -98,6 +98,9 @@ export const PermissionCode = {
   ChatExport: 'chat.export',
   ChatAdminView: 'chat.admin.view',
 
+  // журнал действий пользователей (кто что смотрел и правил)
+  AuditView: 'audit.view',
+
   // timesheet (табель Т-13)
   TimesheetView: 'timesheet.view',
   TimesheetEdit: 'timesheet.edit',
@@ -284,6 +287,15 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.ChatUse, group: 'Чат', titleRu: 'Использование чата' },
   { code: PermissionCode.ChatExport, group: 'Чат', titleRu: 'Экспорт сообщений чата (админ)', adminOnly: true },
   { code: PermissionCode.ChatAdminView, group: 'Чат', titleRu: 'Просмотр всех чатов (включая приватные, админ)', adminOnly: true },
+
+  {
+    code: PermissionCode.AuditView,
+    group: 'Администрирование',
+    titleRu: 'Журнал действий пользователей',
+    descriptionRu:
+      'Кто что открывал и правил, и история изменений в карточках. У супер-админа есть всегда; остальным выдаётся здесь — программист для этого больше не нужен.',
+    adminOnly: true,
+  },
 
   { code: PermissionCode.TimesheetView, group: 'Табель', titleRu: 'Просмотр табеля учёта рабочего времени' },
   { code: PermissionCode.TimesheetEdit, group: 'Табель', titleRu: 'Ведение табеля (создание/редактирование)' },
