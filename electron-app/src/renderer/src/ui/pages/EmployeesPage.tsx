@@ -7,6 +7,8 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
@@ -35,7 +37,7 @@ import {
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
-import { tabletColumnLabel } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 
 type Row = {
   id: string;
@@ -260,6 +262,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   };
 
   type EmployeeColumn = ColumnDescriptor & {
+    printValue?: (row: any) => string;
+    printSkip?: boolean;
     sortKey?: SortKey;
     cellAlign?: 'left' | 'right';
     width?: number;
@@ -339,6 +343,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
+  const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   function renderTableHeader() {
     const allInOrder = columnLayout.order
@@ -549,6 +555,27 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
+          </Button>
+        )}
+        {printDialogOpen && (
+          <ListPrintDialog
+            title="Список сотрудников"
+            unitLabel="Сотрудников"
+            columns={printColumns}
+            visibleColumnIds={visibleColumns.map((c) => c.id)}
+            rows={displayRows}
+            selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
+            storageKey="list:employees:printFields"
+            onClose={() => setPrintDialogOpen(false)}
+          />
+        )}
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}

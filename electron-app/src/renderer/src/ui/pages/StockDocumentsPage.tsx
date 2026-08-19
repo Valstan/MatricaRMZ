@@ -4,6 +4,8 @@ import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Stock1cImportDialog } from '../components/Stock1cImportDialog.js';
 import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
@@ -17,7 +19,7 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
-import { tabletColumnLabel } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseDocumentsAllPages } from '../utils/warehousePagedFetch.js';
 import {
@@ -169,6 +171,8 @@ export function StockDocumentsPage(props: {
   }
 
   type DocColumn = ColumnDescriptor & {
+    printValue?: (row: any) => string;
+    printSkip?: boolean;
     sortKey: SortKey;
     kind?: ListColumnKind;
     render: (row: WarehouseDocumentListItem) => React.ReactNode;
@@ -208,6 +212,8 @@ export function StockDocumentsPage(props: {
     [columnLayout.order, columnLayout.hidden, columnsById],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
+  const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   function renderTableHeader() {
     const allInOrder = columnLayout.order
@@ -338,6 +344,27 @@ export function StockDocumentsPage(props: {
         <Button variant="ghost" onClick={() => void refreshRefs()}>
           Справочники
         </Button>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
+          </Button>
+        )}
+        {printDialogOpen && (
+          <ListPrintDialog
+            title="Документы склада"
+            unitLabel="Документов"
+            columns={printColumns}
+            visibleColumnIds={visibleColumns.map((c) => c.id)}
+            rows={displayRows}
+            selectedRows={[]}
+            storageKey="list:stock-documents:printFields"
+            onClose={() => setPrintDialogOpen(false)}
+          />
+        )}
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}

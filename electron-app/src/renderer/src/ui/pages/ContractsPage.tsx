@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
@@ -38,7 +40,7 @@ import {
 } from '../utils/listContextActions.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
-import { tabletColumnLabel } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 type Row = {
@@ -483,6 +485,8 @@ export function ContractsPage(props: {
   }
 
   type ColumnDef = ColumnDescriptor & {
+    printValue?: (row: any) => string;
+    printSkip?: boolean;
     sortable: boolean;
     sortKey?: SortKey;
     headerAlign?: 'left' | 'right';
@@ -711,6 +715,13 @@ export function ContractsPage(props: {
     () => allColumns.map((col) => ({ id: col.id, label: col.label, ...(col.tabletLabel ? { tabletLabel: col.tabletLabel } : {}) })),
     [allColumns],
   );
+  // Ячейки договоров рисуются с цветом строки; печати цвет безразличен, поэтому подставляем
+  // любой — из разметки берётся только текст.
+  const printColumns = useMemo(
+    () => buildListPrintColumns(allColumns.map((c) => ({ ...c, render: (row: Row) => c.render(row, { textColor: '#000' }) }))),
+    [allColumns],
+  );
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   const contextColumns = useMemo(
     () => [
@@ -950,6 +961,27 @@ export function ContractsPage(props: {
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
+          </Button>
+        )}
+        {printDialogOpen && (
+          <ListPrintDialog
+            title="Список договоров"
+            unitLabel="Договоров"
+            columns={printColumns}
+            visibleColumnIds={visibleColumns.map((c) => c.id)}
+            rows={sorted}
+            selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
+            storageKey="list:contracts:printFields"
+            onClose={() => setPrintDialogOpen(false)}
+          />
+        )}
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}

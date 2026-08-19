@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { tabletColumnLabel } from '../platform.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import {
   WORK_ORDER_KIND_LABELS,
   engineInternalNumberSortKeyFromFull,
@@ -14,6 +14,8 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
@@ -321,6 +323,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   }, [props.canDelete, confirm, selection, refresh]);
 
   type WorkOrderColumn = ColumnDescriptor & {
+    printValue?: (row: any) => string;
+    printSkip?: boolean;
     sortKey?: SortKey;
     width?: number;
     kind?: ListColumnKind;
@@ -397,6 +401,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     [columnLayout.order, columnLayout.hidden, columnsById],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
+  const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
   function renderTableHeader() {
     const allInOrder = columnLayout.order
@@ -564,6 +570,27 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         <Button variant="ghost" onClick={() => void refresh()}>
           Применить фильтр
         </Button>        <span style={{ color: '#6b7280', fontSize: 12 }}>Итог по списку: {rub(totalRowsAmount)}</span>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
+          </Button>
+        )}
+        {printDialogOpen && (
+          <ListPrintDialog
+            title="Список нарядов"
+            unitLabel="Нарядов"
+            columns={printColumns}
+            visibleColumnIds={visibleColumns.map((c) => c.id)}
+            rows={displayRows}
+            selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
+            storageKey="list:work-orders:printFields"
+            onClose={() => setPrintDialogOpen(false)}
+          />
+        )}
         <ColumnSettingsButton
           columns={columnDescriptors}
           order={columnLayout.order}
