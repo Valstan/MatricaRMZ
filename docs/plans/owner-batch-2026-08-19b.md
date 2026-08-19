@@ -28,6 +28,9 @@
 
 ## Этап 1 (P0). Синк не выкидывает и не теряет; настройки едут за пользователем
 
+> **Этап 1 закрыт кодом 2026-08-19** (PR [#632](https://github.com/Valstan/MatricaRMZ/pull/632), [#633](https://github.com/Valstan/MatricaRMZ/pull/633), [#634](https://github.com/Valstan/MatricaRMZ/pull/634), [#635](https://github.com/Valstan/MatricaRMZ/pull/635), [#636](https://github.com/Valstan/MatricaRMZ/pull/636)) — все в `main`, на прод **ещё не выкачено** (нужен деплой backend + релиз клиента). Ниже исходный план этапа сохранён как история решений.
+
+
 Диагноз (верифицирован построчно): сессия лежит в `sync_state['auth.session']` внутри той же sqlite, которую sync сам удаляет. Пути разлогина: **H1** schema-hash mismatch → `resetLocalDatabase` ДО push'а pending (`syncService.ts:2996-3011`, `clientSchemaMigrations.ts:590`; любая backend-миграция sync-таблицы флипает хеш → backend-only релиз пересобирает ВЕСЬ парк ≤6ч; `.catch`→rebuild даже на transient; **rebuild не меняет клиентскую схему — разрушает данные, ничего не чиня**); **H2** гонка ротации refresh-токена (3 семейства рефрешеров, ротация без grace, `auth.ts:590-600`); **H3** transient-ошибки сервера → 401/`user disabled` → clearSession (хвост M28); **H4** 403 permissions = «сессия невалидна»; **H5** boot self-heal стирает сессию; **H6** `repairLocalSyncTables` удаляет pending-строки, full-pull чистит после проглоченного фейла push, `clientAdminService` зовёт `runSync` мимо inFlight-guard.
 
 ### PR-1 — backend (деплой ПЕРВЫМ, обратно совместим)
