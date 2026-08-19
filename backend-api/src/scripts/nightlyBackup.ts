@@ -4,12 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { rm, unlink } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 
 import Database from 'better-sqlite3';
 
 import { db, pool } from '../database/db.js';
 import { attributeDefs, attributeValues, auditLog, entities, entityTypes, operations } from '../database/schema.js';
 import { encryptFileHybrid } from '../services/backupCrypto.js';
+import { createSnapshotEncryptStream, readSnapshotKeyFromEnv } from '../services/snapshotCrypto.js';
 import { deletePath, ensureFolderDeep, listFolderAll, uploadFileStream } from '../services/yandexDisk.js';
 
 function pad2(n: number) {
@@ -411,12 +414,16 @@ async function main() {
   const tmpDump = join(tmpBase, `${todayName}.dump`);
   const tmpDumpEnc = join(tmpBase, `${todayName}.dump.enc`);
   const tmpSqlite = join(tmpBase, `${todayName}.sqlite`);
+  const tmpSqliteEnc = join(tmpBase, `${todayName}.sqlite.enc`);
 
   console.log(`[nightlyBackup] старт date=${todayName} folder=${backupFolder}`);
 
   // Fail before pg_dump, not after: an unconfigured key must not produce a plaintext dump
   // on disk at all.
   const publicKeyPem = readBackupPublicKey();
+  // Снимок читает живая фича клиента, поэтому ключ симметричный — но проверяем его здесь же,
+  // до pg_dump, чтобы незашифрованный снимок не появился на диске при ненастроенном ключе.
+  const snapshotKey = readSnapshotKeyFromEnv();
   const releaseLock = acquireLock(join(tmpBase, 'nightlyBackup.lock'));
 
   try {
@@ -438,11 +445,14 @@ async function main() {
       mime: 'application/octet-stream',
     });
 
-    console.log(`[nightlyBackup] отправка sqlite`);
+    console.log(`[nightlyBackup] шифрование снимка -> ${tmpSqliteEnc}`);
+    await pipeline(createReadStream(tmpSqlite), createSnapshotEncryptStream(snapshotKey), createWriteStream(tmpSqliteEnc));
+
+    console.log(`[nightlyBackup] отправка снимка (шифрованного)`);
     await uploadFileStream({
-      diskPath: `${backupFolder}/${todayName}.sqlite`,
-      localFilePath: tmpSqlite,
-      mime: 'application/x-sqlite3',
+      diskPath: `${backupFolder}/${todayName}.sqlite.enc`,
+      localFilePath: tmpSqliteEnc,
+      mime: 'application/octet-stream',
     });
 
     console.log(`[nightlyBackup] хранение дней=10`);
@@ -453,6 +463,7 @@ async function main() {
     await unlink(tmpDump).catch(() => {});
     await unlink(tmpDumpEnc).catch(() => {});
     await unlink(tmpSqlite).catch(() => {});
+    await unlink(tmpSqliteEnc).catch(() => {});
     releaseLock();
     await pool.end().catch(() => {});
   }
