@@ -114,7 +114,7 @@ export async function ensureClientSchemaCompatible(
   sqlite: AsyncSqlite,
   serverSchema: SyncSchemaSnapshot | null,
   opts?: { log?: (message: string) => void },
-): Promise<{ action: 'ok' | 'migrated' | 'rebuild'; reason?: string; serverHash?: string | null }> {
+): Promise<{ action: 'ok' | 'migrated' | 'rebuild' | 'server_schema_changed'; reason?: string; serverHash?: string | null }> {
   const log = opts?.log ?? (() => {});
   const settingsDb = asSettingsDb(db);
   const storedVersion = await settingsGetNumber(settingsDb, SettingsKey.ClientSchemaVersion, 0);
@@ -150,7 +150,11 @@ export async function ensureClientSchemaCompatible(
   }
 
   if (serverHash && storedHash && serverHash !== storedHash) {
-    return { action: 'rebuild', reason: 'server schema hash mismatch', serverHash };
+    // Mirror of the electron decision (v3.5.0): a changed server hash must not
+    // wipe the local DB — rebuild recreates the same schema while destroying
+    // unpushed rows. Absorb and continue; align/repair handles additive drift.
+    await settingsSetString(settingsDb, SettingsKey.ServerSchemaHash, serverHash);
+    return { action: 'server_schema_changed', reason: 'server schema hash changed', serverHash };
   }
 
   if (serverHash && serverHash !== storedHash) {

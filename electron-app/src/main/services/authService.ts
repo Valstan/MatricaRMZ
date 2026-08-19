@@ -4,6 +4,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { AuthLoginResult, AuthStatus, AuthUserInfo, AuthLogoutResult } from '@matricarmz/shared';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
+import { clearSidecarSession, readSidecarSession, writeSidecarSession } from './sessionSidecarStore.js';
 
 type StoredSession = {
   enc: boolean;
@@ -35,6 +36,9 @@ async function persistSession(db: BetterSQLite3Database, payload: SessionPayload
     const buf = safeStorage.encryptString(JSON.stringify(payload));
     const stored: StoredSession = { enc: true, data: buf.toString('hex') };
     await settingsSetString(db, SettingsKey.AuthSession, JSON.stringify(stored));
+    // Sidecar copy outside userData: survives DB rebuild/self-heal, so a local DB
+    // reset no longer logs the operator out (their server-side tokens stay valid).
+    writeSidecarSession(stored);
     memorySession = null; // the encrypted on-disk copy is canonical
     return;
   }
@@ -55,7 +59,17 @@ function decryptToJson(stored: StoredSession): string | null {
 
 export async function getSession(db: BetterSQLite3Database): Promise<SessionPayload | null> {
   if (memorySession) return memorySession;
-  const raw = await settingsGetString(db, SettingsKey.AuthSession).catch(() => null);
+  let raw = await settingsGetString(db, SettingsKey.AuthSession).catch(() => null);
+  let fromSidecar = false;
+  if (!raw) {
+    // DB row is empty (fresh DB after rebuild/self-heal) — fall back to the
+    // sidecar copy so the operator stays logged in across a local DB reset.
+    const sidecar = readSidecarSession();
+    if (sidecar) {
+      raw = JSON.stringify(sidecar);
+      fromSidecar = true;
+    }
+  }
   if (!raw) return null;
   const stored = safeJsonParse(raw) as StoredSession | null;
   if (!stored || typeof stored !== 'object' || typeof (stored as any).data !== 'string') return null;
@@ -70,14 +84,20 @@ export async function getSession(db: BetterSQLite3Database): Promise<SessionPayl
   // Migrate a legacy plaintext-on-disk session off disk: hold it in memory and, if
   // encryption is now available, re-persist it encrypted — then the plaintext copy
   // is wiped and never trusted again.
-  if (stored.enc === false) {
+  if (stored.enc === false || fromSidecar) {
+    // fromSidecar: re-seed the DB row from the sidecar copy.
     await persistSession(db, payload).catch(() => {});
   }
   return payload;
 }
 
-export async function clearSession(db: BetterSQLite3Database) {
+// includeSidecar=true (default) — definitive end of the session: explicit logout
+// or the server rejecting the refresh token. includeSidecar=false — only the DB
+// copy dies (local DB rebuild): tokens are still valid server-side and the
+// sidecar keeps the operator logged in across the reset.
+export async function clearSession(db: BetterSQLite3Database, opts?: { includeSidecar?: boolean }) {
   memorySession = null;
+  if (opts?.includeSidecar !== false) clearSidecarSession();
   await settingsSetString(db, SettingsKey.AuthSession, '');
 }
 
@@ -238,21 +258,47 @@ export async function authRegister(
   }
 }
 
+type AuthRefreshResult = { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo } | { ok: false; error: string };
+
+// Single-flight: the client has several independent refreshers (renderer auth
+// poll, SyncManager, every httpAuthed call site). The server rotates the refresh
+// token on each use, so two concurrent refreshes with the same old token used to
+// race — the loser got 401 and wiped the session. All callers now share one
+// in-flight refresh; latecomers join the winner's result.
+let refreshInFlight: Promise<AuthRefreshResult> | null = null;
+
 export async function authRefresh(
   db: BetterSQLite3Database,
   args: { apiBaseUrl: string; refreshToken: string },
-): Promise<{ ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo } | { ok: false; error: string }> {
+): Promise<AuthRefreshResult> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = doAuthRefresh(db, args).finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function doAuthRefresh(
+  db: BetterSQLite3Database,
+  args: { apiBaseUrl: string; refreshToken: string },
+): Promise<AuthRefreshResult> {
   try {
+    // Prefer the freshest stored token over the caller's argument: a caller that
+    // queued behind another refresh may hold an already-rotated token.
+    const current = await getSession(db).catch(() => null);
+    const refreshToken = current?.refreshToken?.trim() || args.refreshToken;
     const r = await net.fetch(`${args.apiBaseUrl}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: args.refreshToken }),
+      body: JSON.stringify({ refreshToken }),
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      if (r.status === 401 || r.status === 403) {
-        // Any auth rejection on refresh means local tokens are no longer valid.
-        await clearSession(db);
+      if (r.status === 401) {
+        // Definitive rejection: the token is unknown/expired or the user is
+        // disabled. 403 (role gate) and 5xx/timeouts keep the session — the
+        // tokens may still be perfectly valid (M28 tail).
+        await clearSession(db, { includeSidecar: true });
       }
       return { ok: false, error: `refresh HTTP ${r.status}: ${t || 'no body'}` };
     }

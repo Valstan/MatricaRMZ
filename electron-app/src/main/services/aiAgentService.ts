@@ -12,7 +12,7 @@ import type {
   AiAgentStreamEvent,
 } from '@matricarmz/shared';
 
-import { authRefresh, clearSession, getSession } from './authService.js';
+import { authRefresh, getSession } from './authService.js';
 import { httpAuthed } from './httpClient.js';
 
 export async function aiAgentAssist(
@@ -182,10 +182,12 @@ export async function aiAgentAssistStream(
   let response: Response;
   try {
     response = await doFetch(session.accessToken);
-    if ((response.status === 401 || response.status === 403) && session.refreshToken) {
+    // 401 only: a 403 is a permission verdict for a valid session and must not
+    // trigger a refresh, let alone cost the operator their session. authRefresh
+    // clears the session itself on a definitive rejection.
+    if (response.status === 401 && session.refreshToken) {
       const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
       if (!refreshed.ok) {
-        await clearSession(db).catch(() => {});
         return { ok: false, error: `HTTP ${response.status}` };
       }
       session = { ...session, accessToken: refreshed.accessToken };

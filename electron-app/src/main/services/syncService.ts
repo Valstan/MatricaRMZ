@@ -21,7 +21,7 @@ import {
 import { app } from 'electron';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { rm } from 'node:fs/promises';
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { appendMainLogLine } from '../utils/logger.js';
@@ -415,10 +415,19 @@ async function getLocalUniqueConstraints(sqlite: SqlExecutor, table: string) {
   return result;
 }
 
-function pickSurvivor(rows: Array<{ id: string; updated_at: number | null; deleted_at: number | null }>) {
+function isUnpushedStatus(status: unknown): boolean {
+  return status === 'pending' || status === 'error';
+}
+
+function pickSurvivor(rows: Array<{ id: string; updated_at: number | null; deleted_at: number | null; sync_status?: string | null }>) {
   return rows
     .slice()
     .sort((a, b) => {
+      // Unpushed local work wins the duplicate contest: deleting the pending row
+      // would silently destroy something the operator wrote but nobody received.
+      const aPending = isUnpushedStatus(a.sync_status) ? 1 : 0;
+      const bPending = isUnpushedStatus(b.sync_status) ? 1 : 0;
+      if (aPending !== bPending) return bPending - aPending;
       const aAlive = a.deleted_at == null ? 1 : 0;
       const bAlive = b.deleted_at == null ? 1 : 0;
       if (aAlive !== bAlive) return bAlive - aAlive;
@@ -460,6 +469,10 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
     const pragma = localInfoByTable.get(table) ?? [];
     if (!pragma || pragma.length === 0) continue;
     const localByName = new Map(pragma.map((c) => [c.name, c]));
+    // Never repair away rows the operator wrote but has not pushed yet: a
+    // constraint violation in a pending row is the push pipeline's problem
+    // (markPendingError), not a reason to silently delete local work.
+    const pendingGuard = localByName.has('sync_status') ? ` AND (sync_status IS NULL OR sync_status NOT IN ('pending','error'))` : '';
     const serverCols = serverSchema?.tables?.[table]?.columns ?? null;
     const requiredCols =
       serverCols && serverCols.length > 0
@@ -484,7 +497,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       }
       const where = notNullCols.map((c) => `${quoteIdent(c.name)} IS NULL`).join(' OR ');
       if (where) {
-        const res = await sqlite.run(`DELETE FROM ${quoteIdent(table)} WHERE ${where}`);
+        const res = await sqlite.run(`DELETE FROM ${quoteIdent(table)} WHERE (${where})${pendingGuard}`);
         const dropped = Number(res?.changes ?? 0);
         if (dropped > 0) logSync(`repair ${table} dropped=${dropped}`);
       }
@@ -510,18 +523,25 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       )) as Array<Record<string, unknown>>;
       for (const g of groups) {
         const values = cols.map((c) => g[c]);
+        const hasSyncStatus = localByName.has('sync_status');
         const rows = (await sqlite.all(
-          `SELECT id, updated_at, deleted_at FROM ${quoteIdent(table)} WHERE ${cols
+          `SELECT id, updated_at, deleted_at${hasSyncStatus ? ', sync_status' : ''} FROM ${quoteIdent(table)} WHERE ${cols
             .map((c) => `${quoteIdent(c)} = ?`)
             .join(' AND ')}`,
           values,
-        )) as Array<{ id: string; updated_at: number | null; deleted_at: number | null }>;
+        )) as Array<{ id: string; updated_at: number | null; deleted_at: number | null; sync_status?: string | null }>;
         if (!rows || rows.length <= 1) continue;
         const survivor = pickSurvivor(rows);
         if (!survivor) continue;
         const refs = reverseFks.get(table) ?? [];
         for (const row of rows) {
           if (!row?.id || row.id === survivor.id) continue;
+          if (isUnpushedStatus(row.sync_status)) {
+            // A pending duplicate loser stays: local SQLite tolerates it, the push
+            // pipeline resolves or flags it. Deleting it would lose local work.
+            logSync(`repair ${table} kept pending duplicate id=${row.id} (survivor=${survivor.id})`);
+            continue;
+          }
           for (const ref of refs) {
             const refInfo = localInfoByTable.get(ref.table) ?? [];
             const refCols = new Set(refInfo.map((c) => c.name));
@@ -552,7 +572,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
           AND NOT EXISTS (
             SELECT 1 FROM ${quoteIdent(fk.refTable)}
             WHERE ${quoteIdent(fk.refTable)}.${quoteIdent(fk.refColumn)} = ${quoteIdent(table)}.${quoteIdent(fk.column)}
-          )`;
+          )${pendingGuard}`;
       const resFk = await sqlite.run(orphanSql);
       const droppedFk = Number(resFk?.changes ?? 0);
       if (droppedFk > 0) logSync(`repair ${table} orphan fk=${fk.column}->${fk.refTable}.${fk.refColumn} dropped=${droppedFk}`);
@@ -711,8 +731,10 @@ async function fetchAuthed(
   const session = await getSession(db).catch(() => null);
   const first = await fetchWithRetryLogged(url, withAuthHeader(init, session?.accessToken ?? null), opts);
 
-  // Если токен протух/невалиден — пробуем refresh один раз и повторяем запрос.
-  if ((first.status === 401 || first.status === 403) && session?.refreshToken) {
+  // Если токен протух/невалиден (401) — пробуем refresh один раз и повторяем.
+  // 403 — вердикт о правах живой сессии (гейт SyncUse и т.п.): refresh его не
+  // изменит, и стоить сессии он не должен.
+  if (first.status === 401 && session?.refreshToken) {
     logSync(`${opts.label} auth failed status=${first.status}, trying refresh`);
     const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
     if (!refreshed.ok) {
@@ -2761,11 +2783,155 @@ export function setResetLocalDatabaseImpl(impl: typeof resetLocalDatabaseOverrid
   resetLocalDatabaseOverride = impl;
 }
 
+// ===== Pending export / replay =====
+// A local DB reset (rebuild, deep repair) used to silently destroy rows the
+// operator had written but not yet pushed. Before deleting anything we dump the
+// pending packs (already in wire/sync-row shape via collectPending) to a JSON
+// file OUTSIDE the DB; after the next successful sync on the fresh DB the rows
+// are replayed as sync_status='pending' (LWW by updated_at) and pushed normally.
+
+const PENDING_EXPORT_PREFIX = 'pending-export-';
+const PENDING_EXPORT_KEEP = 5;
+
+function pendingExportDir(): string {
+  return app.getPath('userData');
+}
+
+async function listPendingExportFiles(): Promise<string[]> {
+  try {
+    const names = await readdir(pendingExportDir());
+    return names.filter((n) => n.startsWith(PENDING_EXPORT_PREFIX) && n.endsWith('.json')).sort();
+  } catch {
+    return [];
+  }
+}
+
+export async function exportPendingRowsToDisk(
+  db: BetterSQLite3Database,
+): Promise<{ ok: boolean; file: string | null; rows: number }> {
+  try {
+    const packs = await collectPending(db);
+    const total = packs.reduce((acc, p) => acc + (p.rows as unknown[]).length, 0);
+    if (total === 0) return { ok: true, file: null, rows: 0 };
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = join(pendingExportDir(), `${PENDING_EXPORT_PREFIX}${ts}.json`);
+    await writeFile(file, JSON.stringify({ version: 1, exportedAt: nowMs(), appVersion: app.getVersion(), packs }), 'utf8');
+    const names = await listPendingExportFiles();
+    for (const stale of names.slice(0, Math.max(0, names.length - PENDING_EXPORT_KEEP))) {
+      await rm(join(pendingExportDir(), stale), { force: true }).catch(() => {});
+    }
+    logSync(`pending export saved rows=${total} file=${file}`);
+    return { ok: true, file, rows: total };
+  } catch (e) {
+    logSync(`pending export failed: ${String(e)}`);
+    return { ok: false, file: null, rows: 0 };
+  }
+}
+
+function toSqlValue(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (value !== null && typeof value === 'object') return JSON.stringify(value);
+  return value;
+}
+
+export async function replayPendingExports(db: BetterSQLite3Database, apiBaseUrl?: string): Promise<void> {
+  const names = await listPendingExportFiles();
+  if (names.length === 0) return;
+  const sqlite = getSqlExecutor();
+  if (!sqlite) return;
+  const knownTables = new Set<string>(Object.values(SyncTableName));
+  for (const name of names) {
+    const file = join(pendingExportDir(), name);
+    try {
+      const parsed = JSON.parse(await readFile(file, 'utf8')) as {
+        packs?: Array<{ table: string; rows: Array<Record<string, unknown>> }>;
+      } | null;
+      const packs = Array.isArray(parsed?.packs) ? parsed.packs : [];
+      let restored = 0;
+      let skippedOlder = 0;
+      let failed = 0;
+      for (const pack of packs) {
+        const table = String(pack?.table ?? '');
+        const rows = Array.isArray(pack?.rows) ? pack.rows : [];
+        if (!knownTables.has(table)) {
+          failed += rows.length;
+          continue;
+        }
+        const info = await getLocalTableInfo(sqlite, table);
+        const localCols = new Set((info ?? []).map((c) => c.name));
+        if (localCols.size === 0) {
+          failed += rows.length;
+          continue;
+        }
+        for (const row of rows) {
+          const id = String((row as { id?: unknown })?.id ?? '').trim();
+          if (!id) {
+            failed += 1;
+            continue;
+          }
+          try {
+            const existing = await sqlite.get<{ updated_at?: number }>(
+              `SELECT updated_at FROM ${quoteIdent(table)} WHERE id = ?`,
+              [id],
+            );
+            const rowUpdated = Number((row as { updated_at?: unknown }).updated_at ?? 0);
+            if (existing && Number(existing.updated_at ?? 0) >= rowUpdated) {
+              // LWW: the local/server copy is at least as new — the export is stale.
+              skippedOlder += 1;
+              continue;
+            }
+            const cols = Object.keys(row).filter((k) => k !== 'sync_status' && localCols.has(k));
+            if (!cols.includes('id')) {
+              failed += 1;
+              continue;
+            }
+            const withStatus = localCols.has('sync_status') ? [...cols, 'sync_status'] : cols;
+            const values = cols.map((k) => toSqlValue((row as Record<string, unknown>)[k]));
+            if (withStatus.length > cols.length) values.push('pending');
+            await sqlite.run(
+              `INSERT OR REPLACE INTO ${quoteIdent(table)} (${withStatus.map(quoteIdent).join(', ')}) VALUES (${withStatus
+                .map(() => '?')
+                .join(', ')})`,
+              values,
+            );
+            restored += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+      }
+      if (failed === 0) {
+        await rm(file, { force: true }).catch(() => {});
+        logSync(`pending replay done restored=${restored} skippedOlder=${skippedOlder} file=${name}`);
+      } else {
+        // Keep the file: rows that no longer fit the schema wait for a client
+        // version that can replay them; the admin sees it in diagnostics.
+        logSync(`pending replay partial restored=${restored} skippedOlder=${skippedOlder} failed=${failed} file kept: ${name}`);
+        if (apiBaseUrl) {
+          void logMessage(db, apiBaseUrl, 'error', `pending replay partial: ${failed} rows not restored (${name})`, {
+            component: 'sync',
+            action: 'pending_replay',
+            critical: true,
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      logSync(`pending replay failed file=${name}: ${String(e)}`);
+    }
+  }
+}
+
 export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui') {
   if (resetLocalDatabaseOverride) return resetLocalDatabaseOverride(db, reason);
   try {
     logSync(`local db reset requested reason=${reason}`);
-    await clearSession(db).catch(() => {});
+    // Dump unpushed rows BEFORE anything is deleted — they are replayed into the
+    // fresh DB after its first successful sync.
+    await exportPendingRowsToDisk(db).catch(() => ({ file: null, rows: 0 }));
+    // The DB copy of the session dies with the file, but the sidecar survives:
+    // a local rebuild is not a logout — the server-side tokens are still valid.
+    await clearSession(db, { includeSidecar: false }).catch(() => {});
 
     const sqlite = getSqliteHandle();
     if (sqlite) {
@@ -2995,10 +3161,21 @@ export async function runSync(
       emitStage('prepare', 'загрузка схемы синхронизации', { service: 'schema' });
       const schema = await fetchSyncSchemaSnapshot(db, currentApiBaseUrl).catch(() => null);
       const compatibility = await ensureClientSchemaCompatibleImpl(db, schema ?? null, { log: logSync }).catch((e) => ({
-        action: 'rebuild' as const,
+        // A thrown compat check is a transient condition (sqlite hiccup, IO) —
+        // it must never destroy the local DB. Log and let the sync proceed.
+        action: 'check_failed' as const,
         reason: `compat check failed: ${String(e)}`,
       }));
-      if (compatibility.action === 'rebuild') {
+      if (compatibility.action === 'check_failed') {
+        logSync(`schema compat check failed (transient), continuing: ${compatibility.reason ?? 'unknown'}`);
+      } else if (compatibility.action === 'server_schema_changed') {
+        // Server-side DDL changed. Absorb: alignSchemaWithServer + repair below
+        // handle additive drift; a wipe would recreate the same client schema
+        // while destroying unpushed work (pre-v3.5.0 fleet-wipe behaviour).
+        logSync(`server schema changed, continuing without rebuild: ${compatibility.reason ?? ''}`);
+      } else if (compatibility.action === 'rebuild') {
+        // Rebuild remains only for a genuinely unusable local DB (version
+        // downgrade, broken migration chain, failed migration step).
         logSync(`schema rebuild: ${compatibility.reason ?? 'unknown'}`);
         await resetLocalDatabase(db, 'schema_mismatch');
         scheduleAppRestartAfterDbReset('schema_mismatch');
@@ -3007,7 +3184,7 @@ export async function runSync(
           pushed: 0,
           pulled: 0,
           serverCursor: 0,
-          error: 'local database rebuilt for schema compatibility; please login again',
+          error: 'local database rebuilt for schema compatibility',
         };
       }
       emitStage('prepare', 'выравнивание справочников schema с сервером', { service: 'schema' });
@@ -3044,7 +3221,9 @@ export async function runSync(
         );
         if (!res.ok) {
           const body = await safeBodyText(res);
-          if (res.status === 401 || res.status === 403) await clearSession(db).catch(() => {});
+          // No clearSession here: authRefresh (via fetchAuthed) already cleared it
+          // if the refresh token was definitively rejected; a 401 from transient
+          // causes or a 403 permission verdict must not log the operator out.
           throw new Error(`state snapshot HTTP ${res.status}: ${body || 'no body'}`);
         }
         return (await res.json()) as {
@@ -3141,7 +3320,7 @@ export async function runSync(
         if (!pull.ok) {
           const body = await safeBodyText(pull);
           logSync(`pull failed status=${pull.status} url=${pullUrl} body=${body}`);
-          if (pull.status === 401 || pull.status === 403) await clearSession(db).catch(() => {});
+          // No clearSession: definitive token death is handled inside authRefresh.
           if (pull.status === 426) {
             throw new Error(`sync protocol upgrade required: ${body || 'upgrade client to latest version'}`);
           }
@@ -3249,7 +3428,7 @@ export async function runSync(
           if (!r.ok) {
             const body = await safeBodyText(r);
             logSync(`push failed status=${r.status} url=${pushUrl} body=${body}`);
-            if (r.status === 401 || r.status === 403) await clearSession(db).catch(() => {});
+            // No clearSession: definitive token death is handled inside authRefresh.
             const bodyJson = (() => {
               try {
                 return body ? (JSON.parse(body) as Record<string, unknown>) : null;
@@ -3471,6 +3650,22 @@ export async function runSync(
       }
 
       if (fullPull) {
+        // The pre-clean deletes 11 local tables. Rows the push did not deliver
+        // (failed push, leftover pending/error rows) are exported to disk first
+        // and replayed after the pull — the clear must never destroy unpushed
+        // work. Only when even the export failed is the full pull aborted; the
+        // admin sees the error in the sync-request ack and can re-trigger.
+        const exported = await exportPendingRowsToDisk(db);
+        if (!exported.ok) {
+          logSync(`full pull aborted: pending export failed (pushError=${pushError ?? 'none'})`);
+          return {
+            ok: false,
+            pushed,
+            pulled: 0,
+            serverCursor: 0,
+            error: 'full pull aborted: unpushed rows could not be preserved',
+          };
+        }
         emitStage('prepare', 'очистка локальной базы перед полной синхронизацией', {
           service: 'sync',
           progress: 0.04,
@@ -3563,6 +3758,11 @@ export async function runSync(
       // Ledger block sync is skipped: blocks are never read on the client and
       // downloading ~44k blocks takes ~7 minutes of network time with no benefit.
       emitStage('finalize', 'завершение синхронизации', { service: 'sync', progress: 0.98 });
+      // Rows exported before a DB rebuild are replayed as pending now that the
+      // fresh DB is populated; the next sync cycle pushes them.
+      await replayPendingExports(db, currentApiBaseUrl).catch((e) => {
+        logSync(`pending replay error: ${formatError(e)}`);
+      });
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});

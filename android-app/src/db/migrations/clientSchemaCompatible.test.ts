@@ -59,18 +59,21 @@ describe('android clientSchemaCompatible', () => {
     await adapter.close();
   });
 
-  it('downgrade и смена server-hash дают rebuild', async () => {
+  it('смена server-hash НЕ даёт rebuild (v3.5.0), downgrade даёт', async () => {
     const adapter = createBetterSqlite3AsyncAdapter(':memory:');
     await migrateSqliteAsync(adapter);
     const db = createDrizzleAsync(adapter);
     await ensureClientSchemaCompatible(db, adapter, sampleSnapshot);
 
-    // Смена серверной схемы при том же локальном hash → rebuild.
+    // Смена серверной схемы при том же локальном hash → absorb, НЕ rebuild:
+    // rebuild пересоздал бы ту же клиентскую схему, уничтожив незапушенное.
     const mutated: SyncSchemaSnapshot = {
       generatedAt: 124,
       tables: { ...sampleSnapshot.tables, extra: { columns: [{ name: 'id', notNull: true }], foreignKeys: [] } },
     };
-    expect((await ensureClientSchemaCompatible(db, adapter, mutated)).action).toBe('rebuild');
+    expect((await ensureClientSchemaCompatible(db, adapter, mutated)).action).toBe('server_schema_changed');
+    // Хеш поглощён: повторная проверка с той же схемой — уже compatible.
+    expect((await ensureClientSchemaCompatible(db, adapter, mutated)).action).toBe('ok');
 
     // Версия из будущего → rebuild.
     await adapter.run(`UPDATE sync_state SET value = ? WHERE key = 'schema.clientVersion'`, [
