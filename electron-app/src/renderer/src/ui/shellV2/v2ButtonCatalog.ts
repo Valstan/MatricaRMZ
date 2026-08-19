@@ -15,7 +15,7 @@ import { isAndroidPlatform } from '../platform.js';
 
 // На Android-планшете чат-каналы моста не зарегистрированы — кнопки без функции прячем,
 // иначе «Чат» даёт пустой экран, а «Ссылка в чат» — мягкий отказ.
-const ANDROID_HIDDEN_ACTIONS: ReadonlySet<ActionButtonId> = new Set<ActionButtonId>(['chat', 'ai_chat', 'chat_link']);
+const ANDROID_HIDDEN_ACTIONS: ReadonlySet<ActionButtonId> = new Set<ActionButtonId>(['chat', 'ai_chat', 'chat_link', 'program_feedback']);
 
 function actionVisibleOnPlatform(id: ActionButtonId): boolean {
   return !isAndroidPlatform() || !ANDROID_HIDDEN_ACTIONS.has(id);

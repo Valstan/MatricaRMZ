@@ -232,13 +232,19 @@ export async function chatSendTextEverywhere(
   }
 }
 
-export async function chatSendDeepLink(db: BetterSQLite3Database, args: { recipientUserId?: string | null; link: ChatDeepLinkPayload }): Promise<ChatSendResult> {
+export async function chatSendDeepLink(
+  db: BetterSQLite3Database,
+  // `text` — необязательная подпись к ссылке: одно сообщение несёт и текст, и
+  // переход на экран (иначе «Правка программы» слала бы две штуки подряд).
+  args: { recipientUserId?: string | null; link: ChatDeepLinkPayload; text?: string | null },
+): Promise<ChatSendResult> {
   try {
     const me = await currentUser(db);
     if (!me) return { ok: false, error: 'auth required' };
 
     const recipientUserId = args.recipientUserId ? String(args.recipientUserId) : null;
     const payloadJson = JSON.stringify(args.link ?? null);
+    const bodyText = String(args.text ?? '').trim().slice(0, 4000) || null;
     const ts = nowMs();
     const id = randomUUID();
     await insertMessage(db, {
@@ -247,7 +253,7 @@ export async function chatSendDeepLink(db: BetterSQLite3Database, args: { recipi
       senderUsername: me.username,
       recipientUserId,
       messageType: 'deep_link',
-      bodyText: null,
+      bodyText,
       payloadJson,
       createdAt: ts,
       updatedAt: ts,

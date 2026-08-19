@@ -133,10 +133,13 @@ body {
   --tone-neutral-border: #94a3b8;
   --tone-neutral-text: #0b1220;
 
-  --chat-mine-bg: #ecfeff;
-  --chat-mine-border: #a5f3fc;
-  --chat-other-bg: #f8fafc;
-  --chat-other-border: #e5e7eb;
+  /* Свои сообщения — на белом, собеседника — на голубоватом (просьба владельца
+     2026-08-19): различие видно боковым зрением, не вчитываясь в имя. */
+  --chat-mine-bg: #ffffff;
+  --chat-mine-border: #d7dce3;
+  --chat-other-bg: #e8f1fd;
+  --chat-other-border: #bcd6f5;
+  --chat-feed-bg: #f4f6fa;
   --chat-menu-bg: #ffffff;
   --chat-menu-border: rgba(15, 23, 42, 0.18);
   --chat-menu-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
@@ -218,10 +221,11 @@ body {
   --tone-neutral-border: #475569;
   --tone-neutral-text: #e2e8f0;
 
-  --chat-mine-bg: rgba(14, 116, 144, 0.22);
-  --chat-mine-border: rgba(56, 189, 248, 0.35);
-  --chat-other-bg: rgba(30, 41, 59, 0.65);
-  --chat-other-border: rgba(148, 163, 184, 0.2);
+  --chat-mine-bg: rgba(226, 232, 240, 0.10);
+  --chat-mine-border: rgba(148, 163, 184, 0.28);
+  --chat-other-bg: rgba(37, 99, 235, 0.24);
+  --chat-other-border: rgba(96, 165, 250, 0.42);
+  --chat-feed-bg: rgba(2, 6, 23, 0.35);
   --chat-menu-bg: #0f172a;
   --chat-menu-border: rgba(148, 163, 184, 0.3);
   --chat-menu-shadow: 0 14px 32px rgba(2, 6, 23, 0.6);
@@ -315,10 +319,11 @@ body {
   --tone-neutral-border: #b08a5a;
   --tone-neutral-text: #2a1c0a;
 
-  --chat-mine-bg: #fdeccc;
-  --chat-mine-border: #e9c684;
-  --chat-other-bg: #fbf2df;
-  --chat-other-border: #ecd9b4;
+  --chat-mine-bg: #fffdf8;
+  --chat-mine-border: #e6d7b8;
+  --chat-other-bg: #e9f0fb;
+  --chat-other-border: #c3d6ef;
+  --chat-feed-bg: #fbf6ea;
   --chat-menu-bg: #fffaf0;
   --chat-menu-border: rgba(124, 74, 20, 0.3);
   --chat-menu-shadow: 0 10px 28px rgba(90, 55, 15, 0.22);
