@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { unlink } from 'node:fs/promises';
+import { rm, unlink } from 'node:fs/promises';
 
 import Database from 'better-sqlite3';
 
@@ -190,6 +190,14 @@ CREATE TABLE IF NOT EXISTS sync_state (
 }
 
 async function buildSqliteSnapshot(outPath: string) {
+  // A run killed mid-flight (dropped SSH, OOM, reboot) leaves a half-filled snapshot behind,
+  // and better-sqlite3 opens an existing file rather than replacing it — so every later run
+  // re-inserts into it and dies on the first UNIQUE index. Left alone that poisons the nightly
+  // job permanently: no backup at all, and the only symptom is a line in a log nobody reads.
+  await rm(outPath, { force: true });
+  await rm(`${outPath}-wal`, { force: true });
+  await rm(`${outPath}-shm`, { force: true });
+
   const sqlite = new Database(outPath);
   try {
     sqlite.pragma('journal_mode = WAL');
