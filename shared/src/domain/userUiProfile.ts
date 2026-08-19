@@ -2,6 +2,15 @@
 // хранится на сервере в EAV employee.ui_profile_json и подгружается при логине
 // на любом клиенте. Визуальный тюнинг живёт отдельно (uiControl.ts / ui_settings_json).
 
+import {
+  DEFAULT_V3_PREFS,
+  sanitizeV2Prefs,
+  type UiShellPrefs,
+  type V2ButtonLayout,
+  type V2ColumnId,
+  type V2ColumnState,
+} from './uiShellV2.js';
+
 export type UserUiProfileTabsLayout = {
   order?: string[];
   hidden?: string[];
@@ -32,6 +41,23 @@ export type AiChatTemplate = {
   createdAt: number;
 };
 
+/**
+ * Roaming-подмножество shell-настроек (v3.5.0): закреплённые кнопки меню,
+ * порядок/видимость, колонки, ширины сплитов. СОЗНАТЕЛЬНО без сессий
+ * (открытые вкладки/карточки — состояние конкретной машины, роумить его —
+ * значит воевать с оператором за его окна).
+ */
+export type UserUiProfileShellPrefs = {
+  v2: {
+    columnOrder: V2ColumnId[];
+    columns: Record<V2ColumnId, V2ColumnState>;
+    buttonLayout: V2ButtonLayout;
+    buttonPanelPinned: boolean;
+    workspaceMode: 'single' | 'tabs' | 'split2';
+  };
+  v3: { sectionsPct: number | null; comparePct: number };
+};
+
 export type UserUiProfile = {
   /** LWW-штамп: PATCH со штампом старше серверного отклоняется (клиент применяет серверный). */
   updatedAt: number;
@@ -49,6 +75,8 @@ export type UserUiProfile = {
   quickStartScores?: Record<string, UserUiProfileQuickStartScore>;
   /** Сохранённые шаблоны запросов AI-чата («Сохранить как шаблон»), синкаются между ПК оператора. */
   aiChatTemplates?: AiChatTemplate[];
+  /** Roaming shell-настроек (закреплённые кнопки меню и пр.) — v3.5.0. */
+  shellPrefs?: UserUiProfileShellPrefs;
 };
 
 const MAX_LIST = 200;
@@ -166,6 +194,47 @@ function sanitizeAiChatTemplates(raw: unknown): AiChatTemplate[] | undefined {
   return out;
 }
 
+function clampPct(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(85, Math.max(15, n)) : fallback;
+}
+
+function sanitizeShellPrefsSection(raw: unknown): UserUiProfileShellPrefs | undefined {
+  if (typeof raw !== 'object' || raw == null) return undefined;
+  const r = raw as { v2?: unknown; v3?: unknown };
+  // Реюз sanitizeV2Prefs (те же правила, что у локального блоба), но session в
+  // roaming-подмножество не входит — отбрасывается на выходе.
+  const v2 = sanitizeV2Prefs(r.v2);
+  const v3raw = (typeof r.v3 === 'object' && r.v3 != null ? r.v3 : {}) as { sectionsPct?: unknown; comparePct?: unknown };
+  return {
+    v2: {
+      columnOrder: v2.columnOrder,
+      columns: v2.columns,
+      buttonLayout: v2.buttonLayout,
+      buttonPanelPinned: v2.buttonPanelPinned,
+      workspaceMode: v2.workspaceMode,
+    },
+    v3: {
+      sectionsPct: v3raw.sectionsPct == null ? null : clampPct(v3raw.sectionsPct, 25),
+      comparePct: clampPct(v3raw.comparePct, DEFAULT_V3_PREFS.comparePct),
+    },
+  };
+}
+
+/** Roaming-подмножество из полного локального блоба shell-настроек (без сессий). */
+export function extractUserUiProfileShellPrefs(prefs: UiShellPrefs): UserUiProfileShellPrefs {
+  return {
+    v2: {
+      columnOrder: prefs.v2.columnOrder,
+      columns: prefs.v2.columns,
+      buttonLayout: prefs.v2.buttonLayout,
+      buttonPanelPinned: prefs.v2.buttonPanelPinned,
+      workspaceMode: prefs.v2.workspaceMode,
+    },
+    v3: { sectionsPct: prefs.v3.sectionsPct, comparePct: prefs.v3.comparePct },
+  };
+}
+
 const MAX_KEY_STAMPS = 32;
 const MAX_KEY_NAME = 64;
 
@@ -200,6 +269,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (quickStartScores !== undefined) out.quickStartScores = quickStartScores;
   const aiChatTemplates = sanitizeAiChatTemplates(r.aiChatTemplates);
   if (aiChatTemplates !== undefined) out.aiChatTemplates = aiChatTemplates;
+  const shellPrefs = sanitizeShellPrefsSection(r.shellPrefs);
+  if (shellPrefs !== undefined) out.shellPrefs = shellPrefs;
   return out;
 }
 

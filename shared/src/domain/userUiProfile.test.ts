@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeUserUiProfiles, sanitizeUserUiProfile, type UserUiProfile } from './userUiProfile.js';
+import { DEFAULT_UI_SHELL_PREFS } from './uiShellV2.js';
+import {
+  extractUserUiProfileShellPrefs,
+  mergeUserUiProfiles,
+  sanitizeUserUiProfile,
+  type UserUiProfile,
+} from './userUiProfile.js';
 
 // Merge с per-key LWW (v3.5.0). До него PATCH заменял профиль целиком:
 // клиент, пушащий 4 ключа из 5, молча стирал aiChatTemplates, а пуш пустого
@@ -76,6 +82,37 @@ describe('mergeUserUiProfiles', () => {
     expect(stale).toBe(false);
     expect(profile.shortcuts).toEqual(['tab:x']);
     expect(profile.keyUpdatedAt).toEqual({ shortcuts: T1 });
+  });
+
+  it('shellPrefs section: sanitized without sessions, roams through merge', () => {
+    const full = structuredClone(DEFAULT_UI_SHELL_PREFS);
+    full.v2.buttonLayout.pinned = ['engines', 'unknown_future_tab'];
+    full.v2.session.openCards = [{ kind: 'engine', entityId: 'e1', title: 'X' }];
+    const roam = extractUserUiProfileShellPrefs(full);
+    // Сессии в roaming-подмножество не входят.
+    expect('session' in (roam.v2 as Record<string, unknown>)).toBe(false);
+    // Неизвестные id пинов сохраняются (id-чурн не должен стирать пины).
+    expect(roam.v2.buttonLayout.pinned).toEqual(['engines', 'unknown_future_tab']);
+
+    const { profile } = mergeUserUiProfiles(null, { updatedAt: T1, shellPrefs: roam });
+    expect(profile.shellPrefs?.v2.buttonLayout.pinned).toEqual(['engines', 'unknown_future_tab']);
+    expect(profile.keyUpdatedAt?.shellPrefs).toBe(T1);
+
+    // Мусорная секция выбрасывается, валидные проценты клампятся.
+    const p = sanitizeUserUiProfile({ updatedAt: T1, shellPrefs: { v2: null, v3: { sectionsPct: 99, comparePct: 1 } } });
+    expect(p.shellPrefs?.v3.sectionsPct).toBe(85);
+    expect(p.shellPrefs?.v3.comparePct).toBe(15);
+  });
+
+  it('a partial aiChatTemplates-only PATCH does not touch other sections', () => {
+    const { profile, stale } = mergeUserUiProfiles(storedProfile(), {
+      updatedAt: T3,
+      keyUpdatedAt: { aiChatTemplates: T3 },
+      aiChatTemplates: [{ id: 'tpl9', title: 'Т', text: 'x', createdAt: T3 }],
+    });
+    expect(stale).toBe(false);
+    expect(profile.shortcuts).toEqual(storedProfile().shortcuts);
+    expect(profile.aiChatTemplates?.[0]?.id).toBe('tpl9');
   });
 
   it('sanitizer keeps keyUpdatedAt and drops garbage entries', () => {

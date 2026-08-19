@@ -31,6 +31,8 @@ import {
   DEFAULT_UI_CONTROL_SETTINGS,
   DEFAULT_UI_SHELL_PREFS,
   sanitizeUiShellPrefs,
+  extractUserUiProfileShellPrefs,
+  type UserUiProfileShellPrefs,
   DEFAULT_UI_DISPLAY_PREFS,
   DEFAULT_UI_PRESET_ID,
   sanitizeUiControlSettings,
@@ -912,6 +914,16 @@ export function App() {
   // сигнатура последнего применённого/отправленного снапшота (защита от эхо-записей).
   const uiProfileReadyUserRef = useRef('');
   const uiProfileSigRef = useRef('');
+  // Per-key подписи/штампы для merge-PATCH профиля (v3.5.0): пушим только
+  // изменившиеся секции со своими LWW-штампами — чужие секции не задеваются.
+  const uiProfileKeySigsRef = useRef<Record<string, string>>({});
+  const uiProfileKeyStampsRef = useRef<Record<string, number>>({});
+  const [uiProfileRetryNonce, setUiProfileRetryNonce] = useState(0);
+  const [uiProfilePushNonce, setUiProfilePushNonce] = useState(0);
+  // Roaming shell-настроек, пришедший с профилем: применяется отдельным эффектом,
+  // когда локальный блоб загружен (порядок GET-профиля и ui:prefs:get не определён).
+  const roamedShellPrefsRef = useRef<{ value: UserUiProfileShellPrefs; stamp: number } | null>(null);
+  const [roamedShellPrefsNonce, setRoamedShellPrefsNonce] = useState(0);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
@@ -1743,17 +1755,26 @@ export function App() {
         /* localStorage недоступен — пропускаем посев */
       }
     };
+    let retryTimer: number | null = null;
+    const scheduleRetry = () => {
+      // Push остаётся выключенным (ready не выставлен) до первого успешного GET:
+      // пуш пустого локального снапшота с fresh-штампом затирал бы серверные
+      // настройки (исторический вектор пропажи пинов «Моего круга»). Локальная
+      // работа не блокируется — изменения доедут после успешного GET.
+      retryTimer = window.setTimeout(() => setUiProfileRetryNonce((n) => n + 1), 60_000);
+    };
     void window.matrica.auth
       .uiProfileGet()
       .then((r) => {
         if (!alive) return;
         if (!r?.ok) {
-          // Офлайн/ошибка: работаем на локальных значениях, push включаем — изменения доедут.
           seedTimesheetShortcut();
-          uiProfileReadyUserRef.current = userId;
+          scheduleRetry();
           return;
         }
-        const p = r.profile;
+        const p = r.profile as
+          | (Record<string, unknown> & { keyUpdatedAt?: Record<string, number>; updatedAt?: number; shellPrefs?: UserUiProfileShellPrefs })
+          | null;
         if (p) {
           if (p.tabsLayout !== undefined) {
             setTabsLayout((p.tabsLayout as TabsLayoutPrefs | null) ?? null);
@@ -1761,8 +1782,8 @@ export function App() {
           }
           if (Array.isArray(p.shortcuts)) {
             shortcutsMutationEpochRef.current += 1;
-            setPinnedShortcuts(p.shortcuts);
-            void window.matrica.shortcuts.set({ userId, ids: p.shortcuts }).catch(() => {});
+            setPinnedShortcuts(p.shortcuts as string[]);
+            void window.matrica.shortcuts.set({ userId, ids: p.shortcuts as string[] }).catch(() => {});
           }
           if (Array.isArray(p.recentVisits)) {
             setRecentVisits(parseRecentVisits(JSON.stringify(p.recentVisits)));
@@ -1776,43 +1797,131 @@ export function App() {
             recentVisits: p.recentVisits ?? [],
             quickStartScores: p.quickStartScores ?? {},
           });
+          // Per-key штампы/подписи под merge-PATCH: неизменившиеся секции при
+          // пуше сохраняют серверные штампы и не могут перетереть более свежее
+          // с другой машины.
+          uiProfileKeyStampsRef.current = { ...(p.keyUpdatedAt ?? {}) };
+          uiProfileKeySigsRef.current = {
+            tabsLayout: JSON.stringify(p.tabsLayout ?? null),
+            shortcuts: JSON.stringify(p.shortcuts ?? []),
+            recentVisits: JSON.stringify(p.recentVisits ?? []),
+            quickStartScores: JSON.stringify(p.quickStartScores ?? {}),
+            ...(p.shellPrefs ? { shellPrefs: JSON.stringify(p.shellPrefs) } : {}),
+          };
+          if (p.shellPrefs) {
+            roamedShellPrefsRef.current = {
+              value: p.shellPrefs,
+              stamp: Number(p.keyUpdatedAt?.shellPrefs ?? p.updatedAt ?? 0) || 0,
+            };
+            setRoamedShellPrefsNonce((n) => n + 1);
+          }
+        } else {
+          uiProfileKeyStampsRef.current = {};
+          uiProfileKeySigsRef.current = {};
         }
         seedTimesheetShortcut();
         uiProfileReadyUserRef.current = userId;
       })
       .catch(() => {
-        uiProfileReadyUserRef.current = userId;
+        if (!alive) return;
+        seedTimesheetShortcut();
+        scheduleRetry();
       });
     return () => {
       alive = false;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
     };
-  }, [authStatus.loggedIn, authStatus.user?.id]);
+  }, [authStatus.loggedIn, authStatus.user?.id, uiProfileRetryNonce]);
 
-  // Push workspace-профиля на сервер: дебаунс против шторма записей, сигнатура против эха
-  // только что применённого серверного профиля.
+  // Push workspace-профиля на сервер: дебаунс против шторма записей; per-key
+  // подписи решают, ЧТО изменилось, per-key штампы (merge-LWW на сервере, v3.5.0)
+  // гарантируют, что неизменившиеся секции не перетрут более свежее с другой
+  // машины. Подпись обновляется только после УСПЕШНОГО PATCH — неудачный пуш
+  // ретраится, а не теряется молча.
   useEffect(() => {
     const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
     if (!userId || uiProfileReadyUserRef.current !== userId) return;
-    const snapshot = {
+    const snapshot: Record<string, unknown> = {
       tabsLayout: tabsLayout ?? null,
       shortcuts: pinnedShortcuts,
       recentVisits: recentVisits.slice(0, RECENT_VISITS_LIMIT),
       quickStartScores: normalizeQuickStartScores(quickStartScores),
     };
-    const sig = JSON.stringify(snapshot);
-    if (sig === uiProfileSigRef.current) return;
+    if (shellPrefs && shellPrefsLoadedForRef.current === userId) {
+      snapshot.shellPrefs = extractUserUiProfileShellPrefs(shellPrefs);
+    }
+    const keySigs: Record<string, string> = {};
+    const changed: string[] = [];
+    for (const [k, v] of Object.entries(snapshot)) {
+      keySigs[k] = JSON.stringify(v ?? null);
+      if (keySigs[k] !== uiProfileKeySigsRef.current[k]) changed.push(k);
+    }
+    if (changed.length === 0) return;
+    let retryTimer: number | null = null;
+    const scheduleRetry = () => {
+      retryTimer = window.setTimeout(() => setUiProfilePushNonce((n) => n + 1), 30_000);
+    };
     const timer = window.setTimeout(() => {
-      uiProfileSigRef.current = sig;
+      const now = Date.now();
+      const stamps = { ...uiProfileKeyStampsRef.current };
+      for (const k of changed) stamps[k] = now;
       void window.matrica.auth
-        .uiProfileSet({ profile: { ...snapshot, updatedAt: Date.now() } })
+        .uiProfileSet({ profile: { ...snapshot, keyUpdatedAt: stamps, updatedAt: now } })
         .then((r) => {
-          // stale: на другой машине профиль свежее — не перетираем, подхватим при следующем логине.
-          if (r?.ok && r.stale) uiProfileSigRef.current = '';
+          if (!r?.ok) {
+            scheduleRetry();
+            return;
+          }
+          uiProfileKeySigsRef.current = { ...uiProfileKeySigsRef.current, ...keySigs };
+          const merged = (r as { profile?: { keyUpdatedAt?: Record<string, number> } }).profile;
+          uiProfileKeyStampsRef.current = merged?.keyUpdatedAt ? { ...merged.keyUpdatedAt } : stamps;
+          // stale: какая-то секция на другой машине свежее — подтянем её сразу,
+          // а не при следующем логине.
+          if (r.stale) setUiProfileRetryNonce((n) => n + 1);
         })
-        .catch(() => {});
+        .catch(() => scheduleRetry());
     }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [authStatus.loggedIn, authStatus.user?.id, tabsLayout, pinnedShortcuts, recentVisits, quickStartScores]);
+    return () => {
+      window.clearTimeout(timer);
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+    };
+  }, [authStatus.loggedIn, authStatus.user?.id, tabsLayout, pinnedShortcuts, recentVisits, quickStartScores, shellPrefs, uiProfilePushNonce]);
+
+  // Применение roaming shell-настроек с сервера: ждём, пока загрузится локальный
+  // блоб (порядок ответов GET-профиля и ui:prefs:get не определён), сравниваем
+  // серверный штамп с временем последней ЛОКАЛЬНОЙ правки — LWW, локальные более
+  // свежие правки не затираются. Сессии (открытые вкладки) не роумятся.
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId || !shellPrefs || shellPrefsLoadedForRef.current !== userId) return;
+    const roam = roamedShellPrefsRef.current;
+    if (!roam) return;
+    roamedShellPrefsRef.current = null;
+    const stampKey = `matrica:shellPrefsLocalEditAt:${userId}`;
+    let localEditAt = 0;
+    try {
+      localEditAt = Number(window.localStorage.getItem(stampKey) ?? 0) || 0;
+    } catch {
+      /* localStorage недоступен — применяем серверное */
+    }
+    if (roam.stamp <= localEditAt) return;
+    const merged: UiShellPrefs = {
+      ...shellPrefs,
+      v2: { ...shellPrefs.v2, ...roam.value.v2, session: shellPrefs.v2.session },
+      v3: { ...shellPrefs.v3, sectionsPct: roam.value.v3.sectionsPct, comparePct: roam.value.v3.comparePct },
+    };
+    try {
+      window.localStorage.setItem(stampKey, String(roam.stamp));
+    } catch {
+      /* ignore */
+    }
+    // Эхо-гейт: применённое серверное состояние не должно немедленно пушиться
+    // назад с fresh-штампом.
+    uiProfileKeySigsRef.current.shellPrefs = JSON.stringify(extractUserUiProfileShellPrefs(sanitizeUiShellPrefs(merged)));
+    uiProfileKeyStampsRef.current.shellPrefs = roam.stamp;
+    void persistShellPrefs(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- roamedShellPrefsNonce сигналит о новом roam-значении; persistShellPrefs стабилен по смыслу
+  }, [roamedShellPrefsNonce, shellPrefs, authStatus.loggedIn, authStatus.user?.id]);
 
   useEffect(() => {
     const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
@@ -2480,13 +2589,27 @@ export function App() {
     return !!shellPrefs && !!userId && shellPrefsLoadedForRef.current === userId;
   }
 
+  /** Штамп последней ЛОКАЛЬНОЙ правки shell-настроек — LWW-граница для roaming:
+   *  серверная копия применяется, только если её штамп свежее (см. overlay-эффект). */
+  function markShellPrefsLocalEdit() {
+    const userId = String(authStatus.user?.id ?? '').trim();
+    if (!userId) return;
+    try {
+      window.localStorage.setItem(`matrica:shellPrefsLocalEditAt:${userId}`, String(Date.now()));
+    } catch {
+      /* ignore */
+    }
+  }
+
   function updateV2Prefs(nextV2: V2Prefs) {
     if (!canWriteShellPrefs() || !shellPrefs) return;
+    markShellPrefsLocalEdit();
     void persistShellPrefs({ ...shellPrefs, v2: nextV2 });
   }
 
   function updateV3Pcts(patch: Partial<Pick<V3Prefs, 'comparePct'>>) {
     if (!canWriteShellPrefs() || !shellPrefs) return;
+    markShellPrefsLocalEdit();
     void persistShellPrefs({ ...shellPrefs, v3: { ...shellPrefs.v3, ...patch } });
   }
 

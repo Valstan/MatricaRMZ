@@ -126,7 +126,15 @@ export function ButtonPanel(props: {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const next = reorder(pinnedIds, active.id as string, over.id as string);
-    if (next) props.onLayoutChange({ ...props.layout, pinned: next });
+    if (!next) return;
+    // Пере-упорядочиваем только ВИДИМЫЕ id, не выбрасывая скрытые/недоступные в
+    // этом релизе: раньше запись отфильтрованного списка молча стирала пины при
+    // id-чурне между релизами — они обязаны вернуться вместе со своим id.
+    const visible = new Set(pinnedIds);
+    let k = 0;
+    const merged = props.layout.pinned.map((id) => (visible.has(id) ? next[k++]! : id));
+    for (; k < next.length; k += 1) merged.push(next[k]!);
+    props.onLayoutChange({ ...props.layout, pinned: merged });
   }
 
   function onSectionDragEnd(sectionId: string) {
