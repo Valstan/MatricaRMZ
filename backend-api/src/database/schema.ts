@@ -724,42 +724,60 @@ export const userPresence = pgTable(
 // erp_part_templates / erp_tool_templates / erp_tool_cards removed (migration 0082, B0):
 // dead /erp prototype tables, 0 rows on prod (measured 2026-08-18).
 
+// B2 (migration 0084): canon shape, id = EAV entity id (brain #162). Kept in sync
+// with EAV by triggers (rebuild_erp_counterparty); EAV stays the write path until
+// CRUD cutover later in stage 2.
 export const erpCounterparties = pgTable(
   'erp_counterparties',
   {
     id: uuid('id').primaryKey(),
-    code: text('code').notNull(),
     name: text('name').notNull(),
-    attrsJson: text('attrs_json'),
-    isActive: boolean('is_active').notNull().default(true),
+    shortName: text('short_name'),
+    inn: text('inn'),
+    kpp: text('kpp'),
+    address: text('address'),
+    email: text('email'),
+    phone: text('phone'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
-    codeUq: uniqueIndex('erp_counterparties_code_uq').on(t.code),
     nameIdx: index('erp_counterparties_name_idx').on(t.name),
   }),
 );
 
+// B2 (migration 0084): canon shape, id = EAV entity id. No unique on
+// number/internal_number yet — live data holds historic duplicates («20/ГОЗ-25»);
+// new duplicates are blocked by gate #612, constraint lands after the cleanup.
+// sections/execution_parts/payments stay JSON until CRUD cutover (offline clients
+// mutate the whole attribute via sync).
 export const erpContracts = pgTable(
   'erp_contracts',
   {
     id: uuid('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    counterpartyId: uuid('counterparty_id').references(() => erpCounterparties.id),
-    startsAt: bigint('starts_at', { mode: 'number' }),
-    endsAt: bigint('ends_at', { mode: 'number' }),
-    attrsJson: text('attrs_json'),
-    isActive: boolean('is_active').notNull().default(true),
+    number: text('number'),
+    internalNumber: text('internal_number'),
+    gozName: text('goz_name'),
+    gozIgk: text('goz_igk'),
+    gozSeparateAccountNumber: text('goz_separate_account_number'),
+    gozSeparateAccountBank: text('goz_separate_account_bank'),
+    gozSeparateAccount: text('goz_separate_account'),
+    signedAt: bigint('signed_at', { mode: 'number' }),
+    dueAt: bigint('due_at', { mode: 'number' }),
+    customerId: uuid('customer_id').references(() => erpCounterparties.id),
+    comment: text('comment'),
+    sectionsJson: text('sections_json'),
+    executionPartsJson: text('execution_parts_json'),
+    paymentsJson: text('payments_json'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
-    codeUq: uniqueIndex('erp_contracts_code_uq').on(t.code),
-    counterpartyIdx: index('erp_contracts_counterparty_idx').on(t.counterpartyId),
+    numberIdx: index('erp_contracts_number_idx').on(t.number),
+    internalNumberIdx: index('erp_contracts_internal_number_idx').on(t.internalNumber),
+    customerIdx: index('erp_contracts_customer_idx').on(t.customerId),
   }),
 );
 

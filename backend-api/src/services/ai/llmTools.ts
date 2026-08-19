@@ -282,8 +282,9 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
     results.push({ id: r.id, entityType: r.entity_type, matchedAttr: r.matched_attr, name: value, score: r.score });
   }
 
-  // B0: блок «ERP-справочники» удалён — erp_counterparties принадлежала мёртвому
-  // /erp-прототипу и на проде всегда была пуста; контрагенты ищутся EAV-поиском выше.
+  // Контрагенты и договоры ищутся EAV-поиском выше (сущности customer/contract);
+  // строгие зеркала erp_counterparties/erp_contracts (B2) дублировать здесь не нужно —
+  // id-пространство одно и то же, кандидаты совпали бы.
 
   if (results.length === 0) {
     return jsonResult({
@@ -370,30 +371,16 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
   }
   const contractNames = new Map<string, string>();
   if (contractIds.size > 0) {
-    // B0: договор в EAV опознаётся номером, не именем (`name` у него нет):
-    // internal_number («20/ГОЗ-25») приоритетнее казённого number.
-    // Раньше имя искалось в erp_contracts мёртвого прототипа — та всегда пуста.
+    // B2: договор опознаётся номером, не именем: internal_number («20/ГОЗ-25»)
+    // приоритетнее казённого number. Читаем строгую erp_contracts (зеркало EAV, 0084).
     const r = await pool.query(
-      'select av.entity_id as id, d.code as attr, av.value_json as val from attribute_values av ' +
-        'join attribute_defs d on d.id = av.attribute_def_id ' +
-        "where av.entity_id = ANY($1::uuid[]) and av.deleted_at is null and d.code in ('internal_number', 'number')",
+      'select id, number, internal_number from erp_contracts where id = ANY($1::uuid[])',
       [[...contractIds]],
     );
-    const byPriority = new Map<string, { internal?: string; number?: string }>();
     for (const row of r.rows ?? []) {
-      let value = String(row.val ?? '');
-      try {
-        value = String(JSON.parse(value));
-      } catch {
-        /* не-JSON — как есть */
-      }
-      if (!value) continue;
-      const rec = byPriority.get(row.id) ?? {};
-      if (row.attr === 'internal_number') rec.internal = value;
-      else rec.number = value;
-      byPriority.set(row.id, rec);
+      const label = String(row.internal_number ?? '').trim() || String(row.number ?? '').trim();
+      if (label) contractNames.set(row.id, label);
     }
-    for (const [id, rec] of byPriority) contractNames.set(id, rec.internal ?? rec.number ?? '');
   }
   const rows = ids.map((id: string) => {
     const rec = byId.get(id) ?? {};
@@ -514,76 +501,30 @@ async function getOrganizationStructure(input: Record<string, unknown>): Promise
 }
 
 async function getContracts(input: Record<string, unknown>): Promise<ToolResult> {
-  // B0: договоры живут в EAV (сущности типа contract), а не в erp_contracts мёртвого
-  // прототипа (та на проде всегда была пуста — тул молча отдавал []).
+  // B2: строгая erp_contracts — триггерное зеркало EAV (миграция 0084), непустая.
   const counterpartyId = asString(input, 'counterpartyId').trim();
-  const search = asString(input, 'search').trim().toLowerCase();
+  const search = asString(input, 'search').trim();
   const limit = asLimit(input);
-  const res = await pool.query(
-    'select e.id, e.updated_at, d.code as attribute_code, av.value_json ' +
-      'from entities e ' +
-      "join entity_types t on t.id = e.type_id and t.code = 'contract' and t.deleted_at is null " +
-      'left join attribute_values av on av.entity_id = e.id and av.deleted_at is null ' +
-      'left join attribute_defs d on d.id = av.attribute_def_id and d.deleted_at is null ' +
-      "and d.code in ('number', 'internal_number', 'goz_name', 'customer_id', 'contract_sections') " +
-      'where e.deleted_at is null',
-  );
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const row of res.rows ?? []) {
-    const rec: Record<string, unknown> = byId.get(row.id) ?? { id: row.id, updated_at: Number(row.updated_at ?? 0) };
-    if (row.attribute_code) {
-      let value: unknown = row.value_json;
-      try {
-        value = JSON.parse(String(row.value_json ?? 'null'));
-      } catch {
-        /* сырые строки оставляем как есть */
-      }
-      rec[row.attribute_code] = value;
-    }
-    byId.set(row.id, rec);
+  const conds: string[] = ['deleted_at is null'];
+  const params: unknown[] = [];
+  if (counterpartyId) {
+    params.push(counterpartyId);
+    conds.push(`customer_id = $${params.length}::uuid`);
   }
-  const rows = [...byId.values()]
-    .filter((rec) => {
-      if (counterpartyId) {
-        const sections = rec.contract_sections as any;
-        const primaryCustomer = typeof sections?.primary?.customerId === 'string' ? sections.primary.customerId : '';
-        const attrCustomer = typeof rec.customer_id === 'string' ? rec.customer_id : '';
-        if (primaryCustomer !== counterpartyId && attrCustomer !== counterpartyId) return false;
-      }
-      if (search) {
-        const sections = rec.contract_sections as any;
-        const numbers = [
-          String(rec.number ?? ''),
-          String(rec.internal_number ?? ''),
-          typeof sections?.primary?.number === 'string' ? sections.primary.number : '',
-          typeof sections?.primary?.internalNumber === 'string' ? sections.primary.internalNumber : '',
-          ...(Array.isArray(sections?.addons) ? sections.addons.map((a: any) => String(a?.number ?? '')) : []),
-        ];
-        const hay = `${String(rec.goz_name ?? '')} ${numbers.join(' ')}`.toLowerCase();
-        if (!hay.includes(search)) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => Number(b.updated_at ?? 0) - Number(a.updated_at ?? 0))
-    .slice(0, limit)
-    .map((rec) => {
-      const sections = rec.contract_sections as any;
-      return {
-        id: rec.id,
-        goz_name: rec.goz_name ?? null,
-        number: (typeof rec.number === 'string' ? rec.number : null) ?? (typeof sections?.primary?.number === 'string' ? sections.primary.number : null),
-        internal_number:
-          (typeof rec.internal_number === 'string' ? rec.internal_number : null) ??
-          (typeof sections?.primary?.internalNumber === 'string' ? sections.primary.internalNumber : null),
-        customer_id:
-          (typeof rec.customer_id === 'string' ? rec.customer_id : null) ??
-          (typeof sections?.primary?.customerId === 'string' ? sections.primary.customerId : null),
-        addon_numbers: Array.isArray(sections?.addons)
-          ? sections.addons.map((a: any) => String(a?.number ?? '')).filter(Boolean)
-          : [],
-      };
-    });
-  return jsonResult(sanitizeRows(rows));
+  if (search) {
+    params.push(`%${search.toLowerCase()}%`);
+    conds.push(
+      `(lower(coalesce(number, '')) like $${params.length} ` +
+        `or lower(coalesce(internal_number, '')) like $${params.length} ` +
+        `or lower(coalesce(goz_name, '')) like $${params.length} ` +
+        `or lower(coalesce(sections_json, '')) like $${params.length})`,
+    );
+  }
+  const sql =
+    'select id, number, internal_number, goz_name, goz_igk, signed_at, due_at, customer_id, comment ' +
+    `from erp_contracts where ${conds.join(' and ')} order by signed_at desc nulls last limit ${limit}`;
+  const res = await pool.query(sql, params as any[]);
+  return jsonResult(sanitizeRows(res.rows ?? []));
 }
 
 async function getOperations(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
@@ -681,10 +622,12 @@ export function buildAllowedTablesFromPerms(perms: Record<string, boolean>): Set
   if (perms['masterdata.view']) allowed.add('directory_workshops');
   if (perms['supply_requests.view'] || perms['work_orders.view']) allowed.add('operations');
   if (perms['files.view']) allowed.add('file_assets');
-  // B0: erp_contracts / erp_counterparties / erp_employee_cards / erp_reg_contract_settlement
-  // убраны из allowlist — таблицы мёртвого /erp-прототипа пусты, запросы к ним рождали
-  // ложные «данных нет» (класс brain #161). Договоры/контрагенты/сотрудники — EAV.
+  // B2: erp_contracts / erp_counterparties возвращены в allowlist — с миграции 0084 это
+  // триггерные зеркала EAV с реальными данными. erp_employee_cards остаётся вне
+  // (пустая до этапа 3), erp_reg_contract_settlement дропнута (0082).
   if (perms['reports.view']) {
+    allowed.add('erp_contracts');
+    allowed.add('erp_counterparties');
     allowed.add('erp_document_headers');
     allowed.add('erp_document_lines');
     allowed.add('erp_journal_documents');
@@ -957,7 +900,9 @@ const TOOLS: Record<string, ToolEntry> = {
         'есть дубль» (2026-08-17): «дубль» был удалён ещё 2026-03-19, а запрос ' +
         'этого не отфильтровал. Если удалённые нужны намеренно — скажи об этом в ' +
         'ответе прямо. ' +
-        'Подсказки по схеме: контрагенты — EAV-сущности типа customer (таблиц counterparties/erp_counterparties нет); ' +
+        'Подсказки по схеме: контрагенты — таблица erp_counterparties, договоры — erp_contracts ' +
+        '(строгие зеркала EAV с реальными данными; у договора колонки number/internal_number/goz_name, ' +
+        'секции и платежи — JSON в sections_json/payments_json); ' +
         'договор опознаётся НОМЕРОМ, а не именем: атрибуты `number` (длинный ' +
         'казённый номер) и `internal_number` («20/ГОЗ-25»), поле `name` у него ' +
         'отсутствует; двигатель ссылается на договор атрибутом `contract_id`; ' +
