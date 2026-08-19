@@ -18,22 +18,33 @@ function extractBearerToken(req: Request): string | null {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const token = extractBearerToken(req);
+  if (!token) return res.status(401).json({ ok: false, code: 'token_missing', error: 'missing bearer token' });
+  let user: AuthUser;
   try {
-    const token = extractBearerToken(req);
-    if (!token) return res.status(401).json({ ok: false, error: 'missing bearer token' });
-    const user = await verifyAccessToken(token);
-    if (!UUID_RE.test(user.id)) return res.status(401).json({ ok: false, error: 'invalid user id in token' });
-    const auth = await getEmployeeAuthById(user.id);
-    if (!auth?.accessEnabled) {
-      return res.status(403).json({ ok: false, error: 'user disabled' });
-    }
-    const login = auth.login?.trim() ? auth.login.trim() : user.username;
-    const role = normalizeRole(login, auth.systemRole);
-    (req as AuthenticatedRequest).user = { id: user.id, username: login, role };
-    return next();
+    user = await verifyAccessToken(token);
   } catch {
-    return res.status(401).json({ ok: false, error: 'invalid token' });
+    return res.status(401).json({ ok: false, code: 'token_invalid', error: 'invalid token' });
   }
+  if (!UUID_RE.test(user.id)) return res.status(401).json({ ok: false, code: 'token_invalid', error: 'invalid user id in token' });
+  let auth: Awaited<ReturnType<typeof getEmployeeAuthById>>;
+  try {
+    auth = await getEmployeeAuthById(user.id);
+  } catch {
+    // DB/EAV hiccup is not an auth verdict: 503 keeps clients logged in (M28 tail).
+    return res.status(503).json({ ok: false, code: 'auth_backend_unavailable', error: 'auth backend unavailable' });
+  }
+  if (auth == null) {
+    // Auth attribute defs unavailable = infra/seed state, never a user state.
+    return res.status(503).json({ ok: false, code: 'auth_defs_unavailable', error: 'auth definitions unavailable' });
+  }
+  if (!auth.accessEnabled) {
+    return res.status(403).json({ ok: false, code: 'user_disabled', error: 'user disabled' });
+  }
+  const login = auth.login?.trim() ? auth.login.trim() : user.username;
+  const role = normalizeRole(login, auth.systemRole);
+  (req as AuthenticatedRequest).user = { id: user.id, username: login, role };
+  return next();
 }
 
 export function requirePermission(permCode: string) {

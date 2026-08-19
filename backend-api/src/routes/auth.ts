@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, lt } from 'drizzle-orm';
 import { DEFAULT_UI_CONTROL_SETTINGS, UI_DEFAULTS_VERSION, mergeUiControlSettings, sanitizeUiControlSettings } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
@@ -60,6 +60,18 @@ const refreshSchema = z.object({
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Grace window for refresh-token rotation: after a successful rotation the old
+ * token is not deleted but kept valid for this long (never beyond its own TTL).
+ * Covers concurrent refreshers and "crash between rotate and persist" — the
+ * loser of a rotation race gets another fresh token instead of a forced logout.
+ */
+export const REFRESH_ROTATION_GRACE_MS = 60_000;
+
+export function refreshRotationGraceExpiry(currentExpiresAt: number, now: number): number {
+  return Math.min(currentExpiresAt, now + REFRESH_ROTATION_GRACE_MS);
 }
 
 export function isTransientRefreshDbError(message: string) {
@@ -576,21 +588,27 @@ authRouter.post('/refresh', async (req, res) => {
         .where(and(eq(refreshTokens.tokenHash, tokenHash), gt(refreshTokens.expiresAt, now)))
         .limit(1);
       const rt = rows[0];
-      if (!rt) return res.status(401).json({ ok: false, error: 'недействительный токен обновления' });
+      if (!rt) return res.status(401).json({ ok: false, code: 'refresh_token_invalid', error: 'недействительный токен обновления' });
 
       const u = await getEmployeeAuthById(String(rt.userId));
-      if (!u || !u.accessEnabled || !u.login) return res.status(401).json({ ok: false, error: 'пользователь отключен' });
+      if (!u || !u.accessEnabled || !u.login)
+        return res.status(401).json({ ok: false, code: 'user_disabled', error: 'пользователь отключен' });
 
       const role = normalizeRole(u.login, u.systemRole);
-      if (role === 'employee') return res.status(403).json({ ok: false, error: 'у сотрудника нет доступа' });
+      if (role === 'employee') return res.status(403).json({ ok: false, code: 'employee_no_access', error: 'у сотрудника нет доступа' });
       const authUser: AuthUser = { id: u.id, username: u.login, role };
       const accessToken = await signAccessToken(authUser);
       const permissions = await getEffectivePermissionsForUser(u.id);
 
-      // Rotation refresh token: удаляем старый, выдаём новый.
+      // Rotation with a grace window: the old token stays valid briefly instead of
+      // being deleted, so a concurrent refresher (parallel caller, app crash between
+      // rotate and persist) is not logged out — it just receives another fresh token.
       const newRefreshToken = generateRefreshToken();
       const expiresAt = now + getRefreshTtlDays() * 24 * 60 * 60 * 1000;
-      await db.delete(refreshTokens).where(eq(refreshTokens.id, rt.id));
+      await db
+        .update(refreshTokens)
+        .set({ expiresAt: refreshRotationGraceExpiry(rt.expiresAt, now) })
+        .where(eq(refreshTokens.id, rt.id));
       await db.insert(refreshTokens).values({
         id: randomUUID(),
         userId: u.id,
@@ -598,6 +616,14 @@ authRouter.post('/refresh', async (req, res) => {
         expiresAt,
         createdAt: now,
       });
+      // Opportunistic cleanup of long-expired rows (incl. rotated-out ones).
+      void (async () => {
+        try {
+          await db.delete(refreshTokens).where(lt(refreshTokens.expiresAt, now - 24 * 60 * 60 * 1000));
+        } catch {
+          // best-effort; next refresh retries
+        }
+      })();
 
       return res.json({ ok: true, accessToken, refreshToken: newRefreshToken, user: authUser, permissions });
     } catch (e) {
