@@ -737,7 +737,8 @@ const matricaApi = {
     sendTextEverywhere: async (args: { recipientUserId?: string | null; text: string }) =>
       ipcRenderer.invoke('chat:sendTextEverywhere', args),
     sendFile: async (args: { recipientUserId?: string | null; path: string }) => ipcRenderer.invoke('chat:sendFile', args),
-    sendDeepLink: async (args: { recipientUserId?: string | null; link: unknown }) => ipcRenderer.invoke('chat:sendDeepLink', args),
+    sendDeepLink: async (args: { recipientUserId?: string | null; link: unknown; text?: string | null }) =>
+      ipcRenderer.invoke('chat:sendDeepLink', args),
     markRead: async (args: { messageIds: string[] }) => ipcRenderer.invoke('chat:markRead', args),
     unreadCount: async () => ipcRenderer.invoke('chat:unreadCount'),
     export: async (args: { startMs: number; endMs: number }) => ipcRenderer.invoke('chat:export', args),

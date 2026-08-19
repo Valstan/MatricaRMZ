@@ -87,6 +87,7 @@ export function V3TabShell(props: {
   onSyncClick: () => void;
   userLabel?: string | null;
   onAccountClick?: (pos: { x: number; y: number }) => void;
+  onProgramFeedback?: () => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
   // Панель МЕНЮ видна только когда активна вкладка МЕНЮ, поэтому подсвечивать надо раздел,
@@ -362,6 +363,20 @@ export function V3TabShell(props: {
           );
         })}
         <div className="v3-tab-spacer" />
+        {/* «Правка программы» — рядом с аккаунтом: доступна с любого экрана, а не
+            только из МЕНЮ; раздел в письмо подставляется сам. */}
+        {props.userLabel && props.onProgramFeedback ? (
+          <button
+            type="button"
+            className="v3-account-btn"
+            data-program-feedback-btn
+            title="Правка программы: замечание, вопрос или просьба разработчику"
+            onClick={() => props.onProgramFeedback?.()}
+          >
+            <span aria-hidden="true">✏️</span>
+            <span className="v3-account-name">Правка</span>
+          </button>
+        ) : null}
         {props.userLabel ? (
           <button
             type="button"

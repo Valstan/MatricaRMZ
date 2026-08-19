@@ -73,6 +73,7 @@ const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
 );
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
+import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
 import { ListContextMenu } from './components/ListContextMenu.js';
 import { useConfirm } from './components/ConfirmContext.js';
@@ -934,6 +935,8 @@ export function App() {
   // маунте страницы), в профиль едут отдельной секцией: событие об изменении
   // поднимает nonce → пуш перечитывает актуальный набор.
   const [columnLayoutsNonce, setColumnLayoutsNonce] = useState(0);
+  // «Правка программы» — окно доступно с любого экрана (шапка вкладок + МЕНЮ).
+  const [programFeedbackOpen, setProgramFeedbackOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const trashButtonRef = useRef<HTMLDivElement | null>(null);
   const trashPopupRef = useRef<HTMLDivElement | null>(null);
@@ -2105,6 +2108,9 @@ export function App() {
         break;
       case 'notes_link':
         void saveCurrentPositionToNotes();
+        break;
+      case 'program_feedback':
+        setProgramFeedbackOpen(true);
         break;
       case 'sync':
         void runSyncNow();
@@ -3850,6 +3856,26 @@ export function App() {
       .sendDeepLink({ recipientUserId: chatContext.selectedUserId ?? null, link: currentAppLink as any })
       .catch(() => null);
     if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
+  }
+
+  /**
+   * «Правка программы»: замечание/вопрос/просьба уходит личным сообщением
+   * суперадмину. Раздел подставляется из того же контекста, что и ссылка в чат,
+   * поэтому сообщение и читается как текст, и открывает нужный экран одним
+   * кликом. Отдельной сущности не заводим — адресат один, ответ идёт тем же чатом.
+   */
+  async function submitProgramFeedback(args: { kind: ProgramFeedbackKind; text: string; message: string }): Promise<string | null> {
+    if (!authStatus.loggedIn) return 'Нужно войти в программу.';
+    if (viewMode) return 'В режиме просмотра архива отправка недоступна.';
+    const users = await window.matrica.chat.usersList().catch(() => null);
+    const superadmin = ((users as any)?.users ?? []).find((u: any) => String(u?.role ?? '') === 'superadmin' && u?.isActive);
+    if (!superadmin?.id) return 'Не удалось найти получателя (суперадминистратора). Попробуйте позже.';
+    const r = await window.matrica.chat
+      .sendDeepLink({ recipientUserId: String(superadmin.id), link: currentAppLink as any, text: args.message })
+      .catch(() => null);
+    if (!(r as any)?.ok) return `Не удалось отправить: ${String((r as any)?.error ?? 'нет связи')}`;
+    void window.matrica.sync.run().catch(() => {});
+    return null;
   }
 
   async function saveCurrentPositionToNotes() {
@@ -5640,6 +5666,13 @@ export function App() {
           onClose={() => setAccountSwitchOpen(false)}
           onSwitched={(s) => { setAuthStatus(s); if (s.loggedIn) setTabState("history"); }}
         />
+        <ProgramFeedbackDialog
+          open={programFeedbackOpen}
+          sectionPath={(currentAppLink.breadcrumbs ?? []).join(' / ')}
+          appLink={currentAppLink as any}
+          onSubmit={submitProgramFeedback}
+          onClose={() => setProgramFeedbackOpen(false)}
+        />
         <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
           {viewMode && (
             <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(248, 113, 113, 0.5)", background: "rgba(248, 113, 113, 0.16)", color: "var(--danger)", fontWeight: 800 }}>
@@ -5690,6 +5723,7 @@ export function App() {
               renderSettingsTab={renderSettingsTabContent}
               userLabel={authStatus.loggedIn ? userLabel : null}
               onAccountClick={(pos) => setAccountMenuPos(pos)}
+              onProgramFeedback={() => setProgramFeedbackOpen(true)}
               syncState={syncIndicator.state}
               syncProgress={syncIndicator.progress}
               syncSummary={syncIndicator.summary}

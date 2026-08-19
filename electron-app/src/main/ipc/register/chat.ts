@@ -56,7 +56,7 @@ export function registerChatIpc(ctx: IpcContext) {
     return await chatSendFile(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
 
-  ipcMain.handle('chat:sendDeepLink', async (_e, args: { recipientUserId?: string | null; link: any }) => {
+  ipcMain.handle('chat:sendDeepLink', async (_e, args: { recipientUserId?: string | null; link: any; text?: string | null }) => {
     if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
     const gate = await requireChatUse();
     if (!gate.ok) return gate;

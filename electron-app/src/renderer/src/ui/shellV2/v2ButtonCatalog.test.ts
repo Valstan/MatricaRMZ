@@ -18,7 +18,7 @@ describe('buildV2Buttons — планшетное операторское ме�
 
   it('в режиме «Планшет» остаются только разделы пресета', () => {
     const b = buildV2Buttons(ALL, {}, EMPTY_LAYOUT, true);
-    const navIds = allItems(b).filter((id) => !['theme','tablet_mode','decor','palette','search','basket','column_mode','sync','chat_link','notes_link','chat','ai_chat','user'].includes(id));
+    const navIds = allItems(b).filter((id) => !['theme','tablet_mode','decor','palette','search','basket','column_mode','sync','chat_link','notes_link','program_feedback','chat','ai_chat','user'].includes(id));
     expect(navIds.sort()).toEqual(['engines', 'parts', 'stock_balances', 'work_orders']);
   });
 
