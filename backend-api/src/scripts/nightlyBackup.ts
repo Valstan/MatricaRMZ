@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { rm, unlink } from 'node:fs/promises';
 
 import Database from 'better-sqlite3';
@@ -52,6 +52,10 @@ function readBackupPublicKey(): string {
 function nowMs() {
   return Date.now();
 }
+
+// Longer than any real run (the dump plus two uploads takes minutes), short enough that a
+// crashed run does not block the next night.
+const STALE_LOCK_MS = 6 * 60 * 60 * 1000;
 
 async function runPgDump(outPath: string) {
   const host = (process.env.PGHOST ?? 'localhost').trim();
@@ -365,6 +369,34 @@ async function applyRetention(args: { folderPath: string; keepDays: number; toda
   }
 }
 
+// Two concurrent runs share the same temp paths, so whichever finishes first deletes the
+// other's files mid-upload and the survivor dies on ENOENT. The API route guards only its own
+// process; the timer and a manual run know nothing about each other.
+function acquireLock(lockPath: string): () => void {
+  try {
+    writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+  } catch {
+    const ageMs = nowMs() - (statSync(lockPath, { throwIfNoEntry: false })?.mtimeMs ?? 0);
+    // A run killed outside its finally block leaves the lock behind; without a staleness
+    // window that would disable backups permanently — the failure this file already suffered.
+    if (ageMs < STALE_LOCK_MS) {
+      throw new Error(
+        `Резервное копирование уже выполняется (блокировка ${lockPath}, возраст ${Math.round(ageMs / 1000)} с). ` +
+          'Повторный запуск отменён.',
+      );
+    }
+    console.warn(`[nightlyBackup] снимаю просроченную блокировку (возраст ${Math.round(ageMs / 60000)} мин)`);
+    writeFileSync(lockPath, String(process.pid));
+  }
+  return () => {
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // best-effort: a leftover lock ages out on its own
+    }
+  };
+}
+
 async function main() {
   const startedAt = nowMs();
   const todayName = localDateName(new Date());
@@ -385,6 +417,7 @@ async function main() {
   // Fail before pg_dump, not after: an unconfigured key must not produce a plaintext dump
   // on disk at all.
   const publicKeyPem = readBackupPublicKey();
+  const releaseLock = acquireLock(join(tmpBase, 'nightlyBackup.lock'));
 
   try {
     await ensureFolderDeep(backupFolder);
@@ -420,6 +453,7 @@ async function main() {
     await unlink(tmpDump).catch(() => {});
     await unlink(tmpDumpEnc).catch(() => {});
     await unlink(tmpSqlite).catch(() => {});
+    releaseLock();
     await pool.end().catch(() => {});
   }
 }
