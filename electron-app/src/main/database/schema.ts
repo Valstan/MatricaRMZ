@@ -294,78 +294,9 @@ export const userPresence = sqliteTable(
 // -----------------------------
 // ERP strict model (phase-in)
 // -----------------------------
-export const erpPartTemplates = sqliteTable(
-  'erp_part_templates',
-  {
-    id: text('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    specJson: text('spec_json'),
-    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
-  },
-  (t) => ({
-    codeUq: uniqueIndex('erp_part_templates_code_uq').on(t.code),
-  }),
-);
-
-export const erpPartCards = sqliteTable(
-  'erp_part_cards',
-  {
-    id: text('id').primaryKey(),
-    templateId: text('template_id').notNull(),
-    serialNo: text('serial_no'),
-    cardNo: text('card_no'),
-    attrsJson: text('attrs_json'),
-    status: text('status').notNull().default('active'),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
-  },
-  (t) => ({
-    templateIdx: index('erp_part_cards_template_idx').on(t.templateId),
-    cardNoIdx: index('erp_part_cards_card_no_idx').on(t.cardNo),
-  }),
-);
-
-export const erpToolTemplates = sqliteTable(
-  'erp_tool_templates',
-  {
-    id: text('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    specJson: text('spec_json'),
-    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
-  },
-  (t) => ({
-    codeUq: uniqueIndex('erp_tool_templates_code_uq').on(t.code),
-  }),
-);
-
-export const erpToolCards = sqliteTable(
-  'erp_tool_cards',
-  {
-    id: text('id').primaryKey(),
-    templateId: text('template_id').notNull(),
-    serialNo: text('serial_no'),
-    cardNo: text('card_no'),
-    attrsJson: text('attrs_json'),
-    status: text('status').notNull().default('active'),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
-  },
-  (t) => ({
-    templateIdx: index('erp_tool_cards_template_idx').on(t.templateId),
-    cardNoIdx: index('erp_tool_cards_card_no_idx').on(t.cardNo),
-  }),
-);
-
+// B0 (client migration 0021): dead /erp prototype replicas dropped — erp_part_templates,
+// erp_part_cards, erp_tool_templates, erp_tool_cards, erp_reg_part_usage,
+// erp_reg_contract_settlement, erp_reg_employee_access (never synced, always empty).
 export const erpCounterparties = sqliteTable(
   'erp_counterparties',
   {
@@ -662,50 +593,6 @@ export const erpRegStockMovements = sqliteTable(
     headerIdx: index('erp_reg_stock_movements_header_idx').on(t.documentHeaderId),
     performedAtIdx: index('erp_reg_stock_movements_performed_at_idx').on(t.performedAt),
     engineIdx: index('erp_reg_stock_movements_engine_idx').on(t.engineId),
-  }),
-);
-
-export const erpRegPartUsage = sqliteTable(
-  'erp_reg_part_usage',
-  {
-    id: text('id').primaryKey(),
-    partCardId: text('part_card_id').notNull(),
-    engineId: text('engine_id'),
-    documentLineId: text('document_line_id'),
-    qty: integer('qty').notNull().default(0),
-    usedAt: integer('used_at').notNull(),
-  },
-  (t) => ({
-    partUsedAtIdx: index('erp_reg_part_usage_part_used_at_idx').on(t.partCardId, t.usedAt),
-  }),
-);
-
-export const erpRegContractSettlement = sqliteTable(
-  'erp_reg_contract_settlement',
-  {
-    id: text('id').primaryKey(),
-    contractId: text('contract_id').notNull(),
-    documentHeaderId: text('document_header_id').notNull(),
-    amount: integer('amount').notNull().default(0),
-    direction: text('direction').notNull().default('debit'),
-    at: integer('at').notNull(),
-  },
-  (t) => ({
-    contractAtIdx: index('erp_reg_contract_settlement_contract_at_idx').on(t.contractId, t.at),
-  }),
-);
-
-export const erpRegEmployeeAccess = sqliteTable(
-  'erp_reg_employee_access',
-  {
-    id: text('id').primaryKey(),
-    employeeId: text('employee_id').notNull(),
-    scope: text('scope').notNull(),
-    allowed: integer('allowed', { mode: 'boolean' }).notNull().default(true),
-    updatedAt: integer('updated_at').notNull(),
-  },
-  (t) => ({
-    employeeScopeUq: uniqueIndex('erp_reg_employee_access_employee_scope_uq').on(t.employeeId, t.scope),
   }),
 );
 

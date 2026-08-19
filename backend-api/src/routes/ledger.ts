@@ -34,6 +34,7 @@ import {
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
+  erpEngineInstances,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -357,6 +358,12 @@ const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Reco
   [LedgerTableName.ErpEngineAssemblyBomBrandLinks]: {
     drizzle: erpEngineAssemblyBomBrandLinks,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomBrandLinks, r),
+  },
+  // B0: дрейф карт синка — erp_engine_instances была в incremental pull (pullChangesSince),
+  // но отсутствовала здесь: cold rebuild реплики молча терял таблицу целиком.
+  [LedgerTableName.ErpEngineInstances]: {
+    drizzle: erpEngineInstances,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInstances, r),
   },
   [LedgerTableName.ErpRegStockBalance]: {
     drizzle: erpRegStockBalance,

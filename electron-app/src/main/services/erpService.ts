@@ -19,8 +19,6 @@ import {
   erpRegStockMovements,
 } from '../database/schema.js';
 
-type ErpModule = 'parts' | 'tools' | 'counterparties' | 'contracts' | 'employees';
-type ErpCardModule = 'parts' | 'tools' | 'employees';
 
 function normalizeApiBaseUrl(raw: string): string {
   return String(raw ?? '').trim().replace(/\/+$/, '');
@@ -63,9 +61,6 @@ function formatHttpError(
   if (r?.status === 404) {
     if (path?.startsWith('/warehouse/')) {
       return 'HTTP 404: Warehouse API недоступно на сервере (проверьте пути /warehouse, /api/warehouse и настройки nginx/proxy).';
-    }
-    if (path?.startsWith('/erp/')) {
-      return 'HTTP 404: ERP API недоступно на сервере (проверьте пути /erp, /api/erp и настройки nginx/proxy).';
     }
     return 'HTTP 404: API недоступно на сервере (проверьте настройки nginx/proxy).';
   }
@@ -249,27 +244,6 @@ async function localWarehouseStockList(
   };
 }
 
-async function erpAuthed(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  path: string,
-  init: RequestInit,
-) {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const first = await httpAuthed(db, apiBaseUrl, normalizedPath, init);
-  if (first.status !== 404 || !normalizedPath.startsWith('/erp/')) return first;
-
-  const base = normalizeApiBaseUrl(apiBaseUrl);
-  for (const baseCandidate of apiBaseCandidates(base)) {
-    for (const pathCandidate of pathCandidates(normalizedPath)) {
-      if (baseCandidate === base && pathCandidate === normalizedPath) continue;
-      const fallback = await httpAuthed(db, baseCandidate, pathCandidate, init);
-      if (fallback.ok || fallback.status !== 404) return fallback;
-    }
-  }
-  return first;
-}
-
 async function localWarehouseDocumentsList(
   db: BetterSQLite3Database,
   args?: {
@@ -364,148 +338,8 @@ async function localWarehouseMovementsList(
   return { ok: true, rows: rows as Array<Record<string, unknown>>, meta: await buildOfflineReadMeta(db, 'local') };
 }
 
-export async function erpDictionaryList(db: BetterSQLite3Database, apiBaseUrl: string, moduleName: ErpModule) {
-  const path = `/erp/dictionary/${encodeURIComponent(moduleName)}`;
-  try {
-    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: 'bad erp dictionary response' };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
-
-export async function erpDictionaryUpsert(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  args: { moduleName: ErpModule; id?: string; code: string; name: string; payloadJson?: string | null },
-) {
-  const path = `/erp/dictionary/${encodeURIComponent(args.moduleName)}`;
-  try {
-    const r = await erpAuthed(db, apiBaseUrl, path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...(args.id ? { id: args.id } : {}),
-        code: args.code,
-        name: args.name,
-        ...(args.payloadJson !== undefined ? { payloadJson: args.payloadJson } : {}),
-      }),
-    });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return { ok: true as const, id: String(r.json.id) };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
-
-export async function erpCardsList(db: BetterSQLite3Database, apiBaseUrl: string, moduleName: ErpCardModule) {
-  const path = `/erp/cards/${encodeURIComponent(moduleName)}`;
-  try {
-    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: 'bad erp cards response' };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
-
-export async function erpCardsUpsert(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  args: {
-    moduleName: ErpCardModule;
-    id?: string;
-    templateId?: string | null;
-    serialNo?: string | null;
-    cardNo?: string | null;
-    status?: string | null;
-    payloadJson?: string | null;
-    fullName?: string | null;
-    personnelNo?: string | null;
-    roleCode?: string | null;
-  },
-) {
-  const path = `/erp/cards/${encodeURIComponent(args.moduleName)}`;
-  try {
-    const r = await erpAuthed(db, apiBaseUrl, path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
-    });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return { ok: true as const, id: String(r.json.id) };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
-
-export async function erpDocumentsList(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  args?: { status?: string; docType?: string },
-) {
-  try {
-    const qp = new URLSearchParams();
-    if (args?.status) qp.set('status', args.status);
-    if (args?.docType) qp.set('docType', args.docType);
-    const path = `/erp/documents${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'GET' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: 'bad erp documents response' };
-    return r.json as { ok: true; rows: Array<Record<string, unknown>> };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
-
-export async function erpDocumentsCreate(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  args: {
-    docType: string;
-    docNo: string;
-    docDate?: number;
-    departmentId?: string | null;
-    authorId?: string | null;
-    payloadJson?: string | null;
-    lines: Array<{ partCardId?: string | null; qty: number; price?: number | null; payloadJson?: string | null }>;
-  },
-) {
-  const path = '/erp/documents';
-  try {
-    const r = await erpAuthed(db, apiBaseUrl, path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
-    });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return { ok: true as const, id: String(r.json.id) };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
-
-export async function erpDocumentsPost(
-  db: BetterSQLite3Database,
-  apiBaseUrl: string,
-  documentId: string,
-) {
-  const path = `/erp/documents/${encodeURIComponent(documentId)}/post`;
-  try {
-    const r = await erpAuthed(db, apiBaseUrl, path, { method: 'POST' });
-    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
-    return { ok: true as const, id: String(r.json.id ?? documentId) };
-  } catch (e) {
-    return { ok: false as const, error: String(e) };
-  }
-}
+// B0: dead erpDictionary*/erpCards*/erpDocuments* wrappers removed — they called the
+// /erp/* prototype routes deleted on the backend (handlers were unmounted 2026-07-25).
 
 async function warehouseAuthed(
   db: BetterSQLite3Database,

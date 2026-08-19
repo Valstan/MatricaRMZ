@@ -568,6 +568,13 @@
       "when": 1786968000000,
       "tag": "0081_pg_trgm_extension",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0082_drop_erp_prototype_tables",
+      "breakpoints": true
     }
   ]
 }

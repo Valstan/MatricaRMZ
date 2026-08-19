@@ -720,62 +720,9 @@ export const userPresence = pgTable(
 // -----------------------------
 // ERP strict model (phase-in)
 // -----------------------------
-export const erpPartTemplates = pgTable(
-  'erp_part_templates',
-  {
-    id: uuid('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    specJson: text('spec_json'),
-    isActive: boolean('is_active').notNull().default(true),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-    deletedAt: bigint('deleted_at', { mode: 'number' }),
-  },
-  (t) => ({
-    codeUq: uniqueIndex('erp_part_templates_code_uq').on(t.code),
-  }),
-);
-
-// erp_part_cards removed (migration 0060): dead part-card subsystem, 0 rows on prod.
-
-export const erpToolTemplates = pgTable(
-  'erp_tool_templates',
-  {
-    id: uuid('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    specJson: text('spec_json'),
-    isActive: boolean('is_active').notNull().default(true),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-    deletedAt: bigint('deleted_at', { mode: 'number' }),
-  },
-  (t) => ({
-    codeUq: uniqueIndex('erp_tool_templates_code_uq').on(t.code),
-  }),
-);
-
-export const erpToolCards = pgTable(
-  'erp_tool_cards',
-  {
-    id: uuid('id').primaryKey(),
-    templateId: uuid('template_id')
-      .notNull()
-      .references(() => erpToolTemplates.id),
-    serialNo: text('serial_no'),
-    cardNo: text('card_no'),
-    attrsJson: text('attrs_json'),
-    status: text('status').notNull().default('active'),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-    deletedAt: bigint('deleted_at', { mode: 'number' }),
-  },
-  (t) => ({
-    templateIdx: index('erp_tool_cards_template_idx').on(t.templateId),
-    cardNoIdx: index('erp_tool_cards_card_no_idx').on(t.cardNo),
-  }),
-);
+// erp_part_cards / erp_reg_part_usage removed (migration 0060): dead part-card subsystem, 0 rows on prod.
+// erp_part_templates / erp_tool_templates / erp_tool_cards removed (migration 0082, B0):
+// dead /erp prototype tables, 0 rows on prod (measured 2026-08-18).
 
 export const erpCounterparties = pgTable(
   'erp_counterparties',
@@ -1647,40 +1594,8 @@ export const erpRegStockMovements = pgTable(
 
 // erp_reg_part_usage removed (migration 0060): dead part-card register, 0 rows on prod.
 
-export const erpRegContractSettlement = pgTable(
-  'erp_reg_contract_settlement',
-  {
-    id: uuid('id').primaryKey(),
-    contractId: uuid('contract_id')
-      .notNull()
-      .references(() => erpContracts.id),
-    documentHeaderId: uuid('document_header_id')
-      .notNull()
-      .references(() => erpDocumentHeaders.id),
-    amount: bigint('amount', { mode: 'number' }).notNull().default(0),
-    direction: text('direction').notNull().default('debit'),
-    at: bigint('at', { mode: 'number' }).notNull(),
-  },
-  (t) => ({
-    contractAtIdx: index('erp_reg_contract_settlement_contract_at_idx').on(t.contractId, t.at),
-  }),
-);
-
-export const erpRegEmployeeAccess = pgTable(
-  'erp_reg_employee_access',
-  {
-    id: uuid('id').primaryKey(),
-    employeeId: uuid('employee_id')
-      .notNull()
-      .references(() => erpEmployeeCards.id),
-    scope: text('scope').notNull(),
-    allowed: boolean('allowed').notNull().default(true),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-  },
-  (t) => ({
-    employeeScopeUq: uniqueIndex('erp_reg_employee_access_employee_scope_uq').on(t.employeeId, t.scope),
-  }),
-);
+// erp_reg_contract_settlement / erp_reg_employee_access removed (migration 0082, B0):
+// dead /erp prototype registers, 0 rows on prod (measured 2026-08-18).
 
 export const erpJournalDocuments = pgTable(
   'erp_journal_documents',
