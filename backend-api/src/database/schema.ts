@@ -1155,7 +1155,8 @@ export const erpNomenclature = pgTable(
     barcode: text('barcode'),
     minStock: integer('min_stock'),
     maxStock: integer('max_stock'),
-    defaultBrandId: uuid('default_brand_id').references(() => entities.id),
+    // B1 (migration 0083): entities → directory_engine_brands.
+    defaultBrandId: uuid('default_brand_id').references(() => directoryEngineBrands.id),
     isSerialTracked: boolean('is_serial_tracked').notNull().default(false),
     defaultWarehouseId: text('default_warehouse_id'),
     specJson: text('spec_json'),
@@ -1258,9 +1259,10 @@ export const erpEngineAssemblyBomBrandLinks = pgTable(
     bomId: uuid('bom_id')
       .notNull()
       .references(() => erpEngineAssemblyBom.id),
+    // B1 (migration 0083): brand FKs re-pointed entities → directory_engine_brands.
     engineBrandId: uuid('engine_brand_id')
       .notNull()
-      .references(() => entities.id),
+      .references(() => directoryEngineBrands.id),
     isPrimary: boolean('is_primary').notNull().default(false),
     isDefaultForBrand: boolean('is_default_for_brand').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -1347,9 +1349,10 @@ export const repairNormSetBrandLinks = pgTable(
     normSetId: uuid('norm_set_id')
       .notNull()
       .references(() => repairNormSets.id),
+    // B1 (migration 0083): entities → directory_engine_brands.
     engineBrandId: uuid('engine_brand_id')
       .notNull()
-      .references(() => entities.id),
+      .references(() => directoryEngineBrands.id),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
