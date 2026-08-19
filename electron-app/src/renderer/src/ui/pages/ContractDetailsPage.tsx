@@ -24,6 +24,7 @@ const CONTRACT_CARD_TABS: CardTab<ContractCardTab>[] = [
 ];
 import { DataTable } from '../components/DataTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
+import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import {
   parseContractSections,
@@ -1268,6 +1269,8 @@ function SectionBlock(props: {
 
 export function ContractDetailsPage(props: {
   contractId: string;
+  /** Право «Журнал действий» — открывает историю изменений этой карточки. */
+  canViewAudit?: boolean;
   canEdit: boolean;
   canEditMasterData: boolean;
   canViewFiles: boolean;
@@ -2900,6 +2903,7 @@ export function ContractDetailsPage(props: {
           </div>
           <div data-card-tab="files" hidden={activeTab !== 'files'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
           <div className="entity-card-span-full">
+            <DocumentHistoryPanel entityId={props.contractId} canView={props.canViewAudit === true} />
             <AttachmentsPanel
               title="Вложения к контракту"
               value={contract.attributes?.attachments}

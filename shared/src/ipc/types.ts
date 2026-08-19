@@ -1317,6 +1317,26 @@ export type MatricaApi = {
           }
         | { ok: false; error: string }
       >;
+      /** История одного документа: кто и когда открывал и правил эту карточку. */
+      document: (args: { entityId: string; limit?: number }) => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              id: string;
+              createdAt: number;
+              actor: string;
+              action: string;
+              actionType: 'create' | 'update' | 'delete' | 'session' | 'other';
+              section: string;
+              actionText: string;
+              documentLabel: string;
+              clientId: string | null;
+              tableName: string | null;
+              entityId: string | null;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
       dailySummary: (args?: { date?: string; cutoffHour?: number }) => Promise<
         | {
             ok: true;

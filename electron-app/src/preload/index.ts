@@ -274,6 +274,7 @@ const matricaApi = {
       list: async (args?: { limit?: number; fromMs?: number; toMs?: number; actor?: string; actionType?: string }) =>
         ipcRenderer.invoke('admin:audit:list', args),
       dailySummary: async (args?: { date?: string; cutoffHour?: number }) => ipcRenderer.invoke('admin:audit:dailySummary', args),
+      document: async (args: { entityId: string; limit?: number }) => ipcRenderer.invoke('admin:audit:document', args),
     },
   },
   access: {

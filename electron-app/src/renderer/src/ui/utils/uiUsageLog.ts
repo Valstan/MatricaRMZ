@@ -7,13 +7,27 @@
 const lastSent = new Map<string, number>();
 const THROTTLE_MS = 30_000;
 
-export function logUiUsage(action: 'ui.visit' | 'ui.card_open' | 'ui.report_open', label: string) {
-  const key = `${action}|${label}`;
+export function logUiUsage(
+  action: 'ui.visit' | 'ui.card_open' | 'ui.report_open',
+  label: string,
+  // entityId нужен «Истории изменений этого документа» и вопросу владельца «кто
+  // смотрел эту карточку»: до v3.6.0 писался только ВИД карточки («engine»), и
+  // ответить, какую именно открывали, было нечем.
+  entityId?: string | null,
+) {
+  const id = String(entityId ?? '').trim();
+  // Троттлинг по конкретной карточке, а не по её виду: иначе открытие второго
+  // двигателя в пределах 30 с молча не попадало бы в журнал.
+  const key = `${action}|${label}|${id}`;
   const now = Date.now();
   if (now - (lastSent.get(key) ?? 0) < THROTTLE_MS) return;
   lastSent.set(key, now);
   try {
-    void window.matrica.audit.add({ action, payload: { label } });
+    void window.matrica.audit.add({
+      action,
+      payload: { label },
+      ...(id ? { entityId: id, tableName: 'entities' } : {}),
+    });
   } catch {
     // best-effort
   }

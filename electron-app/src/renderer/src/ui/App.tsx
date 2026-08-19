@@ -1310,7 +1310,7 @@ export function App() {
 
   const v2OpenCardGuarded = useCallback(
     (kind: TabId, entityId: string, run: () => void) => {
-      logUiUsage('ui.card_open', kind);
+      logUiUsage('ui.card_open', kind, entityId);
       // Лимит проверяем ДО всего остального: при отказе ни сущность, ни tab не меняются
       // (раньше сущность выбиралась, а вкладка молча нет), и оператор не проходит зря
       // dirty-диалог, отказавшись от правок в обмен на карточку, которую не получит.
@@ -2313,6 +2313,10 @@ export function App() {
   const canChat = !!authStatus.permissions?.['chat.use'] && !isAndroidPlatform();
   const canChatExport = !!authStatus.permissions?.['chat.export'];
   const canChatAdminView = !!authStatus.permissions?.['chat.admin.view'];
+  // Журнал действий: выдаваемое право (решение владельца 2026-08-19). У супер-админа
+  // есть всегда — иначе он мог бы случайно снять его сам с себя и потерять журнал.
+  const canViewAudit =
+    String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' || !!authStatus.permissions?.['audit.view'];
   // Асинхронный AI-чат (очередь + облачная рутина) не зависит от серверного
   // AI_ENABLED (флаг старого синхронного Anthropic-контура) — только chat.use.
   const canAiAgent = authStatus.loggedIn && canChat;
@@ -2385,7 +2389,8 @@ export function App() {
     ...(caps.canViewMasterData ? (['empty_cards'] as const) : []),
     ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops', 'workshop_stats'] as const) : []),
     ...(caps.canViewWarehouseLocations || caps.canManageWarehouseLocations ? (['warehouses_admin'] as const) : []),
-    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['audit', 'access_sections'] as const) : []),
+    ...(canViewAudit ? (['audit'] as const) : []),
+    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['access_sections'] as const) : []),
   ];
   const sectionGatedTabsFull = sectionMembership
     ? availableTabs.filter((t) => {
@@ -4585,6 +4590,7 @@ export function App() {
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            canViewAudit={canViewAudit}
             canConfirmEngineDisassemble={caps.canConfirmEngineDisassemble}
             canAssemblyReturn={caps.canAssemblyReturn}
             currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
@@ -4619,7 +4625,7 @@ export function App() {
         );
       case 'contract':
         return (
-          <ContractDetailsPage key={k} contractId={id} canEdit={caps.canEditContracts} canEditMasterData={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} currentUserId={String(authStatus.user?.id ?? '')} registerCardCloseActions={reg} requestClose={close} onClose={close} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenPart={openPart} onOpenEngineBrand={openEngineBrand} />
+          <ContractDetailsPage key={k} contractId={id} canEdit={caps.canEditContracts} canEditMasterData={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canViewAudit={canViewAudit} currentUserId={String(authStatus.user?.id ?? '')} registerCardCloseActions={reg} requestClose={close} onClose={close} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenPart={openPart} onOpenEngineBrand={openEngineBrand} />
         );
       case 'counterparty':
         return (
@@ -4867,6 +4873,7 @@ export function App() {
             canExportReports={caps.canExportReports}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            canViewAudit={canViewAudit}
             canConfirmEngineDisassemble={caps.canConfirmEngineDisassemble}
             canAssemblyReturn={caps.canAssemblyReturn}
             currentUserProfile={currentUserProfile ? { fullName: currentUserProfile.fullName, position: currentUserProfile.position } : null}
@@ -5187,6 +5194,7 @@ export function App() {
             canEditMasterData={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            canViewAudit={canViewAudit}
             currentUserId={String(authStatus.user?.id ?? '')}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
@@ -5420,7 +5428,7 @@ export function App() {
           />
         )}
 
-        {t === 'audit' && String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' && <SuperadminAuditPage />}
+        {t === 'audit' && canViewAudit && <SuperadminAuditPage />}
 
         {t === 'admin' && <div style={{ color: 'var(--muted)' }}>Раздел перемещён в карточку сотрудника.</div>}
 

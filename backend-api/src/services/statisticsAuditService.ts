@@ -567,12 +567,17 @@ export async function listAuditStatistics(args: {
   toMs?: number;
   actor?: string;
   actionType?: ActionType;
+  /** История одного документа: только события про эту сущность. */
+  entityId?: string;
 }) {
   const filters = [];
   if (args.fromMs != null) filters.push(gte(statisticsAuditEvents.createdAt, args.fromMs));
   if (args.toMs != null) filters.push(lte(statisticsAuditEvents.createdAt, args.toMs));
   if (args.actor) filters.push(eq(statisticsAuditEvents.actor, args.actor));
   if (args.actionType) filters.push(eq(statisticsAuditEvents.actionType, args.actionType));
+  // Фильтр по документу идёт по исходной строке audit_log: entity_id живёт там,
+  // проекция статистики его не копирует.
+  if (args.entityId) filters.push(eq(auditLog.entityId, args.entityId as never));
 
   const rows = await db
     .select({
