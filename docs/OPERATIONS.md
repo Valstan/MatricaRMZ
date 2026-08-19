@@ -81,6 +81,10 @@ corepack pnpm run dev:electron
 - `MATRICA_UPDATE_YANDEX_BASE_PATH`
 - `MATRICA_UPDATE_GITHUB_REPO`
 
+### Off-site бэкап
+- `YANDEX_DISK_TOKEN`, `YANDEX_DISK_BASE_PATH`
+- `BACKUP_ENCRYPTION_PUBLIC_KEY_FILE` (или `BACKUP_ENCRYPTION_PUBLIC_KEY`) — см. §9
+
 ### Release
 - `MATRICA_LEDGER_RELEASE_TOKEN`
 - `MATRICA_LEDGER_RELEASE_NOTES`
@@ -114,3 +118,29 @@ corepack pnpm run dev:electron
 - проверка целостности установщика с докачкой/перезакачкой,
 - обновленные пресеты и фильтры отчетов для контрактов/бухгалтерии,
 - выделенный складской контур с lookup API, типизированными warehouse DTO и сценарными экранами документов/остатков/инвентаризации.
+
+## 9) Off-site бэкап: шифрование и восстановление
+
+Ночной бэкап (`backup:nightly`, systemd-таймер на проде) кладёт на Яндекс.Диск в `<YANDEX_DISK_BASE_PATH>/base_reserv`:
+
+| Файл | Что это | Шифрование |
+|---|---|---|
+| `YYYY-MM-DD.dump.enc` | `pg_dump --format=custom` всей БД — артефакт восстановления | ✅ RSA-4096 + AES-256-GCM |
+| `YYYY-MM-DD.sqlite` | срез EAV для режима «просмотр бэкапа» в клиенте | ⚠️ пока открытый (хвост в `PENDING_FOLLOWUPS`) |
+
+**Схема ключей (директива brain `2026-08-19-three-zero-cost-fixes-before-the-onprem-move`).** На сервере лежит **только публичный** ключ (`BACKUP_ENCRYPTION_PUBLIC_KEY_FILE=/opt/matricarmz/secrets/backup-public.pem`): сервер умеет зашифровать и не умеет расшифровать. Приватная половина — **вне сервера**, на PC40 в `%USERPROFILE%\.matricarmz-keys\backup-private.pem` (там же, где Android-keystore) + офлайн-копия. Украденный `YANDEX_DISK_TOKEN` без приватного ключа даёт только шифротекст.
+
+**Открытого фолбэка нет:** если публичный ключ не настроен, `backup:nightly` падает до `pg_dump` с явной ошибкой. Молча деградировать в открытый дамп — ровно та беда, от которой это защищает.
+
+**Восстановление** (на машине с приватным ключом, НЕ на проде):
+
+```bash
+corepack pnpm -F @matricarmz/backend-api backup:decrypt \
+  --in 2026-08-19.dump.enc --out 2026-08-19.dump \
+  --key "$USERPROFILE/.matricarmz-keys/backup-private.pem"
+pg_restore --clean --if-exists --no-owner --no-privileges -d <база> 2026-08-19.dump
+```
+
+Скрипт печатает, начинается ли расшифрованный файл сигнатурой `PGDMP` — это отличает «байты расшифровались» от «дамп действительно восстановим».
+
+**Формат конверта** — `backend-api/src/services/backupCrypto.ts`: магия `MRMZBK` + версия, RSA-OAEP(SHA-256) обёртка над случайным AES-ключом, поток AES-256-GCM, 16-байтная метка целостности в хвосте. Подмена файла или чужой ключ ловятся на `final()`, а не молча.
