@@ -54,10 +54,29 @@ export function ColumnSettingsButton(props: {
       <Button
         variant="ghost"
         onClick={() => setOpen((v) => !v)}
-        title="Настройка колонок списка"
-        style={{ whiteSpace: 'nowrap' }}
+        title="Какие колонки показывать в списке"
+        aria-label={`Колонки: показано ${visibleCount} из ${totalCount}`}
+        style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px' }}
       >
-        Колонки: {visibleCount}/{totalCount}
+        {/* Пиктограмма столбцов: заполненные — показанные, штриховой — скрытые. Оператору
+            видно и что это про колонки, и сколько из них сейчас спрятано, без чтения текста. */}
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+          <rect x="0.5" y="1.5" width="3" height="11" rx="1" fill="currentColor" />
+          <rect x="5.5" y="1.5" width="3" height="11" rx="1" fill="currentColor" />
+          <rect
+            x="10.5"
+            y="1.5"
+            width="3"
+            height="11"
+            rx="1"
+            fill="none"
+            stroke="currentColor"
+            strokeDasharray="2 1.5"
+          />
+        </svg>
+        <span>
+          {visibleCount}/{totalCount}
+        </span>
       </Button>
       {open && (
         <div

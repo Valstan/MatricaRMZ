@@ -4,7 +4,7 @@ import type { SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
-import { ColumnToggleButton, HiddenColumnMarker } from '../components/ColumnToggleButton.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -181,16 +181,10 @@ export function SupplyRequestsPage(props: {
         <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
-            if (!visible) {
-              return (
-                <HiddenColumnMarker
-                  key={col.id}
-                  colId={col.id}
-                  label={col.label}
-                  onShow={() => columnLayout.setVisible(col.id, true)}
-                />
-              );
-            }
+            // Hidden columns render nothing at all: a placeholder <th> here had no matching
+            // <td> in the body, so every column past the first hidden one sat under the wrong
+            // header — headers stayed wide while the cells under them narrowed.
+            if (!visible) return null;
             return (
               <th
                 key={col.id}
