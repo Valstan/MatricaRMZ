@@ -20,9 +20,9 @@ export type ReportPresetId =
   | 'products_catalog'
   | 'parts_compatibility'
   | 'counterparties_summary'
-  | 'engine_movements'
   | 'engines_list'
   | 'engines_contracts_overview'
+  | 'engines'
   | 'engine_flow_by_counterparty'
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
@@ -256,6 +256,49 @@ export function selectEnginesContractsEngineColumns(selectedKeys: ReadonlyArray<
   return ENGINES_CONTRACTS_ENGINE_COLUMNS.filter((c) => set.has(c.key));
 }
 
+/**
+ * Объединённый пресет «Двигатели» (этап 6 пакета 19.08б): суперсет колонок
+ * детального разреза = колонки прежних «Отчёта по двигателям» и «Двигатели и
+ * контракты» вместе. Порядок = канонический порядок печати.
+ */
+export const ENGINES_REPORT_ENGINE_COLUMNS: ReportColumn[] = [
+  { key: 'engineNumber', label: '№ двигателя' },
+  { key: 'engineInternalNumber', label: 'Внутр. №' },
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'contractLabel', label: 'Контракт' },
+  { key: 'counterpartyLabel', label: 'Заказчик' },
+  { key: 'arrivalDate', label: 'Дата прихода', kind: 'date' },
+  { key: 'repairStartedDate', label: 'Начало ремонта', kind: 'date' },
+  { key: 'repairedDate', label: 'Окончание ремонта', kind: 'date' },
+  { key: 'shippingDate', label: 'Дата отгрузки', kind: 'date' },
+  { key: 'daysOnSite', label: 'Дней на заводе', kind: 'number', align: 'right' },
+  { key: 'stateLabel', label: 'Состояние' },
+  { key: 'isScrap', label: 'Утиль' },
+  { key: 'scrapReason', label: 'Причина утиля' },
+  { key: 'completenessAct', label: 'Акт комплектности' },
+];
+
+export function selectEnginesReportEngineColumns(selectedKeys: ReadonlyArray<string>): ReportColumn[] {
+  const set = new Set(selectedKeys.map((k) => String(k).trim()).filter(Boolean));
+  if (set.size === 0) return [...ENGINES_REPORT_ENGINE_COLUMNS];
+  return ENGINES_REPORT_ENGINE_COLUMNS.filter((c) => set.has(c.key));
+}
+
+/**
+ * Алиасы пресетов: старые id остаются валидными (сохранённые ссылки, избранное,
+ * шаблоны фильтров, история), но резолвятся в объединённый пресет. Каталог
+ * показывает только новый.
+ */
+export const REPORT_PRESET_ALIASES: Partial<Record<string, ReportPresetId>> = {
+  engines_list: 'engines',
+  engines_contracts_overview: 'engines',
+};
+
+/** Канонический id пресета: алиас → цель, прочее — как есть. */
+export function resolveReportPresetId(id: string): string {
+  return REPORT_PRESET_ALIASES[id] ?? id;
+}
+
 /** Суперсет колонок отчёта «Утиль». Порядок = канонический порядок печати. */
 export const SCRAP_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'rowKind', label: 'Вид' },
@@ -386,9 +429,9 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   products_catalog: ['catalogs', 'supply'],
   parts_compatibility: ['catalogs', 'engines'],
   counterparties_summary: ['contracts', 'catalogs'],
-  engine_movements: ['engines'],
   engines_list: ['engines', 'contracts'],
   engines_contracts_overview: ['engines', 'contracts'],
+  engines: ['engines', 'contracts'],
   engine_flow_by_counterparty: ['engines', 'contracts'],
   warehouse_stock_path_audit: ['audit', 'warehouse'],
   assembly_forecast_7d: ['engines', 'supply'],
@@ -1099,43 +1142,25 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
   },
   {
-    id: 'engine_movements',
-    title: 'Движение двигателей за период',
-    description: 'Поступление/отгрузка и связанные события.',
+    id: 'engines',
+    title: 'Двигатели',
+    description:
+      'Единый отчёт по двигателям: разрезы «по контрактам / по маркам / по двигателям», фильтры по датам (приход, ремонт, отгрузка), маркам, контрактам, заказчикам, состоянию, утилю и акту комплектности; выбор колонок для печати. Объединяет прежние «Отчёт по двигателям» и «Двигатели и контракты».',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
       {
         type: 'select',
-        key: 'eventType',
-        label: 'Тип события',
+        key: 'periodBasis',
+        label: 'Учитывать период',
         options: [
-          { value: 'all', label: 'Все' },
-          { value: 'acceptance', label: 'Приемка' },
-          { value: 'shipment', label: 'Отгрузка' },
-          { value: 'customer_delivery', label: 'Доставка заказчику' },
+          { value: 'none', label: 'Весь период (не ограничивать)' },
+          { value: 'arrival', label: 'По дате прихода' },
+          { value: 'shipping', label: 'По дате отгрузки' },
+          { value: 'created', label: 'По дате создания карточки' },
         ],
+        labelHint:
+          'Как применять период. «Весь период» — цифры за всё время. «По дате прихода/отгрузки/создания» — только двигатели с соответствующей датой в диапазоне.',
       },
-      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
-      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
-    ],
-    columns: [
-      { key: 'eventAt', label: 'Дата', kind: 'datetime' },
-      { key: 'eventTypeLabel', label: 'Тип события' },
-      { key: 'engineNumber', label: '№ двигателя' },
-      { key: 'engineInternalNumber', label: 'Внутр. №' },
-      { key: 'engineBrand', label: 'Марка' },
-      { key: 'contractLabel', label: 'Контракт' },
-      { key: 'counterpartyLabel', label: 'Контрагент' },
-      { key: 'note', label: 'Примечание' },
-    ],
-  },
-  {
-    id: 'engines_list',
-    title: 'Отчёт по двигателям',
-    description:
-      'Список двигателей: фильтры по датам, маркам, контрактам, контрагентам, утилю, наличию на заводе и акту комплектности; выбор колонок для печати.',
-    filters: [
-      { type: 'date_range', key: 'period', label: 'Период (дата создания)', startKey: 'startMs', endKey: 'endMs' },
       { type: 'date_range', key: 'arrivalPeriod', label: 'Дата прихода', startKey: 'arrivalStartMs', endKey: 'arrivalEndMs' },
       {
         type: 'date_range',
@@ -1150,7 +1175,19 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { type: 'date_range', key: 'shippingPeriod', label: 'Дата отгрузки', startKey: 'shippingStartMs', endKey: 'shippingEndMs' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
-      { type: 'multi_select', key: 'counterpartyIds', label: 'Контрагенты', optionsSource: 'counterparties' },
+      { type: 'multi_select', key: 'counterpartyIds', label: 'Заказчики', optionsSource: 'counterparties' },
+      {
+        type: 'select',
+        key: 'engineState',
+        label: 'Состояние двигателя',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'on_site', label: 'На заводе (не отгружены)' },
+          { value: 'shipped', label: 'Отгружены заказчику' },
+          { value: 'ready_not_shipped', label: 'Готовы, но не отгружены' },
+          { value: 'scrap', label: 'Утиль' },
+        ],
+      },
       {
         type: 'select',
         key: 'repairActiveFilter',
@@ -1174,16 +1211,6 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
       {
         type: 'select',
-        key: 'onSiteFilter',
-        label: 'Наличие на заводе',
-        options: [
-          { value: 'all', label: 'Все' },
-          { value: 'yes', label: 'На заводе (без даты отгрузки)' },
-          { value: 'no', label: 'Отгруженные' },
-        ],
-      },
-      {
-        type: 'select',
         key: 'completenessActFilter',
         label: 'Акт комплектности',
         options: [
@@ -1193,52 +1220,6 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         ],
         labelHint: 'Акт считается заполненным, если хотя бы одна деталь отмечена «на месте»',
       },
-      {
-        type: 'multi_select',
-        key: 'columns',
-        label: 'Колонки отчёта',
-        options: ENGINES_LIST_REPORT_COLUMNS.map((c) => ({ value: c.key, label: c.label })),
-        selectAllByDefault: true,
-        labelHint: 'Какие колонки печатать. Пусто — все.',
-      },
-    ],
-    columns: ENGINES_LIST_REPORT_COLUMNS,
-  },
-  {
-    id: 'engines_contracts_overview',
-    title: 'Двигатели и контракты',
-    description:
-      'Разносторонний обзор: по контрактам (план / приехало / отгружено / осталось на заводе), по маркам и детально по двигателям. Настройки разбиты на сворачиваемые секции, шаблоны сохраняются.',
-    filters: [
-      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
-      {
-        type: 'select',
-        key: 'periodBasis',
-        label: 'Учитывать период',
-        options: [
-          { value: 'none', label: 'Весь период (не ограничивать)' },
-          { value: 'arrival', label: 'По дате прихода' },
-          { value: 'shipping', label: 'По дате отгрузки' },
-        ],
-        labelHint:
-          'Как применять период. «Весь период» — цифры за всё время контракта/завода. «По дате прихода/отгрузки» — только двигатели с соответствующей датой в диапазоне.',
-      },
-      { type: 'multi_select', key: 'contractIds', label: 'Контракты', optionsSource: 'contracts' },
-      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
-      { type: 'multi_select', key: 'counterpartyIds', label: 'Заказчики', optionsSource: 'counterparties' },
-      {
-        type: 'select',
-        key: 'engineState',
-        label: 'Состояние двигателя',
-        options: [
-          { value: 'all', label: 'Все' },
-          { value: 'on_site', label: 'На заводе (не отгружены)' },
-          { value: 'shipped', label: 'Отгружены заказчику' },
-          { value: 'ready_not_shipped', label: 'Готовы, но не отгружены' },
-          { value: 'scrap', label: 'Утиль' },
-        ],
-      },
-      { type: 'checkbox', key: 'hideScrap', label: 'Скрыть утиль' },
       {
         type: 'checkbox',
         key: 'overdueOnly',
@@ -1269,7 +1250,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         type: 'multi_select',
         key: 'columns',
         label: 'Колонки (разрез «По двигателям»)',
-        options: ENGINES_CONTRACTS_ENGINE_COLUMNS.map((c) => ({ value: c.key, label: c.label })),
+        options: ENGINES_REPORT_ENGINE_COLUMNS.map((c) => ({ value: c.key, label: c.label })),
         selectAllByDefault: true,
         labelHint: 'Какие колонки печатать в детальном разрезе по двигателям. Пусто — все.',
       },

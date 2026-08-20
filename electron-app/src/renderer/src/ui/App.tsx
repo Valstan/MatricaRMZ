@@ -4737,8 +4737,7 @@ export function App() {
             engines={engines}
             onRefresh={refreshEngines}
             onOpen={openEngine}
-            onOpenReport={() => openReportPreset('engines_list')}
-            onOpenContractsReport={() => openReportPreset('engines_contracts_overview')}
+            onOpenReport={() => openReportPreset('engines')}
             onCreate={async () => {
               try {
                 const r = await window.matrica.engines.create();

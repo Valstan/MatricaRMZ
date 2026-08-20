@@ -13,7 +13,7 @@ import {
 
 
 import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport, buildRepairFundReconciliationReport } from './presets/warehouse.js';
-import { buildEngineStagesReport, buildEngineMovementsReport, buildEnginesListReport, buildEnginesContractsOverviewReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
+import { buildEngineStagesReport, buildEnginesReport, buildEnginesListReport, buildEnginesContractsOverviewReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
@@ -63,8 +63,10 @@ export async function buildReportByPreset(
         return buildPartsCompatibilityReport(db, args.filters);
       case 'counterparties_summary':
         return buildCounterpartiesSummaryReport(db, args.filters);
-      case 'engine_movements':
-        return buildEngineMovementsReport(db, args.filters);
+      case 'engines':
+        return buildEnginesReport(db, args.filters);
+      // Алиасы прежних отчётов (этап 6, 19.08б): сохранённые ссылки и шаблоны
+      // продолжают работать, каталог показывает только объединённый «Двигатели».
       case 'engines_list':
         return buildEnginesListReport(db, args.filters);
       case 'engines_contracts_overview':

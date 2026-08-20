@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { attributeDefs, attributeValues, entities, entityTypes } from '../../../database/schema.js';
-import { buildEnginesContractsOverviewReport } from './engines.js';
+import { buildEnginesContractsOverviewReport, buildEnginesListReport, buildEnginesReport } from './engines.js';
 
 // Синтетический снапшот: loadSnapshot — единственное обращение билдера к БД, поэтому
 // db стабится минимальным .select().from(table).where().limit() → фикстурные строки.
@@ -185,5 +185,38 @@ describe('buildEnginesContractsOverviewReport', () => {
     expect(report.ok).toBe(true);
     if (!report.ok) return;
     expect(report.rows).toHaveLength(2); // E3, E5
+  });
+});
+
+describe('объединённый пресет «Двигатели» и алиасы (этап 6, 19.08б)', () => {
+  it('canonical id: presetId=engines, старые фильтры hideScrap работают', async () => {
+    const report = await buildEnginesReport(stubDb(), { groupBy: 'engines', hideScrap: true });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.presetId).toBe('engines');
+    expect(report.rows.map((r) => r.engineNumber).sort()).toEqual(['E1', 'E2', 'E3']);
+  });
+
+  it('scrapFilter=yes оставляет только утиль', async () => {
+    const report = await buildEnginesReport(stubDb(), { groupBy: 'engines', scrapFilter: 'yes' });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.rows.map((r) => r.engineNumber).sort()).toEqual(['E4', 'E5']);
+  });
+
+  it('алиас engines_list: onSiteFilter транслируется в engineState, разрез — по двигателям', async () => {
+    const report = await buildEnginesListReport(stubDb(), { onSiteFilter: 'yes' });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.presetId).toBe('engines');
+    // «На заводе» = E1, E2, E4 (E5 — утиль-возврат, покинул завод)
+    expect(report.rows.map((r) => r.engineNumber).sort()).toEqual(['E1', 'E2', 'E4']);
+  });
+
+  it('алиас engines_list: диапазон даты отгрузки работает как раньше', async () => {
+    const report = await buildEnginesListReport(stubDb(), { shippingStartMs: SHIP_E3 - DAY, shippingEndMs: SHIP_E3 + DAY });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.rows.map((r) => r.engineNumber)).toEqual(['E3']);
   });
 });

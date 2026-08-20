@@ -328,9 +328,8 @@ export function EnginesPage(props: {
   canCreate: boolean;
   /** ПКМ → «Наряд на сборку» (тема D): открыть новый сборочный наряд для этого двигателя. */
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
-  /** Кнопка «Отчёт по двигателям» → пресет engines_list (гибкие фильтры/колонки/шаблоны). */
+  /** Кнопка «Отчёт „Двигатели“» → объединённый пресет engines (разрезы/фильтры/колонки/шаблоны). */
   onOpenReport?: () => void;
-  onOpenContractsReport?: () => void;
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
@@ -741,16 +740,15 @@ export function EnginesPage(props: {
           (возврат: язычок 🔍 у левого края, он же ставит курсор в поиск). */}
       <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap' }}>
         {props.onOpenReport && (
-          <Button variant="ghost" onClick={() => props.onOpenReport?.()} title="Гибкие отчёты по двигателям: фильтры, выбор колонок, шаблоны, печать">
-            Отчёт по двигателям
+          <Button
+            variant="ghost"
+            onClick={() => props.onOpenReport?.()}
+            title="Единый отчёт «Двигатели»: разрезы по контрактам / маркам / двигателям, фильтры, выбор колонок, шаблоны, печать"
+          >
+            Отчёт «Двигатели»
           </Button>
         )}
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
-        {props.onOpenContractsReport && (
-          <Button variant="ghost" onClick={() => props.onOpenContractsReport?.()} title="Двигатели и контракты: план / приехало / отгружено / на заводе, по маркам и контрактам">
-            Двигатели и контракты
-          </Button>
-        )}
         <div style={{ flex: 1 }}>
           <Input
             value={query}
