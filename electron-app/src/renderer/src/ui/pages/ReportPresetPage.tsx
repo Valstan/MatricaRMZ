@@ -264,6 +264,8 @@ export function ReportPresetPage(props: {
     setFilterTemplates(r.templates);
     setSelectedTemplateId(r.templates.find((t) => t.name === name)?.id ?? null);
     setStatus(`Шаблон «${name}» сохранён`);
+    // Роуминг: App перечитает блоб и отправит секцию профиля (этап 6.3).
+    window.dispatchEvent(new Event('matrica:report-templates-changed'));
   }
 
   async function deleteFilterTemplate() {
@@ -282,6 +284,7 @@ export function ReportPresetPage(props: {
     setSelectedTemplateId(null);
     setTemplateName('');
     if (tpl) setStatus(`Шаблон «${tpl.name}» удалён`);
+    window.dispatchEvent(new Event('matrica:report-templates-changed'));
   }
 
   function applyDatePreset(filter: Extract<ReportFilterSpec, { type: 'date_range' }>, preset: (typeof DATE_PERIOD_PRESETS)[number]) {
@@ -1051,6 +1054,65 @@ export function ReportPresetPage(props: {
     );
   }
 
+  /**
+   * Человеческая сводка выбранного значения фильтра (этап 6.3, 19.08б):
+   * null — значение дефолтное/пустое, печатать нечего. Используется и строкой
+   * «Выбрано: …» под контролом, и блоком применённых фильтров над результатом.
+   */
+  function describeFilterValue(filter: ReportFilterSpec): string | null {
+    if (filter.type === 'print_layout') return null;
+    if (activeDisabled.includes(filter.key)) return null;
+    // Дефолтные значения (например, период «последний месяц» из buildDefaultFilters)
+    // отклонением не считаются — иначе блок применённых фильтров шумит всем подряд.
+    const defaults = activePreset ? buildDefaultFilters(activePreset) : {};
+    if (filter.type === 'date_range') {
+      const start = toInputDate(activeFilters[filter.startKey]);
+      const end = toInputDate(activeFilters[filter.endKey]);
+      if (!start && !end) return null;
+      if (start === toInputDate(defaults[filter.startKey]) && end === toInputDate(defaults[filter.endKey])) return null;
+      const fmt = (v: string) => (v ? v.split('-').reverse().join('.') : '…');
+      return `${fmt(start)} — ${fmt(end)}`;
+    }
+    if (filter.type === 'checkbox') {
+      return activeFilters[filter.key] ? 'да' : null;
+    }
+    if (filter.type === 'number') {
+      const num = Number(activeFilters[filter.key]);
+      const def = filter.defaultValue ?? 0;
+      return Number.isFinite(num) && num !== def ? String(num) : null;
+    }
+    if (filter.type === 'text') {
+      const v = String(activeFilters[filter.key] ?? '').trim();
+      return v || null;
+    }
+    if (filter.type === 'select') {
+      const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+      const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
+      const first = String(sourceOptions[0]?.value ?? '');
+      if (!value || value === first || value === 'all' || value === 'none') return null;
+      return sourceOptions.find((o) => o.value === value)?.label ?? value;
+    }
+    // multi_select
+    const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+    const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
+    if (selected.length === 0) return null;
+    // «Колонки отчёта» с выбором всех — не отклонение от дефолта, в сводке не шумим.
+    if (filter.selectAllByDefault && selected.length === options.length) return null;
+    const labels = selected.map((v) => options.find((o) => o.value === v)?.label ?? v);
+    return labels.length <= 3 ? labels.join(', ') : `${labels.slice(0, 3).join(', ')} и ещё ${labels.length - 3}`;
+  }
+
+  /** Строка «Выбрано: …» под контролом фильтра. */
+  function filterSelectionSummary(filter: ReportFilterSpec) {
+    const text = describeFilterValue(filter);
+    if (!text) return null;
+    return (
+      <div data-filter-selection style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 4 }} title={text}>
+        Выбрано: {text}
+      </div>
+    );
+  }
+
   function renderFilterControl(filter: ReportFilterSpec) {
     const off = activeDisabled.includes(filter.key);
     const bodyStyle: React.CSSProperties = off ? { opacity: 0.4, pointerEvents: 'none' } : {};
@@ -1085,6 +1147,7 @@ export function ReportPresetPage(props: {
                 </button>
               ))}
             </div>
+            {filterSelectionSummary(filter)}
           </div>
         </div>
       );
@@ -1175,6 +1238,7 @@ export function ReportPresetPage(props: {
               onQueryChange={(next) => patchFilterSearch(filter.key, next)}
               onChange={(next) => patchFilter(filter.key, next ?? sourceOptions[0]?.value ?? '')}
             />
+            {filterSelectionSummary(filter)}
           </div>
         </div>
       );
@@ -1463,6 +1527,24 @@ export function ReportPresetPage(props: {
 
       <SectionCard title={preview ? `Результат: ${preview.title}` : 'Результат'}>
         {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', marginBottom: 8 }}>{status}</div> : null}
+        {/* Блок применённых фильтров (этап 6.3): видно, из чего собран результат,
+            не разворачивая секции слева. Показываются только отклонения от дефолта. */}
+        {activePreset && preview ? (() => {
+          const applied = activePreset.filters
+            .map((f) => ('key' in f ? { label: (f as { label?: string }).label ?? (f as { key: string }).key, text: describeFilterValue(f) } : null))
+            .filter((x): x is { label: string; text: string } => Boolean(x && x.text));
+          if (applied.length === 0) return null;
+          return (
+            <div data-applied-filters style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--subtle)', fontWeight: 700 }}>Применённые фильтры:</span>
+              {applied.map((x) => (
+                <span key={x.label} style={selectedTagStyle} title={`${x.label}: ${x.text}`}>
+                  {x.label}: {x.text}
+                </span>
+              ))}
+            </div>
+          );
+        })() : null}
         {!preview ? (
           activePresetId === ASSEMBLY_FORECAST_PRESET_ID ? (
             <div className="ui-muted">Нажмите «Сформировать прогноз» в фильтрах слева.</div>

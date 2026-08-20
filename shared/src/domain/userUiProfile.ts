@@ -89,6 +89,19 @@ export type UserUiProfile = {
    * раскладка сплитов экрана «чат + рабочий стол». LWW — секцией целиком.
    */
   desktop?: UserUiProfileDesktop;
+  /**
+   * Именованные шаблоны фильтров отчётов по пресетам (этап 6.3, 19.08б):
+   * раньше жили только в локальном client_settings машины — теперь едут за
+   * пользователем. LWW — секцией целиком.
+   */
+  reportFilterTemplates?: Record<string, ReportFilterTemplateEntry[]>;
+};
+
+export type ReportFilterTemplateEntry = {
+  id: string;
+  name: string;
+  filters: Record<string, unknown>;
+  disabled: string[];
 };
 
 export type UserUiProfileColumnLayout = {
@@ -275,6 +288,45 @@ function sanitizeColumnLayouts(raw: unknown): Record<string, UserUiProfileColumn
   return out;
 }
 
+const MAX_TEMPLATE_PRESETS = 60;
+const MAX_TEMPLATES_PER_PRESET = 20;
+const MAX_TEMPLATE_FILTERS_JSON = 6000;
+
+function sanitizeReportFilterTemplatesSection(raw: unknown): Record<string, ReportFilterTemplateEntry[]> | undefined {
+  if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return undefined;
+  const out: Record<string, ReportFilterTemplateEntry[]> = {};
+  let presets = 0;
+  for (const [presetKey, value] of Object.entries(raw as Record<string, unknown>)) {
+    const presetId = String(presetKey).trim().slice(0, MAX_STR);
+    if (!presetId || !Array.isArray(value)) continue;
+    const templates: ReportFilterTemplateEntry[] = [];
+    for (const item of value.slice(0, MAX_TEMPLATES_PER_PRESET)) {
+      if (typeof item !== 'object' || item == null) continue;
+      const r = item as Record<string, unknown>;
+      const id = String(r.id ?? '').trim().slice(0, 80);
+      const name = String(r.name ?? '').trim().slice(0, MAX_STR);
+      if (!id || !name) continue;
+      let filters: Record<string, unknown> = {};
+      if (typeof r.filters === 'object' && r.filters != null && !Array.isArray(r.filters)) {
+        try {
+          if (JSON.stringify(r.filters).length <= MAX_TEMPLATE_FILTERS_JSON) filters = r.filters as Record<string, unknown>;
+        } catch {
+          // несериализуемые фильтры — шаблон остаётся с пустыми
+        }
+      }
+      const disabled = Array.isArray(r.disabled)
+        ? r.disabled.map((x) => String(x ?? '').trim().slice(0, MAX_STR)).filter(Boolean).slice(0, 50)
+        : [];
+      templates.push({ id, name, filters, disabled });
+    }
+    if (templates.length === 0) continue;
+    out[presetId] = templates;
+    presets += 1;
+    if (presets >= MAX_TEMPLATE_PRESETS) break;
+  }
+  return out;
+}
+
 const MAX_KEY_STAMPS = 32;
 const MAX_KEY_NAME = 64;
 
@@ -315,6 +367,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (columnLayouts !== undefined) out.columnLayouts = columnLayouts;
   const desktop = sanitizeDesktopSection(r.desktop);
   if (desktop !== undefined) out.desktop = desktop;
+  const reportFilterTemplates = sanitizeReportFilterTemplatesSection(r.reportFilterTemplates);
+  if (reportFilterTemplates !== undefined) out.reportFilterTemplates = reportFilterTemplates;
   return out;
 }
 

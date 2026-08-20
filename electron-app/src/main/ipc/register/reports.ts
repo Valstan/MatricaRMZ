@@ -229,6 +229,45 @@ export function registerReportsIpc(ctx: IpcContext) {
     return { ok: true as const, ids };
   });
 
+  // Roaming шаблонов фильтров через ui_profile (этап 6.3, 19.08б): App выгружает
+  // весь пользовательский блоб в секцию профиля и загружает серверную обратно.
+  ipcMain.handle('reports:filterTemplatesExportAll', async (_e, args?: { userId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
+    const byScope = parseByScope<Record<string, unknown>>(raw);
+    const byPreset: Record<string, ReturnType<typeof sanitizeFilterTemplates>> = {};
+    for (const [presetKeyRaw, bucket] of Object.entries(byScope[scope] ?? {})) {
+      const presetKey = resolveReportPresetId(presetKeyRaw);
+      if (!VALID_PRESET_IDS.has(presetKey)) continue;
+      const templates = sanitizeFilterTemplates(bucket);
+      if (templates.length === 0) continue;
+      const merged = [...(byPreset[presetKey] ?? [])];
+      for (const tpl of templates) if (!merged.some((t) => t.id === tpl.id)) merged.push(tpl);
+      byPreset[presetKey] = merged;
+    }
+    return { ok: true as const, byPreset };
+  });
+
+  ipcMain.handle('reports:filterTemplatesImportAll', async (_e, args?: { userId?: string; byPreset?: Record<string, unknown> }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
+    const byScope = parseByScope<Record<string, unknown>>(raw);
+    const next: Record<string, unknown> = {};
+    for (const [presetKeyRaw, bucket] of Object.entries(args?.byPreset ?? {})) {
+      const presetKey = resolveReportPresetId(String(presetKeyRaw));
+      if (!VALID_PRESET_IDS.has(presetKey)) continue;
+      const templates = sanitizeFilterTemplates(bucket);
+      if (templates.length > 0) next[presetKey] = templates;
+    }
+    byScope[scope] = next;
+    await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates, JSON.stringify(byScope));
+    return { ok: true as const };
+  });
+
   ipcMain.handle('reports:filterTemplatesList', async (_e, args?: { userId?: string; presetId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;

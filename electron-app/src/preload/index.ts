@@ -146,6 +146,9 @@ const matricaApi = {
       ipcRenderer.invoke('reports:historyAdd', args),
     filterTemplatesList: async (args: { userId?: string; presetId: string }) =>
       ipcRenderer.invoke('reports:filterTemplatesList', args),
+    filterTemplatesExportAll: async (args: { userId?: string }) => ipcRenderer.invoke('reports:filterTemplatesExportAll', args),
+    filterTemplatesImportAll: async (args: { userId?: string; byPreset: Record<string, unknown> }) =>
+      ipcRenderer.invoke('reports:filterTemplatesImportAll', args),
     filterTemplateSave: async (args: {
       userId?: string;
       presetId: string;
