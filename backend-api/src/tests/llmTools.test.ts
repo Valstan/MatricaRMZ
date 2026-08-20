@@ -190,6 +190,45 @@ describe('llmTools.executeTool', () => {
     expect(res.content).toMatch(/Нет прав на таблицу/);
   });
 
+  it('list_report_presets возвращает каталог, поиск фильтрует', async () => {
+    const all = await executeTool({ name: 'list_report_presets', input: {} } as any, partsViewer);
+    const parsedAll = JSON.parse(all.content);
+    expect(parsedAll.presets.length).toBeGreaterThan(20);
+    expect(parsedAll.presets.some((p: any) => p.id === 'engines')).toBe(true);
+    const filtered = await executeTool({ name: 'list_report_presets', input: { search: 'двигател' } } as any, partsViewer);
+    const parsed = JSON.parse(filtered.content);
+    expect(parsed.presets.length).toBeGreaterThan(0);
+    expect(parsed.presets.length).toBeLessThan(parsedAll.presets.length);
+    expect(parsed.hint).toContain('[report:');
+  });
+
+  it('suggest_report подбирает пресет по задаче и требует reports.view', async () => {
+    const r = await executeTool({ name: 'suggest_report', input: { task: 'сколько двигателей отгружено заказчику за месяц' } } as any, partsViewer);
+    const parsed = JSON.parse(r.content);
+    expect(parsed.suggestions.length).toBeGreaterThan(0);
+    expect(parsed.suggestions.some((x: any) => x.id === 'engines' || x.id === 'engine_flow_by_counterparty')).toBe(true);
+    const denied = await executeTool({ name: 'suggest_report', input: { task: 'двигатели' } } as any, restrictedUser);
+    expect(denied.isError).toBe(true);
+  });
+
+  it('get_report_usage агрегирует open/build и резолвит алиасы в объединённый пресет', async () => {
+    poolQuery.mockResolvedValueOnce({
+      rows: [
+        { preset_id: 'engines_list', action: 'ui.report_open', cnt: 5 },
+        { preset_id: 'engines_contracts_overview', action: 'ui.report_build', cnt: 3 },
+        { preset_id: 'engines', action: 'ui.report_build', cnt: 2 },
+        { preset_id: 'work_orders_report', action: 'ui.report_open', cnt: 1 },
+      ],
+    });
+    const r = await executeTool({ name: 'get_report_usage', input: { days: 30 } } as any, partsViewer);
+    const parsed = JSON.parse(r.content);
+    const engines = parsed.usage.find((x: any) => x.presetId === 'engines');
+    expect(engines).toBeTruthy();
+    expect(engines.opens).toBe(5);
+    expect(engines.builds).toBe(5); // 3 (алиас) + 2 (canonical)
+    expect(parsed.usage[0].presetId).toBe('engines');
+  });
+
   it('getToolDefinitions returns Anthropic.Tool[] for known names', () => {
     const defs = getToolDefinitions(FULL_TOOL_NAMES);
     expect(defs.length).toBe(FULL_TOOL_NAMES.length);

@@ -25,6 +25,8 @@ import {
   printReportPreset,
 } from '../../services/reportService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import { and, desc, eq, gte, isNull, like } from 'drizzle-orm';
+import { auditLog } from '../../database/schema.js';
 import {
   exportCustomReportCsv,
   listCustomReportSources,
@@ -227,6 +229,74 @@ export function registerReportsIpc(ctx: IpcContext) {
     byScope[scope] = ids;
     await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetFavorites, JSON.stringify(byScope));
     return { ok: true as const, ids };
+  });
+
+  // «Популярные настройки» (этап 7, 19.08б): дефолт фильтров при открытии пресета
+  // из телеметрии ui.report_build в ЛОКАЛЬНОМ audit_log (свои прогоны оператора).
+  // Значение фильтра побеждает, когда встречалось минимум дважды и не реже, чем
+  // в 40% последних прогонов.
+  ipcMain.handle('reports:popularFilters', async (_e, args?: { presetId?: string }) => {
+    try {
+      const gate = await requirePermOrResult(ctx, 'reports.view');
+      if (!gate.ok) return gate as any;
+      const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
+      if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
+      const sourceIds = [presetId, ...Object.entries(REPORT_PRESET_ALIASES).filter(([, t]) => t === presetId).map(([a2]) => a2)];
+      const sinceMs = Date.now() - 90 * 24 * 60 * 60 * 1000;
+      const rowsAll: Array<{ payloadJson: string | null }> = [];
+      for (const sid of sourceIds) {
+        const rows = await ctx
+          .dataDb()
+          .select({ payloadJson: auditLog.payloadJson })
+          .from(auditLog)
+          .where(
+            and(
+              eq(auditLog.action, 'ui.report_build'),
+              isNull(auditLog.deletedAt),
+              gte(auditLog.createdAt, sinceMs),
+              like(auditLog.payloadJson, `%"label":"${sid}"%`),
+            ),
+          )
+          .orderBy(desc(auditLog.createdAt))
+          .limit(100);
+        rowsAll.push(...(rows as Array<{ payloadJson: string | null }>));
+      }
+      const counts = new Map<string, Map<string, { value: unknown; n: number }>>();
+      let builds = 0;
+      for (const row of rowsAll.slice(0, 200)) {
+        let payload: any = null;
+        try {
+          payload = row.payloadJson ? JSON.parse(String(row.payloadJson)) : null;
+        } catch {
+          continue;
+        }
+        const filters = payload?.filters;
+        if (!filters || typeof filters !== 'object' || Array.isArray(filters)) continue;
+        builds += 1;
+        for (const [key, value] of Object.entries(filters as Record<string, unknown>)) {
+          let sig = '';
+          try {
+            sig = JSON.stringify(value);
+          } catch {
+            continue;
+          }
+          const byValue = counts.get(key) ?? new Map<string, { value: unknown; n: number }>();
+          const entry = byValue.get(sig) ?? { value, n: 0 };
+          entry.n += 1;
+          byValue.set(sig, entry);
+          counts.set(key, byValue);
+        }
+      }
+      if (builds < 2) return { ok: true as const, filters: null, builds };
+      const popular: Record<string, unknown> = {};
+      for (const [key, byValue] of counts.entries()) {
+        const best = [...byValue.values()].sort((a2, b2) => b2.n - a2.n)[0];
+        if (best && best.n >= 2 && best.n >= builds * 0.4) popular[key] = best.value;
+      }
+      return { ok: true as const, filters: Object.keys(popular).length > 0 ? popular : null, builds };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
   });
 
   // Roaming шаблонов фильтров через ui_profile (этап 6.3, 19.08б): App выгружает

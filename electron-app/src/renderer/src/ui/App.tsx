@@ -5730,7 +5730,14 @@ export function App() {
   );
 
   const renderAiChatTabContent = () => (
-    <AiAgentChat ref={aiChatRef} visible={true} context={aiContext} lastEvent={aiLastEvent} recentEvents={aiRecentEvents} />
+    <AiAgentChat
+      ref={aiChatRef}
+      visible={true}
+      context={aiContext}
+      lastEvent={aiLastEvent}
+      recentEvents={aiRecentEvents}
+      onOpenReport={(presetId) => openReportPreset(presetId as ReportPresetId)}
+    />
   );
 
   const renderSettingsTabContent = () => {

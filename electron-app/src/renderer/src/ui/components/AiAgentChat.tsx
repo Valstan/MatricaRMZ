@@ -13,6 +13,7 @@ import { IvanychFigure } from './IvanychFigure.js';
 import { theme } from '../theme.js';
 import { formatMoscowTime } from '../utils/dateUtils.js';
 import { renderMarkdown } from '../utils/markdownLite.js';
+import { extractAiReportLinks, stripAiReportMarkers } from '../utils/aiReportMarkers.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
 import { ivanychWaitingText, startIvanychAnswerPolling } from './ivanychWaiting.js';
 
@@ -115,6 +116,8 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   context: AiAgentContext;
   lastEvent: AiAgentEvent | null;
   recentEvents?: AiAgentEvent[];
+  /** Открыть готовый отчёт по маркеру [report:<id>] из ответа (этап 7, 19.08б). */
+  onOpenReport?: (presetId: string) => void;
 }>((props, ref) => {
   // props.visible — «панель отрисована», useTabVisible — «её вкладка сейчас активна».
   const tabVisible = useTabVisible();
@@ -461,8 +464,36 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
             <div
               style={{ fontSize: 13, lineHeight: 1.45 }}
               // renderMarkdown escapeHtml-ит вход перед разметкой (markdownLite) — XSS-safe; тот же паттерн, что и прежний AI-чат
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(item.answerText) }} // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(stripAiReportMarkers(item.answerText)) }} // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
             />
+            {/* Маркеры [report:<id>] из ответа — кнопки открытия готовых отчётов */}
+            {props.onOpenReport && extractAiReportLinks(item.answerText).length > 0 && (
+              <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {extractAiReportLinks(item.answerText).map((l) => (
+                  <button
+                    key={l.presetId}
+                    type="button"
+                    data-ai-report-link={l.presetId}
+                    onClick={() => props.onOpenReport?.(l.presetId)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      border: `1px solid ${theme.colors.chatOtherBorder}`,
+                      background: theme.colors.surface,
+                      color: theme.colors.text,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                    title={`Открыть отчёт «${l.title}»`}
+                  >
+                    📊 Открыть отчёт «{l.title}»
+                  </button>
+                ))}
+              </div>
+            )}
             {answerFiles.length > 0 && (
               <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {answerFiles.map((f) => (

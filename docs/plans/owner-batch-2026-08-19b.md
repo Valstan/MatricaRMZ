@@ -126,6 +126,8 @@
 
 ## Этап 7. ИИваныч и отчёты
 
+> **Этап 7 закрыт кодом 2026-08-20.** (1) Тулы `list_report_presets` / `suggest_report` (каталог + подбор по задаче, подсказка маркера) и `get_report_usage` (агрегация ui.report_open/ui.report_build из audit_log, алиасы резолвятся) — llmTools, 20 тулов, пер-тул `reports.view`. (2) Маркер `[report:<id>]` в ответе ИИваныча → кнопка «Открыть отчёт …» в AiAgentChat (`aiReportMarkers.ts`: неизвестные id вычищаются, алиасы резолвятся; BASE_PROMPT дополнен). (3) Телеметрия **ui.report_build** с санитизированной картой фильтров (закрыт и хвост этапа 4) + «популярные настройки»: IPC `reports:popularFilters` агрегирует СВОИ прогоны оператора из локального audit_log (значение побеждает при ≥2 и ≥40% прогонов), пресет предзаполняется с бейджем «⭐ …» и кнопкой «Сбросить». Отступление: статистика для предзаполнения — по прогонам самого оператора (локальный журнал), не общезаводская — без нового серверного API; общезаводскую видно ИИванычем через `get_report_usage`. Смоук 6/6.
+
 Function calling уже развёрнут (`llmTools.ts`, 17 тулов, пер-тул permissions; `execute_safe_sql`; `attach_table` xlsx — «сам сделай отчёт» фактически умеет).
 1. Тулы `list_report_presets` / `suggest_report` над `REPORT_PRESET_DEFINITIONS` (~40 строк) + `get_report_usage` над `statistics_audit_events`/`ui.report_build`.
 2. Ответ ИИваныча со ссылкой-открытием отчёта: `ChatDeepLinkPayload` `{tab:'report_preset', presetId}` → `App.tsx:2831 openReportPreset` (рендер ссылки в `AiAgentChat`).
