@@ -27,6 +27,7 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { AssemblyForecastReportView } from '../components/AssemblyForecastReportView.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
+import { logUiUsage, sanitizeReportFilterMap } from '../utils/uiUsageLog.js';
 import {
   binaryDownloadBase64,
   buildDefaultFilters,
@@ -121,6 +122,10 @@ export function ReportPresetPage(props: {
   // Именованные шаблоны фильтров (per-user, per-preset) — чтобы не выставлять одни
   // и те же фильтры каждый раз. Хранятся в локальном sys-store (как favorites/history).
   const [filterTemplates, setFilterTemplates] = useState<ReportPresetFilterTemplate[]>([]);
+  // «Популярные настройки» (этап 7): при первом открытии пресета фильтры
+  // предзаполняются частыми значениями из телеметрии ui.report_build; пометка
+  // с кнопкой «Сбросить» возвращает дефолты.
+  const [popularAppliedFor, setPopularAppliedFor] = useState<Partial<Record<ReportPresetId, boolean>>>({});
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [preview, setPreview] = useState<PreviewOk | null>(null);
@@ -235,6 +240,33 @@ export function ReportPresetPage(props: {
       alive = false;
     };
   }, [activePresetId, props.userId]);
+
+  // Предзаполнение популярными настройками — один раз на пресет за монтирование
+  // страницы, поверх дефолтов (loadPresetMeta сеет дефолты для ВСЕХ пресетов при
+  // загрузке каталога, поэтому «filters ещё не заведены» признаком быть не может).
+  const popularCheckedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!activePreset) return;
+    if (popularCheckedRef.current.has(activePreset.id)) return;
+    popularCheckedRef.current.add(activePreset.id);
+    let alive = true;
+    const preset = activePreset;
+    void window.matrica.reports
+      .popularFilters({ presetId: preset.id })
+      .then((r) => {
+        if (!alive || !r?.ok || !r.filters) return;
+        setFiltersByPreset((prev) => ({
+          ...prev,
+          [preset.id]: { ...(prev[preset.id] ?? buildDefaultFilters(preset)), ...r.filters },
+        }));
+        setPopularAppliedFor((prev) => ({ ...prev, [preset.id]: true }));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- один прогон на пресет; правка фильтров не должна перезапускать предзаполнение
+  }, [activePresetId]);
 
   function applyFilterTemplate(templateId: string | null) {
     setSelectedTemplateId(templateId);
@@ -389,6 +421,9 @@ export function ReportPresetPage(props: {
       }
       setPreview(result);
       setStatus(`Сформировано строк: ${result.rows.length}`);
+      // Телеметрия ui.report_build (этап 7, 19.08б): пресет + санитизированная
+      // карта фильтров — сырьё «популярных настроек» и статистики ИИваныча.
+      logUiUsage('ui.report_build', activePreset.id, null, { filters: sanitizeReportFilterMap(requestFilters as Record<string, unknown>) });
       // Отчёты строятся только по кнопке: помним filtersKey построенного отчёта,
       // чтобы показать «фильтры изменились» после правки фильтров.
       setCachedFiltersKey(filtersKey);
@@ -1507,6 +1542,23 @@ export function ReportPresetPage(props: {
                 ) : null}
               </div>
             </div>
+            {activePreset && popularAppliedFor[activePreset.id] ? (
+              <div
+                data-popular-filters
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: 12 }}
+              >
+                <span>⭐ Подставлены популярные настройки (по вашим прошлым прогонам)</span>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    resetAllFilters();
+                    setPopularAppliedFor((prev) => ({ ...prev, [activePreset.id]: false }));
+                  }}
+                >
+                  Сбросить
+                </Button>
+              </div>
+            ) : null}
             {activePreset.id === 'engines' ? (
               renderEnginesContractsFilters()
             ) : (

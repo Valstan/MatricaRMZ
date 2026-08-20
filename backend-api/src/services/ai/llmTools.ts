@@ -1,3 +1,5 @@
+import { REPORT_PRESET_DEFINITIONS, REPORT_PRESET_THEMES, resolveReportPresetId } from '@matricarmz/shared';
+
 import { pool } from '../../database/db.js';
 import { computeAssemblyForecastFromServer } from '../warehouseForecastService.js';
 import { getRestrictedWorkOrderIds, isAllowlistedReaderById } from '../sync/restrictedWorkOrders.js';
@@ -676,6 +678,90 @@ async function executeSafeSql(input: Record<string, unknown>, ctx: ToolContext):
   return jsonResult(filtered);
 }
 
+// ---- Отчёты (этап 7 пакета 19.08б): каталог пресетов, подбор, статистика ----
+
+const REPORT_TITLE_BY_ID = new Map(REPORT_PRESET_DEFINITIONS.map((d) => [String(d.id), d.title]));
+
+function reportPresetBrief(d: (typeof REPORT_PRESET_DEFINITIONS)[number]) {
+  return {
+    id: d.id,
+    title: d.title,
+    description: d.description,
+    themes: REPORT_PRESET_THEMES[d.id] ?? [],
+    filters: d.filters.map((f) => ('key' in f ? { key: (f as { key: string }).key, label: (f as { label?: string }).label ?? '' } : null)).filter(Boolean),
+  };
+}
+
+async function listReportPresets(input: Record<string, unknown>): Promise<ToolResult> {
+  const search = String(input.search ?? '').trim().toLowerCase();
+  let items = REPORT_PRESET_DEFINITIONS.map(reportPresetBrief);
+  if (search) {
+    items = items.filter((x) => `${x.id} ${x.title} ${x.description}`.toLowerCase().includes(search));
+  }
+  return jsonResult({
+    presets: items,
+    hint: 'Чтобы дать пользователю кнопку открытия отчёта, вставь в свой ответ маркер вида [report:<id>] (например [report:engines]) — клиент отрисует его кнопкой «Открыть отчёт».',
+  });
+}
+
+async function suggestReport(input: Record<string, unknown>): Promise<ToolResult> {
+  const task = String(input.task ?? '').trim().toLowerCase();
+  if (!task) return { content: 'Опиши задачу пользователя в поле task.', isError: true };
+  const words = task.split(/[^a-zа-яё0-9]+/i).filter((w) => w.length >= 3);
+  const scored = REPORT_PRESET_DEFINITIONS.map((d) => {
+    const hay = `${d.title} ${d.description} ${d.filters.map((f) => ('label' in f ? (f as { label?: string }).label ?? '' : '')).join(' ')}`.toLowerCase();
+    let score = 0;
+    for (const w of words) if (hay.includes(w)) score += 1;
+    return { d, score };
+  })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+  if (scored.length === 0) {
+    return jsonResult({ suggestions: [], hint: 'Совпадений нет — возьми полный каталог через list_report_presets.' });
+  }
+  return jsonResult({
+    suggestions: scored.map((x) => ({ ...reportPresetBrief(x.d), matchScore: x.score })),
+    hint: 'Предложи пользователю лучший вариант и вставь в ответ маркер [report:<id>] — клиент отрисует его кнопкой «Открыть отчёт».',
+  });
+}
+
+async function getReportUsage(input: Record<string, unknown>): Promise<ToolResult> {
+  const days = Math.min(365, Math.max(1, Number(input.days ?? 30) || 30));
+  const limit = Math.min(40, Math.max(1, Number(input.limit ?? 10) || 10));
+  const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  // payload_json -> label = id пресета (пишется клиентом в ui.report_open / ui.report_build).
+  const res = await pool.query(
+    `SELECT payload_json::jsonb->>'label' AS preset_id, action, COUNT(*)::int AS cnt
+       FROM audit_log
+      WHERE action IN ('ui.report_open','ui.report_build')
+        AND deleted_at IS NULL
+        AND created_at >= $1
+        AND payload_json LIKE '{%'
+      GROUP BY 1, 2
+      ORDER BY cnt DESC
+      LIMIT 200`,
+    [sinceMs],
+  );
+  const byPreset = new Map<string, { presetId: string; title: string; opens: number; builds: number }>();
+  for (const row of (res.rows ?? []) as Array<{ preset_id: string | null; action: string; cnt: number }>) {
+    const rawId = String(row.preset_id ?? '').trim();
+    if (!rawId) continue;
+    const presetId = resolveReportPresetId(rawId);
+    const entry = byPreset.get(presetId) ?? {
+      presetId,
+      title: REPORT_TITLE_BY_ID.get(presetId) ?? rawId,
+      opens: 0,
+      builds: 0,
+    };
+    if (row.action === 'ui.report_open') entry.opens += Number(row.cnt) || 0;
+    else entry.builds += Number(row.cnt) || 0;
+    byPreset.set(presetId, entry);
+  }
+  const items = [...byPreset.values()].sort((a, b) => b.opens + b.builds - (a.opens + a.builds)).slice(0, limit);
+  return jsonResult({ days, usage: items });
+}
+
 const TOOLS: Record<string, ToolEntry> = {
   query_nomenclature: {
     def: {
@@ -973,6 +1059,56 @@ const TOOLS: Record<string, ToolEntry> = {
     },
     requires: ['reports.view', 'engines.view'],
     handler: (input) => getWorkshopThroughput(input),
+  },
+  list_report_presets: {
+    def: {
+      name: 'list_report_presets',
+      description:
+        'Каталог готовых отчётов программы (пресеты): id, название, описание, темы и фильтры. ' +
+        'Используй, когда пользователь спрашивает «какие есть отчёты» или нужного отчёта нет в подсказках suggest_report.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          search: { type: 'string', description: 'Подстрока по названию/описанию (опционально).' },
+        },
+      },
+    },
+    requires: ['reports.view'],
+    handler: (input) => listReportPresets(input),
+  },
+  suggest_report: {
+    def: {
+      name: 'suggest_report',
+      description:
+        'Подбор готового отчёта под задачу пользователя («хочу посмотреть, сколько двигателей ушло заказчику за месяц»). ' +
+        'Возвращает до 5 подходящих пресетов с фильтрами. В ответ пользователю вставь маркер [report:<id>] — он станет кнопкой открытия.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'Задача пользователя своими словами.' },
+        },
+        required: ['task'],
+      },
+    },
+    requires: ['reports.view'],
+    handler: (input) => suggestReport(input),
+  },
+  get_report_usage: {
+    def: {
+      name: 'get_report_usage',
+      description:
+        'Статистика использования отчётов по журналу действий (ui.report_open / ui.report_build): ' +
+        'какие отчёты открывают и строят чаще всего за период.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          days: { type: 'integer', description: 'Период в днях (1..365, default 30).' },
+          limit: { type: 'integer', description: 'Сколько строк вернуть (default 10).' },
+        },
+      },
+    },
+    requires: ['reports.view'],
+    handler: (input) => getReportUsage(input),
   },
 };
 
