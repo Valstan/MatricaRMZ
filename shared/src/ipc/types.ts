@@ -620,6 +620,7 @@ import type {
   ReportPresetCsvResult,
   ReportPresetFavoritesResult,
   ReportPresetFilterTemplateSaveResult,
+  ReportPresetFilterTemplate,
   ReportPresetFilterTemplatesListResult,
   ReportPresetFilters,
   ReportPresetHistoryAddResult,
@@ -1066,6 +1067,11 @@ export type MatricaApi = {
     historyList: (args?: { userId?: string; limit?: number }) => Promise<ReportPresetHistoryListResult>;
     historyAdd: (args: { userId?: string; entry: ReportPresetHistoryEntry }) => Promise<ReportPresetHistoryAddResult>;
     filterTemplatesList: (args: { userId?: string; presetId: ReportPresetId }) => Promise<ReportPresetFilterTemplatesListResult>;
+    /** Roaming шаблонов фильтров через ui_profile (этап 6.3): выгрузка/загрузка всего пользовательского блоба. */
+    filterTemplatesExportAll: (args: { userId?: string }) => Promise<
+      { ok: true; byPreset: Record<string, ReportPresetFilterTemplate[]> } | { ok: false; error: string }
+    >;
+    filterTemplatesImportAll: (args: { userId?: string; byPreset: Record<string, unknown> }) => Promise<{ ok: true } | { ok: false; error: string }>;
     filterTemplateSave: (args: {
       userId?: string;
       presetId: ReportPresetId;

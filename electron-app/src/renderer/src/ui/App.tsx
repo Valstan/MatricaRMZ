@@ -946,6 +946,10 @@ export function App() {
   // «Рабочий стол» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
   // Секция `desktop` профиля — применяется с GET, уезжает push-эффектом ниже.
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
+  // Шаблоны фильтров отчётов (этап 6.3, 19.08б): локальный блоб main-процесса
+  // зеркалируется в секцию `reportFilterTemplates` профиля — снимок для пуша.
+  const [reportTemplatesSnap, setReportTemplatesSnap] = useState<Record<string, unknown> | null>(null);
+  const [reportTemplatesNonce, setReportTemplatesNonce] = useState(0);
   // «Правка программы» — окно доступно с любого экрана (шапка вкладок + МЕНЮ).
   const [programFeedbackOpen, setProgramFeedbackOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -1861,6 +1865,16 @@ export function App() {
             // У этого пользователя стола на сервере нет — не показывать чужой.
             setDesktopUi(createEmptyDesktop());
           }
+          // Шаблоны фильтров отчётов: серверная секция гидрирует локальный блоб
+          // main-процесса (LWW секцией решает сервер), затем снимок перечитывается.
+          const tplSection = p.reportFilterTemplates as Record<string, unknown> | undefined;
+          if (tplSection && typeof tplSection === 'object') {
+            uiProfileKeySigsRef.current.reportFilterTemplates = JSON.stringify(tplSection);
+            void window.matrica.reports
+              .filterTemplatesImportAll({ userId, byPreset: tplSection })
+              .then(() => setReportTemplatesNonce((n) => n + 1))
+              .catch(() => {});
+          }
         } else {
           uiProfileKeyStampsRef.current = {};
           uiProfileKeySigsRef.current = {};
@@ -1903,6 +1917,8 @@ export function App() {
     // GET (ready-гейт выше), так что серверный стол уже применён и затереть его
     // дефолтом нельзя.
     snapshot.desktop = desktopUi;
+    // Шаблоны фильтров отчётов: снимок из main (null до первой выгрузки — не пушим).
+    if (reportTemplatesSnap != null) snapshot.reportFilterTemplates = reportTemplatesSnap;
     const keySigs: Record<string, string> = {};
     const changed: string[] = [];
     for (const [k, v] of Object.entries(snapshot)) {
@@ -1949,6 +1965,7 @@ export function App() {
     uiProfilePushNonce,
     columnLayoutsNonce,
     desktopUi,
+    reportTemplatesSnap,
   ]);
 
   // Правка колонок на любой странице (порядок/скрытие) поднимает nonce —
@@ -1960,6 +1977,34 @@ export function App() {
     window.addEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
     return () => window.removeEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
   }, []);
+
+  // Правка шаблонов фильтров на странице отчёта поднимает nonce → перечитываем
+  // блоб из main и отправляем секцию профиля своим ключом.
+  useEffect(() => {
+    function onChange() {
+      setReportTemplatesNonce((n) => n + 1);
+    }
+    window.addEventListener('matrica:report-templates-changed', onChange);
+    return () => window.removeEventListener('matrica:report-templates-changed', onChange);
+  }, []);
+
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) {
+      setReportTemplatesSnap(null);
+      return;
+    }
+    let alive = true;
+    void window.matrica.reports
+      .filterTemplatesExportAll({ userId })
+      .then((r) => {
+        if (alive && r?.ok) setReportTemplatesSnap(r.byPreset as Record<string, unknown>);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [authStatus.loggedIn, authStatus.user?.id, reportTemplatesNonce]);
 
   // Применение roaming shell-настроек с сервера: ждём, пока загрузится локальный
   // блоб (порядок ответов GET-профиля и ui:prefs:get не определён), сравниваем
