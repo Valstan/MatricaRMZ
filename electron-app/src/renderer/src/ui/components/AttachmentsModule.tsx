@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { FileRef } from '@matricarmz/shared';
 
@@ -34,6 +34,12 @@ export function AttachmentsModule(props: {
   scope?: { ownerType: string; ownerId: string; category: string };
   /** Показывать фотогалерею (карточки без фото могут её не включать). */
   withGallery?: boolean;
+  /**
+   * Снимок выборки для родителя: печать переехала на карточную кнопку
+   * «Распечатать» (решение владельца 2026-08-20), и карточке нужно знать,
+   * какие файлы отмечены. Вызывается на каждое изменение выборки/списка.
+   */
+  onSelectionChange?: (selectedIds: string[]) => void;
   onChange: (next: FileRef[]) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string } | void> | void;
 }) {
   const { confirm } = useConfirm();
@@ -43,6 +49,10 @@ export function AttachmentsModule(props: {
 
   const list = useMemo(() => normalizeList(props.value), [props.value]);
   const selectedIds = useMemo(() => list.filter((f) => selected.has(f.id)).map((f) => f.id), [list, selected]);
+  const onSelectionChange = props.onSelectionChange;
+  useEffect(() => {
+    onSelectionChange?.(selectedIds);
+  }, [onSelectionChange, selectedIds]);
   const objectLabel = props.objectLabel?.trim() || props.title?.trim() || 'Карточка';
 
   const flash = useCallback((message: string, ms = 2000) => {
@@ -132,12 +142,8 @@ export function AttachmentsModule(props: {
               >
                 Сохранить все ({list.length})
               </Button>
-              <Button
-                variant="ghost"
-                onClick={() => void runBatch('Печать', () => window.matrica.files.print({ fileIds: actionIds }))}
-              >
-                Печать{hasSelection ? '' : ' всех'}
-              </Button>
+              {/* «Печать» переехала на карточную кнопку «Распечатать» (там выбор:
+                  список / содержимое / вместе) — второй кнопки печати не держим. */}
               <Button
                 variant="ghost"
                 onClick={() =>
