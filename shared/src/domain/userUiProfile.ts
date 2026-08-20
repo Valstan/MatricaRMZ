@@ -10,6 +10,7 @@ import {
   type V2ColumnId,
   type V2ColumnState,
 } from './uiShellV2.js';
+import { sanitizeDesktopSection, type UserUiProfileDesktop } from './desktop.js';
 
 export type UserUiProfileTabsLayout = {
   order?: string[];
@@ -83,6 +84,11 @@ export type UserUiProfile = {
    * поэтому правка колонок в одном списке не откатывает другой.
    */
   columnLayouts?: Record<string, UserUiProfileColumnLayout>;
+  /**
+   * «Рабочий стол» (v3.7.0, этап 5 пакета 19.08б): ярлыки, папки, корзина,
+   * раскладка сплитов экрана «чат + рабочий стол». LWW — секцией целиком.
+   */
+  desktop?: UserUiProfileDesktop;
 };
 
 export type UserUiProfileColumnLayout = {
@@ -307,6 +313,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (shellPrefs !== undefined) out.shellPrefs = shellPrefs;
   const columnLayouts = sanitizeColumnLayouts(r.columnLayouts);
   if (columnLayouts !== undefined) out.columnLayouts = columnLayouts;
+  const desktop = sanitizeDesktopSection(r.desktop);
+  if (desktop !== undefined) out.desktop = desktop;
   return out;
 }
 

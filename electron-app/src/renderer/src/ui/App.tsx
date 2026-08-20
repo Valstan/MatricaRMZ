@@ -57,10 +57,14 @@ import {
   type RestoredTab,
   type V3Session,
   type WorkTab,
+  createEmptyDesktop,
+  desktopAddShortcut,
+  sanitizeDesktopSection,
+  type UserUiProfileDesktop,
 } from '@matricarmz/shared';
 
 import { Page } from './layout/Page.js';
-import { type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS } from './layout/Tabs.js';
+import { type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS, TAB_VISUALS } from './layout/Tabs.js';
 import { isAndroidPlatform } from './platform.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
 import { deriveUiCaps } from './auth/permissions.js';
@@ -73,6 +77,7 @@ const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
 );
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
+import { DesktopPane } from './components/DesktopPane.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
 import { ListContextMenu } from './components/ListContextMenu.js';
@@ -591,7 +596,10 @@ function isKnownSectionTab(tabId: TabId): boolean {
 }
 
 const SINGLETON_TAB_LABELS: Record<'chat' | 'ai_chat' | 'settings', string> = {
-  chat: 'Чат',
+  // Этап 5 (19.08б): вкладка чата стала экраном «Рабочий стол» — чат слева,
+  // ярлыки/папки/корзина справа. Id 'chat' сохранён: восстановление сессий,
+  // deep-link'и и бейдж непрочитанных продолжают работать без миграции.
+  chat: 'Рабочий стол',
   ai_chat: 'ИИваныч',
   settings: 'Настройки',
 };
@@ -935,6 +943,9 @@ export function App() {
   // маунте страницы), в профиль едут отдельной секцией: событие об изменении
   // поднимает nonce → пуш перечитывает актуальный набор.
   const [columnLayoutsNonce, setColumnLayoutsNonce] = useState(0);
+  // «Рабочий стол» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
+  // Секция `desktop` профиля — применяется с GET, уезжает push-эффектом ниже.
+  const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
   // «Правка программы» — окно доступно с любого экрана (шапка вкладок + МЕНЮ).
   const [programFeedbackOpen, setProgramFeedbackOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -1840,9 +1851,20 @@ export function App() {
             uiProfileKeySigsRef.current.columnLayouts = JSON.stringify(readAllColumnLayouts());
             if (applied > 0) setColumnLayoutsNonce((n) => n + 1);
           }
+          // «Рабочий стол»: серверная секция применяется поверх локальной (LWW
+          // секцией целиком решает merge на сервере; sanitize терпит незнакомые link'и).
+          const desktopSection = sanitizeDesktopSection(p.desktop);
+          if (desktopSection) {
+            setDesktopUi(desktopSection);
+            uiProfileKeySigsRef.current.desktop = JSON.stringify(desktopSection);
+          } else {
+            // У этого пользователя стола на сервере нет — не показывать чужой.
+            setDesktopUi(createEmptyDesktop());
+          }
         } else {
           uiProfileKeyStampsRef.current = {};
           uiProfileKeySigsRef.current = {};
+          setDesktopUi(createEmptyDesktop());
         }
         seedTimesheetShortcut();
         uiProfileReadyUserRef.current = userId;
@@ -1877,6 +1899,10 @@ export function App() {
     }
     const layouts = readAllColumnLayouts();
     if (Object.keys(layouts).length > 0) snapshot.columnLayouts = layouts;
+    // «Рабочий стол» едет своей секцией. Пуш включается только после успешного
+    // GET (ready-гейт выше), так что серверный стол уже применён и затереть его
+    // дефолтом нельзя.
+    snapshot.desktop = desktopUi;
     const keySigs: Record<string, string> = {};
     const changed: string[] = [];
     for (const [k, v] of Object.entries(snapshot)) {
@@ -1922,6 +1948,7 @@ export function App() {
     shellPrefs,
     uiProfilePushNonce,
     columnLayoutsNonce,
+    desktopUi,
   ]);
 
   // Правка колонок на любой странице (порядок/скрытие) поднимает nonce —
@@ -2109,6 +2136,9 @@ export function App() {
       case 'notes_link':
         void saveCurrentPositionToNotes();
         break;
+      case 'desktop_shortcut':
+        addCurrentPositionToDesktop();
+        break;
       case 'program_feedback':
         setProgramFeedbackOpen(true);
         break;
@@ -2125,7 +2155,7 @@ export function App() {
         break;
       case 'chat':
         if (chatOpen) dispatchTabs({ type: 'CLOSE', id: 'chat' });
-        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: true });
+        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
         break;
       case 'tablet_mode':
         toggleUiMode();
@@ -2447,7 +2477,10 @@ export function App() {
     }
     if (!uid || chatTabSeededRef.current === uid) return;
     chatTabSeededRef.current = uid;
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: false });
+    // «Рабочий стол» — стартовый экран после входа (решение владельца, этап 5),
+    // поэтому focus: true. Восстановленная сессия может увести на другую вкладку
+    // своим фокусом — это ок, стол остаётся в полосе.
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
   }, [authStatus.loggedIn, canChat, authStatus.user?.id]);
 
   const aiTabSeededRef = useRef('');
@@ -2477,7 +2510,7 @@ export function App() {
   // For pending users: open chat automatically.
   useEffect(() => {
     const role = String(authStatus.user?.role ?? '').toLowerCase();
-    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: true });
+    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
   }, [authStatus.loggedIn, authStatus.user?.role, canChat, chatOpen]);
 
   function resolveChatSoundUrl(fileName: string) {
@@ -3507,7 +3540,7 @@ export function App() {
   }
 
   function openChatFromHistory() {
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Чат', focus: true });
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
   }
 
   async function navigateToRoute(route: DeepLinkRoute) {
@@ -3881,6 +3914,18 @@ export function App() {
     if (!(r as any)?.ok) return `Не удалось отправить: ${String((r as any)?.error ?? 'нет связи')}`;
     void window.matrica.sync.run().catch(() => {});
     return null;
+  }
+
+  /** «На рабочий стол»: ярлык текущего раздела/карточки на экран «Рабочий стол» (этап 5). */
+  function addCurrentPositionToDesktop() {
+    if (!authStatus.loggedIn) return;
+    const link = currentAppLink as ChatDeepLinkPayload;
+    const label = buildChatBreadcrumbs().join(' / ').trim() || 'Раздел';
+    const icon = TAB_VISUALS[String(link?.tab ?? '') as MenuTabId]?.icon ?? '🔗';
+    setDesktopUi((prev) => desktopAddShortcut(prev, { id: crypto.randomUUID(), label, icon, link }, Date.now()));
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
+    setPostLoginSyncMsg('Ярлык добавлен на рабочий стол.');
+    setTimeout(() => setPostLoginSyncMsg(''), 4500);
   }
 
   async function saveCurrentPositionToNotes() {
@@ -5587,16 +5632,57 @@ export function App() {
     canClose: true,
   } : null;
 
+  // Экран «Рабочий стол» (этап 5, 19.08б): чат слева (дефолт — треть), рабочий
+  // стол с ярлыками справа; обе границы тянутся мышкой, проценты роумятся в
+  // секции `desktop` профиля.
   const renderChatTabContent = () => (
-    <ChatPanel
-      meUserId={authStatus.user?.id ?? ""}
-      meRole={authStatus.user?.role ?? ""}
-      canExport={canChatExport}
-      canAdminViewAll={canChatAdminView}
-      viewMode={viewMode}
-      onChatContextChange={handleChatContextChange}
-      onNavigate={(link) => { void navigateDeepLink(link); }}
-    />
+    <div style={{ height: '100%', display: 'flex', minWidth: 0 }}>
+      <div style={{ width: `${desktopUi.layout.chatPct}%`, minWidth: 260, flexShrink: 0, display: 'flex', minHeight: 0, borderRight: '1px solid var(--border)' }}>
+        <ChatPanel
+          meUserId={authStatus.user?.id ?? ""}
+          meRole={authStatus.user?.role ?? ""}
+          canExport={canChatExport}
+          canAdminViewAll={canChatAdminView}
+          viewMode={viewMode}
+          onChatContextChange={handleChatContextChange}
+          onNavigate={(link) => { void navigateDeepLink(link); }}
+          peoplePct={desktopUi.layout.peoplePct}
+          onPeoplePctChange={(pct) => setDesktopUi((prev) => ({ ...prev, layout: { ...prev.layout, peoplePct: pct } }))}
+        />
+      </div>
+      <div
+        data-desktop-split-resizer
+        role="separator"
+        aria-orientation="vertical"
+        title="Потяните, чтобы изменить ширину чата"
+        onPointerDown={(e) => {
+          const container = (e.currentTarget as HTMLDivElement).parentElement;
+          if (!container) return;
+          e.preventDefault();
+          (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+          const onMove = (ev: PointerEvent) => {
+            const rect = container.getBoundingClientRect();
+            if (rect.width <= 0) return;
+            const pct = Math.min(70, Math.max(15, ((ev.clientX - rect.left) / rect.width) * 100));
+            setDesktopUi((prev) => ({ ...prev, layout: { ...prev.layout, chatPct: Math.round(pct * 10) / 10 } }));
+          };
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+          };
+          window.addEventListener('pointermove', onMove);
+          window.addEventListener('pointerup', onUp);
+        }}
+        style={{ width: 6, flexShrink: 0, cursor: 'col-resize' }}
+      />
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+        <DesktopPane
+          desktop={desktopUi}
+          onChange={setDesktopUi}
+          onOpenLink={(link) => { void navigateDeepLink(link as ChatDeepLinkPayload); }}
+        />
+      </div>
+    </div>
   );
 
   const renderAiChatTabContent = () => (

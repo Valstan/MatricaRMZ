@@ -45,6 +45,12 @@ export function ChatPanel(props: {
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
+  /**
+   * Ширина колонки собеседников в процентах зоны чата (экран «Рабочий стол»,
+   * этап 5). Без этих пропсов колонка остаётся фиксированной, как раньше.
+   */
+  peoplePct?: number;
+  onPeoplePctChange?: (pct: number) => void;
 }) {
   const { confirm } = useConfirm();
   // Скрытая вкладка чата не поллит и, что важнее, не помечает входящие прочитанными.
@@ -408,7 +414,9 @@ export function ChatPanel(props: {
         <div
           data-chat-people
           style={{
-            width: 232,
+            width: props.peoplePct != null ? `${props.peoplePct}%` : 232,
+            minWidth: 140,
+            maxWidth: props.peoplePct != null ? '70%' : undefined,
             flexShrink: 0,
             borderRight: `1px solid ${theme.colors.border}`,
             display: 'flex',
@@ -485,6 +493,35 @@ export function ChatPanel(props: {
             })}
           </div>
         </div>
+      )}
+
+      {/* Граница «участники ↔ переписка» тянется мышкой (экран «Рабочий стол») */}
+      {!adminMode && props.peoplePct != null && props.onPeoplePctChange && (
+        <div
+          data-chat-people-resizer
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={(e) => {
+            const root = chatRootRef.current;
+            if (!root) return;
+            e.preventDefault();
+            (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+            const onMove = (ev: PointerEvent) => {
+              const rect = root.getBoundingClientRect();
+              if (rect.width <= 0) return;
+              const pct = Math.min(70, Math.max(10, ((ev.clientX - rect.left) / rect.width) * 100));
+              props.onPeoplePctChange?.(Math.round(pct * 10) / 10);
+            };
+            const onUp = () => {
+              window.removeEventListener('pointermove', onMove);
+              window.removeEventListener('pointerup', onUp);
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+          }}
+          style={{ width: 6, flexShrink: 0, cursor: 'col-resize', background: 'transparent' }}
+          title="Потяните, чтобы изменить ширину списка собеседников"
+        />
       )}
 
       {/* Правая колонка: переписка */}
