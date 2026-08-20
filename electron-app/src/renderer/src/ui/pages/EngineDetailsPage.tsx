@@ -404,6 +404,16 @@ export function EngineDetailsPage(props: {
   const reservedByOther = reservationState === 'other' && !overrideUnlock;
   const canEditEnginesEff = props.canEditEngines && !reservedByOther;
   const canEditOperationsEff = props.canEditOperations && !reservedByOther;
+  // Вкладка «Рекламация» без права правки прежде показывала только строку «двигатель не
+  // принят» — кнопки нет, причины нет, и оператор читает это как поломку программы
+  // (реальный запрос владельца 2026-08-20). Называем причину и что делать.
+  const reclamationReadOnlyNote = (
+    <div style={{ color: '#64748b', fontSize: 12, maxWidth: '64ch' }}>
+      {props.canEditEngines
+        ? 'Только просмотр: карточка занята другим пользователем.'
+        : 'Только просмотр: нет права «Создание/редактирование двигателей». Попросите администратора выдать его — без него кнопка «Принять по рекламации» не появится.'}
+    </div>
+  );
   const isAdminViewer = props.currentUserRole === 'admin' || props.currentUserRole === 'superadmin';
   const runReservation = async (action: 'acquire' | 'release', pendingText: string) => {
     if (reservationBusy) return;
@@ -2393,7 +2403,7 @@ export function EngineDetailsPage(props: {
               <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
                 Двигатель не принят по рекламации.
               </div>
-              {canEditEnginesEff && (
+              {canEditEnginesEff ? (
                 <Button
                   onClick={() => {
                     setSessionChanged(true);
@@ -2405,6 +2415,8 @@ export function EngineDetailsPage(props: {
                 >
                   Принять по рекламации
                 </Button>
+              ) : (
+                reclamationReadOnlyNote
               )}
             </div>
           ) : (
@@ -2469,7 +2481,7 @@ export function EngineDetailsPage(props: {
                     {row('Статус ремонта', selectInput(reclRepairStatus, setReclRepairStatus, RECLAMATION_REPAIR_STATUS_LABELS, '— не задан —'))}
                     {row('Дата отправки заказчику', dateInput(reclShippedDate, setReclShippedDate, 'Когда двигатель отправлен заказчику после рекламации'))}
                     {row('Комментарий', textArea(reclComment, setReclComment, 'Что было и чем всё закончилось', 5))}
-                    {canEditEnginesEff && (
+                    {canEditEnginesEff ? (
                       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                         <Button
                           variant="ghost"
@@ -2485,6 +2497,8 @@ export function EngineDetailsPage(props: {
                           Изменения сохраняются одним действием при закрытии карточки.
                         </span>
                       </div>
+                    ) : (
+                      reclamationReadOnlyNote
                     )}
                   </>
                 );
