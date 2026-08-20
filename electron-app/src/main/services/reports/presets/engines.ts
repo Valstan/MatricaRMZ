@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, isNull, lte } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -19,8 +19,7 @@ import {
   formatEngineInternalNumber,
   normalizeEngineInventoryRow,
   REPLENISHMENT_BRANCH_REPORT_LABELS,
-  selectEnginesListReportColumns,
-  selectEnginesContractsEngineColumns,
+  selectEnginesReportEngineColumns,
   ENGINES_CONTRACTS_CONTRACT_COLUMNS,
   ENGINES_CONTRACTS_BRAND_COLUMNS,
   selectScrapReportColumns,
@@ -76,8 +75,12 @@ export async function buildEngineStagesReport(
   for (const engineId of getIdsByType(snapshot, 'engine')) {
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
     const latest = latestByEngine.get(engineId);
-    if (!latest) continue;
-    if (period.startMs != null && latest.ts < period.startMs) continue;
+    // Двигатели без единой операции раньше выпадали из отчёта целиком, и на
+    // проде, где старые типы операций никто не пишет, отчёт был почти пуст.
+    // Стадия и прогресс считаются из статусов карточки; операции — только
+    // уточнение «когда было последнее движение». Явный период по-прежнему
+    // отбирает по дате последней операции (у кого её нет — не попадает).
+    if (period.startMs != null && (!latest || latest.ts < period.startMs)) continue;
     const contractId = normalizeText(attrs.contract_id, '');
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
@@ -87,7 +90,18 @@ export async function buildEngineStagesReport(
     const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
     for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
     const calculated = computeObjectProgress(statusFlags);
-    const progressPct = calculated > 0 ? calculated : stageProgressFallback(latest.stage);
+    const progressPct = calculated > 0 ? calculated : latest ? stageProgressFallback(latest.stage) : 0;
+    const statusStage = statusFlags.status_customer_sent || statusFlags.status_customer_accepted
+      ? 'Отгружен'
+      : statusFlags.status_rework_sent || statusFlags.status_scrap_confirmed
+        ? 'Утиль'
+        : statusFlags.status_repaired
+          ? 'Отремонтирован'
+          : statusFlags.status_repair_started
+            ? 'В ремонте'
+            : statusFlags.status_storage_received
+              ? 'Принят на хранение'
+              : 'Заведён';
     rows.push({
       engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
       engineInternalNumber: formatEngineInternalNumber(
@@ -97,10 +111,10 @@ export async function buildEngineStagesReport(
       engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
-      currentStage: stageLabel(latest.stage),
+      currentStage: latest ? stageLabel(latest.stage) : statusStage,
       progressPct,
       arrivalDate: asNumberOrNull(attrs.acceptance_at ?? attrs.arrival_date),
-      lastOperationAt: latest.ts,
+      lastOperationAt: latest ? latest.ts : null,
     });
   }
   rows.sort((a, b) => String(a.contractLabel ?? '').localeCompare(String(b.contractLabel ?? ''), 'ru') || String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru'));
@@ -132,69 +146,6 @@ export async function buildEngineStagesReport(
 }
 
 
-export async function buildEngineMovementsReport(
-  db: BetterSQLite3Database,
-  filters: ReportPresetFilters | undefined,
-): Promise<ReportPresetPreviewResult> {
-  const period = readPeriod(filters);
-  const contractFilter = asArray(filters?.contractIds);
-  const brandFilter = asArray(filters?.brandIds);
-  const eventType = normalizeText(filters?.eventType, 'all');
-  const snapshot = await loadSnapshot(db);
-  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
-  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
-  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
-  const allowed = ['acceptance', 'shipment', 'customer_delivery'];
-  const rows: Array<Record<string, ReportCellValue>> = [];
-  const sourceOps = await db
-    .select()
-    .from(operations)
-    .where(and(isNull(operations.deletedAt), inArray(operations.operationType, allowed as any), lte(operations.createdAt, period.endMs)))
-    .limit(200_000);
-  for (const op of sourceOps as any[]) {
-    const opType = String(op.operationType ?? '');
-    if (eventType !== 'all' && opType !== eventType) continue;
-    const ts = Number(op.performedAt ?? op.createdAt ?? 0);
-    if (period.startMs != null && ts < period.startMs) continue;
-    if (ts > period.endMs) continue;
-    const engineId = String(op.engineEntityId ?? '');
-    const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
-    const brandId = normalizeText(attrs.engine_brand_id, '');
-    const contractId = normalizeText(attrs.contract_id, '');
-    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
-    if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
-    rows.push({
-      eventAt: ts,
-      eventTypeLabel: stageLabel(opType),
-      engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
-      engineInternalNumber: formatEngineInternalNumber(
-        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
-        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
-      ),
-      engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
-      contractLabel: resolveContractLabel(contractId, contractOptions),
-      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
-      note: normalizeText(op.note, ''),
-    });
-  }
-  rows.sort((a, b) => toNumber(b.eventAt) - toNumber(a.eventAt));
-  const accepted = rows.filter((r) => String(r.eventTypeLabel) === stageLabel('acceptance')).length;
-  const shipped = rows.filter((r) => String(r.eventTypeLabel) === stageLabel('shipment')).length;
-  const delivered = rows.filter((r) => String(r.eventTypeLabel) === stageLabel('customer_delivery')).length;
-  const preset = getPreset('engine_movements');
-  return {
-    ok: true,
-    presetId: 'engine_movements',
-    title: preset.title,
-    subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
-    columns: preset.columns,
-    rows,
-    totals: { acceptance: accepted, shipment: shipped, customer_delivery: delivered },
-    generatedAt: Date.now(),
-  };
-}
-
 // Акт комплектности «заполнен» = в списке деталей (engine_inventory) хотя бы одна деталь
 // отмечена «на месте» (present) — тот же критерий, что hasCompletenessAct в engineService.
 export async function getCompletenessActStartedMap(db: BetterSQLite3Database): Promise<Map<string, boolean>> {
@@ -221,130 +172,32 @@ export async function getCompletenessActStartedMap(db: BetterSQLite3Database): P
   return result;
 }
 
+/**
+ * Алиас прежнего «Отчёта по двигателям» (engines_list): фильтры транслируются
+ * в объединённый пресет «Двигатели» — сохранённые ссылки и шаблоны фильтров
+ * продолжают работать без миграции данных.
+ */
 export async function buildEnginesListReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
 ): Promise<ReportPresetPreviewResult> {
-  const period = readPeriod(filters);
-  const arrivalStart = asNumberOrNull(filters?.arrivalStartMs);
-  const arrivalEnd = asNumberOrNull(filters?.arrivalEndMs);
-  const repairStartStart = asNumberOrNull(filters?.repairStartStartMs);
-  const repairStartEnd = asNumberOrNull(filters?.repairStartEndMs);
-  const repairEndStart = asNumberOrNull(filters?.repairEndStartMs);
-  const repairEndEnd = asNumberOrNull(filters?.repairEndEndMs);
-  const shippingStart = asNumberOrNull(filters?.shippingStartMs);
-  const shippingEnd = asNumberOrNull(filters?.shippingEndMs);
-  const brandFilter = asArray(filters?.brandIds);
-  const contractFilter = asArray(filters?.contractIds);
-  const counterpartyFilter = asArray(filters?.counterpartyIds);
-  const repairActiveFilter = normalizeText(filters?.repairActiveFilter, 'all');
-  const scrapFilter = normalizeText(filters?.scrapFilter, 'all');
-  const onSiteFilter = normalizeText(filters?.onSiteFilter, 'all');
-  const completenessActFilter = normalizeText(filters?.completenessActFilter, 'all');
-  const columnKeys = asArray(filters?.columns);
-
-  const completenessActByEngineId = await getCompletenessActStartedMap(db);
-  const snapshot = await loadSnapshot(db);
-  const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
-  if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
-
-  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
-  const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
-  const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
-
-  const rows: Array<Record<string, ReportCellValue>> = [];
-  let totalScrap = 0;
-  let totalOnSite = 0;
-
-  for (const [id, entity] of snapshot.entitiesById.entries()) {
-    if (entity.typeId !== engineTypeId) continue;
-    const attrs = snapshot.attrsByEntity.get(id) ?? {};
-
-    const createdAtRaw = toNumber(attrs.created_at);
-    const arrivalDateRaw = toNumber(attrs.arrival_date);
-    const repairStartedRaw = toNumber(attrs.status_repair_started_date);
-    const repairedRaw = toNumber(attrs.status_repaired_date);
-    const { shippingDate, onSite } = resolveEngineShippingState(attrs);
-    const isScrap = attrs.is_scrap === true || attrs.is_scrap === 'true' || attrs.is_scrap === 1;
-    const brandId = normalizeText(attrs.engine_brand_id, '');
-    const contractId = normalizeText(attrs.contract_id, '');
-    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
-
-    if (period.startMs != null && createdAtRaw > 0 && createdAtRaw < period.startMs) continue;
-    if (createdAtRaw > 0 && createdAtRaw > period.endMs) continue;
-
-    if (arrivalStart != null && (arrivalDateRaw <= 0 || arrivalDateRaw < arrivalStart)) continue;
-    if (arrivalEnd != null && (arrivalDateRaw <= 0 || arrivalDateRaw > arrivalEnd)) continue;
-
-    if (repairStartStart != null && (repairStartedRaw <= 0 || repairStartedRaw < repairStartStart)) continue;
-    if (repairStartEnd != null && (repairStartedRaw <= 0 || repairStartedRaw > repairStartEnd)) continue;
-
-    if (repairEndStart != null && (repairedRaw <= 0 || repairedRaw < repairEndStart)) continue;
-    if (repairEndEnd != null && (repairedRaw <= 0 || repairedRaw > repairEndEnd)) continue;
-
-    if (shippingStart != null && (shippingDate == null || shippingDate < shippingStart)) continue;
-    if (shippingEnd != null && (shippingDate == null || shippingDate > shippingEnd)) continue;
-
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
-    if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
-    if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
-
-    const repairActive =
-      attrs.status_repair_started === true || attrs.status_repair_started === 'true' || attrs.status_repair_started === 1;
-    if (repairActiveFilter === 'yes' && !repairActive) continue;
-    if (repairActiveFilter === 'no' && repairActive) continue;
-
-    if (scrapFilter === 'yes' && !isScrap) continue;
-    if (scrapFilter === 'no' && isScrap) continue;
-
-    if (onSiteFilter === 'yes' && !onSite) continue;
-    if (onSiteFilter === 'no' && onSite) continue;
-
-    const completenessActStarted = completenessActByEngineId.get(id) === true;
-    if (completenessActFilter === 'yes' && !completenessActStarted) continue;
-    if (completenessActFilter === 'no' && completenessActStarted) continue;
-
-    if (isScrap) totalScrap++;
-    if (onSite) totalOnSite++;
-
-    rows.push({
-      engineNumber: normalizeText(attrs.engine_number ?? attrs.number, id),
-      engineInternalNumber: formatEngineInternalNumber(
-        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
-        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
-      ),
-      engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
-      contractLabel: resolveContractLabel(contractId, contractOptions),
-      counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
-      arrivalDate: arrivalDateRaw > 0 ? arrivalDateRaw : null,
-      repairStartedDate: repairStartedRaw > 0 ? repairStartedRaw : null,
-      repairedDate: repairedRaw > 0 ? repairedRaw : null,
-      shippingDate,
-      isScrap: isScrap ? 'Да' : 'Нет',
-      scrapReason: normalizeText(attrs.scrap_reason, ''),
-      completenessAct: completenessActStarted ? 'Да' : 'Нет',
-    });
-  }
-
-  rows.sort((a, b) => toNumber(b.arrivalDate) - toNumber(a.arrivalDate));
-
-  const preset = getPreset('engines_list');
-  return {
-    ok: true,
-    presetId: 'engines_list',
-    title: preset.title,
-    subtitle: period.startMs ? `${msToDate(period.startMs)} — ${msToDate(period.endMs)}` : `по ${msToDate(period.endMs)}`,
-    columns: selectEnginesListReportColumns(columnKeys),
-    rows,
-    totals: {
-      engines: rows.length,
-      scrapQty: totalScrap,
-      onSiteQty: totalOnSite,
-    },
-    generatedAt: Date.now(),
-  };
+  const f: ReportPresetFilters = { ...(filters ?? {}) };
+  // «Период (дата создания)» прежнего отчёта → periodBasis='created'.
+  if ((f.startMs != null || f.endMs != null) && f.periodBasis == null) f.periodBasis = 'created';
+  // «Наличие на заводе» → engineState.
+  const onSite = String(f.onSiteFilter ?? 'all');
+  if (f.engineState == null && onSite !== 'all') f.engineState = onSite === 'yes' ? 'on_site' : 'shipped';
+  if (f.groupBy == null) f.groupBy = 'engines';
+  return buildEnginesReport(db, f);
 }
 
+/** Алиас прежнего «Двигатели и контракты»: фильтры совместимы напрямую (hideScrap транслируется внутри). */
+export async function buildEnginesContractsOverviewReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  return buildEnginesReport(db, filters);
+}
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -396,22 +249,43 @@ function accIntoOverviewAgg(map: Map<string, EngineOverviewAgg>, key: string, re
  * «на заводе» = всё остальное. «Приехало» = число заведённых двигателей контракта; «план» —
  * сумма марок в contract_sections (collectContractEngineQty, с fallback на engine_count_total).
  */
-export async function buildEnginesContractsOverviewReport(
+export async function buildEnginesReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const periodBasis = normalizeText(filters?.periodBasis, 'none');
-  const usePeriod = periodBasis === 'arrival' || periodBasis === 'shipping';
+  const usePeriod = periodBasis === 'arrival' || periodBasis === 'shipping' || periodBasis === 'created';
   const brandFilter = asArray(filters?.brandIds);
   const contractFilter = asArray(filters?.contractIds);
   const counterpartyFilter = asArray(filters?.counterpartyIds);
   const engineState = normalizeText(filters?.engineState, 'all');
-  const hideScrap = filters?.hideScrap === true;
+  // hideScrap — легаси-чекбокс прежнего «Двигатели и контракты»: шаблоны фильтров
+  // и сохранённые ссылки транслируются в трёхпозиционный scrapFilter.
+  const scrapFilter = filters?.hideScrap === true ? 'no' : normalizeText(filters?.scrapFilter, 'all');
+  const repairActiveFilter = normalizeText(filters?.repairActiveFilter, 'all');
+  const completenessActFilter = normalizeText(filters?.completenessActFilter, 'all');
+  const arrivalStart = asNumberOrNull(filters?.arrivalStartMs);
+  const arrivalEnd = asNumberOrNull(filters?.arrivalEndMs);
+  const repairStartStart = asNumberOrNull(filters?.repairStartStartMs);
+  const repairStartEnd = asNumberOrNull(filters?.repairStartEndMs);
+  const repairEndStart = asNumberOrNull(filters?.repairEndStartMs);
+  const repairEndEnd = asNumberOrNull(filters?.repairEndEndMs);
+  const shippingStart = asNumberOrNull(filters?.shippingStartMs);
+  const shippingEnd = asNumberOrNull(filters?.shippingEndMs);
   const overdueOnly = filters?.overdueOnly === true;
   const agingDays = Math.max(0, toNumber(filters?.agingDays));
   const groupBy = normalizeText(filters?.groupBy, 'contracts');
   const columnKeys = asArray(filters?.columns);
+
+  // Карта «акт комплектности начат» нужна фильтру и колонке детального разреза;
+  // это отдельный скан operations — считаем только когда реально требуется.
+  const needCompleteness =
+    completenessActFilter !== 'all' ||
+    (groupBy === 'engines' && (columnKeys.length === 0 || columnKeys.includes('completenessAct')));
+  const completenessActByEngineId = needCompleteness
+    ? await getCompletenessActStartedMap(db).catch(() => new Map<string, boolean>())
+    : new Map<string, boolean>();
 
   const snapshot = await loadSnapshot(db);
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
@@ -464,15 +338,37 @@ export async function buildEnginesContractsOverviewReport(
     const onFactory = !leftFactory;
     const readyNotShipped = repaired && onFactory;
     const arrivalRaw = toNumber(attrs.arrival_date);
+    const repairStartedRaw = toNumber(attrs.status_repair_started_date);
+    const repairedRaw = toNumber(attrs.status_repaired_date);
 
     if (usePeriod) {
-      const basisDate = periodBasis === 'arrival' ? arrivalRaw : shippingDate ?? 0;
+      const basisDate =
+        periodBasis === 'arrival' ? arrivalRaw : periodBasis === 'created' ? toNumber(attrs.created_at) : shippingDate ?? 0;
       if (!(basisDate > 0)) continue;
       if (period.startMs != null && basisDate < period.startMs) continue;
       if (basisDate > period.endMs) continue;
     }
 
-    if (hideScrap && scrap) continue;
+    // Диапазоны дат прежнего «Отчёта по двигателям»: работают независимо от
+    // periodBasis, каждый — по своей дате.
+    if (arrivalStart != null && (arrivalRaw <= 0 || arrivalRaw < arrivalStart)) continue;
+    if (arrivalEnd != null && (arrivalRaw <= 0 || arrivalRaw > arrivalEnd)) continue;
+    if (repairStartStart != null && (repairStartedRaw <= 0 || repairStartedRaw < repairStartStart)) continue;
+    if (repairStartEnd != null && (repairStartedRaw <= 0 || repairStartedRaw > repairStartEnd)) continue;
+    if (repairEndStart != null && (repairedRaw <= 0 || repairedRaw < repairEndStart)) continue;
+    if (repairEndEnd != null && (repairedRaw <= 0 || repairedRaw > repairEndEnd)) continue;
+    if (shippingStart != null && (shippingDate == null || shippingDate < shippingStart)) continue;
+    if (shippingEnd != null && (shippingDate == null || shippingDate > shippingEnd)) continue;
+
+    if (scrapFilter === 'yes' && !scrap) continue;
+    if (scrapFilter === 'no' && scrap) continue;
+    const repairActive = statusFlags.status_repair_started === true;
+    if (repairActiveFilter === 'yes' && !repairActive) continue;
+    if (repairActiveFilter === 'no' && repairActive) continue;
+    const completenessActStarted = completenessActByEngineId.get(engineId) === true;
+    if (completenessActFilter === 'yes' && !completenessActStarted) continue;
+    if (completenessActFilter === 'no' && completenessActStarted) continue;
+
     if (engineState === 'on_site' && !onFactory) continue;
     if (engineState === 'shipped' && !leftFactory) continue;
     if (engineState === 'ready_not_shipped' && !readyNotShipped) continue;
@@ -511,8 +407,6 @@ export async function buildEnginesContractsOverviewReport(
     if (groupBy === 'engines') {
       if (onFactory) engOnSite += 1;
       if (scrap) engScrap += 1;
-      const repairStartedRaw = toNumber(attrs.status_repair_started_date);
-      const repairedRaw = toNumber(attrs.status_repaired_date);
       const stateLabel = scrap
         ? 'Утиль'
         : leftFactory
@@ -540,15 +434,17 @@ export async function buildEnginesContractsOverviewReport(
         daysOnSite: leftFactory ? tat : aging,
         stateLabel,
         isScrap: scrap ? 'Да' : 'Нет',
+        scrapReason: normalizeText(attrs.scrap_reason, ''),
+        completenessAct: completenessActStarted ? 'Да' : 'Нет',
       });
     }
   }
 
-  const preset = getPreset('engines_contracts_overview');
+  const preset = getPreset('engines');
   const subtitle =
-    periodBasis === 'none'
+    periodBasis === 'none' || !usePeriod
       ? 'За всё время'
-      : `${periodBasis === 'arrival' ? 'Приход' : 'Отгрузка'}: ${msToDate(period.startMs)} — ${msToDate(period.endMs)}`;
+      : `${periodBasis === 'arrival' ? 'Приход' : periodBasis === 'created' ? 'Создание' : 'Отгрузка'}: ${msToDate(period.startMs)} — ${msToDate(period.endMs)}`;
 
   // Сводные заметки, общие для всех разрезов (раньше собирались только в contracts —
   // brands/engines возвращали пустые footerNotes, дефект аудита 2026-07-22).
@@ -563,10 +459,10 @@ export async function buildEnginesContractsOverviewReport(
     const engShipped = engineRows.filter((r) => toNumber(r.shippingDate) > 0).length;
     return {
       ok: true,
-      presetId: 'engines_contracts_overview',
+      presetId: 'engines',
       title: preset.title,
       subtitle,
-      columns: selectEnginesContractsEngineColumns(columnKeys),
+      columns: selectEnginesReportEngineColumns(columnKeys),
       rows: engineRows,
       totals: { engines: engineRows.length, onSiteQty: engOnSite, scrapQty: engScrap },
       footerNotes: sharedFooterNotes(engineRows.length, engScrap, engShipped),
@@ -598,7 +494,7 @@ export async function buildEnginesContractsOverviewReport(
     };
     return {
       ok: true,
-      presetId: 'engines_contracts_overview',
+      presetId: 'engines',
       title: preset.title,
       subtitle,
       columns: ENGINES_CONTRACTS_BRAND_COLUMNS,
@@ -665,7 +561,7 @@ export async function buildEnginesContractsOverviewReport(
 
   return {
     ok: true,
-    presetId: 'engines_contracts_overview',
+    presetId: 'engines',
     title: preset.title,
     subtitle,
     columns: ENGINES_CONTRACTS_CONTRACT_COLUMNS,

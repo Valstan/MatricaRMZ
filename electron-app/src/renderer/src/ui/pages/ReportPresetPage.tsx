@@ -12,6 +12,7 @@ import type {
   ReportPrintLayout,
 } from '@matricarmz/shared';
 import {
+  resolveReportPresetId,
   formatWorkOrdersStatusCountsLine,
   resolveReportPrintLayout,
   MAX_REPORT_PRINT_FONT_PX,
@@ -135,7 +136,9 @@ export function ReportPresetPage(props: {
   const buildPreviewRef = useRef<() => Promise<PreviewOk | null>>(async () => null);
 
   const activePreset = useMemo(
-    () => presets.find((preset) => preset.id === props.presetId) ?? null,
+    // Старые id (engines_list / engines_contracts_overview) резолвятся в
+    // объединённый пресет — сохранённые ссылки и восстановленные вкладки живут.
+    () => presets.find((preset) => preset.id === resolveReportPresetId(String(props.presetId))) ?? null,
     [presets, props.presetId],
   );
   const activeFilters = useMemo(() => {
@@ -1218,7 +1221,7 @@ export function ReportPresetPage(props: {
   // сводкой в заголовке (образец — Прогноз сборки), каждый контрол рендерит общий
   // renderFilterControl — единый вид с прочими отчётами. Свёрнуты по умолчанию.
   function renderEnginesContractsFilters() {
-    if (!activePreset || activePreset.id !== 'engines_contracts_overview') return null;
+    if (!activePreset || activePreset.id !== 'engines') return null;
     const filterByKey = (key: string) =>
       activePreset.filters.find((f) => 'key' in f && (f as { key: string }).key === key);
     const renderKeys = (keys: string[]) =>
@@ -1259,7 +1262,7 @@ export function ReportPresetPage(props: {
     const periodSummary =
       periodBasisVal === 'none'
         ? 'за всё время'
-        : `${periodBasisVal === 'arrival' ? 'по приходу' : 'по отгрузке'}: ${toInputDate(activeFilters.startMs) || '…'} — ${toInputDate(activeFilters.endMs) || '…'}`;
+        : `${periodBasisVal === 'arrival' ? 'по приходу' : periodBasisVal === 'created' ? 'по созданию' : 'по отгрузке'}: ${toInputDate(activeFilters.startMs) || '…'} — ${toInputDate(activeFilters.endMs) || '…'}`;
     const selCount = (key: string) => (Array.isArray(activeFilters[key]) ? (activeFilters[key] as unknown[]).length : 0);
     const scopeSummary = `Контракты: ${selCount('contractIds') || 'все'} · Марки: ${selCount('brandIds') || 'все'} · Заказчики: ${selCount('counterpartyIds') || 'все'}`;
     const stateVal = String(activeFilters.engineState ?? 'all');
@@ -1271,14 +1274,14 @@ export function ReportPresetPage(props: {
       scrap: 'утиль',
     };
     const agingVal = Number(activeFilters.agingDays) || 0;
-    const stateSummary = `${stateNames[stateVal] ?? 'все'}${activeFilters.hideScrap ? ' · без утиля' : ''}${activeFilters.overdueOnly ? ' · просроченные' : ''}${agingVal > 0 ? ` · застряли >${agingVal} дн` : ''}`;
+    const stateSummary = `${stateNames[stateVal] ?? 'все'}${String(activeFilters.scrapFilter ?? 'all') === 'no' ? ' · без утиля' : String(activeFilters.scrapFilter ?? 'all') === 'yes' ? ' · только утиль' : ''}${activeFilters.overdueOnly ? ' · просроченные' : ''}${agingVal > 0 ? ` · застряли >${agingVal} дн` : ''}`;
 
     return (
       <div style={{ display: 'grid', gap: 8 }}>
         {section('ec_view', '1', 'Разрез отчёта', viewSummary, ['groupBy', 'columns'])}
-        {section('ec_period', '2', 'Период и даты', periodSummary, ['period', 'periodBasis'])}
+        {section('ec_period', '2', 'Период и даты', periodSummary, ['period', 'periodBasis', 'arrivalPeriod', 'repairStartPeriod', 'repairEndPeriod', 'shippingPeriod'])}
         {section('ec_scope', '3', 'Отбор', scopeSummary, ['contractIds', 'brandIds', 'counterpartyIds'])}
-        {section('ec_state', '4', 'Состояние и фильтры', stateSummary, ['engineState', 'hideScrap', 'overdueOnly', 'agingDays'])}
+        {section('ec_state', '4', 'Состояние и фильтры', stateSummary, ['engineState', 'repairActiveFilter', 'scrapFilter', 'completenessActFilter', 'overdueOnly', 'agingDays'])}
       </div>
     );
   }
@@ -1440,7 +1443,7 @@ export function ReportPresetPage(props: {
                 ) : null}
               </div>
             </div>
-            {activePreset.id === 'engines_contracts_overview' ? (
+            {activePreset.id === 'engines' ? (
               renderEnginesContractsFilters()
             ) : (
               <>

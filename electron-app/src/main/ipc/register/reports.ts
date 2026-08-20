@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron';
 import {
   CUSTOM_REPORT_TEMPLATES_LIMIT,
+  REPORT_PRESET_ALIASES,
   REPORT_PRESET_DEFINITIONS,
+  resolveReportPresetId,
   sanitizeCustomReportSpec,
   type CustomReportTemplate,
 } from '@matricarmz/shared';
@@ -37,7 +39,12 @@ import {
   reportsBuilderPrint,
 } from '../../services/reportsBuilderService.js';
 
-const VALID_PRESET_IDS = new Set<string>(REPORT_PRESET_DEFINITIONS.map((preset) => String(preset.id)));
+// Валидны и канонические id, и алиасы прежних отчётов (engines_list и т.п.):
+// старые ссылки/избранное/шаблоны резолвятся в объединённый пресет.
+const VALID_PRESET_IDS = new Set<string>([
+  ...REPORT_PRESET_DEFINITIONS.map((preset) => String(preset.id)),
+  ...Object.keys(REPORT_PRESET_ALIASES),
+]);
 const REPORT_HISTORY_LIMIT = 50;
 const REPORT_HISTORY_DEFAULT_LIMIT = 20;
 const REPORT_USER_SCOPE_FALLBACK = '__global__';
@@ -68,7 +75,7 @@ function sanitizePresetIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
   const out: string[] = [];
   for (const value of ids) {
-    const id = String(value ?? '').trim();
+    const id = resolveReportPresetId(String(value ?? '').trim());
     if (!id || !VALID_PRESET_IDS.has(id)) continue;
     if (!out.includes(id)) out.push(id);
   }
@@ -138,7 +145,7 @@ function sanitizeHistoryEntries(entries: unknown): ReportHistoryEntry[] {
   if (!Array.isArray(entries)) return [];
   const out: ReportHistoryEntry[] = [];
   for (const row of entries) {
-    const presetId = String((row as any)?.presetId ?? '').trim();
+    const presetId = resolveReportPresetId(String((row as any)?.presetId ?? '').trim());
     if (!presetId || !VALID_PRESET_IDS.has(presetId)) continue;
     const generatedAtRaw = Number((row as any)?.generatedAt ?? 0);
     const generatedAt = Number.isFinite(generatedAtRaw) && generatedAtRaw > 0 ? Math.floor(generatedAtRaw) : 0;
@@ -225,12 +232,21 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:filterTemplatesList', async (_e, args?: { userId?: string; presetId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    const presetId = String(args?.presetId ?? '').trim();
+    const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
     if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
     const scope = resolveUserScope(args?.userId);
     const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetFilterTemplates);
     const byScope = parseByScope<Record<string, unknown>>(raw);
-    return { ok: true as const, templates: sanitizeFilterTemplates(byScope[scope]?.[presetId]) };
+    // Шаблоны, сохранённые под прежними id (алиасами), продолжают показываться
+    // в объединённом пресете — дозачитываем их корзины следом за канонической.
+    const aliasBuckets = Object.entries(REPORT_PRESET_ALIASES)
+      .filter(([, target]) => target === presetId)
+      .map(([aliasId]) => sanitizeFilterTemplates(byScope[scope]?.[aliasId]));
+    const merged = [...sanitizeFilterTemplates(byScope[scope]?.[presetId])];
+    for (const bucket of aliasBuckets) {
+      for (const tpl of bucket) if (!merged.some((t) => t.id === tpl.id)) merged.push(tpl);
+    }
+    return { ok: true as const, templates: merged };
   });
 
   ipcMain.handle(
@@ -245,7 +261,7 @@ export function registerReportsIpc(ctx: IpcContext) {
     ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
-      const presetId = String(args?.presetId ?? '').trim();
+      const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
       if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
       const name = String(args?.template?.name ?? '').trim();
       if (!name) return { ok: false as const, error: 'Пустое имя шаблона' };
@@ -271,7 +287,7 @@ export function registerReportsIpc(ctx: IpcContext) {
     async (_e, args?: { userId?: string; presetId?: string; templateId?: string }) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
-      const presetId = String(args?.presetId ?? '').trim();
+      const presetId = resolveReportPresetId(String(args?.presetId ?? '').trim());
       if (!presetId || !VALID_PRESET_IDS.has(presetId)) return { ok: false as const, error: 'Некорректный presetId' };
       const templateId = String(args?.templateId ?? '').trim();
       const scope = resolveUserScope(args?.userId);
