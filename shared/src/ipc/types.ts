@@ -1067,6 +1067,10 @@ export type MatricaApi = {
     historyList: (args?: { userId?: string; limit?: number }) => Promise<ReportPresetHistoryListResult>;
     historyAdd: (args: { userId?: string; entry: ReportPresetHistoryEntry }) => Promise<ReportPresetHistoryAddResult>;
     filterTemplatesList: (args: { userId?: string; presetId: ReportPresetId }) => Promise<ReportPresetFilterTemplatesListResult>;
+    /** «Популярные настройки» фильтров пресета из локальной телеметрии ui.report_build (этап 7). */
+    popularFilters: (args: { presetId: string }) => Promise<
+      { ok: true; filters: Record<string, unknown> | null; builds: number } | { ok: false; error: string }
+    >;
     /** Roaming шаблонов фильтров через ui_profile (этап 6.3): выгрузка/загрузка всего пользовательского блоба. */
     filterTemplatesExportAll: (args: { userId?: string }) => Promise<
       { ok: true; byPreset: Record<string, ReportPresetFilterTemplate[]> } | { ok: false; error: string }
