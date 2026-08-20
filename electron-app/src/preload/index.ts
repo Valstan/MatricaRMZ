@@ -725,7 +725,7 @@ const matricaApi = {
     revealForShare: async (args: { fileIds: string[]; label?: string; mailto?: boolean }) =>
       ipcRenderer.invoke('files:revealForShare', args),
     assemblePdf: async (args: { fileIds: string[]; defaultName?: string }) => ipcRenderer.invoke('files:assemblePdf', args),
-    print: async (args: { fileIds: string[] }) => ipcRenderer.invoke('files:print', args),
+    print: async (args: { fileIds: string[]; listHtml?: string }) => ipcRenderer.invoke('files:print', args),
     openObjectDir: async (args: { fileIds: string[]; label?: string }) => ipcRenderer.invoke('files:openObjectDir', args),
     downloadDirGet: async () => ipcRenderer.invoke('files:downloadDir:get'),
     downloadDirPick: async () => ipcRenderer.invoke('files:downloadDir:pick'),

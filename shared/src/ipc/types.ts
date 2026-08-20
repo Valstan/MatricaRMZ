@@ -2321,7 +2321,7 @@ export type MatricaApi = {
     // Собирает выбранные фото в один PDF и сохраняет по выбранному пути (по умолчанию — Рабочий стол).
     assemblePdf: (args: { fileIds: string[]; defaultName?: string }) => Promise<{ ok: true; savePath: string } | { ok: false; error: string }>;
     // Печатает выбранные фото (1 фото на A4) на принтер.
-    print: (args: { fileIds: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    print: (args: { fileIds: string[]; listHtml?: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     // Регистрирует пути файлов, брошенных мышью на карточку, и возвращает их для загрузки.
     dropped: (files: File[]) => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Достаёт из буфера обмена файлы / картинку / текст, сохраняя два последних во временный файл.

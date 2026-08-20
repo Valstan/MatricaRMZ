@@ -542,6 +542,9 @@ export function EngineDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
 
   const [saveStatus, setSaveStatus] = useState<string>('');
+  // Выборка файлов на вкладке «Фото и документы» — для карточной печати
+  // (модуль владеет выборкой, карточка получает снимок через onSelectionChange).
+  const filesSelectedIdsRef = useRef<string[]>([]);
   const engineBrandOptions =
     (linkLists.engine_brand ?? []).length > 0
       ? (linkLists.engine_brand ?? [])
@@ -1904,7 +1907,14 @@ export function EngineDetailsPage(props: {
       : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
   const arrivalDateMsForChecklist = fromInputDate(arrivalDate);
+  // Печать понимает, какая вкладка открыта (решение владельца 2026-08-20):
+  // на «Фото и документы» — работа с файлами (выбранные из списка или все),
+  // с выбором «список / содержимое / вместе»; на остальных — карточка как раньше.
   const handlePrint = () => {
+    if (activeTab === 'files') {
+      void handlePrintFilesTab();
+      return;
+    }
     const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
     printEngineReport(
       props.engine,
@@ -1917,6 +1927,91 @@ export function EngineDetailsPage(props: {
       },
       orderedPrintRows,
     );
+  };
+
+  const handlePrintFilesTab = async () => {
+    const all = Array.isArray(props.engine.attributes?.attachments)
+      ? (props.engine.attributes.attachments as Array<{ id?: string; name?: string; isObsolete?: boolean }>).filter(
+          (f) => f && typeof f.id === 'string' && typeof f.name === 'string',
+        )
+      : [];
+    if (all.length === 0) {
+      setSaveStatus('Нет прикреплённых файлов для печати.');
+      return;
+    }
+    const selectedSet = new Set(filesSelectedIdsRef.current);
+    const chosen = selectedSet.size > 0 ? all.filter((f) => selectedSet.has(String(f.id))) : all;
+    const scopeLabel = selectedSet.size > 0 ? `выбранные (${chosen.length} из ${all.length})` : `все (${all.length})`;
+    const choice = await pickChoice({
+      title: 'Что напечатать?',
+      detail: `Файлы вкладки «Фото и документы»: ${scopeLabel}. Отметьте нужные файлы в списке, чтобы печатать только их.`,
+      choices: [
+        { id: 'list', label: 'Только список файлов' },
+        { id: 'content', label: 'Только сами файлы' },
+        { id: 'both', label: 'Список и файлы вместе' },
+      ],
+    });
+    if (!choice) return;
+    const listHtml = fileListHtml(chosen);
+    const subtitle = engineNumber.trim() ? { subtitle: `Двигатель: ${engineNumber.trim()}` } : {};
+    if (choice === 'list') {
+      openPrintPreview({
+        title: 'Файлы двигателя',
+        ...subtitle,
+        sections: [{ id: 'files', title: `Файлы (${chosen.length})`, html: listHtml }],
+      });
+      return;
+    }
+    // Содержимое печатаем через тот же предпросмотр, что и остальная печать
+    // программы: картинки — постранично data-URL'ами, прочие типы перечисляем
+    // отдельно (их печатают из своих приложений). Прежний путь через скрытое
+    // окно main-процесса падал «Invalid printer settings» — из невидимого окна
+    // Chromium не умеет поднимать системный диалог печати.
+    const isImage = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+    const images = chosen.filter((f) => isImage(String(f.name)));
+    const others = chosen.filter((f) => !isImage(String(f.name)));
+    setSaveStatus('Готовлю файлы к печати…');
+    const pages: string[] = [];
+    for (const f of images) {
+      const r = await window.matrica.files.originalGet({ fileId: String(f.id) }).catch(() => null);
+      if (r && r.ok) {
+        pages.push(
+          `<div class="file-print-page"><div class="file-print-name">${escapeHtml(String(f.name))}</div><img src="${r.dataUrl}" /></div>`,
+        );
+      } else {
+        others.push(f);
+      }
+    }
+    setSaveStatus('');
+    const othersNote =
+      others.length > 0
+        ? `<p class="muted">Не печатаются как изображение (откройте из своего приложения): ${others
+            .map((f) => escapeHtml(String(f.name)))
+            .join(', ')}</p>`
+        : '';
+    const contentHtml =
+      pages.length > 0 || othersNote
+        ? `${othersNote}${pages.join('')}`
+        : '<div class="muted">Среди выбранных нет файлов, печатаемых как изображение.</div>';
+    const sections =
+      choice === 'both'
+        ? [
+            { id: 'files', title: `Список файлов (${chosen.length})`, html: listHtml },
+            { id: 'content', title: `Содержимое (${images.length})`, html: contentHtml },
+          ]
+        : [{ id: 'content', title: `Содержимое (${images.length})`, html: contentHtml }];
+    openPrintPreview({
+      title: 'Файлы двигателя',
+      ...subtitle,
+      sections,
+      extraCss: `
+        .file-print-page { page-break-before: always; }
+        .file-print-page:first-of-type { page-break-before: auto; }
+        .file-print-name { font-size: 12px; color: #475569; margin: 0 0 6px; }
+        .file-print-page img { max-width: 100%; max-height: 250mm; object-fit: contain; }
+        .muted { color: #64748b; }
+      `,
+    });
   };
 
   return (
@@ -2252,6 +2347,7 @@ export function EngineDetailsPage(props: {
           canUpload={props.canUploadFiles && canEditEnginesEff}
           canDelete={props.canUploadFiles && canEditEnginesEff}
           scope={{ ownerType: 'engine', ownerId: String(props.engineId), category: 'attachments' }}
+          onSelectionChange={(ids) => { filesSelectedIdsRef.current = ids; }}
           onChange={saveAttachments}
         />
       </div>

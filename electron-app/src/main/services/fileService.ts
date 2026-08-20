@@ -577,24 +577,54 @@ async function downloadOriginals(
   return { ok: true, files };
 }
 
-function buildPhotosHtml(imgPaths: string[]): string {
+function escapeHtmlMain(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildPhotosHtml(imgPaths: string[], opts?: { listHtml?: string; skippedNames?: string[] }): string {
+  const listPage = opts?.listHtml
+    ? `<div class="page page-list"><h2>Файлы</h2>${opts.listHtml}${
+        opts.skippedNames && opts.skippedNames.length > 0
+          ? `<p class="muted">Не печатаются как изображение (открывайте из своего приложения): ${opts.skippedNames.map(escapeHtmlMain).join(', ')}</p>`
+          : ''
+      }</div>`
+    : opts?.skippedNames && opts.skippedNames.length > 0
+      ? `<div class="page page-list"><p class="muted">Эти файлы не печатаются как изображение (открывайте из своего приложения): ${opts.skippedNames.map(escapeHtmlMain).join(', ')}</p></div>`
+      : '';
   const pages = imgPaths
     .map((p) => `<div class="page"><img src="${pathToFileURL(p).href}" /></div>`)
     .join('\n');
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page { size: A4; margin: 10mm; }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
 .page { width: 190mm; height: 277mm; display: flex; align-items: center; justify-content: center; page-break-after: always; }
+.page-list { display: block; height: auto; min-height: 0; font-size: 13px; }
+.page-list h2 { font-size: 16px; margin: 0 0 8px; }
+.page-list ul { margin: 0; padding-left: 18px; }
+.page-list li { margin: 2px 0; }
+.muted { color: #64748b; }
 .page:last-child { page-break-after: auto; }
 img { max-width: 100%; max-height: 100%; object-fit: contain; }
-</style></head><body>${pages}</body></html>`;
+</style></head><body>${listPage}${pages}</body></html>`;
 }
 
-async function renderPhotosWindow(imgPaths: string[]): Promise<BrowserWindow> {
+async function renderPhotosWindow(
+  imgPaths: string[],
+  opts?: { offscreen?: boolean; listHtml?: string; skippedNames?: string[] },
+): Promise<BrowserWindow> {
   const dir = await fsp.mkdtemp(join(tmpdir(), 'matrica-photos-'));
   const htmlPath = join(dir, 'photos.html');
-  await fsp.writeFile(htmlPath, buildPhotosHtml(imgPaths), 'utf8');
-  const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+  const buildOpts: { listHtml?: string; skippedNames?: string[] } = {};
+  if (opts?.listHtml) buildOpts.listHtml = opts.listHtml;
+  if (opts?.skippedNames) buildOpts.skippedNames = opts.skippedNames;
+  await fsp.writeFile(htmlPath, buildPhotosHtml(imgPaths, buildOpts), 'utf8');
+  // ⚠️ Печать из offscreen-окна падает «Invalid printer settings» (Chromium не
+  // умеет print из offscreen-рендера). Для печати окно скрытое, но НЕ offscreen;
+  // offscreen оставлен только пути printToPDF (там он работает и не мигает окном).
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { offscreen: opts?.offscreen !== false },
+  });
   await win.loadFile(htmlPath);
   return win;
 }
@@ -787,13 +817,25 @@ export async function photosAssemblePdf(
 export async function photosPrint(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { fileIds: string[]; downloadDir: string },
+  args: { fileIds: string[]; downloadDir: string; listHtml?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir);
   if (!dl.ok) return dl;
-  const win = await renderPhotosWindow(dl.files.map((f) => f.localPath));
+  // Печатаем изображениями только то, что изображением является; остальные
+  // файлы (PDF, docx, …) перечисляем на первой странице — раньше они уезжали
+  // битыми <img> и печатались пустыми листами.
+  const images = dl.files.filter((f) => mimeForPath(f.localPath).startsWith('image/'));
+  const skipped = dl.files.filter((f) => !mimeForPath(f.localPath).startsWith('image/'));
+  const opts: { offscreen: boolean; listHtml?: string; skippedNames?: string[] } = { offscreen: false };
+  if (args.listHtml) opts.listHtml = args.listHtml;
+  if (skipped.length > 0) opts.skippedNames = skipped.map((f) => basename(f.localPath));
+  if (images.length === 0 && !opts.listHtml && !opts.skippedNames) {
+    return { ok: false, error: 'Нет файлов для печати' };
+  }
+  const win = await renderPhotosWindow(images.map((f) => f.localPath), opts);
   try {
     await new Promise<void>((resolve, reject) => {
+      // Без silent: системный диалог печати — оператор выбирает принтер сам.
       win.webContents.print({ printBackground: true }, (ok, errorType) => {
         if (!ok) return reject(new Error(errorType || 'print failed'));
         resolve();

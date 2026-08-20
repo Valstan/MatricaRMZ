@@ -370,11 +370,11 @@ export function V3TabShell(props: {
             type="button"
             className="v3-account-btn"
             data-program-feedback-btn
-            title="Правка программы: замечание, вопрос или просьба разработчику"
+            title="Заметка разработчику: замечание, вопрос или просьба по программе"
             onClick={() => props.onProgramFeedback?.()}
           >
             <span aria-hidden="true">✏️</span>
-            <span className="v3-account-name">Правка</span>
+            <span className="v3-account-name">Заметка разработчику</span>
           </button>
         ) : null}
         {props.userLabel ? (

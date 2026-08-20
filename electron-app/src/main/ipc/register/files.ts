@@ -218,12 +218,16 @@ export function registerFilesIpc(ctx: IpcContext) {
     });
   });
 
-  ipcMain.handle('files:print', async (_e, args: { fileIds: string[] }) => {
+  ipcMain.handle('files:print', async (_e, args: { fileIds: string[]; listHtml?: string }) => {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
     const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
     if (!dir.ok) return dir;
-    return photosPrint(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileIds: args.fileIds, downloadDir: dir.path });
+    return photosPrint(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      fileIds: args.fileIds,
+      downloadDir: dir.path,
+      ...(typeof args.listHtml === 'string' && args.listHtml ? { listHtml: args.listHtml } : {}),
+    });
   });
 }
 
