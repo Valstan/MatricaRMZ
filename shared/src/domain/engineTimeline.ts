@@ -61,7 +61,7 @@ export const ENGINE_LIFECYCLE_PHASE_ORDER: Record<EngineLifecyclePhase, number> 
  * Реестр подписей типов операций. Покрывает и enum OperationTypeCode, и типы-носители
  * из domain (акты, статусы деталей, ремфонд). Неизвестный тип → generic-дескриптор.
  */
-const OPERATION_DESCRIPTORS: Record<string, OperationDescriptor> = {
+export const OPERATION_DESCRIPTORS: Record<string, OperationDescriptor> = {
   acceptance: { label: 'Приёмка', icon: '📥', phase: 'acceptance' },
   engine_intake: { label: 'Первичный ввод двигателя', icon: '📥', phase: 'acceptance' },
   kitting: { label: 'Комплектовка', icon: '🧰', phase: 'acceptance' },
@@ -76,6 +76,8 @@ const OPERATION_DESCRIPTORS: Record<string, OperationDescriptor> = {
   repair: { label: 'Ремонт', icon: '🛠️', phase: 'repair' },
   work_order: { label: 'Наряд', icon: '📝', phase: 'repair' },
   part_status_event: { label: 'Статус детали', icon: '⚙️', phase: 'repair' },
+  repair_fund_intake: { label: 'Приём в ремфонд', icon: '📦', phase: 'disassembly' },
+  scrap_intake: { label: 'Приём в утиль', icon: '🗑️', phase: 'disassembly' },
   repair_fund_instance: { label: 'Ремфонд — экземпляр', icon: '📦', phase: 'repair' },
   repair_fund_requirement: { label: 'Ремфонд — потребность', icon: '📋', phase: 'repair' },
   supply_request: { label: 'Заявка в снабжение', icon: '🧾', phase: 'repair' },
@@ -101,7 +103,7 @@ export function describeOperationType(operationType: string): OperationDescripto
 }
 
 /** Подписи статусов операций (общие коды workflow + сырой код как fallback). */
-const OPERATION_STATUS_LABELS: Record<string, string> = {
+export const OPERATION_STATUS_LABELS: Record<string, string> = {
   draft: 'Черновик',
   signed: 'Подписан',
   transferred: 'Передан',
