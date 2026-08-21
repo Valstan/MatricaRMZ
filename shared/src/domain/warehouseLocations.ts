@@ -52,5 +52,9 @@ export function warehouseLocationLabel(warehouseId: string | null | undefined, w
     const trimmed = (workshopName ?? '').trim();
     return trimmed ? `Цех ${trimmed}` : `Цех ${workshopCode}`;
   }
+  // Незнакомую локацию отдаём как есть: эта подпись используется КЛЮЧОМ группировки
+  // подытогов по складам (`presets/warehouse.ts`, оборотная ведомость) и заголовком
+  // карточки на экране локаций — общая подпись отсутствия схлопнула бы разные склады
+  // в одну строку и в один заголовок. Человеческое имя подставляет тот, кто его знает.
   return id;
 }

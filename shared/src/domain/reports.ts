@@ -193,7 +193,7 @@ export const ENGINES_CONTRACTS_BRAND_COLUMNS: ReportColumn[] = [
   { key: 'readyNotShippedQty', label: 'Готово, не отгружено, шт', kind: 'number', align: 'right' },
   { key: 'shippedQty', label: 'Отгружено, шт', kind: 'number', align: 'right' },
   { key: 'scrapQty', label: 'Утиль, шт', kind: 'number', align: 'right' },
-  { key: 'avgTatDays', label: 'Средний TAT, дн', kind: 'number', align: 'right' },
+  { key: 'avgTatDays', label: 'Средний срок ремонта, дн', kind: 'number', align: 'right' },
 ];
 
 /**
@@ -706,7 +706,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         key: 'sectionToken',
         label: 'Раздел (ДС)',
         placeholder: 'например: ДС 2 — пусто = весь контракт',
-        labelHint: 'Токен раздела: номер первичного контракта или «ДС n». Пусто — все разделы.',
+        labelHint: 'Раздел договора: номер основного договора или «ДС n» для дополнительного соглашения. Пусто — все разделы.',
       },
     ],
     columns: [
@@ -1420,17 +1420,17 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   },
   {
     id: 'warehouse_stock_path_audit',
-    title: 'Склад: аудит двойного учёта (номенклатура vs деталь)',
+    title: 'Склад: проверка двойного учёта (номенклатура и карточка детали)',
     description:
-      'Read-only диагностика: строки `erp_reg_stock_balance`, где одна и та же деталь может учитываться и по `nomenclature_id` (зеркало part), и по `part_card_id`, либо присутствует только один из контуров.',
+      'Проверка: одна и та же деталь числится на складе дважды — и по номенклатуре, и по карточке детали, — либо только в одном из двух мест. Отчёт ничего не меняет, только показывает.',
     filters: [{ type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = все)', optionsSource: 'warehouses' }],
     columns: [
       { key: 'issueKind', label: 'Тип' },
-      { key: 'warehouseId', label: 'Склад (id)' },
-      { key: 'partId', label: 'Деталь (id)' },
+      { key: 'warehouseId', label: 'Склад (код)' },
+      { key: 'partId', label: 'Деталь (код)' },
       { key: 'partLabel', label: 'Деталь' },
       { key: 'nomenclatureQty', label: 'Остаток по номенклатуре', kind: 'number', align: 'right' },
-      { key: 'partCardQty', label: 'Остаток по part_card_id', kind: 'number', align: 'right' },
+      { key: 'partCardQty', label: 'Остаток по карточке детали', kind: 'number', align: 'right' },
       { key: 'note', label: 'Примечание' },
     ],
   },
@@ -1479,7 +1479,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         key: 'engineBrandIds',
         label: 'Марки двигателей',
         labelHint:
-          'В расчёт попадают марки с активной default BOM. Пусто (после загрузки) — все такие марки из справочника.',
+          'В расчёт попадают марки с действующей основной спецификацией сборки. Пусто (после загрузки) — все такие марки из справочника.',
         optionsSource: 'brands',
         selectAllByDefault: true,
       },
@@ -1558,7 +1558,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         key: 'warehouseIds',
         label: 'Склады',
         labelHint:
-          'Логические локации: repair_fund, workshop_1..workshop_7, assembly_in_progress, scrap, default. Пустой список = все.',
+          'Ремонтный фонд, цеха 1–7, «в сборке», утиль, основной склад. Пустой список — все места хранения.',
         optionsSource: 'warehouses',
       },
       {
@@ -1566,7 +1566,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         key: 'movementTypes',
         label: 'Типы движений',
         labelHint:
-          'dismantle_in (в ремфонд), dismantle_scrap_in (в утиль при разборке), repair_out/_in (ремонт), assembly_consumption_out/_in (списание в сборку), assembly_return_out/_in_rework/_in_scrap (возврат), reversal_* (сторно).',
+          'Какие движения показать: разборка, ремонт, списание в сборку, возврат из сборки, сторно. Пусто — все движения.',
         options: [
           { value: 'dismantle_in', label: 'Разборка → ремфонд' },
           { value: 'dismantle_scrap_in', label: 'Разборка → утиль' },
@@ -1577,8 +1577,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
           { value: 'assembly_return_out', label: 'Возврат из сборки' },
           { value: 'assembly_return_in_rework', label: 'Возврат → ремфонд (доработка)' },
           { value: 'assembly_return_in_scrap', label: 'Возврат → утиль' },
-          { value: 'receipt', label: 'Приход (generic)' },
-          { value: 'issue', label: 'Расход (generic)' },
+          { value: 'receipt', label: 'Приход (прочий)' },
+          { value: 'issue', label: 'Расход (прочий)' },
           { value: 'writeoff', label: 'Списание' },
           { value: 'transfer_in', label: 'Перемещение: приход' },
           { value: 'transfer_out', label: 'Перемещение: расход' },
@@ -1587,9 +1587,9 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       {
         type: 'text',
         key: 'engineId',
-        label: 'ID двигателя',
-        placeholder: 'UUID (опц.)',
-        labelHint: 'Фильтр по engineId в записях движений — все движения, связанные с конкретным двигателем.',
+        label: 'Двигатель',
+        placeholder: '№ двигателя (необязательно)',
+        labelHint: 'Показать только движения по одному двигателю. Вводится номер двигателя из его карточки.',
       },
       {
         type: 'text',
@@ -1606,7 +1606,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'nomenclatureName', label: 'Деталь' },
       { key: 'nomenclatureCode', label: 'Код' },
       { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
-      { key: 'engineId', label: 'Двигатель' },
+      { key: 'engineLabel', label: '№ двигателя' },
       { key: 'documentDocNo', label: '№ документа' },
       { key: 'documentDocType', label: 'Тип документа' },
       { key: 'performedBy', label: 'Исполнитель' },
@@ -1654,13 +1654,13 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'norms_purchase_plan',
     title: 'План закупок по нормам',
     description:
-      'Для экономистов: BOM марки × норма расхода (%) × количество двигателей = план потребности; минус свободные остатки = к закупке. Нормы без типизированного процента считаются как 100%.',
+      'Для экономистов: набор норм замены по марке × процент замены × число двигателей = сколько нужно; минус свободные остатки = сколько закупить. Считается по нормам ремонта, а не по спецификации сборки: спецификация описывает комплект, а не то, как часто деталь меняют. Если процент не задан, деталь считается заменяемой полностью.',
     filters: [
       {
         type: 'select',
         key: 'brandId',
         label: 'Марка двигателя',
-        labelHint: 'Марка, по активному BOM которой считается план.',
+        labelHint: 'Марка двигателя: план считается по её действующему набору норм замены.',
         optionsSource: 'assemblyBrands',
       },
       {
@@ -1694,9 +1694,9 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   },
   {
     id: 'repair_fund_reconciliation',
-    title: 'Сверка ремфонда: экземпляры vs остаток',
+    title: 'Сверка ремонтного фонда: экземпляры и остаток',
     description:
-      'Контроль расползания двух учётов: клеймёные экземпляры «в ремфонде» (поэкземплярный реестр) против агрегатного остатка локации «Ремонтный фонд» по каждой номенклатуре. Экземпляров больше остатка — красный сигнал.',
+      'Сверка двух учётов ремонтного фонда: клеймёные экземпляры против общего остатка по каждой номенклатуре. Экземпляров больше остатка — расхождение, которое нужно разобрать: ошибка может быть с любой стороны.',
     filters: [
       {
         type: 'text',
@@ -1715,28 +1715,28 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'nomenclatureName', label: 'Деталь' },
       { key: 'nomenclatureCode', label: 'Код' },
       { key: 'instancesInFund', label: 'Экземпляров «в ремфонде»', kind: 'number', align: 'right' },
-      { key: 'fundQty', label: 'Остаток фонда (агрегат)', kind: 'number', align: 'right' },
-      { key: 'unnamedQty', label: 'Безымянных (остаток − экз.)', kind: 'number', align: 'right' },
-      { key: 'excessInstances', label: 'Экз. сверх остатка ⚠', kind: 'number', align: 'right' },
+      { key: 'fundQty', label: 'Остаток фонда, всего', kind: 'number', align: 'right' },
+      { key: 'unnamedQty', label: 'Без клейма (остаток минус экземпляры)', kind: 'number', align: 'right' },
+      { key: 'excessInstances', label: 'Экземпляров сверх остатка ⚠', kind: 'number', align: 'right' },
       { key: 'stampedNumbers', label: 'Личные №' },
     ],
   },
   {
     id: 'workshop_throughput',
     title: 'Выработка цехов',
-    description: 'Сумма отремонтированных деталей (movement_type=repair_in) по складу цеха и номенклатуре за период.',
+    description: 'Сколько деталей отремонтировано за период — по цехам и номенклатуре.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
       {
         type: 'multi_select',
         key: 'warehouseIds',
         label: 'Склады цехов',
-        labelHint: 'Фильтр по warehouse_id вида workshop_*. Пусто = все цеха.',
+        labelHint: 'Показать только выбранные цеха. Пусто — все цеха.',
         optionsSource: 'warehouses',
       },
     ],
     columns: [
-      { key: 'warehouseLabel', label: 'Цех (склад)' },
+      { key: 'warehouseLabel', label: 'Цех' },
       { key: 'nomenclatureName', label: 'Деталь' },
       { key: 'nomenclatureCode', label: 'Код' },
       { key: 'qtyRepaired', label: 'Отремонтировано, шт', kind: 'number', align: 'right' },
@@ -1747,8 +1747,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'engine_readiness_to_assemble',
     title: 'Готовность двигателей к сборке',
     description:
-      'Для каждого двигателя в фазах received/disassembled — список нехватающих деталей по BOM ' +
-      '(требуется − qty на workshop_* и repair_fund). Фаза двигателя берётся из EAV engine_phase.',
+      'Для каждого принятого или разобранного двигателя — каких деталей не хватает по спецификации сборки: ' +
+      'сколько нужно минус то, что уже лежит в цехах и в ремонтном фонде.',
     filters: [
       {
         type: 'multi_select',
@@ -1769,16 +1769,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'enginePhase', label: 'Фаза' },
       { key: 'totalComponents', label: 'Компонентов', kind: 'number', align: 'right' },
       { key: 'componentsShort', label: 'Дефицитных', kind: 'number', align: 'right' },
-      { key: 'totalShortQty', label: 'Σ дефицит, шт', kind: 'number', align: 'right' },
-      { key: 'shortageSummary', label: 'Дефициты (TOP-5)' },
+      { key: 'totalShortQty', label: 'Дефицит всего, шт', kind: 'number', align: 'right' },
+      { key: 'shortageSummary', label: 'Чего не хватает (первые пять)' },
     ],
   },
   {
     id: 'defect_returns_summary',
     title: 'Сводка возвратов брака из сборки',
     description:
-      'Возвраты деталей из сборки за период: суммы по mode (rework/scrap), по двигателям и номенклатуре. ' +
-      'Источник: movement_type=assembly_return_in_rework/scrap.',
+      'Детали, вернувшиеся из сборки за период: сколько ушло на доработку, сколько в утиль — по двигателям и номенклатуре.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
       {
@@ -1787,14 +1786,14 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         label: 'Режим возврата',
         options: [
           { value: 'all', label: 'Все' },
-          { value: 'rework', label: 'На доработку (rework)' },
-          { value: 'scrap', label: 'В утиль (scrap)' },
+          { value: 'rework', label: 'На доработку' },
+          { value: 'scrap', label: 'В утиль' },
         ],
       },
     ],
     columns: [
       { key: 'modeLabel', label: 'Режим' },
-      { key: 'engineId', label: 'Двигатель' },
+      { key: 'engineLabel', label: '№ двигателя' },
       { key: 'nomenclatureName', label: 'Деталь' },
       { key: 'nomenclatureCode', label: 'Код' },
       { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
@@ -1806,25 +1805,26 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'movement_integrity_audit',
     title: 'Проверка целостности журнала движений',
     description:
-      'Hash-chain аудит erp_reg_stock_movements: где prev_hash не совпадает с self_hash предыдущей записи. ' +
-      'Записи без хэшей считаются «до-цепочечными» (включены в БД до активации hash-chain).',
+      'Проверка журнала складских движений на скрытую правку: у каждой записи есть отпечаток, и он должен ' +
+      'совпадать с отпечатком предыдущей. Записи, сделанные до включения проверки, отпечатка не имеют и ' +
+      'показываются отдельно.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период (опц.)', startKey: 'startMs', endKey: 'endMs' },
       {
         type: 'checkbox',
         key: 'includePreChain',
-        label: 'Включать записи без хэша (pre-chain)',
+        label: 'Показывать записи, сделанные до включения проверки',
       },
     ],
     columns: [
       { key: 'status', label: 'Статус' },
       { key: 'performedAt', label: 'Дата/время', kind: 'datetime' },
-      { key: 'movementId', label: 'ID движения' },
+      { key: 'movementId', label: 'Код движения' },
       { key: 'movementType', label: 'Тип движения' },
       { key: 'warehouseId', label: 'Склад' },
-      { key: 'prevHash', label: 'prev_hash (фрагмент)' },
-      { key: 'selfHash', label: 'self_hash (фрагмент)' },
-      { key: 'expectedPrev', label: 'Ожидалось prev_hash' },
+      { key: 'prevHash', label: 'Отпечаток предыдущей записи' },
+      { key: 'selfHash', label: 'Отпечаток записи' },
+      { key: 'expectedPrev', label: 'Ожидался отпечаток' },
       { key: 'detail', label: 'Детали' },
     ],
   },
@@ -1841,7 +1841,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         key: 'engineId',
         label: 'Двигатель',
         optionsSource: 'engines',
-        labelHint: 'Двигатель, который комплектуем. Марка определяет BOM (активный, по умолчанию).',
+        labelHint: 'Двигатель, который комплектуем. По его марке подбирается действующая спецификация сборки.',
       },
       {
         type: 'checkbox',

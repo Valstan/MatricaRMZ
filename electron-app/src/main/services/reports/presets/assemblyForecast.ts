@@ -253,7 +253,7 @@ export function computeContractBasedAssemblyPriorityFromSnapshot(
 
       const byBrand = inRepairByContractAndBrand.get(cid) ?? new Map<string, string[]>();
       const list = byBrand.get(bid) ?? [];
-      list.push(engineNumber || `(№${engineId.slice(0, 8)})`);
+      list.push(engineNumber ? `№${engineNumber}` : '(без номера)');
       byBrand.set(bid, list);
       inRepairByContractAndBrand.set(cid, byBrand);
     }

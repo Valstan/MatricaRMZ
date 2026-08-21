@@ -46,27 +46,33 @@ import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
 import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext, type Snapshot } from '../context.js';
-import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel, relatedEntityLabel } from '../options.js';
+import {
+  buildOptions,
+  buildCounterpartyOptions,
+  resolveCounterpartyLabel,
+  relatedEntityLabel,
+  UNKNOWN_ENTITY_LABEL,
+  UNKNOWN_ENGINE_NUMBER_LABEL,
+  BRAND_MISSING,
+} from '../options.js';
 
 // Оператору в этих колонках нельзя показывать идентификатор: у двигателя нет ни
 // serial_number, ни name (таких атрибутов не заводит никто), поэтому прежние фолбэки
 // на engineId печатали в «№ двигателя» и «Марка» голый UUID.
-const ENGINE_NUMBER_MISSING = '(без номера)';
-const ENGINE_BRAND_MISSING = '(марка не указана)';
-const COMPONENT_NAME_MISSING = '(без названия)';
+
 
 // Внутренний номер сюда НЕ подставляем: он живёт в соседней колонке «Внутр. №», и
 // оператор получил бы одно и то же значение дважды, приняв заводское клеймо за номер
 // двигателя.
 function engineNumberLabel(attrs: Record<string, unknown>): string {
-  return pickHumanText(attrs.engine_number) || ENGINE_NUMBER_MISSING;
+  return pickHumanText(attrs.engine_number) || UNKNOWN_ENGINE_NUMBER_LABEL;
 }
 
 // Марку читаем из снимка, а не из карты опций фильтра: у опции своя подпись отсутствия
 // («(без названия)»), и, протекая в колонку, она давала на одну и ту же безымянную марку
 // два разных текста в разных разрезах отчёта.
 function engineBrandLabel(snapshot: Snapshot, attrs: Record<string, unknown>, brandId: string): string {
-  return pickHumanText(relatedEntityLabel(snapshot, brandId), attrs.engine_brand) || ENGINE_BRAND_MISSING;
+  return pickHumanText(relatedEntityLabel(snapshot, brandId), attrs.engine_brand) || BRAND_MISSING;
 }
 
 export async function buildEngineStagesReport(
@@ -497,7 +503,7 @@ export async function buildEnginesReport(
     const rows: Array<Record<string, ReportCellValue>> = [];
     for (const [brandKey, agg] of byBrand.entries()) {
       rows.push({
-        engineBrand: pickHumanText(relatedEntityLabel(snapshot, brandKey), brandKey) || ENGINE_BRAND_MISSING,
+        engineBrand: pickHumanText(relatedEntityLabel(snapshot, brandKey), brandKey) || BRAND_MISSING,
         arrivedQty: agg.arrived,
         atFactoryQty: agg.atFactory,
         readyNotShippedQty: agg.readyNotShipped,
@@ -831,7 +837,7 @@ export async function buildEngineReadinessToAssembleReport(
       attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
     );
     const engineNumber = engineNumberLabel(attrs);
-    const brandLabel = brandId ? relatedEntityLabel(snapshot, brandId) || ENGINE_BRAND_MISSING : '';
+    const brandLabel = brandId ? relatedEntityLabel(snapshot, brandId) || BRAND_MISSING : '';
 
     let kit = brandId ? brandKitCache.get(brandId) : { bomName: '', kitLines: [] as BomKitLine[] };
     if (!kit) {
@@ -849,7 +855,7 @@ export async function buildEngineReadinessToAssembleReport(
       const have = nomIds.reduce((acc, id) => acc + (stockByNom.get(id) ?? 0), 0);
       if (have < need) {
         shortages.push({
-          name: pickHumanText(slot.primary.name, slot.primary.code) || COMPONENT_NAME_MISSING,
+          name: pickHumanText(slot.primary.name, slot.primary.code) || UNKNOWN_ENTITY_LABEL,
           need,
           have,
         });
@@ -1093,7 +1099,7 @@ export async function buildEngineKittingReport(
   const engineNumber = engineNumberLabel(attrs);
   const brandId = normalizeText(attrs.engine_brand_id, '');
   if (!brandId) return empty(`Двигатель №${engineNumber}: марка не указана — BOM не определить`);
-  const brandLabel = relatedEntityLabel(snapshot, brandId) || ENGINE_BRAND_MISSING;
+  const brandLabel = relatedEntityLabel(snapshot, brandId) || BRAND_MISSING;
 
   const { bomName, kitLines } = await loadBomKitForBrand(db, ctx, brandId);
   if (kitLines.length === 0) {
@@ -1150,7 +1156,7 @@ export async function buildEngineKittingReport(
     if (avail <= 0) continue;
     availableByNom.set(nomId, (availableByNom.get(nomId) ?? 0) + avail);
     const bins = binsByNom.get(nomId) ?? [];
-    bins.push({ label: pickHumanText(loc?.name) || COMPONENT_NAME_MISSING, qty: avail });
+    bins.push({ label: pickHumanText(loc?.name) || UNKNOWN_ENTITY_LABEL, qty: avail });
     binsByNom.set(nomId, bins);
   }
 
@@ -1183,7 +1189,7 @@ export async function buildEngineKittingReport(
       .flatMap((id) => binsByNom.get(id) ?? [])
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 3);
-    const alternatives = slot.alternatives.map((l) => pickHumanText(l.name, l.code) || COMPONENT_NAME_MISSING);
+    const alternatives = slot.alternatives.map((l) => pickHumanText(l.name, l.code) || UNKNOWN_ENTITY_LABEL);
     const noteParts = [
       slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
       alternatives.length > 0 ? `или: ${alternatives.join(', ')}` : '',
@@ -1192,7 +1198,7 @@ export async function buildEngineKittingReport(
     ].filter(Boolean);
 
     rows.push({
-      componentName: pickHumanText(slot.primary.name, slot.primary.code) || COMPONENT_NAME_MISSING,
+      componentName: pickHumanText(slot.primary.name, slot.primary.code) || UNKNOWN_ENTITY_LABEL,
       componentCode: slot.primary.code,
       requiredQty,
       issuedQty,
@@ -1212,7 +1218,7 @@ export async function buildEngineKittingReport(
   );
 
   const totalPositions = slots.filter((s) => s.primary.qty > 0).length;
-  const engineNumberPart = engineNumber === ENGINE_NUMBER_MISSING ? ENGINE_NUMBER_MISSING : `№${engineNumber}`;
+  const engineNumberPart = engineNumber === UNKNOWN_ENGINE_NUMBER_LABEL ? UNKNOWN_ENGINE_NUMBER_LABEL : `№${engineNumber}`;
   const engineLabel = [engineNumberPart, engineInternalNumber ? `внутр. ${engineInternalNumber}` : '', brandLabel]
     .filter(Boolean)
     .join(' · ');
@@ -1320,7 +1326,7 @@ export async function buildNormsPurchasePlanReport(
   if (!brandId) return empty('Выберите марку двигателя в фильтре');
 
   const snapshot = await loadSnapshot(db);
-  const brandLabel = relatedEntityLabel(snapshot, brandId) || ENGINE_BRAND_MISSING;
+  const brandLabel = relatedEntityLabel(snapshot, brandId) || BRAND_MISSING;
   const { setName, setVersion, lines: normLines } = await loadRepairNormSetForBrand(ctx, brandId);
   if (normLines.length === 0) {
     return empty(`Марка «${brandLabel}»: активный набор норм ремонта не найден или сервер недоступен`);
@@ -1358,7 +1364,7 @@ export async function buildNormsPurchasePlanReport(
     totalToPurchaseQty += toPurchaseQty;
     if (onlyToPurchase && toPurchaseQty <= 0) continue;
     rows.push({
-      componentName: pickHumanText(line.name, line.code) || COMPONENT_NAME_MISSING,
+      componentName: pickHumanText(line.name, line.code) || UNKNOWN_ENTITY_LABEL,
       componentCode: line.code,
       qtyPerUnit: line.qtyPerEngine,
       normPercentLabel: String(line.replacementPercent),

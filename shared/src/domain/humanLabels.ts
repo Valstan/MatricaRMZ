@@ -89,9 +89,6 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   avgAmountRub: 'Средняя цена, ₽',
   onSiteQty: 'На заводе, шт.',
   years: 'Лет в отчёте',
-  acceptance: 'Приёмка',
-  shipment: 'Отгрузка',
-  customer_delivery: 'Доставка заказчику',
   overdueContracts: 'Просрочено, шт.',
   dueSoonContracts: 'Срок до 30 дней, шт.',
   withIgk: 'С ИГК, шт.',
@@ -100,7 +97,7 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   withoutSeparateAccount: 'Без отдельного счета, шт.',
   dualPathRows: 'Двойной учёт, шт.',
   nomOnlyRows: 'Только номенклатура, шт.',
-  partOnlyRows: 'Только part_card, шт.',
+  partOnlyRows: 'Только карточка детали, шт.',
   forecastRows: 'Строк прогноза, шт.',
   plannedEngines: 'Двигателей в плане, шт.',
   planQty: 'План, шт.',
@@ -110,7 +107,7 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   readyNotShippedQty: 'Готово, не отгружено, шт.',
   shippedQty: 'Отгружено, шт.',
   overdueDays: 'Просрочка, дн.',
-  avgTatDays: 'Средний TAT, дн.',
+  avgTatDays: 'Средний срок ремонта, дн.',
   positions: 'Позиций, шт.',
   customerQty: 'Ветка «заказчик», шт.',
   repairQty: 'Ветка «ремонт», шт.',
@@ -142,9 +139,9 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   totalRepaired: 'Отремонтировано, шт.',
   totalReturnedQty: 'Возвращено, шт.',
   returns: 'Возвратов, шт.',
-  okHashed: 'Записей с целой хеш-цепочкой, шт.',
+  okHashed: 'Записей с целым отпечатком, шт.',
   brokenLinks: 'Разрывов цепочки, шт.',
-  preChain: 'Записей до начала цепочки, шт.',
+  preChain: 'Записей до включения проверки, шт.',
   requests: 'Заявок, шт.',
   withReceipt: 'С приходом, шт.',
   withoutReceipt: 'Без прихода, шт.',
@@ -180,6 +177,21 @@ export function humanLabel(domain: HumanLabelDomainId, code: unknown, missing: s
   // или `toString` вернул бы функцию прототипа вместо подписи.
   if (!hasHumanLabel(domain, trimmed)) return missing;
   return DOMAINS[domain][trimmed] ?? missing;
+}
+
+export type ReportTotalKind = 'percent' | 'money' | 'number';
+
+/**
+ * Как показывать значение итога. Правило одно на проект: прежде классификация жила
+ * двумя одинаковыми копиями (сборщик main и предпросмотр рендерера) и требовала в ключе
+ * денег И «amount», И «rub» — из-за чего `priceRub`, `paidRub`, `deltaRub`, `finalRub`,
+ * `advanceRub` и `extraAdvanceRub` печатались голым числом под подписью, обещающей ₽.
+ */
+export function reportTotalKind(key: string): ReportTotalKind {
+  const normalized = key.toLowerCase();
+  if (normalized.includes('pct')) return 'percent';
+  if (normalized.includes('rub') || normalized.includes('₽')) return 'money';
+  return 'number';
 }
 
 /** Есть ли у кода подпись в домене — для тест-сторожа и для веток «показать как есть». */

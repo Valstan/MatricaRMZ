@@ -23,6 +23,7 @@ import {
   type WorkOrderStatusCode,
   type WorkOrdersReportRow,
   type WorkOrdersReportSortBy,
+  pickHumanText,
 } from '@matricarmz/shared';
 
 import {
@@ -35,7 +36,7 @@ import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { safeJsonParse, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate } from '../format.js';
 import { getPreset, getWorkshops, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
-import { relatedEntityLabel, buildOptions, buildCounterpartyOptions, UNKNOWN_ENTITY_LABEL } from '../options.js';
+import { relatedEntityLabel, buildOptions, buildCounterpartyOptions, UNKNOWN_ENTITY_LABEL, BRAND_MISSING } from '../options.js';
 
 export type NormalizedWorkOrderReportLine = {
   serviceName: string;
@@ -203,7 +204,7 @@ export async function buildWorkOrderCostsReport(
       rows.push({
         workOrderNumber: toNumber(payload.workOrderNumber),
         engineNumber: fallbackWorkLabel,
-        engineBrand: brandOptions.get(brandId) ?? normalizeText(partAttrs?.engine_brand, brandId),
+        engineBrand: pickHumanText(brandOptions.get(brandId), partAttrs?.engine_brand) || BRAND_MISSING,
         orderDate,
         workLabel: normalizeText(work?.serviceName, '(без названия)'),
         qty: Math.max(0, toNumber(work?.qty)),
@@ -426,9 +427,13 @@ export async function buildWorkOrdersReport(
       engineInternalNumber,
       counterparty,
       createdBy: creator?.name ?? createdByLogin,
-      workshopName: workshopNames.get(workshopId) ?? (workshopId || ''),
-      departmentName: departmentNames.get(departmentId) ?? (departmentId || ''),
-      structureName: workshopNames.get(workshopId) || departmentNames.get(departmentId) || workshopId || departmentId,
+      workshopName: pickHumanText(workshopNames.get(workshopId)) || (workshopId ? UNKNOWN_ENTITY_LABEL : ''),
+      departmentName: pickHumanText(departmentNames.get(departmentId)) || (departmentId ? UNKNOWN_ENTITY_LABEL : ''),
+      // Цеха приходят с сервера; при недоступном бэкенде карта пуста, и прежний код
+      // показывал в колонке идентификатор.
+      structureName:
+        pickHumanText(workshopNames.get(workshopId), departmentNames.get(departmentId)) ||
+        (workshopId || departmentId ? UNKNOWN_ENTITY_LABEL : ''),
       performers,
       crewCount: crew.length,
       responsible,
