@@ -60,7 +60,33 @@ TypeScript, React 18, Electron, Express + Drizzle (PostgreSQL), vitest. Новы
 
 ---
 
-# Этап 0. Доступ к файлу проверяется по владельцу, а не по типу сущности
+# Этап 0. Доступ к файлу проверяется по атрибуту и значению, а не по типу сущности
+
+> **✅ СДЕЛАНО 2026-08-21** (машина `PC79`). **Решение изменено против первоначального замысла** — ниже разбор; исходный текст этапа сохранён как история рассуждения.
+>
+> **Почему не проверка владельца.** Содержимое своего профиля пользователь задаёт сам, поэтому правило «своя строка — можно» оставляет ровно ту дыру, ради которой затевалось: оператор, узнавший UUID чужого файла, кладёт его себе в профиль и открывает файл. Хуже того, профиль — не главный канал: свободные строки своей карточки (`full_name` до 200 символов) пишутся через `PATCH /auth/profile` под одним лишь `requireAuth` (`backend-api/src/routes/auth.ts:537`), а типы сущностей, не перечисленные в `ENTITY_TYPE_REQUIREMENT`, в ledger **fail-open** (`shared/src/domain/ledgerAuthz.ts:160`) и падают в `default → masterdata.view`, который есть у каждого оператора. Проверка владельца не закрывает ни один из этих каналов. И наоборот: ссылок на файлы в профиле сегодня физически нет (они появятся только на этапе D), то есть буквальный этап 0 чинил бы будущее и оставлял настоящее.
+>
+> **Что сделано вместо.** Ветка 4 требует теперь три условия сразу: (1) атрибут заведомо файловый — код из `{attachments, photos, drawings, tech_docs}` **или** `attributeDefs.metaJson.ui === 'files'` (кастомные файловые поля договора заводятся с произвольным кодом); (2) значение реально ссылается на этот id — `jsonContainsId`, как в остальных пяти ветках, а не голый `LIKE`; (3) актор вправе видеть тип сущности-владельца — прежняя `permsForEntityTypeCode`. `ui_profile_json` в файловые не входит, поэтому проверка владельца не нужна вовсе.
+>
+> **Перечень файловых атрибутов исчерпывающий** — прогон по всем 652 ревизиям (`saveFiles`/`saveAttribute`, `ensureAttrDef`+Json, подписи «Фото/Чертёж/Документ/Скан/Файл/Вложение», `toFileRefs`, удалённые страницы, SQL-миграции, скрипты) сверх этих четырёх кодов и маркера `ui:'files'` не дал ничего. Граница честности: история репо начинается снимком `a2708ee`, прод жил и до него — **перед выкаткой прогнать инвентарный запрос на проде** (см. ниже).
+>
+> **Капкан, который едва не заехал в код:** join на `attribute_defs` НЕ фильтруется по `isNull(attributeDefs.deletedAt)`, хотя так написан весь остальной репозиторий. Мягко удалённый def при живых значениях — штатное состояние, а карточка двигателя единственная читает и пишет вложения через такой def (`engineService.ts:51`) — фильтр отдал бы 403 на файлы, которые карточка показывает. Записано как **GOTCHAS M88**.
+>
+> **Что этим слоем НЕ закрыто** (проверено ревью патча, формулировка уточнена — первая редакция этого абзаца сужала остаток неправомерно): подделать можно **корректный** `FileRef`, а не только текст. Оператор пишет `attachments` своей карточки (`own_employee`) или любой справочной сущности (`masterdata.edit`); больше того, `entity_types` и `attribute_defs` в ledger помечены `open` (`shared/src/domain/ledgerAuthz.ts:130-131`), а неизвестный код типа **fail-open** (`:160`) — то есть свой тип со своим `attachments` изготавливается без единого `*.edit`. Тот же класс живёт в ветках 1 (чат самому себе), 2 (своя заметка) и 5 (вопрос ИИванычу), которых патч не касался, а предпосылка «надо знать UUID» бесплатна: `file_assets` целиком отдаётся конструктору отчётов по `files.view`. Полный разбор и единственное настоящее лечение («связь несёт происхождение», вопрос к схеме Матрицы 4) — `PENDING_FOLLOWUPS` §Security п.6.
+>
+> **Инвентарный запрос перед выкаткой.** Ищет UUID-ы в атрибутах **вне** allow-list — то есть ровно те строки, у которых правка отбирает грант. Выдача шумная: сюда попадут и UUID-ы связей (`engine_brand_ids` и подобные), которые файлами не являются, — смотреть глазами и искать среди них похожее на `FileRef`. Нашлось такое — код надо дополнить до релиза.
+> ```sql
+> SELECT et.code AS entity_type, ad.code AS attr, ad.deleted_at, count(*) AS rows
+> FROM attribute_values av
+>   JOIN attribute_defs ad ON ad.id = av.attribute_def_id
+>   JOIN entities e ON e.id = av.entity_id
+>   JOIN entity_types et ON et.id = e.type_id
+> WHERE av.deleted_at IS NULL
+>   AND av.value_json ~ '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+>   AND ad.code NOT IN ('attachments', 'photos', 'drawings', 'tech_docs')
+>   AND coalesce(ad.meta_json, '') NOT LIKE '%"ui":"files"%'
+> GROUP BY 1, 2, 3 ORDER BY 4 DESC;
+> ```
 
 **Приоритет: первый, вне зависимости от остальных этапов.** Найдено при разведке этого пакета, к заказу владельца отношения не имеет, но нитка D без этого небезопасна.
 
@@ -75,7 +101,7 @@ TypeScript, React 18, Electron, Express + Drizzle (PostgreSQL), vitest. Новы
 **Interfaces:**
 - Produces: `eavRowGrantsFileAccess(row: { entityTypeCode: string; attrCode: string; ownerEntityId: string }, actorId: string, has: (perm: string) => boolean): boolean`, `UI_PROFILE_ATTR_CODE = 'ui_profile_json'`
 
-- [ ] **Шаг 1. Тест на решающую функцию — сначала красный**
+- [x] ~~**Шаг 1. Тест на решающую функцию — сначала красный**~~ → тесты на `attrDefHoldsFiles` дописаны в существующий `backend-api/src/tests/fileAccessService.test.ts` (плановый путь `src/services/…` завёл бы второй файл рядом с уже имеющимся)
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -101,13 +127,13 @@ describe('eavRowGrantsFileAccess', () => {
 });
 ```
 
-- [ ] **Шаг 2. Прогнать, убедиться что падает**
+- [x] **Шаг 2. Прогон**
 
 ```bash
 corepack pnpm -F @matricarmz/backend-api test -- fileAccessService
 ```
 
-- [ ] **Шаг 3. Реализация**
+- [x] **Шаг 3. Реализация** (по решению из блока выше, не по коду ниже)
 
 ```ts
 export const UI_PROFILE_ATTR_CODE = 'ui_profile_json';
@@ -127,13 +153,13 @@ export function eavRowGrantsFileAccess(
 
 Запрос на строках 167-175 заменяется на выборку с четвёртым `innerJoin` на `attributeDefs` (по `attributeValues.attributeDefId`), отдающую `entityTypes.code`, `attributeDefs.code`, `entities.id`, и цикл через `eavRowGrantsFileAccess`. Стоимость — один join к уже существующему полному скану по `LIKE`; частота не растёт, свои файлы отсекает ранняя ветка `file.createdByUserId === actor.id` (:84), результат кэшируется на 30 с.
 
-- [ ] **Шаг 4. Прогнать тест — зелёный; прогнать весь backend-тест — зелёный**
+- [x] **Шаг 4. Гейты зелёные** — `typecheck`, `lint --max-warnings 0`, backend-тесты 72 файла / 550 тестов (было 544)
 
 ```bash
 corepack pnpm -F @matricarmz/backend-api test
 ```
 
-- [ ] **Шаг 5. Коммит**
+- [x] **Шаг 5. Коммит**
 
 ```bash
 git add backend-api/src/services/fileAccessService.ts backend-api/src/services/fileAccessService.test.ts
