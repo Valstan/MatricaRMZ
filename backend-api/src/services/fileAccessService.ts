@@ -3,6 +3,7 @@ import { and, eq, isNull, like, or } from 'drizzle-orm';
 import { db } from '../database/db.js';
 import {
   aiChatRequests,
+  attributeDefs,
   attributeValues,
   chatMessages,
   directoryParts,
@@ -57,6 +58,31 @@ export function jsonContainsId(jsonStr: string | null | undefined, id: string): 
   return false;
 }
 
+// Attribute codes that hold FileRef[]. `attachments` is seeded for every entity
+// type (and auto-added to types the operator creates); `photos` covers tools and
+// simple masterdata; `drawings`/`tech_docs` stopped being written when they were
+// merged into `attachments`, but rows written before that merge are still live.
+const FILE_BEARING_ATTR_CODES = new Set(['attachments', 'photos', 'drawings', 'tech_docs']);
+
+// Only an attribute that is *meant* to carry files may authorize a file. Every
+// other EAV row is free-form content the requester can write themselves (own
+// full_name, own ui_profile_json, an attribute of an entity they created), so
+// treating "this id occurs somewhere in a type I may view" as proof of access
+// lets anyone who learns a file id grant it to themselves.
+export function attrDefHoldsFiles(attrCode: string, metaJson: string | null | undefined): boolean {
+  if (FILE_BEARING_ATTR_CODES.has(attrCode)) return true;
+  // Contract cards let the operator add file fields under an arbitrary code; the
+  // marker in metaJson is the only thing identifying them — the card itself picks
+  // them the same way.
+  if (!metaJson) return false;
+  try {
+    const meta: unknown = JSON.parse(metaJson);
+    return typeof meta === 'object' && meta !== null && (meta as { ui?: unknown }).ui === 'files';
+  } catch {
+    return false;
+  }
+}
+
 export function permsForEntityTypeCode(code: string): PermissionCode[] {
   switch (code) {
     case 'engine':
@@ -73,6 +99,22 @@ export function permsForEntityTypeCode(code: string): PermissionCode[] {
       // engine_brand, customer, tool, and other simple masterdata entities
       return [PermissionCode.MasterDataView];
   }
+}
+
+export type EavFileRow = {
+  typeCode: string;
+  attrCode: string;
+  attrMetaJson: string | null;
+  valueJson: string | null;
+};
+
+// The whole decision for one EAV row in one place, so the three conditions are
+// tested together: drop any one of them and access silently widens, while every
+// individual unit test below still passes.
+export function eavRowGrantsFileAccess(row: EavFileRow, fileId: string, has: (perm: string) => boolean): boolean {
+  if (!attrDefHoldsFiles(row.attrCode, row.attrMetaJson)) return false;
+  if (!permsForEntityTypeCode(row.typeCode).some((p) => has(p))) return false;
+  return jsonContainsId(row.valueJson, fileId);
 }
 
 type FileActor = { id: string; role?: string | null };
@@ -159,19 +201,35 @@ async function computeFileAccess(actor: FileActor, file: FileRow): Promise<boole
     }
   }
 
-  // 4) EAV entity attachment — gated by the owning entity type's view permission.
-  // Collect the DISTINCT owning entity-type codes across all referencing rows (a
-  // file deduped across many entities may span several types) and grant if the
-  // actor can view ANY of them. The id is a UUID, so a LIKE match is an exact
-  // reference (file ids never appear in link/scalar attribute values).
-  const eavCodes = await db
-    .selectDistinct({ code: entityTypes.code })
+  // 4) EAV entity attachment. A row grants the file only if all three hold: the
+  // attribute is one that carries files, the value really references this id (a
+  // bare LIKE also matches an id pasted into free text), and the actor may view
+  // the owning entity type. Dropping any one of them turns "I can write anywhere"
+  // into "I can read any file whose id I know".
+  // The join deliberately does NOT filter attributeDefs.deletedAt: deleting an
+  // attribute definition keeps its values, and the engine card still reads and
+  // writes attachments through a soft-deleted def — filtering here would 403 the
+  // very files that card shows.
+  const eavRows = await db
+    .select({
+      typeCode: entityTypes.code,
+      attrCode: attributeDefs.code,
+      attrMetaJson: attributeDefs.metaJson,
+      valueJson: attributeValues.valueJson,
+    })
     .from(attributeValues)
     .innerJoin(entities, eq(entities.id, attributeValues.entityId))
     .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .innerJoin(attributeDefs, eq(attributeDefs.id, attributeValues.attributeDefId))
     .where(and(isNull(attributeValues.deletedAt), like(attributeValues.valueJson, likeArg)));
-  for (const r of eavCodes) {
-    if (permsForEntityTypeCode(String(r.code || '')).some((p) => has(p))) return true;
+  for (const r of eavRows) {
+    const row: EavFileRow = {
+      typeCode: String(r.typeCode || ''),
+      attrCode: String(r.attrCode || ''),
+      attrMetaJson: r.attrMetaJson,
+      valueJson: r.valueJson,
+    };
+    if (eavRowGrantsFileAccess(row, id, has)) return true;
   }
 
   // 5) AI-чат: файл вопроса/ответа читаем владельцем запроса (ответные файлы
