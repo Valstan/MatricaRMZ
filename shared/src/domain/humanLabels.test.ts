@@ -7,6 +7,7 @@ import {
   humanLabelDomainCodes,
   looksLikeIdentifier,
   pickHumanText,
+  reportTotalKind,
 } from './humanLabels.js';
 
 const UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
@@ -85,6 +86,29 @@ describe('humanLabel', () => {
     // totalKtu жил только в сборщике main, years — только в предпросмотре рендерера.
     expect(humanLabel('report_total', 'totalKtu')).toBe('КТУ суммарно');
     expect(humanLabel('report_total', 'years')).toBe('Лет в отчёте');
+  });
+});
+
+describe('reportTotalKind', () => {
+  it('проценты узнаются по ключу', () => {
+    expect(reportTotalKind('progressPct')).toBe('percent');
+    expect(reportTotalKind('fulfillmentPct')).toBe('percent');
+  });
+
+  it('деньги узнаются по «rub» — а не только там, где рядом стоит «amount»', () => {
+    // Прежнее правило требовало в ключе И «amount», И «rub»: эти шесть ключей печатались
+    // голым числом под подписью, обещающей ₽.
+    for (const key of ['priceRub', 'paidRub', 'deltaRub', 'finalRub', 'advanceRub', 'extraAdvanceRub']) {
+      expect(reportTotalKind(key)).toBe('money');
+    }
+    expect(reportTotalKind('amountRub')).toBe('money');
+    expect(reportTotalKind('totalAmountRub')).toBe('money');
+  });
+
+  it('остальное — обычное число', () => {
+    expect(reportTotalKind('engines')).toBe('number');
+    expect(reportTotalKind('lines')).toBe('number');
+    expect(reportTotalKind('avgTatDays')).toBe('number');
   });
 });
 

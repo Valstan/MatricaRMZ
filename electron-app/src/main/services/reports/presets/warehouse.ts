@@ -9,6 +9,8 @@ import {
   warehouseDocumentStatusLabel,
   warehouseLocationLabel,
   tryParseWarehousePartNomenclatureMirror,
+  HUMAN_LABEL_DASH,
+  pickHumanText,
   type ReportCellValue,
   type ReportPresetFilters,
   type ReportPresetPreviewResult,
@@ -30,7 +32,39 @@ import {
 
 import { httpAuthed } from '../../httpClient.js';
 import { resolveContractLabel, safeJsonParse, toNumber, normalizeText, asArray, asBool, readPeriod, msToDate, statusLabel } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, type ReportBuildContext } from '../context.js';
+import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext, type Snapshot } from '../context.js';
+import { UNKNOWN_ENGINE_NUMBER_LABEL } from '../options.js';
+
+// Служебные «исполнители»: их пишет не человек, а сам клиент или веб-админка.
+const SERVICE_PERFORMERS: Record<string, string> = { local: 'Локальный клиент', 'web-admin': 'Веб-администратор' };
+
+function engineNumberFromSnapshot(snapshot: Snapshot, engineId: string): string {
+  if (!engineId) return HUMAN_LABEL_DASH;
+  const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+  return pickHumanText(attrs.engine_number) || UNKNOWN_ENGINE_NUMBER_LABEL;
+}
+
+/** Логин → ФИО по снимку сотрудников: в журналах оператору нужен человек, а не учётка. */
+function buildFullNameByLogin(snapshot: Snapshot): Map<string, string> {
+  const byLogin = new Map<string, string>();
+  for (const employeeId of getIdsByType(snapshot, 'employee')) {
+    const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
+    const login = normalizeText(attrs.login, '').toLowerCase();
+    if (!login) continue;
+    byLogin.set(login, pickHumanText(attrs.full_name) || login);
+  }
+  return byLogin;
+}
+
+// Логин остаётся видимым, если сотрудника в справочнике нет (уволен, не синхронизирован):
+// прочерк в журнале действий прячет след, а это хуже неудобной подписи.
+function performerLabel(fullNameByLogin: Map<string, string>, performedBy: unknown): string {
+  const login = normalizeText(performedBy, '');
+  if (!login) return HUMAN_LABEL_DASH;
+  const known = fullNameByLogin.get(login.toLowerCase());
+  if (known) return known;
+  return SERVICE_PERFORMERS[login.toLowerCase()] ?? login;
+}
 
 
 export type DefectSupplyPresetRow = {
@@ -325,6 +359,8 @@ export async function buildPartMovementJournalReport(
   // Phase 2.4 PR 2.5: lookup uuid→{code,name,type} для filter compare и label resolve.
   // UI после v1.30.0 шлёт UUID в warehouseIds.
   const locByUuid = await getWarehouseLocationsById(ctx);
+  const snapshot = await loadSnapshot(db);
+  const fullNameByLogin = buildFullNameByLogin(snapshot);
 
   const movementRows = await db
     .select()
@@ -367,7 +403,9 @@ export async function buildPartMovementJournalReport(
     if (movementTypeFilter.length > 0 && !movementTypeFilter.includes(movementType)) continue;
 
     const engineId = raw.engineId ? String(raw.engineId) : '';
-    if (engineIdFilter && engineId !== engineIdFilter) continue;
+    // Оператор вводит номер двигателя, а не его код: сравниваем и с тем, и с другим,
+    // иначе фильтр, подписанный «№ двигателя», не находил бы ничего.
+    if (engineIdFilter && engineId !== engineIdFilter && engineNumberFromSnapshot(snapshot, engineId) !== engineIdFilter) continue;
 
     const nomenclatureId = String(raw.nomenclatureId ?? '');
     const nomen = nomenById.get(nomenclatureId);
@@ -381,7 +419,7 @@ export async function buildPartMovementJournalReport(
     const qty = Number(raw.qty ?? 0);
     totalQty += qty;
 
-    const locLabel = locByUuid.get(warehouseLocationId)?.name ?? warehouseLocationLabel(legacyWarehouseId, null);
+    const locLabel = pickHumanText(locByUuid.get(warehouseLocationId)?.name) || warehouseLocationLabel(legacyWarehouseId, null);
     rows.push({
       performedAt,
       movementTypeLabel: movementTypeLabel(movementType),
@@ -390,10 +428,10 @@ export async function buildPartMovementJournalReport(
       nomenclatureName: nomen?.name ?? '',
       nomenclatureCode: nomen?.code ?? '',
       qty,
-      engineId,
+      engineLabel: engineNumberFromSnapshot(snapshot, engineId),
       documentDocNo: header?.docNo ?? '',
       documentDocType: docTypeLabel(header?.docType ?? ''),
-      performedBy: raw.performedBy ? String(raw.performedBy) : '',
+      performedBy: performerLabel(fullNameByLogin, raw.performedBy),
       reason: raw.reason ? String(raw.reason) : '',
     });
   }
@@ -497,7 +535,7 @@ export async function buildStockTurnoverReport(
       const hay = `${nomen?.name ?? ''} ${nomen?.code ?? ''}`.toLowerCase();
       if (!hay.includes(nomenclatureSearch)) continue;
     }
-    const warehouseLabel = locByUuid.get(warehouseLocationId)?.name ?? warehouseLocationLabel(warehouseLocationId, null);
+    const warehouseLabel = pickHumanText(locByUuid.get(warehouseLocationId)?.name) || warehouseLocationLabel(warehouseLocationId, null);
     rows.push({
       warehouseLabel,
       nomenclatureName: nomen?.name ?? nomenclatureId,
@@ -590,7 +628,7 @@ export async function buildWorkshopThroughputReport(
     const [locationUuid, nomenclatureId] = key.split('::');
     const nomen = nomenById.get(String(nomenclatureId ?? ''));
     totalQty += v.qty;
-    const locName = locByUuid.get(String(locationUuid ?? ''))?.name ?? warehouseLocationLabel(String(locationUuid ?? ''), null);
+    const locName = pickHumanText(locByUuid.get(String(locationUuid ?? ''))?.name) || warehouseLocationLabel(String(locationUuid ?? ''), null);
     rows.push({
       warehouseLabel: locName,
       nomenclatureName: nomen?.name ?? '',
@@ -618,6 +656,7 @@ export async function buildDefectReturnsSummaryReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
 ): Promise<ReportPresetPreviewResult> {
+  const snapshot = await loadSnapshot(db);
   const startMs = Number((filters as Record<string, unknown> | undefined)?.startMs ?? 0);
   const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
   const modeFilter = String((filters as Record<string, unknown> | undefined)?.mode ?? 'all');
@@ -663,7 +702,9 @@ export async function buildDefectReturnsSummaryReport(
     totalQty += v.qty;
     rows.push({
       modeLabel: v.mode === 'rework' ? 'На доработку' : 'В утиль',
-      engineId: String(engineId ?? '—'),
+      // Ключ агрегации остаётся сырым id — схлопывать разные двигатели в одну строку
+      // только потому, что у обоих нет номера, нельзя.
+      engineLabel: engineId && engineId !== '—' ? engineNumberFromSnapshot(snapshot, engineId) : HUMAN_LABEL_DASH,
       nomenclatureName: nomen?.name ?? '',
       nomenclatureCode: nomen?.code ?? '',
       qty: v.qty,
@@ -712,7 +753,7 @@ export async function buildMovementIntegrityAuditReport(
   for (const raw of sorted) {
     const performedAt = Number(raw.performedAt ?? 0);
     const movementId = String(raw.id ?? '');
-    const movementType = String(raw.movementType ?? '');
+    const movementType = movementTypeLabel(String(raw.movementType ?? ''));
     // Phase 2.4 PR 2.5: предпочитаем uuid (после DROP legacy warehouseId уйдёт), fallback на legacy.
     const warehouseId = String(raw.warehouseLocationId ?? raw.warehouseId ?? '');
     const selfHash = raw.selfHash ? String(raw.selfHash) : null;
@@ -724,7 +765,7 @@ export async function buildMovementIntegrityAuditReport(
       if (startMs > 0 && performedAt < startMs) continue;
       if (endMs > 0 && performedAt > endMs) continue;
       rows.push({
-        status: 'pre-chain',
+        status: 'До включения проверки',
         performedAt,
         movementId,
         movementType,
@@ -744,15 +785,17 @@ export async function buildMovementIntegrityAuditReport(
       if (startMs > 0 && performedAt < startMs) continue;
       if (endMs > 0 && performedAt > endMs) continue;
       rows.push({
-        status: 'BROKEN',
+        status: 'Разрыв цепочки',
         performedAt,
         movementId,
         movementType,
         warehouseId,
-        prevHash: prevHash ? prevHash.slice(0, 12) : '(null)',
+        prevHash: prevHash ? prevHash.slice(0, 12) : HUMAN_LABEL_DASH,
         selfHash: selfHash.slice(0, 12),
-        expectedPrev: expectedPrev ? expectedPrev.slice(0, 12) : '(null)',
-        detail: `Ожидалось prev_hash=${expectedPrev ?? '(null)'}, фактически ${prevHash ?? '(null)'}`,
+        expectedPrev: expectedPrev ? expectedPrev.slice(0, 12) : HUMAN_LABEL_DASH,
+        // Полные отпечатки, а не срез: усечённые уже стоят в соседних колонках, и без
+        // полного значения строку не с чем сверить при разборе расхождения.
+        detail: `Ожидался отпечаток ${expectedPrev || HUMAN_LABEL_DASH}, фактически ${prevHash || HUMAN_LABEL_DASH}`,
       });
     } else {
       okCount += 1;
@@ -767,8 +810,8 @@ export async function buildMovementIntegrityAuditReport(
     title: preset.title,
     subtitle:
       brokenCount > 0
-        ? `НАРУШЕНА цепочка: ${brokenCount} разрыв(ов) из ${okCount + brokenCount} hashed`
-        : `Цепочка целостна: ${okCount} hashed-записей, ${preChainCount} pre-chain`,
+        ? `Цепочка нарушена: ${brokenCount} разрыв(ов) из ${okCount + brokenCount} проверенных записей`
+        : `Цепочка цела: проверено ${okCount} записей, ещё ${preChainCount} сделаны до включения проверки`,
     columns: preset.columns,
     rows,
     totals: { okHashed: okCount, brokenLinks: brokenCount, preChain: preChainCount },

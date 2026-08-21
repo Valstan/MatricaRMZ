@@ -5,6 +5,7 @@ import {
   OPERATION_DESCRIPTORS,
   type EngineLifecyclePhase,
   humanLabel,
+  reportTotalKind,
   type ReportCellValue,
   type ReportColumn,
   type ReportPresetFilters,
@@ -53,9 +54,9 @@ export const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   withSeparateAccount: 'Количество контрактов с заполненным отдельным счетом.',
   withoutSeparateAccount: 'Количество контрактов без отдельного счета.',
   avgAmountRub: 'Средняя цена позиции в отчете.',
-  dualPathRows: 'Строки, где остаток одновременно ведётся по номенклатуре-зеркалу и по part_card_id.',
-  nomOnlyRows: 'Строки, где остаток есть только по номенклатуре-зеркалу детали.',
-  partOnlyRows: 'Строки, где остаток есть только по part_card_id без зеркальной номенклатуры.',
+  dualPathRows: 'Позиции, где остаток одной и той же детали числится дважды — и по номенклатуре, и по карточке детали.',
+  nomOnlyRows: 'Позиции, где остаток числится только по номенклатуре.',
+  partOnlyRows: 'Позиции, где остаток числится только по карточке детали, без номенклатуры.',
   forecastRows: 'Количество строк таблицы прогноза (по дням и маркам).',
   plannedEngines: 'Суммарно запланированных двигателей к сборке по строкам прогноза.',
 };
@@ -66,16 +67,14 @@ export function labelTotalKey(key: string): string {
 
 export function formatTotalValue(key: string, raw: unknown): string {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return String(raw ?? '');
-  const normalizedKey = key.toLowerCase();
-  const isPercent = normalizedKey.includes('pct');
-  if (isPercent) {
-    return formatRuPercent(raw, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  switch (reportTotalKind(key)) {
+    case 'percent':
+      return formatRuPercent(raw, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+    case 'money':
+      return formatRuMoney(raw, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    default:
+      return formatRuNumber(raw, { maximumFractionDigits: 2 });
   }
-  const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
-  if (isMoney) {
-    return formatRuMoney(raw, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  return formatRuNumber(raw, { maximumFractionDigits: 2 });
 }
 
 export function formatTotalsForDisplay(totals: Record<string, unknown>) {

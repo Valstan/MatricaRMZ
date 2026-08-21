@@ -9,7 +9,10 @@ import {
   type ReportPresetPreviewResult,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
+  pickHumanText,
   } from '@matricarmz/shared';
+
+
 
 
 
@@ -19,7 +22,13 @@ import {
 
 import { toNumber, normalizeText, asArray, asBool, asNumberOrNull, readPeriod, msToDate, entityLabel } from '../format.js';
 import { getPreset, getWorkshops, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
-import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
+import {
+  buildOptions,
+  buildCounterpartyOptions,
+  resolveCounterpartyLabel,
+  UNKNOWN_ENTITY_LABEL,
+  NOT_SPECIFIED_LABEL,
+} from '../options.js';
 import { collectContractTotals, collectContractEngineQty } from './contracts.js';
 
 export async function buildEmployeesRosterReport(
@@ -57,24 +66,30 @@ export async function buildEmployeesRosterReport(
     const terminationDate = asNumberOrNull(attrs.termination_date);
     const employmentCode = resolveEmploymentStatusCode(normalizeText(attrs.employment_status, ''), terminationDate);
     if (employmentFilter !== 'all' && employmentCode !== employmentFilter) continue;
-    const fullName = normalizeText(
-      attrs.full_name,
-      [normalizeText(attrs.last_name, ''), normalizeText(attrs.first_name, ''), normalizeText(attrs.middle_name, '')]
-        .filter(Boolean)
-        .join(' ')
-        .trim() || employeeId,
-    );
+    // Идентификатор в колонке «ФИО» — не подпись: у сотрудника без имени показываем это
+    // прямо, иначе оператор принимает код за фамилию.
+    const fullName =
+      pickHumanText(
+        attrs.full_name,
+        [normalizeText(attrs.last_name, ''), normalizeText(attrs.first_name, ''), normalizeText(attrs.middle_name, '')]
+          .filter(Boolean)
+          .join(' ')
+          .trim(),
+      ) || UNKNOWN_ENTITY_LABEL;
     rows.push({
       fullName,
       personnelNumber: normalizeText(attrs.personnel_number, ''),
       position: normalizeText(attrs.role, ''),
-      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)'),
-      workshopName: workshopOptions.get(workshopId) ?? (workshopId || ''),
+      // ВНИМАНИЕ: эта подпись служит ключом группировки подытогов (:113), поэтому общая
+      // подпись отсутствия здесь недопустима — она схлопнет разные подразделения в одну
+      // строку «Итого». Человеческое название подставляем, когда оно есть.
+      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || NOT_SPECIFIED_LABEL),
+      // Цех приходит с сервера; при недоступном бэкенде карта пуста.
+      workshopName: pickHumanText(workshopOptions.get(workshopId)) || (workshopId ? UNKNOWN_ENTITY_LABEL : ''),
       structureKind: workshopId ? 'Цех' : departmentId ? 'Подразделение' : 'Не назначено',
       structureName:
-        workshopOptions.get(workshopId) ??
-        departmentOptions.get(departmentId) ??
-        normalizeText(attrs.department, workshopId || departmentId || '(не указано)'),
+        pickHumanText(workshopOptions.get(workshopId), departmentOptions.get(departmentId), attrs.department) ||
+        NOT_SPECIFIED_LABEL,
       birthDate: asNumberOrNull(attrs.birth_date),
       birthday: (() => {
         const birthDate = asNumberOrNull(attrs.birth_date);
@@ -236,9 +251,10 @@ export async function buildToolsInventoryReport(
 
     rows.push({
       toolNumber: normalizeText(attrs.tool_number, ''),
-      name: normalizeText(attrs.name, entityLabel(attrs, toolId)),
+      name: pickHumanText(attrs.name, entityLabel(attrs, '')) || UNKNOWN_ENTITY_LABEL,
       serialNumber: normalizeText(attrs.serial_number, ''),
-      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)'),
+      // Ключ группировки подытогов (:271) — см. оговорку выше.
+      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || NOT_SPECIFIED_LABEL),
       receivedAt,
       retiredAt,
       retireReason: normalizeText(attrs.retire_reason, ''),
@@ -291,7 +307,7 @@ export async function buildServicesPricelistReport(
   const partNames = new Map(
     getIdsByType(snapshot, 'part').map((partId) => {
       const attrs = snapshot.attrsByEntity.get(partId) ?? {};
-      const label = normalizeText(attrs.name, normalizeText(attrs.article, partId));
+      const label = pickHumanText(attrs.name, attrs.article) || UNKNOWN_ENTITY_LABEL;
       return [partId, label] as const;
     }),
   );
@@ -306,7 +322,7 @@ export async function buildServicesPricelistReport(
       .filter(Boolean)
       .join(', ');
     rows.push({
-      serviceName: normalizeText(attrs.name, serviceId),
+      serviceName: pickHumanText(attrs.name) || UNKNOWN_ENTITY_LABEL,
       unit: normalizeText(attrs.unit, ''),
       priceRub: Math.max(0, toNumber(attrs.price)),
       linkedParts,
@@ -337,7 +353,7 @@ export async function buildProductsCatalogReport(db: BetterSQLite3Database): Pro
   for (const productId of getIdsByType(snapshot, 'product')) {
     const attrs = snapshot.attrsByEntity.get(productId) ?? {};
     rows.push({
-      productName: normalizeText(attrs.name, productId),
+      productName: pickHumanText(attrs.name) || UNKNOWN_ENTITY_LABEL,
       article: normalizeText(attrs.article, ''),
       unit: normalizeText(attrs.unit, ''),
       priceRub: Math.max(0, toNumber(attrs.price)),
@@ -384,8 +400,9 @@ export async function buildPartsCompatibilityReport(
     if (supplierFilter.length > 0 && (!supplierId || !supplierFilter.includes(supplierId))) continue;
     seenPartBrandPairs.add(`${partId}::${brandId}`);
     rows.push({
-      partName: normalizeText(partAttrs.name, partId),
+      partName: pickHumanText(partAttrs.name) || UNKNOWN_ENTITY_LABEL,
       article: normalizeText(partAttrs.article, ''),
+      // Ключ группировки подытогов по маркам — общая подпись схлопнула бы разные марки.
       engineBrand: brandOptions.get(brandId) ?? normalizeText(partAttrs.engine_brand, brandId),
       assemblyUnitNumber: normalizeText(linkAttrs.assembly_unit_number ?? partAttrs.assembly_unit_number, ''),
       qtyPerEngine: Math.max(0, toNumber(linkAttrs.quantity)),
@@ -409,7 +426,7 @@ export async function buildPartsCompatibilityReport(
       const pairKey = `${partId}::${brandId}`;
       if (seenPartBrandPairs.has(pairKey)) continue;
       rows.push({
-        partName: normalizeText(attrs.name, partId),
+        partName: pickHumanText(attrs.name) || UNKNOWN_ENTITY_LABEL,
         article: normalizeText(attrs.article, ''),
         engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
         assemblyUnitNumber: normalizeText(attrs.assembly_unit_number, ''),

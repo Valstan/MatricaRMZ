@@ -1,5 +1,5 @@
 import type { ReportCellValue, ReportFilterSpec, ReportPresetDefinition, ReportPresetFilters, ReportPresetPreviewResult } from '@matricarmz/shared';
-import { humanLabel, renderEngineFlowPrintInnerHtml, renderWorkOrdersReportInner } from '@matricarmz/shared';
+import { humanLabel, renderEngineFlowPrintInnerHtml, renderWorkOrdersReportInner, reportTotalKind } from '@matricarmz/shared';
 
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from './dateUtils.js';
 import type { PrintSection } from './printPreview.js';
@@ -202,16 +202,14 @@ function reportTotalLabel(key: string): string {
 
 function formatReportTotalValue(key: string, value: unknown): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return String(value ?? '');
-  const normalizedKey = key.toLowerCase();
-  const isPercent = normalizedKey.includes('pct');
-  if (isPercent) {
-    return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  switch (reportTotalKind(key)) {
+    case 'percent':
+      return formatRuPercent(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    case 'money':
+      return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    default:
+      return formatRuNumber(value, { maximumFractionDigits: 2 });
   }
-  const isMoney = normalizedKey.includes('amount') && (normalizedKey.includes('rub') || normalizedKey.includes('₽'));
-  if (isMoney) {
-    return formatRuMoney(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  return formatRuNumber(value, { maximumFractionDigits: 2 });
 }
 
 export function formatReportTotals(totals: Record<string, unknown>): string[] {

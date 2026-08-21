@@ -14,11 +14,18 @@ import {
   type ReportPresetFilters,
   type ReportPresetPreviewResult,
   STATUS_CODES,
+  HUMAN_LABEL_DASH,
+  pickHumanText,
 } from '@matricarmz/shared';
 
 import { resolveContractLabel, normalizeText, asArray, readPeriod, msToDate } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
-import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
+import {
+  buildOptions,
+  buildCounterpartyOptions,
+  resolveCounterpartyLabel,
+  UNKNOWN_ENGINE_NUMBER_LABEL,
+} from '../options.js';
 
 // Отчёты по платежам за двигатели (план engine-payments-2026-07, этап 5).
 // Источник — контрактный EAV-атрибут contract_payments (слоты + платежи в копейках).
@@ -46,6 +53,14 @@ function engineRepairedFlags(attrs: Record<string, unknown>): Partial<Record<str
   const flags: Partial<Record<string, boolean>> = {};
   for (const code of STATUS_CODES) flags[code] = Boolean(attrs[code]);
   return flags;
+}
+
+// Ключ раздела договора: 'primary' — основной договор, «ДС n» — дополнительное
+// соглашение. Оператору служебное слово primary ничего не говорит.
+function sectionLabel(sectionKey: string): string {
+  const key = String(sectionKey ?? '').trim();
+  if (!key) return HUMAN_LABEL_DASH;
+  return key === 'primary' ? 'Основной договор' : key;
 }
 
 export async function buildContractPaymentsMatrixReport(
@@ -77,13 +92,17 @@ export async function buildContractPaymentsMatrixReport(
 
   const rows: Array<Record<string, ReportCellValue>> = [];
   let emptySlotIndex = 0;
-  const slots = sectionToken ? cp.slots.filter((s) => s.sectionKey === sectionToken) : cp.slots;
+  // Колонка показывает «Основной договор», поэтому фильтр обязан принимать и подпись,
+  // и служебный ключ — иначе введённое из отчёта значение не находит ничего.
+  const slots = sectionToken
+    ? cp.slots.filter((s) => s.sectionKey === sectionToken || sectionLabel(s.sectionKey) === sectionToken)
+    : cp.slots;
   for (const slot of slots) {
     const engineAttrs = slot.engineId ? snapshot.attrsByEntity.get(slot.engineId) ?? {} : {};
     const engineNumber = slot.engineId ? normalizeText(engineAttrs.engine_number, '') : '';
     if (!slot.engineId) emptySlotIndex += 1;
     const engineLabel = slot.engineId
-      ? engineNumber || slot.engineId.slice(0, 8)
+      ? engineNumber || UNKNOWN_ENGINE_NUMBER_LABEL
       : `слот №${emptySlotIndex} (без двигателя)`;
     const brandId = slot.engineBrandId ?? (slot.engineId ? normalizeText(engineAttrs.engine_brand_id, '') : '');
     const totals = slotTotals(slot);
@@ -99,8 +118,8 @@ export async function buildContractPaymentsMatrixReport(
           : `осталось ${cd.daysLeft} дн.`;
     rows.push({
       engineLabel,
-      brandLabel: brandId ? brandOptions.get(brandId) ?? '' : '',
-      sectionToken: slot.sectionKey,
+      brandLabel: brandId ? pickHumanText(brandOptions.get(brandId)) : '',
+      sectionToken: sectionLabel(slot.sectionKey),
       priceRub: kopToRub(totals.priceKop),
       advanceRub: kopToRub(sumByKind(slot, ['advance'])),
       extraAdvanceRub: kopToRub(sumByKind(slot, ['extra_advance'])),
@@ -131,7 +150,7 @@ export async function buildContractPaymentsMatrixReport(
     counterpartyId ? `Заказчик: ${resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId)}` : '',
     sections.primary.signedAt ? `заключён ${msToDate(sections.primary.signedAt)}` : '',
     sections.primary.dueAt ? `исполнение до ${msToDate(sections.primary.dueAt)}` : '',
-    sectionToken ? `раздел: ${sectionToken}` : 'все разделы',
+    sectionToken ? `раздел: ${sectionLabel(sectionToken)}` : 'все разделы',
   ].filter(Boolean);
   return {
     ok: true,
@@ -177,7 +196,7 @@ export async function buildPaymentsOverviewReport(
       if (!slot.engineId) emptySlotIndex += 1;
       const engineAttrs = slot.engineId ? snapshot.attrsByEntity.get(slot.engineId) ?? {} : {};
       const engineLabel = slot.engineId
-        ? normalizeText(engineAttrs.engine_number, '') || slot.engineId.slice(0, 8)
+        ? normalizeText(engineAttrs.engine_number, '') || UNKNOWN_ENGINE_NUMBER_LABEL
         : `слот №${emptySlotIndex} (без двигателя)`;
       for (const p of slot.payments) {
         if (p.kind === 'contract_price') continue;
@@ -191,7 +210,7 @@ export async function buildPaymentsOverviewReport(
           contractLabel,
           counterpartyLabel,
           engineLabel,
-          sectionToken: slot.sectionKey,
+          sectionToken: sectionLabel(slot.sectionKey),
           kindLabel: PAYMENT_KIND_LABELS[p.kind],
           amountRub: kopToRub(p.amountKop),
           // скрытый ключ сортировки

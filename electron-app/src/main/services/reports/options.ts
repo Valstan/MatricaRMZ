@@ -56,8 +56,12 @@ export function joinOptionSearch(parts: Array<unknown>): string | undefined {
   return items.length > 0 ? items.join(' ') : undefined;
 }
 
+// Подписи отсутствия — одним набором на все отчёты: иначе одна и та же безымянная
+// марка называется в двух отчётах по-разному, и оператор считает их разными.
 export const UNKNOWN_ENTITY_LABEL = '(без названия)';
 export const UNKNOWN_ENGINE_NUMBER_LABEL = '(без номера)';
+export const BRAND_MISSING = '(марка не указана)';
+export const NOT_SPECIFIED_LABEL = '(не указано)';
 
 export function relatedEntityLabel(snapshot: Snapshot, entityId: string): string {
   if (!entityId) return '';
