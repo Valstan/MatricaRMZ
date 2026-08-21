@@ -35,7 +35,7 @@ import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { safeJsonParse, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate } from '../format.js';
 import { getPreset, getWorkshops, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
-import { relatedEntityLabel, buildOptions, buildCounterpartyOptions } from '../options.js';
+import { relatedEntityLabel, buildOptions, buildCounterpartyOptions, UNKNOWN_ENTITY_LABEL } from '../options.js';
 
 export type NormalizedWorkOrderReportLine = {
   serviceName: string;
@@ -276,8 +276,12 @@ export async function buildWorkOrdersReport(
   }
   const brandNames = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const counterpartyNames = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+  // Сопоставление идёт по ТЕКСТУ марки, поэтому подпись отсутствия в набор попасть не
+  // должна: иначе выбор одной безымянной марки притянул бы наряды всех остальных.
   const brandFilterNamesLc = new Set(
-    brandFilter.map((id) => String(brandNames.get(id) ?? '').trim().toLowerCase()).filter(Boolean),
+    brandFilter
+      .map((id) => String(brandNames.get(id) ?? '').trim().toLowerCase())
+      .filter((name) => name && name !== UNKNOWN_ENTITY_LABEL.toLowerCase()),
   );
 
   // Контрагент наряда: двигатель строки → его контракт/заказчик → контрагент (кратк. имя, иначе полное).

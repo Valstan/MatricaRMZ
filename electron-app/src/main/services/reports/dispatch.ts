@@ -20,6 +20,9 @@ import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildTool
 import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
 import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
+import { app } from 'electron';
+
+import { appendMainLogLine } from '../../utils/logger.js';
 import { type ReportBuildContext } from './context.js';
 
 export async function buildReportByPreset(
@@ -28,6 +31,21 @@ export async function buildReportByPreset(
   ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   try {
+    // Именно `await`, а не `return` из switch: без него отклонённое обещание билдера
+    // проходит мимо catch, и оператор получал в шапку экрана текст SqliteError.
+    return await dispatchReportPreset(db, args, ctx);
+  } catch (e) {
+    appendMainLogLine(app, `reports: пресет ${String(args.presetId)} упал — ${String(e)}`);
+    return { ok: false, error: 'Не удалось построить отчёт' };
+  }
+}
+
+async function dispatchReportPreset(
+  db: BetterSQLite3Database,
+  args: ReportPresetPreviewRequest,
+  ctx?: ReportBuildContext,
+): Promise<ReportPresetPreviewResult> {
+  {
     switch (args.presetId) {
       case 'parts_demand':
         return buildPartsDemandReport(db, args.filters);
@@ -104,10 +122,11 @@ export async function buildReportByPreset(
       case 'payments_overview':
         return buildPaymentsOverviewReport(db, args.filters);
       default:
-        return { ok: false, error: `Неизвестный пресет: ${String(args.presetId)}` };
+        // Оператор мог прийти сюда по ярлыку на снятый отчёт. Называть конкретную замену
+        // нельзя — пресет мог быть складским или платёжным; отправляем в каталог.
+        appendMainLogLine(app, `reports: запрошен неизвестный пресет ${String(args.presetId)}`);
+        return { ok: false, error: 'Этот отчёт больше не выпускается — выберите другой в каталоге отчётов' };
     }
-  } catch (e) {
-    return { ok: false, error: String(e) };
   }
 }
 

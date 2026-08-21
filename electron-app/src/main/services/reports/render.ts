@@ -1,6 +1,6 @@
 
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
 
 import {
   type ReportCellValue,
@@ -15,7 +15,8 @@ import {
   } from '@matricarmz/shared';
 
 
-import { formatRuMoney } from '../../utils/dateUtils.js';
+import { formatMoscowDate, formatRuMoney } from '../../utils/dateUtils.js';
+import { appendMainLogLine } from '../../utils/logger.js';
 
 import { prependUtf8Bom } from '../reportCsvEncoding.js';
 
@@ -348,8 +349,16 @@ ${footerNotesHtml}
 </body></html>`;
 }
 
-export function buildFileBaseName(presetId: ReportPresetId): string {
-  return `${presetId}_${new Date().toISOString().slice(0, 10)}`;
+// Имя файла выгрузки — то же, что оператор видит в каталоге отчётов: `engines_2026-08-20`
+// ни о чём ему не говорит, а именно это имя он ищет потом в папке «Загрузки».
+// Запрещённые в именах файлов Windows символы вырезаем, иначе сохранение упадёт.
+export function buildFileBaseName(presetId: ReportPresetId, title?: string): string {
+  const safeTitle = String(title ?? '')
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const base = safeTitle || String(presetId);
+  return `${base} ${formatMoscowDate(Date.now())}`;
 }
 
 export async function exportReportPresetPdf(
@@ -366,7 +375,7 @@ export async function exportReportPresetPdf(
     return {
       ok: true,
       contentBase64: Buffer.from(pdf).toString('base64'),
-      fileName: `${buildFileBaseName(args.presetId)}.pdf`,
+      fileName: `${buildFileBaseName(args.presetId, report.title)}.pdf`,
       mime: 'application/pdf',
     };
   } finally {
@@ -384,7 +393,7 @@ export async function exportReportPresetCsv(
   return {
     ok: true,
     csv: buildReportCsv(report),
-    fileName: `${buildFileBaseName(args.presetId)}.csv`,
+    fileName: `${buildFileBaseName(args.presetId, report.title)}.csv`,
     mime: 'text/csv;charset=utf-8',
   };
 }
@@ -399,7 +408,7 @@ export async function exportReportPreset1cXml(
   return {
     ok: true,
     xml: buildReport1cXml(report),
-    fileName: `${buildFileBaseName(args.presetId)}.xml`,
+    fileName: `${buildFileBaseName(args.presetId, report.title)}.xml`,
     mime: 'application/xml;charset=utf-8',
   };
 }
@@ -422,7 +431,10 @@ export async function printReportPreset(
     });
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: String(e) };
+    // Отчёт на этом шаге уже построен и отрисован — сбой здесь про печать, а не про
+    // построение; сказать «не удалось построить» значило бы соврать оператору.
+    appendMainLogLine(app, `reports: печать не выполнена — ${String(e)}`);
+    return { ok: false, error: 'Не удалось отправить отчёт на печать' };
   } finally {
     win.destroy();
   }

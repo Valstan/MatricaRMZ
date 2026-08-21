@@ -1,5 +1,5 @@
 import type { ReportCellValue, ReportFilterSpec, ReportPresetDefinition, ReportPresetFilters, ReportPresetPreviewResult } from '@matricarmz/shared';
-import { renderEngineFlowPrintInnerHtml, renderWorkOrdersReportInner } from '@matricarmz/shared';
+import { humanLabel, renderEngineFlowPrintInnerHtml, renderWorkOrdersReportInner } from '@matricarmz/shared';
 
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from './dateUtils.js';
 import type { PrintSection } from './printPreview.js';
@@ -8,65 +8,6 @@ import { renderWorkOrderPayrollFormInnerHtml } from './workOrderPayrollReportLay
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
 
-const REPORT_TOTAL_LABELS: Record<string, string> = {
-  employees: 'Сотрудники, шт.',
-  workingEmployees: 'Работают, шт.',
-  firedEmployees: 'Уволены, шт.',
-  firedInPeriod: 'Уволены за период, шт.',
-  counterparties: 'Контрагенты, шт.',
-  tools: 'Инструменты, шт.',
-  inInventory: 'В учете, шт.',
-  retired: 'Списано, шт.',
-  services: 'Услуги, шт.',
-  products: 'Товары, шт.',
-  parts: 'Детали, шт.',
-  brands: 'Марки, шт.',
-  scrapQty: 'Утиль, шт.',
-  missingQty: 'Недокомплект, шт.',
-  deliveredQty: 'Привезено, шт.',
-  remainingNeedQty: 'Остаточная потребность, шт.',
-  engines: 'Двигатели, шт.',
-  contracts: 'Контракты, шт.',
-  years: 'Лет в отчёте',
-  totalQty: 'Общий объем, шт.',
-  totalAmountRub: 'Сумма, ₽',
-  orderedQty: 'Заказано, шт.',
-  remainingQty: 'Остаток, шт.',
-  fulfillmentPct: '% выполнения',
-  progressPct: 'Прогресс, %',
-  workOrders: 'Наряды, шт.',
-  lines: 'Записей, шт.',
-  amountRub: 'Сумма, ₽',
-  avgAmountRub: 'Средняя цена, ₽',
-  onSiteQty: 'На заводе, шт.',
-  acceptance: 'Приёмка',
-  shipment: 'Отгрузка',
-  customer_delivery: 'Доставка заказчику',
-  overdueContracts: 'Просрочено, шт.',
-  dueSoonContracts: 'Срок до 30 дней, шт.',
-  withIgk: 'С ИГК, шт.',
-  withoutIgk: 'Без ИГК, шт.',
-  withSeparateAccount: 'С отдельным счетом, шт.',
-  withoutSeparateAccount: 'Без отдельного счета, шт.',
-  dualPathRows: 'Двойной учёт, шт.',
-  nomOnlyRows: 'Только номенклатура, шт.',
-  partOnlyRows: 'Только part_card, шт.',
-  forecastRows: 'Строк прогноза, шт.',
-  plannedEngines: 'Двигателей в плане, шт.',
-  planQty: 'План, шт.',
-  arrivedQty: 'Приехало, шт.',
-  awaitingQty: 'Ожидается, шт.',
-  atFactoryQty: 'На заводе, шт.',
-  readyNotShippedQty: 'Готово, не отгружено, шт.',
-  shippedQty: 'Отгружено, шт.',
-  overdueDays: 'Просрочка, дн.',
-  avgTatDays: 'Средний TAT, дн.',
-  positions: 'Позиций, шт.',
-  customerQty: 'Ветка «заказчик», шт.',
-  repairQty: 'Ветка «ремонт», шт.',
-  purchaseQty: 'Ветка «закупка», шт.',
-  noBranchQty: 'Без ветки, шт.',
-};
 
 const REPORT_METRIC_NOTES: Record<string, string> = {
   employees: 'Сотрудники: количество работников, попавших в отчетный период.',
@@ -256,7 +197,7 @@ export function omitDisabledFilterKeys(
 }
 
 function reportTotalLabel(key: string): string {
-  return REPORT_TOTAL_LABELS[key] ?? key;
+  return humanLabel('report_total', key);
 }
 
 function formatReportTotalValue(key: string, value: unknown): string {

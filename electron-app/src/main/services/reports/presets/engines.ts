@@ -15,6 +15,8 @@ import {
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_INVENTORY_STAGE,
   StockMovementType,
+  humanLabel,
+  pickHumanText,
   extractBomLineNormPercent,
   formatEngineInternalNumber,
   normalizeEngineInventoryRow,
@@ -43,8 +45,29 @@ import { httpAuthed } from '../../httpClient.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
-import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
+import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext, type Snapshot } from '../context.js';
+import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel, relatedEntityLabel } from '../options.js';
+
+// Оператору в этих колонках нельзя показывать идентификатор: у двигателя нет ни
+// serial_number, ни name (таких атрибутов не заводит никто), поэтому прежние фолбэки
+// на engineId печатали в «№ двигателя» и «Марка» голый UUID.
+const ENGINE_NUMBER_MISSING = '(без номера)';
+const ENGINE_BRAND_MISSING = '(марка не указана)';
+const COMPONENT_NAME_MISSING = '(без названия)';
+
+// Внутренний номер сюда НЕ подставляем: он живёт в соседней колонке «Внутр. №», и
+// оператор получил бы одно и то же значение дважды, приняв заводское клеймо за номер
+// двигателя.
+function engineNumberLabel(attrs: Record<string, unknown>): string {
+  return pickHumanText(attrs.engine_number) || ENGINE_NUMBER_MISSING;
+}
+
+// Марку читаем из снимка, а не из карты опций фильтра: у опции своя подпись отсутствия
+// («(без названия)»), и, протекая в колонку, она давала на одну и ту же безымянную марку
+// два разных текста в разных разрезах отчёта.
+function engineBrandLabel(snapshot: Snapshot, attrs: Record<string, unknown>, brandId: string): string {
+  return pickHumanText(relatedEntityLabel(snapshot, brandId), attrs.engine_brand) || ENGINE_BRAND_MISSING;
+}
 
 export async function buildEngineStagesReport(
   db: BetterSQLite3Database,
@@ -68,7 +91,6 @@ export async function buildEngineStagesReport(
     const prev = latestByEngine.get(engineId);
     if (!prev || ts > prev.ts) latestByEngine.set(engineId, { stage: String(row.operationType), ts });
   }
-  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const rows: Array<Record<string, ReportCellValue>> = [];
@@ -102,13 +124,14 @@ export async function buildEngineStagesReport(
             : statusFlags.status_storage_received
               ? 'Принят на хранение'
               : 'Заведён';
+    const engineInternalNumber = formatEngineInternalNumber(
+      normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+      attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+    );
     rows.push({
-      engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
-      engineInternalNumber: formatEngineInternalNumber(
-        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
-        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
-      ),
-      engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+      engineNumber: engineNumberLabel(attrs),
+      engineInternalNumber,
+      engineBrand: engineBrandLabel(snapshot, attrs, brandId),
       contractLabel: resolveContractLabel(contractId, contractOptions),
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       currentStage: latest ? stageLabel(latest.stage) : statusStage,
@@ -288,7 +311,6 @@ export async function buildEnginesReport(
     : new Map<string, boolean>();
 
   const snapshot = await loadSnapshot(db);
-  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
@@ -418,13 +440,14 @@ export async function buildEnginesReport(
               : statusFlags.status_storage_received
                 ? 'Принят'
                 : 'На заводе';
+      const engineInternalNumber = formatEngineInternalNumber(
+        normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
+        attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
+      );
       engineRows.push({
-        engineNumber: normalizeText(attrs.engine_number ?? attrs.number, engineId),
-        engineInternalNumber: formatEngineInternalNumber(
-          normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
-          attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
-        ),
-        engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        engineNumber: engineNumberLabel(attrs),
+        engineInternalNumber,
+        engineBrand: engineBrandLabel(snapshot, attrs, brandId),
         contractLabel: resolveContractLabel(contractId, contractOptions),
         counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
         arrivalDate: arrivalRaw > 0 ? arrivalRaw : null,
@@ -474,7 +497,7 @@ export async function buildEnginesReport(
     const rows: Array<Record<string, ReportCellValue>> = [];
     for (const [brandKey, agg] of byBrand.entries()) {
       rows.push({
-        engineBrand: brandOptions.get(brandKey) ?? brandKey,
+        engineBrand: pickHumanText(relatedEntityLabel(snapshot, brandKey), brandKey) || ENGINE_BRAND_MISSING,
         arrivedQty: agg.arrived,
         atFactoryQty: agg.atFactory,
         readyNotShippedQty: agg.readyNotShipped,
@@ -595,7 +618,6 @@ export async function buildScrapRegisterReport(
   const snapshot = await loadSnapshot(db);
   const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
   if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
-  const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
@@ -635,11 +657,11 @@ export async function buildScrapRegisterReport(
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const contractId = normalizeText(attrs.contract_id, '');
     const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
-    const engineNumber = normalizeText(attrs.engine_number ?? attrs.number, id);
     const internal = formatEngineInternalNumber(
       normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
       attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
     );
+    const engineNumber = engineNumberLabel(attrs);
     let pass = true;
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) pass = false;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) pass = false;
@@ -648,12 +670,14 @@ export async function buildScrapRegisterReport(
       ctx: {
         engineNumber,
         engineInternalNumber: internal,
-        engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        engineBrand: engineBrandLabel(snapshot, attrs, brandId),
         contractLabel: resolveContractLabel(contractId, contractOptions),
         counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       },
       pass,
-      haystack: `${engineNumber} ${internal}`.toLowerCase(),
+      // Поиск отдельно от показа: в колонку идёт человеческая подпись, а искать по
+      // хвосту идентификатора оператор мог и раньше — этого не отнимаем.
+      haystack: `${engineNumber} ${internal} ${id}`.toLowerCase(),
     };
   };
 
@@ -802,12 +826,12 @@ export async function buildEngineReadinessToAssembleReport(
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     const phase = String(attrs.engine_phase ?? '').trim();
     if (phase && phase !== 'received' && phase !== 'disassembled') continue;
-    const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engine.id));
     const engineInternalNumber = formatEngineInternalNumber(
       normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
       attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
     );
-    const brandLabel = brandId ? normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId) : '';
+    const engineNumber = engineNumberLabel(attrs);
+    const brandLabel = brandId ? relatedEntityLabel(snapshot, brandId) || ENGINE_BRAND_MISSING : '';
 
     let kit = brandId ? brandKitCache.get(brandId) : { bomName: '', kitLines: [] as BomKitLine[] };
     if (!kit) {
@@ -825,7 +849,7 @@ export async function buildEngineReadinessToAssembleReport(
       const have = nomIds.reduce((acc, id) => acc + (stockByNom.get(id) ?? 0), 0);
       if (have < need) {
         shortages.push({
-          name: slot.primary.name || slot.primary.code || slot.primary.nomenclatureId.slice(0, 8),
+          name: pickHumanText(slot.primary.name, slot.primary.code) || COMPONENT_NAME_MISSING,
           need,
           have,
         });
@@ -838,7 +862,7 @@ export async function buildEngineReadinessToAssembleReport(
       engineNumber,
       engineInternalNumber,
       engineBrand: brandLabel,
-      enginePhase: phase || '—',
+      enginePhase: humanLabel('engine_phase', phase),
       totalComponents,
       componentsShort: shortages.length,
       totalShortQty,
@@ -1062,14 +1086,14 @@ export async function buildEngineKittingReport(
 
   const snapshot = await loadSnapshot(db);
   const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
-  const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, engineId.slice(0, 8)));
   const engineInternalNumber = formatEngineInternalNumber(
     normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
     attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
   );
+  const engineNumber = engineNumberLabel(attrs);
   const brandId = normalizeText(attrs.engine_brand_id, '');
   if (!brandId) return empty(`Двигатель №${engineNumber}: марка не указана — BOM не определить`);
-  const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
+  const brandLabel = relatedEntityLabel(snapshot, brandId) || ENGINE_BRAND_MISSING;
 
   const { bomName, kitLines } = await loadBomKitForBrand(db, ctx, brandId);
   if (kitLines.length === 0) {
@@ -1126,7 +1150,7 @@ export async function buildEngineKittingReport(
     if (avail <= 0) continue;
     availableByNom.set(nomId, (availableByNom.get(nomId) ?? 0) + avail);
     const bins = binsByNom.get(nomId) ?? [];
-    bins.push({ label: loc?.name ?? locId.slice(0, 8), qty: avail });
+    bins.push({ label: pickHumanText(loc?.name) || COMPONENT_NAME_MISSING, qty: avail });
     binsByNom.set(nomId, bins);
   }
 
@@ -1159,9 +1183,7 @@ export async function buildEngineKittingReport(
       .flatMap((id) => binsByNom.get(id) ?? [])
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 3);
-    const alternatives = slot.alternatives
-      .map((l) => l.name || l.nomenclatureId.slice(0, 8))
-      .filter(Boolean);
+    const alternatives = slot.alternatives.map((l) => pickHumanText(l.name, l.code) || COMPONENT_NAME_MISSING);
     const noteParts = [
       slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
       alternatives.length > 0 ? `или: ${alternatives.join(', ')}` : '',
@@ -1170,7 +1192,7 @@ export async function buildEngineKittingReport(
     ].filter(Boolean);
 
     rows.push({
-      componentName: slot.primary.name || slot.primary.nomenclatureId.slice(0, 8),
+      componentName: pickHumanText(slot.primary.name, slot.primary.code) || COMPONENT_NAME_MISSING,
       componentCode: slot.primary.code,
       requiredQty,
       issuedQty,
@@ -1190,7 +1212,8 @@ export async function buildEngineKittingReport(
   );
 
   const totalPositions = slots.filter((s) => s.primary.qty > 0).length;
-  const engineLabel = [`№${engineNumber}`, engineInternalNumber ? `внутр. ${engineInternalNumber}` : '', brandLabel]
+  const engineNumberPart = engineNumber === ENGINE_NUMBER_MISSING ? ENGINE_NUMBER_MISSING : `№${engineNumber}`;
+  const engineLabel = [engineNumberPart, engineInternalNumber ? `внутр. ${engineInternalNumber}` : '', brandLabel]
     .filter(Boolean)
     .join(' · ');
   return {
@@ -1297,7 +1320,7 @@ export async function buildNormsPurchasePlanReport(
   if (!brandId) return empty('Выберите марку двигателя в фильтре');
 
   const snapshot = await loadSnapshot(db);
-  const brandLabel = normalizeText(snapshot.attrsByEntity.get(brandId)?.name, brandId);
+  const brandLabel = relatedEntityLabel(snapshot, brandId) || ENGINE_BRAND_MISSING;
   const { setName, setVersion, lines: normLines } = await loadRepairNormSetForBrand(ctx, brandId);
   if (normLines.length === 0) {
     return empty(`Марка «${brandLabel}»: активный набор норм ремонта не найден или сервер недоступен`);
@@ -1335,7 +1358,7 @@ export async function buildNormsPurchasePlanReport(
     totalToPurchaseQty += toPurchaseQty;
     if (onlyToPurchase && toPurchaseQty <= 0) continue;
     rows.push({
-      componentName: line.name || line.nomenclatureId.slice(0, 8),
+      componentName: pickHumanText(line.name, line.code) || COMPONENT_NAME_MISSING,
       componentCode: line.code,
       qtyPerUnit: line.qtyPerEngine,
       normPercentLabel: String(line.replacementPercent),
