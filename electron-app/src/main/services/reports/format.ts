@@ -2,6 +2,9 @@
 import type {} from 'drizzle-orm/better-sqlite3';
 
 import {
+  OPERATION_DESCRIPTORS,
+  type EngineLifecyclePhase,
+  humanLabel,
   type ReportCellValue,
   type ReportColumn,
   type ReportPresetFilters,
@@ -17,67 +20,6 @@ import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, 
 
 
 export const UNKNOWN_CONTRACT_LABEL = '(не указан)';
-export const TOTAL_LABEL_MAP: Record<string, string> = {
-  employees: 'Сотрудники, шт.',
-  workingEmployees: 'Работают, шт.',
-  firedEmployees: 'Уволены, шт.',
-  firedInPeriod: 'Уволены за период, шт.',
-  counterparties: 'Контрагенты, шт.',
-  tools: 'Инструменты, шт.',
-  inInventory: 'В учете, шт.',
-  retired: 'Списано, шт.',
-  services: 'Услуги, шт.',
-  products: 'Товары, шт.',
-  parts: 'Детали, шт.',
-  brands: 'Марки, шт.',
-  scrapQty: 'Утиль, шт.',
-  missingQty: 'Недокомплект, шт.',
-  deliveredQty: 'Привезено, шт.',
-  remainingNeedQty: 'Остаточная потребность, шт.',
-  engines: 'Двигатели, шт.',
-  progressPct: 'Прогресс, %',
-  contracts: 'Контракты, шт.',
-  totalQty: 'Общий объем, шт.',
-  totalAmountRub: 'Сумма, ₽',
-  orderedQty: 'Заказано, шт.',
-  remainingQty: 'Остаток, шт.',
-  fulfillmentPct: '% выполнения',
-  workOrders: 'Наряды, шт.',
-  lines: 'Записей, шт.',
-  amountRub: 'Сумма, ₽',
-  totalKtu: 'КТУ суммарно',
-  avgKtu: 'КТУ средний',
-  avgWorkOrderAmountRub: 'Средняя сумма на наряд, ₽',
-  avgAmountRub: 'Средняя цена, ₽',
-  onSiteQty: 'На заводе, шт.',
-  acceptance: 'Приёмка',
-  shipment: 'Отгрузка',
-  customer_delivery: 'Доставка заказчику',
-  overdueContracts: 'Просрочено, шт.',
-  dueSoonContracts: 'Срок до 30 дней, шт.',
-  withIgk: 'С ИГК, шт.',
-  withoutIgk: 'Без ИГК, шт.',
-  withSeparateAccount: 'С отдельным счетом, шт.',
-  withoutSeparateAccount: 'Без отдельного счета, шт.',
-  dualPathRows: 'Двойной учёт, шт.',
-  nomOnlyRows: 'Только номенклатура, шт.',
-  partOnlyRows: 'Только part_card, шт.',
-  forecastRows: 'Строк прогноза, шт.',
-  plannedEngines: 'Двигателей в плане, шт.',
-  planQty: 'План, шт.',
-  arrivedQty: 'Приехало, шт.',
-  awaitingQty: 'Ожидается, шт.',
-  atFactoryQty: 'На заводе, шт.',
-  readyNotShippedQty: 'Готово, не отгружено, шт.',
-  shippedQty: 'Отгружено, шт.',
-  overdueDays: 'Просрочка, дн.',
-  avgTatDays: 'Средний TAT, дн.',
-  positions: 'Позиций, шт.',
-  customerQty: 'Ветка «заказчик», шт.',
-  repairQty: 'Ветка «ремонт», шт.',
-  purchaseQty: 'Ветка «закупка», шт.',
-  noBranchQty: 'Без ветки, шт.',
-};
 export const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
   employees: 'Количество сотрудников, по которым есть начисления в выбранном периоде.',
   workingEmployees: 'Количество сотрудников со статусом "работает" в отобранных строках.',
@@ -119,7 +61,7 @@ export const TOTAL_METRIC_EXPLANATIONS: Record<string, string> = {
 };
 
 export function labelTotalKey(key: string): string {
-  return TOTAL_LABEL_MAP[key] ?? key;
+  return humanLabel('report_total', key);
 }
 
 export function formatTotalValue(key: string, raw: unknown): string {
@@ -259,42 +201,35 @@ export function msToDateTime(ms: number | null | undefined): string {
   return formatMoscowDateTime(ms);
 }
 
+// Стадия в отчёте — это код типа операции, и подписи для всех 27 кодов уже есть в
+// таймлайне двигателя. Прежний локальный switch знал шесть, а остальные печатал сырьём:
+// оператор видел в колонке «Текущая стадия» engine_inventory и part_status_event.
 export function stageLabel(stage: string): string {
-  switch (stage) {
-    case 'acceptance':
-      return 'Приемка';
-    case 'defect':
-      return 'Дефектовка';
-    case 'completeness':
-      return 'Комплектность';
-    case 'repair':
-      return 'Ремонт';
-    case 'shipment':
-      return 'Отгрузка';
-    case 'customer_delivery':
-      return 'Доставка заказчику';
-    default:
-      return stage || '—';
-  }
+  return humanLabel('operation_type', stage);
 }
 
+// Доля пути двигателя по заводу — по фазе, одной таблицей на восемь строк вместо
+// прежнего switch на шесть кодов из 29 (остальным доставался ноль). Числа НЕ берутся из
+// ENGINE_LIFECYCLE_PHASE_ORDER: там порядок сортировки, в котором «прочее» стоит между
+// сборкой и испытаниями, и складское перемещение обгоняло бы ремонт.
+const PHASE_PROGRESS_PCT: Record<EngineLifecyclePhase, number> = {
+  acceptance: 10,
+  defect: 25,
+  disassembly: 35,
+  repair: 60,
+  assembly: 75,
+  test: 85,
+  shipment: 90,
+  // Складские и инструментальные движения к продвижению двигателя отношения не имеют.
+  other: 0,
+};
+
 export function stageProgressFallback(stage: string): number {
-  switch (stage) {
-    case 'acceptance':
-      return 10;
-    case 'defect':
-      return 20;
-    case 'completeness':
-      return 35;
-    case 'repair':
-      return 60;
-    case 'shipment':
-      return 90;
-    case 'customer_delivery':
-      return 100;
-    default:
-      return 0;
-  }
+  const descriptor = OPERATION_DESCRIPTORS[stage];
+  if (!descriptor) return 0;
+  // Доставка заказчику — терминальный шаг, а фаза у неё общая с отгрузкой.
+  if (stage === 'customer_delivery') return 100;
+  return PHASE_PROGRESS_PCT[descriptor.phase];
 }
 
 export function statusLabel(status: string): string {

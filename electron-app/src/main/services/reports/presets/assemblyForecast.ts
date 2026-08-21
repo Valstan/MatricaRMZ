@@ -16,6 +16,7 @@ import {
   type ReportPresetFilters,
   type ReportPresetPreviewResult,
   assemblyForecastStatusLabelRu,
+  looksLikeIdentifier,
   } from '@matricarmz/shared';
 
 import {
@@ -396,8 +397,10 @@ export function computeContractBasedAssemblyPriorityFromSnapshot(
 export const ASSEMBLY_FORECAST_UUID_TOKEN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 export const ASSEMBLY_FORECAST_KIT_MARKER = /\s*\[__kit_[^\]]+]/gi;
 
+// Детектор идентификатора один на проект — в shared. Здесь остаётся тонкая обёртка:
+// вызывающий код читается как раньше, а копий регулярки больше не заводим.
 export function isUuidLike(s: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s).trim());
+  return looksLikeIdentifier(s);
 }
 
 export function sanitizeAssemblyForecastOperatorText(raw: string): string {

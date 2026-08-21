@@ -8,6 +8,8 @@ import {
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   formatEngineInternalNumber,
+  humanLabel,
+  pickHumanText,
   type ReportFilterOption,
   type ReportPresetListResult,
   } from '@matricarmz/shared';
@@ -53,6 +55,9 @@ export function joinOptionSearch(parts: Array<unknown>): string | undefined {
   const items = parts.map((part) => normalizeText(part, '')).filter(Boolean);
   return items.length > 0 ? items.join(' ') : undefined;
 }
+
+export const UNKNOWN_ENTITY_LABEL = '(без названия)';
+export const UNKNOWN_ENGINE_NUMBER_LABEL = '(без номера)';
 
 export function relatedEntityLabel(snapshot: Snapshot, entityId: string): string {
   if (!entityId) return '';
@@ -153,15 +158,19 @@ export function buildOptionMeta(
   }
 }
 
+// Подпись опции фильтра НИКОГДА не идентификатор: прежний двойной фолбэк подставлял id
+// и здесь, и повторно в билдерах отчётов, из-за чего UUID доезжал до колонки «Марка»
+// двумя разными путями и починка одного из них ничего не меняла.
 export function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilterOption[] {
   return getIdsByType(snapshot, typeCode)
     .map((id) => {
       const attrs = snapshot.attrsByEntity.get(id);
-      const label = entityLabel(attrs, typeCode === 'contract' ? '' : id);
-      const meta = buildOptionMeta(snapshot, typeCode, id, attrs, label || (typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : id));
+      const missing = typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : UNKNOWN_ENTITY_LABEL;
+      const label = pickHumanText(entityLabel(attrs, '')) || missing;
+      const meta = buildOptionMeta(snapshot, typeCode, id, attrs, label);
       return {
         value: id,
-        label: label || (typeCode === 'contract' ? UNKNOWN_CONTRACT_LABEL : id),
+        label,
         ...(meta.hintText ? { hintText: meta.hintText } : {}),
         ...(meta.searchText ? { searchText: meta.searchText } : {}),
       };
@@ -177,7 +186,7 @@ export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
     .map((id) => {
       const attrs = snapshot.attrsByEntity.get(id) ?? {};
       if (normalizeText(attrs.status_scrap_confirmed, '') || normalizeText(attrs.status_rework_sent, '')) return null;
-      const engineNumber = normalizeText(attrs.serial_number, normalizeText(attrs.name, ''));
+      const engineNumber = normalizeText(attrs.engine_number, '');
       const internalNumber = formatEngineInternalNumber(
         normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
         attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],
@@ -185,7 +194,7 @@ export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
       const brandId = normalizeText(attrs.engine_brand_id, '');
       const brandLabel = brandId ? relatedEntityLabel(snapshot, brandId) : '';
       const label = [
-        `№${engineNumber || id.slice(0, 8)}`,
+        engineNumber ? `№${engineNumber}` : UNKNOWN_ENGINE_NUMBER_LABEL,
         internalNumber ? `внутр. ${internalNumber}` : '',
         brandLabel,
       ]
@@ -198,7 +207,7 @@ export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
         String(engineNumber).replace(/\D/g, ''),
       ]);
       const phase = normalizeText(attrs.engine_phase, '');
-      const hintText = joinOptionHint([phase && `Фаза: ${phase}`]);
+      const hintText = joinOptionHint([phase && `Фаза: ${humanLabel('engine_phase', phase)}`]);
       return {
         value: id,
         label,
@@ -322,7 +331,7 @@ export function buildAssemblySleeveOptions(snapshot: Snapshot): ReportFilterOpti
       const searchText = joinOptionSearch([part.partLabel, part.partId, part.nomenclatureId, kit.brandLabel]);
       out.push({
         value: id,
-        label: part.partLabel || id,
+        label: pickHumanText(part.partLabel) || UNKNOWN_ENTITY_LABEL,
         ...(searchText ? { searchText } : {}),
       });
     }
@@ -386,11 +395,11 @@ export async function buildAssemblyBomEngineOptions(
     for (const rawId of brandIds) {
       const id = String(rawId ?? '').trim();
       if (!id || unique.has(id)) continue;
-      const label = entityLabel(snapshot.attrsByEntity.get(id), id);
+      const label = pickHumanText(entityLabel(snapshot.attrsByEntity.get(id), '')) || UNKNOWN_ENTITY_LABEL;
       const searchText = joinOptionSearch([label, id]);
       unique.set(id, {
         value: id,
-        label: label.trim() ? label : id,
+        label,
         ...(searchText ? { searchText } : {}),
       });
     }
@@ -477,7 +486,9 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
       },
     };
   } catch (e) {
-    return { ok: false, error: String(e) };
+    // Оператору незачем читать SqliteError в шапке экрана; подробность остаётся в логе.
+    console.error('[reports] getReportPresetList failed', e);
+    return { ok: false, error: 'Не удалось загрузить список отчётов' };
   }
 }
 
@@ -532,7 +543,7 @@ export async function buildWarehouseLocationOptions(
       const row = raw as Record<string, unknown>;
       const id = String(row.id ?? '').trim();
       if (!id) continue;
-      const name = String(row.name ?? '').trim() || id;
+      const name = pickHumanText(row.name, row.code) || UNKNOWN_ENTITY_LABEL;
       const code = String(row.code ?? '').trim();
       const type = String(row.type ?? '').trim();
       const sortOrderRaw = Number(row.sortOrder);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { looksLikeIdentifier } from '@matricarmz/shared';
+
 import { attributeDefs, attributeValues, entities, entityTypes } from '../../../database/schema.js';
 import { buildEnginesContractsOverviewReport, buildEnginesListReport, buildEnginesReport } from './engines.js';
 
@@ -218,5 +220,79 @@ describe('объединённый пресет «Двигатели» и али
     expect(report.ok).toBe(true);
     if (!report.ok) return;
     expect(report.rows.map((r) => r.engineNumber)).toEqual(['E3']);
+  });
+});
+
+// Сторож правила «оператору не показывают идентификатор». Отдельная фикстура, чтобы не
+// сдвигать счётчики выше: двигатель без engine_number и марка без name — ровно тот
+// случай, в котором прежний фолбэк печатал в колонки «№ двигателя» и «Марка» UUID.
+function stubDbNamelessEngine(): any {
+  const types: Row[] = [
+    { id: 'T_ENGINE', code: 'engine' },
+    { id: 'T_CONTRACT', code: 'contract' },
+    { id: 'T_BRAND', code: 'engine_brand' },
+  ];
+  const ents: Row[] = [
+    { id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301', typeId: 'T_BRAND' },
+    { id: '8a1b41c2-6d0e-4b7a-9f31-2c5d7e0a4b88', typeId: 'T_ENGINE' },
+  ];
+  const defs: Row[] = ['name', 'engine_number', 'engine_brand_id', 'arrival_date'].map((code) => ({ id: code, code }));
+  const values: Row[] = [
+    {
+      entityId: '8a1b41c2-6d0e-4b7a-9f31-2c5d7e0a4b88',
+      attributeDefId: 'engine_brand_id',
+      valueJson: JSON.stringify('3f2504e0-4f89-41d3-9a0c-0305e82c3301'),
+    },
+    { entityId: '8a1b41c2-6d0e-4b7a-9f31-2c5d7e0a4b88', attributeDefId: 'arrival_date', valueJson: JSON.stringify(ARRIVAL) },
+  ];
+  return {
+    select() {
+      return {
+        from(table: unknown) {
+          const rows =
+            table === entityTypes ? types : table === entities ? ents : table === attributeDefs ? defs : table === attributeValues ? values : [];
+          const chain: any = {
+            where() {
+              return chain;
+            },
+            limit() {
+              return Promise.resolve(rows);
+            },
+          };
+          return chain;
+        },
+      };
+    },
+  };
+}
+
+describe('человеко-понятные названия в отчёте «Двигатели»', () => {
+  it('двигатель без номера и марка без названия дают подписи, а не идентификаторы', async () => {
+    const report = await buildEnginesReport(stubDbNamelessEngine(), { groupBy: 'engines' });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const row = report.rows[0]!;
+    expect(row.engineNumber).toBe('(без номера)');
+    expect(row.engineBrand).toBe('(марка не указана)');
+    expect(looksLikeIdentifier(String(row.engineNumber))).toBe(false);
+    expect(looksLikeIdentifier(String(row.engineBrand))).toBe(false);
+  });
+
+  it('ни одна ячейка отчёта не содержит идентификатор целиком', async () => {
+    const report = await buildEnginesReport(stubDbNamelessEngine(), { groupBy: 'engines' });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    for (const row of report.rows) {
+      for (const value of Object.values(row)) {
+        expect(looksLikeIdentifier(String(value ?? ''))).toBe(false);
+      }
+    }
+  });
+
+  it('разрез «По маркам»: безымянная марка подписана, а не показана кодом', async () => {
+    const report = await buildEnginesReport(stubDbNamelessEngine(), { groupBy: 'brands' });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.rows[0]?.engineBrand).toBe('(марка не указана)');
   });
 });
