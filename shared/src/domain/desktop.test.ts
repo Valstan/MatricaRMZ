@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DESKTOP_USAGE_MAX_DAYS,
   createEmptyDesktop,
   desktopAddFolder,
   desktopAddShortcut,
@@ -13,6 +14,7 @@ import {
   desktopSurfaceShortcuts,
   desktopTrashShortcuts,
   sanitizeDesktopSection,
+  sanitizeDesktopUsageSection,
 } from './desktop.js';
 
 const NOW = 1_755_600_000_000;
@@ -92,5 +94,67 @@ describe('desktop domain', () => {
     })!;
     expect(d.shortcuts).toHaveLength(1);
     expect(d.shortcuts[0]!.link).toBeUndefined();
+  });
+});
+
+// «Прививка» релиза 1 (план «рабочий стол и человеко-понятные названия»): санитайзер
+// обязан знать поля РАНЬШЕ, чем появится код, который их пишет. sanitizeUserUiProfile
+// зовётся и на чтении, и на записи, а LWW заменяет секцию целиком — клиент, не знающий
+// поля, стёр бы его у всех машин пользователя при первом же сохранении.
+describe('прививка: поля рабочего стола переживают санитайзер', () => {
+  it('координата плитки сохраняется и приводится к целым ячейкам', () => {
+    const d = sanitizeDesktopSection({
+      shortcuts: [{ id: 's1', label: 'A', createdAt: NOW, pos: { col: 3.7, row: 0 } }],
+    })!;
+    expect(d.shortcuts[0]!.pos).toEqual({ col: 3, row: 0 });
+  });
+
+  it('битая или заоблачная координата отбрасывается, ярлык остаётся', () => {
+    const d = sanitizeDesktopSection({
+      shortcuts: [
+        { id: 's1', label: 'A', createdAt: NOW, pos: { col: -1, row: 0 } },
+        { id: 's2', label: 'B', createdAt: NOW, pos: { col: 5000, row: 0 } },
+        { id: 's3', label: 'C', createdAt: NOW, pos: 'нет' },
+      ],
+    })!;
+    expect(d.shortcuts).toHaveLength(3);
+    for (const shortcut of d.shortcuts) expect(shortcut.pos).toBeUndefined();
+  });
+
+  it('отметка переезда «Быстрого запуска» сохраняется, ноль и мусор — нет', () => {
+    expect(sanitizeDesktopSection({ shortcutsMigratedAt: NOW })!.shortcutsMigratedAt).toBe(NOW);
+    expect(sanitizeDesktopSection({ shortcutsMigratedAt: 0 })!.shortcutsMigratedAt).toBeUndefined();
+    expect(sanitizeDesktopSection({ shortcutsMigratedAt: 'вчера' })!.shortcutsMigratedAt).toBeUndefined();
+  });
+
+  it('секция счётчика использования переживает круг чтение-запись', () => {
+    const usage = sanitizeDesktopUsageSection({
+      buckets: { s1: { '2026-08-20': 3, '2026-08-21': 1 } },
+      foldedAt: NOW,
+    })!;
+    expect(usage.buckets.s1).toEqual({ '2026-08-20': 3, '2026-08-21': 1 });
+    expect(usage.foldedAt).toBe(NOW);
+  });
+
+  it('счётчик чистится: чужие ключи дней, нули и дроби не проходят', () => {
+    const usage = sanitizeDesktopUsageSection({
+      buckets: { s1: { '2026-08-20': 2.9, вчера: 5, '2026-08-21': 0, '2026-08-22': -3 } },
+    })!;
+    expect(usage.buckets.s1).toEqual({ '2026-08-20': 2 });
+    expect(usage.foldedAt).toBe(0);
+  });
+
+  it('окно счётчика — последние 30 дней, старое отсекается', () => {
+    const days: Record<string, number> = {};
+    for (let i = 1; i <= 40; i++) days[`2026-08-${String(i).padStart(2, '0')}`] = 1;
+    const usage = sanitizeDesktopUsageSection({ buckets: { s1: days } })!;
+    expect(Object.keys(usage.buckets.s1!)).toHaveLength(DESKTOP_USAGE_MAX_DAYS);
+    expect(usage.buckets.s1!['2026-08-01']).toBeUndefined();
+    expect(usage.buckets.s1!['2026-08-40']).toBe(1);
+  });
+
+  it('секции нет в PATCH — не трогаем (undefined, а не пустой объект)', () => {
+    expect(sanitizeDesktopUsageSection(undefined)).toBeUndefined();
+    expect(sanitizeDesktopUsageSection([])).toBeUndefined();
   });
 });
