@@ -10,7 +10,12 @@ import {
   type V2ColumnId,
   type V2ColumnState,
 } from './uiShellV2.js';
-import { sanitizeDesktopSection, type UserUiProfileDesktop } from './desktop.js';
+import {
+  sanitizeDesktopSection,
+  sanitizeDesktopUsageSection,
+  type DesktopUsage,
+  type UserUiProfileDesktop,
+} from './desktop.js';
 
 export type UserUiProfileTabsLayout = {
   order?: string[];
@@ -89,6 +94,13 @@ export type UserUiProfile = {
    * раскладка сплитов экрана «чат + рабочий стол». LWW — секцией целиком.
    */
   desktop?: UserUiProfileDesktop;
+  /**
+   * Счётчик использования ярлыков стола (пакет 2026-08-20): по нему считается размер
+   * плитки. Секция заведена в санитайзере **на релиз раньше** пишущего кода: клиент,
+   * который её не знает, стёр бы её у всех машин пользователя при первом сохранении —
+   * `sanitizeUserUiProfile` зовётся и на чтении, и на записи.
+   */
+  desktopUsage?: DesktopUsage;
   /**
    * Именованные шаблоны фильтров отчётов по пресетам (этап 6.3, 19.08б):
    * раньше жили только в локальном client_settings машины — теперь едут за
@@ -367,6 +379,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (columnLayouts !== undefined) out.columnLayouts = columnLayouts;
   const desktop = sanitizeDesktopSection(r.desktop);
   if (desktop !== undefined) out.desktop = desktop;
+  const desktopUsage = sanitizeDesktopUsageSection(r.desktopUsage);
+  if (desktopUsage !== undefined) out.desktopUsage = desktopUsage;
   const reportFilterTemplates = sanitizeReportFilterTemplatesSection(r.reportFilterTemplates);
   if (reportFilterTemplates !== undefined) out.reportFilterTemplates = reportFilterTemplates;
   return out;

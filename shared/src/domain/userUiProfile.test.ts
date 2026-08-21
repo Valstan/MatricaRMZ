@@ -141,3 +141,49 @@ describe('mergeUserUiProfiles', () => {
     expect(p.keyUpdatedAt && 'zero' in p.keyUpdatedAt).toBe(false);
   });
 });
+
+// «Прививка» релиза 1: секции рабочего стола обязаны пережить и санитайзер, и merge на
+// релиз РАНЬШЕ, чем появится пишущий их код. Иначе клиент прошлой версии, сохранив
+// профиль, сотрёт раскладку и рейтинг у всех машин пользователя — sanitizeUserUiProfile
+// вызывается и на чтении, и на записи, а LWW заменяет секцию целиком.
+describe('прививка секций рабочего стола', () => {
+  const withDesktop = {
+    updatedAt: 100,
+    desktop: {
+      shortcuts: [{ id: 's1', label: 'Двигатели', createdAt: 50, pos: { col: 2, row: 1 } }],
+      folders: [],
+      layout: { chatPct: 33, peoplePct: 30 },
+      shortcutsMigratedAt: 90,
+    },
+    desktopUsage: { buckets: { s1: { '2026-08-21': 4 } }, foldedAt: 95 },
+  };
+
+  it('санитайзер не выбрасывает ни координату, ни отметку переезда, ни счётчик', () => {
+    const p = sanitizeUserUiProfile(withDesktop);
+    expect(p.desktop?.shortcuts[0]?.pos).toEqual({ col: 2, row: 1 });
+    expect(p.desktop?.shortcutsMigratedAt).toBe(90);
+    expect(p.desktopUsage?.buckets.s1).toEqual({ '2026-08-21': 4 });
+  });
+
+  it('merge не стирает счётчик, когда клиент прислал PATCH без него', () => {
+    const stored = sanitizeUserUiProfile(withDesktop);
+    const { profile } = mergeUserUiProfiles(stored, {
+      updatedAt: 200,
+      keyUpdatedAt: { shortcuts: 200 },
+      shortcuts: ['engines'],
+    });
+    expect(profile.desktopUsage?.buckets.s1).toEqual({ '2026-08-21': 4 });
+    expect(profile.desktop?.shortcuts[0]?.pos).toEqual({ col: 2, row: 1 });
+  });
+
+  it('свежая секция счётчика применяется по своему штампу', () => {
+    const stored = sanitizeUserUiProfile(withDesktop);
+    const { profile, stale } = mergeUserUiProfiles(stored, {
+      updatedAt: 300,
+      keyUpdatedAt: { desktopUsage: 300 },
+      desktopUsage: { buckets: { s1: { '2026-08-22': 9 } }, foldedAt: 300 },
+    });
+    expect(stale).toBe(false);
+    expect(profile.desktopUsage?.buckets.s1).toEqual({ '2026-08-22': 9 });
+  });
+});

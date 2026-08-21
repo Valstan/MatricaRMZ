@@ -3,6 +3,14 @@
 // «чат + рабочий стол». Хранится ключом `desktop` в employee.ui_profile_json
 // (per-key LWW из v3.5.0) — стол едет за пользователем между машинами.
 
+/** Место плитки в сетке стола. Ячейки, а не пиксели: стол — резиновая половина
+ *  экрана «чат + рабочий стол», и абсолютные пиксели поехали бы при первом же
+ *  перетаскивании разделителя. */
+export type DesktopShortcutPos = {
+  col: number;
+  row: number;
+};
+
 export type DesktopShortcut = {
   id: string;
   /** Подпись плитки — обычно хлебные крошки раздела на момент создания. */
@@ -20,6 +28,8 @@ export type DesktopShortcut = {
   /** null — живой; иначе момент удаления: ярлык лежит в корзине, откуда его можно вернуть. */
   deletedAt: number | null;
   createdAt: number;
+  /** Место в сетке; нет — плитка раскладывается потоком, как до появления координат. */
+  pos?: DesktopShortcutPos;
 };
 
 export type DesktopFolder = {
@@ -39,6 +49,19 @@ export type UserUiProfileDesktop = {
   shortcuts: DesktopShortcut[];
   folders: DesktopFolder[];
   layout: DesktopLayout;
+  /** Отметка одноразового переезда «Быстрого запуска» в ярлыки. Роумится: вторая
+   *  машина переезд не повторит, удалённая вручную плитка не воскреснет. */
+  shortcutsMigratedAt?: number;
+};
+
+/** Счётчик использования ярлыков: id → дневной бакет `ГГГГ-ММ-ДД` → число открытий.
+ *  Живёт локально и уезжает в профиль редко и свёрткой: каждая запись профиля даёт два
+ *  добавления в ledger, а «плюс один на каждое открытие» превратил бы редкую запись в
+ *  поток (грабля M79). */
+export type DesktopUsage = {
+  buckets: Record<string, Record<string, number>>;
+  /** Момент последней свёртки — чтобы не писать профиль чаще, чем нужно. */
+  foldedAt: number;
 };
 
 export const DESKTOP_DEFAULT_LAYOUT: DesktopLayout = { chatPct: 33, peoplePct: 30 };
@@ -47,6 +70,11 @@ export const DESKTOP_MAX_SHORTCUTS = 200;
 export const DESKTOP_MAX_FOLDERS = 40;
 const MAX_LABEL = 160;
 const MAX_LINK_JSON = 4000;
+const MAX_GRID_CELL = 999;
+/** Окно рейтинга — 30 дней (см. план «рабочий стол и человеко-понятные названия»). */
+export const DESKTOP_USAGE_MAX_DAYS = 30;
+const MAX_USAGE_COUNT = 1_000_000;
+const USAGE_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function createEmptyDesktop(): UserUiProfileDesktop {
   return { shortcuts: [], folders: [], layout: { ...DESKTOP_DEFAULT_LAYOUT } };
@@ -73,6 +101,8 @@ function sanitizeShortcut(raw: unknown): DesktopShortcut | null {
     deletedAt: Number.isFinite(deletedAt) && deletedAt > 0 ? deletedAt : null,
     createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0,
   };
+  const pos = sanitizeShortcutPos(r.pos);
+  if (pos) out.pos = pos;
   if (typeof r.link === 'object' && r.link != null) {
     try {
       if (JSON.stringify(r.link).length <= MAX_LINK_JSON) out.link = r.link;
@@ -81,6 +111,47 @@ function sanitizeShortcut(raw: unknown): DesktopShortcut | null {
     }
   }
   return out;
+}
+
+function sanitizeGridCell(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const cell = Math.trunc(n);
+  if (cell < 0 || cell > MAX_GRID_CELL) return null;
+  return cell;
+}
+
+function sanitizeShortcutPos(raw: unknown): DesktopShortcutPos | null {
+  if (typeof raw !== 'object' || raw == null) return null;
+  const r = raw as Record<string, unknown>;
+  const col = sanitizeGridCell(r.col);
+  const row = sanitizeGridCell(r.row);
+  if (col == null || row == null) return null;
+  return { col, row };
+}
+
+/** Секция `desktopUsage` профиля: undefined — секции в PATCH нет (не трогать). */
+export function sanitizeDesktopUsageSection(raw: unknown): DesktopUsage | undefined {
+  if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const bucketsRaw = typeof r.buckets === 'object' && r.buckets != null ? (r.buckets as Record<string, unknown>) : {};
+  const buckets: Record<string, Record<string, number>> = {};
+  for (const shortcutId of Object.keys(bucketsRaw).slice(0, DESKTOP_MAX_SHORTCUTS)) {
+    const id = shortcutId.trim().slice(0, 80);
+    if (!id) continue;
+    const daysRaw = bucketsRaw[shortcutId];
+    if (typeof daysRaw !== 'object' || daysRaw == null) continue;
+    const days: Record<string, number> = {};
+    for (const day of Object.keys(daysRaw as Record<string, unknown>).sort().slice(-DESKTOP_USAGE_MAX_DAYS)) {
+      if (!USAGE_DAY_RE.test(day)) continue;
+      const count = Number((daysRaw as Record<string, unknown>)[day]);
+      if (!Number.isFinite(count) || count <= 0) continue;
+      days[day] = Math.min(MAX_USAGE_COUNT, Math.trunc(count));
+    }
+    if (Object.keys(days).length > 0) buckets[id] = days;
+  }
+  const foldedAt = Number(r.foldedAt ?? 0);
+  return { buckets, foldedAt: Number.isFinite(foldedAt) && foldedAt > 0 ? foldedAt : 0 };
 }
 
 function sanitizeFolder(raw: unknown): DesktopFolder | null {
@@ -120,6 +191,7 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
     }
   }
   const layoutRaw = (typeof r.layout === 'object' && r.layout != null ? r.layout : {}) as Record<string, unknown>;
+  const migratedAt = Number(r.shortcutsMigratedAt ?? 0);
   return {
     shortcuts,
     folders,
@@ -127,6 +199,7 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
       chatPct: clampPct(layoutRaw.chatPct, DESKTOP_DEFAULT_LAYOUT.chatPct),
       peoplePct: clampPct(layoutRaw.peoplePct, DESKTOP_DEFAULT_LAYOUT.peoplePct),
     },
+    ...(Number.isFinite(migratedAt) && migratedAt > 0 ? { shortcutsMigratedAt: migratedAt } : {}),
   };
 }
 
