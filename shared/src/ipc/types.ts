@@ -652,6 +652,8 @@ export type CustomReportRunIpcResult =
       totals: ReportTotals | null;
       groups: CustomReportGroup[] | null;
       groupByLabel: string | null;
+      /** Тип колонки разреза: заголовок группы форматируется им же, чем и ячейка. */
+      groupByKind: ReportColumn['kind'] | null;
       aggs: Record<string, CustomReportAgg> | null;
       rowCount: number;
       sourceRowCount: number;

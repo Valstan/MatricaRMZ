@@ -311,8 +311,17 @@ function matchesFilter(value: ReportCellValue, filter: CustomReportFilter, kind:
 }
 
 export type CustomReportGroup = {
-  /** Display value of the groupBy column for this group. */
+  /**
+   * Ключ разреза: текст сырого значения колонки. Показывать его нельзя — у колонки-даты это
+   * epoch в миллисекундах, и оператор читал в заголовке группы «1747008000000».
+   */
   value: string;
+  /**
+   * То же значение, но не превращённое в текст: показывающая сторона форматирует его тем же
+   * `formatReportCell`, что и ячейку, — тогда заголовок группы и колонка говорят одинаково.
+   * Отдельно от `value` именно потому, что разрез обязан остаться на сыром значении.
+   */
+  rawValue: ReportCellValue;
   count: number;
   totals: ReportTotals | null;
   rows: ReportRow[];
@@ -326,6 +335,8 @@ export type CustomReportResult = {
   groups: CustomReportGroup[] | null;
   /** Label of the groupBy column (for headers). */
   groupByLabel: string | null;
+  /** Kind of the groupBy column: нужен, чтобы отформатировать `rawValue` заголовка группы. */
+  groupByKind: ReportColumn['kind'] | null;
   /** Rows in the source before filtering (for the «N из M» hint). */
   sourceRowCount: number;
 };
@@ -406,21 +417,24 @@ export function applyCustomReportTransform(
     // group value is read from the source row, so the groupBy column need not
     // be projected.
     const order: string[] = [];
-    const bucket = new Map<string, ReportRow[]>();
+    const bucket = new Map<string, { rawValue: ReportCellValue; rows: ReportRow[] }>();
     for (const row of limited) {
-      const value = cellText(row[groupCol.key] ?? null).trim() || '—';
-      let list = bucket.get(value);
-      if (!list) {
-        list = [];
-        bucket.set(value, list);
+      const rawValue = row[groupCol.key] ?? null;
+      const value = cellText(rawValue).trim() || '—';
+      let entry = bucket.get(value);
+      if (!entry) {
+        entry = { rawValue, rows: [] };
+        bucket.set(value, entry);
         order.push(value);
       }
-      list.push(project(row));
+      entry.rows.push(project(row));
     }
     groups = order.map((value) => {
-      const groupRows = bucket.get(value) ?? [];
+      const entry = bucket.get(value);
+      const groupRows = entry?.rows ?? [];
       return {
         value,
+        rawValue: entry?.rawValue ?? null,
         count: groupRows.length,
         totals: computeTotals(groupRows, columns, spec.aggs),
         rows: groupRows,
@@ -434,6 +448,7 @@ export function applyCustomReportTransform(
     totals,
     groups,
     groupByLabel: groupCol ? groupCol.label : null,
+    groupByKind: groupCol ? (groupCol.kind ?? 'text') : null,
     sourceRowCount: sourceRows.length,
   };
 }

@@ -559,7 +559,8 @@ export function CustomReportsPage() {
                               background: 'var(--panel, #e2e8f0)',
                             }}
                           >
-                            {result.groupByLabel}: {g.value} ({g.count})
+                            {result.groupByLabel}:{' '}
+                            {formatReportCell(result.groupByKind ?? 'text', g.rawValue, groupBy) || g.value} ({g.count})
                           </td>
                         </tr>,
                         ...g.rows.map((row, i) => (

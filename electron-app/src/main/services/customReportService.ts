@@ -34,6 +34,8 @@ export type CustomReportRunResult =
       totals: Record<string, number> | null;
       groups: CustomReportGroup[] | null;
       groupByLabel: string | null;
+      /** Тип колонки разреза: заголовок группы форматируется им же, чем и ячейка. */
+      groupByKind: ReportColumn['kind'] | null;
       /** Chosen aggregate per column (for labels in totals). */
       aggs: CustomReportSpecV1['aggs'] | null;
       rowCount: number;
@@ -86,6 +88,7 @@ export async function runCustomReport(
     totals: t.totals,
     groups: t.groups,
     groupByLabel: t.groupByLabel,
+    groupByKind: t.groupByKind,
     aggs: spec.aggs ?? null,
     rowCount: t.rows.length,
     sourceRowCount: t.sourceRowCount,
@@ -103,6 +106,17 @@ function htmlEscape(value: string): string {
 function formatCellText(column: ReportColumn, value: ReportCellValue): string {
   if (typeof value === 'boolean') return value ? 'да' : 'нет';
   return formatCell(column, value ?? null);
+}
+
+/**
+ * Подпись заголовка группы. Берётся из СЫРОГО значения и типа колонки разреза, а не из
+ * `g.value`: тот — ключ разреза, и у колонки-даты это epoch в миллисекундах. Печать, CSV и
+ * экран обязаны говорить одинаково, поэтому подпись считается одной функцией на все три.
+ */
+function groupHeaderText(report: Extract<CustomReportRunResult, { ok: true }>, group: CustomReportGroup): string {
+  const kind = report.groupByKind ?? 'text';
+  const shown = formatCellText({ key: 'group', label: '', kind }, group.rawValue) || group.value;
+  return `${report.groupByLabel ?? ''}: ${shown}`;
 }
 
 function totalsText(report: Extract<CustomReportRunResult, { ok: true }>, totals: Record<string, number>): string {
@@ -133,7 +147,7 @@ export function renderCustomReportHtml(report: Extract<CustomReportRunResult, { 
   const rows = report.groups
     ? report.groups
         .map((g) => {
-          const header = `<tr class="grp"><td colspan="${colCount}"><b>${htmlEscape(`${report.groupByLabel ?? ''}: ${g.value}`)}</b> (${g.count})</td></tr>`;
+          const header = `<tr class="grp"><td colspan="${colCount}"><b>${htmlEscape(groupHeaderText(report, g))}</b> (${g.count})</td></tr>`;
           const body = g.rows.map(rowHtml).join('');
           const sub = g.totals
             ? `<tr class="sub"><td colspan="${colCount}">Итого по группе: ${htmlEscape(totalsText(report, g.totals))}</td></tr>`
@@ -176,7 +190,7 @@ export function buildCustomReportCsv(report: Extract<CustomReportRunResult, { ok
     lines.push(report.columns.map((c) => csvEscape(formatCellText(c, row[c.key] ?? null))).join(';'));
   if (report.groups) {
     for (const g of report.groups) {
-      lines.push(csvEscape(`${report.groupByLabel ?? ''}: ${g.value} (${g.count})`));
+      lines.push(csvEscape(`${groupHeaderText(report, g)} (${g.count})`));
       for (const row of g.rows) pushRow(row);
       if (g.totals) lines.push(csvEscape(`Итого по группе: ${totalsText(report, g.totals)}`));
     }
