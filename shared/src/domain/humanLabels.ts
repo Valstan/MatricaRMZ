@@ -10,8 +10,19 @@
  *
  * Реестр не переписывает существующие словари, а агрегирует их импортом; переезжают
  * сюда только бездомные (те, у которых не было единственного владельца).
+ *
+ * КОГДА ЗАВОДИТЬ ДОМЕН. Только для ЗАКРЫТОГО множества кодов — такого, где перечень задан
+ * union-типом или enum'ом и компилятор поймает расхождение. Для открытого множества (коды
+ * заводит оператор в редактируемой схеме) домен вреден: он превращает всё незнакомое в
+ * прочерк, то есть теряет данные, которых сам не знает. Там подпись берётся из живой схемы.
+ *
+ * КАКОЙ ТЕКСТ СТАВИТЬ, КОГДА ПОДПИСИ НЕТ. Всегда `HUMAN_LABEL_DASH`. Отдельный текст
+ * допустим только там, где прочерк схлопывает разрез или убивает единственный смысл ячейки,
+ * и заводится он именованной константой здесь же — не на месте употребления, иначе через
+ * полгода в проекте будет три разных «нет подписи».
  */
 import { OPERATION_DESCRIPTORS, OPERATION_STATUS_LABELS } from './engineTimeline.js';
+import { SUPPLY_REQUEST_STATUS_LABELS } from './supplyRequest.js';
 
 export const HUMAN_LABEL_DASH = '—';
 
@@ -155,13 +166,19 @@ const OPERATION_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(OPERATION_DESCRIPTORS).map(([code, descriptor]) => [code, descriptor.label]),
 );
 
-export type HumanLabelDomainId = 'operation_type' | 'operation_status' | 'engine_phase' | 'report_total';
+export type HumanLabelDomainId =
+  | 'operation_type'
+  | 'operation_status'
+  | 'engine_phase'
+  | 'report_total'
+  | 'supply_request_status';
 
 const DOMAINS: Record<HumanLabelDomainId, Record<string, string>> = {
   operation_type: OPERATION_TYPE_LABELS,
   operation_status: OPERATION_STATUS_LABELS,
   engine_phase: ENGINE_PHASE_LABELS,
   report_total: REPORT_TOTAL_LABELS,
+  supply_request_status: SUPPLY_REQUEST_STATUS_LABELS,
 };
 
 /**

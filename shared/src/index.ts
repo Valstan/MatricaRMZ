@@ -76,3 +76,4 @@ export * from './ipc/types.js';
 
 
 export * from './domain/import1cStock.js';
+export * from './labels/auditAction.js';

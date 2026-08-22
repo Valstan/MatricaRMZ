@@ -7,6 +7,7 @@ import {
   CUSTOM_REPORT_AGG_LABELS_RU,
   CUSTOM_REPORT_SOURCE_PRESET_IDS,
   REPORT_PRESET_DEFINITIONS,
+  resolveReportPresetId,
   type CustomReportGroup,
   type CustomReportSpecV1,
   type ReportCellValue,
@@ -41,7 +42,13 @@ export type CustomReportRunResult =
   | { ok: false; error: string };
 
 export function listCustomReportSources(): Array<{ presetId: string; title: string }> {
-  return CUSTOM_REPORT_SOURCE_PRESET_IDS.map((id) => ({ presetId: id, title: PRESET_TITLES.get(id) ?? id }));
+  // Название ищем по каноническому id: `engines_list` объединён в `engines` (#647), своего
+  // определения у него больше нет, и прежний фолбэк `?? id` показывал оператору служебный код
+  // среди русских названий. Сам presetId — хранимый ключ шаблона, его подменять нельзя.
+  return CUSTOM_REPORT_SOURCE_PRESET_IDS.map((id) => ({
+    presetId: id,
+    title: PRESET_TITLES.get(resolveReportPresetId(id)) ?? PRESET_TITLES.get(id) ?? id,
+  }));
 }
 
 export async function runCustomReport(

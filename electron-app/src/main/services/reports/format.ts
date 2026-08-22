@@ -232,22 +232,7 @@ export function stageProgressFallback(stage: string): number {
 }
 
 export function statusLabel(status: string): string {
-  switch (status) {
-    case 'draft':
-      return 'Черновик';
-    case 'signed':
-      return 'Подписана';
-    case 'director_approved':
-      return 'Одобрена директором';
-    case 'accepted':
-      return 'Принята к исполнению';
-    case 'fulfilled_full':
-      return 'Исполнена полностью';
-    case 'fulfilled_partial':
-      return 'Исполнена частично';
-    default:
-      return status || '—';
-  }
+  return humanLabel('supply_request_status', status);
 }
 
 /** Коды `ok` | `waiting` | `shortage` | `absent` | `weekend` с API; совместимость со старым ответом с русскими подписями. */

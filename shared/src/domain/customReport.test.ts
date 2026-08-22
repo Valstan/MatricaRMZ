@@ -4,9 +4,10 @@ import {
   applyCustomReportTransform,
   describeCustomReportFilters,
   sanitizeCustomReportSpec,
+  CUSTOM_REPORT_SOURCE_PRESET_IDS,
   type CustomReportSpecV1,
 } from './customReport.js';
-import type { ReportColumn, ReportRow } from './reports.js';
+import { REPORT_PRESET_DEFINITIONS, resolveReportPresetId, type ReportColumn, type ReportRow } from './reports.js';
 
 const columns: ReportColumn[] = [
   { key: 'name', label: 'Название', kind: 'text' },
@@ -120,6 +121,17 @@ describe('applyCustomReportTransform', () => {
     });
     expect(r.columns.map((c) => c.key)).toEqual(['name']);
     expect(r.rows).toHaveLength(2);
+  });
+});
+
+describe('CUSTOM_REPORT_SOURCE_PRESET_IDS', () => {
+  // Сторож класса поломки #647: пресет объединяют, его id остаётся в списке источников как
+  // хранимый ключ шаблонов, а определения под этим id уже нет — и «Мои отчёты» показывают
+  // оператору служебный код вместо названия. Ключ остаётся, название обязано находиться.
+  it('каждый источник имеет название по каноническому id', () => {
+    const titles = new Map(REPORT_PRESET_DEFINITIONS.map((p) => [String(p.id), p.title]));
+    const homeless = CUSTOM_REPORT_SOURCE_PRESET_IDS.filter((id) => !titles.has(resolveReportPresetId(id)));
+    expect(homeless).toEqual([]);
   });
 });
 

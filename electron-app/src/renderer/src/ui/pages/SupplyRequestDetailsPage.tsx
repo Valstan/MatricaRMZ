@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { canActByPosition, canSignAsDepartmentHead } from '@matricarmz/shared';
+import { canActByPosition, canSignAsDepartmentHead, humanLabel } from '@matricarmz/shared';
 import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload, WarehouseNomenclatureListItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -72,22 +72,7 @@ function keyValueTable(rows: Array<[string, string]>) {
 }
 
 function statusLabel(s: string): string {
-  switch (s) {
-    case 'draft':
-      return 'Черновик';
-    case 'signed':
-      return 'Подписана начальником цеха';
-    case 'director_approved':
-      return 'Одобрена директором';
-    case 'accepted':
-      return 'Принята к исполнению';
-    case 'fulfilled_full':
-      return 'Исполнена полностью';
-    case 'fulfilled_partial':
-      return 'Исполнена частично';
-    default:
-      return s;
-  }
+  return humanLabel('supply_request_status', s);
 }
 
 function toInputDate(ms: number | null | undefined) {

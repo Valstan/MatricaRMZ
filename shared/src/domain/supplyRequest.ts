@@ -6,6 +6,22 @@ export type SupplyRequestStatus =
   | 'fulfilled_full'
   | 'fulfilled_partial';
 
+/**
+ * Подписи статусов заявки — один владелец на проект. Жили пятью копиями (сборщик отчётов,
+ * пресет «Заявки без прихода», список заявок, карточка заявки и опции фильтра пресета
+ * `supply_fulfillment`), и три из них подписывали `signed` как «Подписана»: оператор видел
+ * у одного кода две подписи, а в одном отчёте — разные в колонке и в фильтре.
+ * `Record<SupplyRequestStatus, string>` заставляет компилятор ловить расхождение со списком кодов.
+ */
+export const SUPPLY_REQUEST_STATUS_LABELS: Record<SupplyRequestStatus, string> = {
+  draft: 'Черновик',
+  signed: 'Подписана начальником цеха',
+  director_approved: 'Одобрена директором',
+  accepted: 'Принята к исполнению',
+  fulfilled_full: 'Исполнена полностью',
+  fulfilled_partial: 'Исполнена частично',
+};
+
 export type SupplyRequestTransitionAction =
   | 'sign'
   | 'director_approve'

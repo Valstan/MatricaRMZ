@@ -119,8 +119,22 @@ describe('домены реестра', () => {
     expect(hasHumanLabel('operation_type', 'нет_такого')).toBe(false);
   });
 
+  it('статусы заявки подписаны канонически и покрыты целиком', () => {
+    expect(humanLabelDomainCodes('supply_request_status')).toHaveLength(6);
+    // Три из пяти прежних копий подписывали этот код как «Подписана» — в списке заявок,
+    // который оператор видит чаще всего, он всегда был «Подписана начальником цеха».
+    expect(humanLabel('supply_request_status', 'signed')).toBe('Подписана начальником цеха');
+    expect(humanLabel('supply_request_status', 'нет_такого')).toBe(HUMAN_LABEL_DASH);
+  });
+
   it('ни одна подпись не является идентификатором', () => {
-    for (const domain of ['operation_type', 'operation_status', 'engine_phase', 'report_total'] as const) {
+    for (const domain of [
+      'operation_type',
+      'operation_status',
+      'engine_phase',
+      'report_total',
+      'supply_request_status',
+    ] as const) {
       for (const code of humanLabelDomainCodes(domain)) {
         expect(looksLikeIdentifier(humanLabel(domain, code))).toBe(false);
       }
