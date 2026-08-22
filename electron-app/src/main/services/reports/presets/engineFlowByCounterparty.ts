@@ -23,7 +23,7 @@ import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { normalizeText, asArray, asNumberOrNull, entityLabel, toNumber } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
-import { buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
+import { BRAND_MISSING, buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
 
 const NO_COUNTERPARTY = '(без заказчика)';
 const NO_CONTRACT = '(без договора)';
@@ -236,7 +236,10 @@ export async function buildEngineFlowByCounterpartyReport(
     let brandNode = contractNode.brands.get(brandKey);
     if (!brandNode) {
       brandNode = {
-        label: brandId ? brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId) : NO_BRAND,
+        // Последний фолбэк — подпись, а не `brandId`: у двигателя со ссылкой на несуществующую
+        // марку колонка «Марка» печатала оператору UUID. Разрез при этом не страдает —
+        // группируемся по `brandKey`, который так и остаётся идентификатором.
+        label: brandId ? brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, BRAND_MISSING) : NO_BRAND,
         agg: emptyFlowAgg(),
       };
       contractNode.brands.set(brandKey, brandNode);

@@ -208,7 +208,7 @@ export async function buildOrganizationStructureReport(
     ok: true,
     presetId: 'organization_structure',
     title: preset.title,
-    subtitle: 'Цеха из directory_workshops · подразделения из справочника department',
+    subtitle: 'Цеха и подразделения предприятия · численность по каждой единице',
     columns: preset.columns,
     rows,
     totals: {
