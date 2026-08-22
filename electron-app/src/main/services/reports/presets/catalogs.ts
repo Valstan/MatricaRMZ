@@ -80,10 +80,17 @@ export async function buildEmployeesRosterReport(
       fullName,
       personnelNumber: normalizeText(attrs.personnel_number, ''),
       position: normalizeText(attrs.role, ''),
-      // ВНИМАНИЕ: эта подпись служит ключом группировки подытогов (:113), поэтому общая
-      // подпись отсутствия здесь недопустима — она схлопнет разные подразделения в одну
-      // строку «Итого». Человеческое название подставляем, когда оно есть.
-      departmentName: departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || NOT_SPECIFIED_LABEL),
+      // Служебный ключ разреза: подытоги группируются ПО НЕМУ, а не по подписи ниже.
+      // Иначе два подразделения, чьи карточки не доехали, слились бы в одну строку «Итого» —
+      // подписи-то у них одинаковые. В колонки не входит, поэтому оператору не показывается
+      // нигде: и таблица, и CSV, и 1С-XML, и «Мои отчёты» проецируют строго `columns`
+      // (тот же приём — `_counterpartyKey` в «Потоке по контрагентам»).
+      _departmentKey: departmentId,
+      // Подпись — человеческая всегда. Идентификатор сюда не подставляется даже как
+      // последний фолбэк: различать строки — работа ключа выше, а не текста в ячейке.
+      departmentName:
+        departmentOptions.get(departmentId) ??
+        (pickHumanText(attrs.department) || (departmentId ? UNKNOWN_ENTITY_LABEL : NOT_SPECIFIED_LABEL)),
       // Цех приходит с сервера; при недоступном бэкенде карта пуста.
       workshopName: pickHumanText(workshopOptions.get(workshopId)) || (workshopId ? UNKNOWN_ENTITY_LABEL : ''),
       structureKind: workshopId ? 'Цех' : departmentId ? 'Подразделение' : 'Не назначено',
@@ -108,15 +115,24 @@ export async function buildEmployeesRosterReport(
       String(a.fullName ?? '').localeCompare(String(b.fullName ?? ''), 'ru'),
   );
 
-  const totalsByDepartment = new Map<string, { employees: number; workingEmployees: number; firedEmployees: number }>();
+  // Ключ — идентификатор подразделения, подпись живёт рядом: разные подразделения не сливаются
+  // из-за одинакового текста, а одинаковый текст на разных строках честно повторяется.
+  const totalsByDepartment = new Map<
+    string,
+    { label: string; totals: { employees: number; workingEmployees: number; firedEmployees: number } }
+  >();
   let firedInPeriod = 0;
   for (const row of rows) {
-    const groupKey = normalizeText(row.departmentName, '(не указано)');
-    const current = totalsByDepartment.get(groupKey) ?? { employees: 0, workingEmployees: 0, firedEmployees: 0 };
+    const groupKey = normalizeText(row._departmentKey, '');
+    const entry = totalsByDepartment.get(groupKey) ?? {
+      label: normalizeText(row.departmentName, NOT_SPECIFIED_LABEL),
+      totals: { employees: 0, workingEmployees: 0, firedEmployees: 0 },
+    };
+    const current = entry.totals;
     current.employees += 1;
     if (String(row.employmentStatus) === 'уволен') current.firedEmployees += 1;
     else current.workingEmployees += 1;
-    totalsByDepartment.set(groupKey, current);
+    totalsByDepartment.set(groupKey, entry);
 
     const terminationDate = asNumberOrNull(row.terminationDate);
     if (terminationDate != null && terminationDate >= periodStart && terminationDate <= period.endMs) firedInPeriod += 1;
@@ -136,8 +152,8 @@ export async function buildEmployeesRosterReport(
       firedEmployees: rows.filter((row) => String(row.employmentStatus) === 'уволен').length,
       firedInPeriod,
     },
-    totalsByGroup: Array.from(totalsByDepartment.entries())
-      .map(([group, totals]) => ({ group, totals }))
+    totalsByGroup: Array.from(totalsByDepartment.values())
+      .map(({ label, totals }) => ({ group: label, totals }))
       .sort((a, b) => a.group.localeCompare(b.group, 'ru')),
     generatedAt: Date.now(),
   };

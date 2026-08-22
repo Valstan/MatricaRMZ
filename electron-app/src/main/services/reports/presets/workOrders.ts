@@ -55,6 +55,8 @@ export type NormalizedWorkOrderReportCrewMember = {
 export type PayrollSummaryBucket = {
   employeeName: string;
   personnelNumber: string;
+  /** Идентификатор подразделения: ключ разреза подытогов, отдельный от подписи. */
+  departmentKey: string;
   departmentName: string;
   lines: number;
   totalKtu: number;
@@ -748,7 +750,12 @@ export async function buildWorkOrderPayrollSummaryReport(
   for (const employeeId of getIdsByType(snapshot, 'employee')) {
     const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
     const departmentId = normalizeText(attrs.department_id, '');
-    const departmentName = departmentOptions.get(departmentId) ?? normalizeText(attrs.department, departmentId || '(не указано)');
+    // Подпись — человеческая всегда; различать подразделения — работа `departmentId`, который
+    // и служит ключом разреза ниже. Прежний фолбэк `?? departmentId` печатал оператору
+    // идентификатор и одновременно был единственным, что не давало разрезу схлопнуться.
+    const departmentName =
+      departmentOptions.get(departmentId) ??
+      (pickHumanText(attrs.department) || (departmentId ? UNKNOWN_ENTITY_LABEL : '(не указано)'));
     const employeeName = normalizeText(
       attrs.full_name,
       [normalizeText(attrs.last_name, ''), normalizeText(attrs.first_name, ''), normalizeText(attrs.middle_name, '')]
@@ -795,10 +802,13 @@ export async function buildWorkOrderPayrollSummaryReport(
       const employeeName = normalizeText(member.employeeName, meta?.employeeName || '(не указан)');
       const personnelNumber = member.personnelNumber || meta?.personnelNumber || '';
       const employeeKey = member.employeeId || `name:${employeeName.toLowerCase()}`;
-      const bucketKey = `${departmentName}::${employeeKey}`;
+      // Ключ строки — по идентификатору подразделения, не по подписи: иначе два сотрудника из
+      // РАЗНЫХ подразделений с одинаковой подписью («(без названия)») попали бы в одно ведро.
+      const bucketKey = `${departmentId}::${employeeKey}`;
       const bucket = buckets.get(bucketKey) ?? {
         employeeName,
         personnelNumber,
+        departmentKey: departmentId,
         departmentName,
         lines: 0,
         totalKtu: 0,
@@ -821,6 +831,9 @@ export async function buildWorkOrderPayrollSummaryReport(
       const amountRub = Math.round(bucket.amountRub * 100) / 100;
       const totalKtu = Math.round(bucket.totalKtu * 100) / 100;
       return {
+        // Служебный ключ разреза, вне `columns` — оператору не показывается (см. тот же приём
+        // в «Сотрудниках» и «Потоке по контрагентам»).
+        _departmentKey: bucket.departmentKey,
         departmentName: bucket.departmentName || '(не указано)',
         employeeName: bucket.employeeName || '(не указан)',
         personnelNumber: bucket.personnelNumber || null,
@@ -838,14 +851,22 @@ export async function buildWorkOrderPayrollSummaryReport(
         String(a.employeeName ?? '').localeCompare(String(b.employeeName ?? ''), 'ru'),
     );
 
-  const totalsByDepartment = new Map<string, { employees: number; workOrders: number; amountRub: number }>();
+  // Ключ — идентификатор подразделения, подпись рядом: разные подразделения не сливаются
+  // из-за одинакового текста подписи.
+  const totalsByDepartment = new Map<
+    string,
+    { label: string; totals: { employees: number; workOrders: number; amountRub: number } }
+  >();
   for (const row of rows) {
-    const departmentName = normalizeText(row.departmentName, '(не указано)');
-    const current = totalsByDepartment.get(departmentName) ?? { employees: 0, workOrders: 0, amountRub: 0 };
-    current.employees += 1;
-    current.workOrders += Math.max(0, toNumber(row.workOrders));
-    current.amountRub += Math.max(0, toNumber(row.amountRub));
-    totalsByDepartment.set(departmentName, current);
+    const departmentKey = normalizeText(row._departmentKey, '');
+    const entry = totalsByDepartment.get(departmentKey) ?? {
+      label: normalizeText(row.departmentName, '(не указано)'),
+      totals: { employees: 0, workOrders: 0, amountRub: 0 },
+    };
+    entry.totals.employees += 1;
+    entry.totals.workOrders += Math.max(0, toNumber(row.workOrders));
+    entry.totals.amountRub += Math.max(0, toNumber(row.amountRub));
+    totalsByDepartment.set(departmentKey, entry);
   }
 
   const preset = getPreset('work_order_payroll_summary');
@@ -869,9 +890,9 @@ export async function buildWorkOrderPayrollSummaryReport(
             ) / 100
           : 0,
     },
-    totalsByGroup: Array.from(totalsByDepartment.entries())
-      .map(([departmentName, totals]) => ({
-        group: departmentName,
+    totalsByGroup: Array.from(totalsByDepartment.values())
+      .map(({ label, totals }) => ({
+        group: label,
         totals: {
           employees: totals.employees,
           workOrders: totals.workOrders,

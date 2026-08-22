@@ -112,40 +112,6 @@ export const HUMAN_LABEL_GUARD_EXCEPTIONS: HumanLabelGuardException[] = [
     followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «резолв склада и детали в двух аудиторских отчётах»',
   },
 
-  // --- Класс 3: подпись подразделения одновременно ключ группировки ---
-  //
-  // `departmentOptions.get(id) ?? normalizeText(attrs.department, departmentId)` — последний
-  // фолбэк отдаёт сам идентификатор, когда карточка подразделения не доехала. Прочерк здесь
-  // схлопнул бы разные подразделения в одну строку подытогов — тот самый дефект, который
-  // ревью этапа A уже ловило как блокер. Развязывается только вместе с ключами группировки.
-  {
-    presetId: 'employees_roster',
-    column: 'departmentName',
-    kind: ID_WHOLE,
-    reason: 'Значение служит ключом подытогов по подразделениям; общая подпись отсутствия дала бы неверные числа.',
-    followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «ключи группировки, не зависящие от подписи»',
-  },
-  {
-    presetId: 'employees_roster',
-    column: 'totalsGroup',
-    kind: ID_WHOLE,
-    reason: 'Подпись группы подытогов — та же строка, что и в колонке «Подразделение».',
-    followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «ключи группировки, не зависящие от подписи»',
-  },
-  {
-    presetId: 'work_order_payroll_summary',
-    column: 'departmentName',
-    kind: ID_WHOLE,
-    reason: 'Тот же фолбэк на идентификатор подразделения и тот же ключ подытогов, что в «Сотрудниках».',
-    followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «ключи группировки, не зависящие от подписи»',
-  },
-  {
-    presetId: 'work_order_payroll_summary',
-    column: 'totalsGroup',
-    kind: ID_WHOLE,
-    reason: 'Подпись группы подытогов — та же строка, что и в колонке «Подразделение».',
-    followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «ключи группировки, не зависящие от подписи»',
-  },
 ];
 
 export const HUMAN_LABEL_GUARD_UNCOVERED_PRESETS: HumanLabelGuardUncoveredPreset[] = [
