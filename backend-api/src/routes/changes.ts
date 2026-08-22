@@ -4,6 +4,8 @@ import { and, desc, eq, inArray, isNotNull, isNull, like, ne, or } from 'drizzle
 
 import {
   SyncTableName,
+  humanLabel,
+  HUMAN_LABEL_OTHER,
   attributeDefRowSchema,
   attributeValueRowSchema,
   entityRowSchema,
@@ -250,6 +252,38 @@ changesRouter.get('/', async (req, res) => {
       supply_request: 'Заявки',
     };
 
+    /**
+     * Раздел для строк, у которых нет сущности и типа: раньше в колонку падало сырое имя
+     * таблицы («Раздел: attribute_values»). Тип `Record<SyncTableName, string>` не даст новой
+     * синхронизируемой таблице появиться без подписи — компилятор поймает.
+     *
+     * Прочерк сюда ставить нельзя: колонка «Раздел» на клиенте служит ключом сортировки,
+     * и общая заглушка схлопнула бы разные разделы в одну позицию.
+     */
+    const sectionLabelsByTable: Record<SyncTableName, string> & Record<string, string> = {
+      [SyncTableName.EntityTypes]: 'Типы карточек',
+      [SyncTableName.Entities]: 'Карточки',
+      [SyncTableName.AttributeDefs]: 'Поля карточек',
+      [SyncTableName.AttributeValues]: 'Поля карточек',
+      [SyncTableName.Operations]: 'Операции',
+      [SyncTableName.AuditLog]: 'Журнал действий',
+      [SyncTableName.ChatMessages]: 'Сообщения',
+      [SyncTableName.ChatReads]: 'Прочтения сообщений',
+      [SyncTableName.UserPresence]: 'Присутствие пользователей',
+      [SyncTableName.Notes]: 'Заметки',
+      [SyncTableName.NoteShares]: 'Доступ к заметкам',
+      [SyncTableName.CardDrafts]: 'Черновики карточек',
+      [SyncTableName.AiChatRequests]: 'Запросы к ИИванычу',
+      [SyncTableName.ErpNomenclature]: 'Номенклатура',
+      [SyncTableName.ErpEngineAssemblyBom]: 'Спецификации сборки',
+      [SyncTableName.ErpEngineAssemblyBomLines]: 'Строки спецификаций',
+      [SyncTableName.ErpEngineAssemblyBomBrandLinks]: 'Связи спецификаций с марками',
+      [SyncTableName.ErpEngineInstances]: 'Экземпляры двигателей',
+      [SyncTableName.ErpRegStockBalance]: 'Остатки склада',
+      [SyncTableName.ErpRegStockMovements]: 'Движения склада',
+      file_assets: 'Файлы',
+    };
+
     const enriched = (filtered as any[]).map((r) => {
       const after = parsedAfter.get(String(r.id)) ?? null;
       const table = String(r.tableName);
@@ -265,15 +299,24 @@ changesRouter.get('/', async (req, res) => {
         const defId = after?.attribute_def_id ? String(after.attribute_def_id) : null;
         if (defId) {
           const def = defById.get(defId);
-          fieldLabel = def?.name ?? def?.code ?? null;
+          // Без `?? def.code`: `attribute_defs.name` объявлено NOT NULL, так что до кода ветка
+          // не доходила никогда. Не найден сам def — строка «что изменилось» просто не
+          // рендерится (раздел и карточка в ячейке остаются), пустой ячейки не будет.
+          fieldLabel = def?.name ?? null;
           if (def?.entityTypeId) typeId = def.entityTypeId;
         }
       } else if (table === SyncTableName.AttributeDefs) {
         typeId = after?.entity_type_id ? String(after.entity_type_id) : null;
+        // Код здесь остаётся намеренно: это правка самого описания поля, и при неполном
+        // payload код — единственное, что вообще называет изменённое поле. Убрать его —
+        // потерять смысл строки, а не показать «по-человечески».
         fieldLabel = after?.name ? String(after.name) : after?.code ? String(after.code) : null;
       } else if (table === SyncTableName.Operations) {
         entityId = after?.engine_entity_id ? String(after.engine_entity_id) : entityId;
-        fieldLabel = after?.operation_type ? `Операция: ${String(after.operation_type)}` : 'Операция';
+        // Подпись операции, а не её код: оператор видел «Операция: engine_inventory».
+        // Множество кодов открыто (сервер принимает любую непустую строку), поэтому общий
+        // фолбэк «Операция» обязателен — прочерк убил бы единственный смысл строки.
+        fieldLabel = humanLabel('operation_type', after?.operation_type, 'Операция');
       } else if (table === SyncTableName.EntityTypes) {
         typeId = after?.id ? String(after.id) : null;
         fieldLabel = after?.name ? String(after.name) : after?.code ? String(after.code) : null;
@@ -283,7 +326,10 @@ changesRouter.get('/', async (req, res) => {
       if (!typeId && entityRow?.typeId) typeId = String(entityRow.typeId);
       const type = typeId ? typeById.get(typeId) ?? null : null;
       const typeCode = type?.code ?? null;
-      const sectionLabel = typeCode && sectionLabels[typeCode] ? sectionLabels[typeCode] : type?.name ?? r.tableName;
+      const sectionLabel =
+        typeCode && sectionLabels[typeCode]
+          ? sectionLabels[typeCode]
+          : type?.name ?? sectionLabelsByTable[table] ?? HUMAN_LABEL_OTHER;
       const entityAttrs = entityId ? attrByEntity.get(entityId) : undefined;
       const entityName = entityId ? entityLabel(typeCode, entityAttrs, entityId) : null;
 

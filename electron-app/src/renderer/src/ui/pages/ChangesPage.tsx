@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { AuthUserInfo, ChangeRequestRow } from '@matricarmz/shared';
+import { looksLikeIdentifier, HUMAN_LABEL_OTHER, type AuthUserInfo, type ChangeRequestRow } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -78,8 +78,6 @@ function isTechnicalKey(k: string): boolean {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 function valueText(v: unknown): string {
   if (v == null) return '';
   if (typeof v === 'string') return v;
@@ -98,7 +96,7 @@ function humanizeLines(obj: unknown): string[] {
     if (isTechnicalKey(k)) continue;
     let v: unknown = o[k];
     if (k.endsWith('_json') && typeof v === 'string') v = tryParseJson(v);
-    if (typeof v === 'string' && UUID_RE.test(v)) continue;
+    if (looksLikeIdentifier(v)) continue;
     const text = valueText(v);
     if (!text || text === 'null') continue;
     out.push(`${keyRu(k)}: ${text}`);
@@ -189,7 +187,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     listState.sortKey as SortKey,
     listState.sortDir,
     (c, key) => {
-      if (key === 'tableName') return String((c as any).sectionLabel ?? c.tableName ?? '').toLowerCase();
+      if (key === 'tableName') return String((c as any).sectionLabel ?? HUMAN_LABEL_OTHER).toLowerCase();
       if (key === 'owner') return String(c.recordOwnerUsername ?? '').toLowerCase();
       if (key === 'changer') return String(c.changeAuthorUsername ?? '').toLowerCase();
       return Number(c.createdAt ?? 0);
@@ -235,7 +233,9 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     const diffs = diffLines(before, after);
     const beforeLines = humanizeLines(before);
     const afterLines = humanizeLines(after);
-    const sectionLabel = (c as any).sectionLabel ?? c.tableName;
+    // Показ и ключ сортировки (см. выше) обязаны брать ОДНО значение, иначе список
+    // сортируется по одному тексту, а показывает другой.
+    const sectionLabel = (c as any).sectionLabel ?? HUMAN_LABEL_OTHER;
     const entityLabel =
       (c as any).entityLabel ??
       (c.rootEntityId ? `ID ${String(c.rootEntityId).slice(0, 8)}` : `ID ${String(c.rowId).slice(0, 8)}`);
