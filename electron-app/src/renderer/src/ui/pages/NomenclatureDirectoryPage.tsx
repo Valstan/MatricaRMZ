@@ -19,6 +19,7 @@ import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type CreateConfig = {
   codePrefix: string;
@@ -292,7 +293,7 @@ export function NomenclatureDirectoryPage(props: {
           const ids = serviceBrandIds[String(row.id)] ?? [];
           if (ids.length === 0) return <span style={{ color: 'var(--subtle)' }}>универсальная</span>;
           return ids
-            .map((id) => engineBrandNames[id] ?? id)
+            .map((id) => lookupLabel(id, (key) => engineBrandNames[key], BRAND_LABEL_TEXTS))
             .sort((a, b) => a.localeCompare(b, 'ru'))
             .join(', ');
         },
@@ -425,8 +426,9 @@ export function NomenclatureDirectoryPage(props: {
         const map: Record<string, string> = {};
         for (const row of (brandRows ?? []) as Array<{ id: string; attributes?: Record<string, unknown>; name?: string }>) {
           const id = String(row.id);
-          const name = String(row.attributes?.name ?? row.name ?? id);
-          map[id] = name;
+          // Идентификатор в словарь не кладём: он оттуда доезжал прямо в чип марки.
+          const name = String(row.attributes?.name ?? row.name ?? '').trim();
+          if (name) map[id] = name;
         }
         if (alive) setEngineBrandNames(map);
       } catch {

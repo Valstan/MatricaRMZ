@@ -85,6 +85,7 @@ import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
+import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type AttributeDef = {
   id: string;
@@ -522,7 +523,7 @@ function SectionBlock(props: {
   // в разных местах листа (владелец, 31.07).
   const engineById = new Map(sectionEngines.map((e) => [e.id, e] as const));
   const brandLabelById = (id: string | undefined) =>
-    id ? engineBrandOptions.find((o) => o.id === id)?.label ?? '⚠ марка удалена' : 'Без марки';
+    lookupLabel(id, (key) => engineBrandOptions.find((o) => o.id === key)?.label, BRAND_LABEL_TEXTS);
   const slotRows: SectionSlotRow[] = sectionSlots.map((slot) => {
     const engine = slot.engineId ? engineById.get(slot.engineId) : undefined;
     return { slot, ...(engine ? { engine } : {}) };

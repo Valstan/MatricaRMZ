@@ -12,6 +12,7 @@ import type {
   ReportPrintLayout,
 } from '@matricarmz/shared';
 import {
+  looksLikeIdentifier,
   resolveReportPresetId,
   formatWorkOrdersStatusCountsLine,
   resolveReportPrintLayout,
@@ -43,6 +44,10 @@ import {
   toInputDate,
 } from '../utils/reportUtils.js';
 import { renderWorkOrderPayrollFormInnerHtml } from '../utils/workOrderPayrollReportLayoutHtml.js';
+import { lookupLabel } from '../utils/lookupLabel.js';
+
+/** Значение фильтра есть, названия у него нет — но код оператору не показываем. */
+const UNNAMED_FILTER_TEXTS = { missing: 'без названия' } as const;
 
 type PreviewOk = Extract<ReportPresetPreviewResult, { ok: true }>;
 
@@ -1125,7 +1130,7 @@ export function ReportPresetPage(props: {
       const value = String(activeFilters[filter.key] ?? sourceOptions[0]?.value ?? '');
       const first = String(sourceOptions[0]?.value ?? '');
       if (!value || value === first || value === 'all' || value === 'none') return null;
-      return sourceOptions.find((o) => o.value === value)?.label ?? value;
+      return lookupLabel(value, (key) => sourceOptions.find((o) => o.value === key)?.label, UNNAMED_FILTER_TEXTS);
     }
     // multi_select
     const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
@@ -1133,8 +1138,17 @@ export function ReportPresetPage(props: {
     if (selected.length === 0) return null;
     // «Колонки отчёта» с выбором всех — не отклонение от дефолта, в сводке не шумим.
     if (filter.selectAllByDefault && selected.length === options.length) return null;
-    const labels = selected.map((v) => options.find((o) => o.value === v)?.label ?? v);
-    return labels.length <= 3 ? labels.join(', ') : `${labels.slice(0, 3).join(', ')} и ещё ${labels.length - 3}`;
+    // Безымянные значения СЧИТАЕМ, а не перечисляем прочерками: ряд «—, —, —» читается хуже,
+    // чем «и ещё 3 без названия», а идентификатор оператору показывать нельзя в любом случае.
+    const named = selected
+      .map((v) => String(options.find((o) => o.value === v)?.label ?? '').trim())
+      .filter((label) => label && !looksLikeIdentifier(label));
+    const unnamed = selected.length - named.length;
+    const parts: string[] = [];
+    if (named.length) parts.push(named.slice(0, 3).join(', '));
+    if (named.length > 3) parts.push(`и ещё ${named.length - 3}`);
+    if (unnamed) parts.push(`${named.length ? 'и ещё ' : ''}${unnamed} без названия`);
+    return parts.join(' ');
   }
 
   /** Строка «Выбрано: …» под контролом фильтра. */

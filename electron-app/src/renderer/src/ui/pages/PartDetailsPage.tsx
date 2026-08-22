@@ -28,6 +28,7 @@ import {
   normalizeDateInput,
   toInputDate,
 } from '../utils/partEav.js';
+import { lookupLabel } from '../utils/lookupLabel.js';
 
 type Attribute = {
   id: string;
@@ -428,7 +429,9 @@ export function PartDetailsPage(props: {
         if (!entityId) continue;
         const targetTypeCode = getLinkTargetTypeCode(attr);
         const options = linkOptionsByCode[attr.code] ?? [];
-        const label = options.find((row) => row.id === entityId)?.label ?? entityId;
+        // Не `?? entityId`: плитка отсеивается по пустой подписи, поэтому здесь нужен
+        // непустой человеческий текст, а идентификатор оператору показывать нельзя.
+        const label = lookupLabel(entityId, (key) => options.find((row) => row.id === key)?.label);
         addItem({
           key: `link:${attr.code}:${entityId}`,
           kind: 'link',

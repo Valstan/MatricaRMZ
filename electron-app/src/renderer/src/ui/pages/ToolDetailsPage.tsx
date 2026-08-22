@@ -19,6 +19,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
+import { lookupLabel } from '../utils/lookupLabel.js';
 
 type Option = { id: string; label: string };
 type EmployeeOption = Option & { departmentId: string | null };
@@ -464,7 +465,7 @@ export function ToolDetailsPage(props: {
       ['Наименование', name],
       ['Серийный номер', serialNumber],
       ['Описание', description],
-      ['Подразделение', departmentLabelById.get(departmentId) ?? departmentId ?? '—'],
+      ['Подразделение', lookupLabel(departmentId, (key) => departmentLabelById.get(key))],
       ['Дата поступления', receivedAt || '—'],
       ['Дата снятия', retiredAt || '—'],
       ['Причина снятия', retireReason || '—'],
