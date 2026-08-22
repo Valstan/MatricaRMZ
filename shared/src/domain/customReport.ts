@@ -210,6 +210,22 @@ function parseCellDate(value: ReportCellValue): number | null {
   return null;
 }
 
+const MOSCOW_DAY_FORMAT = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: 'Europe/Moscow',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
+ * Календарный день по московскому времени. Нужен для «равно» по дате: ячейка показывает
+ * оператору московскую дату, а сравнивать epoch-в-epoch бессмысленно — у значения есть
+ * время, у введённой даты нет, и совпадения не будет никогда.
+ */
+function moscowDayKey(ts: number): string {
+  return MOSCOW_DAY_FORMAT.format(new Date(ts));
+}
+
 function cellText(value: ReportCellValue): string {
   if (value == null) return '';
   if (typeof value === 'boolean') return value ? 'да' : 'нет';
@@ -250,6 +266,17 @@ function matchesFilter(value: ReportCellValue, filter: CustomReportFilter, kind:
     case 'eq':
     case 'ne': {
       let equal: boolean;
+      const dv = kind === 'date' || kind === 'datetime' ? parseCellDate(value) : null;
+      const dn = dv != null ? parseCellDate(needle) : null;
+      if (dv != null && dn != null) {
+        // Прежде эта ветка отсутствовала: «равно» по дате сравнивало ТЕКСТ сырого epoch с
+        // введённым «дд.мм.гггг» (подсказка поля обещает именно этот формат) и не совпадало
+        // никогда. Сравниваем день в день по московскому времени — так же, как ячейка
+        // показывает дату оператору; при введённом времени сравниваем точно.
+        const needleHasTime = /\d{2}[ T]\d{2}:\d{2}/.test(needle);
+        equal = needleHasTime ? dv === dn : moscowDayKey(dv) === moscowDayKey(dn);
+        return filter.op === 'eq' ? equal : !equal;
+      }
       const nv = parseCellNumber(value);
       const nn = parseCellNumber(needle);
       if ((kind === 'number' || (nv != null && nn != null)) && nn != null) {

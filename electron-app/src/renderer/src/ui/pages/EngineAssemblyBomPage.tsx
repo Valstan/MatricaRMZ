@@ -6,6 +6,7 @@ import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
+import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type BomListRow = {
   id: string;
@@ -63,8 +64,8 @@ function lineLabel(line: BomLineFull): string {
 }
 
 function brandsLabel(ids: string[], labels: Map<string, string>): string {
-  if (!ids.length) return '—';
-  return ids.map((id) => labels.get(id) ?? id).join(', ');
+  if (!ids.length) return BRAND_LABEL_TEXTS.absent;
+  return ids.map((id) => lookupLabel(id, (key) => labels.get(key), BRAND_LABEL_TEXTS)).join(', ');
 }
 
 function buildAllBomsPrintHtml(
@@ -75,7 +76,7 @@ function buildAllBomsPrintHtml(
   const sections: PrintSection[] = [];
 
   for (const bom of boms) {
-    const brands = (bom.header.engineBrandIds ?? []).map((id) => brandLabelById.get(String(id)) ?? String(id)).join(', ') || '—';
+    const brands = brandsLabel((bom.header.engineBrandIds ?? []).map(String), brandLabelById);
     const lines = [...bom.lines].sort((a, b) => {
       const ap = Number(a.priority ?? 100);
       const bp = Number(b.priority ?? 100);
@@ -181,7 +182,10 @@ export function EngineAssemblyBomPage(props: {
     for (const b of lookups.engineBrands ?? []) {
       const id = String(b.id ?? '').trim();
       if (!id) continue;
-      map.set(id, String(b.label ?? '').trim() || id);
+      // Идентификатор в словарь не кладём — он доезжал прямо в чип марки. Следствие,
+      // названное осознанно: строки с безымянными марками попадают в один класс сортировки.
+      const label = String(b.label ?? '').trim();
+      if (label) map.set(id, label);
     }
     return map;
   }, [lookups.engineBrands]);

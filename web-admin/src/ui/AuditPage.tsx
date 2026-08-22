@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { describeAuditAction } from '@matricarmz/shared';
+
 import { listUsers } from '../api/adminUsers.js';
 import { dailyAuditSummary, listAudit } from '../api/audit.js';
 import { Button } from './components/Button.js';
@@ -105,160 +107,6 @@ function formatClientId(rawClientId: string | null) {
   if (!normalized) return '-';
   const short = normalized.split('-')[0];
   return short || '-';
-}
-
-function describeAction(row: AuditRow) {
-  const action = String(row.action ?? '').trim().toLowerCase();
-  const fromText = String(row.actionText ?? '').trim();
-  const section = String(row.section ?? '').trim();
-  const target = String(row.documentLabel ?? '').trim();
-  const normalizedFromText = fromText.toLowerCase();
-  const sectionLabel = section ? `«${section}»` : '';
-  const sectionLower = section.toLowerCase();
-  const targetLabel = target ? `«${target}»` : '';
-  const exactActionByCode: Record<string, string> = {
-    'engine.create': 'Создал двигатель',
-    'engine.update': 'Редактировал двигатель',
-    'engine.delete': 'Удалил двигатель',
-    'engine.edit_done': 'Редактировал двигатель',
-    'ui.engine.edit_done': 'Редактировал двигатель',
-    'part.create': 'Создал деталь',
-    'part.update': 'Редактировал деталь',
-    'part.delete': 'Удалил деталь',
-    'supply_request.create': 'Создал заявку',
-    'supply_request.update': 'Редактировал заявку',
-    'supply_request.delete': 'Удалил заявку',
-    'ui.supply_request.edit_done': 'Редактировал заявку',
-    'employee.create': 'Создал сотрудника',
-    'employee.update': 'Редактировал карточку сотрудника',
-    'employee.delete': 'Удалил сотрудника',
-    'tool.create': 'Добавил инструмент',
-    'tool.update': 'Редактировал инструмент',
-    'tool.delete': 'Удалил инструмент',
-    'masterdata.create': 'Добавил запись справочника',
-    'masterdata.update': 'Редактировал запись справочника',
-    'masterdata.delete': 'Удалил запись справочника',
-    'sync.create': 'Добавил запись синхронизации',
-    'sync.update': 'Редактировал запись синхронизации',
-    'sync.delete': 'Удалил запись синхронизации',
-    'files.create': 'Добавил файл',
-    'files.update': 'Редактировал файл',
-    'files.delete': 'Удалил файл',
-  };
-  const createBySection: Record<string, string> = {
-    'заявки': 'Создал заявку',
-    'двигатели': 'Добавил двигатель',
-    'детали': 'Добавил деталь',
-    'сотрудники': 'Создал сотрудника',
-    'инструменты': 'Добавил инструмент',
-    'справочники': 'Добавил запись справочника',
-    'синхронизация': 'Добавил запись синхронизации',
-    'файлы': 'Добавил файл',
-  };
-  const updateBySection: Record<string, string> = {
-    'заявки': 'Редактировал заявку',
-    'двигатели': 'Редактировал двигатель',
-    'детали': 'Редактировал деталь',
-    'сотрудники': 'Редактировал карточку сотрудника',
-    'инструменты': 'Редактировал инструмент',
-    'справочники': 'Редактировал запись справочника',
-    'синхронизация': 'Редактировал запись синхронизации',
-    'файлы': 'Редактировал файл',
-  };
-  const deleteBySection: Record<string, string> = {
-    'заявки': 'Удалил заявку',
-    'двигатели': 'Удалил двигатель',
-    'детали': 'Удалил деталь',
-    'сотрудники': 'Удалил сотрудника',
-    'инструменты': 'Удалил инструмент',
-    'справочники': 'Удалил запись справочника',
-    'синхронизация': 'Удалил запись синхронизации',
-    'файлы': 'Удалил файл',
-  };
-  const openBySection: Record<string, string> = {
-    'сотрудники': 'Открыл карточку сотрудника',
-    'заявки': 'Открыл заявку',
-    'детали': 'Открыл карточку детали',
-    'двигатели': 'Открыл карточку двигателя',
-    'инструменты': 'Открыл карточку инструмента',
-    'файлы': 'Открыл карточку файла',
-    'справочники': 'Открыл запись справочника',
-    'синхронизация': 'Открыл запись синхронизации',
-  };
-  const openCard = openBySection[sectionLower] || 'Открыл карточку';
-  const formatBySection = (actionText: string) => {
-    if (targetLabel) return `${actionText} ${targetLabel}`;
-    if (sectionLabel) return `${actionText} в ${sectionLabel}`;
-    return actionText;
-  };
-
-  const genericByType = {
-    create: new Set([
-      'создал запись',
-      'создал запись.',
-      'создал двигатель',
-      'создал деталь',
-      'создал заявку',
-      'создал заявку.',
-      'создал карточку двигателя',
-    ]),
-    update: new Set([
-      'изменил запись',
-      'изменил запись.',
-      'изменил карточку двигателя',
-      'изменил карточку двигателя.',
-      'изменил заявку',
-      'изменил заявку.',
-      'изменил статус заявки',
-    ]),
-    delete: new Set(['удалил запись', 'удалил запись.', 'удалил деталь', 'удалил деталь.', 'удалил заявку', 'удалил заявку.']),
-  };
-
-  if (action === 'app.session.start') return 'Зашел в систему';
-  if (action === 'app.session.stop') return 'Вышел из системы';
-  if (exactActionByCode[action]) return formatBySection(exactActionByCode[action]!);
-
-  if (action === 'supply_request.transition') {
-    const match = /^изменил статус заявки:\s*(.+?)\s*->\s*(.+)$/i.exec(fromText);
-    if (match) {
-      const from = String(match[1] ?? '').trim();
-      const to = String(match[2] ?? '').trim();
-      const statusTarget = target || sectionLabel ? `по ${target ? targetLabel : sectionLabel}` : '';
-      return `Сменил статус заявки${statusTarget ? ` ${statusTarget}` : ''}: ${from} → ${to}`;
-    }
-  }
-  if (action.endsWith('.edit_done')) {
-    const base = formatBySection(updateBySection[sectionLower] || 'Редактировал');
-    const summary = fromText.replace(/^изменил [^.]+\.\s*/i, '').trim();
-    return summary ? `${base}. ${summary}` : base;
-  }
-  if (action.includes('.open') || action.includes('.view') || action.includes('.details')) {
-    const actionPhrase = openBySection[sectionLower] || 'Открыл страницу';
-    if (targetLabel) return `${actionPhrase} ${targetLabel}${section ? ` в ${sectionLabel}` : ''}`;
-    if (sectionLabel) return `${actionPhrase} в ${sectionLabel}`;
-    return 'Открыл страницу';
-  }
-
-  if (row.actionType === 'create') {
-    if (fromText && !genericByType.create.has(normalizedFromText)) return fromText;
-    return formatBySection(createBySection[sectionLower] || 'Создал');
-  }
-
-  if (row.actionType === 'update') {
-    if (fromText && !genericByType.update.has(normalizedFromText)) return fromText;
-    return formatBySection(updateBySection[sectionLower] || 'Редактировал');
-  }
-
-  if (row.actionType === 'delete') {
-    if (fromText && !genericByType.delete.has(normalizedFromText)) return fromText;
-    return formatBySection(deleteBySection[sectionLower] || 'Удалил');
-  }
-
-  if (targetLabel) return `${openCard} ${targetLabel}${section ? ` в ${sectionLabel}` : ''}`;
-  if (sectionLabel) return `Заходил в секцию ${sectionLabel}`;
-  if (fromText) return `Выполнил действие: ${fromText}`;
-  if (action) return `Выполнил действие: ${action}`;
-  return 'Выполнил действие';
 }
 
 export function AuditPage() {
@@ -516,7 +364,7 @@ export function AuditPage() {
                   <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{formatAuditDate(r.createdAt)}</td>
                   <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{r.actor}</td>
                   <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{getActorInitials(r.actor)}</td>
-                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{describeAction(r)}</td>
+                  <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>{describeAuditAction(r)}</td>
                   <td style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
                     {r.section}
                     {r.documentLabel ? (

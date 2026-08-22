@@ -17,6 +17,7 @@ import {
   type ReportPresetPreviewResult,
   assemblyForecastStatusLabelRu,
   looksLikeIdentifier,
+  stripIdentifierTokens,
   } from '@matricarmz/shared';
 
 import {
@@ -394,7 +395,6 @@ export function computeContractBasedAssemblyPriorityFromSnapshot(
 }
 
 /** Убирает из текста отчёта для оператора внутренние маркеры вариантов BOM и UUID. */
-export const ASSEMBLY_FORECAST_UUID_TOKEN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 export const ASSEMBLY_FORECAST_KIT_MARKER = /\s*\[__kit_[^\]]+]/gi;
 
 // Детектор идентификатора один на проект — в shared. Здесь остаётся тонкая обёртка:
@@ -406,7 +406,7 @@ export function isUuidLike(s: string): boolean {
 export function sanitizeAssemblyForecastOperatorText(raw: string): string {
   let s = String(raw ?? '');
   s = s.replace(ASSEMBLY_FORECAST_KIT_MARKER, '');
-  s = s.replace(ASSEMBLY_FORECAST_UUID_TOKEN, '');
+  s = stripIdentifierTokens(s);
   s = s.replace(/\(\s*\)/g, '');
   s = s.replace(/;\s*;/g, ';');
   s = s.replace(/\s{2,}/g, ' ').trim();

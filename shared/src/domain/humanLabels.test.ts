@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   HUMAN_LABEL_DASH,
+  stripIdentifierTokens,
   hasHumanLabel,
   humanLabel,
   humanLabelDomainCodes,
@@ -112,6 +113,30 @@ describe('reportTotalKind', () => {
   });
 });
 
+describe('stripIdentifierTokens', () => {
+  it('вырезает идентификатор из середины текста', () => {
+    expect(stripIdentifierTokens('Марка a3f19b2c-1d4e-4a7b-9c8d-2e5f6a7b8c9d: BOM не найден').trim()).toBe(
+      'Марка : BOM не найден',
+    );
+  });
+
+  // Прежняя копия в прогнозе сборки требовала версию [1-5] и вариант [89ab], поэтому
+  // системные идентификаторы проекта до оператора доезжали.
+  it('вырезает системный идентификатор, который прежняя строгая форма пропускала', () => {
+    expect(stripIdentifierTokens('склад 00000000-0000-0000-0000-000000000001 пуст')).not.toContain('00000000');
+  });
+
+  it('не трогает человеческий текст', () => {
+    expect(stripIdentifierTokens('ДИЗЕЛЬ-2024-А, 12 шт.')).toBe('ДИЗЕЛЬ-2024-А, 12 шт.');
+  });
+
+  it('не зависит от числа вызовов — состояния между вызовами нет', () => {
+    const text = 'a3f19b2c-1d4e-4a7b-9c8d-2e5f6a7b8c9d';
+    expect(stripIdentifierTokens(text)).toBe('');
+    expect(stripIdentifierTokens(text)).toBe('');
+  });
+});
+
 describe('домены реестра', () => {
   it('покрывают все коды таймлайна двигателя, а не выборочные', () => {
     expect(humanLabelDomainCodes('operation_type')).toHaveLength(29);
@@ -119,8 +144,22 @@ describe('домены реестра', () => {
     expect(hasHumanLabel('operation_type', 'нет_такого')).toBe(false);
   });
 
+  it('статусы заявки подписаны канонически и покрыты целиком', () => {
+    expect(humanLabelDomainCodes('supply_request_status')).toHaveLength(6);
+    // Три из пяти прежних копий подписывали этот код как «Подписана» — в списке заявок,
+    // который оператор видит чаще всего, он всегда был «Подписана начальником цеха».
+    expect(humanLabel('supply_request_status', 'signed')).toBe('Подписана начальником цеха');
+    expect(humanLabel('supply_request_status', 'нет_такого')).toBe(HUMAN_LABEL_DASH);
+  });
+
   it('ни одна подпись не является идентификатором', () => {
-    for (const domain of ['operation_type', 'operation_status', 'engine_phase', 'report_total'] as const) {
+    for (const domain of [
+      'operation_type',
+      'operation_status',
+      'engine_phase',
+      'report_total',
+      'supply_request_status',
+    ] as const) {
       for (const code of humanLabelDomainCodes(domain)) {
         expect(looksLikeIdentifier(humanLabel(domain, code))).toBe(false);
       }

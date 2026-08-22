@@ -10,10 +10,32 @@
  *
  * Реестр не переписывает существующие словари, а агрегирует их импортом; переезжают
  * сюда только бездомные (те, у которых не было единственного владельца).
+ *
+ * КОГДА ЗАВОДИТЬ ДОМЕН. Только для множества кодов, которое заводит САМ КОД: перечень
+ * известен из исходников и меняется вместе с ними. Если у такого множества есть union-тип,
+ * словарь типизируется им (`Record<SupplyRequestStatus, string>`), и расхождение ловит
+ * компилятор; если union'а нет — расхождение ловит тест-сторож, а не «авось».
+ * Для множества, которое заводит ОПЕРАТОР в редактируемой схеме, домен вреден: он
+ * превращает всё незнакомое в прочерк, то есть теряет данные, которых сам не знает.
+ * Там подпись берётся из живой схемы.
+ *
+ * КАКОЙ ТЕКСТ СТАВИТЬ, КОГДА ПОДПИСИ НЕТ. Всегда `HUMAN_LABEL_DASH`. Отдельный текст
+ * допустим только там, где прочерк схлопывает разрез или убивает единственный смысл ячейки,
+ * и заводится он именованной константой здесь же — не на месте употребления, иначе через
+ * полгода в проекте будет три разных «нет подписи».
  */
 import { OPERATION_DESCRIPTORS, OPERATION_STATUS_LABELS } from './engineTimeline.js';
+import { SUPPLY_REQUEST_STATUS_LABELS } from './supplyRequest.js';
 
 export const HUMAN_LABEL_DASH = '—';
+
+/**
+ * Исключение из правила «нет подписи — прочерк», заведённое здесь, а не на месте
+ * употребления. Ставится там, где прочерк убил бы единственный смысл ячейки и заодно
+ * схлопнул бы разрез: колонка «Раздел» в ленте изменений — одновременно текст и ключ
+ * сортировки, и ряд прочерков сделал бы порядок строк произвольным.
+ */
+export const HUMAN_LABEL_OTHER = 'Прочее';
 
 /**
  * Единственный в проекте детектор «это идентификатор, а не текст». Форма 8-4-4-4-12 из
@@ -25,6 +47,19 @@ export const HUMAN_LABEL_DASH = '—';
 export function looksLikeIdentifier(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+/**
+ * Вырезает идентификаторы, встречающиеся ВНУТРИ текста (а не составляющие его целиком).
+ * Функцией, а не экспортом глобальной регулярки: у `/g` живёт `lastIndex`, и первый же
+ * вызов `.test()` вместо `.replace()` начал бы через раз возвращать false.
+ *
+ * Форма — та же, что у `looksLikeIdentifier`, и это важно: прежняя копия в прогнозе сборки
+ * требовала версию `[1-5]` и вариант `[89ab]`, поэтому системные `00000000-0000-…` не
+ * вычищала, и они доезжали до оператора.
+ */
+export function stripIdentifierTokens(text: string): string {
+  return String(text ?? '').replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '');
 }
 
 /** Первый непустой кандидат, не похожий на идентификатор. Никогда не отдаёт id. */
@@ -155,13 +190,19 @@ const OPERATION_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(OPERATION_DESCRIPTORS).map(([code, descriptor]) => [code, descriptor.label]),
 );
 
-export type HumanLabelDomainId = 'operation_type' | 'operation_status' | 'engine_phase' | 'report_total';
+export type HumanLabelDomainId =
+  | 'operation_type'
+  | 'operation_status'
+  | 'engine_phase'
+  | 'report_total'
+  | 'supply_request_status';
 
 const DOMAINS: Record<HumanLabelDomainId, Record<string, string>> = {
   operation_type: OPERATION_TYPE_LABELS,
   operation_status: OPERATION_STATUS_LABELS,
   engine_phase: ENGINE_PHASE_LABELS,
   report_total: REPORT_TOTAL_LABELS,
+  supply_request_status: SUPPLY_REQUEST_STATUS_LABELS,
 };
 
 /**

@@ -1,6 +1,7 @@
 import type { ReportPrintLayout } from './reportPrintLayout.js';
 import type { WorkOrderSignatureDecryptions } from './workOrderSignatures.js';
 import { WORK_ORDERS_REPORT_COLUMNS, WORK_ORDERS_REPORT_COLUMN_OPTIONS } from './workOrdersReport.js';
+import { SUPPLY_REQUEST_STATUS_LABELS } from './supplyRequest.js';
 
 export type ReportPresetId =
   | 'parts_demand'
@@ -836,14 +837,10 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         type: 'multi_select',
         key: 'statuses',
         label: 'Статусы',
-        options: [
-          { value: 'draft', label: 'Черновик' },
-          { value: 'signed', label: 'Подписана' },
-          { value: 'director_approved', label: 'Одобрена директором' },
-          { value: 'accepted', label: 'Принята к исполнению' },
-          { value: 'fulfilled_full', label: 'Исполнена полностью' },
-          { value: 'fulfilled_partial', label: 'Исполнена частично' },
-        ],
+        // Из словаря-владельца. Колонка и фильтр этого отчёта совпадали и раньше — но
+        // ровно потому, что обе копии одинаково расходились со списком заявок, где тот же
+        // код подписан «Подписана начальником цеха». Теперь источник один на все пять мест.
+        options: Object.entries(SUPPLY_REQUEST_STATUS_LABELS).map(([value, label]) => ({ value, label })),
       },
       { type: 'multi_select', key: 'responsibleIds', label: 'Исполнитель', optionsSource: 'employees' },
     ],

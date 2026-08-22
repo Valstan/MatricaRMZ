@@ -937,16 +937,10 @@ export async function buildWarehouseStockPathAuditReport(
 }
 
 
-const SUPPLY_REQUEST_STATUS_REPORT_LABELS: Record<string, string> = {
-  draft: 'Черновик',
-  signed: 'Подписана',
-  director_approved: 'Одобрена директором',
-  accepted: 'Принята к исполнению',
-  fulfilled_full: 'Исполнена полностью',
-  fulfilled_partial: 'Исполнена частично',
-};
-
 const NO_RECEIPT_MARK = '— НЕТ —';
+// Это ключ, а не показ: регуляркой ВЫРЕЗАЕТСЯ идентификатор заявки из текста ссылки
+// (putReceipt ниже сопоставляет приход с заявкой). На реестровый looksLikeIdentifier не
+// заменяется: тот отвечает «строка ЦЕЛИКОМ идентификатор?», а здесь нужна подстрока.
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 /**
@@ -1040,7 +1034,7 @@ export async function buildSupplyReceiptGapReport(
     if (onlyMissing && receipt) continue;
     rows.push({
       requestNumber: String(payload.requestNumber ?? '').trim() || String(op.id ?? '').slice(0, 8),
-      statusLabel: SUPPLY_REQUEST_STATUS_REPORT_LABELS[status] ?? status,
+      statusLabel: statusLabel(status),
       requestDate,
       itemsCount: items.length,
       orderedQty: items.reduce((acc, it) => acc + Number(it.qty ?? 0), 0),

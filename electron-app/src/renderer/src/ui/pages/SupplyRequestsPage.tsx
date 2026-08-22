@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { SupplyRequestPayload } from '@matricarmz/shared';
+import { humanLabel, type SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -40,22 +40,7 @@ type Row = {
 type SortKey = 'requestNumber' | 'itemsCount' | 'compiledAt' | 'sentAt' | 'arrivedAt' | 'status' | 'updatedAt';
 
 function statusLabel(s: string): string {
-  switch (s) {
-    case 'draft':
-      return 'Черновик';
-    case 'signed':
-      return 'Подписана начальником цеха';
-    case 'director_approved':
-      return 'Одобрена директором';
-    case 'accepted':
-      return 'Принята к исполнению';
-    case 'fulfilled_full':
-      return 'Исполнена полностью';
-    case 'fulfilled_partial':
-      return 'Исполнена частично';
-    default:
-      return s;
-  }
+  return humanLabel('supply_request_status', s);
 }
 
 export function SupplyRequestsPage(props: {

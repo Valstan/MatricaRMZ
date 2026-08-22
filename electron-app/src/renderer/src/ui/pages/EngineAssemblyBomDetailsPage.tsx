@@ -22,6 +22,7 @@ import {
   type EngineBomDetailsForSnapshot,
 } from '../utils/engineBomCardLogic.js';
 import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
+import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type BomDetails = {
   header: {
@@ -421,7 +422,10 @@ export function EngineAssemblyBomDetailsPage(props: {
     for (const b of lookups.engineBrands ?? []) {
       const id = String(b.id ?? '').trim();
       if (!id) continue;
-      map.set(id, String(b.label ?? '').trim() || id);
+      // Идентификатор в словарь не кладём — он доезжал прямо в чип марки. Следствие,
+      // названное осознанно: строки с безымянными марками попадают в один класс сортировки.
+      const label = String(b.label ?? '').trim();
+      if (label) map.set(id, label);
     }
     return map;
   }, [lookups.engineBrands]);
@@ -799,7 +803,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                   const header = payload?.header ?? data.header;
                   const lines = Array.isArray(payload?.lines) ? payload.lines : data.lines;
                   const brandsForPrint = (header.engineBrandIds ?? [])
-                    .map((id) => brandLabelById.get(String(id)) ?? String(id))
+                    .map((id) => lookupLabel(id, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS))
                     .join(', ') || '—';
                   openPrintPreview({
                     title: 'Спецификация сборки двигателя',
@@ -934,7 +938,9 @@ export function EngineAssemblyBomDetailsPage(props: {
             <div style={{ fontWeight: 700, fontSize: 16 }}>Удалить спецификацию?</div>
             <div style={{ fontSize: 13, color: 'var(--subtle)' }}>
               Будет удалена спецификация «{data.header.name}» (марки:{' '}
-              {(data.header.engineBrandIds ?? []).map((id) => brandLabelById.get(id) ?? id).join(', ') || '—'}). Действие синхронизируется с
+              {(data.header.engineBrandIds ?? [])
+                .map((id) => lookupLabel(id, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS))
+                .join(', ') || BRAND_LABEL_TEXTS.absent}). Действие синхронизируется с
               сервером. Его нельзя отменить из интерфейса.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -1037,7 +1043,11 @@ export function EngineAssemblyBomDetailsPage(props: {
                 />
               ) : (
                 <Input
-                  value={(data.header.engineBrandIds ?? []).map((id) => brandLabelById.get(id) ?? id).join(', ') || '—'}
+                  value={
+                    (data.header.engineBrandIds ?? [])
+                      .map((id) => lookupLabel(id, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS))
+                      .join(', ') || BRAND_LABEL_TEXTS.absent
+                  }
                   disabled
                 />
               )}
@@ -1067,7 +1077,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           );
                         }}
                       />
-                      <span>основная для «{brandLabelById.get(brandId) ?? brandId}»</span>
+                      <span>основная для «{lookupLabel(brandId, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS)}»</span>
                     </label>
                   ))}
                 </div>

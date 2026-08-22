@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { describeAuditAction } from '@matricarmz/shared';
+
 import { Button } from './Button.js';
 import { theme } from '../theme.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
@@ -100,7 +102,7 @@ export function DocumentHistoryPanel(props: { entityId: string; canView: boolean
                   <td style={{ whiteSpace: 'nowrap' }}>{formatMoscowLongDateTime(row.createdAt)}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{row.actor}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{ACTION_TYPE_LABEL[row.actionType] ?? row.actionType}</td>
-                  <td style={{ wordBreak: 'break-word' }}>{row.actionText || row.action}</td>
+                  <td style={{ wordBreak: 'break-word' }}>{describeAuditAction(row)}</td>
                 </tr>
               ))}
             </tbody>
