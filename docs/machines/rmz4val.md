@@ -15,6 +15,7 @@
 ## Инструменты / пути
 - **Android-тулчейн НЕ установлен** (проверено 2026-08-02: нет `java`, `adb`, Android SDK; `winget` тоже не в PATH). Для сборки Capacitor-APK (нитка android-app) нужно: JDK 21 (zip Adoptium) + Android cmdline-tools + `sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"` (~2–3 ГБ, сеть на этой машине бывает вялая — качать фоном). Пилотный планшет: DIGMA PRO Odyssey, Android 15 — подключать по USB (adb) или Wi-Fi adb.
 - **Node/pnpm:** `corepack pnpm` (стандартно).
+- **`corepack pnpm -r typecheck` падает по памяти (exit 134)** на этой машине: четыре `tsc` разом не влезают, V8 роняет процесс на `electron-app` со стеком `uv_thread_detach`. Это не ошибка типов — гнать `corepack pnpm -r --workspace-concurrency=1 typecheck` (или пакеты по одному). Та же причина, что у случайного красного в `-r test` (см. AGENTS.md §Autonomy).
 - **`typecheck` НЕ покрывает тест-файлы (выучено 2026-08-09).** У `electron-app` два конфига: `typecheck` (`tsconfig.json`) исключает `*.test.ts`, а CI гоняет ещё и `typecheck:test` (`tsconfig.vitest.json`) — он строже (в т.ч. индексный доступ даёт `T | undefined`). Локально зелёный `typecheck` + зелёный `vitest` = красный CI, если ошибка типов живёт в тесте. Перед push'ом правок в тестах гнать `corepack pnpm -F @matricarmz/electron-app typecheck:test`.
 - **psql.exe** — путь не зафиксирован (искать в `C:\Program Files\PostgreSQL\17\bin\`). Для прод-SQL — через `ssh matricarmz`.
 - **Go — НЕ установлен.** Watchdog (`watchdog/main.go`) собирается только в CI (`watchdog-build.yml` + релизный workflow). Локально build/vet нельзя без установки Go-тулчейна.
@@ -40,6 +41,13 @@
   cd electron-app && node ../node_modules/.pnpm/@electron+rebuild@4.0.4/node_modules/@electron/rebuild/lib/cli.js --force --version 41.7.1 --arch x64 --only better-sqlite3
   ```
   (реально компилирует ~30с, бинарь обновляется). Версию Electron брать из `electron-app/node_modules/electron/package.json` (на 2026-08-19 = **43.0.0**; раньше 41.7.1). Команда с 43.0.0 проверена 2026-08-19. После — перезапустить только `electron.exe` (backend на Node-ABI не зависит).
+- **ABI Electron 43 = `NODE_MODULE_VERSION` 148** (не 145 — то было у Electron 41). Симптом обратной стороны качели: `pnpm -r test` красит ВЕСЬ `android-app` (12 файлов, 47 тестов) с «module compiled against NODE_MODULE_VERSION 148, requires 137» — это ABI, а не регресс.
+- **⚠️ `corepack pnpm rebuild better-sqlite3` тоже МОЛЧА не пересобирает** (пара к `install-app-deps` ниже, выучено 2026-08-22): выходит без вывода и без бинаря, даже если `better_sqlite3.node` удалён. Мешает маркер `build/Release/.forge-meta`, оставленный `@electron/rebuild`. **Рабочий возврат на Node-ABI:**
+  ```bash
+  rm -f node_modules/.pnpm/better-sqlite3@12.11.1/node_modules/better-sqlite3/build/Release/{better_sqlite3.node,.forge-meta}
+  cd node_modules/.pnpm/better-sqlite3@12.11.1/node_modules/better-sqlite3 && node /d/PROGRAMMING/MatricaRMZ/node_modules/.pnpm/node-gyp@12.4.0/node_modules/node-gyp/bin/node-gyp.js rebuild --release
+  ```
+  (~2 мин, реально компилирует). Обратно на Electron-ABI — командой `@electron/rebuild --force` ниже.
 - **Клиентский лог verify-стека:** `C:\Users\Valstan\AppData\Roaming\@matricarmz\electron-app-cdp-9222\matricarmz.log` (изолированный userData при `MATRICA_CDP_PORT`). Грепать тут sqlite/ABI/cold-sync ошибки клиента — в `electron.log` стенда их НЕТ (там только stdout `pnpm dev`).
 
 ## Планшетный режим проверяется БЕЗ планшета и без Android-тулчейна (выучено 2026-08-09)
