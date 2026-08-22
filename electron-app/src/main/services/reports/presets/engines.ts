@@ -899,7 +899,13 @@ type BomKitLine = {
   name: string;
   code: string;
   qty: number;
+  /**
+   * Ключ вариантной позиции. Машинный: редактор BOM генерирует его сам (`pos-` + случайные
+   * знаки). Годен ТОЛЬКО чтобы схлопывать варианты в одну позицию — оператору не показывается.
+   */
   group: string;
+  /** Подпись позиции, набранная оператором в редакторе BOM. Пустая — значит подписи нет. */
+  groupLabel: string;
   isRequired: boolean;
   priority: number;
   isDefaultOption: boolean;
@@ -956,6 +962,7 @@ async function loadBomKitForBrand(
             code: normalizeText(l.componentNomenclatureCode, ''),
             qty: Math.max(0, Math.floor(Number(l.qtyPerUnit ?? 0))),
             group: normalizeText(l.positionKey, normalizeText(l.variantGroup, '')),
+            groupLabel: normalizeText(l.positionLabel, ''),
             isRequired: Boolean(l.isRequired),
             priority: Number(l.priority ?? 100),
             isDefaultOption: Boolean(l.isDefaultOption),
@@ -1021,6 +1028,7 @@ async function loadBomKitForBrand(
           code: nomen?.code ?? '',
           qty: Math.max(0, Math.floor(Number(l.qtyPerUnit ?? 0))),
           group: normalizeText(l.variantGroup, ''),
+          groupLabel: normalizeText(l.positionLabel, ''),
           isRequired: Boolean(l.isRequired),
           priority: Number(l.priority ?? 100),
           isDefaultOption: false,
@@ -1033,18 +1041,32 @@ async function loadBomKitForBrand(
   return { bomName, kitLines };
 }
 
-/** Вариантные позиции BOM: строки без группы — сами по себе; группы — одна позиция (основной вариант + альтернативы). */
+/**
+ * Вариантные позиции BOM: строки без группы — сами по себе; группы — одна позиция
+ * (основной вариант + альтернативы).
+ *
+ * Схлопывание держится на `group` (машинный ключ позиции), а наружу отдаётся ещё и
+ * `variantGroupLabel` — подпись оператора. Разделять их обязательно: две разные позиции
+ * оператор вправе назвать одинаково, и склейка по подписи слила бы их в одну строку.
+ */
 function collapseBomKitSlots(kitLines: BomKitLine[]): Array<{
   primary: BomKitLine;
   alternatives: BomKitLine[];
   variantGroup: string;
+  variantGroupLabel: string;
   isRequired: boolean;
 }> {
-  const slots: Array<{ primary: BomKitLine; alternatives: BomKitLine[]; variantGroup: string; isRequired: boolean }> = [];
+  const slots: Array<{
+    primary: BomKitLine;
+    alternatives: BomKitLine[];
+    variantGroup: string;
+    variantGroupLabel: string;
+    isRequired: boolean;
+  }> = [];
   const byGroup = new Map<string, BomKitLine[]>();
   for (const line of kitLines) {
     if (!line.group) {
-      slots.push({ primary: line, alternatives: [], variantGroup: '', isRequired: line.isRequired });
+      slots.push({ primary: line, alternatives: [], variantGroup: '', variantGroupLabel: '', isRequired: line.isRequired });
       continue;
     }
     const list = byGroup.get(line.group) ?? [];
@@ -1059,6 +1081,9 @@ function collapseBomKitSlots(kitLines: BomKitLine[]): Array<{
       primary: ordered[0]!,
       alternatives: ordered.slice(1),
       variantGroup: group,
+      // Подпись хранится на каждой строке позиции; берём первую непустую — редактор держит
+      // их синхронно, но пустая у одного из вариантов не должна обнулять подпись позиции.
+      variantGroupLabel: ordered.find((l) => l.groupLabel)?.groupLabel ?? '',
       isRequired: ordered.some((l) => l.isRequired),
     });
   }
@@ -1191,7 +1216,10 @@ export async function buildEngineKittingReport(
       .slice(0, 3);
     const alternatives = slot.alternatives.map((l) => pickHumanText(l.name, l.code) || UNKNOWN_ENTITY_LABEL);
     const noteParts = [
-      slot.variantGroup ? `вариант: ${slot.variantGroup}` : '',
+      // Подпись позиции, а НЕ `slot.variantGroup`: там машинный ключ редактора BOM
+      // (`pos-x7k2m9q`), и оператор читал его вместо «Поршневая группа». Подписи нет —
+      // не пишем ничего: ключ подписью не притворяется.
+      slot.variantGroupLabel ? `вариант: ${slot.variantGroupLabel}` : '',
       alternatives.length > 0 ? `или: ${alternatives.join(', ')}` : '',
       slot.isRequired ? '' : 'опционально',
       slot.primary.notes,

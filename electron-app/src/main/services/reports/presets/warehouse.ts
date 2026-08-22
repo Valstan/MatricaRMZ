@@ -346,11 +346,17 @@ export function movementTypeLabel(value: string | null | undefined): string {
   return HUMAN_LABEL_DASH;
 }
 
+/**
+ * Тип документа человеку. Неизвестный код — прочерк, а не эхо: пара к `movementTypeLabel`,
+ * и по той же причине (типы заводит сервер, клиент выпускается отдельно). Пустое значение
+ * остаётся пустой ячейкой, а не прочерком: движение без документа — это норма, а не пробел
+ * в данных, и столбец прочерков в журнале ничего оператору не сообщает.
+ */
 export function docTypeLabel(value: string | null | undefined): string {
   const key = String(value ?? '').trim();
   if (!key) return '';
   const known = (WarehouseDocumentTypeLabels as Record<string, string>)[key];
-  return known ?? key;
+  return known ?? HUMAN_LABEL_DASH;
 }
 
 export async function buildPartMovementJournalReport(

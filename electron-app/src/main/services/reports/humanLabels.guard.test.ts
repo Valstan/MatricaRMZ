@@ -50,6 +50,9 @@ import {
   entities,
   entityTypes,
   erpDocumentHeaders,
+  erpEngineAssemblyBom,
+  erpEngineAssemblyBomBrandLinks,
+  erpEngineAssemblyBomLines,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -95,6 +98,8 @@ const ID = {
   nomenclatureMissing: 'e5bb0000-0000-4000-8000-000000000002',
   warehouse: 'f6cc0000-0000-4000-8000-000000000001',
   docHeader: '07dd0000-0000-4000-8000-000000000001',
+  docHeaderDrifted: '07dd0000-0000-4000-8000-000000000002',
+  bom: '07dd0000-0000-4000-8000-00000000000b',
   operation: '18ee0000-0000-4000-8000-000000000001',
   operationCompleteness: '18ee0000-0000-4000-8000-000000000002',
   workOrder: '18ee0000-0000-4000-8000-000000000003',
@@ -131,6 +136,7 @@ const SERVICE_CODES = [
  */
 const DRIFTED_MOVEMENT_TYPE = 'quarantine_in';
 const DRIFTED_DOCUMENT_STATUS = 'awaiting_approval';
+const DRIFTED_DOCUMENT_TYPE = 'quarantine_act';
 
 type Row = Record<string, unknown>;
 
@@ -376,6 +382,20 @@ function erpRows(shape: FixtureShape) {
       updatedAt: T0,
     },
   ];
+  if (shape.leaky) {
+    // Документ с типом, которого клиентский словарь ещё не знает: тот же «сервер ушёл вперёд»,
+    // что и у типа движения, но отдельной шапкой — иначе пропал бы приход, на котором держится
+    // отчёт «Заявки без прихода» (он отбирает шапки строго по типу `purchase_receipt`).
+    headers.push({
+      id: ID.docHeaderDrifted,
+      docType: DRIFTED_DOCUMENT_TYPE,
+      docNo: 'КАР-2',
+      docDate: T0 + 3 * DAY,
+      status: WarehouseDocumentWorkflowStatus.Posted,
+      createdAt: T0,
+      updatedAt: T0,
+    });
+  }
   const movements: Row[] = [
     {
       id: 'm1',
@@ -429,7 +449,7 @@ function erpRows(shape: FixtureShape) {
       id: 'm3',
       nomenclatureId: ID.nomenclature,
       warehouseLocationId: ID.warehouse,
-      documentHeaderId: ID.docHeader,
+      documentHeaderId: ID.docHeaderDrifted,
       movementType: DRIFTED_MOVEMENT_TYPE,
       qty: 1,
       direction: 'in',
@@ -439,6 +459,31 @@ function erpRows(shape: FixtureShape) {
       createdAt: T0,
     });
   }
+  // BOM марки: офлайн-путь «Комплектования двигателя». Строки-варианты одной позиции несут
+  // машинный ключ редактора (`pos-…`) и подпись оператора — сторож следит, чтобы в ячейку
+  // уходила подпись.
+  const bomHeaders: Row[] = [
+    { id: ID.bom, name: 'Сборка Д-245', status: 'active', isDefault: true, updatedAt: T0, createdAt: T0 },
+  ];
+  const bomBrandLinks: Row[] = [{ id: 'bl1', bomId: ID.bom, engineBrandId: ID.brand, isDefaultForBrand: true, createdAt: T0, updatedAt: T0 }];
+  const bomLines: Row[] = [
+    {
+      id: 'bomline1',
+      bomId: ID.bom,
+      componentNomenclatureId: ID.nomenclature,
+      componentType: 'part',
+      qtyPerUnit: 6,
+      variantGroup: 'поршневая-группа',
+      positionKey: 'pos-x7k2m9q',
+      positionLabel: shape.leaky ? null : 'Поршневая группа',
+      isRequired: true,
+      priority: 100,
+      isDefaultOption: true,
+      createdAt: T0,
+      updatedAt: T0,
+    },
+  ];
+
   const balances: Row[] = [
     {
       id: 'b1',
@@ -459,7 +504,7 @@ function erpRows(shape: FixtureShape) {
       updatedAt: T0,
     },
   ];
-  return { nomenclature, headers, movements, balances };
+  return { nomenclature, headers, movements, balances, bomHeaders, bomBrandLinks, bomLines };
 }
 
 /**
@@ -481,6 +526,9 @@ function stubDb(shape: FixtureShape): any {
     [erpDocumentHeaders, erp.headers],
     [erpRegStockMovements, erp.movements],
     [erpRegStockBalance, erp.balances],
+    [erpEngineAssemblyBom, erp.bomHeaders],
+    [erpEngineAssemblyBomBrandLinks, erp.bomBrandLinks],
+    [erpEngineAssemblyBomLines, erp.bomLines],
   ]);
 
   return {
@@ -594,6 +642,8 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
   { presetId: 'work_orders_report' },
   { presetId: 'work_order_payroll' },
   { presetId: 'work_order_payroll_summary' },
+  // «Комплектование» строится по одному двигателю — id двигателя тут разрез, а не удобство.
+  { presetId: 'engine_kitting', filters: { engineId: ID.engine } },
   // Матрица платежей строится по одному контракту — id контракта тут разрез, а не фильтр-удобство.
   { presetId: 'contract_payments_matrix', filters: { contractId: ID.contract } },
   { presetId: 'payments_overview' },
