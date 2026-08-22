@@ -333,8 +333,11 @@ export async function buildServicesPricelistReport(
     const attrs = snapshot.attrsByEntity.get(serviceId) ?? {};
     const partIds = asArray(attrs.part_ids);
     if (onlyLinkedParts && partIds.length === 0) continue;
+    // Деталь, которой нет в справочнике, прежде печаталась идентификатором прямо в ряду с
+    // названиями. Выкидывать её нельзя — оператор увидел бы меньше привязок, чем есть;
+    // поэтому она честно занимает своё место, но человеческой подписью.
     const linkedParts = partIds
-      .map((partId) => partNames.get(partId) ?? normalizeText(partId, ''))
+      .map((partId) => partNames.get(partId) ?? (normalizeText(partId, '') ? UNKNOWN_ENTITY_LABEL : ''))
       .filter(Boolean)
       .join(', ');
     rows.push({
@@ -418,8 +421,10 @@ export async function buildPartsCompatibilityReport(
     rows.push({
       partName: pickHumanText(partAttrs.name) || UNKNOWN_ENTITY_LABEL,
       article: normalizeText(partAttrs.article, ''),
-      // Ключ группировки подытогов по маркам — общая подпись схлопнула бы разные марки.
-      engineBrand: brandOptions.get(brandId) ?? normalizeText(partAttrs.engine_brand, brandId),
+      // Подпись — человеческая всегда. Прежний фолбэк `?? brandId` печатал оператору сам
+      // идентификатор, когда марка в справочнике не нашлась (висячая ссылка): 49 строк из 840
+      // на живой базе. Различать марки — работа `_brandId` ниже, а не текста в ячейке.
+      engineBrand: brandOptions.get(brandId) ?? (pickHumanText(partAttrs.engine_brand) || UNKNOWN_ENTITY_LABEL),
       assemblyUnitNumber: normalizeText(linkAttrs.assembly_unit_number ?? partAttrs.assembly_unit_number, ''),
       qtyPerEngine: Math.max(0, toNumber(linkAttrs.quantity)),
       supplierName: supplierId ? resolveCounterpartyLabel(snapshot, counterpartyOptions, supplierId) : normalizeText(partAttrs.shop, ''),
@@ -444,7 +449,8 @@ export async function buildPartsCompatibilityReport(
       rows.push({
         partName: pickHumanText(attrs.name) || UNKNOWN_ENTITY_LABEL,
         article: normalizeText(attrs.article, ''),
-        engineBrand: brandOptions.get(brandId) ?? normalizeText(attrs.engine_brand, brandId),
+        // Вторая ветка — марки из списка карточки детали; фолбэк тот же и по той же причине.
+        engineBrand: brandOptions.get(brandId) ?? (pickHumanText(attrs.engine_brand) || UNKNOWN_ENTITY_LABEL),
         assemblyUnitNumber: normalizeText(attrs.assembly_unit_number, ''),
         qtyPerEngine: Math.max(0, toNumber(qtyMap[brandId])),
         supplierName: supplierId ? resolveCounterpartyLabel(snapshot, counterpartyOptions, supplierId) : normalizeText(attrs.shop, ''),
@@ -463,17 +469,21 @@ export async function buildPartsCompatibilityReport(
 
   const uniquePartIds = new Set<string>();
   const uniqueBrandIds = new Set<string>();
-  const grouped = new Map<string, { partIds: Set<string>; totalQty: number }>();
+  const grouped = new Map<string, { label: string; partIds: Set<string>; totalQty: number }>();
   for (const row of rows) {
     const partId = normalizeText((row as any)._partId, '');
     const brandId = normalizeText((row as any)._brandId, '');
     if (partId) uniquePartIds.add(partId);
     if (brandId) uniqueBrandIds.add(brandId);
-    const brandGroup = normalizeText(row.engineBrand, '(не указано)');
-    const current = grouped.get(brandGroup) ?? { partIds: new Set<string>(), totalQty: 0 };
+    // Разрез подытогов — по идентификатору марки, подпись живёт рядом (тот же приём, что у
+    // подразделений). По подписи группировать нельзя: две марки, чьи карточки не доехали,
+    // читаются одинаково — «(без названия)» — и слились бы в одну строку «Итого».
+    const brandKey = brandId || '';
+    const brandLabel = normalizeText(row.engineBrand, NOT_SPECIFIED_LABEL);
+    const current = grouped.get(brandKey) ?? { label: brandLabel, partIds: new Set<string>(), totalQty: 0 };
     if (partId) current.partIds.add(partId);
     current.totalQty += Math.max(0, toNumber(row.qtyPerEngine));
-    grouped.set(brandGroup, current);
+    grouped.set(brandKey, current);
   }
 
   for (const row of rows) {
@@ -494,9 +504,9 @@ export async function buildPartsCompatibilityReport(
       brands: uniqueBrandIds.size,
       totalQty: rows.reduce((acc, row) => acc + Math.max(0, toNumber(row.qtyPerEngine)), 0),
     },
-    totalsByGroup: Array.from(grouped.entries())
-      .map(([group, value]) => ({
-        group,
+    totalsByGroup: Array.from(grouped.values())
+      .map((value) => ({
+        group: value.label,
         totals: {
           parts: value.partIds.size,
           totalQty: Math.round(value.totalQty * 100) / 100,
