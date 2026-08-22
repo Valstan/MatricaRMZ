@@ -345,10 +345,18 @@ export const WarehouseDocumentStatusLabels: Record<string, string> = {
   [WarehouseDocumentWorkflowStatus.Cancelled]: 'Отменён',
 };
 
+/**
+ * Статус документа человеку. Неизвестный код отдаётся прочерком, а не собой: статусы заводит
+ * сервер (`WarehouseDocumentWorkflowStatus` — закрытое множество), клиент выпускается отдельно,
+ * и прежнее эхо `?? s` печатало оператору сырой код после серверного релиза с новым статусом.
+ *
+ * Прочерк берётся литералом, а не из реестра подписей: `humanLabels.ts` — лист-потребитель,
+ * и импорт отсюда замкнул бы цикл (см. шапку того файла).
+ */
 export function warehouseDocumentStatusLabel(status: string | null | undefined): string {
   const s = String(status ?? '').trim();
   if (!s) return '—';
-  return WarehouseDocumentStatusLabels[s] ?? s;
+  return WarehouseDocumentStatusLabels[s] ?? '—';
 }
 
 /** Порядок статусов в фильтре списка складских документов. */

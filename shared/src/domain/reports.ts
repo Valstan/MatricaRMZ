@@ -1818,7 +1818,10 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'performedAt', label: 'Дата/время', kind: 'datetime' },
       { key: 'movementId', label: 'Код движения' },
       { key: 'movementType', label: 'Тип движения' },
-      { key: 'warehouseId', label: 'Склад' },
+      // «Склад (код)», а не «Склад»: билдер аудита складскую локацию не резолвит (справочник
+      // живёт за REST, а отчёт обязан строиться офлайн), и заголовок без пометки обещал
+      // название над идентификатором. Та же форма — в «Проверке двойного учёта» (:1426).
+      { key: 'warehouseId', label: 'Склад (код)' },
       { key: 'prevHash', label: 'Отпечаток предыдущей записи' },
       { key: 'selfHash', label: 'Отпечаток записи' },
       { key: 'expectedPrev', label: 'Ожидался отпечаток' },

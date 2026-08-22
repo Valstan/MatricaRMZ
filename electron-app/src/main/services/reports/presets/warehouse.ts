@@ -10,6 +10,7 @@ import {
   warehouseLocationLabel,
   tryParseWarehousePartNomenclatureMirror,
   HUMAN_LABEL_DASH,
+  HUMAN_LABEL_NO_NUMBER,
   pickHumanText,
   type ReportCellValue,
   type ReportPresetFilters,
@@ -275,7 +276,8 @@ export async function buildSupplyFulfillmentReport(
         return ts > acc ? ts : acc;
       }, 0);
       rows.push({
-        requestNumber: normalizeText(payload.requestNumber, String(op.id)),
+        // Не `String(op.id)`: у заявки без номера колонка «Заявка» печатала оператору UUID.
+        requestNumber: normalizeText(payload.requestNumber, HUMAN_LABEL_NO_NUMBER),
         requestDate: requestTs,
         statusLabel: statusLabel(status),
         partName: normalizeText(item?.name, '(не указано)'),
@@ -327,12 +329,21 @@ export const MOVEMENT_TYPE_LABELS: Record<string, string> = {
   [StockMovementType.AssemblyReturnInScrap]: 'Возврат → утиль',
 };
 
+/**
+ * Тип движения человеку. Неизвестный код отдаётся прочерком, а не собой: коды заводит сервер,
+ * клиент выпускается отдельно, и после серверного релиза с новым типом эхо печатало оператору
+ * `assembly_return_in_scrap` в колонке «Тип движения». Множество типов закрытое
+ * (`StockMovementType`), так что прочерк здесь означает ровно «клиент этот тип ещё не знает».
+ */
 export function movementTypeLabel(value: string | null | undefined): string {
   const key = String(value ?? '').trim();
-  if (!key) return '—';
+  if (!key) return HUMAN_LABEL_DASH;
   if (MOVEMENT_TYPE_LABELS[key]) return MOVEMENT_TYPE_LABELS[key]!;
-  if (key.startsWith('reversal_')) return `Сторно: ${MOVEMENT_TYPE_LABELS[key.slice('reversal_'.length)] ?? key.slice('reversal_'.length)}`;
-  return key;
+  if (key.startsWith('reversal_')) {
+    const base = MOVEMENT_TYPE_LABELS[key.slice('reversal_'.length)];
+    return base ? `Сторно: ${base}` : HUMAN_LABEL_DASH;
+  }
+  return HUMAN_LABEL_DASH;
 }
 
 export function docTypeLabel(value: string | null | undefined): string {
@@ -538,7 +549,9 @@ export async function buildStockTurnoverReport(
     const warehouseLabel = pickHumanText(locByUuid.get(warehouseLocationId)?.name) || warehouseLocationLabel(warehouseLocationId, null);
     rows.push({
       warehouseLabel,
-      nomenclatureName: nomen?.name ?? nomenclatureId,
+      // Не `?? nomenclatureId`: позиции, которой нет в справочнике, оператор всё равно не
+      // опознает по её идентификатору — а колонка «Номенклатура» обещает название.
+      nomenclatureName: nomen?.name ?? HUMAN_LABEL_DASH,
       nomenclatureCode: nomen?.code ?? '',
       openingQty,
       receiptQty: b.receiptQty,
@@ -890,7 +903,7 @@ export async function buildWarehouseStockPathAuditReport(
         partLabel: label,
         nomenclatureQty: v.nom,
         partCardQty: v.part,
-        note: 'Остаток есть и по зеркальной номенклатуре (spec source=part), и по part_card_id',
+        note: 'Остаток числится дважды: и по номенклатуре-зеркалу детали, и по карточке детали',
       });
     } else if (v.nom > 0) {
       nomOnly++;
@@ -901,7 +914,7 @@ export async function buildWarehouseStockPathAuditReport(
         partLabel: label,
         nomenclatureQty: v.nom,
         partCardQty: 0,
-        note: 'Остаток по зеркальной номенклатуре без part_card_id на этом складе',
+        note: 'Остаток числится только по номенклатуре-зеркалу, карточки детали на этом складе нет',
       });
     } else if (v.part > 0) {
       partOnly++;
@@ -912,7 +925,7 @@ export async function buildWarehouseStockPathAuditReport(
         partLabel: label,
         nomenclatureQty: 0,
         partCardQty: v.part,
-        note: 'Остаток по part_card_id без зеркальной номенклатуры/остатка по ней',
+        note: 'Остаток числится только по карточке детали, номенклатуры-зеркала под него нет',
       });
     }
   }
@@ -1033,7 +1046,9 @@ export async function buildSupplyReceiptGapReport(
     else withoutReceipt += 1;
     if (onlyMissing && receipt) continue;
     rows.push({
-      requestNumber: String(payload.requestNumber ?? '').trim() || String(op.id ?? '').slice(0, 8),
+      // Не огрызок `id.slice(0, 8)`: восемь знаков идентификатора оператору так же бесполезны,
+      // как все тридцать шесть, а от артикула он их отличить не может.
+      requestNumber: String(payload.requestNumber ?? '').trim() || HUMAN_LABEL_NO_NUMBER,
       statusLabel: statusLabel(status),
       requestDate,
       itemsCount: items.length,
@@ -1146,7 +1161,9 @@ export async function buildRepairFundReconciliationReport(
     totalInstances += b.instances;
     totalFundQty += b.fundQty;
     rows.push({
-      nomenclatureName: nomen?.name ?? nomenclatureId,
+      // Не `?? nomenclatureId`: позиции, которой нет в справочнике, оператор всё равно не
+      // опознает по её идентификатору — а колонка «Номенклатура» обещает название.
+      nomenclatureName: nomen?.name ?? HUMAN_LABEL_DASH,
       nomenclatureCode: nomen?.code ?? '',
       instancesInFund: b.instances,
       fundQty: b.fundQty,
