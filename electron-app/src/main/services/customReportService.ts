@@ -15,6 +15,7 @@ import {
   type ReportPresetPreviewResult,
 } from '@matricarmz/shared';
 
+import { formatCell } from './reports/format.js';
 import { buildReportByPreset } from './reportPresetService.js';
 import type { ReportBuildContext } from './reportPresetService.js';
 
@@ -96,10 +97,12 @@ function htmlEscape(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function formatCellText(value: ReportCellValue): string {
-  if (value == null) return '';
+// Своего форматтера здесь нет намеренно: `String(value)` печатал даты миллисекундами.
+// Взят сборщик отчётов main-процесса — тот же, что форматирует все прочие отчёты; общий с
+// рендерером модуль сюда не годится, он тянет за собой Blob и document.
+function formatCellText(column: ReportColumn, value: ReportCellValue): string {
   if (typeof value === 'boolean') return value ? 'да' : 'нет';
-  return String(value);
+  return formatCell(column, value ?? null);
 }
 
 function totalsText(report: Extract<CustomReportRunResult, { ok: true }>, totals: Record<string, number>): string {
@@ -121,7 +124,7 @@ export function renderCustomReportHtml(report: Extract<CustomReportRunResult, { 
     const tds = report.columns
       .map(
         (c) =>
-          `<td style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(formatCellText(row[c.key] ?? null))}</td>`,
+          `<td style="text-align:${c.align === 'right' ? 'right' : 'left'}">${htmlEscape(formatCellText(c, row[c.key] ?? null))}</td>`,
       )
       .join('');
     return `<tr>${tds}</tr>`;
@@ -170,7 +173,7 @@ function csvEscape(value: string): string {
 export function buildCustomReportCsv(report: Extract<CustomReportRunResult, { ok: true }>): string {
   const lines = [report.columns.map((c) => csvEscape(c.label)).join(';')];
   const pushRow = (row: Record<string, ReportCellValue>) =>
-    lines.push(report.columns.map((c) => csvEscape(formatCellText(row[c.key] ?? null))).join(';'));
+    lines.push(report.columns.map((c) => csvEscape(formatCellText(c, row[c.key] ?? null))).join(';'));
   if (report.groups) {
     for (const g of report.groups) {
       lines.push(csvEscape(`${report.groupByLabel ?? ''}: ${g.value} (${g.count})`));

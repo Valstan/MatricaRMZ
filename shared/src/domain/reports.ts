@@ -837,8 +837,9 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         type: 'multi_select',
         key: 'statuses',
         label: 'Статусы',
-        // Из словаря-владельца: иначе фильтр отчёта подписывает код иначе, чем колонка
-        // того же отчёта (так и было — «Подписана» против «Подписана начальником цеха»).
+        // Из словаря-владельца. Колонка и фильтр этого отчёта совпадали и раньше — но
+        // ровно потому, что обе копии одинаково расходились со списком заявок, где тот же
+        // код подписан «Подписана начальником цеха». Теперь источник один на все пять мест.
         options: Object.entries(SUPPLY_REQUEST_STATUS_LABELS).map(([value, label]) => ({ value, label })),
       },
       { type: 'multi_select', key: 'responsibleIds', label: 'Исполнитель', optionsSource: 'employees' },

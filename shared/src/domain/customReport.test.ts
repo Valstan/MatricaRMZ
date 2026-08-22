@@ -50,6 +50,49 @@ describe('applyCustomReportTransform', () => {
     expect(r.rows.map((x) => x.name)).toEqual(['Поршень', 'поршень длинный']);
   });
 
+  // Дата в ячейке приходит миллисекундами (так её отдаёт билдер), а оператор вводит
+  // «дд.мм.гггг» — именно это обещает подсказка поля. Прежде «равно» сравнивало текст
+  // сырого epoch с введённой датой и не совпадало никогда.
+  it('«равно» по дате-миллисекундам совпадает с введённой датой', () => {
+    const msColumns: ReportColumn[] = [
+      { key: 'name', label: 'Название', kind: 'text' },
+      { key: 'shippedAt', label: 'Отгрузка', kind: 'date' },
+    ];
+    // 01.06.2026 10:30 и 01.06.2026 01:00 по Москве, плюс соседний день.
+    const msRows: ReportRow[] = [
+      { name: 'Утро', shippedAt: Date.UTC(2026, 5, 1, 7, 30) },
+      { name: 'Ночь', shippedAt: Date.UTC(2026, 4, 31, 22, 0) },
+      { name: 'Другой день', shippedAt: Date.UTC(2026, 5, 2, 9, 0) },
+    ];
+    const spec = { ...baseSpec, filters: [{ key: 'shippedAt', op: 'eq' as const, value: '01.06.2026' }] };
+    const r = applyCustomReportTransform(msColumns, msRows, spec);
+    expect(r.rows.map((x) => x.name)).toEqual(['Утро', 'Ночь']);
+  });
+
+  it('«не равно» по дате — обратное множество', () => {
+    const msColumns: ReportColumn[] = [
+      { key: 'name', label: 'Название', kind: 'date' },
+      { key: 'shippedAt', label: 'Отгрузка', kind: 'date' },
+    ];
+    const msRows: ReportRow[] = [
+      { name: 'Первое', shippedAt: Date.UTC(2026, 5, 1, 7, 30) },
+      { name: 'Второе', shippedAt: Date.UTC(2026, 5, 2, 9, 0) },
+    ];
+    const r = applyCustomReportTransform(msColumns, msRows, {
+      ...baseSpec,
+      filters: [{ key: 'shippedAt', op: 'ne', value: '01.06.2026' }],
+    });
+    expect(r.rows.map((x) => x.name)).toEqual(['Второе']);
+  });
+
+  it('«равно» по числовой колонке не сломано датой', () => {
+    const r = applyCustomReportTransform(columns, rows, {
+      ...baseSpec,
+      filters: [{ key: 'qty', op: 'eq', value: '4' }],
+    });
+    expect(r.rows.map((x) => x.name)).toEqual(['Поршень']);
+  });
+
   it('empty / not_empty', () => {
     expect(
       applyCustomReportTransform(columns, rows, { ...baseSpec, filters: [{ key: 'qty', op: 'empty' }] }).rows.map((x) => x.name),

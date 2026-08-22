@@ -6,14 +6,15 @@
  * молча пустым реестром. Поэтому композиторы подписей живут отдельной папкой поверх домена.
  *
  * ПОЧЕМУ В `shared`, А НЕ НА СТРАНИЦЕ. Копий было две — `SuperadminAuditPage` в клиенте и
- * `AuditPage` в веб-админке, — и они уже разъезжались. По одним и тем же данным два журнала
- * показывали бы разное.
+ * `AuditPage` в веб-админке. На момент выноса они совпадали дословно, и это как раз и есть
+ * причина: держать две одинаковые копии в разных пакетах синхронными вручную нельзя, а по
+ * одним и тем же данным два журнала обязаны показывать одно.
  *
  * ПОЧЕМУ НЕ ПРАВИТСЯ СЕРВЕР. `actionText` материализуется в колонку один раз при инжесте
  * (`statisticsAuditService`: вставка идёт `onConflictDoNothing`, а курсор — max(createdAt)),
  * поэтому исторические строки не переигрываются никогда. Подпись обязана считаться на показе.
  */
-import { humanLabel } from '../domain/humanLabels.js';
+import { HUMAN_LABEL_OTHER, humanLabel } from '../domain/humanLabels.js';
 
 /**
  * Ровно те поля, которые читает подпись. Уже, чем строка журнала: панель истории документа
@@ -31,15 +32,12 @@ const EXACT_ACTION_BY_CODE: Record<string, string> = {
   'engine.create': 'Создал двигатель',
   'engine.update': 'Редактировал двигатель',
   'engine.delete': 'Удалил двигатель',
-  'engine.edit_done': 'Редактировал двигатель',
-  'ui.engine.edit_done': 'Редактировал двигатель',
   'part.create': 'Создал деталь',
   'part.update': 'Редактировал деталь',
   'part.delete': 'Удалил деталь',
   'supply_request.create': 'Создал заявку',
   'supply_request.update': 'Редактировал заявку',
   'supply_request.delete': 'Удалил заявку',
-  'ui.supply_request.edit_done': 'Редактировал заявку',
   'employee.create': 'Создал сотрудника',
   'employee.update': 'Редактировал карточку сотрудника',
   'employee.delete': 'Удалил сотрудника',
@@ -55,8 +53,9 @@ const EXACT_ACTION_BY_CODE: Record<string, string> = {
   'files.create': 'Добавил файл',
   'files.update': 'Редактировал файл',
   'files.delete': 'Удалил файл',
-  // Пять кодов, которые пишутся сегодня и до этой таблицы не доходили: оператор видел их
-  // дословно в хвостовом фолбэке («Выполнил действие: ui.visit»).
+  // Пять кодов, которые пишутся сегодня, но подписи не имели. Сервер для них кладёт в
+  // actionText сам код, и панель истории документа печатала его дословно («ui.card_open»).
+  // В журнале админа код не всплывал: там раньше срабатывала ветка раздела.
   'ui.visit': 'Открыл раздел',
   'ui.card_open': 'Открыл карточку',
   'ui.report_open': 'Открыл отчёт',
@@ -154,9 +153,13 @@ export function describeAuditAction(row: AuditActionRow): string {
   const sectionLower = section.toLowerCase();
   const targetLabel = target ? `«${target}»` : '';
   const openCard = OPEN_BY_SECTION[sectionLower] || 'Открыл карточку';
+  // Раздел на сервере объявлен NOT NULL и для нераспознанного действия равен «Прочее»,
+  // поэтому непустым он приходит ВСЕГДА. Дописывать «в «Прочее»» к подписи бессмысленно —
+  // это не раздел, а признак его отсутствия.
+  const meaningfulSection = section && section !== HUMAN_LABEL_OTHER ? sectionLabel : '';
   const formatBySection = (actionText: string) => {
     if (targetLabel) return `${actionText} ${targetLabel}`;
-    if (sectionLabel) return `${actionText} в ${sectionLabel}`;
+    if (meaningfulSection) return `${actionText} в ${meaningfulSection}`;
     return actionText;
   };
 
@@ -177,7 +180,10 @@ export function describeAuditAction(row: AuditActionRow): string {
   }
   if (action.endsWith('.edit_done')) {
     const base = formatBySection(UPDATE_BY_SECTION[sectionLower] || 'Редактировал');
-    const summary = fromText.replace(/^изменил [^.]+\.\s*/i, '').trim();
+    // Перечень полей есть только тогда, когда сервер дописал его ПОСЛЕ своей общей фразы
+    // («Изменил карточку двигателя. Изменил: Марка»). Отрезать префикс через replace нельзя:
+    // на строке без перечня («Изменил заявку») он не сработает, и фраза удвоится.
+    const summary = /^изменил [^.]+\.\s*(.+)$/i.exec(fromText)?.[1]?.trim() ?? '';
     return summary ? `${base}. ${summary}` : base;
   }
   if (action.includes('.open') || action.includes('.view') || action.includes('.details')) {
@@ -202,10 +208,10 @@ export function describeAuditAction(row: AuditActionRow): string {
     return formatBySection(DELETE_BY_SECTION[sectionLower] || 'Удалил');
   }
 
-  if (targetLabel) return `${openCard} ${targetLabel}${section ? ` в ${sectionLabel}` : ''}`;
-  if (sectionLabel) return `Заходил в секцию ${sectionLabel}`;
-  if (fromText) return `Выполнил действие: ${fromText}`;
-  // Прежде здесь стоял эхо-фолбэк `Выполнил действие: ${action}` — единственное место, где
-  // журнал показывал служебный код. Прочерк тут не годится: это единственный смысл ячейки.
+  if (targetLabel) return `${openCard} ${targetLabel}${meaningfulSection ? ` в ${meaningfulSection}` : ''}`;
+  if (meaningfulSection) return `Заходил в секцию ${meaningfulSection}`;
+  // `fromText` здесь — это серверный actionText, а он для неизвестного действия равен САМОМУ
+  // КОДУ. Поэтому подставлять его нельзя: получится «Выполнил действие: work_order.number_change».
+  // Прочерк тут тоже не годится — это единственный смысл ячейки, потому общий текст.
   return 'Выполнил действие';
 }

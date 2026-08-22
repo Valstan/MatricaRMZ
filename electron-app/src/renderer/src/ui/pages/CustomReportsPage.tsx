@@ -16,6 +16,7 @@ import {
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { theme } from '../theme.js';
+import { formatReportCell } from '../utils/reportUtils.js';
 
 const selectStyle: React.CSSProperties = {
   fontSize: 13,
@@ -29,10 +30,12 @@ const selectStyle: React.CSSProperties = {
 
 type RunResult = Extract<Awaited<ReturnType<typeof window.matrica.reports.customRun>>, { ok: true }>;
 
-function formatCell(value: ReportCellValue): string {
-  if (value == null) return '';
-  if (typeof value === 'boolean') return value ? 'да' : 'нет';
-  return String(value);
+/**
+ * Своей копии форматирования здесь нет намеренно: она печатала даты миллисекундами,
+ * потому что не знала типа колонки. Общий `formatReportCell` его знает.
+ */
+function formatCell(column: ReportColumn, value: ReportCellValue): string {
+  return formatReportCell(column.kind ?? 'text', value, column.key);
 }
 
 function downloadText(content: string, fileName: string, mime: string) {
@@ -570,7 +573,7 @@ export function CustomReportsPage() {
                                   textAlign: c.align === 'right' ? 'right' : 'left',
                                 }}
                               >
-                                {formatCell(row[c.key] ?? null)}
+                                {formatCell(c, row[c.key] ?? null)}
                               </td>
                             ))}
                           </tr>
@@ -612,7 +615,7 @@ export function CustomReportsPage() {
                                 textAlign: c.align === 'right' ? 'right' : 'left',
                               }}
                             >
-                              {formatCell(row[c.key] ?? null)}
+                              {formatCell(c, row[c.key] ?? null)}
                             </td>
                           ))}
                         </tr>
