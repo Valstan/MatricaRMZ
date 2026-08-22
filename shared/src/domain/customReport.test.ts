@@ -139,6 +139,25 @@ describe('applyCustomReportTransform', () => {
     expect(r.totals).toEqual({ qty: 7 });
   });
 
+  it('группировка по дате: разрез по сырому значению, а подпись — годится для показа', () => {
+    // Оператор видел в заголовке группы «1747008000000»: ключ разреза и подпись группы были
+    // одним и тем же значением, и подпись доставалась сырой. Ключ обязан остаться сырым
+    // (иначе два разных момента слились бы), а наружу нужен тип колонки и само значение,
+    // чтобы показывающая сторона отформатировала его так же, как ячейку.
+    const cols: ReportColumn[] = [...columns, { key: 'arrivalDate', label: 'Дата поступления', kind: 'date' }];
+    const may12 = Date.UTC(2026, 4, 12);
+    const may13 = Date.UTC(2026, 4, 13);
+    const data: ReportRow[] = [
+      { name: 'Поршень', qty: 4, arrivalDate: may12 },
+      { name: 'Гильза', qty: 2, arrivalDate: may13 },
+      { name: 'Вал', qty: 1, arrivalDate: may12 },
+    ];
+    const r = applyCustomReportTransform(cols, data, { ...baseSpec, groupBy: 'arrivalDate' });
+    expect(r.groupByKind).toBe('date');
+    expect(r.groups?.map((g) => g.rawValue)).toEqual([may12, may13]);
+    expect(r.groups?.[0]?.count).toBe(2);
+  });
+
   it('ignores groupBy pointing at an unknown column', () => {
     const r = applyCustomReportTransform(columns, rows, { ...baseSpec, groupBy: 'ghost' });
     expect(r.groups).toBeNull();

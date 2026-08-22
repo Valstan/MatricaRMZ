@@ -6,21 +6,28 @@ import {
   sanitizeUiSpec,
   type CustomReportSpecV1,
   type MockBlock,
+  type ReportCellValue,
+  type ReportColumn,
   type UiScreenDetails,
   type UiSpecV2,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { theme } from '../theme.js';
+import { formatReportCell } from '../utils/reportUtils.js';
 import { MockupCanvas } from '../uiBuilder/MockupCanvas.js';
 
 type RunOk = Extract<Awaited<ReturnType<typeof window.matrica.reports.customRun>>, { ok: true }>;
 type LiveState = { status: 'loading' } | { status: 'error'; error: string } | { status: 'ok'; report: RunOk };
 
-function formatCell(value: unknown): string {
-  if (value == null) return '';
+/**
+ * Третья копия форматирования в проекте — и ровно с той же бедой, ради которой убрали
+ * предыдущую: не зная типа колонки, `String(value)` печатал даты миллисекундами. Тип колонка
+ * несёт сама, поэтому берём общий `formatReportCell`, а не пишем четвёртую копию.
+ */
+function formatCell(column: ReportColumn, value: ReportCellValue): string {
   if (typeof value === 'boolean') return value ? 'да' : 'нет';
-  return String(value);
+  return formatReportCell(column.kind ?? 'text', value ?? null, column.key);
 }
 
 /** Живой отчёт внутри блока эскиза: данные шаблона «Моих отчётов» в размерах блока. */
@@ -101,7 +108,7 @@ function LiveReportBody(props: { block: MockBlock; state: LiveState | undefined;
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {formatCell(row[c.key])}
+                      {formatCell(c, row[c.key] ?? null)}
                     </td>
                   ))}
                 </tr>
