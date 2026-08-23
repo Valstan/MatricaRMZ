@@ -5,7 +5,7 @@
 
 set -uo pipefail
 
-ENV_FILE="${MATRICA_ENV_FILE:-/home/valstan/MatricaRMZ/backend-api/.env}"
+ENV_FILE="${MATRICA_ENV_FILE:-${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}/backend-api/.env}"
 NGINX_LOG="${MATRICA_NGINX_LOG:-/var/log/nginx/matricarmz_access.log}"
 WINDOW_MINUTES="${MATRICA_AUTH_WINDOW_MIN:-5}"
 THRESHOLD="${MATRICA_AUTH_THRESHOLD:-10}"

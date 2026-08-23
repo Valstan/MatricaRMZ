@@ -3,8 +3,8 @@
 
 set -uo pipefail
 
-ENV_FILE="${MATRICA_ENV_FILE:-/home/valstan/MatricaRMZ/backend-api/.env}"
-REPO_DIR="${MATRICA_REPO_DIR:-/home/valstan/MatricaRMZ}"
+REPO_DIR="${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}"
+ENV_FILE="${MATRICA_ENV_FILE:-$REPO_DIR/backend-api/.env}"
 
 log() { printf '[%s] %s\n' "$(date +%FT%T%z)" "$*"; }
 

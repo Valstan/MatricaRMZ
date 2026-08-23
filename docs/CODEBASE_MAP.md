@@ -78,10 +78,10 @@
 
 ## Deploy / Operations
 
-- **Prod VPS:** jino.ru (`195.161.41.30`), SSH alias `matricarmz` через `~/.ssh/id_ed25519_matricarmz_deploy`. fail2ban aggressive — не долбить логином при ошибке, разбираться. См. `docs/OPERATIONS.md`, `docs/WINDOWS_DEVELOPMENT.md` §8.
+- **Prod VPS:** только по SSH-алиасу `matricarmz` (хост, порт, пользователь и ключ — в `~/.ssh/config` машины; в репо их нет — `AGENTS.md` §«Публичный репозиторий — тоже recon-поверхность»). fail2ban aggressive — не долбить логином при ошибке, разбираться. См. `docs/OPERATIONS.md`, `docs/WINDOWS_DEVELOPMENT.md` §8.
 - **Services (dual-instance):** `matricarmz-backend-primary.service` (`:3001`) — singleton job'ы; `matricarmz-backend-secondary.service` (`:3002`) — только API. nginx upstream.
 - **nginx:** [`deploy/nginx/matricarmz-backend.conf`](../deploy/nginx/matricarmz-backend.conf) (catch-all `location /` + спец-блоки), выкат через [`deploy/nginx/install.sh`](../deploy/nginx/install.sh).
-- **systemd таймеры:** [`deploy/systemd/`](../deploy/systemd) — еженедельная чистка `/opt/matricarmz/updates/`.
+- **systemd:** [`deploy/systemd/`](../deploy/systemd) — шаблоны юнитов backend (`install-backend.sh` подставляет сервисного пользователя и путь к клону на сервере — в репо их нет) + еженедельная чистка `/opt/matricarmz/updates/`.
 - **CI:** GitHub Actions для Windows installer (`.exe` + `latest.yml` + torrent). Релизный pipeline — `AGENTS.md` §Release process.
 
 ## Где сейчас активная работа

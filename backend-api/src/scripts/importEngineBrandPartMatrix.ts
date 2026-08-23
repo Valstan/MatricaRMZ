@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { and, eq, isNull } from 'drizzle-orm';
@@ -21,14 +23,14 @@ type BrandAssemblyPair = { brandKeys: string[]; assemblyUnitNumber: string };
 type ParsedPart = { name: string; sourceLabel: string; linksByBrandKey: Map<string, { assemblyUnitNumber: string }> };
 
 const SOURCE_FILES = [
-  '/home/valstan/111.txt',
-  '/home/valstan/222.txt',
-  '/home/valstan/333.txt',
-  '/home/valstan/Сводная ведомость актов комплектности.csv',
-  '/home/valstan/Сводная ведомость актов комплектности2.csv',
-  '/home/valstan/Сводная ведомость актов комплектности 2.csv',
-  '/home/valstan/Сводная ведомость актов комплектности 3.csv',
-  '/home/valstan/Сводная ведомость актов комплектности.xlsx',
+  join(homedir(), '111.txt'),
+  join(homedir(), '222.txt'),
+  join(homedir(), '333.txt'),
+  join(homedir(), 'Сводная ведомость актов комплектности.csv'),
+  join(homedir(), 'Сводная ведомость актов комплектности2.csv'),
+  join(homedir(), 'Сводная ведомость актов комплектности 2.csv'),
+  join(homedir(), 'Сводная ведомость актов комплектности 3.csv'),
+  join(homedir(), 'Сводная ведомость актов комплектности.xlsx'),
 ] as const;
 
 const clean = (v: unknown) =>

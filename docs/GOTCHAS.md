@@ -16,7 +16,7 @@
 | M4 | `dev:seed-fixtures` даёт ложный `exit 1` (на `console.warn`-stderr) | verify / PowerShell |
 | M5 | `gh release download` с мульти-`--pattern` не качает `.blockmap` | релиз / updater |
 | M6 | Серверный maintenance-скрипт пишет в БД, но изменения не доезжают клиентам инкрементально | server-script / sync |
-| M7 | Прод-конфиг (sshd/nginx/systemd) ведёт себя странно, «забит нулями» | прод / myjino |
+| M7 | Прод-конфиг (sshd/nginx/systemd) ведёт себя странно, «забит нулями» | прод / хостер |
 | M8 | Запись атрибута (`setEntityAttribute`) не прилетает клиенту инкрементальным pull | sync / EAV |
 | M9 | `/updates/status` через secondary отдаёт старую версию / `infoHash:null` | updater / dual-instance |
 | M10 | `drizzle-kit generate` уходит в интерактив «rename vs create» про чужие таблицы | drizzle / migrations |
@@ -98,9 +98,9 @@
 ---
 
 ## M1 — SSH-таймаут к проду
-- **Симптом:** `ssh matricarmz` → `Connection timed out` или `banner exchange`, при этом `ping a6fd55b8e0ae.vps.myjino.ru` отвечает мгновенно.
-- **Корень (по частоте):** (1) неверный порт — внешний **49217**, myjino форвардит `49217 → 49412` (внутренний; коннект на 49412 извне = таймаут); (2) нет `IdentitiesOnly yes` → ssh перебирает все ключи → fail2ban банит IP (тогда даже верный порт TCP-filtered).
-- **Диагностика → лечение:** проверять в порядке **порт → ключ/`IdentitiesOnly` → fail2ban**. `~/.ssh/config` блок `Host matricarmz`: `Port 49217` + `IdentitiesOnly yes` + dedicated key. Бан снимается в myjino-панели (`fail2ban-client unban <IP>`). **Не долбить** логином при ошибке. Всегда `-o ConnectTimeout=15`. Транзиентный TCP-таймаут (после успешных вызовов) — одна повторная попытка, не цикл.
+- **Симптом:** `ssh matricarmz` → `Connection timed out` или `banner exchange`, при этом `ping` хоста отвечает мгновенно.
+- **Корень (по частоте):** (1) неверный порт — хостер форвардит **внешний** порт на **внутренний** sshd (коннект на внутренний извне = таймаут; значения только в `~/.ssh/config`, в репо их нет); (2) нет `IdentitiesOnly yes` → ssh перебирает все ключи → fail2ban банит IP (тогда даже верный порт TCP-filtered).
+- **Диагностика → лечение:** проверять в порядке **порт → ключ/`IdentitiesOnly` → fail2ban**. `~/.ssh/config` блок `Host matricarmz`: `Port <внешний>` + `IdentitiesOnly yes` + dedicated key. Бан снимается в консоли панели хостера (`fail2ban-client unban <IP>`). **Не долбить** логином при ошибке. Всегда `-o ConnectTimeout=15`. Транзиентный TCP-таймаут (после успешных вызовов) — одна повторная попытка, не цикл.
 
 ## M2 — better-sqlite3 ABI mismatch в локальных тестах
 - **Симптом:** `corepack pnpm -F @matricarmz/electron-app test` роняет тесты, грузящие `new Database()`, с `NODE_MODULE_VERSION 145 vs 137`.
@@ -129,8 +129,8 @@
 - **Подтверждено + усилено 2026-06-18 (#6 WS-A2):** с актором `system` (НЕ реальный employee) `recordSyncChanges` **тихо проецирует 0 строк в PG** (`writeSyncChanges` → `applyPushBatch` `dbApplied=0, skipped=[]`), НО Step-1/3 (ledger sign+append + `ledger_tx_index`) **всё равно отрабатывают** → дрифт: ledger/index держат новое значение со свежим seq, PG — старое с `last_server_seq=null`. Инкрементальный pull (читает PG `last_server_seq>since`) НЕ отдаёт (seq null), а cold/`replayLedgerToDb` — отдаст → split-brain. **Сигнатура:** скрипт рапортует «применено N», но re-dry-run показывает те же N; `ledger_tx_index` для row_id имеет свежий seq, а PG `last_server_seq=null`/значение старое. **Грепай M6 ДО починки.** **Восстановление-вперёд:** `UPDATE … SET col, last_server_seq FROM (ledger_tx_index latest per row_id)` — проекция ledger→PG без нового append (учти глобально-уникальные индексы + intra-batch дубли). Либо повторить запись с **реальным employee-актором**.
 
 ## M7 — прод-конфиг «забит нулями»
-- **Симптом:** странные отказы сервисов/sshd/nginx на myjino VPS без видимой причины.
-- **Корень:** на myjino системные конфиги периодически забиваются нулями (баг хостинга).
+- **Симптом:** странные отказы сервисов/sshd/nginx на прод-VPS без видимой причины.
+- **Корень:** у хостера системные конфиги периодически забиваются нулями (баг хостинга).
 - **Диагностика:** `file <path>` (покажет `data`/нулевой размер вместо текста). См. memory `prod_config_corruption`.
 
 ## M8 — setEntityAttribute не долетает инкрементально
@@ -199,7 +199,7 @@
 - **Симптом:** при чистке репо (untrack/реклон/resync прод-checkout'а) `git status` показывает ledger-файлы (`backend-api/ledger/server-key.json`, `blocks/*.json`, `bootstrap.json`) как deleted; «безобидный» `git rm --cached` + последующий `git pull`/`reset --hard` на проде стирает их из рабочего дерева.
 - **Корень:** прод-backend по умолчанию резолвит ledger в `cwd/ledger` (`DEFAULT_LEDGER_DIR = resolve(process.cwd(),'ledger')`, `ledgerService.ts`), а `cwd` = `WorkingDirectory` systemd-юнита = `…/MatricaRMZ/backend-api`. Если рантайм-каталог `backend-api/ledger/` оказался **закоммичен** (трекается), то это ОДНОВРЕМЕННО git-объект и живые данные. Любое удаление из git удаляет живой подписной ключ + ранние блоки → повреждение цепочки / потеря ключа.
 - **Диагностика:** `systemctl cat <svc> | grep WorkingDirectory`; `git ls-files backend-api/ledger | wc -l` (>0 = трекается — опасно); сверь `sha256sum` живого `server-key.json` с `git show HEAD:…/server-key.json` (совпало = прод использует закоммиченный ключ).
-- **Лечение:** до любых git-операций — **relocate live-ledger ВНЕ checkout'а** (`MATRICA_LEDGER_DIR=/home/valstan/matricarmz-ledger` в `/etc/matricarmz/matricarmz.env`, `mv` каталога при остановленных сервисах — rename атомарен в пределах ФС) + бэкап ключей. После relocate `backend-api/ledger` gitignored и пуст в checkout'е → `git reset --hard`/`pull` уже безопасны. Инцидент 2026-06-26 (H8): закоммиченный ledger в публичном репо (ключ + ПДн); см. `SECURITY.md` §инварианты, `PENDING_FOLLOWUPS` §Security.
+- **Лечение:** до любых git-операций — **relocate live-ledger ВНЕ checkout'а** (`MATRICA_LEDGER_DIR=~/matricarmz-ledger` в `/etc/matricarmz/matricarmz.env`, `mv` каталога при остановленных сервисах — rename атомарен в пределах ФС) + бэкап ключей. После relocate `backend-api/ledger` gitignored и пуст в checkout'е → `git reset --hard`/`pull` уже безопасны. Инцидент 2026-06-26 (H8): закоммиченный ledger в публичном репо (ключ + ПДн); см. `SECURITY.md` §инварианты, `PENDING_FOLLOWUPS` §Security.
 
 ## M20 — `/updates/status` показывает `stale_manifest`/старую версию после `ledger-publish` (до рестарта)
 - **Симптом:** на прод-деплое после `corepack pnpm release:ledger-publish X.Y.Z` (шаг 8, ДО рестарта) `/updates/status` / `latest.json` отдают **предыдущую** версию, `lastError:"stale_manifest"`, `latestSource:"disk-fallback"`, `infoHash:null` или чужой; первый `ledger-publish` иногда пишет **частичный** `latest.torrent` (~2 КБ вместо ~18 КБ). Второй `ledger-publish` подряд однажды упал `ELIFECYCLE exit 1` (транзиент).
@@ -232,9 +232,9 @@
 
 ## M24 — `db:migrate` на проде падает `must be owner of table X` (ownership drift)
 - **Симптом:** релизный `corepack pnpm -F @matricarmz/backend-api db:migrate` падает `error: must be owner of table <X>` (code 42501), хотя миграция локально проходила. Drizzle-мигратор атомарен — **вся пачка pending-миграций откатывается** (включая невиновные), состояние БД чистое.
-- **Корень:** таблица `<X>` когда-то создавалась на проде **вручную под `postgres`** (psql-сессией суперпользователя), а не приложенческим юзером (`valstan`) через мигратор → `ALTER TABLE`/`DROP` на неё требуют ownership, которого у приложенческого юзера нет. Локально не воспроизводится (dev-БД целиком создана одним юзером).
+- **Корень:** таблица `<X>` когда-то создавалась на проде **вручную под `postgres`** (psql-сессией суперпользователя), а не приложенческим юзером (`$PGUSER`) через мигратор → `ALTER TABLE`/`DROP` на неё требуют ownership, которого у приложенческого юзера нет. Локально не воспроизводится (dev-БД целиком создана одним юзером).
 - **Диагностика:** `SELECT tablename, tableowner FROM pg_tables WHERE schemaname='public' AND tableowner <> current_user;` — все таблицы должны принадлежать приложенческому юзеру.
-- **Лечение:** `sudo -u postgres psql -d "$PGDATABASE" -c 'ALTER TABLE <X> OWNER TO valstan;'` (metadata-only, безопасно) → повторить `db:migrate`. Постоянный фикс. Инцидент 2026-07-02 (`ai_chat_history`, релиз v2026.702.1024, миграция 0072).
+- **Лечение:** `sudo -u postgres psql -d "$PGDATABASE" -c "ALTER TABLE <X> OWNER TO $PGUSER;"` (metadata-only, безопасно) → повторить `db:migrate`. Постоянный фикс. Инцидент 2026-07-02 (`ai_chat_history`, релиз v2026.702.1024, миграция 0072).
 
 ## M25 — upsert BOM падает «в варианте __kit_* отсутствуют обязательные типы», хотя правишь только base-строки
 - **Симптом:** сохранение/скриптовый merge BOM падает `BOM не сохранен: в варианте «__kit_…» отсутствуют обязательные типы из глобальной схемы: ring`, хотя kit-варианты не трогались — добавлялись только строки base.
@@ -267,7 +267,7 @@
 
 ## M30 — backend-скрипт на проде подписал sync-изменения «в никуда» (паразитный ledger, низкие seq)
 - **Симптом:** прод-прогон `pnpm -F @matricarmz/backend-api <script>` с записью через `recordSyncChanges`/`writeSyncChanges` даёт `sync conflict rows skipped` на каждую строку; изменения ложатся в PG-таблицы, но клиенты их **никогда не получают** (инкрементальный pull их не видит). В `ledger_tx_index` появляются свежие строки с **аномально низкими** `server_seq` (напр. 49669 при живом максимуме ~815894).
-- **Корень:** боевой `MATRICA_LEDGER_DIR=/home/valstan/matricarmz-ledger` задан только в `/etc/matricarmz/matricarmz.env` (systemd `EnvironmentFile`), а `dotenv/config` скрипта грузит лишь `backend-api/.env`, где переменной нет → `resolveLedgerDir()` падает в дефолт (`backend-api/ledger` — древний брошенный каталог с lastSeq≈49k) → seq аллоцируются из его счётчика → `filterStaleBySeqOrUpdatedAt` видит `incomingSeq < currentSeq` и скипает PG-апдейт, а проекция в `ledger_tx_index` пишет мусор с низкими seq (клиентские курсоры давно дальше — строки невидимы).
+- **Корень:** боевой `MATRICA_LEDGER_DIR=~/matricarmz-ledger` задан только в `/etc/matricarmz/matricarmz.env` (systemd `EnvironmentFile`), а `dotenv/config` скрипта грузит лишь `backend-api/.env`, где переменной нет → `resolveLedgerDir()` падает в дефолт (`backend-api/ledger` — древний брошенный каталог с lastSeq≈49k) → seq аллоцируются из его счётчика → `filterStaleBySeqOrUpdatedAt` видит `incomingSeq < currentSeq` и скипает PG-апдейт, а проекция в `ledger_tx_index` пишет мусор с низкими seq (клиентские курсоры давно дальше — строки невидимы).
 - **Диагностика:** `select min(server_seq), max(server_seq) from ledger_tx_index where created_at > <время прогона>` — низкий min = паразитный ledger. Инцидент 2026-07-11 (`fix:owner-batch-20260710`, 3 прогона).
 - **Лечение:** прод-прогоны backend-скриптов запускать **с сорсом боевого env**: `set -a; . /etc/matricarmz/matricarmz.env; set +a; corepack pnpm -F @matricarmz/backend-api <script>`. После инцидента: удалить мусорные низко-seq строки из `ledger_tx_index` (точечно по `created_at` прогона + `server_seq < живого диапазона`) и перегнать скрипт с правильным env (идемпотентные шаги должны уметь **репропагацию** при уже-корректных значениях). `db:migrate` этой граблей не страдает (не пишет ledger), но env всё равно сорсить.
 
@@ -710,7 +710,7 @@
 - **Корень:** заводская/офисная сеть душит TLS к нашему VPS — рукопожатие снаружи стабильно занимает **~12,5 с** (TCP-коннект при этом 1 мс, то есть тормозит не сервер, а промежуточный узел). Дефолтный `TLSHandshakeTimeout` в Go — **10 с**, поэтому отказ детерминированный, а не «моргнула сеть».
 - **Диагностика:** `curl -w 'tcp %{time_connect}s | tls %{time_appconnect}s | total %{time_total}s'` снаружи и с самого сервера. Расхождение «снаружи 12 с / внутри 5 мс» = DPI по пути, сервер невиновен.
 - **Лечение:** явный транспорт с запасом — `&http.Transport{TLSHandshakeTimeout: 60 * time.Second}`, таймаут запроса плана 90 с. Дефолты Go рассчитаны на нормальную сеть, у нас её нет.
-- **Смежное:** через VPN у владельца тот же путь давал `EOF` на скачивании 130 МБ, пока сервер отдавал `http://`-ссылку ([#603](https://github.com/Valstan/MatricaRMZ/pull/603)): порт-форвардер myjino терминирует TLS и присылает `X-Forwarded-Proto: https`, а nginx перетирал заголовок на `$scheme` (=http). Клиенты Android cleartext режут вовсе.
+- **Смежное:** через VPN у владельца тот же путь давал `EOF` на скачивании 130 МБ, пока сервер отдавал `http://`-ссылку ([#603](https://github.com/Valstan/MatricaRMZ/pull/603)): порт-форвардер хостера терминирует TLS и присылает `X-Forwarded-Proto: https`, а nginx перетирал заголовок на `$scheme` (=http). Клиенты Android cleartext режут вовсе.
 - **Поймано:** 2026-08-17 ([#601](https://github.com/Valstan/MatricaRMZ/pull/601)); увидено только потому, что Заглушка научилась печатать ход работы в консоль.
 
 ## M82 — литеральные управляющие символы в исходнике не выживают при правке инструментами
@@ -748,7 +748,7 @@
 ## M85 — rsyslog «active», но не пишет ничего: файл правил забит нулями
 
 - **Симптом:** `/var/log/auth.log` — **0 байт с mtime трёхмесячной давности**, при этом `systemctl is-active rsyslog` = `active`, `is-enabled` = `enabled`, в journald всё есть. Durable audit-trail SSH-входов отсутствует, и заметно это только когда он понадобился (у нас — при попытке установить владельца осиротевшего ключа).
-- **Корень:** `/etc/rsyslog.d/50-default.conf` — **1127 байт `NUL`** (тот же myjino-паттерн обнуления конфигов, память `prod-config-corruption-pattern`). Именно этот файл несёт правила `auth,authpriv.* → /var/log/auth.log` и `*.* → /var/log/syslog`. rsyslog грузит его, не видит ни одного правила и честно пишет никуда.
+- **Корень:** `/etc/rsyslog.d/50-default.conf` — **1127 байт `NUL`** (тот же паттерн хостера с обнулением конфигов, память `prod-config-corruption-pattern`). Именно этот файл несёт правила `auth,authpriv.* → /var/log/auth.log` и `*.* → /var/log/syslog`. rsyslog грузит его, не видит ни одного правила и честно пишет никуда.
 - **Почему диагностика уводит в сторону:** `file /etc/rsyslog.conf` отвечает `ASCII text` — но это **не тот файл**, правила лежат в `rsyslog.d/`. `ls -la` показывает нормальный размер (нули — тоже байты). Единственный быстрый признак: **`sudo ls -l /proc/$(pgrep -x rsyslogd)/fd | grep -c log$` = 0** — демон жив, но ни одного лог-файла не держит открытым. После починки там 2.
 - **Лечение:** пакет держит эталон в `/usr/share/rsyslog/50-default.conf` (в `dpkg -S` файл из `/etc/rsyslog.d/` **не ищется** — он не conffile, а копия шаблона при установке). `sudo install -m 644 /usr/share/rsyslog/50-default.conf /etc/rsyslog.d/50-default.conf` → `systemctl restart rsyslog`. Восстановленный контент не воспроизводит локальные правки, если они были: из нулей их не достать. Скачать `.deb` заново для этого НЕ нужно (и `apt-get download` на этой машине отдаёт 404 по устаревшему индексу).
 - **Проверять боем:** сделать новый SSH-вход и убедиться, что `Accepted publickey … SHA256:…` появился в `auth.log`, а не полагаться на «сервис перезапустился».
@@ -756,7 +756,7 @@
 
 ## M86 — `sudo find | while read f; do … < "$f"` даёт ЛОЖНЫЕ срабатывания на root-only файлах
 
-- **Симптом:** скан «какие файлы в `/etc` забиты нулями» отрапортовал побитыми `/etc/ufw/*.rules` и `/etc/sudoers.d/valstan-nopasswd` — то есть firewall и passwordless sudo. Оба были целы.
+- **Симптом:** скан «какие файлы в `/etc` забиты нулями» отрапортовал побитыми `/etc/ufw/*.rules` и `/etc/sudoers.d/*` — то есть firewall и sudo-правила. Оба были целы.
 - **Корень:** `sudo` применён только к `find`. Перенаправление `< "$f"` раскрывает **непривилегированный** shell, поэтому на root-only файле оно падает `Permission denied`, команда получает **пустой ввод**, и проверка «после вырезания `NUL` осталось 0 байт» срабатывает на пустоте. Отсутствие прав неотличимо от «файл состоит из нулей».
 - **Признак в выводе:** для одного и того же пути рядом стоят и вердикт, и `Permission denied`. Если бы вердикты печатались без stderr — ложь прошла бы незамеченной.
 - **Лечение:** заворачивать **весь конвейер**, а не только `find`: `sudo sh -c 'find … | while read f; do … done'`. И вообще: любая проверка, где «пусто» и «не смог прочитать» дают один результат, обязана различать эти случаи явно (проверять код возврата чтения).

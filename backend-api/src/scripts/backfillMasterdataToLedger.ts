@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import { and, inArray, isNull } from 'drizzle-orm';
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
@@ -93,7 +95,7 @@ async function main() {
   const superadminId = await getSuperadminUserId().catch(() => null);
   if (!superadminId) throw new Error('Пользователь superadmin не найден');
 
-  const ledgerState = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
+  const ledgerState = JSON.parse(readFileSync(join(process.env.MATRICA_LEDGER_DIR ?? join(homedir(), 'matricarmz-ledger'), 'state.json'), 'utf8'));
   const ledgerTypes: Record<string, LedgerRow> = ledgerState?.tables?.entity_types ?? {};
 
   const dbTypes = await db

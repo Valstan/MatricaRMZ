@@ -25,7 +25,7 @@
 
 4. **GitHub Action** `release-electron-windows.yml` соберёт `.exe` и приложит к Release. Это ~5-10 минут, ждать не обязательно — деплой на VPS не зависит от `.exe`.
 
-5. **Деплой на VPS** (по `ssh matricarmz`, в `/home/valstan/MatricaRMZ`):
+5. **Деплой на VPS** (по `ssh matricarmz`, в `~/MatricaRMZ`):
    ```bash
    git fetch origin --prune
    git pull --ff-only origin main

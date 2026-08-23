@@ -6,11 +6,11 @@
 
 | Скрипт | Запуск | Что делает |
 |---|---|---|
-| `backup-encrypted.sh` | ежедневно 03:17 MSK | `pg_dump` + tar ledger → zstd → GPG AES-256 → Yandex.Disk; ротация 14 копий |
-| `audit-deps.sh` | пн 04:23 MSK | `pnpm audit --prod --json` → Telegram-алерт при high/critical |
-| `watch-failed-auth.sh` | каждые 5 минут | парсит `/var/log/nginx/matricarmz_access.log`, считает 401/403 по `X-Forwarded-For`, Telegram при ≥10/5мин с IP, cooldown 1 час |
+| `backup-encrypted.sh` | ежедневно ночью | `pg_dump` + tar ledger → zstd → GPG AES-256 → Yandex.Disk; ротация 14 копий |
+| `audit-deps.sh` | еженедельно | `pnpm audit --prod --json` → Telegram-алерт при high/critical |
+| `watch-failed-auth.sh` | каждые 5 минут | парсит `/var/log/nginx/matricarmz_access.log`, считает 401/403 по `X-Forwarded-For`, Telegram при всплеске с одного IP (порог и cooldown — в скрипте) |
 
-Все три читают `/home/valstan/MatricaRMZ/backend-api/.env` для:
+Все три читают `~/MatricaRMZ/backend-api/.env` для:
 - PG-кред (`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGHOST`/`PGPORT`)
 - Yandex.Disk (`YANDEX_DISK_TOKEN`, `YANDEX_DISK_BASE_PATH`)
 - Telegram (`MATRICA_TELEGRAM_ENABLED`, `MATRICA_TELEGRAM_BOT_TOKEN`, `MATRICA_TELEGRAM_ALERT_CHAT_ID`)
@@ -19,7 +19,7 @@
 
 ```bash
 ssh matricarmz
-cd /home/valstan/MatricaRMZ
+cd ~/MatricaRMZ
 git pull --ff-only
 bash scripts/prod-ops/install-prod-ops.sh
 ```
@@ -28,20 +28,22 @@ bash scripts/prod-ops/install-prod-ops.sh
 1. Создаёт `/etc/matricarmz`, `/var/log/matricarmz`, `/var/lib/matricarmz`.
 2. Копирует скрипты в `/usr/local/sbin/matricarmz-*`.
 3. **Генерирует passphrase** в `/etc/matricarmz/backup.passphrase` (mode 600, root) — **печатает на экран ровно один раз**. Сохраните вне сервера в менеджере паролей. Без этой passphrase бэкапы расшифровать нельзя.
-4. Добавляет `valstan` в группу `adm` (для чтения nginx-логов).
+4. Добавляет сервисного пользователя (того, кто запускает установщик; `MATRICA_USER`) в группу `adm` (для чтения nginx-логов).
 5. Пишет cron в `/etc/cron.d/matricarmz-ops`.
 
 ## Проверка вручную перед cron
 
+От имени сервисного пользователя (того же, что в cron):
+
 ```bash
 # Watch failed auth — самый безопасный, читает только логи
-sudo -u valstan /usr/local/sbin/matricarmz-watch-failed-auth
+/usr/local/sbin/matricarmz-watch-failed-auth
 
 # Audit deps — может занять минуту
-sudo -u valstan /usr/local/sbin/matricarmz-audit-deps
+/usr/local/sbin/matricarmz-audit-deps
 
 # Backup — займёт минуты + создаст файл на Я.Диске
-sudo -u valstan /usr/local/sbin/matricarmz-backup-encrypted
+/usr/local/sbin/matricarmz-backup-encrypted
 ```
 
 ## Восстановление из бэкапа
@@ -74,7 +76,7 @@ tar -xvf ledger.tar -C <target>
 
 | Var | Скрипт | Что меняет |
 |---|---|---|
-| `MATRICA_ENV_FILE` | все | путь к .env (default: `/home/valstan/MatricaRMZ/backend-api/.env`) |
+| `MATRICA_ENV_FILE` | все | путь к .env (default: `$MATRICA_REPO_DIR/backend-api/.env`) |
 | `MATRICA_BACKUP_PASSPHRASE_FILE` | backup | путь к passphrase |
 | `MATRICA_BACKUP_RETENTION` | backup | сколько копий хранить (default 14) |
 | `MATRICA_AUTH_WINDOW_MIN` | watch-auth | окно анализа (default 5 мин) |
