@@ -1,0 +1,63 @@
+import type { GlobalSearchHit } from './globalSearch.js';
+import type { ChatDeepLinkPayload } from '../ipc/types.js';
+
+// Маршрут ссылки приложения. Живёт в shared, потому что тот же разбор нужен и
+// renderer'у (навигация), и домену рабочего стола (ключ ярлыка для дедупа): две
+// копии приоритета полей разъехались бы молча.
+export type DeepLinkRoute =
+  | { kind: 'card'; cardKind: string; id: string }
+  | { kind: 'engine'; id: string }
+  | { kind: 'request'; id: string }
+  | { kind: 'tool'; id: string }
+  | { kind: 'tool_property'; id: string }
+  | { kind: 'contract'; id: string }
+  | { kind: 'employee'; id: string }
+  | { kind: 'product'; id: string }
+  | { kind: 'service'; id: string }
+  | { kind: 'counterparty'; id: string }
+  | { kind: 'nomenclature'; id: string }
+  | { kind: 'stock_document'; id: string }
+  | { kind: 'work_order'; id: string }
+  | { kind: 'engine_brand'; id: string }
+  | { kind: 'report_preset'; id: string }
+  | { kind: 'tab'; id: string };
+
+function asId(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized ? normalized : null;
+}
+
+export function resolveDeepLinkRoute(link: ChatDeepLinkPayload): DeepLinkRoute {
+  const pairs: Array<[DeepLinkRoute['kind'], string | null]> = [
+    ['engine', asId(link?.engineId)],
+    ['request', asId(link?.requestId)],
+    // Stage E.2: у детали нет своей карточки — directory_parts.id == id номенклатуры,
+    // поэтому старые ссылки с partId (журнал, чат, заметки) ведут в карточку номенклатуры.
+    ['nomenclature', asId(link?.partId)],
+    ['tool', asId(link?.toolId)],
+    ['tool_property', asId(link?.toolPropertyId)],
+    ['contract', asId(link?.contractId)],
+    ['employee', asId(link?.employeeId)],
+    ['product', asId(link?.productId)],
+    ['service', asId(link?.serviceId)],
+    ['counterparty', asId(link?.counterpartyId)],
+    ['nomenclature', asId(link?.nomenclatureId)],
+    ['stock_document', asId(link?.stockDocumentId)],
+    ['work_order', asId(link?.workOrderId)],
+    ['engine_brand', asId(link?.engineBrandId)],
+    ['report_preset', asId(link?.reportPresetId)],
+  ];
+  for (const [kind, id] of pairs) {
+    if (id) return { kind, id } as DeepLinkRoute;
+  }
+  const genericEntityId = asId(link?.entityId);
+  const genericCardKind = asId(link?.cardKind);
+  if (genericEntityId && genericCardKind) return { kind: 'card', cardKind: genericCardKind, id: genericEntityId };
+  return { kind: 'tab', id: String(link?.tab ?? '') };
+}
+
+// A global-search hit's kind is a subset of DeepLinkRoute kinds, so a hit is structurally
+// a navigation target. This keeps the subset relationship enforced at compile time.
+export function searchHitToRoute(hit: GlobalSearchHit): DeepLinkRoute {
+  return { kind: hit.kind, id: hit.id };
+}

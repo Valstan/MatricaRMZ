@@ -8,6 +8,7 @@ import {
   desktopMoveToFolder,
   desktopMoveToTrash,
   desktopRenameFolder,
+  desktopRenameShortcut,
   desktopRestoreFromTrash,
   desktopSurfaceShortcuts,
   desktopTrashShortcuts,
@@ -141,6 +142,21 @@ export function DesktopPane(props: {
     });
     if (!name || !name.trim()) return;
     onChange(desktopRenameFolder(desktop, folderId, name));
+  }
+
+  // Подпись ярлыка замораживается при создании (крошки раздела на тот момент) —
+  // переименование единственный способ её поправить (этап B).
+  async function renameShortcut(shortcutId: string) {
+    const shortcut = desktop.shortcuts.find((x) => x.id === shortcutId);
+    if (!shortcut) return;
+    const label = await promptText({
+      title: 'Переименовать ярлык',
+      placeholder: shortcut.label,
+      confirmLabel: 'Сохранить',
+      validate: (v) => (v.trim() ? null : 'Введите название'),
+    });
+    if (!label || !label.trim()) return;
+    onChange(desktopRenameShortcut(desktop, shortcutId, label));
   }
 
   function shortcutTile(s: DesktopShortcut, opts: { inTrash?: boolean } = {}) {
@@ -481,13 +497,22 @@ export function DesktopPane(props: {
                   }}
                 />
               ) : (
-                <CtxItem
-                  label="🗑 Удалить (в корзину)"
-                  onClick={() => {
-                    setCtxMenu(null);
-                    onChange(desktopMoveToTrash(desktop, ctxMenu.id, Date.now()));
-                  }}
-                />
+                <>
+                  <CtxItem
+                    label="✏️ Переименовать"
+                    onClick={() => {
+                      setCtxMenu(null);
+                      void renameShortcut(ctxMenu.id);
+                    }}
+                  />
+                  <CtxItem
+                    label="🗑 Удалить (в корзину)"
+                    onClick={() => {
+                      setCtxMenu(null);
+                      onChange(desktopMoveToTrash(desktop, ctxMenu.id, Date.now()));
+                    }}
+                  />
+                </>
               )}
             </>
           )}

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import type { ChatDeepLinkPayload, ChatMessageItem, NoteItem, NoteShareItem } from '@matricarmz/shared';
+import type { ChatDeepLinkPayload, ChatMessageItem, DesktopShortcut, NoteItem, NoteShareItem } from '@matricarmz/shared';
 import { type ContractActivityAlert } from '@matricarmz/shared';
 
 import { loadContractActivityAlerts } from '../utils/contractAlerts.js';
@@ -8,8 +8,9 @@ import { loadContractActivityAlerts } from '../utils/contractAlerts.js';
 import { theme } from '../theme.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
-import { parseFavoriteShortcut } from '../utils/favoriteShortcut.js';
+import { TAB_SHORTCUT_META, resolveQuickStartTile, type PinnedTile } from '../utils/favoriteShortcut.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
+import { TieIcon } from '../components/TieIcon.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -74,95 +75,18 @@ function messagePreview(message: ChatMessageItem) {
   return String(message.bodyText ?? '').trim() || 'Сообщение';
 }
 
-type PinnedTile = {
-  shortcutId: string;
-  icon: string;
-  title: string;
-  gradient: string;
-  link: ChatDeepLinkPayload;
-};
-
-const TAB_SHORTCUT_META: Record<string, { icon: string; title: string; gradient: string }> = {
-  engines: { icon: '⚙️', title: 'Двигатели', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
-  engine_brands: { icon: '🏷️', title: 'Марки двигателей', gradient: 'linear-gradient(135deg, #2563eb 0%, #60a5fa 100%)' },
-  parts: { icon: '🧩', title: 'Детали', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
-  part_templates: { icon: '📋', title: 'Справочник деталей', gradient: 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)' },
-  engine_assembly_bom: { icon: '🧮', title: 'BOM двигателей', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
-  requests: { icon: '📦', title: 'Заявки', gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)' },
-  work_orders: { icon: '🛠️', title: 'Наряды', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
-  tools: { icon: '🔧', title: 'Инструменты', gradient: 'linear-gradient(135deg, #059669 0%, #22c55e 100%)' },
-  tool_accounting: { icon: '📋', title: 'Учёт инструментов', gradient: 'linear-gradient(135deg, #047857 0%, #34d399 100%)' },
-  nomenclature: { icon: '🗃️', title: 'Номенклатура', gradient: 'linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%)' },
-  stock_balances: { icon: '📊', title: 'Остатки', gradient: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
-  stock_documents: { icon: '📄', title: 'Документы', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%)' },
-  stock_receipts: { icon: '📥', title: 'Приход', gradient: 'linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%)' },
-  stock_issues: { icon: '📤', title: 'Расход', gradient: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)' },
-  stock_transfers: { icon: '🔄', title: 'Перемещения', gradient: 'linear-gradient(135deg, #0c4a6e 0%, #0284c7 100%)' },
-  stock_inventory: { icon: '📋', title: 'Инвентаризация', gradient: 'linear-gradient(135deg, #075985 0%, #0284c7 100%)' },
-  contracts: { icon: '📄', title: 'Контракты', gradient: 'linear-gradient(135deg, #7c3aed 0%, #c084fc 100%)' },
-  counterparties: { icon: '🤝', title: 'Контрагенты', gradient: 'linear-gradient(135deg, #9333ea 0%, #ec4899 100%)' },
-  employees: { icon: '👥', title: 'Сотрудники', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
-  timesheets: { icon: '🗓️', title: 'Табель', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
-  reports: { icon: '📊', title: 'Отчёты', gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)' },
-  changes: { icon: '🧾', title: 'Изменения', gradient: 'linear-gradient(135deg, #6b7280 0%, #94a3b8 100%)' },
-  audit: { icon: '🔍', title: 'Журнал', gradient: 'linear-gradient(135deg, #374151 0%, #6b7280 100%)' },
-  notes: { icon: '📝', title: 'Заметки', gradient: 'linear-gradient(135deg, #c2410c 0%, #f97316 100%)' },
-  masterdata: { icon: '🗂️', title: 'Справочники', gradient: 'linear-gradient(135deg, #0f766e 0%, #10b981 100%)' },
-  settings: { icon: '⚙️', title: 'Настройки', gradient: 'linear-gradient(135deg, #475569 0%, #94a3b8 100%)' },
-};
-
-function resolveShortcutTile(shortcutId: string, reportPresets?: Array<{ id: string; title: string }>): PinnedTile | null {
-  const normalized = String(shortcutId ?? '').trim();
-  if (!normalized) return null;
-  const favorite = parseFavoriteShortcut(normalized);
-  if (favorite) {
-    return {
-      shortcutId: normalized,
-      icon: favorite.link.tab === 'report_preset' ? '📊' : '⭐',
-      title: favorite.title,
-      gradient: favorite.link.tab === 'report_preset'
-        ? 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)'
-        : 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)',
-      link: favorite.link,
-    };
-  }
-  if (normalized.toLowerCase().startsWith('tab:')) {
-    const tabId = normalized.slice(4);
-    const meta = TAB_SHORTCUT_META[tabId];
-    if (!meta) return null;
-    return { shortcutId: normalized, icon: meta.icon, title: meta.title, gradient: meta.gradient, link: { kind: 'app_link', tab: tabId as any, breadcrumbs: [meta.title] } };
-  }
-  const reportMatch = /^report:(.+)$/i.exec(normalized);
-  if (reportMatch) {
-    const presetId = String(reportMatch[1] ?? '').trim();
-    if (!presetId) return null;
-    const preset = reportPresets?.find((p) => p.id === presetId);
-    const title = (preset?.title ?? '').trim() || `Отчёт (${presetId})`;
-    return {
-      shortcutId: normalized,
-      icon: '📊',
-      title,
-      gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)',
-      link: {
-        kind: 'app_link',
-        tab: 'report_preset' as any,
-        reportPresetId: presetId as any,
-        breadcrumbs: [title],
-      },
-    };
-  }
-  return null;
-}
 
 export const __historyPageTestUtils = {
-  resolveShortcutTile,
+  resolveShortcutTile: resolveQuickStartTile,
 };
 
 export function HistoryPage(props: {
   meUserId: string;
   recentVisits: RecentVisitEntry[];
   quickStartRatings?: Array<{ tab: string; score: number; lastAt?: number }>;
-  pinnedShortcuts?: string[];
+  /** Живые ярлыки Рабочего стола — «Мой круг» показывает их же (одно место для закладок). */
+  desktopShortcuts?: DesktopShortcut[];
+  /** Убрать ярлык со стола (в корзину) — тот же смысл, что у корзины на самом столе. */
   onRemoveShortcut?: (shortcutId: string) => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onOpenNotes: (noteId?: string | null) => void;
@@ -174,7 +98,6 @@ export function HistoryPage(props: {
   const [notes, setNotes] = useState<NoteView[]>([]);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [pinnedContextMenu, setPinnedContextMenu] = useState<{ x: number; y: number; shortcutId: string } | null>(null);
-  const [reportPresets, setReportPresets] = useState<Array<{ id: string; title: string }>>([]);
   const [contractAlerts, setContractAlerts] = useState<ContractActivityAlert[]>([]);
 
   useEffect(() => {
@@ -228,22 +151,21 @@ export function HistoryPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tabVisibleRef is a stable ref read inside the mount-only poll callback; adding it would resubscribe on every render
   }, [props.meUserId]);
 
-  useEffect(() => {
-    let alive = true;
-    const hasPinnedReports = (props.pinnedShortcuts ?? []).some((id) => /^report:/i.test(String(id).trim()));
-    if (!hasPinnedReports) { setReportPresets([]); return; }
-    void window.matrica.reports.presetList().then((r) => {
-      if (!alive || !r?.ok) return;
-      setReportPresets(r.presets.map((p: any) => ({ id: String(p.id), title: String(p.title ?? '') })));
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [props.pinnedShortcuts]);
-
+  // Плитки = ярлыки стола со ссылкой на раздел/карточку. Файловые ярлыки (этап D) здесь
+  // не показываем — открыть их отсюда нечем.
   const pinnedTiles = useMemo(() => {
-    return (props.pinnedShortcuts ?? [])
-      .map((id) => resolveShortcutTile(id, reportPresets))
-      .filter((tile): tile is PinnedTile => tile !== null);
-  }, [props.pinnedShortcuts, reportPresets]);
+    const tiles: PinnedTile[] = [];
+    for (const s of props.desktopShortcuts ?? []) {
+      const link = asAppLink(s.link);
+      if (!link) continue;
+      const meta = TAB_SHORTCUT_META[String(link.tab)];
+      const gradient = link.tab === 'report_preset'
+        ? 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)'
+        : meta?.gradient ?? 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)';
+      tiles.push({ shortcutId: s.id, icon: s.icon, title: s.label, gradient, link });
+    }
+    return tiles;
+  }, [props.desktopShortcuts]);
 
   // Напоминание «заведён новый контракт/ДС — привязать двигатели». Производное от
   // createdAt (окно 3 дня) → гаснет само, без состояния «прочитано». Грузим только
@@ -489,8 +411,11 @@ export function HistoryPage(props: {
             padding: 12,
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4 }}>⭐ Быстрый запуск</div>
-          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Ваши списки, карточки, документы и отчёты.</div>
+          <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TieIcon active size={18} />
+            Ярлыки Рабочего стола
+          </div>
+          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Те же ярлыки, что лежат на Рабочем столе: галстук на вкладке кладёт их сюда и туда разом.</div>
           <div
             style={{
               display: 'grid',
@@ -520,7 +445,7 @@ export function HistoryPage(props: {
                   minHeight: 66,
                   width: '100%',
                 }}
-                title={`${tile.title} (правый клик — убрать из Быстрого запуска)`}
+                title={`${tile.title} (правый клик — убрать с Рабочего стола)`}
               >
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 8, rowGap: 4, alignItems: 'center', minWidth: 0 }}>
                   <span style={{ gridRow: 1, gridColumn: 1, fontSize: 20, lineHeight: 1 }}>{tile.icon}</span>
@@ -565,7 +490,7 @@ export function HistoryPage(props: {
               borderRadius: 6,
             }}
           >
-            Убрать из Быстрого запуска
+            Убрать с Рабочего стола (в корзину)
           </button>
         </div>
       )}

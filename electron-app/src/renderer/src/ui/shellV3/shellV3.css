@@ -86,20 +86,28 @@
   color: var(--accent, #2563eb);
 }
 
-.v3-tab-favorite {
+/* Галстук «На Рабочий стол» (этап B): тумблер ярлыка текущей вкладки. Незакреплённый —
+   контур в цвете muted, закреплённый — красный заливкой (см. TieIcon). Гаснет, пока
+   заголовок карточки ещё фолбэк: подсказка не должна обещать ярлык с техническим именем. */
+.v3-tab-desktop {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   padding: 4px 3px;
   background: none;
   border: none;
   color: var(--muted, #6b7280);
   cursor: pointer;
-  font-size: 17px;
   line-height: 1;
 }
 
-.v3-tab-favorite:hover,
-.v3-tab-favorite[data-active='1'] {
-  color: #d97706;
+.v3-tab-desktop:hover {
+  color: var(--tie-red, #d92b1f);
+}
+
+.v3-tab-desktop:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .v3-tab-close {
@@ -229,6 +237,12 @@
   line-height: 1.2;
   text-align: center;
   animation: v3-tabs-hint-in 220ms ease-out;
+}
+
+/* Исход действия с ярлыком стола — та же плашка, но не тревожная: это подтверждение. */
+.v3-desktop-notice {
+  color: var(--text, #0b1220);
+  border-color: var(--tie-red, #d92b1f);
 }
 
 @keyframes v3-tabs-hint-in {

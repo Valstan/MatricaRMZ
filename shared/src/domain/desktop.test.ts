@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DESKTOP_MAX_SHORTCUTS,
   DESKTOP_USAGE_MAX_DAYS,
   createEmptyDesktop,
   desktopAddFolder,
@@ -8,10 +9,16 @@ import {
   desktopDeleteFolder,
   desktopEmptyTrash,
   desktopFolderShortcuts,
+  desktopLiveShortcutCount,
+  desktopMigrateQuickStart,
   desktopMoveToFolder,
   desktopMoveToTrash,
+  desktopPutShortcut,
+  desktopRenameShortcut,
   desktopRestoreFromTrash,
+  desktopShortcutLinkKey,
   desktopSurfaceShortcuts,
+  desktopToggleShortcut,
   desktopTrashShortcuts,
   sanitizeDesktopSection,
   sanitizeDesktopUsageSection,
@@ -156,5 +163,161 @@ describe('прививка: поля рабочего стола пережив�
   it('секции нет в PATCH — не трогаем (undefined, а не пустой объект)', () => {
     expect(sanitizeDesktopUsageSection(undefined)).toBeUndefined();
     expect(sanitizeDesktopUsageSection([])).toBeUndefined();
+  });
+});
+
+// Этап B (кнопка-галстук): один ярлык на одну ссылку, тумблер называет исход,
+// лимит считает живые, файловый ярлык этапа D не сливается с соседями по вкладке.
+describe('ключ ссылки ярлыка', () => {
+  it('карточка: специальное поле и универсальная пара cardKind/entityId дают один ключ', () => {
+    const byField = desktopShortcutLinkKey({ kind: 'app_link', tab: 'engine', engineId: 'e-1' });
+    const byGeneric = desktopShortcutLinkKey({ kind: 'app_link', tab: 'engine', cardKind: 'engine', entityId: 'e-1' });
+    expect(byField).toBe('engine:e-1');
+    expect(byGeneric).toBe(byField);
+  });
+
+  it('раздел без сущности — ключ по вкладке; пустой и мусорный link — без ключа', () => {
+    expect(desktopShortcutLinkKey({ kind: 'app_link', tab: 'work_orders' })).toBe('tab:work_orders');
+    expect(desktopShortcutLinkKey({ kind: 'app_link', tab: '' })).toBeNull();
+    expect(desktopShortcutLinkKey(undefined)).toBeNull();
+    expect(desktopShortcutLinkKey('engine:e-1')).toBeNull();
+  });
+
+  it('файловый ярлык (этап D) различается по fileId, а не по вкладке', () => {
+    const a = desktopShortcutLinkKey({ kind: 'file', fileId: 'f-1', name: 'акт.pdf' });
+    const b = desktopShortcutLinkKey({ kind: 'file', fileId: 'f-2', name: 'акт.pdf' });
+    expect(a).toBe('file:f-1');
+    expect(b).toBe('file:f-2');
+    expect(desktopShortcutLinkKey({ kind: 'file', name: 'без id' })).toBeNull();
+  });
+});
+
+describe('тумблер ярлыка', () => {
+  const engine = { kind: 'app_link', tab: 'engine', engineId: 'e-1' };
+
+  it('нет ярлыка — кладёт и говорит added; есть — убирает в корзину и говорит removed', () => {
+    let d = createEmptyDesktop();
+    const first = desktopToggleShortcut(d, { id: 'n1', label: 'ЯМЗ-238 № 41/26', icon: '⚙️', link: engine }, NOW);
+    expect(first.outcome).toBe('added');
+    d = first.desktop;
+    expect(desktopSurfaceShortcuts(d).map((s) => s.id)).toEqual(['n1']);
+
+    const second = desktopToggleShortcut(d, { id: 'n2', label: 'ЯМЗ-238 № 41/26', icon: '⚙️', link: engine }, NOW + 1);
+    expect(second.outcome).toBe('removed');
+    expect(desktopSurfaceShortcuts(second.desktop)).toEqual([]);
+    expect(desktopTrashShortcuts(second.desktop).map((s) => s.id)).toEqual(['n1']);
+  });
+
+  it('ярлык той же ссылки лежит в корзине — возвращается он сам, а не плодится новый', () => {
+    let d = createEmptyDesktop();
+    d = desktopToggleShortcut(d, { id: 'n1', label: 'A', icon: '⚙️', link: engine }, NOW).desktop;
+    d = desktopMoveToTrash(d, 'n1', NOW + 1);
+    const r = desktopToggleShortcut(d, { id: 'n2', label: 'A', icon: '⚙️', link: engine }, NOW + 2);
+    expect(r.outcome).toBe('added');
+    expect(desktopSurfaceShortcuts(r.desktop).map((s) => s.id)).toEqual(['n1']);
+    expect(r.desktop.shortcuts).toHaveLength(1);
+  });
+
+  it('ярлык в папке — тоже «есть»: тумблер уводит его в корзину', () => {
+    let d = createEmptyDesktop();
+    d = desktopAddFolder(d, { id: 'f1', name: 'Моё' }, NOW);
+    d = desktopToggleShortcut(d, { id: 'n1', label: 'A', icon: '⚙️', link: engine }, NOW).desktop;
+    d = desktopMoveToFolder(d, 'n1', 'f1');
+    const r = desktopToggleShortcut(d, { id: 'n2', label: 'A', icon: '⚙️', link: engine }, NOW + 1);
+    expect(r.outcome).toBe('removed');
+    expect(desktopTrashShortcuts(r.desktop).map((s) => s.id)).toEqual(['n1']);
+  });
+
+  it('лимит считает живые ярлыки: корзина места не занимает, упор в лимит называется limit', () => {
+    let d = createEmptyDesktop();
+    for (let i = 0; i < DESKTOP_MAX_SHORTCUTS; i++) {
+      d = desktopAddShortcut(d, { id: `s${i}`, label: `A${i}`, icon: '🔗', link: { kind: 'app_link', tab: 'engine', engineId: `e${i}` } }, NOW);
+    }
+    expect(desktopLiveShortcutCount(d)).toBe(DESKTOP_MAX_SHORTCUTS);
+    const extra = { id: 'x', label: 'X', icon: '🔗', link: { kind: 'app_link', tab: 'engine', engineId: 'ex' } };
+    const full = desktopToggleShortcut(d, extra, NOW);
+    expect(full.outcome).toBe('limit');
+    expect(full.desktop).toBe(d);
+
+    d = desktopMoveToTrash(d, 's0', NOW + 1);
+    expect(desktopLiveShortcutCount(d)).toBe(DESKTOP_MAX_SHORTCUTS - 1);
+    expect(desktopToggleShortcut(d, extra, NOW + 2).outcome).toBe('added');
+    expect(desktopAddShortcut(d, { id: 'y', label: 'Y', icon: '🔗' }, NOW).shortcuts).toHaveLength(DESKTOP_MAX_SHORTCUTS + 1);
+  });
+
+  it('ссылка без ключа (нечего дедупить) — просто кладётся', () => {
+    const r = desktopToggleShortcut(createEmptyDesktop(), { id: 'n1', label: 'A', icon: '🔗' }, NOW);
+    expect(r.outcome).toBe('added');
+  });
+});
+
+describe('«Добавить на Рабочий стол» из меню кнопок — не тумблер', () => {
+  const link = { kind: 'app_link', tab: 'engines' };
+
+  it('кладёт один раз: второй раз — exists, ничего не снимает; из корзины возвращает свой', () => {
+    let d = createEmptyDesktop();
+    const first = desktopPutShortcut(d, { id: 'n1', label: 'Двигатели', icon: '⚙️', link }, NOW);
+    expect(first.outcome).toBe('added');
+    d = first.desktop;
+    const second = desktopPutShortcut(d, { id: 'n2', label: 'Двигатели', icon: '⚙️', link }, NOW + 1);
+    expect(second.outcome).toBe('exists');
+    expect(second.desktop).toBe(d);
+    d = desktopMoveToTrash(d, 'n1', NOW + 2);
+    const third = desktopPutShortcut(d, { id: 'n3', label: 'Двигатели', icon: '⚙️', link }, NOW + 3);
+    expect(third.outcome).toBe('added');
+    expect(third.desktop.shortcuts.map((s) => s.id)).toEqual(['n1']);
+  });
+});
+
+describe('переименование ярлыка', () => {
+  it('подпись меняется, пустая и слишком длинная — режется', () => {
+    let d = seeded();
+    d = desktopRenameShortcut(d, 's1', '  Мои двигатели  ');
+    expect(d.shortcuts.find((s) => s.id === 's1')!.label).toBe('Мои двигатели');
+    expect(desktopRenameShortcut(d, 's1', '   ')).toBe(d);
+    expect(desktopRenameShortcut(d, 's1', 'x'.repeat(500)).shortcuts.find((s) => s.id === 's1')!.label).toHaveLength(160);
+  });
+});
+
+describe('переезд «Быстрого запуска» в ярлыки', () => {
+  const items = [
+    { label: 'Табель', icon: '🗓️', link: { kind: 'app_link', tab: 'timesheets' } },
+    { label: 'ЯМЗ-238 № 41/26', icon: '⚙️', link: { kind: 'app_link', tab: 'engine', cardKind: 'engine', entityId: 'e-1' } },
+  ];
+
+  it('кладёт ярлыки с детерминированными id и ставит отметку', () => {
+    const d = desktopMigrateQuickStart(createEmptyDesktop(), items, NOW);
+    expect(d.shortcutsMigratedAt).toBe(NOW);
+    expect(desktopSurfaceShortcuts(d).map((s) => s.label)).toEqual(['Табель', 'ЯМЗ-238 № 41/26']);
+    const again = desktopMigrateQuickStart(createEmptyDesktop(), items, NOW + 5);
+    expect(again.shortcuts.map((s) => s.id)).toEqual(d.shortcuts.map((s) => s.id));
+  });
+
+  it('идемпотентен: отметка стоит — второй прогон ничего не меняет, даже если ярлык с тех пор удалили', () => {
+    let d = desktopMigrateQuickStart(createEmptyDesktop(), items, NOW);
+    d = desktopEmptyTrash(desktopMoveToTrash(d, d.shortcuts[0]!.id, NOW + 1));
+    const again = desktopMigrateQuickStart(d, items, NOW + 2);
+    expect(again).toBe(d);
+  });
+
+  it('не дублирует ссылку, которая уже лежит на столе, и не перетирает совпавший id', () => {
+    let d = createEmptyDesktop();
+    d = desktopAddShortcut(d, { id: 'mine', label: 'Мой табель', icon: '🗓️', link: { kind: 'app_link', tab: 'timesheets' } }, NOW);
+    const migrated = desktopMigrateQuickStart(d, items, NOW + 1);
+    expect(migrated.shortcuts.map((s) => s.label)).toEqual(['Мой табель', 'ЯМЗ-238 № 41/26']);
+
+    const occupiedId = migrated.shortcuts[1]!.id;
+    let e = createEmptyDesktop();
+    e = desktopAddShortcut(e, { id: occupiedId, label: 'Чужой ярлык с тем же id', icon: '🔗', link: { kind: 'app_link', tab: 'reports' } }, NOW);
+    const m2 = desktopMigrateQuickStart(e, items, NOW + 1);
+    expect(m2.shortcuts.find((s) => s.id === occupiedId)!.label).toBe('Чужой ярлык с тем же id');
+    expect(m2.shortcuts.map((s) => s.label)).toContain('Табель');
+    expect(m2.shortcuts.map((s) => s.label)).not.toContain('ЯМЗ-238 № 41/26');
+  });
+
+  it('пустой «Быстрый запуск» — только отметка, чтобы не повторять переезд', () => {
+    const d = desktopMigrateQuickStart(createEmptyDesktop(), [], NOW);
+    expect(d.shortcuts).toEqual([]);
+    expect(d.shortcutsMigratedAt).toBe(NOW);
   });
 });

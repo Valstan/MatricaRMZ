@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveDeepLinkRoute } from './deepLinkRouting.js';
+import { resolveDeepLinkRoute } from './deepLinkRoute.js';
 
 describe('resolveDeepLinkRoute', () => {
   it('resolves a generic favorite card link', () => {

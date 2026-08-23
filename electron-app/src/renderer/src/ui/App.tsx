@@ -58,8 +58,14 @@ import {
   type V3Session,
   type WorkTab,
   createEmptyDesktop,
-  desktopAddShortcut,
+  desktopMigrateQuickStart,
+  desktopMoveToTrash,
+  desktopPutShortcut,
+  desktopShortcutLinkKey,
+  desktopToggleShortcut,
   sanitizeDesktopSection,
+  type DesktopPutOutcome,
+  type DesktopToggleOutcome,
   type UserUiProfileDesktop,
 } from '@matricarmz/shared';
 
@@ -103,7 +109,8 @@ import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyD
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
-import { buildFavoriteShortcut } from './utils/favoriteShortcut.js';
+import { resolveQuickStartTile } from './utils/favoriteShortcut.js';
+import type { MenuButtonDescriptor } from './shellV2/v2ButtonCatalog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { buildV2Buttons } from './shellV2/v2ButtonCatalog.js';
@@ -946,6 +953,16 @@ export function App() {
   // «Рабочий стол» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
   // Секция `desktop` профиля — применяется с GET, уезжает push-эффектом ниже.
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
+  // Подтверждение действия с ярлыком. Своё состояние, а не postLoginSyncMsg: тот нигде не
+  // рендерится (кроме текстов с «ошиб»), и «Ярлык добавлен» оператор никогда не видел.
+  const [desktopNotice, setDesktopNotice] = useState<string>('');
+  const desktopNoticeTimerRef = useRef<number | null>(null);
+  // Зеркало стола для обработчиков. Панель МЕНЮ живёт и в скрытой keep-alive вкладке
+  // (FrozenWhileHidden не перерисовывает её), и её колбэки держат стол на момент последней
+  // отрисовки; исход, посчитанный от стейл-снимка, затёр бы setDesktopUi'ем более свежее.
+  // Ref обновляет сам App на каждом рендере — он не замораживается.
+  const desktopUiRef = useRef(desktopUi);
+  desktopUiRef.current = desktopUi;
   // Шаблоны фильтров отчётов (этап 6.3, 19.08б): локальный блоб main-процесса
   // зеркалируется в секцию `reportFilterTemplates` профиля — снимок для пуша.
   const [reportTemplatesSnap, setReportTemplatesSnap] = useState<Record<string, unknown> | null>(null);
@@ -1894,6 +1911,36 @@ export function App() {
     };
   }, [authStatus.loggedIn, authStatus.user?.id, uiProfileRetryNonce]);
 
+  // Одноразовый переезд «Быстрого запуска» в ярлыки Рабочего стола (этап B). Только
+  // после успешного GET профиля (ready-гейт): серверный стол уже применён, и локальный
+  // список не уедет в чужой или пустой стол. Отметка роумится — вторая машина переезд
+  // не повторит; функциональный setState держит идемпотентность при гонке с пушем.
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId || uiProfileReadyUserRef.current !== userId) return;
+    if (desktopUi.shortcutsMigratedAt) return;
+    let alive = true;
+    const ids = pinnedShortcuts;
+    const run = async () => {
+      let presets: Array<{ id: string; title: string }> = [];
+      if (ids.some((id) => /^report:/i.test(id))) {
+        // Подпись отчёта — из списка пресетов, иначе ярлык получил бы техническое имя.
+        const r = await window.matrica.reports.presetList().catch(() => null);
+        if (!alive) return;
+        if (r?.ok) presets = r.presets.map((x: any) => ({ id: String(x.id), title: String(x.title ?? '') }));
+      }
+      const items = ids
+        .map((id) => resolveQuickStartTile(id, presets))
+        .filter((tile): tile is NonNullable<typeof tile> => tile != null)
+        .map((tile) => ({ label: tile.title, icon: tile.icon, link: tile.link }));
+      setDesktopUi((prev) => (prev.shortcutsMigratedAt ? prev : desktopMigrateQuickStart(prev, items, Date.now())));
+    };
+    void run();
+    return () => {
+      alive = false;
+    };
+  }, [authStatus.loggedIn, authStatus.user?.id, desktopUi, pinnedShortcuts]);
+
   // Push workspace-профиля на сервер: дебаунс против шторма записей; per-key
   // подписи решают, ЧТО изменилось, per-key штампы (merge-LWW на сервере, v3.5.0)
   // гарантируют, что неизменившиеся секции не перетрут более свежее с другой
@@ -2765,52 +2812,108 @@ export function App() {
     openSectionTab(t);
   }
 
-  async function addPinnedShortcut(shortcutId: string) {
-    const userId = authStatus.user?.id;
-    const id = String(shortcutId ?? '').trim();
-    if (!userId || !id) return;
-    shortcutsMutationEpochRef.current += 1;
-    let nextForSave: string[] = [];
-    setPinnedShortcuts((prev) => {
-      const list = Array.isArray(prev) ? prev : [];
-      nextForSave = list.includes(id) ? list : [...list, id];
-      return nextForSave;
-    });
-    await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
-  }
+  // «Быстрый запуск» (pinnedShortcuts) больше никем не правится: звезда, «Мой круг» и
+  // каталог отчётов перешли на ярлыки Рабочего стола (этап B). Список читается ради
+  // одноразового переезда и продолжает роумиться как есть, чтобы старый клиент на
+  // другой машине не потерял свои пины до обновления.
 
-  async function removePinnedShortcut(shortcutId: string) {
-    const userId = authStatus.user?.id;
-    if (!userId) return;
-    const id = String(shortcutId ?? '').trim();
-    shortcutsMutationEpochRef.current += 1;
-    let nextForSave: string[] = [];
-    setPinnedShortcuts((prev) => {
-      const list = Array.isArray(prev) ? prev : [];
-      nextForSave = list.filter((x) => x !== id);
-      return nextForSave;
-    });
-    await window.matrica.shortcuts.set({ userId, ids: nextForSave }).catch(() => {});
-  }
+  // ── Галстук «На Рабочий стол» (этап B): ярлыки стола — единая модель закладок ──
 
-  function shortcutForOpenTab(openTab: OpenTab): string | null {
-    if (openTab.kind === 'list' && openTab.tabId) return `tab:${openTab.tabId}`;
+  /** Ссылка ярлыка для вкладки — та же форма, что у «Быстрого запуска» и currentAppLink. */
+  function desktopLinkForOpenTab(openTab: OpenTab): ChatDeepLinkPayload | null {
+    if (openTab.kind === 'list' && openTab.tabId) {
+      return { kind: 'app_link', tab: openTab.tabId as ChatDeepLinkPayload['tab'], breadcrumbs: [openTab.label] };
+    }
     if (openTab.kind !== 'card' || !openTab.cardKind || !openTab.entityId) return null;
-    if (openTab.cardKind === 'report_preset') return `report:${openTab.entityId}`;
-    return buildFavoriteShortcut(openTab.cardKind, openTab.entityId, openTab.label);
+    if (openTab.cardKind === 'report_preset') {
+      return { kind: 'app_link', tab: 'report_preset', reportPresetId: openTab.entityId, breadcrumbs: [openTab.label] };
+    }
+    return {
+      kind: 'app_link',
+      tab: openTab.cardKind as ChatDeepLinkPayload['tab'],
+      cardKind: openTab.cardKind,
+      entityId: openTab.entityId,
+      breadcrumbs: [openTab.label],
+    };
   }
 
-  function isOpenTabFavorite(openTab: OpenTab): boolean {
-    const shortcut = shortcutForOpenTab(openTab);
-    return shortcut != null && pinnedShortcuts.includes(shortcut);
+  function desktopIconForTab(tabId: string): string {
+    const parent = CARD_PARENT_TAB[tabId as TabId] ?? tabId;
+    return TAB_VISUALS[parent as MenuTabId]?.icon ?? (parent === 'reports' ? '📊' : '🔗');
   }
 
-  function toggleOpenTabFavorite(openTab: OpenTab) {
-    const shortcut = shortcutForOpenTab(openTab);
-    if (!shortcut) return;
-    if (pinnedShortcuts.includes(shortcut)) void removePinnedShortcut(shortcut);
-    else void addPinnedShortcut(shortcut);
+  function isLinkOnDesktop(link: unknown): boolean {
+    const key = desktopShortcutLinkKey(link);
+    return key != null && desktopUi.shortcuts.some((s) => s.deletedAt == null && desktopShortcutLinkKey(s.link) === key);
   }
+
+  function isOpenTabOnDesktop(openTab: OpenTab): boolean {
+    return isLinkOnDesktop(desktopLinkForOpenTab(openTab));
+  }
+
+  /** Сообщение называет то, что произошло: упор в лимит — не «добавлено». */
+  function announceDesktopOutcome(outcome: DesktopToggleOutcome | DesktopPutOutcome, label: string) {
+    const text =
+      outcome === 'added'
+        ? `Ярлык «${label}» добавлен на Рабочий стол.`
+        : outcome === 'removed'
+          ? `Ярлык «${label}» убран с Рабочего стола (лежит в корзине).`
+          : outcome === 'exists'
+            ? `Ярлык «${label}» уже на Рабочем столе.`
+            : 'На Рабочем столе уже 200 ярлыков — освободите место, корзина не в счёт.';
+    setDesktopNotice(text);
+    if (desktopNoticeTimerRef.current != null) window.clearTimeout(desktopNoticeTimerRef.current);
+    desktopNoticeTimerRef.current = window.setTimeout(() => setDesktopNotice(''), 4500);
+  }
+
+  function toggleOpenTabDesktop(openTab: OpenTab) {
+    const link = desktopLinkForOpenTab(openTab);
+    if (!link) return;
+    const r = desktopToggleShortcut(
+      desktopUiRef.current,
+      { id: crypto.randomUUID(), label: openTab.label, icon: desktopIconForTab(String(link.tab)), link },
+      Date.now(),
+    );
+    setDesktopUi(r.desktop);
+    announceDesktopOutcome(r.outcome, openTab.label);
+  }
+
+  /** Ярлык кнопки МЕНЮ — на ту кнопку, по которой щёлкнули (контекстное меню и закреп). */
+  function addMenuButtonToDesktop(btn: MenuButtonDescriptor) {
+    const link: ChatDeepLinkPayload =
+      btn.id === 'assembly_forecast'
+        ? { kind: 'app_link', tab: 'report_preset', reportPresetId: 'assembly_forecast_7d', breadcrumbs: [btn.label] }
+        : { kind: 'app_link', tab: btn.id as ChatDeepLinkPayload['tab'], breadcrumbs: [btn.label] };
+    const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label: btn.label, icon: btn.icon, link }, Date.now());
+    setDesktopUi(r.desktop);
+    announceDesktopOutcome(r.outcome, btn.label);
+  }
+
+  function addReportPresetToDesktop(presetId: string, title: string) {
+    const link: ChatDeepLinkPayload = { kind: 'app_link', tab: 'report_preset', reportPresetId: presetId, breadcrumbs: [title] };
+    const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label: title, icon: '📊', link }, Date.now());
+    setDesktopUi(r.desktop);
+    announceDesktopOutcome(r.outcome, title);
+  }
+
+  function removeLinkFromDesktop(link: unknown) {
+    const key = desktopShortcutLinkKey(link);
+    const current = desktopUiRef.current;
+    const live = key ? current.shortcuts.find((s) => s.deletedAt == null && desktopShortcutLinkKey(s.link) === key) : null;
+    if (!live) return;
+    setDesktopUi(desktopMoveToTrash(current, live.id, Date.now()));
+    announceDesktopOutcome('removed', live.label);
+  }
+
+  const liveDesktopShortcuts = useMemo(() => desktopUi.shortcuts.filter((s) => s.deletedAt == null), [desktopUi]);
+  const desktopReportPresetIds = useMemo(
+    () =>
+      liveDesktopShortcuts
+        .map((s) => desktopShortcutLinkKey(s.link))
+        .filter((k): k is string => k != null && k.startsWith('report_preset:'))
+        .map((k) => k.slice('report_preset:'.length)),
+    [liveDesktopShortcuts],
+  );
 
   async function _persistChatSide(next: 'left' | 'right') {
     setUiPrefs((prev) => ({ ...prev, chatSide: next }));
@@ -3961,16 +4064,15 @@ export function App() {
     return null;
   }
 
-  /** «На рабочий стол»: ярлык текущего раздела/карточки на экран «Рабочий стол» (этап 5). */
+  /** «На рабочий стол» из меню действий: ярлык текущего раздела/карточки, без ухода со страницы. */
   function addCurrentPositionToDesktop() {
     if (!authStatus.loggedIn) return;
     const link = currentAppLink as ChatDeepLinkPayload;
     const label = buildChatBreadcrumbs().join(' / ').trim() || 'Раздел';
     const icon = TAB_VISUALS[String(link?.tab ?? '') as MenuTabId]?.icon ?? '🔗';
-    setDesktopUi((prev) => desktopAddShortcut(prev, { id: crypto.randomUUID(), label, icon, link }, Date.now()));
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
-    setPostLoginSyncMsg('Ярлык добавлен на рабочий стол.');
-    setTimeout(() => setPostLoginSyncMsg(''), 4500);
+    const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label, icon, link }, Date.now());
+    setDesktopUi(r.desktop);
+    announceDesktopOutcome(r.outcome, label);
   }
 
   async function saveCurrentPositionToNotes() {
@@ -4767,8 +4869,8 @@ export function App() {
             meUserId={authStatus.user?.id ?? ''}
             recentVisits={recentVisits}
             quickStartRatings={quickStartRatings}
-            pinnedShortcuts={pinnedShortcuts}
-            onRemoveShortcut={removePinnedShortcut}
+            desktopShortcuts={liveDesktopShortcuts}
+            onRemoveShortcut={(id: string) => setDesktopUi((prev) => desktopMoveToTrash(prev, id, Date.now()))}
             onNavigate={(link: ChatDeepLinkPayload) => {
               void navigateDeepLink(link);
             }}
@@ -5493,9 +5595,11 @@ export function App() {
             onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
             themeId={reportsThemeId}
             onThemeChange={setReportsThemeId}
-            pinnedShortcuts={pinnedShortcuts}
-            onAddShortcut={addPinnedShortcut}
-            onRemoveShortcut={removePinnedShortcut}
+            desktopPresetIds={desktopReportPresetIds}
+            onAddToDesktop={(presetId: ReportPresetId, title: string) => addReportPresetToDesktop(presetId, title)}
+            onRemoveFromDesktop={(presetId: ReportPresetId) =>
+              removeLinkFromDesktop({ kind: 'app_link', tab: 'report_preset', reportPresetId: presetId })
+            }
           />
         )}
         {t === 'report_preset' && selectedReportPresetId && (
@@ -5656,7 +5760,7 @@ export function App() {
       canClose: t.kind !== 'menu',
       ...(t.kind === 'list' ? { tabId: t.tabId as TabId } : {}),
       ...(t.kind === 'card'
-        ? { tabId: t.cardKind as TabId, cardKind: t.cardKind as TabId, entityId: t.entityId }
+        ? { tabId: t.cardKind as TabId, cardKind: t.cardKind as TabId, entityId: t.entityId, titleIsFallback: t.titleIsFallback }
         : {}),
     };
   }
@@ -5850,8 +5954,10 @@ export function App() {
               activeTabId={activeTabKey}
               onSelectTab={selectTab}
               onCloseTab={closeTabById}
-              isFavorite={isOpenTabFavorite}
-              onToggleFavorite={toggleOpenTabFavorite}
+              isOnDesktop={isOpenTabOnDesktop}
+              onToggleDesktop={toggleOpenTabDesktop}
+              onMenuButtonDesktopShortcut={addMenuButtonToDesktop}
+              desktopNotice={desktopNotice}
               secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}
               onCloseSecondary={closeSecondaryCard}

@@ -7,9 +7,11 @@ import { ButtonPanel } from '../shellV2/ButtonPanel.js';
 import type { V2ButtonLayout } from '@matricarmz/shared';
 import { buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from '../shellV2/menuActions.js';
+import type { MenuButtonDescriptor } from '../shellV2/v2ButtonCatalog.js';
 import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
+import { TieIcon } from '../components/TieIcon.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
 import rmzLogo from '../../assets/logo_rmz.png';
 import './shellV3.css';
@@ -47,6 +49,8 @@ export interface OpenTab {
   tabId?: TabId;
   entityId?: string;
   cardKind?: TabId;
+  /** Заголовок карточки ещё фолбэк («Вид · id6») — галстук гаснет, чтобы не обещать ярлык с техническим именем. */
+  titleIsFallback?: boolean;
   canClose: boolean;
 }
 
@@ -60,14 +64,19 @@ export function V3TabShell(props: {
   onCollapsedSectionsChange: (next: string[]) => void;
   onMenuTab: (t: MenuTabId) => void;
   onAction: (id: ActionButtonId) => void;
+  /** Ярлык кнопки МЕНЮ на Рабочий стол (контекстное меню и закреп сверху). */
+  onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
+  /** Исход действия с ярлыком («добавлен» / «убран» / «лимит») — всплывает над телом вкладки и гаснет сам. */
+  desktopNotice?: string;
   openTabs: OpenTab[];
   activeTabId: string;
   /** Раздел, который подсвечивается в панели МЕНЮ: «где оператор был», а не активная вкладка. */
   activeSectionTabId: TabId;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  isFavorite?: (tab: OpenTab) => boolean;
-  onToggleFavorite?: (tab: OpenTab) => void;
+  /** Галстук «На Рабочий стол»: лежит ли ярлык этой вкладки на столе (тумблер). */
+  isOnDesktop?: (tab: OpenTab) => boolean;
+  onToggleDesktop?: (tab: OpenTab) => void;
   /** Закрепить карточку второй панелью рядом с активной («2 рядом»). */
   onSplitCard?: (card: OpenTab) => void;
   /** Вторая панель умеет не все виды карточек — у остальных ⑃ не показываем. */
@@ -95,6 +104,7 @@ export function V3TabShell(props: {
   // указывала бы на фолбэк. Раньше бралась первая list-вкладка: на карточке или другом
   // разделе подсвечивался чужой пункт.
   const activeMenuTab = resolveMenuTab(props.activeSectionTabId);
+  const isAndroid = matricaPlatform() === 'android';
 
   const chrome = useChromeVisibility();
   const setShellMounted = chrome.setShellMounted;
@@ -169,6 +179,7 @@ export function V3TabShell(props: {
         setMenuOverlayOpen(false);
         props.onAction(id);
       }}
+      {...(props.onMenuButtonDesktopShortcut ? { onDesktopShortcut: props.onMenuButtonDesktopShortcut } : {})}
     />
   );
 
@@ -337,18 +348,32 @@ export function V3TabShell(props: {
                   ⑃
                 </button>
               )}
-              {(tab.kind === 'card' || tab.kind === 'list') && props.onToggleFavorite && (
-                <button
-                  type="button"
-                  className="v3-tab-favorite"
-                  data-active={props.isFavorite?.(tab) ? '1' : undefined}
-                  title={props.isFavorite?.(tab) ? 'Убрать из Быстрого запуска' : 'В Быстрый запуск'}
-                  aria-label={props.isFavorite?.(tab) ? 'Убрать из Быстрого запуска' : 'В Быстрый запуск'}
-                  onClick={(e) => { e.stopPropagation(); props.onToggleFavorite?.(tab); }}
-                >
-                  {props.isFavorite?.(tab) ? '★' : '☆'}
-                </button>
-              )}
+              {/* На Android Рабочего стола нет (он живёт на экране чата) — галстук не показываем,
+                  как и действие «На рабочий стол» в МЕНЮ (v2ButtonCatalog ANDROID_HIDDEN_ACTIONS). */}
+              {(tab.kind === 'card' || tab.kind === 'list') && props.onToggleDesktop && !isAndroid && (() => {
+                // Подсказка не должна врать: пока заголовок карточки — фолбэк («Вид · id6»),
+                // ярлык получил бы техническое имя, поэтому кнопка гаснет с пояснением.
+                const pending = tab.kind === 'card' && tab.titleIsFallback;
+                const onDesktop = !pending && (props.isOnDesktop?.(tab) ?? false);
+                const title = pending
+                  ? 'Название ещё загружается — ярлык появится, когда карточка назовёт себя'
+                  : onDesktop
+                    ? `Убрать с Рабочего стола ярлык «${tab.label}»`
+                    : `Добавить на Рабочий стол ярлык «${tab.label}»`;
+                return (
+                  <button
+                    type="button"
+                    className="v3-tab-desktop"
+                    data-active={onDesktop ? '1' : undefined}
+                    disabled={pending}
+                    title={title}
+                    aria-label={title}
+                    onClick={(e) => { e.stopPropagation(); props.onToggleDesktop?.(tab); }}
+                  >
+                    <TieIcon active={onDesktop} />
+                  </button>
+                );
+              })()}
               {tab.canClose && (
                 <button
                   type="button"
@@ -450,6 +475,11 @@ export function V3TabShell(props: {
         {tabsHintVisible && (
           <div className="v3-tabs-hint" role="status">
             ⚠ Много вкладок — закройте отработанные.
+          </div>
+        )}
+        {props.desktopNotice && (
+          <div className="v3-tabs-hint v3-desktop-notice" role="status">
+            {props.desktopNotice}
           </div>
         )}
       </div>

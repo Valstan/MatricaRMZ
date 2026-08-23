@@ -54,6 +54,7 @@
 | **Отчёты** | `pages/ReportsCatalogPage.tsx`, `ReportPresetPage.tsx`, `CustomReportsPage.tsx` | Каталог пресетов по темам, параметры, экспорт HTML/печать, «Мои отчёты» |
 | **Админ** | `pages/AdminPage.tsx`, `SuperadminAuditPage.tsx`, `HistoryPage.tsx`, `ChangesPage.tsx` | Пользователи, аудит, история изменений. Экраны пользователей/аудита в браузере — свои файлы в `web-admin/src/ui/` |
 | **Auth / Settings** | `pages/AuthPage.tsx`, `SettingsPage.tsx` | Логин, локальные настройки |
+| **Рабочий стол / ярлыки** | `components/DesktopPane.tsx` (стол на экране чата), `shellV3/V3TabShell.tsx` (галстук `.v3-tab-desktop` на вкладке — тумблер ярлыка), `shellV2/ButtonPanel.tsx` (пункт «Добавить на Рабочий стол», закреп = закреп + ярлык), `components/TieIcon.tsx`, `HistoryPage.tsx` («Мой круг» = те же ярлыки) | Одна модель закладок — секция `desktop` в `ui_profile_json`; легаси «Быстрый запуск» (`pinnedShortcuts`) только читается ради одноразового переезда (`desktopMigrateQuickStart`). Исходы действий — плашка `desktopNotice`; обработчики читают стол из `desktopUiRef` (GOTCHAS M90) |
 | **Главное окно / IPC** | `electron-app/src/main/`, `electron-app/src/preload/`, `electron-app/src/renderer/src/main.tsx` | Bootstrap, миграции SQLite, IPC bridges, autoupdater |
 
 ## Shared domain (`shared/src/domain/`)
@@ -65,6 +66,7 @@
 | `workOrder.ts`, `workOrderSignatures.ts` | Типы нарядов, расчёт ФИО подписантов |
 | `reports.ts` | Реестр пресетов отчётов, типы параметров |
 | `releaseWelcome.ts` | `RELEASE_WELCOME_HISTORY` — текст для оператора при автообновлении |
+| `desktop.ts`, `deepLinkRoute.ts` | Рабочий стол: санитайзер секции (`pos`, `shortcutsMigratedAt`, `desktopUsage` — «прививка»), тумблер/`put` с явным исходом, ключ ссылки для дедупа (`file:`/роут/`tab:`), переезд «Быстрого запуска». Разбор ссылки приложения (`resolveDeepLinkRoute`) — здесь же, renderer реэкспортирует |
 | `permissions.ts`, `signatureAccess.ts` | Роли и доступ к подписям |
 | `part.ts`, `contract.ts`, `employees.ts`, `supplyRequest.ts` | Доменные типы остальных сущностей |
 | `enums.ts`, `systemIds.ts`, `linkFieldRules.ts` | Перечисления, системные UUID, правила связей |
