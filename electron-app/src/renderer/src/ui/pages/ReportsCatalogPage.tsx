@@ -29,9 +29,10 @@ export function ReportsCatalogPage(props: {
   onOpenPreset: (presetId: ReportPresetId) => void;
   themeId: ReportThemeId | null;
   onThemeChange: (themeId: ReportThemeId | null) => void;
-  pinnedShortcuts?: string[];
-  onAddShortcut?: (id: string) => void;
-  onRemoveShortcut?: (id: string) => void;
+  /** Пресеты, ярлыки которых лежат на Рабочем столе (этап B: «Мой круг» и стол — одна модель). */
+  desktopPresetIds?: string[];
+  onAddToDesktop?: (presetId: ReportPresetId, title: string) => void;
+  onRemoveFromDesktop?: (presetId: ReportPresetId) => void;
 }) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<ReportPresetId[]>([]);
@@ -376,14 +377,13 @@ export function ReportsCatalogPage(props: {
           }}
         >
           {(() => {
-            const shortcutId = `report:${ctxMenu.presetId}`;
-            const isPinned = (props.pinnedShortcuts ?? []).includes(shortcutId);
+            const isPinned = (props.desktopPresetIds ?? []).includes(ctxMenu.presetId);
             return (
               <button
                 type="button"
                 onClick={() => {
-                  if (isPinned) props.onRemoveShortcut?.(shortcutId);
-                  else props.onAddShortcut?.(shortcutId);
+                  if (isPinned) props.onRemoveFromDesktop?.(ctxMenu.presetId);
+                  else props.onAddToDesktop?.(ctxMenu.presetId, presetById.get(ctxMenu.presetId)?.title ?? ctxMenu.presetId);
                   setCtxMenu(null);
                 }}
                 style={{
@@ -398,7 +398,7 @@ export function ReportsCatalogPage(props: {
                   borderRadius: 6,
                 }}
               >
-                {isPinned ? 'Убрать из избранного' : 'Добавить в избранное'}
+                {isPinned ? 'Убрать с Рабочего стола' : '🧣 Добавить на Рабочий стол'}
               </button>
             );
           })()}

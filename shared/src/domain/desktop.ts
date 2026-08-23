@@ -1,3 +1,6 @@
+import { resolveDeepLinkRoute } from './deepLinkRoute.js';
+import type { ChatDeepLinkPayload } from '../ipc/types.js';
+
 // «Рабочий стол» — стартовый экран после входа (этап 5 пакета владельца 2026-08-19б):
 // ярлыки-ссылки на разделы/карточки, папки, корзина и раскладка сплитов экрана
 // «чат + рабочий стол». Хранится ключом `desktop` в employee.ui_profile_json
@@ -262,13 +265,37 @@ export function desktopDeleteFolder(d: UserUiProfileDesktop, folderId: string, n
   };
 }
 
+/** Живые ярлыки — на столе и в папках; корзина в лимит не входит. */
+export function desktopLiveShortcutCount(d: UserUiProfileDesktop): number {
+  return d.shortcuts.reduce((n, s) => n + (s.deletedAt == null ? 1 : 0), 0);
+}
+
+/**
+ * Ключ ссылки ярлыка для дедупа: один ярлык на одну ссылку. Карточка — по роуту
+ * (`engine:<id>`; специальное поле и универсальная пара cardKind/entityId дают один
+ * ключ), раздел — `tab:<tab>`. Файловый ярлык этапа D — по `fileId`: у всех файлов
+ * стола одна «вкладка», и ключ по ней слил бы их в один. null — дедупить нечего.
+ */
+export function desktopShortcutLinkKey(link: unknown): string | null {
+  if (typeof link !== 'object' || link == null) return null;
+  const l = link as Record<string, unknown>;
+  const kind = String(l.kind ?? '');
+  if (kind === 'file') {
+    const fileId = String(l.fileId ?? '').trim();
+    return fileId ? `file:${fileId}` : null;
+  }
+  if (kind !== 'app_link') return null;
+  const route = resolveDeepLinkRoute(l as unknown as ChatDeepLinkPayload);
+  if (route.kind === 'card') return `${route.cardKind}:${route.id}`;
+  if (route.kind === 'tab') return route.id ? `tab:${route.id}` : null;
+  return `${route.kind}:${route.id}`;
+}
+
+export type DesktopShortcutInput = { id: string; label: string; icon: string; link?: unknown };
+
 /** Добавить ярлык на стол (id генерирует вызывающий — crypto.randomUUID в renderer). */
-export function desktopAddShortcut(
-  d: UserUiProfileDesktop,
-  shortcut: { id: string; label: string; icon: string; link?: unknown },
-  now: number,
-): UserUiProfileDesktop {
-  if (d.shortcuts.length >= DESKTOP_MAX_SHORTCUTS) return d;
+export function desktopAddShortcut(d: UserUiProfileDesktop, shortcut: DesktopShortcutInput, now: number): UserUiProfileDesktop {
+  if (desktopLiveShortcutCount(d) >= DESKTOP_MAX_SHORTCUTS) return d;
   return {
     ...d,
     shortcuts: [
@@ -276,6 +303,86 @@ export function desktopAddShortcut(
       { id: shortcut.id, label: shortcut.label, icon: shortcut.icon, link: shortcut.link, folderId: null, deletedAt: null, createdAt: now },
     ],
   };
+}
+
+export type DesktopToggleOutcome = 'added' | 'removed' | 'limit';
+
+/**
+ * Тумблер кнопки-галстука: ссылки на столе нет — положить (из корзины вернуть свой же
+ * ярлык, а не плодить новый), есть — убрать в корзину. Исход возвращается явно, чтобы
+ * сообщение оператору называло то, что произошло: упор в лимит — не «добавлено».
+ */
+export function desktopToggleShortcut(
+  d: UserUiProfileDesktop,
+  shortcut: DesktopShortcutInput,
+  now: number,
+): { desktop: UserUiProfileDesktop; outcome: DesktopToggleOutcome } {
+  const key = desktopShortcutLinkKey(shortcut.link);
+  if (key) {
+    const live = d.shortcuts.find((s) => s.deletedAt == null && desktopShortcutLinkKey(s.link) === key);
+    if (live) return { desktop: desktopMoveToTrash(d, live.id, now), outcome: 'removed' };
+  }
+  if (desktopLiveShortcutCount(d) >= DESKTOP_MAX_SHORTCUTS) return { desktop: d, outcome: 'limit' };
+  if (key) {
+    const trashed = d.shortcuts.find((s) => s.deletedAt != null && desktopShortcutLinkKey(s.link) === key);
+    if (trashed) return { desktop: desktopRestoreFromTrash(d, trashed.id), outcome: 'added' };
+  }
+  return { desktop: desktopAddShortcut(d, shortcut, now), outcome: 'added' };
+}
+
+export type DesktopPutOutcome = 'added' | 'exists' | 'limit';
+
+/**
+ * «Добавить на Рабочий стол» из меню кнопок: не тумблер — пункт называется «добавить»,
+ * и снимать ярлык он не должен. Лежащий ярлык (в т.ч. в папке) — `exists`, из корзины
+ * возвращается свой же.
+ */
+export function desktopPutShortcut(
+  d: UserUiProfileDesktop,
+  shortcut: DesktopShortcutInput,
+  now: number,
+): { desktop: UserUiProfileDesktop; outcome: DesktopPutOutcome } {
+  const key = desktopShortcutLinkKey(shortcut.link);
+  if (key && d.shortcuts.some((s) => s.deletedAt == null && desktopShortcutLinkKey(s.link) === key)) {
+    return { desktop: d, outcome: 'exists' };
+  }
+  const r = desktopToggleShortcut(d, shortcut, now);
+  return { desktop: r.desktop, outcome: r.outcome === 'limit' ? 'limit' : 'added' };
+}
+
+/** Переименовать ярлык — подпись замораживается при создании, иначе исправить её нечем. */
+export function desktopRenameShortcut(d: UserUiProfileDesktop, shortcutId: string, label: string): UserUiProfileDesktop {
+  const trimmed = label.trim().slice(0, MAX_LABEL);
+  if (!trimmed) return d;
+  return { ...d, shortcuts: d.shortcuts.map((s) => (s.id === shortcutId ? { ...s, label: trimmed } : s)) };
+}
+
+/**
+ * Одноразовый переезд «Быстрого запуска» в ярлыки стола. Отметка роумится, поэтому
+ * вторая машина переезд не повторит и удалённая вручную плитка не воскреснет. Id
+ * детерминирован по ключу ссылки: две машины, переехавшие до первого sync'а, дадут
+ * один ярлык, а не два. Занятый чужим ярлыком id и уже лежащая на столе ссылка —
+ * пропускаются, не перетираются.
+ */
+export function desktopMigrateQuickStart(
+  d: UserUiProfileDesktop,
+  items: Array<{ label: string; icon: string; link: unknown }>,
+  now: number,
+): UserUiProfileDesktop {
+  if (d.shortcutsMigratedAt) return d;
+  const ids = new Set(d.shortcuts.map((s) => s.id));
+  const liveKeys = new Set(d.shortcuts.filter((s) => s.deletedAt == null).map((s) => desktopShortcutLinkKey(s.link)));
+  let next = d;
+  for (const item of items) {
+    const key = desktopShortcutLinkKey(item.link);
+    if (!key || liveKeys.has(key)) continue;
+    const id = `qs:${key}`.slice(0, 80);
+    if (ids.has(id)) continue;
+    next = desktopAddShortcut(next, { id, label: item.label, icon: item.icon, link: item.link }, now);
+    ids.add(id);
+    liveKeys.add(key);
+  }
+  return { ...next, shortcutsMigratedAt: now };
 }
 
 /** Создать папку. */

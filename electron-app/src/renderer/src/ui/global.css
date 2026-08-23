@@ -62,6 +62,8 @@ body {
   --muted: #334155;
   --subtle: #56657b;
   --danger: #b91c1c;
+  /* галстук кнопки «На Рабочий стол» — не акцент темы, узнаваем именно цветом */
+  --tie-red: #d92b1f;
   --success: #15803d;
   --warn: #b45309;
 
@@ -167,6 +169,7 @@ body {
   --muted: #cbd5e1;
   --subtle: #94a3b8;
   --danger: #f87171;
+  --tie-red: #f04438;
   --success: #22c55e;
   --warn: #f59e0b;
 
@@ -265,6 +268,7 @@ body {
   --muted: #5c4326;
   --subtle: #856b48;
   --danger: #b02a1e;
+  --tie-red: #b02a1e;
   --success: #2f6d1f;
   --warn: #b45309;
 

@@ -17,7 +17,7 @@ import type { ActionButtonId } from './menuActions.js';
 import type { MenuButtonDescriptor, MenuSection, V2Buttons } from './v2ButtonCatalog.js';
 import './buttonPanel.css';
 
-type ButtonMenuState = { id: string; x: number; y: number; pinned: boolean } | null;
+type ButtonMenuState = { btn: MenuButtonDescriptor; x: number; y: number; pinned: boolean } | null;
 
 function SortableMenuButton(props: {
   btn: MenuButtonDescriptor;
@@ -77,6 +77,13 @@ export function ButtonPanel(props: {
   listOpenTab: MenuTabId | null;
   onTab: (id: MenuTabId) => void;
   onAction: (id: ActionButtonId) => void;
+  /**
+   * «Добавить на Рабочий стол» для кнопки раздела (этап B): ярлык кладётся на ту кнопку,
+   * по которой щёлкнули, а не на текущую позицию. Закреп сверху тоже кладёт ярлык
+   * (требование владельца); открепление ярлык НЕ снимает — это два разных действия.
+   * На Android не показывается: там нет Рабочего стола.
+   */
+  onDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -102,11 +109,13 @@ export function ButtonPanel(props: {
     return props.layout.pinned.includes(id);
   }
 
-  function togglePin(id: string) {
-    const pinned = props.layout.pinned.includes(id)
-      ? props.layout.pinned.filter((x) => x !== id)
-      : [...props.layout.pinned, id];
+  const desktopShortcutAvailable = Boolean(props.onDesktopShortcut) && !isAndroidPlatform();
+
+  function togglePin(btn: MenuButtonDescriptor) {
+    const wasPinned = props.layout.pinned.includes(btn.id);
+    const pinned = wasPinned ? props.layout.pinned.filter((x) => x !== btn.id) : [...props.layout.pinned, btn.id];
     props.onLayoutChange({ ...props.layout, pinned });
+    if (!wasPinned && btn.kind === 'nav' && desktopShortcutAvailable) props.onDesktopShortcut?.(btn);
   }
 
   function hideButton(id: string) {
@@ -174,10 +183,10 @@ export function ButtonPanel(props: {
         if (btn.kind === 'nav') props.onTab(btn.id as MenuTabId);
         else props.onAction(btn.id as ActionButtonId);
       }}
-      onTogglePin={() => togglePin(btn.id)}
+      onTogglePin={() => togglePin(btn)}
       onContextMenu={(e) => {
         e.preventDefault();
-        setMenu({ id: btn.id, x: e.clientX, y: e.clientY, pinned: isPinnedId(btn.id) });
+        setMenu({ btn, x: e.clientX, y: e.clientY, pinned: isPinnedId(btn.id) });
       }}
     />
   );
@@ -255,17 +264,29 @@ export function ButtonPanel(props: {
             type="button"
             className="v2-footer-btn"
             onClick={() => {
-              togglePin(menu.id);
+              togglePin(menu.btn);
               closeMenu();
             }}
           >
             {menu.pinned ? 'Открепить' : '📌 Закрепить сверху'}
           </button>
+          {menu.btn.kind === 'nav' && desktopShortcutAvailable && (
+            <button
+              type="button"
+              className="v2-footer-btn"
+              onClick={() => {
+                props.onDesktopShortcut?.(menu.btn);
+                closeMenu();
+              }}
+            >
+              🧣 Добавить на Рабочий стол
+            </button>
+          )}
           <button
             type="button"
             className="v2-footer-btn"
             onClick={() => {
-              hideButton(menu.id);
+              hideButton(menu.btn.id);
               closeMenu();
             }}
           >
