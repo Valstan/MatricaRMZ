@@ -37,7 +37,15 @@ import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
 // от потока «разборка → repair_fund → Repair-наряд» (списки деталей по маркам не актуальны,
 // призраки на repair_fund накапливаются). Ремонты теперь приходуют детали как новые через
 // production_release. Backend engine_dismantling сохранён для разморозки в будущем.
-// См. docs/plans/workshop-template-fixes.md.
+// См. docs/plans/_archive/workshop-template-fixes.md.
+//
+// 2026-08-23: разморозка рассмотрена и отклонена владельцем (D-039 в brain_matrica):
+// задачу решает приход в ремфонд из реальной дефектовки (эпик «Учёт ремфонда» 28.06,
+// docs/plans/_archive/repair-fund-2026-06.md). Диалог берёт строки из BOM марки — то есть
+// вернул бы ровно тех «призраков», ради которых эпик делался. Даты возврата нет: если задача
+// всплывёт снова, это новое решение владельца, а не отложенное это. Диалог за флагом починен
+// (PR #661) и корректен на случай нового решения — но прежде чем включать, проверь, не появилась
+// ли замена у того, что флаг прячет.
 const FEATURE_ENGINE_DISMANTLE = false;
 
 type LinkOpt = SearchSelectOption;

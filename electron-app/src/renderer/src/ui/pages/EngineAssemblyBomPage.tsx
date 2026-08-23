@@ -6,6 +6,7 @@ import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTa
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
+import { componentTypeLabel, componentTypeLabelsFromSchema } from '../utils/componentTypeLabels.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type BomListRow = {
@@ -49,16 +50,6 @@ type BomDetailsFull = {
 };
 type BomLineFull = BomDetailsFull['lines'][number];
 
-const COMPONENT_TYPE_LABELS: Record<string, string> = {
-  sleeve: 'Гильза',
-  piston: 'Поршень',
-  ring: 'Кольцо',
-  jacket: 'Рубашка',
-  head: 'Головка',
-  carter: 'Картер',
-  other: 'Прочее',
-};
-
 function lineLabel(line: BomLineFull): string {
   return line.componentNomenclatureName || line.componentNomenclatureCode || line.componentNomenclatureId || '—';
 }
@@ -71,6 +62,7 @@ function brandsLabel(ids: string[], labels: Map<string, string>): string {
 function buildAllBomsPrintHtml(
   boms: BomDetailsFull[],
   brandLabelById: Map<string, string>,
+  typeLabels?: ReadonlyMap<string, string>,
 ): { sections: PrintSection[]; legendHtml: string } {
   const componentSet = new Map<string, { name: string; code: string; type: string }>();
   const sections: PrintSection[] = [];
@@ -90,14 +82,14 @@ function buildAllBomsPrintHtml(
         componentSet.set(id, {
           name: line.componentNomenclatureName || '—',
           code: line.componentNomenclatureCode || '—',
-          type: COMPONENT_TYPE_LABELS[line.componentType] || line.componentType || '—',
+          type: componentTypeLabel(line.componentType, typeLabels),
         });
       }
     }
 
     const rowsHtml = lines
       .map((line) => {
-        const type = COMPONENT_TYPE_LABELS[line.componentType] || escapeHtml(line.componentType || '—');
+        const type = escapeHtml(componentTypeLabel(line.componentType, typeLabels));
         const component = escapeHtml(lineLabel(line));
         const qty = String(Number(line.qtyPerUnit ?? 0));
         const required = line.isRequired !== false ? 'Да' : '—';
@@ -240,7 +232,10 @@ export function EngineAssemblyBomPage(props: {
         setStatus('Ошибка: не удалось загрузить BOM-спецификации');
         return;
       }
-      const { sections, legendHtml } = buildAllBomsPrintHtml(details, brandLabelById);
+      // Подписи типов — из живой схемы (там и типы, заведённые оператором); без неё — словарь.
+      const schemaResult = await window.matrica.warehouse.assemblyBomSchemaGet();
+      const typeLabels = schemaResult?.ok ? componentTypeLabelsFromSchema(schemaResult.schema) : undefined;
+      const { sections, legendHtml } = buildAllBomsPrintHtml(details, brandLabelById, typeLabels);
       sections.push({
         id: 'legend',
         title: 'Легенда компонентов',

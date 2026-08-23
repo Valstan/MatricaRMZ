@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { WAREHOUSE_LOCATION_REPAIR_FUND, WAREHOUSE_LOCATION_SCRAP } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { componentTypeLabel } from '../utils/componentTypeLabels.js';
 import { Input } from './Input.js';
 
 type NomenclatureNameMap = Map<string, { name: string; code: string }>;
@@ -86,7 +87,10 @@ export function EngineDismantlePreviewDialog(props: {
         setStatus(`Ошибка загрузки BOM: ${String(detailsRes?.error ?? 'unknown')}`);
         return;
       }
-      const lines = asLines((detailsRes as Record<string, unknown>).lines);
+      // Контракт отдаёт `{ ok, bom }` (shared/src/ipc/types.ts), а читалось `detailsRes.lines`:
+      // строк не приходило НИКОГДА. Приведение к Record<string, unknown> глушило проверку типов,
+      // поэтому гейты молчали. Читаем по контракту, без приведения — теперь поймает компилятор.
+      const lines = asLines(detailsRes.bom.lines);
       const drafts: DismantleLineDraft[] = lines.map((l, idx) => ({
         key: `${l.componentNomenclatureId}-${idx}`,
         nomenclatureId: l.componentNomenclatureId,
@@ -212,7 +216,7 @@ export function EngineDismantlePreviewDialog(props: {
       const documentId = String((createRes as Record<string, unknown>).id);
       const postRes = await window.matrica.warehouse.documentPost(documentId);
       if (!postRes?.ok) {
-        setStatus(`Документ создан (${documentId.slice(0, 8)}…), но не проведён: ${String((postRes as Record<string, unknown> | null)?.error ?? 'unknown')}`);
+        setStatus(`Документ создан, но не проведён: ${String((postRes as Record<string, unknown> | null)?.error ?? 'unknown')}`);
         return;
       }
       props.onComplete?.({ documentId });
@@ -298,10 +302,10 @@ export function EngineDismantlePreviewDialog(props: {
                         {nm.name} {nm.code ? <code style={{ fontSize: 11, color: 'var(--subtle)' }}>{nm.code}</code> : null}
                       </span>
                     ) : (
-                      <code style={{ fontSize: 11 }}>{line.nomenclatureId.slice(0, 8)}…</code>
+                      <span style={{ color: 'var(--warning, #b45309)' }}>⚠ номенклатура не найдена</span>
                     )}
                   </td>
-                  <td>{line.componentType || '—'}</td>
+                  <td>{componentTypeLabel(line.componentType)}</td>
                   <td style={{ textAlign: 'right' }}>{line.totalQty}</td>
                   <td style={{ textAlign: 'right' }}>
                     <Input
