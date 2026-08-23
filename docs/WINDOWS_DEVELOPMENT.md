@@ -114,7 +114,7 @@ $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';'
 
 ## 8. Работа с прод-VPS (только SSH)
 
-**ИИ-агент и разработчик:** любые операции на прод-VPS выполняйте через **SSH** с Host из локального `~/.ssh/config` (типичный алиас в этом проекте — `matricarmz`: нестандартный порт, пользователь `valstan`, ключ из профиля). Так доступны полные логи, произвольные команды и повторяемые runbook-шаги из `docs/OPERATIONS.md` и `docs/TROUBLESHOOTING.md`.
+**ИИ-агент и разработчик:** любые операции на прод-VPS выполняйте через **SSH** с Host из локального `~/.ssh/config` (типичный алиас в этом проекте — `matricarmz`: нестандартный порт, сервисный пользователь и изолированный ключ машины — всё только в `~/.ssh/config`, в репо не пишем). Так доступны полные логи, произвольные команды и повторяемые runbook-шаги из `docs/OPERATIONS.md` и `docs/TROUBLESHOOTING.md`.
 
 Пример:
 
@@ -130,12 +130,12 @@ ssh matricarmz "systemctl is-active matricarmz-backend-primary.service matricarm
 - посмотреть логи (`journalctl`, nginx);
 - выполнить миграции;
 - перезапустить `systemd` сервисы;
-- проверить содержимое `/home/valstan/MatricaRMZ`.
+- проверить содержимое `~/MatricaRMZ`.
 
 На момент подготовки этой среды:
 
 - на VPS есть `node v22.22.0` и `pnpm 10.26.1`;
-- репозиторий находится в `/home/valstan/MatricaRMZ`.
+- репозиторий находится в `~/MatricaRMZ`.
 
 ## 9. Полезные замечания
 

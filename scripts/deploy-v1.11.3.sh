@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cd /home/valstan/MatricaRMZ
+cd "${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}"
 
 echo "=== 1. Git sync ==="
 git fetch origin --prune
@@ -29,6 +29,6 @@ echo ""
 
 echo "=== 5. Final check ==="
 systemctl is-active matricarmz-backend-primary matricarmz-backend-secondary nginx
-git -C /home/valstan/MatricaRMZ log -n 1 --oneline
+git log -n 1 --oneline
 
 echo "=== DONE ==="

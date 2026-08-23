@@ -43,7 +43,7 @@
   "autoMode": {
     "soft_deny": [
       "$defaults",
-      "Destructive or irreversible operations on the MatricaRMZ PRODUCTION server (ssh alias `matricarmz`, host a6fd55b8e0ae.vps.myjino.ru): DROP/DELETE/UPDATE/TRUNCATE against the prod PostgreSQL DB, running `db:migrate` or any Drizzle migration on live prod data, `systemctl stop`/`systemctl disable` of the matricarmz-backend services, `rm`/`rm -rf` on prod paths, or `git reset --hard` on the prod checkout. Require explicit same-turn human confirmation before running any of these (brain #025 / GOTCHAS G29 — prior client_settings 76->39 data-loss incident). Read-only prod probes (systemctl is-active, curl /health, git log) stay auto-approved."
+      "Destructive or irreversible operations on the MatricaRMZ PRODUCTION server (ssh alias `matricarmz`): DROP/DELETE/UPDATE/TRUNCATE against the prod PostgreSQL DB, running `db:migrate` or any Drizzle migration on live prod data, `systemctl stop`/`systemctl disable` of the matricarmz-backend services, `rm`/`rm -rf` on prod paths, or `git reset --hard` on the prod checkout. Require explicit same-turn human confirmation before running any of these (brain #025 / GOTCHAS G29 — prior client_settings 76->39 data-loss incident). Read-only prod probes (systemctl is-active, curl /health, git log) stay auto-approved."
     ]
   },
   "hooks": {

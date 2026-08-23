@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { TextDecoder } from 'node:util';
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
@@ -40,7 +42,7 @@ type ParsedFileStats = {
   note?: string;
 };
 
-const SOURCE_FILES = ['/home/valstan/контракты ГОЗ.csv', '/home/valstan/контракты ГОЗ.txt'] as const;
+const SOURCE_FILES = [join(homedir(), 'контракты ГОЗ.csv'), join(homedir(), 'контракты ГОЗ.txt')] as const;
 
 function cleanCell(value: unknown): string {
   return String(value ?? '')

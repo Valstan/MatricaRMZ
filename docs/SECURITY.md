@@ -7,7 +7,7 @@
 
 - **`MATRICA_LEDGER_RELEASE_TOKEN` — это JWT, подписанный `MATRICA_JWT_SECRET`.** При ротации JWT-секрета release-токен становится невалидным. После любой смены `MATRICA_JWT_SECRET` нужно сразу выпустить новый release-токен через web-admin (`/admin-ui/` → Admin → Release token) и положить в `.env` рядом с обновлённым JWT-секретом. Не путать: refresh-токены пользователей (`/auth/refresh`) живут в БД как SHA-256 хэши и не зависят от JWT-секрета — они переживают ротацию.
 - **`data-key.json` и `server-key.json` всегда mode 600.** Любые архивы старых версий — тоже 600. При редактировании через `nano` / `vim` иногда дефолтные umask сбрасывают на 644; после правок `stat -c '%a'` обязателен.
-- **Live ledger живёт ВНЕ git-репозитория.** Прод: `MATRICA_LEDGER_DIR=/home/valstan/matricarmz-ledger` (задан в `/etc/matricarmz/matricarmz.env`). Каталог `backend-api/ledger/` — gitignored и **никогда не должен трекаться**: это рантайм-данные (подписной ключ + data-key + блоки + `state.json`). CLI-скрипты (`ledger:rotate-data-key` и т.п.) запускать с **экспортированным** `MATRICA_LEDGER_DIR`, иначе они уйдут в дефолтный `cwd/ledger`. **Инцидент 2026-06-26:** ровно эти файлы были закоммичены в **публичный** репо (`server-key.json` в HEAD + `data-key.json`/`state.json` в истории + 552 `enc:v1:` поля ПДн) → ремедиация: ротация подписного ключа на проде + relocate live-ledger из checkout + untrack (#614) + **репозиторий сделан приватным**. Подробности — `PENDING_FOLLOWUPS.md` §Security (H8 закрыт). Урок: рантайм-данные backend'а не должны лежать внутри git-дерева.
+- **Live ledger живёт ВНЕ git-репозитория.** Прод: `MATRICA_LEDGER_DIR=~/matricarmz-ledger` сервисного пользователя (задан в `/etc/matricarmz/matricarmz.env`). Каталог `backend-api/ledger/` — gitignored и **никогда не должен трекаться**: это рантайм-данные (подписной ключ + data-key + блоки + `state.json`). CLI-скрипты (`ledger:rotate-data-key` и т.п.) запускать с **экспортированным** `MATRICA_LEDGER_DIR`, иначе они уйдут в дефолтный `cwd/ledger`. **Инцидент 2026-06-26:** ровно эти файлы были закоммичены в **публичный** репо (`server-key.json` в HEAD + `data-key.json`/`state.json` в истории + 552 `enc:v1:` поля ПДн) → ремедиация: ротация подписного ключа на проде + relocate live-ledger из checkout + untrack (#614) + **репозиторий сделан приватным**. Подробности — `PENDING_FOLLOWUPS.md` §Security (H8 закрыт). Урок: рантайм-данные backend'а не должны лежать внутри git-дерева.
 - **Ledger-блоки в `blocks/` неперешифровываемы** — перешифровка нарушит хэш-цепочку. Только `state.json` (проекция) пересчитывается при ротации data-key. Старые ключи в keyring остаются навсегда, чтобы можно было читать историю.
 - **UFW deny incoming default.** Любое добавление новой службы, слушающей порт — это новое UFW-правило. Без правила служба будет недоступна снаружи (правильное поведение, но проверь, что так и задумано).
 
@@ -46,7 +46,7 @@
 ### Фаза 1 — права доступа и ротация JWT (выполнено)
 Дата применения: 2026-05-17.
 
-- `chmod 600 /home/valstan/MatricaRMZ/backend-api/.env`
+- `chmod 600 ~/MatricaRMZ/backend-api/.env`
 - `chmod 600` на `ledger/server-key.json` и `ledger/data-key.json`
 - `chmod 640` на рабочие файлы ledger (`state.json`, `index.json`, `checkpoint.json`, `bootstrap.json`)
 - `ledger/` → `chmod 750`, `ledger/archive/` создан с правами 700 для старых `state.json.bak.*` и `state.json.corrupt.*` (внутри файлы 600)
@@ -59,10 +59,10 @@
 Дата применения: 2026-05-18.
 
 - В коде backend закреплён порт WebTorrent: новая env-переменная `MATRICA_TORRENT_PEER_PORT` (по умолчанию 51413), `dhtPort` + `torrentPort` пробрасываются в `new WebTorrent(...)` — больше не случайные порты после перезапуска.
-- UFW активирован: default deny incoming / allow outgoing; allow `49412/tcp` (SSH), `80/tcp` (redirect), `443/tcp` (HTTPS), `6969/tcp` (tracker), `51413/tcp+udp` (WebTorrent peer/DHT). Порт `22/tcp` закрыт после подтверждения, что `49412` работает.
-- `/etc/ssh/sshd_config.d/99-matricarmz-hardening.conf`: `PasswordAuthentication no`, `PermitRootLogin no`, `KbdInteractiveAuthentication no`, `ChallengeResponseAuthentication no`, `MaxAuthTries 3`, `PermitEmptyPasswords no`, `X11Forwarding no`, `ClientAliveInterval 300`, `ClientAliveCountMax 2`. Старый `sshd_config` сохранён в `sshd_config.bak-YYYYMMDD-HHMMSS`.
-- Установлен `fail2ban` с jail `sshd` (port 22+49412, `mode = aggressive`, `bantime = 1h`, `findtime = 10m`, `maxretry = 5`).
-  - **Известная особенность**: aggressive-mode может банить и за pre-auth-аномалии, в т.ч. за лавину быстрых SSH-подключений с одного IP во время автоматизации. При активной работе с сервером через CI/ИИ-агента имеет смысл смягчить (`mode = normal`, `maxretry = 6`, `bantime = 10m`).
+- UFW активирован: default deny incoming / allow outgoing; allow нестандартный SSH-порт (значение — только на сервере и в `~/.ssh/config`, в репо не пишем), `80/tcp` (redirect), `443/tcp` (HTTPS), порт трекера и WebTorrent-порт (`MATRICA_TORRENT_PEER_PORT`, TCP+UDP). Порт `22/tcp` закрыт после подтверждения, что нестандартный порт работает.
+- Drop-in hardening в `/etc/ssh/sshd_config.d/`: только ключи (пароли, интерактив и root-логин выключены), лимит попыток, keepalive. Точные директивы — в файле на сервере, в репо их не дублируем. Старый `sshd_config` сохранён рядом с меткой времени.
+- Установлен `fail2ban` с jail `sshd` на SSH-портах, `mode = aggressive`; пороги (`bantime`/`findtime`/`maxretry`) — в jail-конфиге на сервере, в репо не пишем.
+  - **Известная особенность**: aggressive-mode может банить и за pre-auth-аномалии, в т.ч. за лавину быстрых SSH-подключений с одного IP во время автоматизации. При активной работе с сервером через CI/ИИ-агента имеет смысл смягчить (`mode = normal`, пороги мягче).
   - Команда для разбана: `sudo fail2ban-client unban --all` или `sudo fail2ban-client set sshd unbanip <IP>`.
 
 ### Что ещё имеет смысл по сетевому уровню (опционально, не критично)
@@ -72,8 +72,8 @@
 
 1. Зафиксировать порт WebTorrent через env-переменную в `backend-api` (`MATRICA_TORRENT_PEER_PORT`), чтобы UFW мог открыть конкретный, а не случайный порт.
 2. Установить и активировать UFW:
-   - allow `22/tcp`, `49412/tcp` (SSH резерв и основной), `80/tcp`, `443/tcp`, фиксированный WebTorrent-порт (TCP+UDP), `6969/tcp` (tracker — если используется), `out` allow all, `deny incoming` default.
-   - после проверки доступа в свежем SSH-сеансе — закрыть `22/tcp` и оставить только `49412/tcp`.
+   - allow `22/tcp` (резерв на время переезда) и нестандартный SSH-порт (основной), `80/tcp`, `443/tcp`, фиксированный WebTorrent-порт (TCP+UDP), порт трекера (если используется), `out` allow all, `deny incoming` default.
+   - после проверки доступа в свежем SSH-сеансе — закрыть `22/tcp` и оставить только нестандартный.
 3. Жёсткие настройки sshd: `PasswordAuthentication no`, `PermitRootLogin no`, `PubkeyAuthentication yes`, `MaxAuthTries 3`, `KbdInteractiveAuthentication no`, `X11Forwarding no`. Перезапустить sshd.
 4. Установить `fail2ban` с jail для `sshd` (4 неудачные попытки → бан 1 час). Включить jail для `nginx-http-auth` (для частых 401).
 5. Опционально: расследовать UDP-листенер WebTorrent (`*:36549`) — он используется для DHT/peer-exchange; решить, нужны ли DHT и tracker, либо отключить DHT и оставить только tracker.
@@ -130,7 +130,7 @@
 
 ```bash
 ssh matricarmz
-cd /home/valstan/MatricaRMZ
+cd ~/MatricaRMZ
 
 # 1) Сначала dry-run, чтобы увидеть масштаб перешифровки:
 pnpm --filter @matricarmz/backend-api ledger:rotate-data-key:dry-run
@@ -144,7 +144,7 @@ sudo systemctl stop matricarmz-backend-primary.service
 pnpm --filter @matricarmz/backend-api ledger:rotate-data-key
 
 # 4) Права на свежий data-key.json (CLI сохраняет с дефолтными правами 644 — нужно ужесточить):
-chmod 600 /home/valstan/MatricaRMZ/backend-api/ledger/data-key.json
+chmod 600 ~/MatricaRMZ/backend-api/ledger/data-key.json
 
 # 5) Старт primary, ждать /health, потом secondary:
 sudo systemctl start matricarmz-backend-primary.service
@@ -153,8 +153,8 @@ sudo systemctl start matricarmz-backend-secondary.service
 sleep 5 && curl -fsS http://127.0.0.1:3002/health
 
 # 6) Архивировать backup state.json спустя сутки после проверки, что всё работает:
-mv /home/valstan/MatricaRMZ/backend-api/ledger/state.json.bak.*.before-rotate \
-   /home/valstan/MatricaRMZ/backend-api/ledger/archive/
+mv ~/MatricaRMZ/backend-api/ledger/state.json.bak.*.before-rotate \
+   ~/MatricaRMZ/backend-api/ledger/archive/
 ```
 
 #### Процедура ротации server-key (подпись):
@@ -164,15 +164,15 @@ sudo systemctl stop matricarmz-backend-secondary.service
 sudo systemctl stop matricarmz-backend-primary.service
 
 # Перемещаем старый ключ в архив, при следующем старте сгенерируется новый:
-mv /home/valstan/MatricaRMZ/backend-api/ledger/server-key.json \
-   /home/valstan/MatricaRMZ/backend-api/ledger/archive/server-key.json.bak.$(date +%s)
+mv ~/MatricaRMZ/backend-api/ledger/server-key.json \
+   ~/MatricaRMZ/backend-api/ledger/archive/server-key.json.bak.$(date +%s)
 
 sudo systemctl start matricarmz-backend-primary.service
 sleep 10 && curl -fsS http://127.0.0.1:3001/health
 sudo systemctl start matricarmz-backend-secondary.service
 
 # После старта новый server-key.json сгенерирован; chmod 600:
-chmod 600 /home/valstan/MatricaRMZ/backend-api/ledger/server-key.json
+chmod 600 ~/MatricaRMZ/backend-api/ledger/server-key.json
 ```
 
 Подписи существующих блоков остаются валидными — каждая транзакция несёт свой `public_key`.
@@ -204,29 +204,25 @@ chmod 600 /home/valstan/MatricaRMZ/backend-api/ledger/server-key.json
 
 Три cron-скрипта развёрнуты на проде через `scripts/prod-ops/install-prod-ops.sh`:
 
-- **Шифрованные бэкапы off-VPS** (`/usr/local/sbin/matricarmz-backup-encrypted`, ежедневно в 03:17 MSK):
-  `pg_dump` + tar ledger (zstd −9) → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640 root:valstan) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
-- **Cron-аудит зависимостей** (`/usr/local/sbin/matricarmz-audit-deps`, понедельник 04:23 MSK):
+- **Шифрованные бэкапы off-VPS** (`/usr/local/sbin/matricarmz-backup-encrypted`, ежедневно ночью — расписание в `/etc/cron.d/matricarmz-ops`):
+  `pg_dump` + tar ledger (zstd −9) → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640, root + группа сервисного пользователя) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
+- **Cron-аудит зависимостей** (`/usr/local/sbin/matricarmz-audit-deps`, еженедельно):
   `pnpm audit --prod --json` → Telegram-алерт при наличии high/critical. На момент первого запуска найдено **9 high vulnerabilities** — отдельная задача обновления зависимостей.
 - **Алерт по неудачным логинам** (`/usr/local/sbin/matricarmz-watch-failed-auth`, каждые 5 минут):
-  парсит `/var/log/nginx/matricarmz_access.log`, выделяет реальный клиентский IP из `X-Forwarded-For`, считает 401/403 в окне 5 минут. При ≥10 неудач с одного IP — Telegram-алерт с примерами URL и cooldown 60 минут на повтор для того же IP.
+  парсит `/var/log/nginx/matricarmz_access.log`, выделяет реальный клиентский IP из `X-Forwarded-For`, считает 401/403 в окне 5 минут. При всплеске неудач с одного IP (порог — в скрипте) — Telegram-алерт с примерами URL и cooldown на повтор для того же IP.
 
 **Важно:** passphrase бэкапа **выводится один раз при установке** и должна быть сохранена off-server (менеджер паролей). Без неё расшифровать бэкап невозможно.
 
 Telegram-уведомления **включены** (`MATRICA_TELEGRAM_ENABLED=true`). Тестовое сообщение доставлено успешно после двух связанных починок:
 
-1. **DNS-блок myjino → Telegram CDN.** Из 9 проверенных IP `api.telegram.org` (149.154.x.x, 91.108.x.x) с прод-сервера достижим только `149.154.167.220`. Зафиксирован в `/etc/hosts` с комментарием:
-   ```
-   149.154.167.220 api.telegram.org # MatricaRMZ: pinned working CDN IP
-   ```
-   Если этот IP станет недоступен — повторить проверку диапазона и обновить запись.
+1. **DNS хостера режет Telegram CDN.** Из проверенных IP `api.telegram.org` с прод-сервера достижим один; он закреплён в `/etc/hosts` с комментарием `# MatricaRMZ: pinned working CDN IP` (значение — только на сервере, в репо не пишем). Если этот IP станет недоступен — повторить проверку диапазона и обновить запись.
 2. **`/etc/ssl/certs/ca-certificates.crt` был забит нулями** (тот же паттерн порчи, что был у `sshd_config`). Восстановлен `sudo update-ca-certificates --fresh` (146 сертификатов). После этого `curl https://api.telegram.org/` начал работать. Стоит периодически проверять критичные конфиги командой `file <path>` — паттерн порчи системных файлов на этом VPS повторяется.
 
 Файловая раскладка на проде:
 - `/usr/local/sbin/matricarmz-{backup-encrypted,audit-deps,watch-failed-auth}` (root, 755)
-- `/etc/matricarmz/backup.passphrase` (root:valstan 640)
-- `/var/log/matricarmz/` (valstan:adm 755)
-- `/var/lib/matricarmz/` (valstan 700, state-файлы)
+- `/etc/matricarmz/backup.passphrase` (root + группа сервисного пользователя, 640)
+- `/var/log/matricarmz/` (сервисный пользователь:adm 755)
+- `/var/lib/matricarmz/` (сервисный пользователь 700, state-файлы)
 - `/etc/cron.d/matricarmz-ops` (root 644)
 
 2. **PostgreSQL SSL (self-signed CA).** Сейчас PG слушает только `127.0.0.1`, SSL не критичен, но при разделении DB-хоста потребуется:
@@ -243,5 +239,5 @@ Telegram-уведомления **включены** (`MATRICA_TELEGRAM_ENABLED=
 - При новых секретах — сразу `chmod 600` и в `.env` рядом с остальными, а не в новый «тестовый» файл.
 - В docs/CHANGELOG отмечать любую новую сетевую службу (новый порт), чтобы UFW успел получить allow-правило.
 - Раз в квартал — `certbot renew --dry-run`, проверка `unattended-upgrades`, ручная сверка `sudo ss -lntp` со списком ожидаемых служб.
-- При наёме новых разработчиков — отдельный пользователь без `NOPASSWD: ALL`; sudo-разрешения только на нужные команды.
+- При наёме новых разработчиков — отдельный пользователь; sudo-разрешения только на нужные команды.
 

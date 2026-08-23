@@ -104,6 +104,26 @@ git checkout main && git pull
 
 Секреты не должны жить в репозитории даже под защитой `.gitignore` — **репо публичный**.
 
+### Публичный репозиторий — тоже recon-поверхность (brain D-038, 2026-08-23)
+
+Правило сформулировано **через свойство, а не через канал**: неважно, «на витрине» это, «в доках» или «в комментарии к коду» — репо публичен с 2026-08-17, и любой отслеживаемый файл читает кто угодно. В отслеживаемые файлы **не кладём ничего, что идентифицирует прод-хост, аккаунт на нём или хостера**:
+
+- IP-адреса и хостнеймы прода в прозе; имя хостера и его панель;
+- внешние и внутренние SSH-порты, топологию порт-форварда;
+- имена SSH-ключей, их отпечатки и комментарии; имя пользователя на сервере и пути вида `/home/<user>/…`;
+- ёмкость VPS (RAM/CPU/диск), тариф, соседей/жильцов на том же сервере;
+- пороги fail2ban/UFW и точный список открытых портов, содержимое `/etc/hosts`, `sshd_config`;
+- внутренние URL, id чатов и ботов.
+
+Это касается **всех** отслеживаемых файлов: доков, планов, `docs/machines/*` (там — только dev-стенд), комментариев в коде, скриптов, конфигов, `.claude/`. Нужна конкретика — она живёт в `~/.ssh/config`, gitignored `*.env*` и `.claude/settings.local.json`; другому агенту её даёт владелец, а не документ.
+
+Допустимое — граница осознанная, не лазейка:
+
+- **публичный URL API** (он же хостнейм прода) как дефолт в коде клиентов (`electron-app/src/main/index.ts`, `stub-updater/main.go`, `android-app/vite.config.ts`, `.env.example`) и в nginx-конфиге: он зашит в каждый выпущенный бинарь и в `latest.yml`, прятать его некуда. В прозе доков его не повторяем — пишем «прод»;
+- **SSH-алиас `matricarmz`** — единственный способ сослаться на сервер в доках и командах; хост, порт, пользователь и ключ живут в `~/.ssh/config` на машине;
+- **инсталляционная раскладка самого приложения** (`/opt/matricarmz/…`, `/etc/matricarmz/…`, `/usr/local/sbin/matricarmz-*`, имена systemd-юнитов) — это описание приложения, а не хоста. Домашний каталог сервисного пользователя пишется как `~/MatricaRMZ` / `$HOME`, systemd-юниты — шаблонами с подстановкой при установке (`deploy/systemd/install-backend.sh`);
+- **исторические записи** (`mailbox/to-brain/`, `docs/plans/_archive/`, `docs/_archive/`, `docs/COMPLETED.md`, тексты прошлых релизов в `releaseWelcome.ts`) не переписываем — это записи о том, что было. Вычистка ничего не отзывает: история публична с первого коммита, это гигиена на будущее, а не устранение.
+
 ## Autonomy (gate-replaced) — brain [#027](../brain_matrica/cross-project-ideas/ideas/027-gate-replaced-autonomy.md) (mandate)
 
 Владелец почти всегда соглашается на «окей на дифф/мерж/деплой» → человеческое «окей» — слабый гейт (ритуал). Заменяем его **автоматическими гейтами**: автономия безопасна ⟺ гейты зелёные. У Claude Code это настроено в коммитимом [`.claude/settings.json`](.claude/settings.json) (`permissions.defaultMode: auto` + узкие `allow`/`deny` + `autoMode.soft_deny`); агент без такого механизма соблюдает те же ярусы вручную.
@@ -235,12 +255,12 @@ New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterd
 > **Why download + ledger-publish go before restart** (learned v1.34.2): `updateTorrentService` reads the updates dir into in-memory state **at process startup** and only re-scans on a long interval. If you restart while the dir still holds the previous installer, `/updates/status` reports the old version until the next scan (or a second restart). Preparing all artifacts first means the post-restart scan reads the final `latest.yml` / `latest.json` immediately. The DB-touching steps (5, 6) still run between `build` and `restart`.
 
 **SSH tips for these steps** (don't retry blindly):
-- **External SSH port is `49217`.** myjino port-forwards **external `49217` → internal `49412`** (sshd listens on 49412 on the VM). Connecting to `49412` from outside fails — it's the internal port, not exposed — and the symptom is a TCP timeout / "Connection timed out during banner exchange" while `ping a6fd55b8e0ae.vps.myjino.ru` still answers instantly. **If `ssh matricarmz` times out, check the port FIRST** (`~/.ssh/config` → `Host matricarmz` must have `Port 49217`), before suspecting fail2ban. The myjino panel ("Перенаправление портов") shows the mapping.
-- Each dev machine uses its **own isolated ed25519 key** authorized on prod (see `PROJECT_STATE.md` SSH history), and the `matricarmz` config block MUST set `IdentitiesOnly yes`. Without it, ssh offers every local key — each a failed auth — and fail2ban bans the IP (then even the correct port shows TCP-filtered, masquerading as a network problem). Unban / re-authorize a key via the myjino.ru panel console (`fail2ban-client unban <IP>`; append pubkey to `valstan`'s `~/.ssh/authorized_keys`).
+- **The SSH port is non-standard and lives only in `~/.ssh/config`** (`Host matricarmz` → `Port …`; the values are not written anywhere in the repo — see §«Публичный репозиторий — тоже recon-поверхность»; ask the owner). The hoster port-forwards an **external** port to the **internal** sshd port: connecting to the internal one from outside fails with a TCP timeout / "Connection timed out during banner exchange" while `ping` still answers instantly. **If `ssh matricarmz` times out, check the port FIRST** (the mapping is in the hoster panel, «Перенаправление портов»), before suspecting fail2ban.
+- Each dev machine uses its **own isolated ed25519 key** authorized on prod (see `PROJECT_STATE.md` SSH history), and the `matricarmz` config block MUST set `IdentitiesOnly yes`. Without it, ssh offers every local key — each a failed auth — and fail2ban bans the IP (then even the correct port shows TCP-filtered, masquerading as a network problem). Unban / re-authorize a key via the hoster panel console (`fail2ban-client unban <IP>`; append pubkey to the service user's `~/.ssh/authorized_keys`).
 - Always pass `-o ConnectTimeout=15` so a real glitch fails fast (default is 60s+). Don't loop on failures — diagnose port → key/`IdentitiesOnly` → fail2ban, in that order.
 
 ## Prod server
-SSH: alias `matricarmz` (`~/.ssh/config`) → `valstan@a6fd55b8e0ae.vps.myjino.ru` **port 49217** (external; myjino forwards `49217 → 49412` internal). Per-machine isolated ed25519 key + `IdentitiesOnly yes` (see §SSH tips above and `PROJECT_STATE.md`). fail2ban is active — repeated wrong-key attempts ban the IP (unban via myjino.ru panel).
+SSH: alias `matricarmz` (`~/.ssh/config`) — host, non-standard port, user and the per-machine isolated ed25519 key (+ `IdentitiesOnly yes`) live **only** in that config, never in tracked files (see §SSH tips above, `PROJECT_STATE.md`, §«Публичный репозиторий — тоже recon-поверхность»). fail2ban is active — repeated wrong-key attempts ban the IP (unban via the hoster panel console).
 Services: `matricarmz-backend-primary.service` and `matricarmz-backend-secondary.service`
 Updates dir: `/opt/matricarmz/updates/`
 Health check: `curl -fsk https://127.0.0.1/health`

@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
@@ -53,7 +55,7 @@ type ParsedCsvData = {
   supplierConflictsByEngine: Map<string, string[]>;
 };
 
-const SOURCE_FILE = process.env.MATRICA_COMPLETENESS_CSV ?? '/home/valstan/Сводная ведомость актов комплектности2.csv';
+const SOURCE_FILE = process.env.MATRICA_COMPLETENESS_CSV ?? join(homedir(), 'Сводная ведомость актов комплектности2.csv');
 const IMPORT_ALLOW_SYNC_CONFLICTS = (() => {
   const raw = process.env.MATRICA_IMPORT_ALLOW_SYNC_CONFLICTS?.toLowerCase();
   if (!raw) return true;

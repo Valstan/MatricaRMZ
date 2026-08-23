@@ -19,7 +19,7 @@
 - **`typecheck` НЕ покрывает тест-файлы (выучено 2026-08-09).** У `electron-app` два конфига: `typecheck` (`tsconfig.json`) исключает `*.test.ts`, а CI гоняет ещё и `typecheck:test` (`tsconfig.vitest.json`) — он строже (в т.ч. индексный доступ даёт `T | undefined`). Локально зелёный `typecheck` + зелёный `vitest` = красный CI, если ошибка типов живёт в тесте. Перед push'ом правок в тестах гнать `corepack pnpm -F @matricarmz/electron-app typecheck:test`.
 - **psql.exe** — путь не зафиксирован (искать в `C:\Program Files\PostgreSQL\17\bin\`). Для прод-SQL — через `ssh matricarmz`.
 - **Go — НЕ установлен.** Watchdog (`watchdog/main.go`) собирается только в CI (`watchdog-build.yml` + релизный workflow). Локально build/vet нельзя без установки Go-тулчейна.
-- **Нет outbound HTTPS на прод** (прямой `curl https://a6fd55b8e0ae.vps.myjino.ru/health` = timeout). На прод этот комп ходит **только через `ssh matricarmz`** (порт 49217). Поэтому watchdog-репорт на прод с этого стенда не проверить — только механизм восстановления локально.
+- **Нет outbound HTTPS на прод** (прямой `curl https://<прод>/health` = timeout). На прод этот комп ходит **только через `ssh matricarmz`**. Поэтому watchdog-репорт на прод с этого стенда не проверить — только механизм восстановления локально.
 
 ## Watchdog: петля on-machine теста (Фаза 5, 2026-06-22)
 Этот комп = тест-стенд для watchdog'а (реальная Windows 11). Петля без локального Go:

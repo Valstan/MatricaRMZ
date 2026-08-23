@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-ENV_FILE="${MATRICA_ENV_FILE:-/home/valstan/MatricaRMZ/backend-api/.env}"
+ENV_FILE="${MATRICA_ENV_FILE:-${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}/backend-api/.env}"
 PASSPHRASE_FILE="${MATRICA_BACKUP_PASSPHRASE_FILE:-/etc/matricarmz/backup.passphrase}"
 RETENTION="${MATRICA_BACKUP_RETENTION:-14}"
 WORK_DIR="$(mktemp -d -t matricarmz-backup.XXXXXX)"
@@ -41,7 +41,7 @@ set -a; . "$ENV_FILE"; set +a
 # Resolved AFTER sourcing the env file so MATRICA_LEDGER_DIR from .env wins.
 # Default = the canonical relocated ledger (H8 2026-06-30), NOT the repo-local
 # ./ledger — that one is a stale parasite regrown by scripts run without the var.
-LEDGER_DIR="${MATRICA_LEDGER_DIR:-/home/valstan/matricarmz-ledger}"
+LEDGER_DIR="${MATRICA_LEDGER_DIR:-$HOME/matricarmz-ledger}"
 
 [[ -n "${PGUSER:-}" && -n "${PGPASSWORD:-}" && -n "${PGDATABASE:-}" ]] || fail "PG env vars missing"
 [[ -n "${YANDEX_DISK_TOKEN:-}" ]] || fail "YANDEX_DISK_TOKEN missing"

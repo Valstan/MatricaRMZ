@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import { and, inArray, isNull } from 'drizzle-orm';
 import { LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
@@ -90,7 +92,7 @@ async function main() {
   const contractTypeId = canonicalIds.get('contract') ?? '';
   if (!engineTypeId || !contractTypeId) throw new Error('Не найдены канонические идентификаторы типов engine и contract');
 
-  const state = JSON.parse(readFileSync('/home/valstan/MatricaRMZ/backend-api/ledger/state.json', 'utf8'));
+  const state = JSON.parse(readFileSync(join(process.env.MATRICA_LEDGER_DIR ?? join(homedir(), 'matricarmz-ledger'), 'state.json'), 'utf8'));
   const entities: Record<string, LedgerRow> = state?.tables?.entities ?? {};
   const attributeValues: Record<string, LedgerRow> = state?.tables?.attribute_values ?? {};
   const entityTypes: Record<string, LedgerRow> = state?.tables?.entity_types ?? {};

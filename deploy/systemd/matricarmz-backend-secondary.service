@@ -1,18 +1,21 @@
+# ШАБЛОН — не копировать в /etc/systemd/system как есть.
+# Плейсхолдеры __MATRICA_USER__ / __MATRICA_REPO_DIR__ подставляет deploy/systemd/install-backend.sh
+# (сервисный пользователь и клон репо живут на сервере, не в репозитории — AGENTS.md §recon-поверхность).
 [Unit]
 Description=MatricaRMZ backend-api (secondary)
 After=network.target postgresql.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/valstan/MatricaRMZ/backend-api
+WorkingDirectory=__MATRICA_REPO_DIR__/backend-api
 EnvironmentFile=/etc/matricarmz/matricarmz.env
 Environment=HOST=127.0.0.1
 Environment=MATRICA_INSTANCE_PORT=3002
 Environment=MATRICA_INSTANCE_ROLE=secondary
-ExecStart=/usr/bin/node /home/valstan/MatricaRMZ/backend-api/dist/index.js
+ExecStart=/usr/bin/node __MATRICA_REPO_DIR__/backend-api/dist/index.js
 Restart=always
 RestartSec=2
-User=valstan
+User=__MATRICA_USER__
 
 [Install]
 WantedBy=multi-user.target

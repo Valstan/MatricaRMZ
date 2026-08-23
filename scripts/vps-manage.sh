@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="/home/valstan/MatricaRMZ"
+PROJECT_DIR="${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}"
 BACKEND_DIR="$PROJECT_DIR/backend-api"
 PRIMARY="matricarmz-backend-primary"
 SECONDARY="matricarmz-backend-secondary"

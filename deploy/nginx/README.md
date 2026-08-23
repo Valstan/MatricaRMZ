@@ -40,7 +40,7 @@ backend работают без правки nginx.**
 
 ```bash
 ssh matricarmz
-cd /home/valstan/MatricaRMZ
+cd ~/MatricaRMZ
 git pull --ff-only
 bash deploy/nginx/install.sh
 ```

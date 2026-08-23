@@ -1,9 +1,9 @@
 #!/bin/bash
 # Универсальный скрипт деплоя для VPS MatricaRMZ
-# Использование: ssh -p 49412 valstan@SERVER 'bash -s' < scripts/vps-deploy.sh
+# Использование: ssh matricarmz 'bash -s' < scripts/vps-deploy.sh
 set -e
 
-cd /home/valstan/MatricaRMZ
+cd "${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}"
 
 echo "=== 1. Git sync ==="
 git fetch origin --prune

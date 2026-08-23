@@ -162,7 +162,7 @@ Backend требует `MATRICA_JWT_SECRET` (32+ символа). Если он 
 
 ### Где задаётся
 Если backend запущен через systemd, обычно используется:
-- `EnvironmentFile=/home/valstan/MatricaRMZ/backend-api/.env`
+- `EnvironmentFile=~/MatricaRMZ/backend-api/.env`
 
 ### Проверка
 ```bash
@@ -201,7 +201,7 @@ curl -sS -i -X POST http://127.0.0.1:3001/auth/login \
    ```
    После этого снова запустить миграции от обычного пользователя (с тем же `.env`):
    ```bash
-   cd /home/valstan/MatricaRMZ && pnpm --filter @matricarmz/backend-api db:migrate
+   cd ~/MatricaRMZ && pnpm --filter @matricarmz/backend-api db:migrate
    ```
 3. Либо запускать миграции от системного пользователя `postgres` (тогда нужен доступ к репозиторию и учётные данные БД для пользователя `postgres`, если не используется peer-аутентификация).
 
@@ -241,7 +241,7 @@ Backend запущен на старом `dist/` и его Zod-схема `opera
 2) Пересобрать `shared` и `backend-api`, затем перезапустить systemd сервис.
 
 ```bash
-cd /home/valstan/MatricaRMZ
+cd ~/MatricaRMZ
 git describe --tags --always
 
 pnpm --filter @matricarmz/shared build
@@ -313,7 +313,7 @@ Electron в вкладке “Синхронизация” показывает
 
 ### Вариант B: локальный скрипт
 ```bash
-cd /home/valstan/MatricaRMZ/backend-api
+cd ~/MatricaRMZ/backend-api
 pnpm exec tsx src/scripts/ledgerReplayToDb.ts
 ```
 
@@ -338,10 +338,10 @@ pnpm exec tsx src/scripts/ledgerReplayToDb.ts
 sudo systemctl stop matricarmz-backend-primary.service matricarmz-backend-secondary.service
 
 # резервная копия старого ledger
-mv /home/valstan/MatricaRMZ/backend-api/ledger /home/valstan/MatricaRMZ/backend-api/ledger.bak-$(date +%Y%m%d-%H%M%S)
+mv ~/MatricaRMZ/backend-api/ledger ~/MatricaRMZ/backend-api/ledger.bak-$(date +%Y%m%d-%H%M%S)
 
 # пересборка ledger
-cd /home/valstan/MatricaRMZ/backend-api
+cd ~/MatricaRMZ/backend-api
 pnpm run ledger:import
 
 sudo systemctl start matricarmz-backend-primary.service
@@ -425,14 +425,14 @@ curl -sS "http://127.0.0.1:3001/diagnostics/sync-pipeline-health" \
 ### Когда что запускать
 - `ledgerToIndexLag > 0` стабильно (не уменьшается) -> пересобрать индекс:
   ```bash
-  cd /home/valstan/MatricaRMZ/backend-api
+  cd ~/MatricaRMZ/backend-api
   pnpm exec tsx src/scripts/rebuildLedgerTxIndex.ts
   ```
 
 - `indexToProjectionLag > 0` или сильные расхождения по таблицам при нормальном индексе ->
   переиграть ledger в SQL-проекцию:
   ```bash
-  cd /home/valstan/MatricaRMZ/backend-api
+  cd ~/MatricaRMZ/backend-api
   pnpm exec tsx src/scripts/ledgerReplayToDb.ts
   ```
 

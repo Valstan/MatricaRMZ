@@ -3,7 +3,7 @@
 ## 1) Быстрый первичный проход (5 минут)
 
 - Проверить свежие критические события:
-  - `cd /home/valstan/MatricaRMZ/backend-api`
+  - `cd ~/MatricaRMZ/backend-api`
   - `tail -n 120 logs/critical-events.ndjson | grep -E 'client.sync.pull_gateway_error|server.sync.pipeline_poll_failed|server.sync.pipeline_health.(critical|warn)|server.sync.error|server.general.error'`
 - Считать инцидент каскадным, если один и тот же код повторяется очень часто в коротком интервале (например, >5 раз за 1–2 минуты).
 - Если каскад есть, сразу перейти к шагу 2 и не закрывать инцидент как «одноразовый шум».

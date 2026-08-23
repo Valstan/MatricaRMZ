@@ -9,7 +9,7 @@ import { Transform, type TransformCallback } from 'node:stream';
 //
 // Framed rather than one big GCM blob on purpose. The file is ~150 MB and is served through a
 // decrypting proxy: a single tag would only verify after the last byte, so the proxy would
-// have to either buffer 150 MB on a 4 GB VPS or stream unverified bytes and hand the client a
+// have to either buffer 150 MB on a small VPS or stream unverified bytes and hand the client a
 // silently corrupt database. Per-frame tags let the proxy verify as it goes.
 //
 // Layout:

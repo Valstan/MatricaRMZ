@@ -4,19 +4,22 @@
 
 Прод запускает два инстанса `backend-api` (за nginx round-robin): **primary** (порт 3001, фоновые джобы) и **secondary** (порт 3002, `MATRICA_INSTANCE_ROLE=secondary`). Оба читают секреты из `EnvironmentFile=/etc/matricarmz/matricarmz.env` (вне репо, см. brain #008) и запускают собранный `dist/index.js`.
 
-Файлы [`matricarmz-backend-primary.service`](matricarmz-backend-primary.service) / [`matricarmz-backend-secondary.service`](matricarmz-backend-secondary.service) — **снимок реально работающей прод-конфигурации** (источник истины; раньше юниты жили только в `/etc/systemd/system/` на проде, без версионирования). Секретов не содержат — только пути, порты и роль.
+Файлы [`matricarmz-backend-primary.service`](matricarmz-backend-primary.service) / [`matricarmz-backend-secondary.service`](matricarmz-backend-secondary.service) — **шаблоны реально работающей прод-конфигурации** (источник истины; раньше юниты жили только в `/etc/systemd/system/` на проде, без версионирования). Секретов не содержат — только пути, порты и роль. Сервисный пользователь и путь к клону репо в них — плейсхолдеры `__MATRICA_USER__` / `__MATRICA_REPO_DIR__`: их подставляет [`install-backend.sh`](install-backend.sh) на сервере (в репо имя пользователя и домашний каталог не пишем — `AGENTS.md` §«Публичный репозиторий — тоже recon-поверхность»).
 
 ### Установка / обновление на проде
 
 ```bash
-sudo cp deploy/systemd/matricarmz-backend-primary.service /etc/systemd/system/
-sudo cp deploy/systemd/matricarmz-backend-secondary.service /etc/systemd/system/
-sudo systemctl daemon-reload
+# от сервисного пользователя, из корня клона; рендерит шаблоны, показывает diff с установленным, ставит + daemon-reload
+bash deploy/systemd/install-backend.sh
+# переопределить значения: MATRICA_USER=<user> MATRICA_REPO_DIR=<клон> bash deploy/systemd/install-backend.sh
+# только посмотреть рендер: DRY_RUN=1 bash deploy/systemd/install-backend.sh
 sudo systemctl enable --now matricarmz-backend-primary.service matricarmz-backend-secondary.service
 curl -fsk https://127.0.0.1/health   # smoke-check
 ```
 
-> **Предусловия:** клон репо в `/home/valstan/MatricaRMZ`, собранный `backend-api/dist` (`pnpm -F @matricarmz/backend-api build`), `node` в `/usr/bin/node`, секрет-файл `/etc/matricarmz/matricarmz.env`, и **симлинк** `backend-api/.env → /etc/matricarmz/matricarmz.env` (его сносит `git clean -fdx` — пересоздать `ln -sfn /etc/matricarmz/matricarmz.env /home/valstan/MatricaRMZ/backend-api/.env`, иначе `db:migrate` падает). Рестарт релизом — `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`.
+`sudo cp` шаблонов напрямую в `/etc/systemd/system/` **не делать** — юнит с неподставленным плейсхолдером не стартует.
+
+> **Предусловия:** клон репо в `~/MatricaRMZ` сервисного пользователя (иначе — `MATRICA_REPO_DIR`), собранный `backend-api/dist` (`pnpm -F @matricarmz/backend-api build`), `node` в `/usr/bin/node`, секрет-файл `/etc/matricarmz/matricarmz.env`, и **симлинк** `backend-api/.env → /etc/matricarmz/matricarmz.env` (его сносит `git clean -fdx` — пересоздать `ln -sfn /etc/matricarmz/matricarmz.env ~/MatricaRMZ/backend-api/.env`, иначе `db:migrate` падает). Рестарт релизом — `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`.
 
 ## `matricarmz-cleanup-updates` — еженедельная очистка старых .exe
 
@@ -27,7 +30,7 @@ curl -fsk https://127.0.0.1/health   # smoke-check
 ### Установка на проде
 
 ```bash
-ssh valstan@<server>
+ssh matricarmz
 cd ~/MatricaRMZ        # путь к клону репо на проде
 git pull --ff-only     # подтянуть скрипт и unit-файлы
 bash deploy/systemd/install.sh
