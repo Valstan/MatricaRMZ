@@ -15,7 +15,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import {
-  LEGACY_RESTRICTED_WORK_ORDER_POLICY,
+  EMPTY_RESTRICTED_WORK_ORDER_POLICY,
   SECTION_ACCESS_ATTR,
   SyncTableName,
   isRestrictedWorkOrderOwner,
@@ -34,10 +34,15 @@ const WORK_ORDER = 'work_order';
 /**
  * Configurable restricted-orders policy (Ф3): owners/readers come from the
  * `restricted_work_orders` section membership (login + section_access EAV).
- * Falls back to the legacy hardcode while no employee carries the section.
  * Cached briefly — the guard runs on every push batch.
+ *
+ * A FAILED lookup keeps the rows last read instead of caching an empty set: no
+ * login is hardcoded any more (D-041), so an empty set now means «nobody is
+ * restricted», and a transient DB error must not open a restricted owner's
+ * orders to everyone for the length of the TTL.
  */
 const POLICY_TTL_MS = 15_000;
+const POLICY_RETRY_MS = 1_000;
 type MembershipRow = { login: string; role: string; membership: SectionMembership };
 let membershipRowsCache: { rows: MembershipRow[]; at: number } | null = null;
 
@@ -92,14 +97,17 @@ async function loadSectionMembershipRows(): Promise<MembershipRow[]> {
 async function cachedMembershipRows(): Promise<MembershipRow[]> {
   const now = Date.now();
   if (membershipRowsCache && now - membershipRowsCache.at < POLICY_TTL_MS) return membershipRowsCache.rows;
-  let rows: MembershipRow[] = [];
   try {
-    rows = await loadSectionMembershipRows();
+    const rows = await loadSectionMembershipRows();
+    membershipRowsCache = { rows, at: now };
+    return rows;
   } catch {
-    // lookup failure must not take down push/reports — callers fall back fail-open
+    // lookup failure must not take down push/reports: serve the last known rows
+    // and retry sooner than a healthy read would
+    const rows = membershipRowsCache?.rows ?? [];
+    membershipRowsCache = { rows, at: now - (POLICY_TTL_MS - POLICY_RETRY_MS) };
+    return rows;
   }
-  membershipRowsCache = { rows, at: now };
-  return rows;
 }
 
 export async function getRestrictedWorkOrderPolicy(): Promise<RestrictedWorkOrderPolicy> {
@@ -107,7 +115,7 @@ export async function getRestrictedWorkOrderPolicy(): Promise<RestrictedWorkOrde
   const fromMemberships = restrictedWorkOrderPolicyFromMemberships(
     rows.map((r) => ({ login: r.login, role: r.role, level: r.membership.restricted_work_orders ?? null })),
   );
-  return fromMemberships ?? LEGACY_RESTRICTED_WORK_ORDER_POLICY;
+  return fromMemberships ?? EMPTY_RESTRICTED_WORK_ORDER_POLICY;
 }
 
 /**

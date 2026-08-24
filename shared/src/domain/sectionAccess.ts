@@ -17,7 +17,7 @@ export const SECTION_ACCESS_ATTR = 'section_access';
 export const AccessSection = {
   Production: 'production',
   WorkOrders: 'work_orders',
-  /** Ramzia's private work orders — generalization of workOrderAccess.ts hardcode (Ф3). */
+  /** Private work orders of a confined owner — membership replaces the old hardcode (Ф3). */
   RestrictedWorkOrders: 'restricted_work_orders',
   Supply: 'supply',
   Warehouse: 'warehouse',
@@ -42,7 +42,7 @@ export type AccessSectionMeta = {
   /** Only the owner (superadmin) may add people to this section. */
   restrictedAssign?: boolean;
   /**
-   * Подписи уровней для разделов с НЕСТАНДАРТНОЙ семантикой (инцидент fatyhova 2026-07-10:
+   * Подписи уровней для разделов с НЕСТАНДАРТНОЙ семантикой (инцидент 2026-07-10:
    * владелец «расширял доступ», выдав editor «Нарядов закрытых», а editor там означает
    * «ограниченный владелец — видит ТОЛЬКО свои наряды»). Рендерятся в обоих редакторах
    * доступов; для обычных разделов не задаются (действует общая легенда наблюдатель/редактор).
@@ -63,7 +63,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   },
   {
     id: AccessSection.RestrictedWorkOrders,
-    titleRu: 'Наряды закрытые (Рамзии)',
+    titleRu: 'Наряды закрытые (личные)',
     menuTabs: [], // подмножество work_orders по owner-логину, не отдельный таб
     restrictedAssign: true,
     levelHintsRu: {

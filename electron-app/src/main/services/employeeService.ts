@@ -262,7 +262,7 @@ export async function getSectionMembershipByLogin(
   // трактуем как «не засеяно» (fail-open), СИММЕТРИЧНО серверу
   // (backend restrictedWorkOrders.getSectionMembershipForLogin:111). До этого клиентский
   // section-гейт считал {} «засеянным пустым» и отказывал во ВСЕХ разделах, тогда как
-  // серверный write-гейт для того же пользователя был fail-open — инцидент radik 2026-07-10.
+  // серверный write-гейт для того же пользователя был fail-open — инцидент 2026-07-10.
   if (Object.keys(membership).length === 0) return null;
   return membership;
 }

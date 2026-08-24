@@ -300,7 +300,7 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
 // Рекламации — НЕ отдельная таблица: это EAV-атрибуты reclamation_* на самой
 // сущности двигателя (см. shared/src/domain/reclamation.ts). Без этого tool
 // модель ищет несуществующую таблицу claims, получает отказ и неверно
-// докладывает «нет прав» (кейс sapegin / «вся рекламация ОВК», 2026-08-17).
+// докладывает «нет прав» (кейс «вся рекламация ОВК», 2026-08-17).
 async function getReclamations(input: Record<string, unknown>): Promise<ToolResult> {
   const search = asString(input, 'counterparty').trim();
   const limit = asLimit(input);

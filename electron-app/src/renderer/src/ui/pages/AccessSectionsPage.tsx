@@ -77,7 +77,7 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
   async function setLevel(row: Row, sectionId: string, level: SectionAccessLevel | null) {
     // Разделы с нестандартной семантикой уровней (напр. «Наряды закрытые»: editor =
     // ограниченный владелец, видит ТОЛЬКО свои) — явное подтверждение до записи
-    // (инцидент fatyhova 2026-07-10: editor выдан как «расширение доступа»).
+    // (инцидент 2026-07-10: editor выдан как «расширение доступа»).
     const hint = level ? accessSectionMeta(sectionId)?.levelHintsRu?.[level] : undefined;
     if (hint && hint.includes('⚠️')) {
       const ok = await confirm({
