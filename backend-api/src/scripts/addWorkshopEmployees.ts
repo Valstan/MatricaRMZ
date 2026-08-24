@@ -20,13 +20,16 @@
  *   --apply              — выполнить запись
  *   --workshop=<code>    — code цеха в directory_workshops (по умолчанию '2' = «Цех №2»)
  *   --actor=<username>   — актор change_log (по умолчанию: первый superadmin)
+ *   --names-file=<путь>  — ОБЯЗАТЕЛЬНО: файл со списком ФИО (по строке на человека)
+ *   --pick="A=B;…"       — какой однофамилец имелся в виду при неоднозначном совпадении
  *
- *   pnpm -F @matricarmz/backend-api workshop:add-employees              # dry-run
- *   pnpm -F @matricarmz/backend-api workshop:add-employees --apply
+ *   pnpm -F @matricarmz/backend-api workshop:add-employees -- --names-file=/path/names.txt
+ *   pnpm -F @matricarmz/backend-api workshop:add-employees -- --names-file=/path/names.txt --apply
  */
 import 'dotenv/config';
 
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 import { pool } from '../database/db.js';
 import { setEntityAttribute } from '../services/adminMasterdataService.js';
@@ -37,47 +40,33 @@ const actorArg = process.argv.find((a) => a.startsWith('--actor='));
 const ACTOR_OVERRIDE = actorArg ? actorArg.split('=')[1] : null;
 const workshopArg = process.argv.find((a) => a.startsWith('--workshop='));
 const WORKSHOP_CODE = (workshopArg ? workshopArg.split('=')[1] : '2') || '2';
-
-/** Входной список — простые работники цеха №2 (как продиктовано владельцем 2026-06-22). */
-const INPUT_NAMES: string[] = [
-  'Асхатов Р.З',
-  'Асхатов Р.И',
-  'Воронин А.И.',
-  'Вятчин Е.Н.',
-  'Гизатуллина Л.Д.',
-  'Демьянова О.В.',
-  'Загиров Ф.К.',
-  'Зайцев В.Л.',
-  'Кадочников И.А.',
-  'Колесников А.В.',
-  'Кудряшов Д.Х',
-  'Логинов В.В.',
-  'Мерзляков П.С.',
-  'Мурашин А.М.',
-  'Мусин Р.А.',
-  'Нагуманова Е.А.',
-  'Олейникова О.В.',
-  'Плишкин А.В.',
-  'Поткин А.Н',
-  'Поткин Г.С.',
-  'Сагутдинов А.А.',
-  'Уржумцев А.А.',
-  'Хабибрахманов Х.',
-  'Хакимова Р.И.',
-  'Хлюпин Р.Г.',
-  'Чупин А.Л.',
-  'Забубенин Вова',
-];
+const namesFileArg = process.argv.find((a) => a.startsWith('--names-file='));
+const NAMES_FILE = namesFileArg ? namesFileArg.slice('--names-file='.length).trim() : '';
+const pickArg = process.argv.find((a) => a.startsWith('--pick='));
 
 /**
- * Разрешение неоднозначных совпадений по ФИО: input → ТОЧНОЕ full_name существующего
- * сотрудника (выбор владельца). Если по input нашлось ≥2 совпадений, но одно из них
- * совпадает с этим точным ФИО — берём именно его (а не выносим в ручной разбор).
- * «Мурашин А.М.»: в базе два (Алексей и Александр М.); владелец 2026-06-22 выбрал Александра.
+ * Входной список и разрешение неоднозначностей приходят СНАРУЖИ — ФИО работников в репо
+ * не лежат (D-041):
+ *   --names-file=<путь>  файл со списком ФИО, по одной строке; пустые и «#» игнорируются;
+ *   --pick="Вход=Точное ФИО в базе;…"  чей именно однофамилец имелся в виду, когда
+ *                                      по строке нашлось ≥2 совпадений.
  */
-const AMBIGUOUS_PICK: Record<string, string> = {
-  'Мурашин А.М.': 'Мурашин Александр Михайлович',
-};
+async function loadInputNames(): Promise<string[]> {
+  if (!NAMES_FILE) throw new Error('нужен --names-file=<путь> — список ФИО живёт вне репозитория (D-041)');
+  const raw = await readFile(NAMES_FILE, 'utf8');
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+}
+
+const AMBIGUOUS_PICK: Record<string, string> = Object.fromEntries(
+  (pickArg ? pickArg.slice('--pick='.length) : '')
+    .split(';')
+    .map((pair) => pair.split('='))
+    .filter((parts) => parts.length === 2 && parts[0]!.trim() && parts[1]!.trim())
+    .map(([input, exact]) => [input!.trim(), exact!.trim()]),
+);
 
 type Actor = { id: string; username: string; role: 'admin' | 'superadmin' };
 
@@ -223,10 +212,11 @@ async function main() {
 
   const existing = await loadExistingEmployees(employeeTypeId);
   log(`живых сотрудников в базе: ${existing.length}`);
-  log(`во входном списке: ${INPUT_NAMES.length}\n`);
+  const inputNames = await loadInputNames();
+  log(`во входном списке: ${inputNames.length}\n`);
 
   const plans: Plan[] = [];
-  for (const input of INPUT_NAMES) {
+  for (const input of inputNames) {
     const parsed = parseName(input);
     const matches = existing.filter((e) => namesMatch(parsed, e));
     if (matches.length === 0) {

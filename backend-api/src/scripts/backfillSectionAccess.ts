@@ -3,16 +3,18 @@
  *
  * Каждому сотруднику с логином проставляет EAV-атрибут `section_access` из его
  * ТЕКУЩЕЙ роли (seedMembershipForRole) — в день включения поведение не меняется
- * ни у кого. Спец-логины закрытых нарядов сеются из сегодняшнего хардкода
- * workOrderAccess.ts: ramzia=editor, glavbux=viewer (раздел restricted_work_orders).
+ * ни у кого. Раздел «Наряды закрытые» (restricted_work_orders) сеется только тем,
+ * кого назвали аргументами запуска — логинов в коде нет (D-041).
  *
  * Идемпотентно: сотрудники с уже непустым `section_access` пропускаются
  * (ручные правки владельца не перетираются). Атрибут-деф создаётся при
  * отсутствии (СИНКУЕМЫЙ — клиентский UI Ф1 читает membership локально).
  *
  * Dry-run по умолчанию. Флаги:
- *   --apply              — выполнить запись
- *   --actor=<username>   — актор change_log (по умолчанию: первый superadmin)
+ *   --apply                       — выполнить запись
+ *   --actor=<username>            — актор change_log (по умолчанию: первый superadmin)
+ *   --restricted-editor=a,b       — логины: «Наряды закрытые» = editor (ограниченный владелец)
+ *   --restricted-viewer=c,d       — логины: «Наряды закрытые» = viewer (читатель, бухгалтерия)
  *
  *   pnpm -F @matricarmz/backend-api access:backfill-sections            # dry-run
  *   pnpm -F @matricarmz/backend-api access:backfill-sections --apply
@@ -35,6 +37,19 @@ import { setEntityAttribute } from '../services/adminMasterdataService.js';
 const APPLY = process.argv.includes('--apply');
 const actorArg = process.argv.find((a) => a.startsWith('--actor='));
 const ACTOR_OVERRIDE = actorArg ? actorArg.split('=')[1] : null;
+
+/** Логины раздела «Наряды закрытые» — только из аргументов запуска (D-041: в репо их нет). */
+function loginsFromArg(flag: string): ReadonlySet<string> {
+  const raw = process.argv.find((a) => a.startsWith(`${flag}=`));
+  const list = (raw ? raw.slice(flag.length + 1) : '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(list);
+}
+
+const RESTRICTED_EDITORS = loginsFromArg('--restricted-editor');
+const RESTRICTED_VIEWERS = loginsFromArg('--restricted-viewer');
 
 type Actor = { id: string; username: string; role: 'admin' | 'superadmin' };
 
@@ -137,11 +152,11 @@ async function loadEmployeesWithLogin(employeeTypeId: string): Promise<EmployeeR
   }));
 }
 
-/** Роль → засев + спец-логины закрытых нарядов (сегодняшний хардкод workOrderAccess.ts). */
+/** Роль → засев + названные в аргументах логины закрытых нарядов. */
 function computeSeed(login: string, role: string): SectionMembership {
   const seed = seedMembershipForRole(role);
-  if (login === 'ramzia') return { ...seed, restricted_work_orders: 'editor' };
-  if (login === 'glavbux') return { ...seed, restricted_work_orders: 'viewer' };
+  if (RESTRICTED_EDITORS.has(login)) return { ...seed, restricted_work_orders: 'editor' };
+  if (RESTRICTED_VIEWERS.has(login)) return { ...seed, restricted_work_orders: 'viewer' };
   return seed;
 }
 

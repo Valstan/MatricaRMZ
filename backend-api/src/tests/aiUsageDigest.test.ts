@@ -20,9 +20,9 @@ describe('aiUsageDigestService pure helpers', () => {
   });
 
   it('formatPersonLabel prefers ФИО (login) and never drops an operator', () => {
-    const names = { valstan: 'Валентин Совиных' };
-    expect(formatPersonLabel('valstan', names)).toBe('Валентин Совиных (valstan)');
-    expect(formatPersonLabel('VALSTAN', names)).toBe('Валентин Совиных (VALSTAN)');
+    const names = { ivanova: 'Иванова Мария Петровна' };
+    expect(formatPersonLabel('ivanova', names)).toBe('Иванова Мария Петровна (ivanova)');
+    expect(formatPersonLabel('IVANOVA', names)).toBe('Иванова Мария Петровна (IVANOVA)');
     expect(formatPersonLabel('ghost', names)).toBe('ghost');
     expect(formatPersonLabel('', names)).toBe('—');
   });

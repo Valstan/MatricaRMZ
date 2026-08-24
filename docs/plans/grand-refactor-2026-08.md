@@ -57,7 +57,7 @@
 - Цена слота — только от первой обработанной строки (guard `contractPriceKop == null`, `payments.ts:250-253`).
 - Аванс: живой путь `distributeAmountToSlots` (по выбранным слотам) работает, но выбор считается только в своей секции (`:530`), остаток копеек уходит первому слоту массива, выбор не сбрасывается; legacy `distributeAmount` («с 1 по N», `payments.ts:319-350`) в приложении не вызывается — снести.
 - Сверка слотов гоняется только в открытой карточке при canEdit (`:1797-1838`) → **старый клиент, открыв карточку, перепортит ретро-фикс** ⇒ порядок: сначала фикс на парк, выждать обновление, потом ретро-скрипт.
-- Паттерн ретро-скрипта: `backend-api/src/scripts/canonicalizeContractSectionKeys.ts` (dry-run/`--apply`, запись только `setEntityAttribute(..., {allowSyncConflicts:true})`). Сам canonicalize ещё не прогнан — ждёт PC20/alvina.
+- Паттерн ретро-скрипта: `backend-api/src/scripts/canonicalizeContractSectionKeys.ts` (dry-run/`--apply`, запись только `setEntityAttribute(..., {allowSyncConflicts:true})`). Сам canonicalize ещё не прогнан — ждёт PC20.
 - web-admin контракты — легаси-скаляры (одна марка/цена/сумма), пишет конфликтующие данные.
 - Тестов на дубль-строки марки нет (`payments.test.ts`).
 
@@ -143,7 +143,7 @@ type TabsState = { tabs: WorkTab[]; activeId: string; secondaryCardId: string | 
 - Перепроверить на APK: `repair_fund_audit`-вкладка (закрыта R1), keep-alive на WebView (R3-PR2), авто-скрытие хрома (I/J).
 
 ### R5 — Контракты (L; домен сразу после R1, ретро — после парка)
-Жёсткий порядок: (1) web-admin контракты → **read-only** (S, вытащен из R6 — иначе легаси-редактор перезатрёт ретро-фикс) → (2) релиз домен-фикса на парк → (3) подтверждение версий парка по диагностике (1-2 дня) → (4) PC20/alvina переустановлен (владелец) → (5) `contracts:canonicalize-section-keys --apply` (давно ждёт) → (6) `contracts:resync-slots` dry-run → отчёт владельцу → `--apply` → контрольный dry-run через 2-3 дня (пустой diff).
+Жёсткий порядок: (1) web-admin контракты → **read-only** (S, вытащен из R6 — иначе легаси-редактор перезатрёт ретро-фикс) → (2) релиз домен-фикса на парк → (3) подтверждение версий парка по диагностике (1-2 дня) → (4) PC20 переустановлен (владелец) → (5) `contracts:canonicalize-section-keys --apply` (давно ждёт) → (6) `contracts:resync-slots` dry-run → отчёт владельцу → `--apply` → контрольный dry-run через 2-3 дня (пустой diff).
 - **PR1 — домен (M)**: `syncSlotsWithPlan` — агрегация qty по (sectionKey, brandId) суммой (образец `sumEngineBrandQtyByBrandFromContractSections`, `contract.ts:623-638`), цены распределяются по строкам плана в порядке строк (10×A + 5×B → первые 10 слотов по A, следующие 5 по B); `addEngineBrand` больше не предзаполняет прошлой маркой; `selectedSlotIds` по всем секциям; сброс `slotSelection` после разнесения; остаток копеек — первому ВЫБРАННОМУ слоту; удалить мёртвый `distributeAmount`; тесты на дубль-строки марки.
 - **PR2 — сигналы оператору (S)**: пометка слота «сверх плана», предупреждение «двигатель марки не из плана» / «двигателей больше заявленного» в карточке контракта.
 - **PR3 — ретро-скрипт (M)**: `contracts:resync-slots` по паттерну `canonicalizeContractSectionKeys.ts` (dry-run/`--apply`, запись только `setEntityAttribute(..., {allowSyncConflicts:true})`): досоздать слоты по исправленной логике, авторазложить привязанные двигатели по слотам своих марок, отчёт расхождений (лишние двигатели/чужие марки) в теле PR + оператору.

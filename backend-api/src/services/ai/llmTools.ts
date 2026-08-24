@@ -300,7 +300,7 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
 // Рекламации — НЕ отдельная таблица: это EAV-атрибуты reclamation_* на самой
 // сущности двигателя (см. shared/src/domain/reclamation.ts). Без этого tool
 // модель ищет несуществующую таблицу claims, получает отказ и неверно
-// докладывает «нет прав» (кейс sapegin / «вся рекламация ОВК», 2026-08-17).
+// докладывает «нет прав» (кейс «вся рекламация ОВК», 2026-08-17).
 async function getReclamations(input: Record<string, unknown>): Promise<ToolResult> {
   const search = asString(input, 'counterparty').trim();
   const limit = asLimit(input);
@@ -554,7 +554,7 @@ async function getOperations(input: Record<string, unknown>, ctx: ToolContext): 
   const res = await pool.query(sql, params as any[]);
   let rows = (res.rows ?? []) as Array<Record<string, unknown>>;
   // Restricted work-order isolation (C1): never expose another person's restricted work
-  // orders (Ramzia) to a non-allowlisted actor via the assistant. Mirrors the sync/report
+  // orders to a non-allowlisted actor via the assistant. Mirrors the sync/report
   // gates; the operationType filter can target work_order, so this must run regardless.
   const restricted = await getRestrictedWorkOrderIds();
   if (restricted.size > 0 && !(await isAllowlistedReaderById(ctx.actorId))) {

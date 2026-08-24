@@ -149,7 +149,7 @@ describe('partitionLedgerInputsByAuthz', () => {
   });
 
   // Кадровое право открывает ЧУЖУЮ карточку, но не служебные поля: иначе «дайте
-  // Рамзии доступ к сотрудникам» превращалось бы в право менять роли и логины.
+  // оператору доступ к сотрудникам» превращалось бы в право менять роли и логины.
   it('operator с кадровым правом: чужой профиль разрешён, system_role — нет', async () => {
     const { getEffectivePermissionsForUser } = await import('../../auth/permissions.js');
     vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({
@@ -167,7 +167,7 @@ describe('partitionLedgerInputsByAuthz', () => {
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-other', attribute_def_id: 'def-name' }, row_id: 'a1' },
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a2', entity_id: 'emp-other', attribute_def_id: 'def-role' }, row_id: 'a2' },
     ];
-    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'emp-hr', username: 'ramzia', role: 'master' });
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'emp-hr', username: 'hruser', role: 'master' });
 
     expect(allowed.map((i) => i.row_id)).toEqual(['a1']);
     expect(denied.map((d) => d.reason)).toEqual(['forbidden:employee_auth_attr:system_role']);

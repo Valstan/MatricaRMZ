@@ -3,7 +3,7 @@
 // флот-инструменты web-admin его уже понимают), host = имя устройства из шима
 // node:os. Порядок чтения — как на десктопе (clientIdStore.ts): БД → sidecar →
 // генерация; пишем всегда в оба. Sidecar-аналог на Android — localStorage
-// WebView: переживает пересоздание реплики (лечение инцидента gala/PC69 —
+// WebView: переживает пересоздание реплики (лечение инцидента PC69 —
 // призрачные client_id после self-heal БД); при переустановке APK стирается
 // вместе с данными приложения, это допустимо.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';

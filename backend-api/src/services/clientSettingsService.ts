@@ -197,7 +197,7 @@ async function warnOnMultiMachineLogin(clientId: string, username: string, ts: n
     // Два client_id на ОДНОМ hostname — это не «работа с двух машин», а вторая
     // установка/копия программы на том же компьютере (обычно старая версия,
     // забытая после переустановки). Событие «активен на 2 машинах» в этом случае
-    // сбивает с толку (инцидент gala/PC69 2026-07-27) — называем своим именем.
+    // сбивает с толку (инцидент PC69 2026-07-27) — называем своим именем.
     if (uniqueMachines.length === 1) {
       ingestServerCriticalEvent({
         eventCode: 'auth.duplicate_client_install',

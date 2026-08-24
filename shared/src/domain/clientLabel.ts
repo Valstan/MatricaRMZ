@@ -30,7 +30,7 @@ function person(parts: ClientLabelParts): string {
   return fullName || login;
 }
 
-/** Полная метка: «Фатыхова Наталья Николаевна (fatyhova) · PC41». Без логина — только машина. */
+/** Полная метка: «Иванова Мария Петровна (ivanova) · PC41». Без логина — только машина. */
 export function formatClientLabel(parts: ClientLabelParts): string {
   const p = person(parts);
   const machine = clientMachineName(parts);
@@ -39,7 +39,7 @@ export function formatClientLabel(parts: ClientLabelParts): string {
   return machine || (parts.clientId ?? '').trim() || '—';
 }
 
-/** Короткая метка для узких колонок: «fatyhova · PC41» (ФИО — в тултип). Без логина — только машина. */
+/** Короткая метка для узких колонок: «ivanova · PC41» (ФИО — в тултип). Без логина — только машина. */
 export function formatClientShort(parts: ClientLabelParts): string {
   const login = (parts.login ?? '').trim();
   const machine = clientMachineName(parts);
