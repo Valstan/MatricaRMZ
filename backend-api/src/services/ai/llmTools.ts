@@ -554,7 +554,7 @@ async function getOperations(input: Record<string, unknown>, ctx: ToolContext): 
   const res = await pool.query(sql, params as any[]);
   let rows = (res.rows ?? []) as Array<Record<string, unknown>>;
   // Restricted work-order isolation (C1): never expose another person's restricted work
-  // orders (Ramzia) to a non-allowlisted actor via the assistant. Mirrors the sync/report
+  // orders to a non-allowlisted actor via the assistant. Mirrors the sync/report
   // gates; the operationType filter can target work_order, so this must run regardless.
   const restricted = await getRestrictedWorkOrderIds();
   if (restricted.size > 0 && !(await isAllowlistedReaderById(ctx.actorId))) {

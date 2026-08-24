@@ -378,7 +378,7 @@ function seedAll(level: SectionAccessLevel, overrides: SectionMembership = {}): 
  * change for anyone) and the onboarding template for new users. Mirrors
  * today's factual footprint (OPERATOR_BASE_PERMISSIONS: broad view;
  * OPERATOR_ROLE_EDIT: edit in the role's work area). Restricted sections
- * (Ramzia orders, Administration) are never seeded by role — the backfill
+ * (restricted work orders, Administration) are never seeded by role — the backfill
  * script special-cases them by login/admin tier.
  */
 export function seedMembershipForRole(role: string | null | undefined): SectionMembership {

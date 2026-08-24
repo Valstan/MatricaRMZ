@@ -149,7 +149,7 @@ describe('partitionLedgerInputsByAuthz', () => {
   });
 
   // Кадровое право открывает ЧУЖУЮ карточку, но не служебные поля: иначе «дайте
-  // Рамзии доступ к сотрудникам» превращалось бы в право менять роли и логины.
+  // оператору доступ к сотрудникам» превращалось бы в право менять роли и логины.
   it('operator с кадровым правом: чужой профиль разрешён, system_role — нет', async () => {
     const { getEffectivePermissionsForUser } = await import('../../auth/permissions.js');
     vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({

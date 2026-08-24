@@ -693,7 +693,7 @@ reportsRouter.get('/builder/meta', async (_req, res) => {
 });
 
 /**
- * Phase 3d: drop restricted work orders (Ramzia) from the `operations` report table
+ * Phase 3d: drop restricted work orders from the `operations` report table
  * for non-admin, non-allowlisted report actors — the same isolation the sync pull
  * surfaces enforce, applied to the report builder so reports/payroll cannot leak them.
  */

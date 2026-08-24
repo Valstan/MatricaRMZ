@@ -33,7 +33,7 @@ function input(overrides: Partial<TimesheetPrintInput> = {}): TimesheetPrintInpu
     days: DAYS,
     dayList: Array.from({ length: DAYS }, (_, i) => i + 1),
     rows: [
-      { id: 'r1', fullName: 'Асхатов Рамиль Зулкафирович', position: 'Слесарь-ремонтник 5 разряда' },
+      { id: 'r1', fullName: 'Кузнецов Роман Захарович', position: 'Слесарь-ремонтник 5 разряда' },
       { id: 'r2', fullName: 'Иванова Мария Петровна', position: 'Мастер участка' },
     ],
     codes: [...TIMESHEET_DEFAULT_CODES],
@@ -52,15 +52,15 @@ function gridHtml(inp: TimesheetPrintInput = input(), blocks: TimesheetPrintBloc
 describe('печатная форма табеля — ФИО', () => {
   it('печатает фамилию целиком и инициалы с точками, без имени и отчества', () => {
     const html = gridHtml();
-    expect(html).toContain('Асхатов Р.З.');
-    expect(html).not.toContain('Рамиль');
-    expect(html).not.toContain('Зулкафирович');
+    expect(html).toContain('Кузнецов Р.З.');
+    expect(html).not.toContain('Роман');
+    expect(html).not.toContain('Захарович');
     expect(html).toContain('Иванова М.П.');
   });
 
   it('однословную фамилию оставляет как есть', () => {
-    const html = gridHtml(input({ rows: [{ id: 'r1', fullName: 'Асхатов' }] }));
-    expect(html).toContain('>Асхатов<');
+    const html = gridHtml(input({ rows: [{ id: 'r1', fullName: 'Кузнецов' }] }));
+    expect(html).toContain('>Кузнецов<');
   });
 
   it('не печатает должность — место отдано клеткам под запись ручкой', () => {
@@ -70,7 +70,7 @@ describe('печатная форма табеля — ФИО', () => {
   });
 
   it('печатает ФИО жирным — тонкое начертание принтер почти не тянет', () => {
-    expect(gridHtml()).toMatch(/font-size:\d+px;font-weight:700">Асхатов Р\.З\./);
+    expect(gridHtml()).toMatch(/font-size:\d+px;font-weight:700">Кузнецов Р\.З\./);
   });
 });
 
@@ -92,7 +92,7 @@ describe('печатная форма табеля — шапка листа', (
 describe('печатная форма табеля — код важнее часов', () => {
   const dayCell = (code: string | null, hours: number | null) =>
     input({
-      rows: [{ id: 'r1', fullName: 'Асхатов Рамиль Зулкафирович' }],
+      rows: [{ id: 'r1', fullName: 'Кузнецов Роман Захарович' }],
       getCell: (_rowId, day) => (day === 3 ? { code, hours, comment: null } : { code: null, hours: null, comment: null }),
     });
   // Ищем ТОЛЬКО в строке сотрудника: `>8<` совпадает и с шапкой числа месяца.
@@ -142,7 +142,7 @@ describe('печатная форма табеля — код важнее ча�
 describe('печатная форма табеля — дробные часы', () => {
   const halfDay = (hours: number) =>
     input({
-      rows: [{ id: 'r1', fullName: 'Асхатов Рамиль Зулкафирович' }],
+      rows: [{ id: 'r1', fullName: 'Кузнецов Роман Захарович' }],
       getCell: (_rowId, day) => (day === 3 ? { code: 'Я', hours, comment: null } : { code: null, hours: null, comment: null }),
     });
 

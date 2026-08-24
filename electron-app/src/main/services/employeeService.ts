@@ -270,7 +270,9 @@ export async function getSectionMembershipByLogin(
 /**
  * Настраиваемые списки закрытых нарядов (Ф3) из локальной БД: membership раздела
  * restricted_work_orders по всем сотрудникам (editor=владелец, viewer=читатель).
- * null = ни у кого не засеяно → вызывающий работает по легаси-хардкоду.
+ * null = раздел не засеян ни у кого → вызывающий получает ПУСТУЮ политику, то есть
+ * «никто не ограничен» (легаси-хардкода логинов больше нет — D-041). Реплика тянет
+ * membership с сервера с 2026-07-03, так что на живом клиенте null не наступает.
  */
 export async function getRestrictedWorkOrderPolicyLocal(
   dataDb: BetterSQLite3Database,

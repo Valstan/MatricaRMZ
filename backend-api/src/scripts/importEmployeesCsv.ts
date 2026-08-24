@@ -7,10 +7,17 @@
  *      or equal and a populated birth date does not conflict;
  *   3. everything suspicious is reported and blocks --apply.
  *
+ * Всё, что называет конкретных людей, задаётся аргументами запуска — в репо ФИО и
+ * табельных номеров нет (D-041). Разовые решения владельца по конкретному файлу
+ * (кого выбросить, чью опечатку в ФИО считать тем же человеком, кого сверить глазами)
+ * живут в командной строке того прогона, а не в коде.
+ *
  * Usage:
  *   pnpm -F @matricarmz/backend-api employees:import-csv -- --file=/path/staff.csv
  *   pnpm -F @matricarmz/backend-api employees:import-csv -- --file=/path/staff.csv --apply
- *   pnpm -F @matricarmz/backend-api employees:import-csv -- --file=/path/staff.csv --verify
+ *   … --drop-personnel=566,610          выбросить строки с этими табельными
+ *   … --name-alias="ФИО в файле=ФИО в базе;…"   считать разное написание одним человеком
+ *   … --verify="Фамилия Имя Отчество;…"  распечатать, какие карточки нашлись по этим ФИО
  */
 import 'dotenv/config';
 
@@ -57,11 +64,24 @@ type PlannedSectionTarget = SectionTarget & { create: boolean; code?: string };
 type Ambiguity = { source: SourceEmployee; reason: string; candidates: ExistingEmployee[] };
 
 const APPLY = process.argv.includes('--apply');
-const VERIFY = process.argv.includes('--verify');
 const fileArg = process.argv.find((arg) => arg.startsWith('--file='));
 const FILE = fileArg?.slice('--file='.length).trim() ?? '';
 const actorArg = process.argv.find((arg) => arg.startsWith('--actor='));
 const ACTOR_OVERRIDE = actorArg?.slice('--actor='.length).trim() || null;
+
+/** Всё, что называет конкретных людей, приходит аргументом запуска — в репо имён нет (D-041). */
+function listArg(flag: string, separator = ';'): string[] {
+  const raw = process.argv.find((arg) => arg.startsWith(`${flag}=`));
+  return (raw ? raw.slice(flag.length + 1) : '')
+    .split(separator)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** ФИО, по которым печатать разрешение карточек: --verify="Фамилия Имя Отчество;…". */
+const VERIFY_NAMES = listArg('--verify');
+/** Табельные номера, которые надо выбросить из файла (вторая карточка одного человека). */
+const DROPPED_PERSONNEL = new Set(listArg('--drop-personnel', ','));
 
 function norm(value: unknown): string {
   return String(value ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').replace(/[‐‑‒–—−]/g, '-').replace(/\s+/g, ' ').trim();
@@ -155,18 +175,9 @@ async function loadSource(): Promise<SourceEmployee[]> {
       birthDate: parseDate(cells[5] ?? '', sourceLine, 'дата рождения'),
     });
   }
-  // Owner decisions, 2026-08-14: internal secondary jobs are represented by the
-  // current personnel number on one employee card, not by duplicate cards.
-  const droppedPersonnel = new Set(['566', '610']);
-  const resolved = result
-    .filter((row) => !droppedPersonnel.has(personnelKey(row.personnelNumber)))
-    .map((row) => {
-      if (personnelKey(row.personnelNumber) === '821' || personnelKey(row.personnelNumber) === '816') return { ...row, role: 'водитель', note: null };
-      if (personnelKey(row.personnelNumber) === '656') {
-        return { ...row, fullName: 'Андриев Владимир Михайлович', lastName: 'Андриев', firstName: 'Владимир', middleName: 'Михайлович' };
-      }
-      return row;
-    });
+  // Внутреннее совместительство — это текущий табельный на ОДНОЙ карточке, а не вторая
+  // карточка: лишние строки такого рода называет --drop-personnel (см. шапку).
+  const resolved = result.filter((row) => !DROPPED_PERSONNEL.has(personnelKey(row.personnelNumber)));
   const duplicatePersonnel = [...indexMany(resolved, (row) => row.personnelNumber).entries()].filter(([, rows]) => rows.length > 1);
   if (duplicatePersonnel.length) throw new Error(`В CSV повторяются табельные номера: ${duplicatePersonnel.map(([key]) => key).join(', ')}`);
   return resolved;
@@ -339,9 +350,13 @@ function candidateLabel(employee: ExistingEmployee): string {
   return `${employee.fullName || 'без ФИО'} [таб. ${employee.personnelNumber || '—'}, рожд. ${dateRu(employee.birthDate)}, id=${employee.id}]`;
 }
 
-const EXISTING_NAME_ALIASES: Record<string, string> = {
-  [norm('Курбанов Владимир Абдурасулович')]: norm('Курбанов Владимир Абдулрасулович'),
-};
+/** Опечатки в ФИО существующих карточек: --name-alias="ФИО в файле=ФИО в базе;…". */
+const EXISTING_NAME_ALIASES: Record<string, string> = Object.fromEntries(
+  listArg('--name-alias')
+    .map((pair) => pair.split('='))
+    .filter((parts) => parts.length === 2 && parts[0]!.trim() && parts[1]!.trim())
+    .map(([from, to]) => [norm(from), norm(to)]),
+);
 
 async function main() {
   console.log(APPLY ? '!!! EMPLOYEE CSV APPLY !!!' : '--- EMPLOYEE CSV DRY-RUN (no writes) ---');
@@ -441,20 +456,9 @@ async function main() {
   console.log(`ambiguous: ${ambiguities.length}; section errors: ${sectionPlan.errors.length}; actor: ${actor.username}`);
   console.log(`sections to create: departments ${sectionPlan.createDepartments.length}, workshops ${sectionPlan.createWorkshops.length}`);
 
-  if (VERIFY) {
-    const verifyNames = [
-      'Шишкина Олеся Фаатовна',
-      'Шитов Олег Дмитриевич',
-      'Андриев Владимир Михайлович',
-      'Курбанов Владимир Абдурасулович',
-      'Демьяненко Андрей Анатольевич',
-      'Иванов Илья Матвеевич',
-      'Тихомиров Игорь Александрович',
-      'Сметанин Семен Сергеевич',
-      'Савиных Валентин Владимирович',
-    ];
+  if (VERIFY_NAMES.length) {
     console.log('\nVERIFY OWNER RESOLUTIONS:');
-    for (const name of verifyNames) {
+    for (const name of VERIFY_NAMES) {
       const rows = existing.filter((employee) => norm(employee.fullName) === norm(name));
       if (!rows.length) console.log(`  - ${name}: NOT FOUND`);
       for (const employee of rows) console.log(`  - ${employee.fullName}: таб. ${employee.personnelNumber || '—'}, должность «${employee.role || '—'}», статус ${employee.employmentStatus || 'working'}, рожд. ${dateRu(employee.birthDate)}`);
@@ -525,18 +529,6 @@ async function main() {
       if (current?.valueJson === next) continue;
       valueRows.push({ id: current?.id ?? randomUUID(), entity_id: entityId, attribute_def_id: defId, value_json: next, created_at: current?.createdAt ?? ts, updated_at: ts, deleted_at: null, sync_status: 'synced' });
     }
-  }
-
-  // Explicit owner resolution: personnel no. 85 belongs to Shishkina; Shitov is fired.
-  const shitov = existing.filter((employee) => norm(employee.fullName) === norm('Шитов Олег Дмитриевич'));
-  if (shitov.length !== 1) throw new Error(`Шитов Олег Дмитриевич: expected one card, found ${shitov.length}`);
-  for (const [code, value] of Object.entries({ personnel_number: null, employment_status: 'fired' })) {
-    const defId = defs.get(code);
-    if (!defId) throw new Error(`Missing employee attr def '${code}'`);
-    const current = shitov[0]!.values.get(code);
-    const next = JSON.stringify(value);
-    if (current?.valueJson === next) continue;
-    valueRows.push({ id: current?.id ?? randomUUID(), entity_id: shitov[0]!.id, attribute_def_id: defId, value_json: next, created_at: current?.createdAt ?? ts, updated_at: ts, deleted_at: null, sync_status: 'synced' });
   }
 
   const push = async (tableName: SyncTableName, rows: Record<string, unknown>[]) => {
