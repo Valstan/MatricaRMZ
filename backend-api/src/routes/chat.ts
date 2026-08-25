@@ -9,6 +9,7 @@ import { db } from '../database/db.js';
 import { chatMessages, chatReads, fileAssets, userPresence } from '../database/schema.js';
 import { SyncTableName } from '@matricarmz/shared';
 import { getSuperadminUserId, listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
+import { canAccessFile } from '../services/fileAccessService.js';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 export const chatRouter = Router();
@@ -496,6 +497,15 @@ chatRouter.post('/send-file', requirePermission(PermissionCode.ChatUse), async (
       .limit(1);
     const file = fileRows[0] as any;
     if (!file) return res.status(404).json({ ok: false, error: 'файл не найден' });
+    // Переслать можно только тот файл, который отправитель и так вправе прочитать.
+    // Сегодня роут admin-only (requireAdminActor выше), и админ проходит canAccessFile
+    // безусловно — то есть проверка ничего не меняет. Она стоит здесь потому, что
+    // сообщение чата само является источником, по которому canAccessFile выдаёт доступ:
+    // сними отсюда admin-гейт — и отправка файла самому себе станет выдачей доступа к
+    // любому файлу, чей id стал известен.
+    if (!(await canAccessFile(gate.actor, { id: String(file.id), createdByUserId: file.createdByUserId ?? null }))) {
+      return res.status(403).json({ ok: false, error: 'доступ запрещён' });
+    }
 
     const fileRef = {
       id: String(file.id),
