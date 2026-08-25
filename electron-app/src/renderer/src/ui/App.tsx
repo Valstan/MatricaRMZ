@@ -60,6 +60,7 @@ import {
   createEmptyDesktop,
   createEmptyDesktopUsage,
   desktopFileFromLink,
+  desktopLiveFileShortcuts,
   desktopMigrateQuickStart,
   desktopMoveToTrash,
   desktopPutShortcut,
@@ -93,6 +94,7 @@ const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { DesktopPane } from './components/DesktopPane.js';
+import { DesktopFilesProvider } from './components/DesktopFilesContext.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
 import { AccountSwitchDialog } from './components/AccountSwitchDialog.js';
 import { ListContextMenu } from './components/ListContextMenu.js';
@@ -3018,6 +3020,8 @@ export function App() {
   }
 
   const liveDesktopShortcuts = useMemo(() => desktopUi.shortcuts.filter((s) => s.deletedAt == null), [desktopUi]);
+  // Файловые ярлыки раздаются карточкам контекстом: панель вложений забирает их сама.
+  const desktopFiles = useMemo(() => desktopLiveFileShortcuts(desktopUi), [desktopUi]);
 
   // Шаг размера считается по СВЁРНУТОМУ счёту, а не по свежим кликам: иначе плитка меняла
   // бы размер прямо под курсором оператора. Распределение строится по ярлыкам стола —
@@ -6011,6 +6015,7 @@ export function App() {
 
   return (
     <ErrorBoundary onError={(error, info) => recordFatalError(error, info)}>
+      <DesktopFilesProvider value={desktopFiles}>
       <Page uiTheme={resolvedTheme}>
         {renderReleaseWelcomeModal()}
         {renderFullSyncModal()}
@@ -6151,6 +6156,7 @@ export function App() {
         />
         <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />
       </Page>
+      </DesktopFilesProvider>
     </ErrorBoundary>
   );
 }

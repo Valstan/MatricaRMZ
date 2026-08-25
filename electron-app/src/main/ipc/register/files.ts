@@ -15,6 +15,7 @@ import {
   filesDownload,
   filesDownloadDirGet,
   filesDownloadDirSet,
+  filesMeta,
   filesOpen,
   filesOpenObjectDir,
   filesOriginalGet,
@@ -95,6 +96,12 @@ export function registerFilesIpc(ctx: IpcContext) {
     } catch (e) {
       return { ok: false, error: String(e) };
     }
+  });
+
+  ipcMain.handle('files:meta', async (_e, args: { fileId: string }) => {
+    const gate = await requirePermOrResult(ctx, 'files.view');
+    if (!gate.ok) return gate;
+    return await filesMeta(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args?.fileId ?? '' });
   });
 
   ipcMain.handle('files:download', async (_e, args: { fileId: string }) => {

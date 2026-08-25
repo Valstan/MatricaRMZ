@@ -708,6 +708,7 @@ const matricaApi = {
   files: {
     upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
       ipcRenderer.invoke('files:upload', args),
+    meta: async (args: { fileId: string }) => ipcRenderer.invoke('files:meta', args),
     pick: async () => ipcRenderer.invoke('files:pick'),
     // Путь брошенного файла умеет достать только preload (webUtils) и только у
     // настоящего File из события drop/paste — renderer произвольный путь не подсунет.

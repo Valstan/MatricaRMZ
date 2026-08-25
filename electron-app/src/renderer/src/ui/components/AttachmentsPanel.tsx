@@ -4,6 +4,7 @@ import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
+import { useDesktopFiles } from './DesktopFilesContext.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { isAndroidPlatform } from '../platform.js';
 import { escapeHtml, printSectionsDirect } from '../utils/printPreview.js';
@@ -140,6 +141,12 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     if (controlledSelection) props.onSelectedChange?.(next);
     else setOwnSelected(next);
   };
+  // «Взять с Рабочего стола»: список ярлыков приходит контекстом из App — панель живёт в
+  // девяти карточках, и протаскивать проп через каждую значит завести девять мест, где его
+  // можно забыть.
+  const desktopFiles = useDesktopFiles();
+  const [desktopPickerOpen, setDesktopPickerOpen] = useState(false);
+  const [desktopPicked, setDesktopPicked] = useState<ReadonlySet<string>>(() => new Set());
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [printNames, setPrintNames] = useState(true);
   const [printContents, setPrintContents] = useState(true);
@@ -330,6 +337,65 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       return;
     }
     await addFromPaths(r.paths);
+  }
+
+  /**
+   * «Взять с Рабочего стола». Карточка забирает файл сама и кладёт его СВОИМ обычным
+   * механизмом (props.onChange) — обратное направление невозможно: у трёх карточек список
+   * вложений живёт в памяти открытой карточки и уходит в БД снимком при её закрытии.
+   *
+   * Карточка файла спрашивается у сервера, а не собирается из подписи плитки. Так и полный
+   * FileRef получается настоящим, и — главное — проверяется ДОСТУП: ярлык на столе прав на
+   * файл не даёт, поэтому приложить можно только то, что оператор и так вправе открыть.
+   * Без этой проверки «взять со стола» стало бы способом выдать себе доступ: вложение
+   * карточки само является для сервера основанием доступа.
+   */
+  async function takeFromDesktop() {
+    if (!props.canUpload || desktopPicked.size === 0) return;
+    const picked = desktopFiles.filter((f) => desktopPicked.has(f.fileId) && !list.some((x) => x.id === f.fileId));
+    if (picked.length === 0) {
+      setDesktopPickerOpen(false);
+      setDesktopPicked(new Set());
+      return;
+    }
+    setBusy('Берём файлы с Рабочего стола...');
+    const taken: FileRef[] = [];
+    const failures: string[] = [];
+    for (const f of picked) {
+      const r = await window.matrica.files.meta({ fileId: f.fileId }).catch((e) => ({ ok: false as const, error: String(e) }));
+      if (r.ok) {
+        taken.push(r.file);
+        continue;
+      }
+      const error = String(r.error);
+      failures.push(
+        /403/.test(error)
+          ? `«${f.label}» — файл принадлежит другому сотруднику`
+          : /404/.test(error)
+            ? `«${f.label}» — файла больше нет в программе`
+            : `«${f.label}» — ${error}`,
+      );
+    }
+
+    if (taken.length > 0) {
+      const merged = [...list];
+      for (const f of taken) if (!merged.find((x) => x.id === f.id)) merged.push(f);
+      const r = await Promise.resolve(props.onChange(merged)).catch((e) => ({ ok: false as const, error: String(e) }));
+      if (r && !r.ok) {
+        setBusy(`Неуспешно: ${r.error}`);
+        setTimeout(() => setBusy(''), 4500);
+        return;
+      }
+    }
+    setDesktopPickerOpen(false);
+    setDesktopPicked(new Set());
+    if (failures.length > 0) {
+      setBusy(`Не приложены: ${failures.join('; ')}`);
+      setTimeout(() => setBusy(''), 6000);
+      return;
+    }
+    setBusy(`Успешно: приложено файлов — ${taken.length}`);
+    setTimeout(() => setBusy(''), 1600);
   }
 
   async function addFromClipboard() {
@@ -524,6 +590,15 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             <Button variant="ghost" title="Загрузить то, что скопировано в буфер обмена" onClick={() => void addFromClipboard()}>
               Вставить из буфера
             </Button>
+            {desktopFiles.length > 0 && (
+              <Button
+                variant="ghost"
+                title="Приложить файл, который лежит у вас на Рабочем столе"
+                onClick={() => setDesktopPickerOpen((v) => !v)}
+              >
+                🖥 Взять с Рабочего стола
+              </Button>
+            )}
           </>
         )}
         {/* Раньше «Папка скачивания» лишь МЕНЯЛА корневую папку и ничего не открывала.
@@ -594,6 +669,50 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           <Button variant="ghost" onClick={() => setSelected(new Set())}>
             Снять выбор
           </Button>
+        </div>
+      )}
+      {desktopPickerOpen && (
+        <div data-attachments-desktop-picker style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Файлы на вашем Рабочем столе</div>
+          <div style={{ display: 'grid', gap: 6, marginBottom: 12, maxHeight: 220, overflowY: 'auto' }}>
+            {desktopFiles.map((f) => {
+              const already = list.some((x) => x.id === f.fileId);
+              return (
+                <label
+                  key={f.shortcutId}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: already ? 'default' : 'pointer', opacity: already ? 0.55 : 1 }}
+                  title={already ? 'Этот файл уже приложен к карточке' : f.name}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={already}
+                    checked={desktopPicked.has(f.fileId)}
+                    onChange={(e) =>
+                      setDesktopPicked((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(f.fileId);
+                        else next.delete(f.fileId);
+                        return next;
+                      })
+                    }
+                  />
+                  <span>{f.label}</span>
+                  {already ? <span style={{ fontSize: 12, color: '#64748b' }}>— уже приложен</span> : null}
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button disabled={desktopPicked.size === 0} onClick={() => void takeFromDesktop()}>
+              Приложить ({desktopPicked.size})
+            </Button>
+            <Button variant="ghost" onClick={() => { setDesktopPickerOpen(false); setDesktopPicked(new Set()); }}>
+              Отмена
+            </Button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+            Файл останется и на Рабочем столе — карточка получает ссылку на него, а не копию.
+          </div>
         </div>
       )}
       {printDialogOpen && (
