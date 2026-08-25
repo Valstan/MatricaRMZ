@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DESKTOP_CELL_H,
+  DESKTOP_CELL_W,
   DESKTOP_MAX_SHORTCUTS,
   DESKTOP_USAGE_MAX_DAYS,
   createEmptyDesktop,
@@ -9,15 +11,20 @@ import {
   desktopDeleteFolder,
   desktopEmptyTrash,
   desktopFolderShortcuts,
+  desktopLayoutGrid,
   desktopLiveShortcutCount,
   desktopMigrateQuickStart,
   desktopMoveToFolder,
+  desktopMoveToFolderMany,
   desktopMoveToTrash,
+  desktopMoveToTrashMany,
   desktopPutShortcut,
   desktopRenameShortcut,
   desktopRestoreFromTrash,
+  desktopSetPositions,
   desktopShortcutLinkKey,
   desktopSurfaceShortcuts,
+  desktopTileMetrics,
   desktopToggleShortcut,
   desktopTrashShortcuts,
   sanitizeDesktopSection,
@@ -319,5 +326,173 @@ describe('переезд «Быстрого запуска» в ярлыки', (
     const d = desktopMigrateQuickStart(createEmptyDesktop(), [], NOW);
     expect(d.shortcuts).toEqual([]);
     expect(d.shortcutsMigratedAt).toBe(NOW);
+  });
+});
+
+describe('метрики плитки', () => {
+  it('шаг 0 повторяет сегодняшний вид — эти числа менять нельзя', () => {
+    expect(desktopTileMetrics(0)).toEqual({
+      step: 0,
+      width: 92,
+      icon: 30,
+      iconLine: 34,
+      label: 11,
+      labelLine: 13,
+      height: 80,
+      cells: 1,
+    });
+  });
+
+  it('крупные шаги занимают две ячейки, мелкие — одну; вертикаль не растягивается', () => {
+    expect([-1, 0, 1].map((s) => desktopTileMetrics(s).cells)).toEqual([1, 1, 1]);
+    expect([2, 3, 4].map((s) => desktopTileMetrics(s).cells)).toEqual([2, 2, 2]);
+    for (const s of [-1, 0, 1, 2, 3, 4]) expect(desktopTileMetrics(s).height).toBeLessThanOrEqual(DESKTOP_CELL_H);
+  });
+
+  it('ширина плитки помещается в свои ячейки на каждом шаге', () => {
+    for (const s of [-1, 0, 1, 2, 3, 4]) {
+      const m = desktopTileMetrics(s);
+      expect(m.width, `шаг ${s} не влезает в ${m.cells} ячеек`).toBeLessThanOrEqual(DESKTOP_CELL_W * m.cells);
+    }
+  });
+
+  it('шаг растёт монотонно — больший счёт не должен давать плитку меньше', () => {
+    const widths = [-1, 0, 1, 2, 3, 4].map((s) => desktopTileMetrics(s).width);
+    expect(widths).toEqual([...widths].sort((a, b) => a - b));
+  });
+
+  it('значение вне диапазона зажимается, мусор читается как ноль', () => {
+    expect(desktopTileMetrics(-9).step).toBe(-1);
+    expect(desktopTileMetrics(99).step).toBe(4);
+    expect(desktopTileMetrics(Number.NaN).step).toBe(0);
+  });
+});
+
+describe('раскладка сетки', () => {
+  const one = (id: string, pos?: { col: number; row: number }) => ({ id, cells: 1 as const, ...(pos ? { pos } : {}) });
+
+  it('без координат — поток слева направо, папки первыми', () => {
+    const g = desktopLayoutGrid({ folderIds: ['f1'], shortcuts: [one('a'), one('b')], cols: 3 });
+    expect(g.folders).toEqual([{ id: 'f1', col: 0, row: 0, cells: 1 }]);
+    expect(g.shortcuts).toEqual([
+      { id: 'a', col: 1, row: 0, cells: 1 },
+      { id: 'b', col: 2, row: 0, cells: 1 },
+    ]);
+    expect(g.rows).toBe(1);
+  });
+
+  it('координата уважается, свободные места достаются остальным', () => {
+    const g = desktopLayoutGrid({ folderIds: [], shortcuts: [one('a'), one('b', { col: 0, row: 0 })], cols: 2 });
+    expect(g.shortcuts.find((p) => p.id === 'b')).toEqual({ id: 'b', col: 0, row: 0, cells: 1 });
+    expect(g.shortcuts.find((p) => p.id === 'a')).toEqual({ id: 'a', col: 1, row: 0, cells: 1 });
+  });
+
+  it('узкий стол не теряет плитку: не влезшая координата переносится на свободное место', () => {
+    const g = desktopLayoutGrid({ folderIds: [], shortcuts: [one('a', { col: 7, row: 0 })], cols: 2 });
+    expect(g.shortcuts).toEqual([{ id: 'a', col: 0, row: 0, cells: 1 }]);
+  });
+
+  it('две плитки на одной ячейке не накладываются — вторая уезжает на свободное', () => {
+    const g = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [one('a', { col: 1, row: 1 }), one('b', { col: 1, row: 1 })],
+      cols: 3,
+    });
+    const spots = g.shortcuts.map((p) => `${p.row}:${p.col}`);
+    expect(new Set(spots).size).toBe(2);
+    expect(spots).toContain('1:1');
+  });
+
+  it('крупная плитка занимает две соседние ячейки и не пускает туда мелкую', () => {
+    const g = desktopLayoutGrid({
+      folderIds: [],
+      shortcuts: [{ id: 'big', cells: 2, pos: { col: 0, row: 0 } }, one('a')],
+      cols: 3,
+    });
+    expect(g.shortcuts.find((p) => p.id === 'a')).toEqual({ id: 'a', col: 2, row: 0, cells: 1 });
+  });
+
+  it('крупная плитка не разрывается по краю: не влезла в хвост строки — уходит на следующую', () => {
+    const g = desktopLayoutGrid({ folderIds: ['f1'], shortcuts: [{ id: 'big', cells: 2 }], cols: 2 });
+    expect(g.shortcuts).toEqual([{ id: 'big', col: 0, row: 1, cells: 2 }]);
+    expect(g.rows).toBe(2);
+  });
+
+  it('ноль колонок читается как одна', () => {
+    expect(desktopLayoutGrid({ folderIds: [], shortcuts: [one('a')], cols: 0 }).shortcuts).toEqual([
+      { id: 'a', col: 0, row: 0, cells: 1 },
+    ]);
+  });
+
+  // Плитка шире всего стола — это не выдуманный случай: разделитель тянется до узкой полосы,
+  // а крупный шаг рейтинга требует двух ячеек. Наивный поиск свободного места («перебираем
+  // строки, пока не влезет») в этом случае крутится вечно и вешает поток целиком.
+  it('плитка шире стола занимает всё, что есть, и не вешает раскладку', () => {
+    expect(desktopLayoutGrid({ folderIds: [], shortcuts: [{ id: 'big', cells: 2 }], cols: 1 }).shortcuts).toEqual([
+      { id: 'big', col: 0, row: 0, cells: 1 },
+    ]);
+    const many = desktopLayoutGrid({
+      folderIds: ['f1'],
+      shortcuts: [{ id: 'b1', cells: 2 }, { id: 'b2', cells: 2, pos: { col: 0, row: 0 } }],
+      cols: 1,
+    });
+    expect(many.shortcuts.map((p) => p.cells)).toEqual([1, 1]);
+    expect(new Set(many.shortcuts.map((p) => `${p.row}:${p.col}`)).size).toBe(2);
+  });
+
+  it('порядок ярлыков в массиве не меняет мест с координатами', () => {
+    const items = [one('a', { col: 2, row: 0 }), one('b', { col: 0, row: 0 }), one('c')];
+    const straight = desktopLayoutGrid({ folderIds: [], shortcuts: items, cols: 3 });
+    const reversed = desktopLayoutGrid({ folderIds: [], shortcuts: [...items].reverse(), cols: 3 });
+    const at = (g: typeof straight, id: string) => g.shortcuts.find((p) => p.id === id);
+    for (const id of ['a', 'b', 'c']) expect(at(reversed, id)).toEqual(at(straight, id));
+  });
+});
+
+describe('запись координат пачкой', () => {
+  it('пишет координаты и возвращает новый стол', () => {
+    const d = seeded();
+    const next = desktopSetPositions(d, [{ id: 's1', pos: { col: 2, row: 1 } }]);
+    expect(next).not.toBe(d);
+    expect(next.shortcuts.find((s) => s.id === 's1')?.pos).toEqual({ col: 2, row: 1 });
+  });
+
+  it('дроп плитки на её же место — не изменение (иначе лишняя запись профиля)', () => {
+    const d = desktopSetPositions(seeded(), [{ id: 's1', pos: { col: 2, row: 1 } }]);
+    expect(desktopSetPositions(d, [{ id: 's1', pos: { col: 2, row: 1 } }])).toBe(d);
+  });
+
+  it('перенос выделения — одно изменение на весь жест', () => {
+    const next = desktopSetPositions(seeded(), [
+      { id: 's1', pos: { col: 0, row: 2 } },
+      { id: 's2', pos: { col: 1, row: 2 } },
+    ]);
+    expect(next.shortcuts.filter((s) => s.pos != null)).toHaveLength(2);
+  });
+});
+
+describe('пачечные действия выделения', () => {
+  it('Delete уводит в корзину всё выделенное разом', () => {
+    const d = desktopMoveToTrashMany(seeded(), ['s1', 's2'], NOW + 5);
+    expect(desktopTrashShortcuts(d).map((s) => s.id)).toEqual(['s1', 's2']);
+    expect(desktopSurfaceShortcuts(d)).toHaveLength(0);
+  });
+
+  it('уже лежащее в корзине не переудаляется, пустое выделение — не изменение', () => {
+    const d = desktopMoveToTrash(seeded(), 's1', NOW + 1);
+    expect(desktopMoveToTrashMany(d, ['s1'], NOW + 9)).toBe(d);
+    expect(desktopMoveToTrashMany(d, [], NOW + 9)).toBe(d);
+  });
+
+  it('перенос выделения в папку снимает координаты: место в папке своё', () => {
+    let d = desktopSetPositions(seeded(), [{ id: 's1', pos: { col: 3, row: 3 } }]);
+    d = desktopMoveToFolderMany(d, ['s1', 's2'], 'f1');
+    expect(desktopFolderShortcuts(d, 'f1').map((s) => s.id)).toEqual(['s1', 's2']);
+    expect(d.shortcuts.find((s) => s.id === 's1')?.pos).toBeUndefined();
+  });
+
+  it('ярлык уже в этой папке — не изменение', () => {
+    const d = desktopMoveToFolderMany(seeded(), ['s1'], 'f1');
+    expect(desktopMoveToFolderMany(d, ['s1'], 'f1')).toBe(d);
   });
 });
