@@ -73,6 +73,7 @@ import { Page } from './layout/Page.js';
 import { type MenuTabId, type TabId, type TabsLayoutPrefs, ANDROID_TABS, MENU_TAB_LABELS, TAB_VISUALS } from './layout/Tabs.js';
 import { isAndroidPlatform } from './platform.js';
 import { useChromeVisibility } from './shell/ChromeVisibilityContext.js';
+import { SHELL_NOTICE_MS, type ShellNotice, type ShellNoticeTone } from './shell/shellNotice.js';
 import { deriveUiCaps } from './auth/permissions.js';
 
 // «Доступ по разделам» (Ф1): таб меню → раздел. Табы вне разделов (заметки, история,
@@ -734,7 +735,6 @@ export function App() {
   // Latest-value ref for the mount-only sync-progress subscription below.
   const tabRef = useRef(tab);
   tabRef.current = tab;
-  const [postLoginSyncMsg, setPostLoginSyncMsg] = useState<string>('');
   const [historyInitialNoteId, setHistoryInitialNoteId] = useState<string | null>(null);
   const [recentVisits, setRecentVisits] = useState<RecentVisitEntry[]>([]);
   const [quickStartScores, setQuickStartScores] = useState<Record<string, QuickStartScoreEntry>>({});
@@ -953,10 +953,11 @@ export function App() {
   // «Рабочий стол» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
   // Секция `desktop` профиля — применяется с GET, уезжает push-эффектом ниже.
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
-  // Подтверждение действия с ярлыком. Своё состояние, а не postLoginSyncMsg: тот нигде не
-  // рендерится (кроме текстов с «ошиб»), и «Ярлык добавлен» оператор никогда не видел.
-  const [desktopNotice, setDesktopNotice] = useState<string>('');
-  const desktopNoticeTimerRef = useRef<number | null>(null);
+  // Единственный канал коротких сообщений оператору: плашка над телом вкладки. Второй,
+  // мёртвый (`postLoginSyncMsg` → `_headerInlineStatusText`, никуда не вставленный), снят
+  // 25.08 — его тексты переехали сюда.
+  const [shellNotice, setShellNotice] = useState<ShellNotice | null>(null);
+  const shellNoticeTimerRef = useRef<number | null>(null);
   // Зеркало стола для обработчиков. Панель МЕНЮ живёт и в скрытой keep-alive вкладке
   // (FrozenWhileHidden не перерисовывает её), и её колбэки держат стол на момент последней
   // отрисовки; исход, посчитанный от стейл-снимка, затёр бы setDesktopUi'ем более свежее.
@@ -2851,19 +2852,26 @@ export function App() {
     return isLinkOnDesktop(desktopLinkForOpenTab(openTab));
   }
 
+  /** Единственный вход для сообщений оператору — и он рендерится (см. `shell/shellNotice.ts`). */
+  function notifyOperator(text: string, tone: ShellNoticeTone = 'info') {
+    setShellNotice({ text, tone });
+    if (shellNoticeTimerRef.current != null) window.clearTimeout(shellNoticeTimerRef.current);
+    shellNoticeTimerRef.current = window.setTimeout(() => setShellNotice(null), SHELL_NOTICE_MS[tone]);
+  }
+
   /** Сообщение называет то, что произошло: упор в лимит — не «добавлено». */
   function announceDesktopOutcome(outcome: DesktopToggleOutcome | DesktopPutOutcome, label: string) {
-    const text =
+    if (outcome === 'limit') {
+      notifyOperator('На Рабочем столе уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
+      return;
+    }
+    notifyOperator(
       outcome === 'added'
         ? `Ярлык «${label}» добавлен на Рабочий стол.`
         : outcome === 'removed'
           ? `Ярлык «${label}» убран с Рабочего стола (лежит в корзине).`
-          : outcome === 'exists'
-            ? `Ярлык «${label}» уже на Рабочем столе.`
-            : 'На Рабочем столе уже 200 ярлыков — освободите место, корзина не в счёт.';
-    setDesktopNotice(text);
-    if (desktopNoticeTimerRef.current != null) window.clearTimeout(desktopNoticeTimerRef.current);
-    desktopNoticeTimerRef.current = window.setTimeout(() => setDesktopNotice(''), 4500);
+          : `Ярлык «${label}» уже на Рабочем столе.`,
+    );
   }
 
   function toggleOpenTabDesktop(openTab: OpenTab) {
@@ -2968,12 +2976,10 @@ export function App() {
       const message = String(e ?? '');
       if (message.includes('permission denied')) {
         setEngines([]);
-        setPostLoginSyncMsg('Недостаточно прав для просмотра двигателей.');
-        setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+        notifyOperator('Недостаточно прав для просмотра двигателей.', 'error');
         return;
       }
-      setPostLoginSyncMsg(`Ошибка загрузки двигателей: ${message}`);
-      setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+      notifyOperator(`Ошибка загрузки двигателей: ${message}`, 'error');
     }
   }
 
@@ -4029,13 +4035,11 @@ export function App() {
   async function sendCurrentPositionToChat() {
     if (!authStatus.loggedIn || !canChat) return;
     if (!chatOpen) {
-      setPostLoginSyncMsg('Чат закрыт: откройте чат и выберите диалог.');
-      setTimeout(() => setPostLoginSyncMsg(''), 6000);
+      notifyOperator('Чат закрыт: откройте чат и выберите диалог.', 'error');
       return;
     }
     if (chatContext.adminMode) {
-      setPostLoginSyncMsg('Нельзя отправить ссылку в админ-режиме чата.');
-      setTimeout(() => setPostLoginSyncMsg(''), 6000);
+      notifyOperator('Нельзя отправить ссылку в админ-режиме чата.', 'error');
       return;
     }
     const r = await window.matrica.chat
@@ -4081,12 +4085,11 @@ export function App() {
     const body = [{ id: crypto.randomUUID(), kind: 'link' as const, appLink: currentAppLink as any }];
     const r = await window.matrica.notes.upsert({ title, body, importance: 'normal' }).catch(() => null);
     if ((r as any)?.ok) {
-      setPostLoginSyncMsg('Ссылка на текущий раздел сохранена в заметки.');
+      notifyOperator('Ссылка на текущий раздел сохранена в заметки.');
       if (!viewMode) void window.matrica.sync.run().catch(() => {});
     } else {
-      setPostLoginSyncMsg(`Не удалось сохранить ссылку: ${String((r as any)?.error ?? 'unknown')}`);
+      notifyOperator(`Не удалось сохранить ссылку: ${String((r as any)?.error ?? 'unknown')}`, 'error');
     }
-    setTimeout(() => setPostLoginSyncMsg(''), 6000);
   }
 
   function noteToChatText(note: { body: Array<any> }) {
@@ -4105,13 +4108,11 @@ export function App() {
     if (!authStatus.loggedIn || !canChat) return;
     const recipients = Array.from(new Set((recipientUserIds ?? []).map((x) => String(x).trim()).filter(Boolean)));
     if (recipients.length === 0) {
-      setPostLoginSyncMsg('Не выбраны получатели.');
-      setTimeout(() => setPostLoginSyncMsg(''), 4500);
+      notifyOperator('Не выбраны получатели.', 'error');
       return;
     }
     if (chatContext.adminMode) {
-      setPostLoginSyncMsg('Нельзя отправить заметку в админ-режиме чата.');
-      setTimeout(() => setPostLoginSyncMsg(''), 6000);
+      notifyOperator('Нельзя отправить заметку в админ-режиме чата.', 'error');
       return;
     }
     const text = noteToChatText(note);
@@ -4140,12 +4141,11 @@ export function App() {
       }
     }
     if (!viewMode && sentCount > 0) void window.matrica.sync.run().catch(() => {});
-    setPostLoginSyncMsg(
-      failedCount > 0
-        ? `Частично отправлено: успешно ${sentCount}, с ошибкой ${failedCount}`
-        : `Отправлено: ${sentCount}`,
-    );
-    setTimeout(() => setPostLoginSyncMsg(''), 6000);
+    if (failedCount > 0) {
+      notifyOperator(`Частично отправлено: успешно ${sentCount}, с ошибкой ${failedCount}`, 'error');
+    } else {
+      notifyOperator(`Отправлено: ${sentCount}`);
+    }
   }
 
   const reloadEngine = useCallback(async () => {
@@ -4737,8 +4737,6 @@ export function App() {
     );
   }
 
-  const _headerInlineStatusText = postLoginSyncMsg && /(ошиб|не удалось|недостаточно)/i.test(postLoginSyncMsg) ? postLoginSyncMsg : '';
-
   const quickStartRatings = useMemo(
     () => projectQuickStartRatings(quickStartScores),
     [quickStartScores],
@@ -4892,8 +4890,7 @@ export function App() {
                 await openEngine(r.id);
               } catch (e) {
                 const message = String(e ?? '');
-                setPostLoginSyncMsg(`Ошибка создания двигателя: ${message}`);
-                setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+                notifyOperator(`Ошибка создания двигателя: ${message}`, 'error');
               }
             }}
             canCreate={caps.canEditEngines}
@@ -4918,16 +4915,14 @@ export function App() {
                         }
                         const r = await window.matrica.workOrders.create();
                         if (!r.ok) {
-                          setPostLoginSyncMsg(`Ошибка создания наряда: ${r.error}`);
-                          setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+                          notifyOperator(`Ошибка создания наряда: ${r.error}`, 'error');
                           return;
                         }
                         await openWorkOrder(r.id, {
                           initialPayload: { ...r.payload, workOrderKind: WorkOrderKind.Assembly, assemblyEngineId: engine.id },
                         });
                       } catch (e) {
-                        setPostLoginSyncMsg(`Ошибка создания наряда: ${String(e ?? '')}`);
-                        setTimeout(() => setPostLoginSyncMsg(''), 12_000);
+                        notifyOperator(`Ошибка создания наряда: ${String(e ?? '')}`, 'error');
                       }
                     })();
                   },
@@ -5957,7 +5952,7 @@ export function App() {
               isOnDesktop={isOpenTabOnDesktop}
               onToggleDesktop={toggleOpenTabDesktop}
               onMenuButtonDesktopShortcut={addMenuButtonToDesktop}
-              desktopNotice={desktopNotice}
+              notice={shellNotice}
               secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}
               onCloseSecondary={closeSecondaryCard}

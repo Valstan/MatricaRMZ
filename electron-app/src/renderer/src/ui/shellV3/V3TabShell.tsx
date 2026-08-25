@@ -9,6 +9,7 @@ import { buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from '../shellV2/menuActions.js';
 import type { MenuButtonDescriptor } from '../shellV2/v2ButtonCatalog.js';
 import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
+import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
 import { TieIcon } from '../components/TieIcon.js';
@@ -66,8 +67,8 @@ export function V3TabShell(props: {
   onAction: (id: ActionButtonId) => void;
   /** Ярлык кнопки МЕНЮ на Рабочий стол (контекстное меню и закреп сверху). */
   onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
-  /** Исход действия с ярлыком («добавлен» / «убран» / «лимит») — всплывает над телом вкладки и гаснет сам. */
-  desktopNotice?: string;
+  /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
+  notice?: ShellNotice | null;
   openTabs: OpenTab[];
   activeTabId: string;
   /** Раздел, который подсвечивается в панели МЕНЮ: «где оператор был», а не активная вкладка. */
@@ -472,14 +473,20 @@ export function V3TabShell(props: {
             <div className="v3-menu-overlay">{menuPanel}</div>
           </>
         )}
-        {tabsHintVisible && (
+        {/* Обе плашки висят в одной точке над телом вкладки. Ответ на действие оператора
+            важнее периодического напоминания — на время сообщения напоминание уступает,
+            иначе они наложились бы друг на друга нечитаемой кашей. */}
+        {tabsHintVisible && !props.notice && (
           <div className="v3-tabs-hint" role="status">
             ⚠ Много вкладок — закройте отработанные.
           </div>
         )}
-        {props.desktopNotice && (
-          <div className="v3-tabs-hint v3-desktop-notice" role="status">
-            {props.desktopNotice}
+        {props.notice && (
+          <div
+            className={`v3-tabs-hint v3-shell-notice${props.notice.tone === 'error' ? ' v3-shell-notice-error' : ''}`}
+            role="status"
+          >
+            {props.notice.text}
           </div>
         )}
       </div>

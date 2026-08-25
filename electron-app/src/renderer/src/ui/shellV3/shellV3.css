@@ -239,10 +239,16 @@
   animation: v3-tabs-hint-in 220ms ease-out;
 }
 
-/* Исход действия с ярлыком стола — та же плашка, но не тревожная: это подтверждение. */
-.v3-desktop-notice {
+/* Ответ на действие оператора — та же плашка. По умолчанию не тревожная: это подтверждение. */
+.v3-shell-notice {
   color: var(--text, #0b1220);
   border-color: var(--tie-red, #d92b1f);
+}
+
+/* Отказ или сбой. Тон приходит вызовом (см. shell/shellNotice.ts), а не угадывается по тексту. */
+.v3-shell-notice-error {
+  color: var(--danger, #dc2626);
+  border-color: var(--danger, #dc2626);
 }
 
 @keyframes v3-tabs-hint-in {
