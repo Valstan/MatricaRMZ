@@ -398,6 +398,64 @@ export function desktopRenameFolder(d: UserUiProfileDesktop, folderId: string, n
   return { ...d, folders: d.folders.map((f) => (f.id === folderId ? { ...f, name: trimmed } : f)) };
 }
 
+// ─── Файловые ярлыки (этап D) ────────────────────────────────────────────────
+//
+// Файл на столе — полезная нагрузка ВНУТРИ существующего `link`, а не новое поле ярлыка:
+// поле, не известное санитайзеру, исчезло бы при первом же сохранении, а `link` проходит
+// как есть (см. sanitizeShortcut). Ключ дедупа для него заложен ещё этапом B —
+// desktopShortcutLinkKey отдаёт `file:<fileId>`.
+//
+// Ярлык на столе НЕ даёт доступа к файлу: `ui_profile_json` намеренно не входит в список
+// файло-несущих атрибутов сервера, иначе любой, кто узнал id, выдавал бы файл себе сам
+// (PENDING_FOLLOWUPS §Security п.6). Обычно это незаметно — файл загрузил сам оператор, и
+// его открывает ранняя ветка `createdByUserId`.
+
+export type DesktopFileLink = { kind: 'file'; fileId: string; name: string; mime?: string };
+
+export function desktopFileLink(file: { id: string; name: string; mime?: string | null }): DesktopFileLink {
+  return {
+    kind: 'file',
+    fileId: String(file.id),
+    name: String(file.name ?? '').slice(0, MAX_LABEL) || 'Файл',
+    ...(file.mime ? { mime: String(file.mime).slice(0, 120) } : {}),
+  };
+}
+
+export function desktopFileFromLink(link: unknown): { fileId: string; name: string; mime: string | null } | null {
+  if (typeof link !== 'object' || link == null) return null;
+  const l = link as Record<string, unknown>;
+  if (String(l.kind ?? '') !== 'file') return null;
+  const fileId = String(l.fileId ?? '').trim();
+  if (!fileId) return null;
+  return {
+    fileId,
+    name: String(l.name ?? '').trim() || 'Файл',
+    mime: typeof l.mime === 'string' && l.mime.trim() ? l.mime.trim() : null,
+  };
+}
+
+/** Значок плитки по расширению. Оператор узнаёт документ по виду, а не по подписи. */
+const FILE_ICONS: Array<{ ext: string[]; icon: string }> = [
+  { ext: ['pdf'], icon: '📕' },
+  { ext: ['doc', 'docx', 'rtf', 'odt'], icon: '📘' },
+  { ext: ['xls', 'xlsx', 'xlsm', 'csv', 'ods'], icon: '📗' },
+  { ext: ['ppt', 'pptx', 'odp'], icon: '📙' },
+  { ext: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tif', 'tiff', 'heic'], icon: '🖼️' },
+  { ext: ['zip', 'rar', '7z', 'tar', 'gz'], icon: '🗜️' },
+  { ext: ['txt', 'md', 'log'], icon: '📄' },
+  { ext: ['dwg', 'dxf', 'cdw', 'frw', 'spw', 'step', 'stp', 'igs'], icon: '📐' },
+  { ext: ['mp4', 'avi', 'mkv', 'mov', 'wmv'], icon: '🎬' },
+  { ext: ['mp3', 'wav', 'ogg', 'm4a'], icon: '🎵' },
+];
+
+export function desktopFileIcon(fileName: string): string {
+  const name = String(fileName ?? '');
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (!ext) return '📎';
+  return FILE_ICONS.find((row) => row.ext.includes(ext))?.icon ?? '📎';
+}
+
 // ─── Сетка стола (этап C) ────────────────────────────────────────────────────
 //
 // Координата плитки хранится в ЯЧЕЙКАХ (см. DesktopShortcutPos), а рисуется всегда через

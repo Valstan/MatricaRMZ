@@ -198,6 +198,12 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
     const existing = await db.select().from(fileAssets).where(and(eq(fileAssets.sha256, parsed.data.sha256), isNull(fileAssets.deletedAt))).limit(1);
     if (existing[0]) {
       const row = existing[0] as any;
+      // Как и в /upload: байты совпали — запись чужая, поэтому сразу говорим, откроется ли
+      // она у загрузившего. Молчаливое «ok» здесь оборачивается 403 при первом открытии.
+      const canOpen = await canAccessFile((req as AuthenticatedRequest).user, {
+        id: String(row.id),
+        createdByUserId: row.createdByUserId ?? null,
+      });
       // If it already exists as yandex asset, allow re-upload by returning a fresh uploadUrl
       // (important if a previous init happened but the client didn't finish PUT).
       if (row.storageKind === 'yandex' && row.yandexDiskPath) {
@@ -206,6 +212,8 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
 
         return res.json({
           ok: true,
+          deduped: true,
+          canOpen,
           file: {
             id: row.id,
             name: row.name,
@@ -220,6 +228,8 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
 
       return res.json({
         ok: true,
+        deduped: true,
+        canOpen,
         file: {
           id: row.id,
           name: row.name,
@@ -328,8 +338,17 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
     const existing = await db.select().from(fileAssets).where(and(eq(fileAssets.sha256, sha256), isNull(fileAssets.deletedAt))).limit(1);
     if (existing[0]) {
       const row = existing[0] as any;
+      // Байты совпали — отдаём ЧУЖУЮ запись, владельцем остаётся первый загрузивший.
+      // Поэтому вместе с файлом говорим, сможет ли загрузивший его вообще открыть: иначе
+      // клиент честно рапортует «загружено», а первое же открытие даёт 403, и объяснить
+      // это оператору нечем.
       return res.json({
         ok: true,
+        deduped: true,
+        canOpen: await canAccessFile((req as AuthenticatedRequest).user, {
+          id: String(row.id),
+          createdByUserId: row.createdByUserId ?? null,
+        }),
         file: {
           id: row.id,
           name: row.name,

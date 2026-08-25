@@ -276,11 +276,24 @@ async function uploadPreview(db: BetterSQLite3Database, apiBaseUrl: string, args
   ).catch(() => {});
 }
 
+/**
+ * Сервер отвечает `deduped`/`canOpen`, когда байты совпали с уже загруженным файлом:
+ * тогда возвращается ЧУЖАЯ запись, владельцем остаётся первый загрузивший, и открыть её
+ * загрузивший может не всегда. Старый сервер полей не присылает — молчание читаем как
+ * «обычная загрузка», иначе новый клиент на старом сервере отказывал бы на ровном месте.
+ */
+function uploadOwnership(json: unknown): { deduped?: true; canOpen?: boolean } {
+  if (typeof json !== 'object' || json == null) return {};
+  const j = json as Record<string, unknown>;
+  if (j.deduped !== true) return {};
+  return { deduped: true, canOpen: j.canOpen !== false };
+}
+
 export async function filesUpload(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   args: { path: string; fileName?: string; scope?: UploadScope },
-): Promise<{ ok: true; file: FileRef } | { ok: false; error: string }> {
+): Promise<{ ok: true; file: FileRef; deduped?: true; canOpen?: boolean } | { ok: false; error: string }> {
   try {
     const filePath = String(args.path || '').trim();
     if (!filePath) return { ok: false, error: 'path is empty' };
@@ -342,7 +355,7 @@ export async function filesUpload(
         if (png) await uploadPreview(db, apiBaseUrl, { fileId: file.id, pngBytes: png });
       })();
 
-      return { ok: true, file };
+      return { ok: true, file, ...uploadOwnership(json) };
     }
 
     // Small file: upload to backend (base64)
@@ -377,7 +390,7 @@ export async function filesUpload(
       if (png) await uploadPreview(db, apiBaseUrl, { fileId: file.id, pngBytes: png });
     })();
 
-    return { ok: true, file };
+    return { ok: true, file, ...uploadOwnership(r.json) };
   } catch (e) {
     void logMessage(db, apiBaseUrl, 'error', `file upload error: ${String(e)}`, { component: 'files', action: 'upload' });
     return { ok: false, error: String(e) };

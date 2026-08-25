@@ -6,12 +6,16 @@ import {
   desktopAddFolder,
   desktopDeleteFolder,
   desktopEmptyTrash,
+  desktopFileFromLink,
+  desktopFileIcon,
+  desktopFileLink,
   desktopFolderShortcuts,
   desktopLayoutGrid,
   desktopMoveToFolder,
   desktopMoveToFolderMany,
   desktopMoveToTrash,
   desktopMoveToTrashMany,
+  desktopPutShortcut,
   desktopRenameFolder,
   desktopRenameShortcut,
   desktopRestoreFromTrash,
@@ -26,6 +30,8 @@ import {
 } from '@matricarmz/shared';
 
 import { theme } from '../theme.js';
+import { matricaPlatform } from '../platform.js';
+import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useConfirm } from './ConfirmContext.js';
 
 // MIME-тип DnD внутри рабочего стола: сторонние перетаскивания (файлы из
@@ -68,9 +74,17 @@ export function DesktopPane(props: {
   onOpenLink: (link: unknown, shortcutId: string) => void;
   /** Шаг размера плитки по рейтингу использования. Нет ответа — сегодняшний вид (0). */
   stepOf?: Record<string, number>;
+  /** Право загружать файлы (`files.upload`). Без него стол принимает дроп и объясняет отказ. */
+  canUploadFiles?: boolean;
+  /** Короткое сообщение оператору — тот же единственный канал, что у всей оболочки. */
+  onNotify?: (text: string, tone?: 'info' | 'error') => void;
 }) {
   const { confirm, promptText } = useConfirm();
   const { desktop, onChange } = props;
+  const uploadFlow = useFileUploadFlow();
+  const isAndroid = matricaPlatform() === 'android';
+  const { onNotify } = props;
+  const notify = useCallback((text: string, tone?: 'info' | 'error') => onNotify?.(text, tone), [onNotify]);
   const tileStep = useCallback((shortcutId: string) => props.stepOf?.[shortcutId] ?? 0, [props.stepOf]);
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
@@ -284,6 +298,89 @@ export function DesktopPane(props: {
 
     next = desktopSetPositions(next, updates);
     if (next !== desktop) onChange(next);
+  }
+
+  // ─── файлы из Проводника ──────────────────────────────────────────────────
+  /**
+   * Дроп файлов ОС: путь брошенного файла умеет достать только preload (webUtils), и он же
+   * заносит его в allowlist на 30 минут — renderer произвольный путь подсунуть не может.
+   * Дальше та же обвязка, что у вложений карточки: диалог имени → загрузка с прогрессом.
+   */
+  async function dropFiles(list: FileList, cell: { col: number; row: number } | null) {
+    const files = Array.from(list);
+    if (files.length === 0) return;
+    if (props.canUploadFiles === false) {
+      notify('Загружать файлы вам не разрешено — попросите администратора выдать право.', 'error');
+      return;
+    }
+    const dropped = await window.matrica.files.dropped(files);
+    if (!dropped.ok) {
+      notify(`Не удалось прочитать перетащенное: ${dropped.error}`, 'error');
+      return;
+    }
+    const tasks = await uploadFlow.buildTasks(dropped.paths);
+    if (!tasks || tasks.length === 0) {
+      notify('Загрузка отменена.');
+      return;
+    }
+    const result = await uploadFlow.runUploads(
+      tasks,
+      async (task) => {
+        const up = await window.matrica.files.upload({ path: task.path, fileName: task.fileName });
+        if (!up.ok) return { ok: false as const, error: up.error };
+        // Байты совпали с чужим файлом: сервер вернул чужую запись, и открыть её нельзя.
+        // Плитку, которая не откроется, не кладём вовсе — врать оператору хуже, чем отказать.
+        if (up.deduped && up.canOpen === false) {
+          return { ok: false as const, error: 'такой файл уже загружен другим сотрудником — открыть его вы не сможете' };
+        }
+        return { ok: true as const, value: up.file };
+      },
+      // Один нечитаемый файл не должен рвать всю пачку: остальные должны доехать.
+      { continueOnError: true },
+    );
+
+    let next = desktop;
+    const addedIds: string[] = [];
+    for (const ok of result.successes) {
+      const id = crypto.randomUUID();
+      const put = desktopPutShortcut(
+        next,
+        { id, label: ok.value.name, icon: desktopFileIcon(ok.value.name), link: desktopFileLink(ok.value) },
+        Date.now(),
+      );
+      next = put.desktop;
+      if (put.outcome === 'added') addedIds.push(id);
+      if (put.outcome === 'limit') {
+        notify('На Рабочем столе уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
+        break;
+      }
+    }
+    // Первый файл ложится туда, куда бросили; остальные — на свободные места потоком.
+    if (cell && addedIds[0]) next = desktopSetPositions(next, [{ id: addedIds[0], pos: cell }]);
+    if (next !== desktop) {
+      clearSelection();
+      onChange(next);
+    }
+
+    if (result.failures.length > 0) {
+      const shown = result.failures.slice(0, 3).map((f) => `«${f.task.fileName}» — ${f.error}`);
+      const tail = result.failures.length > 3 ? ` и ещё ${result.failures.length - 3}` : '';
+      notify(`Не легли на стол: ${shown.join('; ')}${tail}`, 'error');
+      return;
+    }
+    if (addedIds.length > 0) notify(`На Рабочий стол легло файлов: ${addedIds.length}.`);
+    else if (result.successes.length > 0) notify('Эти файлы уже лежат на Рабочем столе.');
+  }
+
+  async function saveFileCopy(shortcutId: string) {
+    const file = desktopFileFromLink(desktop.shortcuts.find((s) => s.id === shortcutId)?.link);
+    if (!file) return;
+    const r = await window.matrica.files.copyToFolder({ fileIds: [file.fileId] });
+    if (!r.ok) {
+      if (r.error !== 'cancelled') notify(`Не удалось сохранить копию: ${r.error}`, 'error');
+      return;
+    }
+    notify(`Копия сохранена: «${file.name}».`);
   }
 
   // ─── лассо ────────────────────────────────────────────────────────────────
@@ -564,13 +661,34 @@ export function DesktopPane(props: {
         style={{ height: '100%', overflowY: 'auto', padding: PAD }}
         onPointerDown={onSurfacePointerDown}
         onDragOver={(e) => {
+          // Файлы из Проводника — своя ветка: у них нет нашего MIME, и allowDrop их не пустит.
+          // На планшете путей ОС не существует вовсе, поэтому там дроп не перехватываем.
+          if (!isAndroid && e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'copy';
+            const cell = cellFromPoint(e.clientX, e.clientY);
+            setDropCell((prev) => (prev && cell && prev.col === cell.col && prev.row === cell.row ? prev : cell));
+            return;
+          }
           allowDrop(e, 'surface');
           if (!e.defaultPrevented) return;
           const cell = cellFromPoint(e.clientX, e.clientY);
           setDropCell((prev) => (prev && cell && prev.col === cell.col && prev.row === cell.row ? prev : cell));
         }}
         onDragLeave={() => setDropCell(null)}
-        onDrop={dropOnSurface}
+        onDrop={(e) => {
+          if (!isAndroid && e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            e.stopPropagation();
+            const cell = cellFromPoint(e.clientX, e.clientY);
+            const list = e.dataTransfer.files;
+            setDropCell(null);
+            void dropFiles(list, cell);
+            return;
+          }
+          dropOnSurface(e);
+        }}
       >
         <div
           ref={canvasRef}
@@ -789,6 +907,41 @@ export function DesktopPane(props: {
         </div>
       )}
 
+      {/* Загрузка файлов: полоса прогресса поверх стола и диалог имени файла */}
+      {uploadFlow.progress.active && (
+        <div
+          data-desktop-upload
+          style={{
+            position: 'absolute',
+            left: 16,
+            right: 16,
+            bottom: 12,
+            padding: '8px 12px',
+            border: `1px solid ${theme.colors.border}`,
+            borderRadius: 10,
+            background: theme.colors.surface,
+            boxShadow: theme.colors.chatMenuShadow,
+            zIndex: 7,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: theme.colors.text }}>
+            <span>{uploadFlow.progress.label}</span>
+            <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+          </div>
+          <div style={{ marginTop: 6, height: 4, borderRadius: 999, background: theme.colors.surface2 }}>
+            <div
+              style={{
+                height: '100%',
+                borderRadius: 999,
+                width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
+                background: theme.colors.borderStrong,
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {uploadFlow.renameDialog}
+
       {/* Контекстное меню */}
       {ctxMenu && (
         <div
@@ -839,6 +992,15 @@ export function DesktopPane(props: {
                 />
               ) : (
                 <>
+                  {desktopFileFromLink(desktop.shortcuts.find((x) => x.id === ctxMenu.id)?.link) ? (
+                    <CtxItem
+                      label="💾 Сохранить копию"
+                      onClick={() => {
+                        setCtxMenu(null);
+                        void saveFileCopy(ctxMenu.id);
+                      }}
+                    />
+                  ) : null}
                   <CtxItem
                     label="✏️ Переименовать"
                     onClick={() => {
@@ -847,7 +1009,13 @@ export function DesktopPane(props: {
                     }}
                   />
                   <CtxItem
-                    label={selected.size > 1 ? `🗑 Удалить выделенные (${selected.size})` : '🗑 Удалить (в корзину)'}
+                    label={
+                      selected.size > 1
+                        ? `🗑 Убрать выделенные (${selected.size})`
+                        : desktopFileFromLink(desktop.shortcuts.find((x) => x.id === ctxMenu.id)?.link)
+                          ? '🗑 Убрать ярлык (файл останется)'
+                          : '🗑 Удалить (в корзину)'
+                    }
                     onClick={() => {
                       setCtxMenu(null);
                       if (selected.size > 1 && selected.has(ctxMenu.id)) void trashSelection();

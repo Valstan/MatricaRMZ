@@ -2309,8 +2309,11 @@ export type MatricaApi = {
 
   files: {
     // Загружает файл на сервер (сервер сам решает: локально или Яндекс.Диск).
+    // `deduped`/`canOpen` приходят, когда байты совпали с уже загруженным файлом: сервер
+    // отдаёт ЧУЖУЮ запись, владелец остаётся прежним, и открыть её загрузивший может не
+    // всегда. Поля необязательные — старый сервер их не присылает.
     upload: (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<
-      { ok: true; file: FileRef } | { ok: false; error: string }
+      { ok: true; file: FileRef; deduped?: true; canOpen?: boolean } | { ok: false; error: string }
     >;
     // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).
     pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
