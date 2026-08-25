@@ -362,9 +362,19 @@ const TABLES: TableSpec[] = [
     ],
   },
   {
+    // Служебная таблица — уровень доступа как у прочих служебных (пользователи, права,
+    // настройки клиентов), а не `files.view`, который есть у любого оператора.
+    //
+    // Дело не в содержимом строк, а в СПИСКЕ id. Право читать файл сервер выводит из
+    // контекста, в котором id встретился, и часть таких контекстов пишет сам проситель
+    // (PENDING_FOLLOWUPS §Security п.6) — то есть вся защита держалась на «id ещё надо
+    // где-то узнать». Конструктор отчётов раздавал их списком любому оператору, включая
+    // id файлов, которых нет ни на одной карточке: файлы из чужого чата, картинки чужих
+    // заметок, файлы с чужого Рабочего стола. Админ здесь ничего не выигрывает — он
+    // проходит проверку доступа к файлу безусловно.
     name: 'file_assets',
     label: 'Файлы',
-    permission: [PermissionCode.FilesView],
+    permission: [PermissionCode.AdminUsersManage],
     table: fileAssets,
     columns: [
       { id: 'id', label: 'ID', type: 'string', col: fileAssets.id },
@@ -564,6 +574,21 @@ export function allowedForTable(perms: Record<string, boolean>, table: TableSpec
   return table.permission.some((p) => perms[p] === true);
 }
 
+/** Каталог источников для конструктора — ровно то, из чего этот актор вправе строить. */
+export function builderMetaTables(perms: Record<string, boolean>): Array<{
+  name: string;
+  label: string;
+  columns: Array<{ id: string; label: string; type: ColumnSpec['type'] }>;
+}> {
+  return TABLES.filter((t) => allowedForTable(perms, t))
+    .map((t) => ({
+      name: t.name,
+      label: t.label,
+      columns: visibleColumns(t).map(({ id, label, type }) => ({ id, label, type })),
+    }))
+    .filter((t) => t.columns.length > 0);
+}
+
 // EAV PII backstop: the attribute_values table exposes valueJson for every
 // attribute, including sensitive employee fields (salary/passport/inn/snils).
 // The column-id denylist (isHiddenColumn) hides column NAMES, not row values, so
@@ -677,16 +702,16 @@ function renderHtml(tables: ReportBuilderPreviewTable[]): string {
   return `<!doctype html><html><head><meta charset="utf-8"/><style>body{font-family:Arial,sans-serif;font-size:12px}table{border-collapse:collapse;width:100%;margin-bottom:24px}th,td{border:1px solid #ddd;padding:6px;text-align:left}th{background:#f3f4f6}</style></head><body>${sections}</body></html>`;
 }
 
-reportsRouter.get('/builder/meta', async (_req, res) => {
+reportsRouter.get('/builder/meta', async (req, res) => {
   try {
-    return res.json({
-      ok: true,
-      tables: TABLES.map((t) => ({
-        name: t.name,
-        label: t.label,
-        columns: visibleColumns(t).map(({ id, label, type }) => ({ id, label, type })),
-      })).filter((t) => t.columns.length > 0),
-    });
+    // Каталог фильтруется теми же правами, что и выборка. Раньше он не смотрел на актора
+    // вовсе: превью честно отказывало, а список источников всё равно показывал оператору
+    // и «Файлы», и `refresh_tokens`, и `chat_messages` — вместе с их колонками. Смена
+    // права у одной таблицы без этого фильтра ничего бы не изменила на глаз: строка
+    // осталась бы в списке и отвечала бы отказом при попытке построить отчёт.
+    const actor = (req as AuthenticatedRequest).user;
+    const perms = actor?.id ? await getEffectivePermissionsForUser(String(actor.id)) : {};
+    return res.json({ ok: true, tables: builderMetaTables(perms) });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
