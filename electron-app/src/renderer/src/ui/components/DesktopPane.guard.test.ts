@@ -79,6 +79,16 @@ describe('раскладка считается доменом, а не вёрс
     expect(PANE).not.toContain('fontSize: 30');
   });
 
+  it('шаг приходит снаружи — компонент не решает размер сам', () => {
+    expect(PANE).toContain('stepOf?: Record<string, number>');
+    expect(PANE).toContain('props.stepOf?.[shortcutId] ?? 0');
+  });
+
+  it('открытие ярлыка сообщает наверх ЕГО id — иначе счётчику нечего считать', () => {
+    expect(PANE).toContain('onOpenLink: (link: unknown, shortcutId: string) => void');
+    expect(PANE).not.toContain('props.onOpenLink(s.link)');
+  });
+
   it('число колонок меряется по факту — стол резиновый', () => {
     expect(PANE).toContain('ResizeObserver');
   });

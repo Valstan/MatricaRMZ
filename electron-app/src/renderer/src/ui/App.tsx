@@ -58,14 +58,21 @@ import {
   type V3Session,
   type WorkTab,
   createEmptyDesktop,
+  createEmptyDesktopUsage,
   desktopMigrateQuickStart,
   desktopMoveToTrash,
   desktopPutShortcut,
   desktopShortcutLinkKey,
   desktopToggleShortcut,
+  desktopUsageAdd,
+  desktopUsageBump,
+  desktopUsageKeepOnly,
+  desktopUsageSteps,
   sanitizeDesktopSection,
+  sanitizeDesktopUsageSection,
   type DesktopPutOutcome,
   type DesktopToggleOutcome,
+  type DesktopUsage,
   type UserUiProfileDesktop,
 } from '@matricarmz/shared';
 
@@ -345,6 +352,14 @@ function isEditingAField() {
 function quickStartRatingsStorageKey(userId: string) {
   return `matrica:history:quick-start-ratings:${userId}`;
 }
+
+/** Несвёрнутые открытия ярлыков: копятся локально между редкими записями профиля. */
+function desktopUsagePendingStorageKey(userId: string) {
+  return `matrica:desktop:usage-pending:${userId}`;
+}
+
+/** Как редко свёртка уезжает наверх. Одна запись профиля = две строки ledger (M79). */
+const DESKTOP_USAGE_FOLD_MS = 5 * 60_000;
 
 // Default «Табель» shortcut in «Мой круг»: seeded once per client (this flag), so the
 // client can later remove the tile (right-click → «Убрать из избранного») and it stays
@@ -964,6 +979,11 @@ export function App() {
   // Ref обновляет сам App на каждом рендере — он не замораживается.
   const desktopUiRef = useRef(desktopUi);
   desktopUiRef.current = desktopUi;
+  // Рейтинг ярлыков. Свёрнутый счёт роумится секцией `desktopUsage`, а открытия с прошлой
+  // свёртки лежат в ref и в localStorage: «плюс один на каждое открытие» превратил бы
+  // редкую запись профиля в поток (грабля M79).
+  const [desktopUsage, setDesktopUsage] = useState<DesktopUsage>(() => createEmptyDesktopUsage());
+  const desktopUsagePendingRef = useRef<DesktopUsage>(createEmptyDesktopUsage());
   // Шаблоны фильтров отчётов (этап 6.3, 19.08б): локальный блоб main-процесса
   // зеркалируется в секцию `reportFilterTemplates` профиля — снимок для пуша.
   const [reportTemplatesSnap, setReportTemplatesSnap] = useState<Record<string, unknown> | null>(null);
@@ -1883,6 +1903,9 @@ export function App() {
             // У этого пользователя стола на сервере нет — не показывать чужой.
             setDesktopUi(createEmptyDesktop());
           }
+          const usageSection = sanitizeDesktopUsageSection(p.desktopUsage);
+          setDesktopUsage(usageSection ?? createEmptyDesktopUsage());
+          if (usageSection) uiProfileKeySigsRef.current.desktopUsage = JSON.stringify(usageSection);
           // Шаблоны фильтров отчётов: серверная секция гидрирует локальный блоб
           // main-процесса (LWW секцией решает сервер), затем снимок перечитывается.
           const tplSection = p.reportFilterTemplates as Record<string, unknown> | undefined;
@@ -1965,6 +1988,10 @@ export function App() {
     // GET (ready-гейт выше), так что серверный стол уже применён и затереть его
     // дефолтом нельзя.
     snapshot.desktop = desktopUi;
+    // Счётчик использования — своей секцией. В снимок попадает только СВЁРНУТОЕ значение:
+    // открытия копятся локально и вливаются сюда раз в несколько минут. Пустой счётчик не
+    // пушим вовсе — иначе каждый вход стоил бы записи профиля ни за что.
+    if (Object.keys(desktopUsage.buckets).length > 0) snapshot.desktopUsage = desktopUsage;
     // Шаблоны фильтров отчётов: снимок из main (null до первой выгрузки — не пушим).
     if (reportTemplatesSnap != null) snapshot.reportFilterTemplates = reportTemplatesSnap;
     const keySigs: Record<string, string> = {};
@@ -2013,6 +2040,7 @@ export function App() {
     uiProfilePushNonce,
     columnLayoutsNonce,
     desktopUi,
+    desktopUsage,
     reportTemplatesSnap,
   ]);
 
@@ -2140,6 +2168,54 @@ export function App() {
       // ignore localStorage issues
     }
   }, [authStatus.loggedIn, authStatus.user?.id, quickStartScores]);
+
+  // Несвёрнутые открытия ярлыков переживают перезапуск клиента: свёртка редкая, и терять
+  // накопленное при закрытии окна нельзя — счётчик тем и полезен, что непрерывен.
+  useEffect(() => {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) {
+      desktopUsagePendingRef.current = createEmptyDesktopUsage();
+      setDesktopUsage(createEmptyDesktopUsage());
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(desktopUsagePendingStorageKey(userId));
+      desktopUsagePendingRef.current = raw
+        ? sanitizeDesktopUsageSection(JSON.parse(raw) as unknown) ?? createEmptyDesktopUsage()
+        : createEmptyDesktopUsage();
+    } catch {
+      desktopUsagePendingRef.current = createEmptyDesktopUsage();
+    }
+  }, [authStatus.loggedIn, authStatus.user?.id]);
+
+  /** Свёртка: накопленное вливается в роумящийся счёт одной записью профиля. */
+  const foldDesktopUsage = useCallback(() => {
+    const pending = desktopUsagePendingRef.current;
+    if (Object.keys(pending.buckets).length === 0) return;
+    const now = Date.now();
+    desktopUsagePendingRef.current = createEmptyDesktopUsage();
+    const userId = String(authStatus.user?.id ?? '').trim();
+    if (userId) {
+      try {
+        window.localStorage.removeItem(desktopUsagePendingStorageKey(userId));
+      } catch {
+        // ignore localStorage issues
+      }
+    }
+    const liveIds = desktopUiRef.current.shortcuts.filter((s) => s.deletedAt == null).map((s) => s.id);
+    setDesktopUsage((prev) => desktopUsageKeepOnly({ ...desktopUsageAdd(prev, pending, now), foldedAt: now }, liveIds));
+  }, [authStatus.user?.id]);
+
+  // Собственный таймер: общий push-эффект просыпается только по своим зависимостям, а
+  // счётчик в них не входит — «редкий пуш» внутри него не случился бы никогда.
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    const timer = window.setInterval(foldDesktopUsage, DESKTOP_USAGE_FOLD_MS);
+    return () => {
+      window.clearInterval(timer);
+      foldDesktopUsage();
+    };
+  }, [authStatus.loggedIn, foldDesktopUsage]);
 
   useEffect(() => {
     let alive = true;
@@ -2874,6 +2950,30 @@ export function App() {
     );
   }
 
+  /** Ярлык открыли — плюс один в локальный счёт; наверх он уедет свёрткой по таймеру. */
+  function bumpDesktopUsage(shortcutId: string) {
+    desktopUsagePendingRef.current = desktopUsageBump(desktopUsagePendingRef.current, shortcutId, Date.now());
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) return;
+    try {
+      window.localStorage.setItem(desktopUsagePendingStorageKey(userId), JSON.stringify(desktopUsagePendingRef.current));
+    } catch {
+      // ignore localStorage issues
+    }
+  }
+
+  /**
+   * Новый ярлык стартует с шага 0, а не со дна распределения: одно синтетическое открытие
+   * при создании. Ярлык ищется по ключу ссылки — тумблер мог вернуть из корзины СВОЙ
+   * прежний ярлык, и сгенерированный только что id к нему отношения не имеет.
+   */
+  function seedDesktopUsage(next: UserUiProfileDesktop, link: unknown) {
+    const key = desktopShortcutLinkKey(link);
+    if (key == null) return;
+    const s = next.shortcuts.find((x) => x.deletedAt == null && desktopShortcutLinkKey(x.link) === key);
+    if (s) bumpDesktopUsage(s.id);
+  }
+
   function toggleOpenTabDesktop(openTab: OpenTab) {
     const link = desktopLinkForOpenTab(openTab);
     if (!link) return;
@@ -2883,6 +2983,7 @@ export function App() {
       Date.now(),
     );
     setDesktopUi(r.desktop);
+    if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
     announceDesktopOutcome(r.outcome, openTab.label);
   }
 
@@ -2894,6 +2995,7 @@ export function App() {
         : { kind: 'app_link', tab: btn.id as ChatDeepLinkPayload['tab'], breadcrumbs: [btn.label] };
     const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label: btn.label, icon: btn.icon, link }, Date.now());
     setDesktopUi(r.desktop);
+    if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
     announceDesktopOutcome(r.outcome, btn.label);
   }
 
@@ -2901,6 +3003,7 @@ export function App() {
     const link: ChatDeepLinkPayload = { kind: 'app_link', tab: 'report_preset', reportPresetId: presetId, breadcrumbs: [title] };
     const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label: title, icon: '📊', link }, Date.now());
     setDesktopUi(r.desktop);
+    if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
     announceDesktopOutcome(r.outcome, title);
   }
 
@@ -2914,6 +3017,19 @@ export function App() {
   }
 
   const liveDesktopShortcuts = useMemo(() => desktopUi.shortcuts.filter((s) => s.deletedAt == null), [desktopUi]);
+
+  // Шаг размера считается по СВЁРНУТОМУ счёту, а не по свежим кликам: иначе плитка меняла
+  // бы размер прямо под курсором оператора. Распределение строится по ярлыкам стола —
+  // содержимое папок в нём не участвует и рисуется дефолтным шагом.
+  const desktopTileSteps = useMemo(
+    () =>
+      desktopUsageSteps(
+        desktopUsage,
+        liveDesktopShortcuts.filter((s) => s.folderId == null).map((s) => s.id),
+        Date.now(),
+      ),
+    [desktopUsage, liveDesktopShortcuts],
+  );
   const desktopReportPresetIds = useMemo(
     () =>
       liveDesktopShortcuts
@@ -4076,6 +4192,7 @@ export function App() {
     const icon = TAB_VISUALS[String(link?.tab ?? '') as MenuTabId]?.icon ?? '🔗';
     const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label, icon, link }, Date.now());
     setDesktopUi(r.desktop);
+    if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
     announceDesktopOutcome(r.outcome, label);
   }
 
@@ -5822,7 +5939,11 @@ export function App() {
         <DesktopPane
           desktop={desktopUi}
           onChange={setDesktopUi}
-          onOpenLink={(link) => { void navigateDeepLink(link as ChatDeepLinkPayload); }}
+          stepOf={desktopTileSteps}
+          onOpenLink={(link, shortcutId) => {
+            bumpDesktopUsage(shortcutId);
+            void navigateDeepLink(link as ChatDeepLinkPayload);
+          }}
         />
       </div>
     </div>

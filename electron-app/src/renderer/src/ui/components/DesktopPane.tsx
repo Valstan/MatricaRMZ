@@ -43,11 +43,6 @@ type CtxMenu =
 
 type Lasso = { x0: number; y0: number; x1: number; y1: number };
 
-/** Шаг размера плитки. Пока один на всех; рейтинг подставит свой (этап C, вторая половина). */
-function tileStep(_shortcutId: string): number {
-  return 0;
-}
-
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
@@ -70,10 +65,13 @@ export function DesktopPane(props: {
   desktop: UserUiProfileDesktop;
   onChange: (next: UserUiProfileDesktop) => void;
   /** Открыть ярлык (deep-link). Ярлык без link просто ничего не делает. */
-  onOpenLink: (link: unknown) => void;
+  onOpenLink: (link: unknown, shortcutId: string) => void;
+  /** Шаг размера плитки по рейтингу использования. Нет ответа — сегодняшний вид (0). */
+  stepOf?: Record<string, number>;
 }) {
   const { confirm, promptText } = useConfirm();
   const { desktop, onChange } = props;
+  const tileStep = useCallback((shortcutId: string) => props.stepOf?.[shortcutId] ?? 0, [props.stepOf]);
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
@@ -134,7 +132,7 @@ export function DesktopPane(props: {
         })),
         cols,
       }),
-    [desktop.folders, surface, cols],
+    [desktop.folders, surface, cols, tileStep],
   );
   const placeById = useMemo(() => new Map(grid.shortcuts.map((p) => [p.id, p])), [grid]);
 
@@ -427,7 +425,7 @@ export function DesktopPane(props: {
         onDragEnd={endDrag}
         onClick={(e) => selectOne(s.id, e.ctrlKey || e.metaKey)}
         onDoubleClick={() => {
-          if (s.link != null) props.onOpenLink(s.link);
+          if (s.link != null) props.onOpenLink(s.link, s.id);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -826,7 +824,7 @@ export function DesktopPane(props: {
                     label="↗ Открыть"
                     onClick={() => {
                       setCtxMenu(null);
-                      props.onOpenLink(s.link);
+                      props.onOpenLink(s.link, s.id);
                     }}
                   />
                 ) : null;
