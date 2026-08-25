@@ -22,7 +22,8 @@ const CASES: Array<{ file: string; anchors: string[] }> = [
   // вкладок (#494, 2026-08-07) сняло кнопку, обработчик остался осиротевшим пропом, и
   // режим стал недостижим кликом при полностью живом коде. Якорь держит эту связь.
   // v3-tab-desktop — галстук «На Рабочий стол» (этап B), пришёл на место звезды «Быстрого запуска».
-  { file: '../shellV3/V3TabShell.tsx', anchors: ['v3-tab-strip', 'v3-tab-close', 'v3-tab-menu', 'v3-logo', 'v3-sync-btn', 'v3-tab-label', 'v3-tab-split', 'v3-tab-desktop'] },
+  // v3-shell-notice — единственная плашка сообщений оператору; на ней стоят смоуки.
+  { file: '../shellV3/V3TabShell.tsx', anchors: ['v3-tab-strip', 'v3-tab-close', 'v3-tab-menu', 'v3-logo', 'v3-sync-btn', 'v3-tab-label', 'v3-tab-split', 'v3-tab-desktop', 'v3-shell-notice'] },
   { file: '../shellV2/ButtonPanel.tsx', anchors: ['v2-menu-btn-label', 'v2-button-panel'] },
   { file: '../pages/EnginesPage.tsx', anchors: ['mx-page-toolbar'] },
   { file: '../pages/WorkOrdersPage.tsx', anchors: ['mx-page-toolbar'] },
