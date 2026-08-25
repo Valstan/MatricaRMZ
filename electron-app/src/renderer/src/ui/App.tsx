@@ -59,6 +59,7 @@ import {
   type WorkTab,
   createEmptyDesktop,
   createEmptyDesktopUsage,
+  desktopFileFromLink,
   desktopMigrateQuickStart,
   desktopMoveToTrash,
   desktopPutShortcut,
@@ -3835,6 +3836,29 @@ export function App() {
   async function navigateDeepLink(link: ChatDeepLinkPayload) {
     return await navigateToRoute(resolveDeepLinkRoute(link));
   }
+
+  /**
+   * Двойной клик по плитке стола. Файловый ярлык открывает файл в системе, остальные —
+   * переходят на экран. Ярлык на столе доступа к файлу НЕ даёт (`ui_profile_json` не
+   * входит в файло-несущие атрибуты сервера), поэтому отказ здесь — штатный исход, и
+   * оператору его надо назвать словами, а не сырым «meta HTTP 403».
+   */
+  async function openDesktopShortcut(link: unknown) {
+    const file = desktopFileFromLink(link);
+    if (!file) {
+      await navigateDeepLink(link as ChatDeepLinkPayload);
+      return;
+    }
+    const r = await window.matrica.files.open({ fileId: file.fileId }).catch((e) => ({ ok: false as const, error: String(e) }));
+    if (r.ok) return;
+    const error = String(r.error);
+    const text = /403/.test(error)
+      ? `Файл «${file.name}» вам недоступен: он принадлежит другому сотруднику. Попросите приложить его к нужной карточке.`
+      : /404/.test(error)
+        ? `Файла «${file.name}» больше нет в программе — видимо, его удалили. Ярлык можно убрать со стола.`
+        : `Не удалось открыть «${file.name}»: ${error}`;
+    notifyOperator(text, 'error');
+  }
   navigateDeepLinkRef.current = navigateDeepLink;
 
   useEffect(() => {
@@ -5940,9 +5964,11 @@ export function App() {
           desktop={desktopUi}
           onChange={setDesktopUi}
           stepOf={desktopTileSteps}
+          canUploadFiles={caps.canUploadFiles}
+          onNotify={notifyOperator}
           onOpenLink={(link, shortcutId) => {
             bumpDesktopUsage(shortcutId);
-            void navigateDeepLink(link as ChatDeepLinkPayload);
+            void openDesktopShortcut(link);
           }}
         />
       </div>

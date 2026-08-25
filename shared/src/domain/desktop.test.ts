@@ -11,6 +11,9 @@ import {
   desktopAddShortcut,
   desktopDeleteFolder,
   desktopEmptyTrash,
+  desktopFileFromLink,
+  desktopFileIcon,
+  desktopFileLink,
   desktopFolderShortcuts,
   desktopLayoutGrid,
   desktopLiveShortcutCount,
@@ -333,6 +336,54 @@ describe('переезд «Быстрого запуска» в ярлыки', (
     const d = desktopMigrateQuickStart(createEmptyDesktop(), [], NOW);
     expect(d.shortcuts).toEqual([]);
     expect(d.shortcutsMigratedAt).toBe(NOW);
+  });
+});
+
+describe('файловый ярлык', () => {
+  it('ссылка собирается и разбирается кругом', () => {
+    const link = desktopFileLink({ id: 'f-1', name: 'Акт.pdf', mime: 'application/pdf' });
+    expect(link).toEqual({ kind: 'file', fileId: 'f-1', name: 'Акт.pdf', mime: 'application/pdf' });
+    expect(desktopFileFromLink(link)).toEqual({ fileId: 'f-1', name: 'Акт.pdf', mime: 'application/pdf' });
+  });
+
+  it('mime необязателен и не превращается в undefined-поле', () => {
+    const link = desktopFileLink({ id: 'f-2', name: 'x.txt', mime: null });
+    expect('mime' in link).toBe(false);
+    expect(desktopFileFromLink(link)?.mime).toBeNull();
+  });
+
+  it('файловая ссылка переживает санитайзер целиком — иначе ярлык потеряет файл', () => {
+    const link = desktopFileLink({ id: 'f-3', name: 'Чертёж.dwg' });
+    const raw = {
+      shortcuts: [{ id: 's1', label: 'Чертёж.dwg', icon: '📐', folderId: null, deletedAt: null, createdAt: NOW, link }],
+      folders: [],
+      layout: {},
+    };
+    expect(sanitizeDesktopSection(raw)?.shortcuts[0]?.link).toEqual(link);
+  });
+
+  it('не файл — не разбирается', () => {
+    expect(desktopFileFromLink({ kind: 'app_link', tab: 'engines' })).toBeNull();
+    expect(desktopFileFromLink({ kind: 'file' })).toBeNull();
+    expect(desktopFileFromLink({ kind: 'file', fileId: '  ' })).toBeNull();
+    expect(desktopFileFromLink(null)).toBeNull();
+  });
+
+  it('два ярлыка на один файл — один ключ дедупа, на разные файлы — разные', () => {
+    const a = desktopFileLink({ id: 'f-1', name: 'Акт.pdf' });
+    const b = desktopFileLink({ id: 'f-1', name: 'Акт (копия).pdf' });
+    expect(desktopShortcutLinkKey(a)).toBe(desktopShortcutLinkKey(b));
+    expect(desktopShortcutLinkKey(desktopFileLink({ id: 'f-2', name: 'Акт.pdf' }))).not.toBe(desktopShortcutLinkKey(a));
+  });
+
+  it('значок узнаёт документ по расширению, незнакомое — скрепка', () => {
+    expect(desktopFileIcon('Акт.pdf')).toBe('📕');
+    expect(desktopFileIcon('ВЕДОМОСТЬ.XLSX')).toBe('📗');
+    expect(desktopFileIcon('фото.jpeg')).toBe('🖼️');
+    expect(desktopFileIcon('вал.cdw')).toBe('📐');
+    expect(desktopFileIcon('файл.неведомо')).toBe('📎');
+    expect(desktopFileIcon('без-расширения')).toBe('📎');
+    expect(desktopFileIcon('.gitignore')).toBe('📎');
   });
 });
 
