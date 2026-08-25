@@ -434,6 +434,35 @@ export function desktopFileFromLink(link: unknown): { fileId: string; name: stri
   };
 }
 
+export type DesktopFileShortcut = {
+  shortcutId: string;
+  fileId: string;
+  /** Имя файла на момент загрузки. */
+  name: string;
+  mime: string | null;
+  /** Подпись плитки — её оператор мог переименовать, и на столе он видит именно её. */
+  label: string;
+};
+
+/**
+ * Живые файловые ярлыки — и со стола, и из папок; корзина не в счёт.
+ *
+ * Нужны карточке: вложения она забирает СО СТОЛА сама, своим обычным механизмом. Обратное
+ * направление (стол пишет в карточку) не работает — у трёх карточек из девяти список
+ * вложений живёт в памяти открытой карточки и уходит в БД снимком при закрытии, то есть
+ * внешняя запись потерялась бы молча.
+ */
+export function desktopLiveFileShortcuts(d: UserUiProfileDesktop): DesktopFileShortcut[] {
+  const out: DesktopFileShortcut[] = [];
+  for (const s of d.shortcuts) {
+    if (s.deletedAt != null) continue;
+    const file = desktopFileFromLink(s.link);
+    if (!file) continue;
+    out.push({ shortcutId: s.id, fileId: file.fileId, name: file.name, mime: file.mime, label: s.label });
+  }
+  return out;
+}
+
 /** Значок плитки по расширению. Оператор узнаёт документ по виду, а не по подписи. */
 const FILE_ICONS: Array<{ ext: string[]; icon: string }> = [
   { ext: ['pdf'], icon: '📕' },

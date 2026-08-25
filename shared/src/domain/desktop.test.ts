@@ -16,6 +16,7 @@ import {
   desktopFileLink,
   desktopFolderShortcuts,
   desktopLayoutGrid,
+  desktopLiveFileShortcuts,
   desktopLiveShortcutCount,
   desktopMigrateQuickStart,
   desktopMoveToFolder,
@@ -374,6 +375,29 @@ describe('файловый ярлык', () => {
     const b = desktopFileLink({ id: 'f-1', name: 'Акт (копия).pdf' });
     expect(desktopShortcutLinkKey(a)).toBe(desktopShortcutLinkKey(b));
     expect(desktopShortcutLinkKey(desktopFileLink({ id: 'f-2', name: 'Акт.pdf' }))).not.toBe(desktopShortcutLinkKey(a));
+  });
+
+  it('карточке видны живые файлы и со стола, и из папок, но не из корзины', () => {
+    let d = createEmptyDesktop();
+    d = desktopAddFolder(d, { id: 'f1', name: 'Ящик' }, NOW);
+    d = desktopAddShortcut(d, { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
+    d = desktopAddShortcut(d, { id: 'b', label: 'В папке.xlsx', icon: '📗', link: desktopFileLink({ id: 'file-b', name: 'В папке.xlsx' }) }, NOW);
+    d = desktopAddShortcut(d, { id: 'c', label: 'Удалённый.txt', icon: '📄', link: desktopFileLink({ id: 'file-c', name: 'Удалённый.txt' }) }, NOW);
+    d = desktopAddShortcut(d, { id: 'tab', label: 'Двигатели', icon: '⚙️', link: { kind: 'app_link', tab: 'engines' } }, NOW);
+    d = desktopMoveToFolder(d, 'b', 'f1');
+    d = desktopMoveToTrash(d, 'c', NOW + 1);
+
+    const files = desktopLiveFileShortcuts(d);
+    expect(files.map((f) => f.fileId)).toEqual(['file-a', 'file-b']);
+    expect(files[0]).toEqual({ shortcutId: 'a', fileId: 'file-a', name: 'Акт.pdf', mime: null, label: 'Акт.pdf' });
+  });
+
+  it('переименованный ярлык отдаёт и подпись со стола, и настоящее имя файла', () => {
+    let d = desktopAddShortcut(createEmptyDesktop(), { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
+    d = desktopRenameShortcut(d, 'a', 'Акт по 41-му');
+    const [file] = desktopLiveFileShortcuts(d);
+    expect(file?.label).toBe('Акт по 41-му');
+    expect(file?.name).toBe('Акт.pdf');
   });
 
   it('значок узнаёт документ по расширению, незнакомое — скрепка', () => {

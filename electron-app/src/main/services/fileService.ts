@@ -428,6 +428,24 @@ async function localPathForFile(downloadDir: string, meta: FileRef): Promise<str
   return join(dir, `${meta.sha256 || meta.id}_${name}`);
 }
 
+/**
+ * Карточка файла по id. Этим же запросом сервер проверяет доступ (403, если читать нельзя),
+ * поэтому вызов годится как гейт: приложить к карточке можно только тот файл, который
+ * оператор и так вправе открыть.
+ */
+export async function filesMeta(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fileId: string },
+): Promise<{ ok: true; file: FileRef } | { ok: false; error: string }> {
+  const fileId = String(args?.fileId || '').trim();
+  if (!fileId) return { ok: false, error: 'fileId is empty' };
+  const res = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
+  if (!res.ok) return { ok: false, error: `meta ${formatHttpError(res)}` };
+  if (!res.json?.ok || !res.json?.file) return { ok: false, error: 'bad meta response' };
+  return { ok: true, file: res.json.file as FileRef };
+}
+
 export async function filesDownload(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

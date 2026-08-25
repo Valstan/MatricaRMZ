@@ -2316,6 +2316,10 @@ export type MatricaApi = {
       { ok: true; file: FileRef; deduped?: true; canOpen?: boolean } | { ok: false; error: string }
     >;
     // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).
+    // Карточка файла по id. Тем же вызовом сервер проверяет ДОСТУП: 403, если файл
+    // читать нельзя. Ярлык на Рабочем столе прав не даёт, поэтому «взять со стола»
+    // обязано спрашивать именно здесь, а не собирать FileRef из подписи плитки.
+    meta: (args: { fileId: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
     pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Скачивает файл в локальную папку кеша (или выбранную пользователем) и возвращает путь.
     download: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
