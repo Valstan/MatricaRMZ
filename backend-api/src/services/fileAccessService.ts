@@ -117,6 +117,49 @@ export function eavRowGrantsFileAccess(row: EavFileRow, fileId: string, has: (pe
   return jsonContainsId(row.valueJson, fileId);
 }
 
+// Заметка разрешает файл только блоком, который ФАЙЛ И ЗНАЧИТ. Тело заметки —
+// свободный JSON, который пишет сам запрашивающий (`POST /notes/upsert` принимает
+// `body: z.array(z.unknown())` и кладёт его как есть с ownerUserId = актор), поэтому
+// «id встретился где-то в теле» означало бы «кто узнал id файла — выдал его себе сам».
+// Это та же граница, что у attrDefHoldsFiles выше, только для другой таблицы.
+export function noteBodyGrantsFileAccess(bodyJson: string | null | undefined, fileId: string): boolean {
+  if (!bodyJson || !fileId || !bodyJson.includes(fileId)) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bodyJson);
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(parsed)) return false;
+  return parsed.some((block) => {
+    if (typeof block !== 'object' || block == null) return false;
+    const b = block as Record<string, unknown>;
+    const kind = String(b.kind ?? '');
+    if (kind !== 'image' && kind !== 'file') return false;
+    return String(b.fileId ?? '') === fileId;
+  });
+}
+
+// Сообщение чата разрешает файл только если оно и есть файл. Ссылка (`deep_link`)
+// несёт `breadcrumbs: string[]` — свободные строки от отправителя, и «id встретился
+// где-то в payload» превращало бы отправку ссылки самому себе в выдачу доступа.
+export function chatPayloadGrantsFileAccess(
+  messageType: string | null | undefined,
+  payloadJson: string | null | undefined,
+  fileId: string,
+): boolean {
+  if (String(messageType ?? '') !== 'file') return false;
+  if (!payloadJson || !fileId || !payloadJson.includes(fileId)) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadJson);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed == null || Array.isArray(parsed)) return false;
+  return String((parsed as Record<string, unknown>).id ?? '') === fileId;
+}
+
 type FileActor = { id: string; role?: string | null };
 type FileRow = { id: string; createdByUserId: string | null };
 
@@ -136,7 +179,7 @@ async function computeFileAccess(actor: FileActor, file: FileRow): Promise<boole
   // many messages (e.g. an admin broadcasting one file individually to many
   // recipients).
   const myChat = await db
-    .select({ payload: chatMessages.payloadJson })
+    .select({ payload: chatMessages.payloadJson, messageType: chatMessages.messageType })
     .from(chatMessages)
     .where(
       and(
@@ -151,18 +194,18 @@ async function computeFileAccess(actor: FileActor, file: FileRow): Promise<boole
     )
     .limit(50);
   for (const row of myChat) {
-    if (jsonContainsId(row.payload, id)) return true;
+    if (chatPayloadGrantsFileAccess(row.messageType, row.payload, id)) return true;
   }
   // Chat admins (clamped to admin/superadmin in getEffectivePermissionsForUser)
   // may read any chat-linked file.
   if (has(PermissionCode.ChatAdminView)) {
     const anyChat = await db
-      .select({ payload: chatMessages.payloadJson })
+      .select({ payload: chatMessages.payloadJson, messageType: chatMessages.messageType })
       .from(chatMessages)
       .where(and(isNull(chatMessages.deletedAt), like(chatMessages.payloadJson, likeArg)))
       .limit(50);
     for (const row of anyChat) {
-      if (jsonContainsId(row.payload, id)) return true;
+      if (chatPayloadGrantsFileAccess(row.messageType, row.payload, id)) return true;
     }
   }
 
@@ -174,7 +217,7 @@ async function computeFileAccess(actor: FileActor, file: FileRow): Promise<boole
     .where(and(isNull(notes.deletedAt), like(notes.bodyJson, likeArg), eq(notes.ownerUserId, actor.id as any)))
     .limit(50);
   for (const n of myNotes) {
-    if (jsonContainsId(n.body, id)) return true;
+    if (noteBodyGrantsFileAccess(n.body, id)) return true;
   }
   const sharedNotes = await db
     .select({ body: notes.bodyJson })
@@ -186,7 +229,7 @@ async function computeFileAccess(actor: FileActor, file: FileRow): Promise<boole
     .where(and(isNull(notes.deletedAt), like(notes.bodyJson, likeArg)))
     .limit(50);
   for (const n of sharedNotes) {
-    if (jsonContainsId(n.body, id)) return true;
+    if (noteBodyGrantsFileAccess(n.body, id)) return true;
   }
 
   // 3) Engine operation attachment (repair checklist / supply request / acts).

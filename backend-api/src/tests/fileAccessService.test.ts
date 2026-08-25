@@ -6,8 +6,10 @@ vi.mock('../database/db.js', () => ({ db: {} }));
 
 import {
   attrDefHoldsFiles,
+  chatPayloadGrantsFileAccess,
   eavRowGrantsFileAccess,
   jsonContainsId,
+  noteBodyGrantsFileAccess,
   permsForEntityTypeCode,
 } from '../services/fileAccessService.js';
 import { PermissionCode } from '../auth/permissions.js';
@@ -142,5 +144,73 @@ describe('fileAccessService.eavRowGrantsFileAccess', () => {
       valueJson: JSON.stringify([{ id: ID, name: 'akt.pdf' }]),
     };
     expect(eavRowGrantsFileAccess(custom, ID, (p) => p === PermissionCode.MasterDataView)).toBe(true);
+  });
+});
+
+// Тело заметки пишет сам запрашивающий: POST /notes/upsert принимает
+// `body: z.array(z.unknown())`, не требует НИКАКОГО права кроме авторизации и кладёт тело
+// как есть с ownerUserId = актор. Пока доступ выводился из «id встретился где-то в теле»,
+// любой сотрудник, узнавший id файла, выдавал его себе сам — та же дыра, что уже закрыта
+// для ui_profile_json (attrDefHoldsFiles), только через другую таблицу.
+describe('fileAccessService.noteBodyGrantsFileAccess', () => {
+  it('grants a real note image block', () => {
+    const body = JSON.stringify([
+      { id: 'b1', kind: 'text', text: 'смотри' },
+      { id: 'b2', kind: 'image', fileId: ID, name: 'shot.png' },
+    ]);
+    expect(noteBodyGrantsFileAccess(body, ID)).toBe(true);
+  });
+
+  it('refuses an id the author dropped into their own note text or link', () => {
+    expect(noteBodyGrantsFileAccess(JSON.stringify([{ id: 'b1', kind: 'text', text: ID }]), ID)).toBe(false);
+    expect(noteBodyGrantsFileAccess(JSON.stringify([{ id: 'b1', kind: 'link', url: ID }]), ID)).toBe(false);
+    expect(noteBodyGrantsFileAccess(JSON.stringify([{ id: 'b1', kind: 'link', label: ID }]), ID)).toBe(false);
+  });
+
+  it('refuses a bare id array — the shortest self-grant', () => {
+    expect(noteBodyGrantsFileAccess(JSON.stringify([ID]), ID)).toBe(false);
+    expect(noteBodyGrantsFileAccess(JSON.stringify([{ fileId: ID }]), ID)).toBe(false);
+  });
+
+  it('refuses an image block whose fileId only mentions the id', () => {
+    expect(noteBodyGrantsFileAccess(JSON.stringify([{ kind: 'image', fileId: `${ID}-thumb` }]), ID)).toBe(false);
+  });
+
+  it('refuses a body that is not the note block array', () => {
+    expect(noteBodyGrantsFileAccess(JSON.stringify({ blocks: [{ kind: 'image', fileId: ID }] }), ID)).toBe(false);
+    expect(noteBodyGrantsFileAccess('{not json', ID)).toBe(false);
+    expect(noteBodyGrantsFileAccess(null, ID)).toBe(false);
+    expect(noteBodyGrantsFileAccess(JSON.stringify([{ kind: 'image', fileId: ID }]), '')).toBe(false);
+  });
+});
+
+// Сообщение чата разрешает файл, только если сообщение и ЕСТЬ файл. Ссылка несёт
+// `breadcrumbs: string[]` — свободные строки от отправителя, и «id встретился где-то в
+// payload» превращало бы отправку ссылки самому себе в выдачу доступа.
+describe('fileAccessService.chatPayloadGrantsFileAccess', () => {
+  const fileRef = JSON.stringify({ id: ID, name: 'akt.pdf', size: 10, mime: null, sha256: 'abc', createdAt: 1 });
+
+  it('grants a real chat file message', () => {
+    expect(chatPayloadGrantsFileAccess('file', fileRef, ID)).toBe(true);
+  });
+
+  it('refuses the very same payload on a non-file message type', () => {
+    expect(chatPayloadGrantsFileAccess('deep_link', fileRef, ID)).toBe(false);
+    expect(chatPayloadGrantsFileAccess('text', fileRef, ID)).toBe(false);
+    expect(chatPayloadGrantsFileAccess(null, fileRef, ID)).toBe(false);
+  });
+
+  it('refuses an id smuggled into deep-link breadcrumbs', () => {
+    const link = JSON.stringify({ kind: 'app_link', tab: 'engines', breadcrumbs: [ID] });
+    expect(chatPayloadGrantsFileAccess('deep_link', link, ID)).toBe(false);
+    // И даже если тип сообщения подменить — payload ссылки не несёт id первым полем.
+    expect(chatPayloadGrantsFileAccess('file', link, ID)).toBe(false);
+  });
+
+  it('refuses a payload that only mentions the id', () => {
+    expect(chatPayloadGrantsFileAccess('file', JSON.stringify({ id: `${ID}-thumb` }), ID)).toBe(false);
+    expect(chatPayloadGrantsFileAccess('file', JSON.stringify([{ id: ID }]), ID)).toBe(false);
+    expect(chatPayloadGrantsFileAccess('file', '{not json', ID)).toBe(false);
+    expect(chatPayloadGrantsFileAccess('file', null, ID)).toBe(false);
   });
 });
