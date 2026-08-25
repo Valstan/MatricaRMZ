@@ -2345,6 +2345,12 @@ export type MatricaApi = {
     dropped: (files: File[]) => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Достаёт из буфера обмена файлы / картинку / текст, сохраняя два последних во временный файл.
     clipboardRead: () => Promise<{ ok: true; paths: string[]; kind: 'files' | 'image' | 'text' } | { ok: false; error: string }>;
+    // Текст из буфера обмена для вставки в поле карточки. В отличие от clipboardRead
+    // ничего не сохраняет и путей не выдаёт — только строка.
+    clipboardText: () => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+    // Спрашивает файл (.txt / .docx) и возвращает ТЕКСТ. Путь наружу не отдаётся намеренно:
+    // иначе получился бы мост «прочитай любой файл с диска».
+    pickText: () => Promise<{ ok: true; text: string; fileName: string } | { ok: false; error: string }>;
     // Планшет: загрузка файла содержимым (пути к файлу у WebView нет).
     uploadBlob: (args: { name: string; mime?: string; dataBase64: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
     // Собирает файлы ЭТОЙ карточки в `<папка загрузок>/Объекты/<имя>` и открывает её в Проводнике.
