@@ -623,7 +623,10 @@ export function buildAllowedTablesFromPerms(perms: Record<string, boolean>): Set
   }
   if (perms['masterdata.view']) allowed.add('directory_workshops');
   if (perms['supply_requests.view'] || perms['work_orders.view']) allowed.add('operations');
-  if (perms['files.view']) allowed.add('file_assets');
+  // Как и в конструкторе отчётов: перечисление id файлов — служебная возможность.
+  // `files.view` есть у любого оператора, а на «id ещё надо узнать» держится защита
+  // доступа к файлу (PENDING_FOLLOWUPS §Security п.6).
+  if (perms['admin.users.manage']) allowed.add('file_assets');
   // B2: erp_contracts / erp_counterparties возвращены в allowlist — с миграции 0084 это
   // триггерные зеркала EAV с реальными данными. erp_employee_cards остаётся вне
   // (пустая до этапа 3), erp_reg_contract_settlement дропнута (0082).

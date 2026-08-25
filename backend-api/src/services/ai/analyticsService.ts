@@ -74,7 +74,10 @@ function buildAccessPolicy(perms: Record<string, boolean>): AccessPolicy {
     allow('attribute_defs');
   }
   if (can('operations.view') || can('supply_requests.view')) allow('operations');
-  if (can('files.view')) allow('file_assets');
+  // Список id файлов — служебный: право читать файл сервер выводит из контекста, а часть
+  // контекстов пишет сам проситель, поэтому бесплатное перечисление id обесценивает защиту
+  // (PENDING_FOLLOWUPS §Security п.6). `files.view` есть у любого оператора — мало.
+  if (can('admin.users.manage')) allow('file_assets');
   if (can('clients.manage')) {
     allow('sync_state');
     allow('ledger_tx_index');
