@@ -7,8 +7,11 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { consumeIssuedPath, rememberIssuedPath } from '../pathOriginRegistry.js';
 
+import { PASTABLE_FILE_DIALOG_FILTERS } from '@matricarmz/shared';
+
 import {
   filesClipboardRead,
+  filesClipboardText,
   filesCopyImageToClipboard,
   filesCopyToFolder,
   filesDelete,
@@ -20,6 +23,7 @@ import {
   filesOpenObjectDir,
   filesOriginalGet,
   filesPreviewGet,
+  filesReadPastableText,
   filesRevealForShare,
   filesUpload,
   photosAssemblePdf,
@@ -76,6 +80,28 @@ export function registerFilesIpc(ctx: IpcContext) {
     if (!r.ok) return r;
     for (const p of r.paths) rememberIssuedPath(p);
     return r;
+  });
+
+  // Права не спрашиваем осознанно: это буфер обмена самого оператора и файл, который он
+  // сам выбрал в диалоге, а текст едет в поле, куда он и так может печатать с клавиатуры.
+  // Запись значения гейтится там, где ей и место, — правом правки карточки.
+  ipcMain.handle('files:clipboardText', async () => filesClipboardText());
+
+  ipcMain.handle('files:pickText', async () => {
+    try {
+      const parent = BrowserWindow.getFocusedWindow();
+      const opts = {
+        title: 'Выберите файл с текстом',
+        properties: ['openFile'] as 'openFile'[],
+        filters: PASTABLE_FILE_DIALOG_FILTERS,
+      };
+      const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
+      const picked = r.filePaths?.[0] ? String(r.filePaths[0]) : '';
+      if (!picked) return { ok: false, error: 'cancelled' };
+      return await filesReadPastableText(picked);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
   });
 
   ipcMain.handle('files:downloadDir:get', async () => {

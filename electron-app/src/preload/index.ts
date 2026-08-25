@@ -717,6 +717,8 @@ const matricaApi = {
         paths: files.map((f) => webUtils.getPathForFile(f)).filter(Boolean),
       }),
     clipboardRead: async () => ipcRenderer.invoke('files:clipboardRead'),
+    clipboardText: async () => ipcRenderer.invoke('files:clipboardText'),
+    pickText: async () => ipcRenderer.invoke('files:pickText'),
     // Планшет: пути к файлу нет, содержимое приходит из Blob (галерея/камера).
     uploadBlob: async (args: { name: string; mime?: string; dataBase64: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
       ipcRenderer.invoke('files:uploadBlob', args),

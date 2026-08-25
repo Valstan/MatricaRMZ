@@ -7,7 +7,13 @@ import { pathToFileURL } from 'node:url';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import JSZip from 'jszip';
 
-import type { FileRef } from '@matricarmz/shared';
+import {
+  classifyPastableFile,
+  decodeTextBytes,
+  docxXmlToText,
+  unsupportedPastableFileMessage,
+  type FileRef,
+} from '@matricarmz/shared';
 import { getSession } from './authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
@@ -19,6 +25,8 @@ const PREVIEW_PDF_RENDER_MS = 900;
 const PREVIEW_TEXT_MAX_BYTES = 220 * 1024;
 const PREVIEW_TEXT_MAX_LINES = 32;
 const PREVIEW_TEXT_MAX_CHARS = 2400;
+const PASTE_SOURCE_MAX_BYTES = 20 * 1024 * 1024;
+const PASTE_TEXT_MAX_CHARS = 500000;
 
 export type UploadScope = { ownerType: string; ownerId: string; category: string };
 
@@ -714,6 +722,53 @@ export async function filesClipboardRead(): Promise<
     }
 
     return { ok: false, error: 'В буфере обмена нет ни файлов, ни картинки, ни текста' };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Текст из буфера обмена для вставки в поле карточки: ничего не сохраняем, отдаём строку. */
+export function filesClipboardText(): { ok: true; text: string } | { ok: false; error: string } {
+  try {
+    const text = clipboard.readText();
+    if (!text.trim()) return { ok: false, error: 'В буфере обмена нет текста' };
+    return { ok: true, text: text.replaceAll('\r\n', '\n').replaceAll('\r', '\n') };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Читает выбранный файл как ТЕКСТ (.txt-подобные и .docx). Путь наружу не отдаётся:
+ * иначе получился бы мост «прочитай любой файл с диска».
+ */
+export async function filesReadPastableText(
+  filePath: string,
+): Promise<{ ok: true; text: string; fileName: string } | { ok: false; error: string }> {
+  const fileName = basename(filePath);
+  const kind = classifyPastableFile(fileName);
+  if (kind === 'unsupported') return { ok: false, error: unsupportedPastableFileMessage(fileName) };
+  try {
+    const st = await fsp.stat(filePath);
+    if (!st.isFile()) return { ok: false, error: 'Это не файл' };
+    if (st.size > PASTE_SOURCE_MAX_BYTES) {
+      return { ok: false, error: `Файл больше ${Math.round(PASTE_SOURCE_MAX_BYTES / (1024 * 1024))} МБ — такой текст в поле не вставляют` };
+    }
+    const buf = await fsp.readFile(filePath);
+    let text: string;
+    if (kind === 'docx') {
+      const zip = await JSZip.loadAsync(buf);
+      const doc = zip.file('word/document.xml');
+      if (!doc) return { ok: false, error: 'Файл .docx повреждён: внутри нет документа' };
+      text = docxXmlToText(await doc.async('string'));
+    } else {
+      text = decodeTextBytes(new Uint8Array(buf));
+    }
+    if (!text.trim()) return { ok: false, error: 'В файле нет текста' };
+    if (text.length > PASTE_TEXT_MAX_CHARS) {
+      return { ok: false, error: 'В файле слишком много текста, чтобы вставить его в поле карточки' };
+    }
+    return { ok: true, text, fileName };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
