@@ -397,3 +397,188 @@ export function desktopRenameFolder(d: UserUiProfileDesktop, folderId: string, n
   if (!trimmed) return d;
   return { ...d, folders: d.folders.map((f) => (f.id === folderId ? { ...f, name: trimmed } : f)) };
 }
+
+// ─── Сетка стола (этап C) ────────────────────────────────────────────────────
+//
+// Координата плитки хранится в ЯЧЕЙКАХ (см. DesktopShortcutPos), а рисуется всегда через
+// раскладку ниже. Разница принципиальная: стол — резиновая половина экрана, число колонок
+// плавает вместе с разделителем, и плитка, лежащая в 8-й колонке, при узком столе просто
+// не имеет своего места. Раскладка в этом случае переносит её на свободное — но
+// СОХРАНЁННУЮ координату не трогает: иначе одно движение разделителя переписало бы стол у
+// всех машин пользователя (каждая запись профиля = две строки в ledger, грабля M79).
+
+/** Шаг размера плитки. Ноль — сегодняшний вид, его метрики менять нельзя. */
+export type DesktopTileStep = -1 | 0 | 1 | 2 | 3 | 4;
+
+/** Ячейка сетки. Вертикального растяжения нет ни на одном шаге — упаковка одномерная. */
+export const DESKTOP_CELL_W = 112;
+export const DESKTOP_CELL_H = 116;
+
+export type DesktopTileMetrics = {
+  step: DesktopTileStep;
+  width: number;
+  icon: number;
+  iconLine: number;
+  label: number;
+  labelLine: number;
+  height: number;
+  /** Сколько ячеек по горизонтали занимает плитка. */
+  cells: 1 | 2;
+};
+
+const TILE_METRICS: Record<DesktopTileStep, DesktopTileMetrics> = {
+  [-1]: { step: -1, width: 76, icon: 24, iconLine: 27, label: 10, labelLine: 12, height: 71, cells: 1 },
+  0: { step: 0, width: 92, icon: 30, iconLine: 34, label: 11, labelLine: 13, height: 80, cells: 1 },
+  1: { step: 1, width: 108, icon: 35, iconLine: 39, label: 12, labelLine: 14, height: 87, cells: 1 },
+  2: { step: 2, width: 124, icon: 40, iconLine: 44, label: 12, labelLine: 14, height: 92, cells: 2 },
+  3: { step: 3, width: 144, icon: 46, iconLine: 50, label: 13, labelLine: 15, height: 100, cells: 2 },
+  4: { step: 4, width: 168, icon: 54, iconLine: 58, label: 14, labelLine: 16, height: 110, cells: 2 },
+};
+
+/** Метрики шага. Значение вне диапазона зажимается — рейтинг считает числами, не литералами. */
+export function desktopTileMetrics(step: number): DesktopTileMetrics {
+  const n = Number.isFinite(step) ? Math.round(step) : 0;
+  const clamped = (n < -1 ? -1 : n > 4 ? 4 : n) as DesktopTileStep;
+  return TILE_METRICS[clamped];
+}
+
+export type DesktopPlacement = { id: string; col: number; row: number; cells: 1 | 2 };
+
+export type DesktopGridInput = {
+  /** Папки в порядке отображения. Координат у папки нет: поле `pos` сегодняшний клиент
+   *  срезал бы санитайзером, а по правилу прививки это стёрло бы раскладку у всех машин
+   *  пользователя. До прививки папки занимают начало сетки потоком. */
+  folderIds: string[];
+  shortcuts: Array<{ id: string; pos?: DesktopShortcutPos | undefined; cells: 1 | 2 }>;
+  cols: number;
+};
+
+export type DesktopGrid = {
+  folders: DesktopPlacement[];
+  shortcuts: DesktopPlacement[];
+  /** Сколько строк занято — высота полотна. */
+  rows: number;
+};
+
+/**
+ * Куда какая плитка ложится при `cols` колонках.
+ *
+ * Порядок разбора: папки → ярлыки с координатой (по строкам сверху вниз, слева направо) →
+ * всё остальное первым свободным местом. Ярлык, чья координата не помещается в текущую
+ * ширину или занята, попадает в последнюю очередь — то есть узкий стол не теряет плиток и
+ * не накладывает их друг на друга.
+ */
+export function desktopLayoutGrid(input: DesktopGridInput): DesktopGrid {
+  const cols = Math.max(1, Math.trunc(input.cols) || 1);
+  const taken = new Set<string>();
+  const key = (row: number, col: number) => `${row}:${col}`;
+
+  /** Плитка шире всего стола занимает столько, сколько есть: иначе места ей не нашлось бы никогда. */
+  const span = (cells: number): 1 | 2 => (Math.min(cells, cols) >= 2 ? 2 : 1);
+
+  function free(row: number, col: number, cells: number): boolean {
+    if (col + cells > cols) return false;
+    for (let i = 0; i < cells; i += 1) if (taken.has(key(row, col + i))) return false;
+    return true;
+  }
+  function occupy(row: number, col: number, cells: number): void {
+    for (let i = 0; i < cells; i += 1) taken.add(key(row, col + i));
+  }
+  function firstFree(cells: number): { row: number; col: number } {
+    for (let row = 0; ; row += 1) {
+      for (let col = 0; col + cells <= cols; col += 1) if (free(row, col, cells)) return { row, col };
+    }
+  }
+
+  const folders: DesktopPlacement[] = [];
+  for (const id of input.folderIds) {
+    const spot = firstFree(1);
+    occupy(spot.row, spot.col, 1);
+    folders.push({ id, col: spot.col, row: spot.row, cells: 1 });
+  }
+
+  const placed = new Map<string, DesktopPlacement>();
+  const positioned = input.shortcuts
+    .filter((s) => s.pos != null)
+    .sort((a, b) => a.pos!.row - b.pos!.row || a.pos!.col - b.pos!.col);
+  for (const s of positioned) {
+    const { row, col } = s.pos!;
+    const cells = span(s.cells);
+    if (!free(row, col, cells)) continue;
+    occupy(row, col, cells);
+    placed.set(s.id, { id: s.id, col, row, cells });
+  }
+
+  const shortcuts: DesktopPlacement[] = [];
+  for (const s of input.shortcuts) {
+    const already = placed.get(s.id);
+    if (already) {
+      shortcuts.push(already);
+      continue;
+    }
+    const cells = span(s.cells);
+    const spot = firstFree(cells);
+    occupy(spot.row, spot.col, cells);
+    shortcuts.push({ id: s.id, col: spot.col, row: spot.row, cells });
+  }
+
+  let rows = 0;
+  for (const p of [...folders, ...shortcuts]) rows = Math.max(rows, p.row + 1);
+  return { folders, shortcuts, rows };
+}
+
+/**
+ * Записать координаты пачкой — одно изменение стола на один жест, а не на плитку.
+ * Совпадающие с текущими координаты не считаются изменением: дроп плитки на её же место
+ * не должен стоить записи профиля.
+ */
+export function desktopSetPositions(
+  d: UserUiProfileDesktop,
+  updates: Array<{ id: string; pos: DesktopShortcutPos }>,
+): UserUiProfileDesktop {
+  const byId = new Map(updates.map((u) => [u.id, u.pos]));
+  let changed = false;
+  const shortcuts = d.shortcuts.map((s) => {
+    const pos = byId.get(s.id);
+    if (!pos) return s;
+    if (s.pos && s.pos.col === pos.col && s.pos.row === pos.row) return s;
+    changed = true;
+    return { ...s, pos };
+  });
+  return changed ? { ...d, shortcuts } : d;
+}
+
+/** Пачка ярлыков — в корзину. Выделение удаляется одним действием, а не N подряд. */
+export function desktopMoveToTrashMany(
+  d: UserUiProfileDesktop,
+  shortcutIds: string[],
+  now: number,
+): UserUiProfileDesktop {
+  const ids = new Set(shortcutIds);
+  if (ids.size === 0) return d;
+  let changed = false;
+  const shortcuts = d.shortcuts.map((s) => {
+    if (!ids.has(s.id) || s.deletedAt != null) return s;
+    changed = true;
+    return { ...s, deletedAt: now, folderId: null };
+  });
+  return changed ? { ...d, shortcuts } : d;
+}
+
+/** Пачка ярлыков — в папку (или на стол при null). Координаты снимаются: место в папке своё. */
+export function desktopMoveToFolderMany(
+  d: UserUiProfileDesktop,
+  shortcutIds: string[],
+  folderId: string | null,
+): UserUiProfileDesktop {
+  const ids = new Set(shortcutIds);
+  if (ids.size === 0) return d;
+  let changed = false;
+  const shortcuts = d.shortcuts.map((s) => {
+    if (!ids.has(s.id) || s.deletedAt != null || s.folderId === folderId) return s;
+    changed = true;
+    const { pos: _pos, ...rest } = s;
+    return { ...rest, folderId };
+  });
+  return changed ? { ...d, shortcuts } : d;
+}

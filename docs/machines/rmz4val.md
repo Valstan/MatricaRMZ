@@ -65,6 +65,20 @@
 - **Изолированный userData стенда:** `C:\Users\Valstan\AppData\Roaming\@matricarmz\electron-app-cdp-9222` (sqlite + `Local Storage`); sidecar сессии — общий `%APPDATA%\MatricaRMZ\auth-session.json` (лежит вне userData и специально переживает пересборку БД).
 - **PG на этой машине поднимается не службой**, а `./.verifier-electron/_startpg.ps1` (pg_ctl); служба `postgresql-x64-17` может быть отключена/не стартовать.
 
+### Порядок подъёма стенда с нуля (проверено 2026-08-25)
+
+1. `powershell -File .verifier-electron/_startpg.ps1` — PG на 5432 (сам скрипт может «висеть» в фоне, порт при этом уже слушает; проверять `Get-NetTCPConnection -LocalPort 5432`).
+2. `powershell -File .claude/skills/verifier-electron/scripts/start-backend.ps1` — порт 3001. **Живость проверять логином, а не `/health`**: `curl -X POST http://127.0.0.1:3001/auth/login -d '{"username":"verify","password":"verify123"}'`. Поле — `username`, НЕ `login` (иначе `fieldErrors.username: Required` и легко решить, что пароль не тот).
+3. better-sqlite3 под Electron-ABI (см. выше), затем `start-electron.ps1 -Cdp`; CDP поднимается ~40 с.
+4. Смоук: `MATRICA_CDP_PORT=9222 node .verifier-electron/<проба>.mjs`.
+
+### Грабли смоук-петли
+
+- **Стенд помнит состояние между прогонами** — и вкладки, и стол. Смоук, закрывший вкладку чата («Рабочий стол» — это она и есть: `chatOpen = hasTab(tabsState,'chat')`), оставляет её закрытой следующему. Проверять **состояние**, а не факт своего клика: «вкладки нет» вместо «я её закрыл».
+- **Стол сеять через `window.matrica.auth.uiProfileSet`** — быстрее и детерминированнее кликов. В посев обязательно класть `shortcutsMigratedAt`, иначе клиент заново посеет «Табель» из легаси-списка и счёт плиток поплывёт.
+- **Родной DnD синтезируется честно:** `new DataTransfer()` в Chromium конструируется, поэтому `dragstart`/`dragover`/`drop`/`dragend` через `new DragEvent(..., { dataTransfer, clientX, clientY })` работают. Лассо — `new PointerEvent` на контейнер + `pointermove`/`pointerup` в `window`.
+- **Профиль уезжает на сервер с дебаунсом 1.5 с** — читать `uiProfileGet` в цикле до ожидаемого значения, а не один раз после `sleep`.
+
 ## Скиллы (как поднимать на этом компе)
 ### verifier-electron (`/verify` Electron)
 - `.env.dev` для `backend-api` и `electron-app` уже есть (PG 5432, `matricarmz_probe`).
