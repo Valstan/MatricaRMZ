@@ -5,7 +5,32 @@
 **Status:** IDLE
 **Updated:** 2026-08-26 (Claude session, машина `rmz4val`)
 **Branch:** `main` = `origin/main`, дерево чистое.
-**Last released version:** **v3.12.0** (выпущен 26.08; предыдущий — v3.11.0).
+**Last released version:** **v3.12.0** — собран и опубликован 26.08, **на прод НЕ выложен** (см. ниже).
+
+## 🔴 Незавершённый выкат v3.12.0 — первое дело следующей сессии
+
+Теги `v3.12.0` и `android-v3.12.0` запушены, обе сборки прошли, релизы на GitHub содержат
+`MatricaRMZ-Setup-3.12.0.exe`, `latest.yml`, `.blockmap` и `app-release.apk`.
+
+**Прод-деплой не выполнен: SSH не отвечает.** Четыре попытки за ~20 минут — «Connection timed
+out during banner exchange». Диагностика: TCP до ssh-порта **встаёт** (значит проброс жив и это
+не пакетная блокировка fail2ban), но баннер sshd не приходит. Похоже на неотвечающий sshd
+(перезагрузка / перегрузка / упавшая служба) — проверяется только из консоли панели хостера.
+Прямого HTTPS до прода с `rmz4val` нет по определению (см. профиль машины), поэтому здоровье
+прода отсюда не проверить.
+
+Парк при этом работает на v3.11.0 — простоя незавершённый выкат не создаёт.
+
+**Что осталось сделать, когда доступ вернётся** (по `AGENTS.md` §Release process, шаги 4–11):
+
+1. `cd ~/MatricaRMZ && git pull --ff-only` + `corepack pnpm -F @matricarmz/shared -F @matricarmz/backend-api -F @matricarmz/web-admin build` (lockfile не менялся — `install` не нужен).
+2. Миграций БД в релизе **нет**, backfill-скриптов нет.
+3. **До рестарта** в `/opt/matricarmz/updates/`: `gh release download v3.12.0 --pattern "*.exe" --pattern "latest.yml"`, затем **отдельным вызовом** `--pattern "*.blockmap"` (M18). Проверить, что легли все три.
+4. Дождаться, пока размер в `latest.json` совпадёт с размером `.exe` на диске (M40).
+5. APK **уже скачан локально** и проверен: 25 010 021 байт, лежит в скретчпаде сессии; если скретчпад пропал — качать заново локально (**не** на проде, там TLS-таймаут) и `scp` как `/opt/matricarmz/updates/android/MatricaRMZ-3.12.0.apk` (номер в имени обязателен).
+6. `corepack pnpm release:ledger-publish 3.12.0` — тоже до рестарта.
+7. `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`.
+8. Проверка: `/health` = 3.12.0, `/updates/status` → `latest.version` 3.12.0 и `lastError: null`, blockmap отдаёт 200.
 
 ## Что закрыто
 
