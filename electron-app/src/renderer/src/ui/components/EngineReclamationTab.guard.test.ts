@@ -124,6 +124,27 @@ describe('вставка текста: цепочка кнопка → мост 
   });
 });
 
+describe('сводная печать трёх разделов', () => {
+  it('кнопка печати на вкладке «Рекламация» уходит в свою ветку', () => {
+    expect(CARD).toContain("if (activeTab === 'reclamation')");
+    expect(CARD).toContain('handlePrintReclamationTab');
+  });
+
+  it('печать берёт модель из отдельного модуля, а не собирает html внутри карточки', () => {
+    // Прежняя печать двигателя жила замыканием внутри страницы на 2500 строк и потому
+    // не проверялась ничем; новая — чистый билдер с юнит-тестом.
+    expect(CARD).toContain('buildEngineReclamationPrintModel');
+    expect(CARD).toContain("from '../utils/enginePrintModel.js'");
+  });
+
+  it('история ремонта дочитывается в момент печати', () => {
+    // Панель истории грузит ленту сама и наружу её не отдаёт — без дочитывания
+    // раздел «История ремонта» напечатался бы пустым.
+    expect(CARD).toMatch(/handlePrintReclamationTab[\s\S]{0,600}operations\.list\(props\.engineId\)/);
+    expect(CARD).toMatch(/handlePrintReclamationTab[\s\S]{0,600}buildEngineTimeline/);
+  });
+});
+
 describe('справочник характера дефекта', () => {
   it('список приходит мостом, а обработчик его отдаёт', () => {
     expect(CARD).toContain('window.matrica.engines');

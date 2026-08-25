@@ -12,12 +12,14 @@ import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
+import { buildEngineTimeline, type EngineTimelineItem } from '@matricarmz/shared';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
-import { formatMoscowDate } from '../utils/dateUtils.js';
+import { buildEngineReclamationPrintModel } from '../utils/enginePrintModel.js';
+import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { CardTabs } from '../components/CardTabs.js';
@@ -1983,6 +1985,10 @@ export function EngineDetailsPage(props: {
       void handlePrintFilesTab();
       return;
     }
+    if (activeTab === 'reclamation') {
+      void handlePrintReclamationTab();
+      return;
+    }
     const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
     printEngineReport(
       props.engine,
@@ -1995,6 +2001,36 @@ export function EngineDetailsPage(props: {
       },
       orderedPrintRows,
     );
+  };
+
+  /**
+   * Сводная печать с вкладки «Рекламация»: Основное → История ремонта → Рекламация.
+   * Лента операций дочитывается здесь: панель истории грузит её сама и наружу не отдаёт.
+   */
+  const handlePrintReclamationTab = async () => {
+    let timeline: EngineTimelineItem[] = [];
+    try {
+      timeline = buildEngineTimeline(await window.matrica.operations.list(props.engineId));
+    } catch (e) {
+      setSaveStatus(`История ремонта не загрузилась: ${String(e)}`);
+    }
+    const model = buildEngineReclamationPrintModel({
+      engineLabel: String(engineNumber || '').trim(),
+      mainRows: orderedPrintRows,
+      timeline,
+      reclamation: {
+        acceptedDate: formatDateLabel(reclAcceptedDate),
+        defectDescription: reclCustomerReason,
+        actualDefect: reclActualDefect,
+        defectNature: reclDefectNature,
+        actNumber: reclActNumber,
+        actDate: formatDateLabel(reclVerdictDate),
+        shippedDate: formatDateLabel(reclShippedDate),
+        comment: reclComment,
+      },
+      formatDateTime: formatMoscowDateTime,
+    });
+    openPrintPreview(model);
   };
 
   const handlePrintFilesTab = async () => {
