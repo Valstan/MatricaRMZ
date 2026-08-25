@@ -377,6 +377,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       );
     }
 
+    let queued = false;
     if (taken.length > 0) {
       const merged = [...list];
       for (const f of taken) if (!merged.find((x) => x.id === f.id)) merged.push(f);
@@ -386,16 +387,24 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         setTimeout(() => setBusy(''), 4500);
         return;
       }
+      // Карточка с чужим владельцем строки отправляет правку на утверждение — сказать
+      // «Успешно» здесь значило бы соврать: файла на карточке пока нет.
+      queued = !!(r && r.ok && r.queued);
     }
     setDesktopPickerOpen(false);
     setDesktopPicked(new Set());
+    // Про удачу и неудачу говорим В ОДНОЙ строке: при частичном успехе оператор иначе
+    // видит только список отказов и решает, что не приложилось ничего.
+    const done = queued
+      ? `Отправлено на утверждение: ${taken.length} (см. «Изменения»)`
+      : `Приложено файлов: ${taken.length}`;
     if (failures.length > 0) {
-      setBusy(`Не приложены: ${failures.join('; ')}`);
-      setTimeout(() => setBusy(''), 6000);
+      setBusy(`${taken.length > 0 ? `${done}. ` : ''}Не приложены: ${failures.join('; ')}`);
+      setTimeout(() => setBusy(''), 7000);
       return;
     }
-    setBusy(`Успешно: приложено файлов — ${taken.length}`);
-    setTimeout(() => setBusy(''), 1600);
+    setBusy(`Успешно: ${done}`);
+    setTimeout(() => setBusy(''), queued ? 2400 : 1600);
   }
 
   async function addFromClipboard() {
@@ -671,7 +680,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           </Button>
         </div>
       )}
-      {desktopPickerOpen && (
+      {/* Тот же гейт, что у кнопки: право могло уйти, пока выбор открыт (например,
+          карточку в этот момент зарезервировал другой оператор) — тогда «Приложить»
+          молча ничего не делало бы. */}
+      {desktopPickerOpen && props.canUpload && !isAndroid && (
         <div data-attachments-desktop-picker style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Файлы на вашем Рабочем столе</div>
           <div style={{ display: 'grid', gap: 6, marginBottom: 12, maxHeight: 220, overflowY: 'auto' }}>
@@ -697,6 +709,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
                     }
                   />
                   <span>{f.label}</span>
+                  {/* Подпись плитки оператор мог переименовать, а в карточку ляжет
+                      настоящее имя файла — показываем оба, иначе он выберет «Договор
+                      Иванов», а во вложениях увидит «scan_0007.pdf». */}
+                  {f.label !== f.name ? <span style={{ fontSize: 12, color: '#64748b' }}>({f.name})</span> : null}
                   {already ? <span style={{ fontSize: 12, color: '#64748b' }}>— уже приложен</span> : null}
                 </label>
               );
