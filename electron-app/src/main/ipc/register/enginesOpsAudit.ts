@@ -11,6 +11,7 @@ import {
   advanceEngineStatusForWorkOrder,
   findEngineDuplicateCandidates,
   findEngineInternalNumberDuplicate,
+  listReclamationDefectNatures,
   type AssemblyEngineStatusTarget,
 } from '../../services/engineService.js';
 import {
@@ -32,6 +33,10 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   ipcMain.handle('engine:get', async (_e, id: string) => {
     await requirePermOrThrow(ctx, 'engines.view');
     return getEngineDetails(ctx.dataDb(), id);
+  });
+  ipcMain.handle('engine:reclamationNatures', async () => {
+    await requirePermOrThrow(ctx, 'engines.view');
+    return listReclamationDefectNatures(ctx.dataDb());
   });
   ipcMain.handle('engine:findDuplicateCandidates', async (_e, args: { engineNumber: string; excludeEngineId?: string }) => {
     await requirePermOrThrow(ctx, 'engines.view');

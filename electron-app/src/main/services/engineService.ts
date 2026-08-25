@@ -5,7 +5,9 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  DEFECT_NATURE_SEED_LABELS,
   ENGINE_INVENTORY_STAGE,
+  RECLAMATION_DEFECT_NATURE,
   ENGINE_RESERVATION_CODE,
   EntityTypeCode,
   formatEngineReservationHolder,
@@ -1100,3 +1102,34 @@ function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; m
 }
 
 
+
+/**
+ * Варианты для списка «Установленный характер дефекта»: встроенные плюс всё, что уже
+ * вводили на этом заводе. Справочник намеренно не заведён отдельным типом сущности —
+ * иначе релиз требовал бы ручного посева на проде (план reclamation-tab-redesign-2026-08).
+ */
+export async function listReclamationDefectNatures(db: BetterSQLite3Database): Promise<string[]> {
+  const defs = await getEngineAttrDefs(db);
+  const defId = defs[RECLAMATION_DEFECT_NATURE];
+  const used: string[] = [];
+  if (defId) {
+    const rows = await db
+      .select()
+      .from(attributeValues)
+      .where(and(eq(attributeValues.attributeDefId, defId), isNull(attributeValues.deletedAt)));
+    for (const r of rows) {
+      const v = r.valueJson ? safeJsonParse(r.valueJson) : null;
+      const label = typeof v === 'string' ? v.trim() : '';
+      if (label) used.push(label);
+    }
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const label of [...DEFECT_NATURE_SEED_LABELS, ...used]) {
+    const key = normalizeLookupCompact(label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
+}

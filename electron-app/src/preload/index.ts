@@ -71,6 +71,7 @@ const matricaApi = {
     delete: async (engineId: string) => ipcRenderer.invoke('engine:delete', engineId),
     findDuplicateCandidates: async (args: { engineNumber: string; excludeEngineId?: string }) =>
       ipcRenderer.invoke('engine:findDuplicateCandidates', args),
+    reclamationNatures: async () => ipcRenderer.invoke('engine:reclamationNatures'),
     findInternalNumberDuplicate: async (args: {
       internalNumber: string;
       internalNumberYear: number;

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, RECLAMATION_VERDICT_LABELS, RECLAMATION_REPAIR_STATUS_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -11,6 +11,7 @@ import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
+import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
@@ -513,11 +514,15 @@ export function EngineDetailsPage(props: {
     toInputDate(props.engine.attributes?.reclamation_accepted_date as number | null | undefined),
   );
   const [reclCustomerReason, setReclCustomerReason] = useState(String(props.engine.attributes?.reclamation_customer_reason ?? ''));
-  const [reclVerdict, setReclVerdict] = useState(String(props.engine.attributes?.reclamation_verdict ?? ''));
+  // Переделка 2026-08: «Вердикт после разбора» и «Статус ремонта» выведены из обращения,
+  // на их месте — текст фактического дефекта, характер дефекта и реквизиты акта.
+  const [reclActualDefect, setReclActualDefect] = useState(String(props.engine.attributes?.reclamation_actual_defect ?? ''));
+  const [reclDefectNature, setReclDefectNature] = useState(String(props.engine.attributes?.reclamation_defect_nature ?? ''));
+  const [reclActNumber, setReclActNumber] = useState(String(props.engine.attributes?.reclamation_act_number ?? ''));
   const [reclVerdictDate, setReclVerdictDate] = useState(
     toInputDate(props.engine.attributes?.reclamation_verdict_date as number | null | undefined),
   );
-  const [reclRepairStatus, setReclRepairStatus] = useState(String(props.engine.attributes?.reclamation_repair_status ?? ''));
+  const [reclNatureOptions, setReclNatureOptions] = useState<string[]>([...DEFECT_NATURE_SEED_LABELS]);
   const [reclShippedDate, setReclShippedDate] = useState(
     toInputDate(props.engine.attributes?.reclamation_shipped_date as number | null | undefined),
   );
@@ -603,9 +608,10 @@ export function EngineDetailsPage(props: {
     reclFlag: boolean;
     reclAcceptedDate: string;
     reclCustomerReason: string;
-    reclVerdict: string;
+    reclActualDefect: string;
+    reclDefectNature: string;
+    reclActNumber: string;
     reclVerdictDate: string;
-    reclRepairStatus: string;
     reclShippedDate: string;
     reclComment: string;
     repeatArrivalFlag: boolean;
@@ -617,8 +623,8 @@ export function EngineDetailsPage(props: {
     return {
       engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId,
       contractSectionNumber, workshopId, statusFlags, statusDates,
-      reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate,
-      reclRepairStatus, reclShippedDate, reclComment,
+      reclFlag, reclAcceptedDate, reclCustomerReason, reclActualDefect, reclDefectNature,
+      reclActNumber, reclVerdictDate, reclShippedDate, reclComment,
       repeatArrivalFlag, numberCollisionFlag, previousArrivalId,
     };
   }
@@ -677,9 +683,10 @@ export function EngineDetailsPage(props: {
     setReclFlag(Boolean(s.reclFlag));
     setReclAcceptedDate(String(s.reclAcceptedDate ?? ''));
     setReclCustomerReason(String(s.reclCustomerReason ?? ''));
-    setReclVerdict(String(s.reclVerdict ?? ''));
+    setReclActualDefect(String(s.reclActualDefect ?? ''));
+    setReclDefectNature(String(s.reclDefectNature ?? ''));
+    setReclActNumber(String(s.reclActNumber ?? ''));
     setReclVerdictDate(String(s.reclVerdictDate ?? ''));
-    setReclRepairStatus(String(s.reclRepairStatus ?? ''));
     setReclShippedDate(String(s.reclShippedDate ?? ''));
     setReclComment(String(s.reclComment ?? ''));
     setRepeatArrivalFlag(Boolean(s.repeatArrivalFlag));
@@ -786,9 +793,10 @@ export function EngineDetailsPage(props: {
     setReclFlag(Boolean(attrs.reclamation_flag));
     setReclAcceptedDate(toInputDate(attrs.reclamation_accepted_date as number | null | undefined));
     setReclCustomerReason(String(attrs.reclamation_customer_reason ?? ''));
-    setReclVerdict(String(attrs.reclamation_verdict ?? ''));
+    setReclActualDefect(String(attrs.reclamation_actual_defect ?? ''));
+    setReclDefectNature(String(attrs.reclamation_defect_nature ?? ''));
+    setReclActNumber(String(attrs.reclamation_act_number ?? ''));
     setReclVerdictDate(toInputDate(attrs.reclamation_verdict_date as number | null | undefined));
-    setReclRepairStatus(String(attrs.reclamation_repair_status ?? ''));
     setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
     setReclComment(String(attrs.reclamation_comment ?? ''));
     setScrapReason(String(attrs.scrap_reason ?? ''));
@@ -833,7 +841,7 @@ export function EngineDetailsPage(props: {
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is keyed on the edited field values; currentDraftSnapshot/saveDraftNow are redefined every render, adding them would restart the 1.5s timer on every render
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclVerdict, reclVerdictDate, reclRepairStatus, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclActualDefect, reclDefectNature, reclActNumber, reclVerdictDate, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
 
   useEffect(() => {
     if (!engineBrandId || engineBrand) return;
@@ -1082,9 +1090,10 @@ export function EngineDetailsPage(props: {
       nextValues.reclamation_flag = reclFlag;
       nextValues.reclamation_accepted_date = fromInputDate(reclAcceptedDate);
       nextValues.reclamation_customer_reason = asNullableText(reclCustomerReason);
-      nextValues.reclamation_verdict = asNullableText(reclVerdict);
+      nextValues.reclamation_actual_defect = asNullableText(reclActualDefect);
+      nextValues.reclamation_defect_nature = asNullableText(reclDefectNature);
+      nextValues.reclamation_act_number = asNullableText(reclActNumber);
       nextValues.reclamation_verdict_date = fromInputDate(reclVerdictDate);
-      nextValues.reclamation_repair_status = asNullableText(reclRepairStatus);
       nextValues.reclamation_shipped_date = fromInputDate(reclShippedDate);
       nextValues.reclamation_comment = asNullableText(reclComment);
       nextValues.scrap_reason = asNullableText(scrapReason);
@@ -1120,9 +1129,10 @@ export function EngineDetailsPage(props: {
       currentValues.reclamation_flag = Boolean(attrs.reclamation_flag);
       currentValues.reclamation_accepted_date = normalizeDateInput(attrs.reclamation_accepted_date);
       currentValues.reclamation_customer_reason = asNullableText(attrs.reclamation_customer_reason);
-      currentValues.reclamation_verdict = asNullableText(attrs.reclamation_verdict);
+      currentValues.reclamation_actual_defect = asNullableText(attrs.reclamation_actual_defect);
+      currentValues.reclamation_defect_nature = asNullableText(attrs.reclamation_defect_nature);
+      currentValues.reclamation_act_number = asNullableText(attrs.reclamation_act_number);
       currentValues.reclamation_verdict_date = normalizeDateInput(attrs.reclamation_verdict_date);
-      currentValues.reclamation_repair_status = asNullableText(attrs.reclamation_repair_status);
       currentValues.reclamation_shipped_date = normalizeDateInput(attrs.reclamation_shipped_date);
       currentValues.reclamation_comment = asNullableText(attrs.reclamation_comment);
       currentValues.scrap_reason = asNullableText(attrs.scrap_reason);
@@ -1312,6 +1322,32 @@ export function EngineDetailsPage(props: {
     }
   }
 
+  // Состояние вкладки «Рекламация» остаётся здесь (панель не размонтируется, от этого
+  // зависят сохранение при закрытии, черновик и печать), а компонент шлёт сюда патчи.
+  function applyReclamationPatch(patch: Partial<ReclamationDraft>) {
+    setSessionChanged(true);
+    if (patch.flag !== undefined) setReclFlag(patch.flag);
+    if (patch.acceptedDate !== undefined) setReclAcceptedDate(patch.acceptedDate);
+    if (patch.defectDescription !== undefined) setReclCustomerReason(patch.defectDescription);
+    if (patch.actualDefect !== undefined) setReclActualDefect(patch.actualDefect);
+    if (patch.defectNature !== undefined) setReclDefectNature(patch.defectNature);
+    if (patch.actNumber !== undefined) setReclActNumber(patch.actNumber);
+    if (patch.actDate !== undefined) setReclVerdictDate(patch.actDate);
+    if (patch.shippedDate !== undefined) setReclShippedDate(patch.shippedDate);
+    if (patch.comment !== undefined) setReclComment(patch.comment);
+  }
+
+  // Вложения рекламации живут отдельным списком от «Фото и документов» двигателя:
+  // акт исследования и письмо заказчика — не то же самое, что снимки узлов.
+  async function saveReclamationAttachments(next: any[]) {
+    try {
+      await saveAttr('reclamation_attachments', next);
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  }
+
   // Дефектовка → заявка в снабжение: создаём черновик и кладём в него детали «к заказу».
   async function handleCreateSupplyRequestFromDefects(items: SupplyRequestItem[], photos: FileRef[] = []) {
     if (!items.length) return;
@@ -1366,6 +1402,16 @@ export function EngineDetailsPage(props: {
       load('customer', 'customer_id'),
       load('contract', 'contract_id'),
     ]);
+    // Характер дефекта: встроенные четыре плюс всё, что уже вводили на заводе.
+    // Отдельного типа-справочника у него нет намеренно (план reclamation-tab-redesign-2026-08).
+    void window.matrica.engines
+      .reclamationNatures()
+      .then((list) => {
+        if (Array.isArray(list) && list.length > 0) setReclNatureOptions(list);
+      })
+      .catch(() => {
+        /* список остаётся встроенным — поле работает */
+      });
     // Цеха — из directory_workshops (канон), не из workshop_ref entity-type.
     try {
       const wr = await window.matrica.workshops.list({ activeOnly: true });
@@ -1420,15 +1466,19 @@ export function EngineDetailsPage(props: {
         { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 60 + i * 2 },
         { code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date', sortOrder: 61 + i * 2 },
       ]),
-      // Рекламация (вкладка «Рекламация», план reclamation-mvp-2026-07 Ф1)
+      // Рекламация (вкладка «Рекламация»; переделка reclamation-tab-redesign-2026-08).
+      // Имена — те же, что видит оператор на вкладке: иначе администраторские списки
+      // атрибутов и выгрузки зовут поле по-старому.
       { code: 'reclamation_flag', name: 'Рекламационный', dataType: 'boolean', sortOrder: 80 },
       { code: 'reclamation_accepted_date', name: 'Дата приёмки по рекламации', dataType: 'date', sortOrder: 81 },
-      { code: 'reclamation_customer_reason', name: 'Причина со слов заказчика', dataType: 'text', sortOrder: 82 },
-      { code: 'reclamation_verdict', name: 'Вердикт рекламации', dataType: 'text', sortOrder: 83 },
-      { code: 'reclamation_verdict_date', name: 'Дата вердикта', dataType: 'date', sortOrder: 84 },
-      { code: 'reclamation_repair_status', name: 'Статус рекламационного ремонта', dataType: 'text', sortOrder: 85 },
-      { code: 'reclamation_shipped_date', name: 'Дата отправки после рекламации', dataType: 'date', sortOrder: 86 },
-      { code: 'reclamation_comment', name: 'Комментарий по рекламации', dataType: 'text', sortOrder: 87 },
+      { code: 'reclamation_customer_reason', name: 'Описание дефекта изделия', dataType: 'text', sortOrder: 82 },
+      { code: 'reclamation_actual_defect', name: 'Фактически установленный дефект', dataType: 'text', sortOrder: 83 },
+      { code: 'reclamation_defect_nature', name: 'Установленный характер дефекта', dataType: 'text', sortOrder: 84 },
+      { code: 'reclamation_act_number', name: 'Номер акта исследования', dataType: 'text', sortOrder: 85 },
+      { code: 'reclamation_verdict_date', name: 'Дата акта исследования', dataType: 'date', sortOrder: 86 },
+      { code: 'reclamation_shipped_date', name: 'Дата отправки после рекламации', dataType: 'date', sortOrder: 87 },
+      { code: 'reclamation_comment', name: 'Комментарий по рекламации', dataType: 'text', sortOrder: 88 },
+      { code: 'reclamation_attachments', name: 'Вложения рекламации', dataType: 'json', sortOrder: 89 },
       { code: 'scrap_reason', name: 'Причина утиля', dataType: 'text', sortOrder: 78 },
       // Повторный заезд / коллизия номера (Ф2)
       { code: 'repeat_arrival_flag', name: 'Повторный заезд', dataType: 'boolean', sortOrder: 90 },
@@ -2241,9 +2291,10 @@ export function EngineDetailsPage(props: {
               setReclFlag(Boolean(attrs.reclamation_flag));
               setReclAcceptedDate(toInputDate(attrs.reclamation_accepted_date as number | null | undefined));
               setReclCustomerReason(String(attrs.reclamation_customer_reason ?? ''));
-              setReclVerdict(String(attrs.reclamation_verdict ?? ''));
+              setReclActualDefect(String(attrs.reclamation_actual_defect ?? ''));
+              setReclDefectNature(String(attrs.reclamation_defect_nature ?? ''));
+              setReclActNumber(String(attrs.reclamation_act_number ?? ''));
               setReclVerdictDate(toInputDate(attrs.reclamation_verdict_date as number | null | undefined));
-              setReclRepairStatus(String(attrs.reclamation_repair_status ?? ''));
               setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
               setReclComment(String(attrs.reclamation_comment ?? ''));
               setScrapReason(String(attrs.scrap_reason ?? ''));
@@ -2404,116 +2455,39 @@ export function EngineDetailsPage(props: {
         </SectionCard>
       </div>
 
+
       <div className="entity-card-span-full" hidden={activeTab !== 'reclamation'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
-        <SectionCard style={{ padding: 16, background: 'rgba(37, 99, 235, 0.06)' }}>
-          {!reclFlag ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
-              <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
-                Двигатель не принят по рекламации.
-              </div>
-              {canEditEnginesEff ? (
-                <Button
-                  onClick={() => {
-                    setSessionChanged(true);
-                    setReclFlag(true);
-                    if (!reclAcceptedDate) setReclAcceptedDate(toInputDate(Date.now()));
-                    if (!reclRepairStatus) setReclRepairStatus('accepted');
-                  }}
-                  title="Пометить двигатель рекламационным: синяя точка в списке, поля цикла рекламации"
-                >
-                  Принять по рекламации
-                </Button>
-              ) : (
-                reclamationReadOnlyNote
-              )}
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(() => {
-                const row = (label: string, control: React.ReactNode) => (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 220px) 1fr', gap: 8, alignItems: 'center' }}>
-                    <div style={{ color: 'var(--subtle)' }}>{label}</div>
-                    {control}
-                  </div>
-                );
-                const dateInput = (value: string, set: (v: string) => void, title: string) => (
-                  <Input
-                    type="date"
-                    value={value}
-                    disabled={!canEditEnginesEff}
-                    style={{ maxWidth: '22ch' }}
-                    title={title}
-                    onChange={(e) => {
-                      setSessionChanged(true);
-                      set(e.target.value);
-                    }}
-                  />
-                );
-                const selectInput = (value: string, set: (v: string) => void, labels: Record<string, string>, emptyLabel: string) => (
-                  <select
-                    value={value}
-                    disabled={!canEditEnginesEff}
-                    style={{ maxWidth: '48ch' }}
-                    onChange={(e) => {
-                      setSessionChanged(true);
-                      set(e.target.value);
-                    }}
-                  >
-                    <option value="">{emptyLabel}</option>
-                    {Object.entries(labels).map(([code, label]) => (
-                      <option key={code} value={code}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                );
-                const textArea = (value: string, set: (v: string) => void, placeholder: string, rows: number) => (
-                  <textarea
-                    value={value}
-                    disabled={!canEditEnginesEff}
-                    placeholder={placeholder}
-                    rows={rows}
-                    style={{ width: '100%', maxWidth: '64ch', resize: 'vertical' }}
-                    onChange={(e) => {
-                      setSessionChanged(true);
-                      set(e.target.value);
-                    }}
-                  />
-                );
-                return (
-                  <>
-                    {row('Дата приёмки по рекламации', dateInput(reclAcceptedDate, setReclAcceptedDate, 'Когда двигатель принят по рекламации'))}
-                    {row('Причина со слов заказчика', textArea(reclCustomerReason, setReclCustomerReason, 'Что заявил заказчик при приёмке', 3))}
-                    {row('Вердикт после разбора', selectInput(reclVerdict, setReclVerdict, RECLAMATION_VERDICT_LABELS, '— не вынесен —'))}
-                    {row('Дата вердикта', dateInput(reclVerdictDate, setReclVerdictDate, 'Когда вынесен вердикт'))}
-                    {row('Статус ремонта', selectInput(reclRepairStatus, setReclRepairStatus, RECLAMATION_REPAIR_STATUS_LABELS, '— не задан —'))}
-                    {row('Дата отправки заказчику', dateInput(reclShippedDate, setReclShippedDate, 'Когда двигатель отправлен заказчику после рекламации'))}
-                    {row('Комментарий', textArea(reclComment, setReclComment, 'Что было и чем всё закончилось', 5))}
-                    {canEditEnginesEff ? (
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setSessionChanged(true);
-                            setReclFlag(false);
-                          }}
-                          title="Снять метку «рекламационный» (поля цикла сохраняются в данных, синяя точка исчезнет)"
-                        >
-                          Снять метку рекламации
-                        </Button>
-                        <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
-                          Изменения сохраняются одним действием при закрытии карточки.
-                        </span>
-                      </div>
-                    ) : (
-                      reclamationReadOnlyNote
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          )}
-        </SectionCard>
+        <EngineReclamationTab
+          visible={activeTab === 'reclamation'}
+          canEdit={canEditEnginesEff}
+          readOnlyNote={reclamationReadOnlyNote}
+          value={{
+            flag: reclFlag,
+            acceptedDate: reclAcceptedDate,
+            defectDescription: reclCustomerReason,
+            actualDefect: reclActualDefect,
+            defectNature: reclDefectNature,
+            actNumber: reclActNumber,
+            actDate: reclVerdictDate,
+            shippedDate: reclShippedDate,
+            comment: reclComment,
+          }}
+          onPatch={applyReclamationPatch}
+          natureOptions={reclNatureOptions}
+          onNotice={(text) => setSaveStatus(text)}
+          attachmentsSlot={
+            <AttachmentsModule
+              title="Вложения по рекламации"
+              objectLabel={`Рекламация по двигателю ${String(engineNumber || props.engineId).trim()}`}
+              value={props.engine.attributes?.reclamation_attachments}
+              canView={props.canViewFiles}
+              canUpload={props.canUploadFiles && canEditEnginesEff}
+              canDelete={props.canUploadFiles && canEditEnginesEff}
+              scope={{ ownerType: 'engine', ownerId: String(props.engineId), category: 'reclamation' }}
+              onChange={saveReclamationAttachments}
+            />
+          }
+        />
       </div>
 
       {/* Вкладка «Платежи» (план engine-payments-2026-07): слот двигателя в контрактном

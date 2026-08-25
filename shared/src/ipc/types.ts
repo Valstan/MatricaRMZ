@@ -990,6 +990,8 @@ export type MatricaApi = {
       dateMs: number;
     }) => Promise<{ applied: boolean; reason?: string }>;
     findDuplicateCandidates: (args: { engineNumber: string; excludeEngineId?: string }) => Promise<EngineDuplicateMatches>;
+    // Варианты для списка «Установленный характер дефекта»: встроенные + уже введённые.
+    reclamationNatures: () => Promise<string[]>;
     findInternalNumberDuplicate: (args: {
       internalNumber: string;
       internalNumberYear: number;
