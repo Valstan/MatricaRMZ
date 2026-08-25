@@ -582,3 +582,145 @@ export function desktopMoveToFolderMany(
   });
   return changed ? { ...d, shortcuts } : d;
 }
+
+// ─── Рейтинг использования (этап C) ──────────────────────────────────────────
+//
+// Размер плитки — не абсолютное число открытий, а МЕСТО В ЛИЧНОМ РАСПРЕДЕЛЕНИИ. Отсюда
+// приятное следствие, которое стоит знать: на заброшенном столе плитки не скачут — все
+// счета падают синхронно, порядок не меняется. Плитка уменьшается только относительно тех,
+// которыми продолжают пользоваться.
+
+/** Пустой счётчик. */
+export function createEmptyDesktopUsage(): DesktopUsage {
+  return { buckets: {}, foldedAt: 0 };
+}
+
+/** День бакета по МЕСТНОМУ времени: «сегодня» у оператора — по его часам, не по UTC. */
+export function desktopUsageDay(ts: number): string {
+  const d = new Date(ts);
+  const m = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function dayIndex(day: string): number {
+  const [y, m, d] = day.split('-').map((x) => Number(x));
+  return Math.floor(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1) / 86_400_000);
+}
+
+/** Выбросить дни за окном — иначе карта растёт бесконечно, а санитайзер срежет молча. */
+function trimDays(days: Record<string, number>, now: number): Record<string, number> {
+  const oldest = dayIndex(desktopUsageDay(now)) - DESKTOP_USAGE_MAX_DAYS + 1;
+  const out: Record<string, number> = {};
+  for (const [day, count] of Object.entries(days)) {
+    if (!USAGE_DAY_RE.test(day) || count <= 0) continue;
+    if (dayIndex(day) < oldest) continue;
+    out[day] = Math.min(MAX_USAGE_COUNT, Math.trunc(count));
+  }
+  return out;
+}
+
+/** +1 открытие ярлыка. */
+export function desktopUsageBump(usage: DesktopUsage, shortcutId: string, now: number): DesktopUsage {
+  const day = desktopUsageDay(now);
+  const prev = usage.buckets[shortcutId] ?? {};
+  const days = trimDays({ ...prev, [day]: (prev[day] ?? 0) + 1 }, now);
+  return { ...usage, buckets: { ...usage.buckets, [shortcutId]: days } };
+}
+
+/**
+ * Сложить счётчики: локальный, накопленный с прошлой свёртки, вливается в роумящийся.
+ * Складывать, а не заменять: иначе свёртка стёрла бы то, что насчитала вторая машина.
+ */
+export function desktopUsageAdd(base: DesktopUsage, delta: DesktopUsage, now: number): DesktopUsage {
+  const buckets: Record<string, Record<string, number>> = {};
+  for (const id of new Set([...Object.keys(base.buckets), ...Object.keys(delta.buckets)])) {
+    const a = base.buckets[id] ?? {};
+    const b = delta.buckets[id] ?? {};
+    const days: Record<string, number> = { ...a };
+    for (const [day, count] of Object.entries(b)) days[day] = (days[day] ?? 0) + count;
+    const trimmed = trimDays(days, now);
+    if (Object.keys(trimmed).length > 0) buckets[id] = trimmed;
+  }
+  return { buckets, foldedAt: Math.max(base.foldedAt, delta.foldedAt) };
+}
+
+/** Счётчик без ярлыков, которых больше нет: карта не должна помнить снесённое вечно. */
+export function desktopUsageKeepOnly(usage: DesktopUsage, shortcutIds: string[]): DesktopUsage {
+  const keep = new Set(shortcutIds);
+  const buckets: Record<string, Record<string, number>> = {};
+  for (const [id, days] of Object.entries(usage.buckets)) if (keep.has(id)) buckets[id] = days;
+  return Object.keys(buckets).length === Object.keys(usage.buckets).length ? usage : { ...usage, buckets };
+}
+
+/** Период полураспада счёта: неделя простоя делит его пополам. */
+const USAGE_HALF_LIFE_DAYS = 7;
+
+/** Счёт ярлыка: сумма дней с весом `0.5^(возраст/7)`. */
+export function desktopUsageScore(usage: DesktopUsage, shortcutId: string, now: number): number {
+  const days = usage.buckets[shortcutId];
+  if (!days) return 0;
+  const today = dayIndex(desktopUsageDay(now));
+  let score = 0;
+  for (const [day, count] of Object.entries(days)) {
+    const age = today - dayIndex(day);
+    if (age < 0 || age >= DESKTOP_USAGE_MAX_DAYS) continue;
+    score += count * Math.pow(0.5, age / USAGE_HALF_LIFE_DAYS);
+  }
+  return score;
+}
+
+/** Доли сверху вниз: 5 % / 10 % / 15 % / 20 % / 30 % / 20 %. */
+const STEP_BANDS: Array<{ upTo: number; step: DesktopTileStep }> = [
+  { upTo: 0.05, step: 4 },
+  { upTo: 0.15, step: 3 },
+  { upTo: 0.3, step: 2 },
+  { upTo: 0.5, step: 1 },
+  { upTo: 0.8, step: 0 },
+  { upTo: 1.01, step: -1 },
+];
+
+/** Потолок шага от числа ярлыков: «топ из трёх» — не топ, и раздувать плитку нелепо. */
+function stepCeiling(n: number): DesktopTileStep {
+  if (n >= 20) return 4;
+  if (n >= 12) return 3;
+  if (n >= 6) return 2;
+  if (n >= 3) return 1;
+  return 0;
+}
+
+/**
+ * Шаг размера каждого ярлыка.
+ *
+ * Равные счета получают ОДИН шаг — по середине своей группы. Это важно на старте: пока
+ * оператор ничего не открывал, счета у всех нулевые, середина списка попадает в полосу
+ * 30 %, и весь стол стоит на шаге 0 — ровно сегодняшним видом. Без правила ничьих первый
+ * же ярлык случайно оказался бы гигантским.
+ */
+export function desktopUsageSteps(
+  usage: DesktopUsage,
+  shortcutIds: string[],
+  now: number,
+): Record<string, DesktopTileStep> {
+  const n = shortcutIds.length;
+  const out: Record<string, DesktopTileStep> = {};
+  if (n === 0) return out;
+  const ceiling = stepCeiling(n);
+
+  const ranked = shortcutIds
+    .map((id) => ({ id, score: desktopUsageScore(usage, id, now) }))
+    .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && ranked[j + 1]!.score === ranked[i]!.score) j += 1;
+    const middle = (i + j) / 2;
+    const frac = (middle + 0.5) / n;
+    const band = STEP_BANDS.find((b) => frac < b.upTo) ?? STEP_BANDS[STEP_BANDS.length - 1]!;
+    const step = (band.step > ceiling ? ceiling : band.step) as DesktopTileStep;
+    for (let k = i; k <= j; k += 1) out[ranked[k]!.id] = step;
+    i = j + 1;
+  }
+  return out;
+}

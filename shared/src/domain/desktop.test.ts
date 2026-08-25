@@ -6,6 +6,7 @@ import {
   DESKTOP_MAX_SHORTCUTS,
   DESKTOP_USAGE_MAX_DAYS,
   createEmptyDesktop,
+  createEmptyDesktopUsage,
   desktopAddFolder,
   desktopAddShortcut,
   desktopDeleteFolder,
@@ -27,6 +28,12 @@ import {
   desktopTileMetrics,
   desktopToggleShortcut,
   desktopTrashShortcuts,
+  desktopUsageAdd,
+  desktopUsageBump,
+  desktopUsageDay,
+  desktopUsageKeepOnly,
+  desktopUsageScore,
+  desktopUsageSteps,
   sanitizeDesktopSection,
   sanitizeDesktopUsageSection,
 } from './desktop.js';
@@ -494,5 +501,107 @@ describe('пачечные действия выделения', () => {
   it('ярлык уже в этой папке — не изменение', () => {
     const d = desktopMoveToFolderMany(seeded(), ['s1'], 'f1');
     expect(desktopMoveToFolderMany(d, ['s1'], 'f1')).toBe(d);
+  });
+});
+
+describe('счётчик использования', () => {
+  const DAY = 86_400_000;
+  const ago = (days: number) => NOW - days * DAY;
+
+  it('открытие кладётся в бакет текущего дня по местному времени', () => {
+    const u = desktopUsageBump(createEmptyDesktopUsage(), 's1', NOW);
+    expect(Object.keys(u.buckets.s1 ?? {})).toEqual([desktopUsageDay(NOW)]);
+    expect(u.buckets.s1?.[desktopUsageDay(NOW)]).toBe(1);
+    expect(desktopUsageDay(NOW)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('неделя простоя делит счёт пополам', () => {
+    const fresh = desktopUsageBump(createEmptyDesktopUsage(), 's1', NOW);
+    const week = desktopUsageBump(createEmptyDesktopUsage(), 's1', ago(7));
+    expect(desktopUsageScore(fresh, 's1', NOW)).toBeCloseTo(1, 6);
+    expect(desktopUsageScore(week, 's1', NOW)).toBeCloseTo(0.5, 6);
+  });
+
+  it('за окном 30 дней открытие не считается и не хранится', () => {
+    let u = createEmptyDesktopUsage();
+    u = desktopUsageBump(u, 's1', ago(40));
+    expect(desktopUsageScore(u, 's1', NOW)).toBe(0);
+    // Свежий bump заодно подчищает окно — старый день не остаётся в карте.
+    u = desktopUsageBump(u, 's1', NOW);
+    expect(Object.keys(u.buckets.s1 ?? {})).toEqual([desktopUsageDay(NOW)]);
+  });
+
+  it('свёртка складывает, а не заменяет: вторая машина не теряет своё', () => {
+    // Роумящийся счёт: s1 открывали дважды. Локальная добавка: s1 ещё раз и s2 впервые.
+    const roamed = desktopUsageBump(desktopUsageBump(createEmptyDesktopUsage(), 's1', NOW), 's1', NOW);
+    const local = desktopUsageBump(desktopUsageBump(createEmptyDesktopUsage(), 's1', NOW), 's2', NOW);
+    const sum = desktopUsageAdd(roamed, local, NOW);
+    expect(sum.buckets.s1?.[desktopUsageDay(NOW)]).toBe(3);
+    expect(sum.buckets.s2?.[desktopUsageDay(NOW)]).toBe(1);
+  });
+
+  it('счётчик забывает снесённые ярлыки', () => {
+    const u = desktopUsageBump(desktopUsageBump(createEmptyDesktopUsage(), 's1', NOW), 'gone', NOW);
+    expect(Object.keys(desktopUsageKeepOnly(u, ['s1']).buckets)).toEqual(['s1']);
+    // Нечего выкидывать — тот же объект, лишней записи профиля не будет.
+    expect(desktopUsageKeepOnly(u, ['s1', 'gone'])).toBe(u);
+  });
+});
+
+describe('шаг размера по рейтингу', () => {
+  const DAY = 86_400_000;
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => `s${i + 1}`);
+
+  it('никто ничего не открывал — весь стол на шаге 0, сегодняшним видом', () => {
+    const steps = desktopUsageSteps(createEmptyDesktopUsage(), ids(8), NOW);
+    expect(Object.values(steps)).toEqual(Array(8).fill(0));
+  });
+
+  it('равные счета получают равный шаг — первый ярлык не становится гигантом случайно', () => {
+    let u = createEmptyDesktopUsage();
+    for (const id of ids(6)) u = desktopUsageBump(u, id, NOW);
+    expect(new Set(Object.values(desktopUsageSteps(u, ids(6), NOW))).size).toBe(1);
+  });
+
+  it('потолок шага зависит от числа ярлыков: на трёх плитках гигантомании нет', () => {
+    let small = createEmptyDesktopUsage();
+    for (let i = 0; i < 20; i += 1) small = desktopUsageBump(small, 's1', NOW);
+    small = desktopUsageBump(small, 's2', NOW);
+    small = desktopUsageBump(small, 's3', NOW);
+    expect(desktopUsageSteps(small, ['s1', 's2', 's3'], NOW).s1).toBe(1);
+
+    let big = createEmptyDesktopUsage();
+    const many = ids(20);
+    many.forEach((id, i) => {
+      for (let k = 0; k <= i; k += 1) big = desktopUsageBump(big, id, NOW);
+    });
+    const steps = desktopUsageSteps(big, many, NOW);
+    expect(steps.s20).toBe(4);
+    expect(steps.s1).toBe(-1);
+  });
+
+  // Это то, что стоит проговорить владельцу: заброшенный стол не «дышит» размерами.
+  it('на заброшенном столе плитки не скачут: все счета падают синхронно', () => {
+    let u = createEmptyDesktopUsage();
+    const many = ids(12);
+    many.forEach((id, i) => {
+      for (let k = 0; k <= i; k += 1) u = desktopUsageBump(u, id, NOW);
+    });
+    const before = desktopUsageSteps(u, many, NOW);
+    const after = desktopUsageSteps(u, many, NOW + 10 * DAY);
+    expect(after).toEqual(before);
+  });
+
+  it('плитка уменьшается ОТНОСИТЕЛЬНО тех, которыми продолжают пользоваться', () => {
+    let u = createEmptyDesktopUsage();
+    const many = ids(12);
+    for (const id of many) u = desktopUsageBump(u, id, NOW);
+    for (let k = 0; k < 30; k += 1) u = desktopUsageBump(u, 's12', NOW + 10 * DAY);
+    const after = desktopUsageSteps(u, many, NOW + 10 * DAY);
+    expect(after.s12).toBeGreaterThan(after.s1 ?? 0);
+  });
+
+  it('пустой стол — пустая карта шагов', () => {
+    expect(desktopUsageSteps(createEmptyDesktopUsage(), [], NOW)).toEqual({});
   });
 });
