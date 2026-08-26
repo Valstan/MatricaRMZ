@@ -16,6 +16,7 @@ import type {
   V2Prefs,
   V3Prefs,
   ReleaseWelcomeContent,
+  SupportContact,
   ReportPresetId,
   ReportThemeId,
   WorkOrderPayload,
@@ -23,6 +24,9 @@ import type {
 } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
+  EMPTY_SUPPORT_CONTACT,
+  hasSupportContact,
+  sanitizeSupportContact,
   ENGINE_INTERNAL_NUMBER_CODE,
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_RESERVATION_CODE,
@@ -721,12 +725,14 @@ export function App() {
     content: ReleaseWelcomeContent | null;
     currentVersion: string;
     previousVersion: string | null;
+    supportContact: SupportContact;
     closing: boolean;
   }>({
     open: false,
     content: null,
     currentVersion: '',
     previousVersion: null,
+    supportContact: EMPTY_SUPPORT_CONTACT,
     closing: false,
   });
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ loggedIn: false, user: null, permissions: null });
@@ -1588,6 +1594,7 @@ export function App() {
           content: r.welcome,
           currentVersion: String(r.currentVersion ?? ''),
           previousVersion: r.previouslySeenVersion ? String(r.previouslySeenVersion) : null,
+          supportContact: sanitizeSupportContact(r.supportContact),
           closing: false,
         });
       })
@@ -4617,14 +4624,20 @@ export function App() {
         </div>
         <div className="release-welcome-card">
           <div className="release-welcome-topbar">
-            <div className="release-welcome-support">
-              <span className="release-welcome-support-icon" aria-hidden="true">📞</span>
-              <div className="release-welcome-support-text">
-                <div className="release-welcome-support-title">Техподдержка</div>
-                <div className="release-welcome-support-phone">+7 (922) 900-5910</div>
-                <div className="release-welcome-support-person">Валентин Савиных, инженер-программист</div>
+            {hasSupportContact(releaseWelcomeUi.supportContact) ? (
+              <div className="release-welcome-support">
+                <span className="release-welcome-support-icon" aria-hidden="true">📞</span>
+                <div className="release-welcome-support-text">
+                  <div className="release-welcome-support-title">Техподдержка</div>
+                  {releaseWelcomeUi.supportContact.phone ? (
+                    <div className="release-welcome-support-phone">{releaseWelcomeUi.supportContact.phone}</div>
+                  ) : null}
+                  {releaseWelcomeUi.supportContact.person ? (
+                    <div className="release-welcome-support-person">{releaseWelcomeUi.supportContact.person}</div>
+                  ) : null}
+                </div>
               </div>
-            </div>
+            ) : null}
             <div className="release-welcome-badge">Обновление {releaseLabel}</div>
           </div>
           {c.epigraph ? (

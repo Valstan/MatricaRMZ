@@ -367,6 +367,11 @@ export const clientSettings = pgTable('client_settings', {
   uiGlobalSettingsJson: text('ui_global_settings_json'),
   bomRelationSchemaJson: text('bom_relation_schema_json'),
   uiDefaultsVersion: integer('ui_defaults_version').notNull().default(1),
+  // Контакт техподдержки окна приветствия — инстанс-широкий, живёт в строке
+  // `__global_ui_defaults__` (D-042). Отдельные колонки, а не ключи в
+  // ui_global_settings_json: тот пересобирается санитайзером из дефолтов.
+  supportPhone: text('support_phone'),
+  supportPerson: text('support_person'),
 
   syncRequestId: text('sync_request_id'),
   syncRequestType: text('sync_request_type'),

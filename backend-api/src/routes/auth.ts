@@ -37,7 +37,12 @@ import {
 } from '../services/employeeAuthService.js';
 import { SyncTableName } from '@matricarmz/shared';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
-import { getGlobalUiDefaults, setGlobalUiDefaults } from '../services/clientSettingsService.js';
+import {
+  getGlobalSupportContact,
+  getGlobalUiDefaults,
+  setGlobalSupportContact,
+  setGlobalUiDefaults,
+} from '../services/clientSettingsService.js';
 import { ingestServerCriticalEvent } from '../services/criticalEventsService.js';
 
 export const authRouter = Router();
@@ -491,6 +496,37 @@ authRouter.patch('/ui-profile', requireAuth, async (req, res) => {
     return res.json({ ok: true, profile: saved.profile, stale: saved.stale });
   } catch (e) {
     logError('auth ui-profile patch failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Контакт техподдержки окна приветствия (D-042). Требует сессии намеренно: смысл
+// переезда из кода был в том, чтобы личный номер владельца не лежал в открытом
+// доступе, а соседний `GET /client/settings` неаутентифицирован by design (клиенту
+// нужны настройки до логина). Окно приветствия показывается уже вошедшему
+// оператору, так что аутентифицированный канал ничего не ломает.
+authRouter.get('/support-contact', requireAuth, async (_req, res) => {
+  try {
+    const contact = await getGlobalSupportContact();
+    return res.json({ ok: true, contact });
+  } catch (e) {
+    logError('auth support-contact get failed', describeError(e));
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+authRouter.patch('/support-contact', requireAuth, async (req, res) => {
+  try {
+    const actor = (req as AuthenticatedRequest).user;
+    if (!actor?.id) return res.status(401).json({ ok: false, error: 'пользователь не найден' });
+    if (String(actor.role ?? '') !== 'superadmin') return res.status(403).json({ ok: false, error: 'доступ запрещен' });
+    const schema = z.object({ phone: z.string().max(200).optional(), person: z.string().max(400).optional() });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const contact = await setGlobalSupportContact(parsed.data);
+    return res.json({ ok: true, contact });
+  } catch (e) {
+    logError('auth support-contact patch failed', describeError(e));
     return res.status(500).json({ ok: false, error: String(e) });
   }
 });

@@ -51,6 +51,10 @@ export const SettingsKey = {
   CustomReportTemplates: 'reports.customReportTemplates',
   UiDefaultsVersionApplied: 'ui.defaultsVersionApplied',
   ReleaseWelcomeSeenVersion: 'ui.releaseWelcomeSeenVersion',
+  // Контакт техподдержки окна приветствия — кэш последнего значения с сервера
+  // (D-042). Без кэша блок «Техподдержка» исчезал бы у оператора всякий раз, когда
+  // сервер недоступен, — а именно тогда звонить и хочется.
+  SupportContact: 'ui.supportContact',
 
   // Advisory-резерв двигателя: очередь СНЯТИЙ, не сделанных из-за отсутствия сети
   // (жест «закончил → вернул» происходит у станка, а не у Wi-Fi).
