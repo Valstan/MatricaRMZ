@@ -187,7 +187,7 @@ Monorepo structure:
 - `backend-api/` — Express REST API + SQLite via Drizzle ORM
 - `shared/` — shared types and domain logic (TypeScript)
 - `web-admin/` — web admin panel
-- `scripts/` — release automation scripts
+- `scripts/` — release automation scripts; `scripts/prod-ops/` — ops-скрипты прод-VPS, `scripts/client-ops/` — инструменты для машин парка (помощник по исключениям Касперского)
 
 Где что живёт подробно — [`docs/CODEBASE_MAP.md`](docs/CODEBASE_MAP.md). Ledger (`ledger/`) участвует в релизах, синхронизации и обновлениях клиента — **не обходить его** новыми путями доставки.
 

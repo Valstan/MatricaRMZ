@@ -15,7 +15,7 @@
 | [`shared/`](../shared) | Общие типы и pure-логика TS | Изменения видимые и UI и API, доменные правила (BOM, forecast, signatures) |
 | [`web-admin/`](../web-admin) | Веб-админка (React, отдельно от Electron) | Админ-задачи через браузер |
 | [`ledger/`](../ledger) | Encrypted event log + keyring (enc:v1/v2) | Шифрование sync-пакетов, ротация ключей |
-| [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger | Релизный процесс (см. `AGENTS.md` §Release) |
+| [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger; `prod-ops/` — ops прод-VPS; `client-ops/` — инструменты для машин парка | Релизный процесс (см. `AGENTS.md` §Release); настройка антивируса на клиенте — [`client-ops/README.md`](../scripts/client-ops/README.md) |
 | [`deploy/`](../deploy) | nginx config + systemd units | Прод-конфигурация nginx / systemd таймеры |
 
 ## Backend (`backend-api/src/`)
