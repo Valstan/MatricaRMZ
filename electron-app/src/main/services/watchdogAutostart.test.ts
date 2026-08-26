@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => ({
@@ -65,7 +67,11 @@ import {
   watchdogLogonShortcutPath,
 } from './watchdogHandshakeService.js';
 
-const WATCHDOG_EXE = 'C:\\Users\\op\\AppData\\Local\\Programs\\MatricaRMZ-Watchdog\\matricarmz-watchdog.exe';
+// Пути строим тем же `join`, что и сервис: CI гоняет тесты на Linux, где разделитель
+// «/», и захардкоженный windows-путь не совпал бы с ключом мока — тест был бы зелёным
+// на Windows и красным в CI (ровно это и случилось на первом прогоне).
+const LOCAL_APP_DATA = 'C:\\Users\\op\\AppData\\Local';
+const WATCHDOG_EXE = join(LOCAL_APP_DATA, 'Programs', 'MatricaRMZ-Watchdog', 'matricarmz-watchdog.exe');
 const originalPlatform = process.platform;
 
 function setPlatform(value: string): void {
@@ -75,7 +81,7 @@ function setPlatform(value: string): void {
 describe('ensureWatchdogInstalled — автозапуск сторожа при входе', () => {
   beforeEach(() => {
     setPlatform('win32');
-    process.env.LOCALAPPDATA = 'C:\\Users\\op\\AppData\\Local';
+    process.env.LOCALAPPDATA = LOCAL_APP_DATA;
     process.env.SystemRoot = 'C:\\Windows';
     hoisted.writeShortcutLink.mockClear();
     hoisted.writeShortcutLink.mockReturnValue(true);
@@ -101,7 +107,9 @@ describe('ensureWatchdogInstalled — автозапуск сторожа при
       { target: string },
     ];
     expect(path).toBe(watchdogLogonShortcutPath());
-    expect(path).toContain('\\Start Menu\\Programs\\Startup\\');
+    expect(path).toBe(
+      join(hoisted.paths.appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'MatricaRMZ Watchdog.lnk'),
+    );
     expect(operation).toBe('create');
     expect(options.target).toBe(WATCHDOG_EXE);
   });
