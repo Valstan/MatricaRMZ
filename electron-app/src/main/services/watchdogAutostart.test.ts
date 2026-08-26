@@ -71,6 +71,7 @@ import {
 // «/», и захардкоженный windows-путь не совпал бы с ключом мока — тест был бы зелёным
 // на Windows и красным в CI (ровно это и случилось на первом прогоне).
 const LOCAL_APP_DATA = 'C:\\Users\\op\\AppData\\Local';
+const APP_DATA = 'C:\\Users\\op\\AppData\\Roaming';
 const WATCHDOG_EXE = join(LOCAL_APP_DATA, 'Programs', 'MatricaRMZ-Watchdog', 'matricarmz-watchdog.exe');
 const originalPlatform = process.platform;
 
@@ -108,7 +109,7 @@ describe('ensureWatchdogInstalled — автозапуск сторожа при
     ];
     expect(path).toBe(watchdogLogonShortcutPath());
     expect(path).toBe(
-      join(hoisted.paths.appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'MatricaRMZ Watchdog.lnk'),
+      join(APP_DATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'MatricaRMZ Watchdog.lnk'),
     );
     expect(operation).toBe('create');
     expect(options.target).toBe(WATCHDOG_EXE);
