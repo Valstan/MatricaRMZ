@@ -170,7 +170,7 @@ function Get-MatricaInfo {
         WatchdogExe = ''; WatchdogDir = ''
         DataDir = ''; UserDataDir = ''; UpdatesDir = ''
         ApiBaseUrl = ''; ApiHost = ''; ApiIps = @()
-        Tasks = @(); Source = ''
+        Tasks = @(); LogonShortcut = $null; Source = ''
     }
 
     # 1) Источник истины — рукопожатие, которое пишет само приложение.
@@ -240,7 +240,7 @@ function Get-MatricaInfo {
     if (-not $info.ApiIps -or $info.ApiIps.Count -eq 0) { $info.ApiIps = $KnownProdIps }
 
     # Плановые задачи сторожа (их тоже сносил антивирусный свип — см. историю проекта).
-    foreach ($taskName in @('MatricaRMZ\Watchdog Logon', 'MatricaRMZ\Watchdog Periodic')) {
+    foreach ($taskName in @('MatricaRMZ\Watchdog Periodic')) {
         $exists = $false
         try {
             $null = & "$env:SystemRoot\System32\schtasks.exe" /Query /TN $taskName 2>$null
@@ -248,6 +248,14 @@ function Get-MatricaInfo {
         } catch { $exists = $false }
         $info.Tasks += [pscustomobject]@{ Name = $taskName; Exists = $exists }
     }
+
+    # Автозапуск сторожа при входе. С релиза 3.13.0 это ярлык в папке автозагрузки,
+    # а не плановая задача: schtasks.exe не умеет создать logon-задачу для текущего
+    # пользователя без прав администратора (ONLOGON отвечает «Отказано в доступе»
+    # и с ключом /RU тоже), поэтому задачи «MatricaRMZ\Watchdog Logon» не было ни на
+    # одной машине парка. Клиент чинит этот ярлык сам при каждом запуске.
+    $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MatricaRMZ Watchdog.lnk'
+    $info.LogonShortcut = [pscustomobject]@{ Path = $startupLnk; Exists = (Test-Path -LiteralPath $startupLnk) }
 
     [pscustomobject]$info
 }
@@ -393,6 +401,14 @@ function Invoke-VerifyState {
     foreach ($t in $Matrica.Tasks) {
         if ($t.Exists) { $lines += "Плановая задача «$($t.Name)»: есть" }
         else { $lines += "Плановая задача «$($t.Name)»: ОТСУТСТВУЕТ"; $problems++ }
+    }
+    if ($Matrica.LogonShortcut) {
+        if ($Matrica.LogonShortcut.Exists) {
+            $lines += 'Автозапуск сторожа при входе: есть (ярлык в автозагрузке)'
+        } else {
+            $lines += 'Автозапуск сторожа при входе: ОТСУТСТВУЕТ — ярлык в папке автозагрузки не найден'
+            $problems++
+        }
     }
     if ($Matrica.HandshakeFound) {
         $age = if ($null -ne $Matrica.HandshakeAgeHours) { "$($Matrica.HandshakeAgeHours) ч назад" } else { 'время неизвестно' }
