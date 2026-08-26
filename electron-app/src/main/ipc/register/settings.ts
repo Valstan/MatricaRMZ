@@ -1,9 +1,10 @@
 import { app, ipcMain, net } from 'electron';
-import type { UiControlSettings, UiShellPrefs } from '@matricarmz/shared';
+import type { SupportContact, UiControlSettings, UiShellPrefs } from '@matricarmz/shared';
 import {
   DEFAULT_UI_CONTROL_SETTINGS,
   UI_DEFAULTS_VERSION,
   buildReleaseWelcomeDigest,
+  sanitizeSupportContact,
   sanitizeUiControlSettings,
   sanitizeUiShellPrefs,
 } from '@matricarmz/shared';
@@ -12,6 +13,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { getSession } from '../../services/authService.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from '../../services/settingsStore.js';
 import { criticalEventDelete, criticalEventsClear, criticalEventsList } from '../../services/criticalEventsService.js';
+import { httpAuthed } from '../../services/httpClient.js';
 
 const THEMES = new Set(['auto', 'light', 'dark', 'warm']);
 // Оформление «Строго/Красиво» и цветовая гамма — ортогональны теме яркости
@@ -277,6 +279,35 @@ export function registerSettingsIpc(ctx: IpcContext) {
 
   // ui:control:setUser removed — user-managed UI settings are disabled.
 
+  /**
+   * Контакт техподдержки для окна приветствия (D-042): в коде его больше нет,
+   * значение приезжает из настроек экземпляра. Сеть может не ответить — тогда
+   * показываем последнее известное значение из локального кэша, и только если и
+   * его нет, блок «Техподдержка» не рисуется вовсе.
+   */
+  async function loadSupportContact(context: IpcContext): Promise<SupportContact> {
+    const rawCached = (await settingsGetString(context.sysDb, SettingsKey.SupportContact)) ?? '';
+    let cached: SupportContact;
+    try {
+      cached = sanitizeSupportContact(rawCached ? JSON.parse(rawCached) : null);
+    } catch {
+      cached = sanitizeSupportContact(null);
+    }
+    const apiBaseUrl = String(context.mgr.getApiBaseUrl() ?? '').trim();
+    if (!apiBaseUrl) return cached;
+    try {
+      const res = await httpAuthed(context.sysDb, apiBaseUrl, '/auth/support-contact', { method: 'GET' });
+      if (!res.ok) return cached;
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; contact?: unknown } | null;
+      if (!json?.ok) return cached;
+      const fresh = sanitizeSupportContact(json.contact);
+      await settingsSetString(context.sysDb, SettingsKey.SupportContact, JSON.stringify(fresh));
+      return fresh;
+    } catch {
+      return cached;
+    }
+  }
+
   ipcMain.handle('ui:releaseWelcome:get', async () => {
     try {
       const currentVersion = String(app.getVersion() ?? '').trim();
@@ -313,6 +344,7 @@ export function registerSettingsIpc(ctx: IpcContext) {
         currentVersion,
         previouslySeenVersion,
         welcome: buildReleaseWelcomeDigest(currentVersion),
+        supportContact: await loadSupportContact(ctx),
       };
     } catch (e) {
       return { ok: false as const, error: String(e) };

@@ -589,6 +589,13 @@
       "when": 1787007200000,
       "tag": "0084_contracts_counterparties_strict",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1787010800000,
+      "tag": "0085_client_settings_support_contact",
+      "breakpoints": true
     }
   ]
 }

@@ -3,9 +3,11 @@ import {
   DEFAULT_UI_CONTROL_SETTINGS,
   DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA,
   UI_DEFAULTS_VERSION,
+  sanitizeSupportContact,
   sanitizeUiControlSettings,
   sanitizeWarehouseBomRelationSchema,
 } from '@matricarmz/shared';
+import type { SupportContact } from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
 import { clientSettings, statisticsActiveTime } from '../database/schema.js';
@@ -17,7 +19,15 @@ export type ClientSettingsRow = typeof clientSettings.$inferSelect;
 type ClientSettingsPatch = Partial<
   Pick<
     ClientSettingsRow,
-    'updatesEnabled' | 'torrentEnabled' | 'loggingEnabled' | 'loggingMode' | 'uiGlobalSettingsJson' | 'bomRelationSchemaJson' | 'uiDefaultsVersion'
+    | 'updatesEnabled'
+    | 'torrentEnabled'
+    | 'loggingEnabled'
+    | 'loggingMode'
+    | 'uiGlobalSettingsJson'
+    | 'bomRelationSchemaJson'
+    | 'uiDefaultsVersion'
+    | 'supportPhone'
+    | 'supportPerson'
   >
 >;
 type ClientSyncRequest = { id: string; type: string; at: number; payload?: string | null };
@@ -57,7 +67,9 @@ async function ensureClientSettingsSchemaReady() {
           ADD COLUMN IF NOT EXISTS "last_username" text,
           ADD COLUMN IF NOT EXISTS "ui_global_settings_json" text,
           ADD COLUMN IF NOT EXISTS "bom_relation_schema_json" text,
-          ADD COLUMN IF NOT EXISTS "ui_defaults_version" integer NOT NULL DEFAULT 1;
+          ADD COLUMN IF NOT EXISTS "ui_defaults_version" integer NOT NULL DEFAULT 1,
+          ADD COLUMN IF NOT EXISTS "support_phone" text,
+          ADD COLUMN IF NOT EXISTS "support_person" text;
       `);
       if (!clientSettingsSchemaReadyLogged) {
         clientSettingsSchemaReadyLogged = true;
@@ -93,6 +105,8 @@ function defaultSettings(): Omit<ClientSettingsRow, 'clientId' | 'createdAt' | '
     uiGlobalSettingsJson: JSON.stringify(DEFAULT_UI_CONTROL_SETTINGS),
     bomRelationSchemaJson: JSON.stringify(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA),
     uiDefaultsVersion: UI_DEFAULTS_VERSION,
+    supportPhone: null,
+    supportPerson: null,
     syncRequestId: null,
     syncRequestType: null,
     syncRequestAt: null,
@@ -124,6 +138,8 @@ export async function getOrCreateClientSettings(clientId: string): Promise<Clien
     uiGlobalSettingsJson: defaults.uiGlobalSettingsJson,
     bomRelationSchemaJson: defaults.bomRelationSchemaJson,
     uiDefaultsVersion: defaults.uiDefaultsVersion,
+    supportPhone: defaults.supportPhone,
+    supportPerson: defaults.supportPerson,
     syncRequestId: defaults.syncRequestId,
     syncRequestType: defaults.syncRequestType,
     syncRequestAt: defaults.syncRequestAt,
@@ -275,6 +291,10 @@ export async function updateClientSettings(clientId: string, patch: ClientSettin
       ...(patch.uiGlobalSettingsJson !== undefined ? { uiGlobalSettingsJson: patch.uiGlobalSettingsJson } : {}),
       ...(patch.bomRelationSchemaJson !== undefined ? { bomRelationSchemaJson: patch.bomRelationSchemaJson } : {}),
       ...(patch.uiDefaultsVersion !== undefined ? { uiDefaultsVersion: patch.uiDefaultsVersion } : {}),
+      // Список полей здесь перечисляется вручную: поле, добавленное только в тип
+      // патча, молча не доедет до БД (поймано на support_phone 2026-08-26).
+      ...(patch.supportPhone !== undefined ? { supportPhone: patch.supportPhone } : {}),
+      ...(patch.supportPerson !== undefined ? { supportPerson: patch.supportPerson } : {}),
       updatedAt: ts,
     })
     .where(eq(clientSettings.clientId, clientId));
@@ -349,6 +369,26 @@ export async function getGlobalUiDefaults(): Promise<{ settings: string; version
     return { settings: updated.uiGlobalSettingsJson ?? safeSettings, version: Number(updated.uiDefaultsVersion ?? safeVersion), updatedAt: Number(updated.updatedAt) };
   }
   return { settings: row.uiGlobalSettingsJson ?? safeSettings, version: safeVersion, updatedAt: Number(row.updatedAt) };
+}
+
+/**
+ * Контакт техподдержки окна приветствия (D-042). Живёт в той же инстанс-широкой
+ * строке, что и UI-дефолты, но отдельными колонками: `ui_global_settings_json`
+ * пересобирается санитайзером из `DEFAULT_UI_CONTROL_SETTINGS`, и незнакомый ключ
+ * там был бы срезан молча.
+ */
+export async function getGlobalSupportContact(): Promise<SupportContact> {
+  const row = await getOrCreateClientSettings(GLOBAL_CLIENT_SETTINGS_ID);
+  return sanitizeSupportContact({ phone: row.supportPhone ?? '', person: row.supportPerson ?? '' });
+}
+
+export async function setGlobalSupportContact(raw: unknown): Promise<SupportContact> {
+  const contact = sanitizeSupportContact(raw);
+  const updated = await updateClientSettings(GLOBAL_CLIENT_SETTINGS_ID, {
+    supportPhone: contact.phone || null,
+    supportPerson: contact.person || null,
+  });
+  return sanitizeSupportContact({ phone: updated.supportPhone ?? '', person: updated.supportPerson ?? '' });
 }
 
 export async function setGlobalUiDefaults(args: { settings: unknown; bumpVersion?: boolean }): Promise<{ settings: string; version: number; updatedAt: number }> {

@@ -6,6 +6,7 @@ import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain
 import type { UserUiProfile } from '../domain/userUiProfile.js';
 import type { UiShellPrefs } from '../domain/uiShellV2.js';
 import type { SectionMembership } from '../domain/sectionAccess.js';
+import type { SupportContact } from '../domain/supportContact.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -316,6 +317,11 @@ export type ReleaseWelcomeGetResult =
       currentVersion: string;
       previouslySeenVersion: string | null;
       welcome?: ReleaseWelcomeContent;
+      /**
+       * Кому звонить (D-042). Приезжает из настроек экземпляра, а не из кода;
+       * пустой контакт означает «блок не показывать», а не «показать пустоту».
+       */
+      supportContact?: SupportContact;
     }
   | { ok: false; error: string };
 
