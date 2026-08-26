@@ -15,6 +15,12 @@ on:
       - "android-app/**"
       - "shared/**"
       - "electron-app/src/renderer/**"
+      # main-процесс тоже попадает в сборку планшета: часть его модулей подменяют
+      # шимы (`android-app/src/shims/`), а остальные, как clientAdminService,
+      # собираются как есть. Без этого пути гейт слеп ровно к тому, что его ломает:
+      # новый экспорт в watchdogHandshakeService прошёл PR #694 незамеченным и
+      # свалил сборку APK только на релизном PR, где менялся `shared/`.
+      - "electron-app/src/main/**"
       - ".github/workflows/android-apk-build.yml"
 
 permissions:
