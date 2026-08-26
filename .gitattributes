@@ -11,3 +11,15 @@ deploy/nginx/*.conf text eol=lf
 # Systemd-юниты — LF (на проде в /etc/systemd/system/; CRLF ломает парсинг Environment/ExecStart).
 deploy/systemd/*.service text eol=lf
 deploy/systemd/*.timer text eol=lf
+
+# Инструмент для машин парка — наоборот, строго CRLF: он запускается Windows
+# PowerShell 5.1 и cmd.exe. Без правила файлы приедут с LF на любой машине, где
+# core.autocrlf выключен (у нас это лишь локальная настройка, не свойство репо).
+# Правило узкое — по каталогу, а не по `*.ps1`: остальные девять .ps1 лежат в
+# индексе как LF, и глобальное правило переписало бы их все разом.
+# `working-tree-encoding` сюда НЕ добавлять: он пересоздаёт файл при каждом
+# checkout и убьёт UTF-8 BOM у .ps1, без которого PowerShell 5.1 читает кириллицу
+# как cp1251 и не парсит скрипт вовсе (та же поломка, что описана в
+# releaseWelcome.ts про логи без BOM).
+scripts/client-ops/*.ps1 text eol=crlf
+scripts/client-ops/*.cmd text eol=crlf
