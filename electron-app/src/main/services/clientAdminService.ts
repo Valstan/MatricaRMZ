@@ -16,7 +16,7 @@ import {
 import { resetSyncState, runSync } from './syncService.js';
 import { httpAuthed } from './httpClient.js';
 import { getEntityDetails } from './entityService.js';
-import { writeWatchdogHandshake } from './watchdogHandshakeService.js';
+import { reportWatchdogAutostartIfBroken, writeWatchdogHandshake } from './watchdogHandshakeService.js';
 import { attributeValues, entities, operations } from '../database/schema.js';
 
 export type RemoteClientSettings = {
@@ -148,6 +148,9 @@ export async function applyRemoteClientSettings(args: {
   // Refresh the watchdog handshake on every heartbeat so the external watchdog
   // always has the current clientId / apiBaseUrl / install path. Fire-and-forget.
   void writeWatchdogHandshake({ clientId, apiBaseUrl, version });
+  // Самолечение сторожа отрабатывает при старте, когда адрес сервера ещё не на
+  // руках; первый heartbeat досылает его неудачу в «Критические события».
+  void reportWatchdogAutostartIfBroken({ clientId, apiBaseUrl, version });
   const hostname = getHostname();
   const platform = process.platform;
   const arch = process.arch;

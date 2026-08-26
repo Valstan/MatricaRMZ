@@ -180,12 +180,18 @@ killDoneUninstall:
   ClearErrors
   Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe.old"
   ClearErrors
-  ; Per-user Scheduled Tasks (no admin rights): fast reaction at logon plus a
-  ; steady 15-min cadence. /F overwrites so the path stays current across
-  ; updates — including the one that moves the exe here. nsExec only logs; a
-  ; schtasks failure never aborts the install.
-  nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /F /RL LIMITED /SC ONLOGON /TN "MatricaRMZ\Watchdog Logon" /TR "\"$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe\""'
+  ; Per-user Scheduled Task (no admin rights): steady 15-min cadence. /F overwrites
+  ; so the path stays current across updates — including the one that moves the exe
+  ; here. nsExec only logs; a schtasks failure never aborts the install.
   nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /F /RL LIMITED /SC MINUTE /MO 15 /TN "MatricaRMZ\Watchdog Periodic" /TR "\"$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe\""'
+  ; Быстрая реакция при входе — ярлыком в автозагрузке, а НЕ задачей планировщика.
+  ; `schtasks /SC ONLOGON` (и с `/RU <пользователь>` тоже) под обычным пользователем
+  ; отвечает «Отказано в доступе»: logon-задача требует прав администратора, а мы
+  ; ставимся per-user и UAC не поднимаем (ADR-0002). Прежняя строка создавала здесь
+  ; «MatricaRMZ\Watchdog Logon» и молча падала на каждой машине парка — задачи не
+  ; было ни у кого, проверено на rmz4val 2026-08-26. Папка автозагрузки прав не
+  ; требует, а сторож собран GUI-подсистемой, поэтому окно консоли не мелькнёт.
+  CreateShortCut "$SMSTARTUP\MatricaRMZ Watchdog.lnk" "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
   ; Аварийная кнопка оператора: ярлык на `matricarmz-watchdog.exe --repair` —
   ; принудительный проход сторожа без ожидания расписания (15 мин). Иконка — от
   ; клиента: Go-бинарь сторожа собственной не несёт. Клиент поддерживает ярлык и
@@ -204,8 +210,12 @@ killDoneUninstall:
 ; перерегистрирует задачи с актуальным путём сам.
 !macro RemoveWatchdog
   ${ifNot} ${isUpdated}
+    ; «Watchdog Logon» снимаем на случай машины, где установку когда-то запустили с
+    ; правами администратора и задача всё же завелась: с этого релиза за вход
+    ; отвечает ярлык автозагрузки, и две точки автозапуска подряд не нужны.
     nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Logon"'
     nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Periodic"'
+    Delete "$SMSTARTUP\MatricaRMZ Watchdog.lnk"
     ; Only the watchdog binary — never its data dir (handshake/log/state) and never
     ; the app's userData. The Roaming path is the pre-2026-08 home.
     Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe"

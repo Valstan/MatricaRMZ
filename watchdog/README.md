@@ -90,10 +90,20 @@ itself. The Go stdlib / minimal / single-pass design keeps the AV footprint low.
 ## Installer integration (Phase 5)
 
 The installer copies the bundled binary to
-`%LOCALAPPDATA%\Programs\MatricaRMZ-Watchdog\` and registers two per-user
-Scheduled Tasks — `at logon` and `every 15 min` — pointing at it
-(`electron-app/installer/installer.nsh`, `customInstall` / `customUnInstall`).
+`%LOCALAPPDATA%\Programs\MatricaRMZ-Watchdog\` and gives it two triggers
+(`electron-app/installer/installer.nsh`, `customInstall` / `customUnInstall`):
+a per-user Scheduled Task every 15 min, and a Startup-folder shortcut for logon.
 Per-user, no admin rights.
+
+The logon trigger is a **shortcut, not a task**, and that is not a style choice:
+`schtasks.exe` cannot register a logon task for the current user without
+administrator rights — `/SC ONLOGON`, `/SC ONLOGON /RU <user>` and `/SC ONSTART`
+all answer «Access is denied», while `/SC MINUTE` from the same call succeeds
+(measured on Windows 11 22631, 2026-08-26). The installer never raises UAC, so the
+`MatricaRMZ\Watchdog Logon` task this project used to create never existed on any
+machine; the client's heal loop kept retrying it at every start and logging the
+failure locally. The client now writes the shortcut with native
+`shell.writeShortcutLink` and reports a failure to «Критические события».
 
 That folder is a **sibling** of the install dir, not a subfolder: the one-click
 updater replaces the install dir wholesale, and the watchdog must outlive exactly
@@ -102,7 +112,10 @@ running an unsigned exe out of Roaming on a schedule is a top behavioural-analys
 trigger, and keeping every product executable under one parent is what makes a
 single antivirus exclusion possible. See
 [`docs/adr/0002-single-executable-root-not-program-files.md`](../docs/adr/0002-single-executable-root-not-program-files.md)
-for the decision and for what has to be set up in Kaspersky by hand.
+for the decision and for what has to be set up in Kaspersky by hand. The exact
+lines to enter there are printed by
+[`scripts/client-ops/kaspersky-matrica.ps1`](../scripts/client-ops/README.md),
+which reads the real paths out of this watchdog's handshake.
 
 The watchdog's **data** files (`watchdog.json` handshake, `watchdog.log`,
 `watchdog-state.json`) stayed in `%APPDATA%\MatricaRMZ\` — only the executable moved.
