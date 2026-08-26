@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app, net, shell } from 'electron';
 import { execFile } from 'node:child_process';
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -97,19 +97,60 @@ export async function writeWatchdogHandshake(args: {
 // the same sweep can just as well take the watchdog exe or its scheduled
 // tasks, and nothing recreated them until the next full installer run.
 //
-// Mirrors installer.nsh InstallWatchdog exactly: same exe location, same task
-// names/schedules, `/RL LIMITED`, per-user, no admin. schtasks.exe is the very
-// tool NSIS uses, so per ADR-0002 it is an acceptable child process (unlike
-// powershell). Best-effort by design: any failure is logged and ignored.
+// Mirrors installer.nsh InstallWatchdog: same exe location, same task name and
+// schedule, `/RL LIMITED`, per-user, no admin. schtasks.exe is the very tool NSIS
+// uses, so per ADR-0002 it is an acceptable child process (unlike powershell).
+//
+// Только периодическая задача. Задачи «MatricaRMZ\Watchdog Logon» здесь нет
+// намеренно: schtasks.exe не умеет создать logon-задачу для текущего пользователя
+// без прав администратора. И `/SC ONLOGON`, и `/SC ONLOGON /RU <пользователь>`
+// отвечают «Отказано в доступе», тогда как `/SC MINUTE` тем же вызовом проходит
+// (замер на Windows 11 22631, 2026-08-26). Установщик ставится per-user и UAC не
+// поднимает, поэтому такой задачи не было ни на одной машине парка, а heal при
+// каждом старте клиента пытался создать её заново — девять неудач подряд в логе
+// rmz4val, видимых только на самой машине. Автозапуск при входе теперь даёт
+// ярлык в папке автозагрузки (см. ensureLogonShortcut).
 const WATCHDOG_TASKS: ReadonlyArray<{ name: string; scheduleArgs: string[] }> = [
-  { name: 'MatricaRMZ\\Watchdog Logon', scheduleArgs: ['/SC', 'ONLOGON'] },
   { name: 'MatricaRMZ\\Watchdog Periodic', scheduleArgs: ['/SC', 'MINUTE', '/MO', '15'] },
 ];
 
-export async function ensureWatchdogInstalled(log?: (line: string) => void): Promise<void> {
-  if (process.platform !== 'win32' || !app.isPackaged) return;
+/**
+ * Итог прохода самолечения — чтобы неудача была видна не только в локальном логе.
+ * `failures` перечисляет то, что починить не удалось: `watchdog-exe`,
+ * `logon-shortcut`, либо имя задачи планировщика.
+ */
+export type WatchdogHealResult = {
+  logonShortcutRestored: boolean;
+  tasksRestored: string[];
+  failures: string[];
+};
+
+/**
+ * Ярлык автозапуска сторожа в папке автозагрузки текущего пользователя.
+ *
+ * Заменяет несоздаваемую задачу «Watchdog Logon» (см. WATCHDOG_TASKS): папка
+ * автозагрузки прав администратора не требует, а .lnk пишется нативным
+ * `shell.writeShortcutLink` — тем самым путём, которым ADR-0002 заменил COM-скрипты
+ * под powershell. Сторож собран GUI-подсистемой (`-H=windowsgui`), поэтому окно
+ * консоли при входе не мелькнёт.
+ */
+export function watchdogLogonShortcutPath(): string {
+  return join(
+    app.getPath('appData'),
+    'Microsoft',
+    'Windows',
+    'Start Menu',
+    'Programs',
+    'Startup',
+    'MatricaRMZ Watchdog.lnk',
+  );
+}
+
+export async function ensureWatchdogInstalled(log?: (line: string) => void): Promise<WatchdogHealResult> {
+  const result: WatchdogHealResult = { logonShortcutRestored: false, tasksRestored: [], failures: [] };
+  if (process.platform !== 'win32' || !app.isPackaged) return result;
   const localAppData = String(process.env.LOCALAPPDATA ?? '').trim();
-  if (!localAppData) return;
+  if (!localAppData) return result;
   const watchdogDir = join(localAppData, 'Programs', 'MatricaRMZ-Watchdog');
   const watchdogExe = join(watchdogDir, 'matricarmz-watchdog.exe');
   try {
@@ -119,7 +160,8 @@ export async function ensureWatchdogInstalled(log?: (line: string) => void): Pro
       const source = await stat(bundled).catch(() => null);
       if (!source || !source.isFile() || source.size === 0) {
         log?.(`watchdog heal: exe missing and no bundled copy at ${bundled}`);
-        return;
+        result.failures.push('watchdog-exe');
+        return result;
       }
       await mkdir(watchdogDir, { recursive: true });
       await copyFile(bundled, watchdogExe);
@@ -127,7 +169,8 @@ export async function ensureWatchdogInstalled(log?: (line: string) => void): Pro
     }
   } catch (e) {
     log?.(`watchdog heal: binary restore failed: ${String(e)}`);
-    return;
+    result.failures.push('watchdog-exe');
+    return result;
   }
   const schtasks = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'schtasks.exe');
   for (const task of WATCHDOG_TASKS) {
@@ -143,9 +186,86 @@ export async function ensureWatchdogInstalled(log?: (line: string) => void): Pro
           { windowsHide: true, timeout: 15_000 },
         );
         log?.(`watchdog heal: scheduled task re-registered: ${task.name}`);
+        result.tasksRestored.push(task.name);
       } catch (e) {
         log?.(`watchdog heal: schtasks create failed for ${task.name}: ${String(e)}`);
+        result.failures.push(task.name);
       }
     }
+  }
+  await ensureLogonShortcut(watchdogExe, result, log);
+  if (result.failures.length > 0) pendingAutostartFailure = result.failures.join(', ');
+  return result;
+}
+
+// Heal отрабатывает один раз при старте, до того как известны clientId и адрес
+// сервера, поэтому неудачу держим здесь до первого heartbeat'а — он и отправит её
+// (см. reportWatchdogAutostartIfBroken).
+let pendingAutostartFailure: string | null = null;
+
+/**
+ * Одноразовый отчёт «клиент не смог вернуть сторожу автозапуск» в «Критические
+ * события». Без него такая поломка видна только в локальном логе машины: на
+ * rmz4val девять неудач подряд за пять дней не заметил никто.
+ */
+export async function reportWatchdogAutostartIfBroken(args: {
+  clientId: string;
+  apiBaseUrl: string;
+  version: string;
+}): Promise<void> {
+  const detail = pendingAutostartFailure;
+  if (!detail) return;
+  pendingAutostartFailure = null;
+  const clientId = String(args.clientId ?? '').trim();
+  const apiBaseUrl = String(args.apiBaseUrl ?? '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!clientId || !apiBaseUrl) return;
+  try {
+    await net.fetch(`${apiBaseUrl}/client/watchdog/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        kind: 'autostart_broken',
+        version: String(args.version ?? '').trim(),
+        detail: `Не восстановлено: ${detail}`,
+      }),
+    });
+  } catch {
+    // Best-effort: сервер недоступен — отчёт просто теряется, следующий старт
+    // клиента отправит его заново, если поломка не починилась.
+  }
+}
+
+async function ensureLogonShortcut(
+  watchdogExe: string,
+  result: WatchdogHealResult,
+  log?: (line: string) => void,
+): Promise<void> {
+  const shortcutPath = watchdogLogonShortcutPath();
+  const existing = await stat(shortcutPath).catch(() => null);
+  if (existing?.isFile() && existing.size > 0) return;
+  try {
+    // Только 'create': на отсутствующем файле 'replace' возвращает false, ничего не
+    // создавая (та же грабля, что в restoreShortcutsHeadless).
+    const written = shell.writeShortcutLink(shortcutPath, 'create', {
+      target: watchdogExe,
+      cwd: dirname(watchdogExe),
+      // У Go-бинаря сторожа нет ресурса иконки — берём иконку клиента, как это
+      // делает аварийный ярлык «Восстановить Матрицу РМЗ».
+      icon: app.getPath('exe'),
+      iconIndex: 0,
+    });
+    if (written) {
+      result.logonShortcutRestored = true;
+      log?.('watchdog heal: logon autostart shortcut restored');
+    } else {
+      result.failures.push('logon-shortcut');
+      log?.(`watchdog heal: writeShortcutLink returned false for ${shortcutPath}`);
+    }
+  } catch (e) {
+    result.failures.push('logon-shortcut');
+    log?.(`watchdog heal: logon autostart shortcut failed: ${String(e)}`);
   }
 }

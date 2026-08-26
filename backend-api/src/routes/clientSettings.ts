@@ -162,7 +162,10 @@ clientSettingsRouter.post('/settings/sync-request/ack', async (req, res) => {
 clientSettingsRouter.post('/watchdog/report', async (req, res) => {
   const schema = z.object({
     clientId: z.string().min(2).max(200),
-    kind: z.enum(['recovered', 'failed', 'app_missing']),
+    // `autostart_broken` шлёт сам клиент (не Go-сторож): его самолечение не смогло
+    // вернуть сторожу автозапуск. Прежде такая неудача жила только в локальном
+    // matricarmz.log — на rmz4val она копилась с 20.08 по 25.08 и осталась незамеченной.
+    kind: z.enum(['recovered', 'failed', 'app_missing', 'autostart_broken']),
     version: z.string().max(50).optional().nullable(),
     detail: z.string().max(4000).optional().nullable(),
     exitCode: z.number().int().optional().nullable(),
@@ -183,6 +186,17 @@ clientSettingsRouter.post('/watchdog/report', async (req, res) => {
         clientId,
         aiDetails: { kind, version: version ?? null, exitCode: exitCode ?? null, detail: detail ?? null, logTail: logTail ?? null },
         dedupMessage: `watchdog-failed:${clientId}`,
+      });
+    } else if (kind === 'autostart_broken') {
+      ingestServerCriticalEvent({
+        eventCode: 'client.watchdog.autostart_broken',
+        title: 'На клиенте нет автозапуска сторожа',
+        humanMessage: `Клиент не смог вернуть сторожу автозапуск${verSuffix} — сторож не поднимется сам, если приложение перестанет запускаться.${detail ? ` ${detail}` : ''}`,
+        category: 'storage',
+        severity: 'warn',
+        clientId,
+        aiDetails: { kind, version: version ?? null, detail: detail ?? null },
+        dedupMessage: `watchdog-autostart-broken:${clientId}`,
       });
     } else if (kind === 'app_missing') {
       // Standalone «приложение пропало» signal sent at the top of the watchdog's
