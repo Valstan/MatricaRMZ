@@ -15,14 +15,37 @@
 #   Проверено на Kaspersky Standard 21.26: `avp.com HELP` → есть EXPORT/IMPORT,
 #   команд EXCLUSION/TRUSTED/ADD нет.
 #
+# Кроме готовых строк он раскладывает их в ДВА файла ровно того формата, который
+# Касперский принимает кнопкой «Импорт» на своих экранах списков (см. раздел
+# «Файлы импорта» ниже), — чтобы не вбивать строки руками по одной.
+#
 # Режимы:
-#   kaspersky-matrica.ps1                    — окно с готовыми строками + запись инструкции
+#   kaspersky-matrica.ps1                    — окно с готовыми строками + файлы импорта + инструкция
 #   kaspersky-matrica.ps1 -Quiet             — то же в консоль, без окна
 #   kaspersky-matrica.ps1 -Json              — машинный вывод (для встраивания в Матрицу)
 #   kaspersky-matrica.ps1 -Verify            — проверка состояния (что цело, что пропало)
 #   kaspersky-matrica.ps1 -Export <файл.cfg> — сохранить эталон настроек Касперского
 #   kaspersky-matrica.ps1 -Import <файл.cfg> — применить эталон на этом компьютере
 #   -SettingsPassword <пароль>               — если в Касперском стоит пароль на настройки
+#   -ImportDir <папка>                       — куда положить файлы импорта (по умолчанию
+#                                              %LOCALAPPDATA%\kaspersky-matrica)
+#   -MergeExclusions <файл.csv>              — влить в файл исключений строки из твоего
+#   -MergeTrusted <файл.xml>                   прежнего экспорта Касперского (см. ниже)
+#
+# Файлы импорта. У Касперского на экране «Исключения и действия при обнаружении угроз»
+# обе кнопки списков умеют Экспорт/Импорт: «Управление исключениями» → *.csv,
+# «Указать доверенные программы» → *.xml. Оба файла, несмотря на расширения, — текст
+# UTF-16LE с BOM и переводами строк CRLF, поля через точку с запятой:
+#   исключения:            1;<путь>;<вердикт>;<область>;1;0;1;<комментарий>;1
+#   доверенные программы:  1;<путь>;
+# Папка в пути исключения обязана заканчиваться обратной косой чертой, файл — нет.
+# Формат снят побайтово с живого экспорта Kaspersky Standard 21.26 (2026-08-27).
+#
+# ⚠ Импорт вносит в список содержимое файла. Прежде чем импортировать, выгрузи текущий
+# список кнопкой «Экспорт» рядом — тогда у тебя есть и точка возврата, и файл для
+# -MergeExclusions / -MergeTrusted: с ними сгенерированный файл гарантированно
+# СОДЕРЖИТ твои прежние строки, и «заменит ли импорт список целиком» перестаёт быть
+# вопросом.
 #
 # Запуск: Запустить.cmd (или powershell -sta -ep bypass -file kaspersky-matrica.ps1)
 [CmdletBinding()]
@@ -33,7 +56,10 @@ param(
     [string]$Export,
     [string]$Import,
     [string]$SettingsPassword,
-    [string]$Report
+    [string]$Report,
+    [string]$ImportDir,
+    [string]$MergeExclusions,
+    [string]$MergeTrusted
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,6 +118,149 @@ function ConvertTo-UserMask {
         return ($profileRoot + '\*' + $Path.Substring($env:USERPROFILE.Length))
     }
     $Path -replace [regex]::Escape("\$leaf\"), '\*\'
+}
+
+function Test-ContainsPath {
+    # Сравнение регистронезависимое и без хвостовой косой черты: Windows так и сравнивает
+    # пути, а Касперский показал бы две одинаковые строки двумя строками списка.
+    param([string[]]$List, [string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $true }
+    $p = $Path.Replace('/', '\').TrimEnd('\')
+    foreach ($existing in @($List)) {
+        if ($existing -and ($existing.Replace('/', '\').TrimEnd('\') -ieq $p)) { return $true }
+    }
+    $false
+}
+
+function Add-UniquePath {
+    param([string[]]$List, [string]$Path)
+    if (Test-ContainsPath -List $List -Path $Path) { return @($List) }
+    @($List) + ($Path.Replace('/', '\').TrimEnd('\'))
+}
+
+# --------------------------------------------------------------------------------------
+# Обнаружение: рабочие папки этого компьютера (репозитории, Яндекс-диск)
+# --------------------------------------------------------------------------------------
+
+function Test-CanBeExcludedWholesale {
+    # Отсекает пути, которые нельзя отдавать под исключение целиком: корень диска,
+    # профиль пользователя, системные каталоги. Ошибка здесь дорогая: исключение
+    # «D:\» или «C:\Users\Вася» снимает защиту с половины компьютера, а выглядит в
+    # окне Касперского такой же безобидной строкой, как папка с репозиториями.
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $full = $Path.TrimEnd('\')
+    $root = ([System.IO.Path]::GetPathRoot($full)).TrimEnd('\')
+    if (-not $root -or ($full -ieq $root)) { return $false }
+    $forbidden = @(
+        $env:USERPROFILE, (Split-Path -Parent $env:USERPROFILE), $env:SystemRoot,
+        $env:ProgramData, $env:ProgramFiles, ${env:ProgramFiles(x86)},
+        $env:APPDATA, $env:LOCALAPPDATA, (Split-Path -Parent $env:LOCALAPPDATA)
+    )
+    foreach ($f in $forbidden) {
+        if ($f -and ($full -ieq $f.TrimEnd('\'))) { return $false }
+    }
+    $true
+}
+
+function Get-GitRepoChildCount {
+    param([string]$Path)
+    @(Get-ChildItem -LiteralPath $Path -Directory -Force -ErrorAction SilentlyContinue |
+      Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.git') }).Count
+}
+
+function Get-RepoEcosystemRoot {
+    # Папка, в которой лежат клоны наших репозиториев. Сборка гоняет тысячи файлов в
+    # node_modules и dist; антивирус проверяет каждый и заодно принимает свежий
+    # неподписанный .exe за угрозу — поэтому исключается вся папка целиком.
+    #
+    # Первый и главный источник — расположение самого скрипта: он лежит внутри клона,
+    # значит соседи клона и есть экосистема. Поиск по диску — только запасной путь для
+    # копии скрипта, унесённой на машину парка.
+    $dir = $PSScriptRoot
+    $repo = ''
+    while ($dir) {
+        if (Test-Path -LiteralPath (Join-Path $dir '.git')) { $repo = $dir; break }
+        $parent = Split-Path -Parent $dir
+        if (-not $parent -or ($parent -ieq $dir)) { break }
+        $dir = $parent
+    }
+    if ($repo) {
+        $parent = Split-Path -Parent $repo
+        if ((Test-CanBeExcludedWholesale $parent) -and ((Get-GitRepoChildCount $parent) -ge 1)) {
+            return $parent.TrimEnd('\')
+        }
+        # Клон лежит прямо в профиле или в корне диска — родителя отдавать нельзя,
+        # исключаем только сам клон.
+        return $repo.TrimEnd('\')
+    }
+
+    $names = @('PROGRAMMING', 'GitHubReps', 'GitHub', 'Repos', 'Projects', 'Dev', 'src', 'source\repos')
+    $bases = @()
+    foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+        try { if ($d.DriveType -eq 'Fixed' -and $d.IsReady) { $bases += $d.RootDirectory.FullName } } catch { }
+    }
+    $bases += $env:USERPROFILE
+    $bases += (Join-Path $env:USERPROFILE 'Documents')
+    foreach ($b in $bases) {
+        foreach ($n in $names) {
+            $candidate = Join-Path $b $n
+            if (-not (Test-CanBeExcludedWholesale $candidate)) { continue }
+            # Два клона и больше: одна случайная папка с именем «src» экосистемой не является.
+            if ((Get-GitRepoChildCount $candidate) -ge 2) { return $candidate.TrimEnd('\') }
+        }
+    }
+    ''
+}
+
+function Get-YandexDiskRoot {
+    # Только реестр. Проверка «есть ли внутри скрытая .sync» кажется надёжной, но на
+    # реальной машине ей соответствуют ДВЕ папки: рабочая D:\YandexDisk и брошенная
+    # C:\Users\<имя>\YandexDisk от прежней установки — у обеих .sync на месте.
+    # Поэтому известных путей на диске не перебираем: нет ключа реестра — считаем,
+    # что Яндекс-диска на компьютере нет, и молчим вместо того, чтобы угадать не ту.
+    foreach ($key in @('HKCU:\Software\Yandex\Yandex.Disk.2', 'HKCU:\Software\Yandex\Yandex.Disk')) {
+        $props = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+        if (-not $props) { continue }
+        if ($props.PSObject.Properties['RootFolder']) {
+            $p = [string]$props.RootFolder
+            if ($p -and (Test-Path -LiteralPath $p)) { return $p.TrimEnd('\') }
+        }
+        # Запасной ключ старой версии: корень не хранится, но папка загрузок лежит внутри него.
+        if ($props.PSObject.Properties['DownloadsPath']) {
+            $dl = [string]$props.DownloadsPath
+            if ($dl) {
+                $p = Split-Path -Parent $dl.TrimEnd('\')
+                if ($p -and (Test-Path -LiteralPath $p) -and (Test-CanBeExcludedWholesale $p)) {
+                    return $p.TrimEnd('\')
+                }
+            }
+        }
+    }
+    ''
+}
+
+function Get-WorkFolders {
+    # Папки, которые к Матрице отношения не имеют, но на этом компьютере тормозят из-за
+    # проверки: свои репозитории и облачная папка. Показываются отдельным разделом —
+    # решение вносить их принимает владелец компьютера, а не инструмент.
+    $items = @()
+    $repos = Get-RepoEcosystemRoot
+    if ($repos) {
+        $items += [pscustomobject]@{
+            Path  = $repos
+            Title = 'Папка с репозиториями (сборка, node_modules, свежие .exe)'
+        }
+    }
+    $yandex = Get-YandexDiskRoot
+    if ($yandex) {
+        $items += [pscustomobject]@{
+            Path  = $yandex
+            Title = 'Папка Яндекс-диска (постоянная синхронизация)'
+        }
+    }
+    ,$items
 }
 
 # --------------------------------------------------------------------------------------
@@ -169,6 +338,8 @@ function Get-MatricaInfo {
         AppExe = ''; AppDir = ''; AppVersion = ''
         WatchdogExe = ''; WatchdogDir = ''
         DataDir = ''; UserDataDir = ''; UpdatesDir = ''
+        UpdaterCacheDir = ''; LegacyDataDir = ''; DesktopDir = ''
+        Shortcuts = @(); ExtraExes = @()
         ApiBaseUrl = ''; ApiHost = ''; ApiIps = @()
         Tasks = @(); LogonShortcut = $null; Source = ''
     }
@@ -184,7 +355,7 @@ function Get-MatricaInfo {
             foreach ($pair in @(
                 @('appExePath', 'AppExe'), @('userDataDir', 'UserDataDir'),
                 @('updatesRootDir', 'UpdatesDir'), @('apiBaseUrl', 'ApiBaseUrl'),
-                @('version', 'AppVersion'))) {
+                @('version', 'AppVersion'), @('desktopDir', 'DesktopDir'))) {
                 if ($hs.PSObject.Properties[$pair[0]]) { $info[$pair[1]] = [string]$hs.($pair[0]) }
             }
             if ($hs.PSObject.Properties['updatedAtMs'] -and $hs.updatedAtMs) {
@@ -223,6 +394,50 @@ function Get-MatricaInfo {
 
     $dataDir = Join-Path $appData 'MatricaRMZ'
     if (Test-Path -LiteralPath $dataDir) { $info.DataDir = $dataDir } else { $info.DataDir = $dataDir }
+
+    # Кэш автообновления (electron-updater). Имя папки собирается из имени пакета, а не
+    # из отображаемого имени программы, поэтому оно выглядит как «@matricarmzelectron-app-updater»
+    # и угадывать его по productName нельзя — ищем по образцу среди соседей.
+    $updaterHit = Get-ChildItem -LiteralPath $localAppData -Directory -Force -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -like '*-updater' -and $_.Name -like '*matricarmz*' } |
+                  Select-Object -First 1
+    if ($updaterHit) { $info.UpdaterCacheDir = $updaterHit.FullName }
+
+    # Хвост прежних версий: на части машин парка встречается ~\.matricarmz.
+    $legacy = Join-Path $env:USERPROFILE '.matricarmz'
+    if (Test-Path -LiteralPath $legacy) { $info.LegacyDataDir = $legacy }
+
+    # Ярлыки. Рабочий стол может быть перенесён на другой диск — рукопожатие знает куда,
+    # [Environment]::GetFolderPath это тоже учитывает; берём оба и складываем без дублей.
+    if (-not $info.DesktopDir) { $info.DesktopDir = [Environment]::GetFolderPath('Desktop') }
+    $shortcuts = @()
+    $lnkDirs = @($info.DesktopDir, [Environment]::GetFolderPath('Desktop'),
+                 [Environment]::GetFolderPath('CommonDesktopDirectory'),
+                 [Environment]::GetFolderPath('Startup'))
+    foreach ($d in $lnkDirs) {
+        if (-not $d -or -not (Test-Path -LiteralPath $d)) { continue }
+        foreach ($lnk in @(Get-ChildItem -LiteralPath $d -Filter '*atricaRMZ*.lnk' -Force -ErrorAction SilentlyContinue)) {
+            $shortcuts = Add-UniquePath -List $shortcuts -Path $lnk.FullName
+        }
+    }
+    $info.Shortcuts = @($shortcuts)
+
+    # Исполняемые файлы, которые антивирус видит как «свежий неподписанный .exe»: копии
+    # сторожа, скачанный установщик обновления и заглушка-обновлятор.
+    $exes = @()
+    $exeCandidates = @()
+    if ($info.AppDir)  { $exeCandidates += (Join-Path $info.AppDir 'resources\matricarmz-watchdog.exe') }
+    if ($info.DataDir) { $exeCandidates += (Join-Path $info.DataDir 'matricarmz-watchdog.exe') }
+    foreach ($c in $exeCandidates) {
+        if (Test-Path -LiteralPath $c) { $exes = Add-UniquePath -List $exes -Path $c }
+    }
+    foreach ($dir in @($info.UpdatesDir, $info.UpdaterCacheDir)) {
+        if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { continue }
+        foreach ($exe in @(Get-ChildItem -LiteralPath $dir -Filter '*.exe' -File -Force -ErrorAction SilentlyContinue)) {
+            $exes = Add-UniquePath -List $exes -Path $exe.FullName
+        }
+    }
+    $info.ExtraExes = @($exes)
 
     # Прод-адрес: из рукопожатия, иначе значение по умолчанию из кода клиента.
     if (-not $info.ApiBaseUrl) { $info.ApiBaseUrl = $DefaultApiBaseUrl }
@@ -265,28 +480,37 @@ function Get-MatricaInfo {
 # --------------------------------------------------------------------------------------
 
 function Get-ExclusionPlan {
-    param($Matrica)
+    param($Matrica, $WorkFolders)
+    # Ярлык в списке доверенных — не причуда: Касперский разбирает .lnk и переносит
+    # доверие на цель, а запуск с рабочего стола идёт именно через него.
     $trusted = @()
-    foreach ($exe in @($Matrica.AppExe, $Matrica.WatchdogExe)) {
-        if ($exe) { $trusted += ($exe.Replace('/', '\')) }
+    foreach ($exe in (@($Matrica.AppExe, $Matrica.WatchdogExe) + @($Matrica.ExtraExes) + @($Matrica.Shortcuts))) {
+        if ($exe) { $trusted = Add-UniquePath -List $trusted -Path $exe }
     }
     # UserDataDir (база SQLite, логи, файл ключа) — самая пишущая папка приложения:
     # без неё исключения выглядят полными, а постоянное сканирование остаётся.
+    # UpdaterCacheDir — туда качается установщик обновления, самое частое место, где
+    # антивирус забирает файл прямо из-под обновлятора.
     $folders = @()
     foreach ($raw in @($Matrica.AppDir, $Matrica.WatchdogDir, $Matrica.DataDir,
-                       $Matrica.UserDataDir, $Matrica.UpdatesDir)) {
+                       $Matrica.UserDataDir, $Matrica.UpdatesDir,
+                       $Matrica.UpdaterCacheDir, $Matrica.LegacyDataDir)) {
         $d = ConvertTo-WinPath $raw
-        if ($d -and ($folders -notcontains $d)) { $folders += $d }
+        if ($d) { $folders = Add-UniquePath -List $folders -Path $d }
     }
     $masks = @()
     foreach ($d in $folders) {
         $m = ConvertTo-UserMask $d
-        if ($m -and ($masks -notcontains $m)) { $masks += $m }
+        if ($m) { $masks = Add-UniquePath -List $masks -Path $m }
     }
+    $work = @()
+    foreach ($w in @($WorkFolders)) { if ($w) { $work += $w } }
     [pscustomobject]@{
         TrustedApps    = $trusted
         ExcludeFolders = $folders
+        ExcludeFiles   = @($Matrica.Shortcuts)
         ExcludeMasks   = $masks
+        WorkFolders    = $work
         NetworkHost    = $Matrica.ApiHost
         NetworkIps     = $Matrica.ApiIps
         NetworkPort    = 443
@@ -302,11 +526,135 @@ function Get-ExclusionPlan {
 }
 
 # --------------------------------------------------------------------------------------
+# Файлы импорта для Касперского
+#
+# Оба списка Касперский отдаёт и принимает одним и тем же текстовым форматом: UTF-16LE
+# с BOM,CRLF, поля через точку с запятой. Формат снят побайтово с живого экспорта
+# Kaspersky Standard 21.26 (2026-08-27) — не из документации, её на это нет.
+# --------------------------------------------------------------------------------------
+
+$ExclusionFileName = 'Касперский-1-исключения.csv'
+$TrustedFileName   = 'Касперский-2-доверенные-программы.xml'
+
+function ConvertTo-ExclusionLine {
+    # 1;<объект>;<вердикт>;<область>;1;0;1;<комментарий>;1
+    # Звёздочки в 3-м и 4-м поле = «любая угроза, любой компонент защиты»: так Касперский
+    # записывает исключение, добавленное вручную без уточнений.
+    param([string]$Path, [switch]$IsFolder)
+    $p = $Path.Replace('/', '\').TrimEnd('\')
+    # Папка обязана заканчиваться косой чертой: без неё правило читается как файл без
+    # расширения и молча не срабатывает на содержимом.
+    if ($IsFolder) { $p = $p + '\' }
+    "1;$p;*;*;1;0;1;;1"
+}
+
+function ConvertTo-TrustedLine {
+    param([string]$Path)
+    '1;' + $Path.Replace('/', '\').TrimEnd('\') + ';'
+}
+
+function Get-PathFromListLine {
+    param([string]$Line)
+    $parts = @($Line -split ';')
+    if ($parts.Count -lt 2) { return '' }
+    [string]$parts[1]
+}
+
+function Read-KasperskyListLines {
+    # Читает прежний экспорт (для -MergeExclusions / -MergeTrusted). Кодировка определяется
+    # по BOM самим ридером — у Касперского это UTF-16LE, но подстраховка ничего не стоит.
+    param([string]$File)
+    if ([string]::IsNullOrWhiteSpace($File)) { return @() }
+    if (-not (Test-Path -LiteralPath $File)) { throw "Файл прежнего экспорта не найден: $File" }
+    $text = [System.IO.File]::ReadAllText($File)
+    @($text -split "`r?`n" | Where-Object { $_ -and $_.Trim() })
+}
+
+function Write-KasperskyListFile {
+    param([string]$Path, [string[]]$Lines)
+    $text = (@($Lines) -join "`r`n") + "`r`n"
+    # Именно UTF-16LE с BOM. В UTF-8 Касперский файл не примет — точнее, примет и
+    # покажет строки кракозябрами, что хуже отказа: правило будет, а совпадать не будет.
+    $enc = New-Object System.Text.UnicodeEncoding($false, $true)
+    [System.IO.File]::WriteAllText($Path, $text, $enc)
+}
+
+function Write-KasperskyImportFiles {
+    param($Plan, [string]$Dir, [string]$MergeExclusionsFile, [string]$MergeTrustedFile)
+
+    if ([string]::IsNullOrWhiteSpace($Dir)) { $Dir = Join-Path $env:LOCALAPPDATA 'kaspersky-matrica' }
+    if (-not (Test-Path -LiteralPath $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
+
+    # Строки прежнего экспорта переносим ДОСЛОВНО: в них могут стоять настройки, которых
+    # мы не знаем (конкретный вердикт вместо звёздочки, свой комментарий). Наши строки
+    # добавляются только для путей, которых там ещё нет.
+    $exclusionLines = @()
+    $seenExcl = @()
+    foreach ($line in (Read-KasperskyListLines $MergeExclusionsFile)) {
+        $p = Get-PathFromListLine $line
+        if (-not $p) { continue }
+        $exclusionLines += $line
+        $seenExcl = Add-UniquePath -List $seenExcl -Path $p
+    }
+    $mergedExclusions = @($exclusionLines).Count
+
+    $folderPaths = @($Plan.ExcludeFolders)
+    foreach ($w in @($Plan.WorkFolders)) { $folderPaths += $w.Path }
+    foreach ($f in $folderPaths) {
+        if (Test-ContainsPath -List $seenExcl -Path $f) { continue }
+        $seenExcl = Add-UniquePath -List $seenExcl -Path $f
+        $exclusionLines += (ConvertTo-ExclusionLine -Path $f -IsFolder)
+    }
+    foreach ($f in @($Plan.ExcludeFiles)) {
+        if (Test-ContainsPath -List $seenExcl -Path $f) { continue }
+        $seenExcl = Add-UniquePath -List $seenExcl -Path $f
+        $exclusionLines += (ConvertTo-ExclusionLine -Path $f)
+    }
+
+    $trustedLines = @()
+    $seenTrusted = @()
+    foreach ($line in (Read-KasperskyListLines $MergeTrustedFile)) {
+        $p = Get-PathFromListLine $line
+        if (-not $p) { continue }
+        $trustedLines += $line
+        $seenTrusted = Add-UniquePath -List $seenTrusted -Path $p
+    }
+    $mergedTrusted = @($trustedLines).Count
+
+    foreach ($t in @($Plan.TrustedApps)) {
+        if (Test-ContainsPath -List $seenTrusted -Path $t) { continue }
+        $seenTrusted = Add-UniquePath -List $seenTrusted -Path $t
+        $trustedLines += (ConvertTo-TrustedLine -Path $t)
+    }
+
+    $result = [ordered]@{
+        Dir                = $Dir
+        ExclusionsPath     = ''
+        TrustedPath        = ''
+        ExclusionCount     = @($exclusionLines).Count
+        TrustedCount       = @($trustedLines).Count
+        MergedExclusions   = $mergedExclusions
+        MergedTrusted      = $mergedTrusted
+    }
+    # Пустой файл не пишем: импорт пустого списка — это в лучшем случае ничего, а в
+    # худшем затирание того, что человек внёс руками.
+    if ($result.ExclusionCount -gt 0) {
+        $result.ExclusionsPath = Join-Path $Dir $ExclusionFileName
+        Write-KasperskyListFile -Path $result.ExclusionsPath -Lines $exclusionLines
+    }
+    if ($result.TrustedCount -gt 0) {
+        $result.TrustedPath = Join-Path $Dir $TrustedFileName
+        Write-KasperskyListFile -Path $result.TrustedPath -Lines $trustedLines
+    }
+    [pscustomobject]$result
+}
+
+# --------------------------------------------------------------------------------------
 # Рендер инструкции под реальные пути
 # --------------------------------------------------------------------------------------
 
 function Write-Guide {
-    param($Kav, $Matrica, $Plan, [string]$OutPath)
+    param($Kav, $Matrica, $Plan, [string]$OutPath, $ImportFiles)
     $tpl = Join-Path $PSScriptRoot 'guide.ru.md'
     if (-not (Test-Path -LiteralPath $tpl)) { return '' }
     $text = Get-Content -LiteralPath $tpl -Raw -Encoding UTF8
@@ -327,6 +675,12 @@ function Write-Guide {
         '{{EXCLUDE_LIST}}'  = ($Plan.ExcludeFolders -join "`r`n")
         '{{MASK_LIST}}'     = ($Plan.ExcludeMasks -join "`r`n")
         '{{TRUSTED_LIST}}'  = ($Plan.TrustedApps -join "`r`n")
+        '{{FILES_LIST}}'    = $(if (@($Plan.ExcludeFiles).Count -gt 0) { @($Plan.ExcludeFiles) -join "`r`n" } else { '(ярлыков не найдено)' })
+        '{{WORK_LIST}}'     = $(if (@($Plan.WorkFolders).Count -gt 0) {
+                                   (@($Plan.WorkFolders) | ForEach-Object { $_.Path + '   — ' + $_.Title }) -join "`r`n"
+                               } else { '(на этом компьютере не найдено ни репозиториев, ни Яндекс-диска)' })
+        '{{IMPORT_EXCLUSIONS}}' = $(if ($ImportFiles -and $ImportFiles.ExclusionsPath) { [string]$ImportFiles.ExclusionsPath } else { '(файл не записан)' })
+        '{{IMPORT_TRUSTED}}'    = $(if ($ImportFiles -and $ImportFiles.TrustedPath) { [string]$ImportFiles.TrustedPath } else { '(файл не записан)' })
     }
     foreach ($k in $map.Keys) { $text = $text.Replace($k, [string]$map[$k]) }
     if (-not $OutPath) {
@@ -448,7 +802,7 @@ function Invoke-VerifyState {
 # --------------------------------------------------------------------------------------
 
 function Show-Window {
-    param($Kav, $Matrica, $Plan, [string]$GuidePath)
+    param($Kav, $Matrica, $Plan, [string]$GuidePath, $ImportFiles, [string]$ImportFilesError)
 
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
@@ -509,17 +863,35 @@ function Show-Window {
         [void]$script:allText.AppendLine($Value)
     }
 
+    if ($ImportFiles -and ($ImportFiles.ExclusionsPath -or $ImportFiles.TrustedPath)) {
+        Add-Section 'Импорт файлами — быстрый путь, вбивать строки не нужно' ('Настройки Касперского → Настройки безопасности → «Исключения и действия при обнаружении угроз». Там две кнопки со своими списками, у каждой рядом есть Экспорт и Импорт: «Управление исключениями» принимает первый файл, «Указать доверенные программы» — второй. Путь можно вставить прямо в строку имени файла в окне открытия — искать папку не нужно. Перед импортом нажми там же «Экспорт» и сохрани то, что уже внесено: это и точка возврата, и файл для ключей -MergeExclusions / -MergeTrusted, после которых наш файл гарантированно содержит твои прежние строки.')
+        if ($ImportFiles.ExclusionsPath) { Add-Row $ImportFiles.ExclusionsPath }
+        if ($ImportFiles.TrustedPath) { Add-Row $ImportFiles.TrustedPath }
+    } elseif ($ImportFilesError) {
+        Add-Section 'Импорт файлами недоступен' ('Файлы записать не удалось: ' + $ImportFilesError + '. Строки ниже можно внести руками.')
+    }
+
     Add-Section 'A. Доверенные программы' ('Настройки Касперского → Настройки безопасности → «Исключения и действия при обнаружении угроз» → «Указать доверенные программы» → Добавить. Для каждой поставь все галочки: ' + ($Plan.TrustedFlags -join '; ') + '.')
     foreach ($t in $Plan.TrustedApps) { Add-Row $t }
-    if ($Plan.TrustedApps.Count -eq 0) { Add-Row '(не найдено — установи Матрицу и открой это окно снова)' }
+    if (@($Plan.TrustedApps).Count -eq 0) { Add-Row '(не найдено — установи Матрицу и открой это окно снова)' }
 
     Add-Section 'B. Исключения — папки этого компьютера' 'Там же → «Управление исключениями» → Добавить → поле «Файл или папка».'
     foreach ($f in $Plan.ExcludeFolders) { Add-Row $f }
 
-    Add-Section 'B2. Те же исключения масками (для эталона на весь парк)' 'Маска не привязана к имени пользователя — подойдёт на любом компьютере. Вноси их вместо B, если готовишь эталонный файл настроек для других компов.'
+    if (@($Plan.ExcludeFiles).Count -gt 0) {
+        Add-Section 'C. Исключения — ярлыки' 'Ярлык запуска Касперский проверяет отдельно от файла, на который тот указывает.'
+        foreach ($f in $Plan.ExcludeFiles) { Add-Row $f }
+    }
+
+    if (@($Plan.WorkFolders).Count -gt 0) {
+        Add-Section 'D. Рабочие папки этого компьютера (к Матрице отношения не имеют)' ('Нашлось: ' + ((@($Plan.WorkFolders) | ForEach-Object { $_.Title }) -join '; ') + '. Проверка этих папок тормозит работу заметнее всего, но решение вносить их — твоё: в файл импорта они уже включены.')
+        foreach ($w in $Plan.WorkFolders) { Add-Row $w.Path }
+    }
+
+    Add-Section 'E. Те же исключения масками (для эталона на весь парк)' 'Маска не привязана к имени пользователя — подойдёт на любом компьютере. Вноси их вместо B, если готовишь эталонный файл настроек для других компов.'
     foreach ($m in $Plan.ExcludeMasks) { Add-Row $m }
 
-    Add-Section 'C. Сеть — если не поставил галочку «Не проверять сетевой трафик»' 'Настройки → Сетевой экран → «Настроить пакетные правила» → Добавить разрешающее правило: протокол TCP, удалённый адрес и порт ниже.'
+    Add-Section 'F. Сеть — если не поставил галочку «Не проверять сетевой трафик»' 'Настройки → Сетевой экран → «Настроить пакетные правила» → Добавить разрешающее правило: протокол TCP, удалённый адрес и порт ниже.'
     foreach ($ip in $Plan.NetworkIps) { Add-Row "$ip" }
     Add-Row '443'
     if ($Plan.NetworkHost) { Add-Row $Plan.NetworkHost }
@@ -535,6 +907,12 @@ function Show-Window {
     $bGuide.Text = 'Открыть инструкцию'; $bGuide.Width = 160; $bGuide.Height = 30
     $capturedGuide = $GuidePath
     $bGuide.Add_Click({ if ($capturedGuide -and (Test-Path -LiteralPath $capturedGuide)) { Start-Process notepad $capturedGuide } }.GetNewClosure())
+
+    $bFiles = New-Object System.Windows.Forms.Button
+    $bFiles.Text = 'Папка с файлами'; $bFiles.Width = 150; $bFiles.Height = 30
+    $capturedFilesDir = if ($ImportFiles) { [string]$ImportFiles.Dir } else { '' }
+    $bFiles.Enabled = [bool]($capturedFilesDir -and (Test-Path -LiteralPath $capturedFilesDir))
+    $bFiles.Add_Click({ try { Start-Process explorer.exe $capturedFilesDir } catch {} }.GetNewClosure())
 
     $bKav = New-Object System.Windows.Forms.Button
     $bKav.Text = 'Открыть Касперский'; $bKav.Width = 160; $bKav.Height = 30
@@ -589,7 +967,7 @@ function Show-Window {
     $note.AutoSize = $true; $note.ForeColor = [System.Drawing.Color]::DimGray
     $note.Margin = New-Object System.Windows.Forms.Padding(4, 8, 0, 0)
 
-    $bottom.Controls.AddRange(@($bCopyAll, $bGuide, $bKav, $bVerify, $bExport, $bImport, $note))
+    $bottom.Controls.AddRange(@($bCopyAll, $bGuide, $bFiles, $bKav, $bVerify, $bExport, $bImport, $note))
 
     $form.Controls.Add($panel)
     $form.Controls.Add($bottom)
@@ -613,10 +991,29 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $kav = Get-KasperskyInfo
 $matrica = Get-MatricaInfo
-$plan = Get-ExclusionPlan -Matrica $matrica
+$workFolders = Get-WorkFolders
+$plan = Get-ExclusionPlan -Matrica $matrica -WorkFolders $workFolders
 
 if ($Export) { Invoke-AvpSettings -Action 'EXPORT' -File $Export -Kav $kav -Password $SettingsPassword; return }
 if ($Import) { Invoke-AvpSettings -Action 'IMPORT' -File $Import -Kav $kav -Password $SettingsPassword; return }
+
+# Проверка состояния идёт до генерации: она читающая, и её дёргает сама Матрица —
+# писать файлы на каждый опрос состояния незачем.
+if ($Verify) {
+    (Invoke-VerifyState -Kav $kav -Matrica $matrica) | ForEach-Object { Write-Host $_ }
+    return
+}
+
+$importFiles = $null
+$importFilesError = ''
+try {
+    $importFiles = Write-KasperskyImportFiles -Plan $plan -Dir $ImportDir `
+        -MergeExclusionsFile $MergeExclusions -MergeTrustedFile $MergeTrusted
+} catch {
+    # Файлы импорта — удобство, а не смысл инструмента: не смогли записать (нет прав,
+    # диск полон, антивирус забрал папку) — окно и строки для ручного ввода остаются.
+    $importFilesError = [string]$_
+}
 
 if ($Json) {
     [pscustomobject]@{
@@ -624,30 +1021,45 @@ if ($Json) {
         kaspersky   = $kav
         matrica     = $matrica
         plan        = $plan
+        importFiles = $importFiles
+        importFilesError = $importFilesError
         canAutoApply = $false
-        autoApplyReason = 'Consumer Kaspersky exposes no CLI/registry/file API to add an exclusion; Self-Defense blocks external config tampering independently of real-time protection state. Supported automation: avp.com EXPORT/IMPORT of the whole settings blob.'
+        autoApplyReason = 'Consumer Kaspersky exposes no CLI/registry/file API to add an exclusion; Self-Defense blocks external config tampering independently of real-time protection state. Supported automation: avp.com EXPORT/IMPORT of the whole settings blob, plus per-list Import of the exclusion / trusted-application files this script generates.'
     } | ConvertTo-Json -Depth 6
     return
 }
 
-if ($Verify) {
-    (Invoke-VerifyState -Kav $kav -Matrica $matrica) | ForEach-Object { Write-Host $_ }
-    return
-}
-
-$guidePath = Write-Guide -Kav $kav -Matrica $matrica -Plan $plan -OutPath $Report
+$guidePath = Write-Guide -Kav $kav -Matrica $matrica -Plan $plan -OutPath $Report -ImportFiles $importFiles
 
 if ($Quiet) {
     Write-Host "=== Доверенные программы ==="
     $plan.TrustedApps | ForEach-Object { Write-Host "  $_" }
     Write-Host "=== Исключения (папки) ==="
     $plan.ExcludeFolders | ForEach-Object { Write-Host "  $_" }
+    if (@($plan.ExcludeFiles).Count -gt 0) {
+        Write-Host "=== Исключения (файлы и ярлыки) ==="
+        $plan.ExcludeFiles | ForEach-Object { Write-Host "  $_" }
+    }
+    if (@($plan.WorkFolders).Count -gt 0) {
+        Write-Host "=== Рабочие папки этого компьютера ==="
+        $plan.WorkFolders | ForEach-Object { Write-Host "  $($_.Path)   — $($_.Title)" }
+    }
     Write-Host "=== Те же исключения масками (для эталона на парк) ==="
     $plan.ExcludeMasks | ForEach-Object { Write-Host "  $_" }
     Write-Host "=== Сеть ==="
     Write-Host "  хост: $($plan.NetworkHost)   IP: $($plan.NetworkIps -join ', ')   порт: $($plan.NetworkPort)"
+    if ($importFiles) {
+        Write-Host "=== Файлы для импорта в Касперский ==="
+        if ($importFiles.ExclusionsPath) {
+            Write-Host "  Исключения ($($importFiles.ExclusionCount) строк): $($importFiles.ExclusionsPath)"
+        }
+        if ($importFiles.TrustedPath) {
+            Write-Host "  Доверенные программы ($($importFiles.TrustedCount) строк): $($importFiles.TrustedPath)"
+        }
+    }
+    if ($importFilesError) { Write-Host "  Файлы импорта не записаны: $importFilesError" }
     if ($guidePath) { Write-Host "`nИнструкция: $guidePath" }
     return
 }
 
-Show-Window -Kav $kav -Matrica $matrica -Plan $plan -GuidePath $guidePath
+Show-Window -Kav $kav -Matrica $matrica -Plan $plan -GuidePath $guidePath -ImportFiles $importFiles -ImportFilesError $importFilesError
