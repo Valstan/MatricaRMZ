@@ -140,6 +140,63 @@ try {
     Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+Write-Host 'Что отдавать под исключение, когда клон найден:'
+$rt = Join-Path ([System.IO.Path]::GetTempPath()) ('kaspersky-matrica-target-' + [guid]::NewGuid().ToString('N'))
+try {
+    foreach ($r in @('a', 'b')) {
+        New-Item -ItemType Directory -Path (Join-Path $rt "Экосистема\$r\.git") -Force | Out-Null
+    }
+    New-Item -ItemType Directory -Path (Join-Path $rt 'Свалка\solo\.git') -Force | Out-Null
+    Assert-Equal 'папка с двумя клонами отдаётся целиком' `
+        (Resolve-RepoExclusionTarget -RepoPath (Join-Path $rt 'Экосистема\a')) (Join-Path $rt 'Экосистема')
+    # Главная поправка ревью: раньше проверка «в родителе есть хоть один клон» была
+    # тавтологией — им был сам найденный клон, — и папка общего назначения уходила в
+    # исключения целиком.
+    Assert-Equal 'родитель с ОДНИМ клоном не отдаётся' `
+        (Resolve-RepoExclusionTarget -RepoPath (Join-Path $rt 'Свалка\solo')) (Join-Path $rt 'Свалка\solo')
+    Assert-Equal 'домашний каталог как репозиторий не отдаётся' `
+        (Resolve-RepoExclusionTarget -RepoPath $env:USERPROFILE) ''
+    Assert-Equal 'корень диска как репозиторий не отдаётся' `
+        (Resolve-RepoExclusionTarget -RepoPath 'C:\') ''
+    Assert-Equal 'пустой путь не роняет' (Resolve-RepoExclusionTarget -RepoPath '') ''
+} finally { Remove-Item -LiteralPath $rt -Recurse -Force -ErrorAction SilentlyContinue }
+
+Write-Host 'Гейт знает папки общего назначения:'
+Assert-Equal 'Рабочий стол' (Test-CanBeExcludedWholesale ([Environment]::GetFolderPath('Desktop'))) 'False'
+Assert-Equal 'Документы' (Test-CanBeExcludedWholesale ([Environment]::GetFolderPath('MyDocuments'))) 'False'
+$dl = Join-Path $env:USERPROFILE 'Downloads'
+if (Test-Path -LiteralPath $dl) { Assert-Equal 'Загрузки' (Test-CanBeExcludedWholesale $dl) 'False' }
+
+Write-Host 'Слияние с прежним экспортом (обещание «наш файл содержит всё твоё»):'
+$mt = Join-Path ([System.IO.Path]::GetTempPath()) ('kaspersky-matrica-merge-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $mt -Force | Out-Null
+try {
+    $prev = Join-Path $mt 'prev.csv'
+    Write-KasperskyListFile -Path $prev -Lines @(
+        '1;;PDM:Trojan.Win32.Generic;*;1;0;1;;1',                 # правило без пути — только вердикт
+        '1;D:\ЧУЖАЯ ПАПКА\;*;*;1;0;1;;1',                          # чужая строка, нашей нет
+        '1;d:\programming\;*;*;1;0;1;моё;1'                        # то же, что наша, но иным регистром
+    )
+    $plan = [pscustomobject]@{
+        TrustedApps = @('C:\a\MatricaRMZ.exe'); ExcludeFolders = @('D:\PROGRAMMING')
+        ExcludeFiles = @(); ExcludeMasks = @(); WorkFolders = @()
+        NetworkHost = ''; NetworkIps = @(); NetworkPort = 443; TrustedFlags = @()
+    }
+    $res = Write-KasperskyImportFiles -Plan $plan -Dir (Join-Path $mt 'out') -MergeExclusionsFile $prev
+    $lines = @(Read-KasperskyListLines $res.ExclusionsPath)
+    Assert-Equal 'строка-вердикт без пути сохранена' `
+        ([bool](@($lines) -contains '1;;PDM:Trojan.Win32.Generic;*;1;0;1;;1')) 'True'
+    Assert-Equal 'чужая строка сохранена дословно' `
+        ([bool](@($lines) -contains '1;D:\ЧУЖАЯ ПАПКА\;*;*;1;0;1;;1')) 'True'
+    Assert-Equal 'совпадение по регистру не задвоено' (@($lines).Count) '3'
+    Assert-Equal 'учтено перенесённых строк' $res.MergedExclusions '3'
+    # Мусорный файл не должен утечь в импорт целиком.
+    $junk = Join-Path $mt 'junk.txt'
+    Write-KasperskyListFile -Path $junk -Lines @('это не список Касперского', 'и это тоже')
+    $res2 = Write-KasperskyImportFiles -Plan $plan -Dir (Join-Path $mt 'out2') -MergeExclusionsFile $junk
+    Assert-Equal 'строки без точки с запятой отброшены' $res2.MergedExclusions '0'
+} finally { Remove-Item -LiteralPath $mt -Recurse -Force -ErrorAction SilentlyContinue }
+
 Write-Host 'Байты записанного файла (главное — здесь):'
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kaspersky-matrica-tests-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null

@@ -120,6 +120,18 @@ function ConvertTo-UserMask {
     $Path -replace [regex]::Escape("\$leaf\"), '\*\'
 }
 
+function ConvertTo-FullPath {
+    # PowerShell и .NET считают «текущей папкой» РАЗНОЕ: Test-Path идёт от расположения
+    # провайдера PowerShell, а [System.IO.File] — от рабочего каталога процесса. Они
+    # расходятся сплошь и рядом, и относительный путь из-за этого проходит проверку
+    # «файл есть», а потом падает на чтении — вместе со всей выдачей файлов импорта.
+    # Поэтому любой путь, пришедший ключом, разворачиваем в абсолютный один раз.
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+    try { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path) }
+    catch { $Path }
+}
+
 function Test-ContainsPath {
     # Сравнение регистронезависимое и без хвостовой косой черты: Windows так и сравнивает
     # пути, а Касперский показал бы две одинаковые строки двумя строками списка.
@@ -158,6 +170,22 @@ function Test-CanBeExcludedWholesale {
         $env:ProgramData, $env:ProgramFiles, ${env:ProgramFiles(x86)},
         $env:APPDATA, $env:LOCALAPPDATA, (Split-Path -Parent $env:LOCALAPPDATA)
     )
+    # Папки общего назначения. В них лежит всё подряд — в том числе то, ради чего
+    # антивирус и держат, — поэтому целиком они не исключаются, даже если внутри
+    # действительно нашлись клоны репозиториев. Пути спрашиваем у Windows: рабочий стол
+    # и документы часто перенесены на другой диск, и захардкоженный путь их не узнает.
+    foreach ($known in @('Desktop', 'MyDocuments', 'MyPictures', 'MyVideos', 'MyMusic')) {
+        try { $forbidden += [Environment]::GetFolderPath($known) } catch { }
+    }
+    # У «Загрузок» нет своего значения в перечислении .NET 4 — только идентификатор
+    # известной папки в реестре; запасной вариант учитывает и его отсутствие.
+    try {
+        $shell = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' -ErrorAction SilentlyContinue
+        if ($shell -and $shell.PSObject.Properties['{374DE290-123F-4565-9164-39C4925E467B}']) {
+            $forbidden += [string]$shell.'{374DE290-123F-4565-9164-39C4925E467B}'
+        }
+    } catch { }
+    if ($env:USERPROFILE) { $forbidden += (Join-Path $env:USERPROFILE 'Downloads') }
     foreach ($f in $forbidden) {
         if ($f -and ($full -ieq $f.TrimEnd('\'))) { return $false }
     }
@@ -187,6 +215,27 @@ function Get-SearchBases {
     # Запятая-обёртка в конвейере разворачивается в ОДИН элемент-массив, и вызывающий
     # получает один объект вместо списка — поймано собственным тестом.
     $bases
+}
+
+function Resolve-RepoExclusionTarget {
+    # Клон найден — что именно отдавать под исключение: папку-родителя или сам клон.
+    #
+    # Родителя — только если это ДЕЙСТВИТЕЛЬНО папка с репозиториями: кроме нашего в ней
+    # есть хотя бы ещё один клон. Прежняя проверка «хотя бы один» была тавтологией — наш
+    # собственный клон и есть тот самый git-потомок, — поэтому «папкой с репозиториями»
+    # объявлялись Загрузки или Рабочий стол, если клон положили туда, и в файл импорта
+    # уходила строка на всю эту папку.
+    param([string]$RepoPath)
+    if ([string]::IsNullOrWhiteSpace($RepoPath)) { return '' }
+    $parent = Split-Path -Parent $RepoPath
+    if ((Test-CanBeExcludedWholesale $parent) -and ((Get-GitRepoChildCount $parent) -ge 2)) {
+        return $parent.TrimEnd('\')
+    }
+    # Иначе — только сам клон: node_modules и dist лежат в нём, этого достаточно.
+    # Гейт нужен и здесь: домашний каталог сам может быть репозиторием (файлы настроек
+    # держат в git), и тогда «клоном» оказывается весь профиль пользователя.
+    if (Test-CanBeExcludedWholesale $RepoPath) { return $RepoPath.TrimEnd('\') }
+    ''
 }
 
 function Get-RepoEcosystemCandidates {
@@ -251,15 +300,7 @@ function Get-RepoEcosystemRoot {
         if (-not $parent -or ($parent -ieq $dir)) { break }
         $dir = $parent
     }
-    if ($repo) {
-        $parent = Split-Path -Parent $repo
-        if ((Test-CanBeExcludedWholesale $parent) -and ((Get-GitRepoChildCount $parent) -ge 1)) {
-            return $parent.TrimEnd('\')
-        }
-        # Клон лежит прямо в профиле или в корне диска — родителя отдавать нельзя,
-        # исключаем только сам клон.
-        return $repo.TrimEnd('\')
-    }
+    if ($repo) { return Resolve-RepoExclusionTarget -RepoPath $repo }
 
     if (-not $SearchBases) { $SearchBases = Get-SearchBases }
     # Два клона и больше: одна случайная папка с именем «src» экосистемой не является.
@@ -281,9 +322,12 @@ function Get-YandexDiskRoot {
     foreach ($key in @('HKCU:\Software\Yandex\Yandex.Disk.2', 'HKCU:\Software\Yandex\Yandex.Disk')) {
         $props = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
         if (-not $props) { continue }
+        # Через тот же гейт, что и всё остальное: пользователь волен назначить корнем
+        # синхронизации хоть «D:\», хоть свой профиль — реестр это честно вернёт, а
+        # исключение на весь диск в файле импорта выглядит такой же обычной строкой.
         if ($props.PSObject.Properties['RootFolder']) {
             $p = [string]$props.RootFolder
-            if ($p -and (Test-Path -LiteralPath $p)) { return $p.TrimEnd('\') }
+            if ($p -and (Test-CanBeExcludedWholesale $p)) { return $p.TrimEnd('\') }
         }
         # Запасной ключ старой версии: корень не хранится, но папка загрузок лежит внутри него.
         if ($props.PSObject.Properties['DownloadsPath']) {
@@ -591,8 +635,9 @@ function Get-ExclusionPlan {
 # Kaspersky Standard 21.26 (2026-08-27) — не из документации, её на это нет.
 # --------------------------------------------------------------------------------------
 
-$ExclusionFileName = 'Касперский-1-исключения.csv'
-$TrustedFileName   = 'Касперский-2-доверенные-программы.xml'
+# Имена файлов живут параметрами Write-KasperskyImportFiles со значениями по умолчанию,
+# а не переменными уровня скрипта: так функцию можно вызвать и проверить в отрыве от
+# основного потока — приёмка иначе до неё не дотягивается.
 
 function ConvertTo-ExclusionLine {
     # 1;<объект>;<вердикт>;<область>;1;0;1;<комментарий>;1
@@ -623,8 +668,9 @@ function Read-KasperskyListLines {
     # по BOM самим ридером — у Касперского это UTF-16LE, но подстраховка ничего не стоит.
     param([string]$File)
     if ([string]::IsNullOrWhiteSpace($File)) { return @() }
-    if (-not (Test-Path -LiteralPath $File)) { throw "Файл прежнего экспорта не найден: $File" }
-    $text = [System.IO.File]::ReadAllText($File)
+    $full = ConvertTo-FullPath $File
+    if (-not (Test-Path -LiteralPath $full)) { throw "Файл прежнего экспорта не найден: $File" }
+    $text = [System.IO.File]::ReadAllText($full)
     @($text -split "`r?`n" | Where-Object { $_ -and $_.Trim() })
 }
 
@@ -637,22 +683,40 @@ function Write-KasperskyListFile {
     [System.IO.File]::WriteAllText($Path, $text, $enc)
 }
 
+function Test-LooksLikeListLine {
+    # Строка списка Касперского — это как минимум «флаг;объект». Строка без точки с
+    # запятой списком не является: значит, подсунули не тот файл, и тащить её в импорт
+    # нельзя. Всё остальное переносим, даже если разобрать не смогли.
+    param([string]$Line)
+    (@($Line -split ';').Count -ge 2)
+}
+
 function Write-KasperskyImportFiles {
-    param($Plan, [string]$Dir, [string]$MergeExclusionsFile, [string]$MergeTrustedFile)
+    param(
+        $Plan, [string]$Dir, [string]$MergeExclusionsFile, [string]$MergeTrustedFile,
+        [string]$ExclusionFileName = 'Касперский-1-исключения.csv',
+        [string]$TrustedFileName   = 'Касперский-2-доверенные-программы.xml'
+    )
 
     if ([string]::IsNullOrWhiteSpace($Dir)) { $Dir = Join-Path $env:LOCALAPPDATA 'kaspersky-matrica' }
+    $Dir = ConvertTo-FullPath $Dir
     if (-not (Test-Path -LiteralPath $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
 
     # Строки прежнего экспорта переносим ДОСЛОВНО: в них могут стоять настройки, которых
     # мы не знаем (конкретный вердикт вместо звёздочки, свой комментарий). Наши строки
     # добавляются только для путей, которых там ещё нет.
+    #
+    # Строку БЕЗ пути тоже переносим: в Касперском можно исключить угрозу по имени
+    # вердикта, не указывая файла (`1;;PDM:Trojan.Win32.Generic;*;…`). Раньше такая
+    # строка молча выпадала — и обещание «наш файл содержит всё твоё» переставало быть
+    # правдой ровно там, где человек настраивал руками.
     $exclusionLines = @()
     $seenExcl = @()
     foreach ($line in (Read-KasperskyListLines $MergeExclusionsFile)) {
-        $p = Get-PathFromListLine $line
-        if (-not $p) { continue }
+        if (-not (Test-LooksLikeListLine $line)) { continue }
         $exclusionLines += $line
-        $seenExcl = Add-UniquePath -List $seenExcl -Path $p
+        $p = Get-PathFromListLine $line
+        if ($p) { $seenExcl = Add-UniquePath -List $seenExcl -Path $p }
     }
     $mergedExclusions = @($exclusionLines).Count
 
@@ -672,10 +736,10 @@ function Write-KasperskyImportFiles {
     $trustedLines = @()
     $seenTrusted = @()
     foreach ($line in (Read-KasperskyListLines $MergeTrustedFile)) {
-        $p = Get-PathFromListLine $line
-        if (-not $p) { continue }
+        if (-not (Test-LooksLikeListLine $line)) { continue }
         $trustedLines += $line
-        $seenTrusted = Add-UniquePath -List $seenTrusted -Path $p
+        $p = Get-PathFromListLine $line
+        if ($p) { $seenTrusted = Add-UniquePath -List $seenTrusted -Path $p }
     }
     $mergedTrusted = @($trustedLines).Count
 
@@ -1046,6 +1110,14 @@ function Show-Window {
 # --------------------------------------------------------------------------------------
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+
+# Пути из ключей разворачиваем в абсолютные СРАЗУ: дальше их читают и пишут вперемешку
+# PowerShell и .NET, а «текущая папка» у них разная (см. ConvertTo-FullPath). Заодно в
+# окне и в выводе печатается путь, который можно вставить куда угодно, а не «.\файл».
+foreach ($name in @('ImportDir', 'MergeExclusions', 'MergeTrusted', 'Report')) {
+    $value = (Get-Variable -Name $name -ValueOnly -ErrorAction SilentlyContinue)
+    if ($value) { Set-Variable -Name $name -Value (ConvertTo-FullPath $value) }
+}
 
 $kav = Get-KasperskyInfo
 $matrica = Get-MatricaInfo
