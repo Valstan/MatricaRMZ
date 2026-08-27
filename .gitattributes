@@ -23,3 +23,9 @@ deploy/systemd/*.timer text eol=lf
 # releaseWelcome.ts про логи без BOM).
 scripts/client-ops/*.ps1 text eol=crlf
 scripts/client-ops/*.cmd text eol=crlf
+
+# Памятка, которую установщик кладёт на Рабочий стол, — её читают в Блокноте на
+# машинах парка: строго CRLF, чтобы строки не слиплись. UTF-8 BOM у файла есть и
+# должен уцелеть, поэтому `working-tree-encoding` сюда НЕ добавлять (тот же довод,
+# что для .ps1 выше: он пересоздаёт файл и убивает BOM).
+electron-app/installer/kaspersky-desktop-readme.txt text eol=crlf
