@@ -223,6 +223,10 @@ killDoneUninstall:
     RMDir "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog"
     Delete "$APPDATA\MatricaRMZ\matricarmz-watchdog.exe"
     Delete "$DESKTOP\Восстановить Матрицу РМЗ.lnk"
+    ; Помощник по Касперскому и его памятка — только при настоящем удалении, не при
+    ; обновлении (та же ветка ${ifNot} ${isUpdated}, что и остальное здесь).
+    Delete "$DESKTOP\Настройка Касперского.zip"
+    Delete "$DESKTOP\Настройка Касперского — ПРОЧТИ.txt"
     ; Кэш обновлений живёт вне $INSTDIR, поэтому штатный деинсталлятор его не видит:
     ; без этой строки после честного удаления продукта на диске остаются 130+ МБ
     ; установщиков — ровно в той папке, на которую заведено исключение антивируса.
@@ -232,8 +236,33 @@ killDoneUninstall:
   ${endIf}
 !macroend
 
+; --- Помощник по Касперскому ------------------------------------------------
+; Кладём на Рабочий стол защищённый паролем архив с помощником (scripts/client-ops)
+; и памятку к нему. Пароль — не секрет (он напечатан в памятке), он лишь делает архив
+; непрозрачным для Касперского: без этого антивирус забирает неподписанный .ps1 сразу,
+; ещё до того, как для него заведено исключение (GOTCHAS M94). Оператор по памятке
+; выключает защиту, распаковывает (пароль 111), запускает помощник, вносит исключения
+; и включает защиту обратно. Архив на столе остаётся как всегда доступный «семенной»
+; экземпляр — Касперский его не тронет.
+;
+; CopyFiles в каталог (сохраняет имя), затем Rename в понятное русское имя. Оба файла
+; приезжают через win.extraResources в $INSTDIR\resources. Ошибки не críticos —
+; неудача с помощником не должна ронять установку клиента (best-effort, как watchdog).
+!macro InstallKasperskyHelper
+  ClearErrors
+  CopyFiles /SILENT "$INSTDIR\resources\kaspersky-matrica.zip" "$DESKTOP"
+  Delete "$DESKTOP\Настройка Касперского.zip"
+  Rename "$DESKTOP\kaspersky-matrica.zip" "$DESKTOP\Настройка Касперского.zip"
+  ClearErrors
+  CopyFiles /SILENT "$INSTDIR\resources\kaspersky-desktop-readme.txt" "$DESKTOP"
+  Delete "$DESKTOP\Настройка Касперского — ПРОЧТИ.txt"
+  Rename "$DESKTOP\kaspersky-desktop-readme.txt" "$DESKTOP\Настройка Касперского — ПРОЧТИ.txt"
+  ClearErrors
+!macroend
+
 !macro customInstall
   !insertmacro InstallWatchdog
+  !insertmacro InstallKasperskyHelper
 !macroend
 
 !macro customUnInstall

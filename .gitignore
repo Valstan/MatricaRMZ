@@ -107,6 +107,8 @@ ledger/state.json
 !electron-app/build/icon.png
 # Watchdog binary is a build artifact (Go output / CI), bundled as extraResources — not committed.
 electron-app/build/watchdog/
+# Kaspersky helper archive is a build artifact (beforePack output), bundled as extraResources — not committed.
+electron-app/build/kaspersky/
 
 
 
