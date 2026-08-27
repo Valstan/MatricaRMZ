@@ -170,14 +170,79 @@ function Get-GitRepoChildCount {
       Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.git') }).Count
 }
 
+function Get-SearchBases {
+    # Фиксированные диски + профиль. Сетевые и съёмные диски НЕ трогаем: обход сетевой
+    # шары вешает скрипт на минуты, а исключение на сетевой путь бессмысленно.
+    $bases = @()
+    foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+        try {
+            if ($d.DriveType -eq 'Fixed' -and $d.IsReady) { $bases += $d.RootDirectory.FullName }
+        } catch { }
+    }
+    if ($env:USERPROFILE) {
+        $bases += $env:USERPROFILE
+        $bases += (Join-Path $env:USERPROFILE 'Documents')
+    }
+    # Без «,$bases»: у этой функции результат либо присваивают, либо оборачивают @().
+    # Запятая-обёртка в конвейере разворачивается в ОДИН элемент-массив, и вызывающий
+    # получает один объект вместо списка — поймано собственным тестом.
+    $bases
+}
+
+function Get-RepoEcosystemCandidates {
+    # Возвращает пары «папка → сколько клонов внутри». Порядок поиска — от дешёвого к
+    # дорогому: сначала известные имена, потом папки первого уровня на дисках.
+    # Второй проход нужен ровно для случая «репозитории лежат в папке с необычным именем
+    # на другом диске»: без него такая папка не находится вовсе.
+    param([string[]]$SearchBases)
+    $names = @('PROGRAMMING', 'GitHubReps', 'GitHub', 'Repos', 'Projects', 'Dev', 'src', 'source\repos')
+    # Системные каталоги не обходим: клонов там не бывает, а подкаталогов тысячи.
+    $skip = @('Windows', 'Program Files', 'Program Files (x86)', 'ProgramData', 'Users',
+              'PerfLogs', 'Recovery', 'Config.Msi', 'System Volume Information', '$Recycle.Bin',
+              'AppData', 'OneDrive')
+    $found = @()
+    $seen = @()
+
+    foreach ($b in @($SearchBases)) {
+        foreach ($n in $names) {
+            if ([string]::IsNullOrWhiteSpace($b)) { continue }
+            $candidate = Join-Path $b $n
+            if (Test-ContainsPath -List $seen -Path $candidate) { continue }
+            if (-not (Test-CanBeExcludedWholesale $candidate)) { continue }
+            $seen = Add-UniquePath -List $seen -Path $candidate
+            $count = Get-GitRepoChildCount $candidate
+            if ($count -ge 2) { $found += [pscustomobject]@{ Path = $candidate.TrimEnd('\'); RepoCount = $count } }
+        }
+    }
+
+    foreach ($b in @($SearchBases)) {
+        if ([string]::IsNullOrWhiteSpace($b) -or -not (Test-Path -LiteralPath $b)) { continue }
+        foreach ($dir in @(Get-ChildItem -LiteralPath $b -Directory -Force -ErrorAction SilentlyContinue)) {
+            if ($skip -contains $dir.Name) { continue }
+            if ($dir.Name.StartsWith('$') -or $dir.Name.StartsWith('.')) { continue }
+            if (Test-ContainsPath -List $seen -Path $dir.FullName) { continue }
+            if (-not (Test-CanBeExcludedWholesale $dir.FullName)) { continue }
+            $seen = Add-UniquePath -List $seen -Path $dir.FullName
+            $count = Get-GitRepoChildCount $dir.FullName
+            if ($count -ge 2) { $found += [pscustomobject]@{ Path = $dir.FullName.TrimEnd('\'); RepoCount = $count } }
+        }
+    }
+    # Поле называется RepoCount, а не Count: у PowerShell «Count» есть у КАЖДОГО объекта
+    # (встроенное, равно 1 у одиночного), и оно перебивает своё же свойство — сортировка
+    # по «Count» тогда молча сравнивает единицы с единицами. Тоже поймано тестом.
+    $found
+}
+
 function Get-RepoEcosystemRoot {
     # Папка, в которой лежат клоны наших репозиториев. Сборка гоняет тысячи файлов в
     # node_modules и dist; антивирус проверяет каждый и заодно принимает свежий
     # неподписанный .exe за угрозу — поэтому исключается вся папка целиком.
     #
     # Первый и главный источник — расположение самого скрипта: он лежит внутри клона,
-    # значит соседи клона и есть экосистема. Поиск по диску — только запасной путь для
-    # копии скрипта, унесённой на машину парка.
+    # значит соседи клона и есть экосистема. Это работает при любом расположении папки,
+    # на любом диске и с любым именем — искать ничего не нужно. Поиск по дискам ниже
+    # нужен только копии скрипта, унесённой от клонов.
+    param([string[]]$SearchBases)
     $dir = $PSScriptRoot
     $repo = ''
     while ($dir) {
@@ -196,21 +261,14 @@ function Get-RepoEcosystemRoot {
         return $repo.TrimEnd('\')
     }
 
-    $names = @('PROGRAMMING', 'GitHubReps', 'GitHub', 'Repos', 'Projects', 'Dev', 'src', 'source\repos')
-    $bases = @()
-    foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
-        try { if ($d.DriveType -eq 'Fixed' -and $d.IsReady) { $bases += $d.RootDirectory.FullName } } catch { }
-    }
-    $bases += $env:USERPROFILE
-    $bases += (Join-Path $env:USERPROFILE 'Documents')
-    foreach ($b in $bases) {
-        foreach ($n in $names) {
-            $candidate = Join-Path $b $n
-            if (-not (Test-CanBeExcludedWholesale $candidate)) { continue }
-            # Два клона и больше: одна случайная папка с именем «src» экосистемой не является.
-            if ((Get-GitRepoChildCount $candidate) -ge 2) { return $candidate.TrimEnd('\') }
-        }
-    }
+    if (-not $SearchBases) { $SearchBases = Get-SearchBases }
+    # Два клона и больше: одна случайная папка с именем «src» экосистемой не является.
+    # Если подходящих папок несколько — берём самую населённую, а не первую попавшуюся:
+    # первая зависит от буквы диска, населённость — от сути.
+    $candidates = @(Get-RepoEcosystemCandidates -SearchBases $SearchBases)
+    if ($candidates.Count -eq 0) { return '' }
+    $best = $candidates | Sort-Object -Property RepoCount -Descending | Select-Object -First 1
+    if ($best) { return [string]$best.Path }
     ''
 }
 

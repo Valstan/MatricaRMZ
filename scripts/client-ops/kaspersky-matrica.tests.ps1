@@ -95,6 +95,51 @@ Assert-Equal 'несуществующая папка' (Test-CanBeExcludedWholes
 Assert-Equal 'пустая строка' (Test-CanBeExcludedWholesale '') 'False'
 Assert-Equal 'обычная рабочая папка' (Test-CanBeExcludedWholesale $PSScriptRoot) 'True'
 
+Write-Host 'Поиск папки с репозиториями (запасной путь, на поддельном дереве):'
+$fake = Join-Path ([System.IO.Path]::GetTempPath()) ('kaspersky-matrica-repos-' + [guid]::NewGuid().ToString('N'))
+try {
+    # Имя нарочно нетиповое и с пробелами: список известных имён такую папку не знает,
+    # найти её обязан обход первого уровня.
+    foreach ($r in @('alpha', 'beta')) {
+        New-Item -ItemType Directory -Path (Join-Path $fake "Мои Исходники 2026\$r\.git") -Force | Out-Null
+    }
+    New-Item -ItemType Directory -Path (Join-Path $fake 'ОдинКлон\solo\.git') -Force | Out-Null
+    # Системное имя обязано быть пропущено, даже если клоны внутри действительно есть.
+    foreach ($r in @('alpha', 'beta')) {
+        New-Item -ItemType Directory -Path (Join-Path $fake "Windows\$r\.git") -Force | Out-Null
+    }
+    $found = @(Get-RepoEcosystemCandidates -SearchBases @($fake))
+    $paths = @($found | ForEach-Object { $_.Path })
+    Assert-Equal 'папка с нетиповым именем найдена' `
+        ([bool]($paths -contains (Join-Path $fake 'Мои Исходники 2026'))) 'True'
+    Assert-Equal 'одиночный клон экосистемой не считается' `
+        ([bool]($paths -contains (Join-Path $fake 'ОдинКлон'))) 'False'
+    Assert-Equal 'системное имя пропущено' `
+        ([bool]($paths -contains (Join-Path $fake 'Windows'))) 'False'
+    Assert-Equal 'сосчитано клонов в найденной папке' `
+        (@($found | Where-Object { $_.Path -eq (Join-Path $fake 'Мои Исходники 2026') })[0].RepoCount) '2'
+
+    # Регрессия на две грабли разом. Поле обязано называться RepoCount: встроенное
+    # «Count» есть у любого объекта и равно 1, поэтому сортировка по нему сравнивала бы
+    # единицы и возвращала первую попавшуюся папку. Имена подобраны так, что при
+    # сломанной сортировке победит МЕНЬШАЯ (А раньше Б по алфавиту) — тест покраснеет.
+    foreach ($r in @('one', 'two')) {
+        New-Item -ItemType Directory -Path (Join-Path $fake "АльфаДва\$r\.git") -Force | Out-Null
+    }
+    foreach ($r in @('one', 'two', 'three')) {
+        New-Item -ItemType Directory -Path (Join-Path $fake "БетаТри\$r\.git") -Force | Out-Null
+    }
+    $ranked = @(Get-RepoEcosystemCandidates -SearchBases @($fake)) |
+              Sort-Object -Property RepoCount -Descending | Select-Object -First 1
+    Assert-Equal 'побеждает самая населённая папка' $ranked.Path (Join-Path $fake 'БетаТри')
+
+    Assert-Equal 'пустая база не роняет поиск' (@(Get-RepoEcosystemCandidates -SearchBases @('')).Count) '0'
+    Assert-Equal 'несуществующая база не роняет поиск' `
+        (@(Get-RepoEcosystemCandidates -SearchBases @('D:\takoy-papki-net-12345')).Count) '0'
+} finally {
+    Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host 'Байты записанного файла (главное — здесь):'
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kaspersky-matrica-tests-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
