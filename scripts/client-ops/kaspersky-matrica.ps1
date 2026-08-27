@@ -329,12 +329,16 @@ function Get-YandexDiskRoot {
             $p = [string]$props.RootFolder
             if ($p -and (Test-CanBeExcludedWholesale $p)) { return $p.TrimEnd('\') }
         }
-        # Запасной ключ старой версии: корень не хранится, но папка загрузок лежит внутри него.
+        # Запасной ключ старой версии: корня он не хранит, но папка загрузок обычно лежит
+        # ВНУТРИ корня. «Обычно» — потому что её можно перенести куда угодно, и тогда
+        # родителем окажется посторонняя папка. Поэтому берём родителя только с меткой
+        # `.sync`: она не отличает рабочий корень от брошенного (проверено — есть у обоих),
+        # но честно отвечает на вопрос «это вообще папка синхронизации или нет».
         if ($props.PSObject.Properties['DownloadsPath']) {
             $dl = [string]$props.DownloadsPath
             if ($dl) {
                 $p = Split-Path -Parent $dl.TrimEnd('\')
-                if ($p -and (Test-Path -LiteralPath $p) -and (Test-CanBeExcludedWholesale $p)) {
+                if ($p -and (Test-Path -LiteralPath (Join-Path $p '.sync')) -and (Test-CanBeExcludedWholesale $p)) {
                     return $p.TrimEnd('\')
                 }
             }
