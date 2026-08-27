@@ -177,11 +177,21 @@ try {
         '1;D:\ЧУЖАЯ ПАПКА\;*;*;1;0;1;;1',                          # чужая строка, нашей нет
         '1;d:\programming\;*;*;1;0;1;моё;1'                        # то же, что наша, но иным регистром
     )
-    $plan = [pscustomobject]@{
-        TrustedApps = @('C:\a\MatricaRMZ.exe'); ExcludeFolders = @('D:\PROGRAMMING')
-        ExcludeFiles = @(); ExcludeMasks = @(); WorkFolders = @()
-        NetworkHost = ''; NetworkIps = @(); NetworkPort = 443; TrustedFlags = @()
+    # План строим НАСТОЯЩЕЙ функцией из пустого «ничего не установлено» — так фикстура не
+    # разъедется с кодом молча: добавили в план поле, забыли здесь — тест краснеет сразу
+    # (Set-StrictMode роняет обращение к отсутствующему свойству).
+    $noMatrica = [pscustomobject][ordered]@{
+        HandshakeFound = $false; HandshakePath = ''; HandshakeAgeHours = $null
+        AppExe = 'C:\a\MatricaRMZ.exe'; AppDir = ''; AppVersion = ''
+        WatchdogExe = ''; WatchdogDir = ''
+        DataDir = 'D:\PROGRAMMING'; UserDataDir = ''; UpdatesDir = ''
+        UpdaterCacheDir = ''; LegacyDataDir = ''; DesktopDir = ''
+        FilesDir = ''; LegacyDirs = @(); TempMasks = @()
+        Shortcuts = @(); ExtraExes = @()
+        ApiBaseUrl = ''; ApiHost = ''; ApiIps = @()
+        Tasks = @(); LogonShortcut = $null; Source = ''
     }
+    $plan = Get-ExclusionPlan -Matrica $noMatrica -WorkFolders @()
     $res = Write-KasperskyImportFiles -Plan $plan -Dir (Join-Path $mt 'out') -MergeExclusionsFile $prev
     $lines = @(Read-KasperskyListLines $res.ExclusionsPath)
     Assert-Equal 'строка-вердикт без пути сохранена' `

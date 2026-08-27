@@ -441,6 +441,7 @@ function Get-MatricaInfo {
         WatchdogExe = ''; WatchdogDir = ''
         DataDir = ''; UserDataDir = ''; UpdatesDir = ''
         UpdaterCacheDir = ''; LegacyDataDir = ''; DesktopDir = ''
+        FilesDir = ''; LegacyDirs = @(); TempMasks = @()
         Shortcuts = @(); ExtraExes = @()
         ApiBaseUrl = ''; ApiHost = ''; ApiIps = @()
         Tasks = @(); LogonShortcut = $null; Source = ''
@@ -511,18 +512,72 @@ function Get-MatricaInfo {
 
     # Ярлыки. Рабочий стол может быть перенесён на другой диск — рукопожатие знает куда,
     # [Environment]::GetFolderPath это тоже учитывает; берём оба и складываем без дублей.
+    # Меню «Пуск» тоже смотрим: там лежит ярлык запуска, а на рабочем столе — ещё и
+    # аварийный «Восстановить Матрицу РМЗ», который ведёт на сторож. Поэтому образцов
+    # два: латинский и кириллический — по одному латинскому аварийный ярлык не находится.
     if (-not $info.DesktopDir) { $info.DesktopDir = [Environment]::GetFolderPath('Desktop') }
     $shortcuts = @()
     $lnkDirs = @($info.DesktopDir, [Environment]::GetFolderPath('Desktop'),
                  [Environment]::GetFolderPath('CommonDesktopDirectory'),
-                 [Environment]::GetFolderPath('Startup'))
+                 [Environment]::GetFolderPath('Startup'),
+                 (Join-Path $appData 'Microsoft\Windows\Start Menu\Programs'))
     foreach ($d in $lnkDirs) {
         if (-not $d -or -not (Test-Path -LiteralPath $d)) { continue }
-        foreach ($lnk in @(Get-ChildItem -LiteralPath $d -Filter '*atricaRMZ*.lnk' -Force -ErrorAction SilentlyContinue)) {
-            $shortcuts = Add-UniquePath -List $shortcuts -Path $lnk.FullName
+        foreach ($pattern in @('*atricaRMZ*.lnk', '*Матриц*.lnk')) {
+            foreach ($lnk in @(Get-ChildItem -LiteralPath $d -Filter $pattern -Force -ErrorAction SilentlyContinue)) {
+                $shortcuts = Add-UniquePath -List $shortcuts -Path $lnk.FullName
+            }
         }
     }
     $info.Shortcuts = @($shortcuts)
+
+    # Папка вложений: туда клиент кладёт КАЖДЫЙ скачанный файл и фото — по нагрузке она
+    # соперничает с базой. Место хранится в настройках клиента (ключ в его SQLite),
+    # прочитать которые снаружи нельзя, поэтому берём значение по умолчанию — «Загрузки».
+    # Если оператор перенёс папку, её придётся внести руками (сказано в README).
+    $downloads = ''
+    try {
+        $shellFolders = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' -ErrorAction SilentlyContinue
+        if ($shellFolders -and $shellFolders.PSObject.Properties['{374DE290-123F-4565-9164-39C4925E467B}']) {
+            $downloads = [string]$shellFolders.'{374DE290-123F-4565-9164-39C4925E467B}'
+        }
+    } catch { }
+    if (-not $downloads) { $downloads = Join-Path $env:USERPROFILE 'Downloads' }
+    $filesDir = Join-Path $downloads 'MatricaRMZ_Files'
+    if (Test-Path -LiteralPath $filesDir) { $info.FilesDir = $filesDir }
+
+    # Хвосты прежних раскладок. На машине, пережившей переезд версий, в них остаются
+    # неподписанные установщики и старая копия клиента — антивирус берётся за них так же
+    # охотно, как за свежие. Вносим только то, что на диске действительно есть.
+    $legacy = @()
+    foreach ($p in @(
+        (Join-Path $localAppData 'Programs\@matricarmzelectron-app'),
+        (Join-Path $downloads 'MatricaRMZ-Updates'),
+        (Join-Path $appData 'MatricaRMZ-Updates'),
+        (Join-Path $appData 'matricarmz-updates'),
+        (Join-Path $localAppData 'MatricaRMZ-Updates'),
+        (Join-Path $localAppData 'matricarmz-updates'))) {
+        if (Test-Path -LiteralPath $p) { $legacy = Add-UniquePath -List $legacy -Path $p }
+    }
+    $info.LegacyDirs = @($legacy)
+
+    # Установщики, которые скачиваются и запускаются из %TEMP%, когда обычная папка
+    # обновлений недоступна. Папку TEMP целиком исключать нельзя — это половина всего,
+    # что на компьютере вообще исполняется, — поэтому только узкие образцы имён.
+    # Временную папку берём НЕ только из %TEMP%: эта переменная зависит от того, чем
+    # запустили сам помощник (из-под другой оболочки она указывает совсем не туда, куда
+    # пишет клиент). Штатное место пользователя — %LOCALAPPDATA%\Temp; %TEMP% добавляем
+    # вторым, если он отличается.
+    $tempDirs = @()
+    if ($localAppData) { $tempDirs = Add-UniquePath -List $tempDirs -Path (Join-Path $localAppData 'Temp') }
+    if ($env:TEMP) { $tempDirs = Add-UniquePath -List $tempDirs -Path $env:TEMP }
+    $tempMasks = @()
+    foreach ($t in $tempDirs) {
+        foreach ($pattern in @('matricarmz-*.exe', 'MatricaRMZ-Setup-*.exe')) {
+            $tempMasks += (Join-Path $t $pattern)
+        }
+    }
+    $info.TempMasks = @($tempMasks)
 
     # Исполняемые файлы, которые антивирус видит как «свежий неподписанный .exe»: копии
     # сторожа, скачанный установщик обновления и заглушка-обновлятор.
@@ -594,9 +649,10 @@ function Get-ExclusionPlan {
     # UpdaterCacheDir — туда качается установщик обновления, самое частое место, где
     # антивирус забирает файл прямо из-под обновлятора.
     $folders = @()
-    foreach ($raw in @($Matrica.AppDir, $Matrica.WatchdogDir, $Matrica.DataDir,
-                       $Matrica.UserDataDir, $Matrica.UpdatesDir,
-                       $Matrica.UpdaterCacheDir, $Matrica.LegacyDataDir)) {
+    foreach ($raw in (@($Matrica.AppDir, $Matrica.WatchdogDir, $Matrica.DataDir,
+                        $Matrica.UserDataDir, $Matrica.UpdatesDir,
+                        $Matrica.UpdaterCacheDir, $Matrica.LegacyDataDir,
+                        $Matrica.FilesDir) + @($Matrica.LegacyDirs))) {
         $d = ConvertTo-WinPath $raw
         if ($d) { $folders = Add-UniquePath -List $folders -Path $d }
     }
@@ -611,6 +667,7 @@ function Get-ExclusionPlan {
         TrustedApps    = $trusted
         ExcludeFolders = $folders
         ExcludeFiles   = @($Matrica.Shortcuts)
+        ExcludeTemp    = @($Matrica.TempMasks)
         ExcludeMasks   = $masks
         WorkFolders    = $work
         NetworkHost    = $Matrica.ApiHost
@@ -727,7 +784,8 @@ function Write-KasperskyImportFiles {
         $seenExcl = Add-UniquePath -List $seenExcl -Path $f
         $exclusionLines += (ConvertTo-ExclusionLine -Path $f -IsFolder)
     }
-    foreach ($f in @($Plan.ExcludeFiles)) {
+    # Ярлыки и образцы имён в %TEMP% — это ФАЙЛЫ: косая черта в конце им не дописывается.
+    foreach ($f in (@($Plan.ExcludeFiles) + @($Plan.ExcludeTemp))) {
         if (Test-ContainsPath -List $seenExcl -Path $f) { continue }
         $seenExcl = Add-UniquePath -List $seenExcl -Path $f
         $exclusionLines += (ConvertTo-ExclusionLine -Path $f)
@@ -798,6 +856,7 @@ function Write-Guide {
         '{{MASK_LIST}}'     = ($Plan.ExcludeMasks -join "`r`n")
         '{{TRUSTED_LIST}}'  = ($Plan.TrustedApps -join "`r`n")
         '{{FILES_LIST}}'    = $(if (@($Plan.ExcludeFiles).Count -gt 0) { @($Plan.ExcludeFiles) -join "`r`n" } else { '(ярлыков не найдено)' })
+        '{{TEMP_LIST}}'     = $(if (@($Plan.ExcludeTemp).Count -gt 0) { @($Plan.ExcludeTemp) -join "`r`n" } else { '(временная папка не определена)' })
         '{{WORK_LIST}}'     = $(if (@($Plan.WorkFolders).Count -gt 0) {
                                    (@($Plan.WorkFolders) | ForEach-Object { $_.Path + '   — ' + $_.Title }) -join "`r`n"
                                } else { '(на этом компьютере не найдено ни репозиториев, ни Яндекс-диска)' })
@@ -1005,6 +1064,11 @@ function Show-Window {
         foreach ($f in $Plan.ExcludeFiles) { Add-Row $f }
     }
 
+    if (@($Plan.ExcludeTemp).Count -gt 0) {
+        Add-Section 'C2. Установщики во временной папке' 'Когда обычная папка обновлений недоступна, установщик качается и запускается из %TEMP%. Папку целиком исключать нельзя — там исполняется половина всего, что вообще происходит на компьютере; поэтому только эти образцы имён.'
+        foreach ($t in $Plan.ExcludeTemp) { Add-Row $t }
+    }
+
     if (@($Plan.WorkFolders).Count -gt 0) {
         Add-Section 'D. Рабочие папки этого компьютера (к Матрице отношения не имеют)' ('Нашлось: ' + ((@($Plan.WorkFolders) | ForEach-Object { $_.Title }) -join '; ') + '. Проверка этих папок тормозит работу заметнее всего, но решение вносить их — твоё: в файл импорта они уже включены.')
         foreach ($w in $Plan.WorkFolders) { Add-Row $w.Path }
@@ -1169,6 +1233,10 @@ if ($Quiet) {
     if (@($plan.ExcludeFiles).Count -gt 0) {
         Write-Host "=== Исключения (файлы и ярлыки) ==="
         $plan.ExcludeFiles | ForEach-Object { Write-Host "  $_" }
+    }
+    if (@($plan.ExcludeTemp).Count -gt 0) {
+        Write-Host "=== Установщики во временной папке ==="
+        $plan.ExcludeTemp | ForEach-Object { Write-Host "  $_" }
     }
     if (@($plan.WorkFolders).Count -gt 0) {
         Write-Host "=== Рабочие папки этого компьютера ==="
