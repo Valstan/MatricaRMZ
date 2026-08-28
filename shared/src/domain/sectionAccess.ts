@@ -397,6 +397,8 @@ export function seedMembershipForRole(role: string | null | undefined): SectionM
       return seedAll('viewer', { work_orders: 'editor', supply: 'editor' });
     case 'supply':
       return seedAll('viewer', { supply: 'editor' });
+    case 'storekeeper':
+      return seedAll('viewer', { warehouse: 'editor', supply: 'editor' });
     case 'timekeeper':
       return seedAll('viewer', { people: 'editor' });
     case 'viewer':

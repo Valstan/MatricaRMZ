@@ -330,6 +330,7 @@ export const SystemRole = {
   Technolog: 'technolog',
   Master: 'master',
   Supply: 'supply',
+  Storekeeper: 'storekeeper',
   Timekeeper: 'timekeeper',
   Viewer: 'viewer',
   // Legacy operator tier (≈ full minus admin-only). Kept so migration is
@@ -353,6 +354,7 @@ export const SYSTEM_ROLE_CATALOG: SystemRoleMeta[] = [
   { key: 'technolog', titleRu: 'Технолог', kind: 'operator' },
   { key: 'master', titleRu: 'Мастер (наряды)', kind: 'operator' },
   { key: 'supply', titleRu: 'Снабжение/ПЭО', kind: 'operator' },
+  { key: 'storekeeper', titleRu: 'Кладовщик', kind: 'operator' },
   { key: 'timekeeper', titleRu: 'Табельщик', kind: 'operator' },
   { key: 'viewer', titleRu: 'Наблюдатель', kind: 'operator' },
   { key: 'user', titleRu: 'Пользователь (полный доступ, устар.)', kind: 'system' },
@@ -435,12 +437,38 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.SupplyRequestsEdit,
     PermissionCode.FilesUpload,
   ],
+  // Складские документы (приход/расход/перемещение/инвентаризация) с проведением
+  // и номенклатура; заявки в снабжение — кладовщик заказывает пополнение.
+  // Ячейки склада (warehouse_locations.manage) намеренно НЕ здесь — admin-only clamp.
+  storekeeper: [
+    PermissionCode.ErpDocumentsEdit,
+    PermissionCode.ErpDocumentsPost,
+    PermissionCode.ErpDictionaryEdit,
+    PermissionCode.SupplyRequestsCreate,
+    PermissionCode.SupplyRequestsEdit,
+    PermissionCode.FilesUpload,
+  ],
   timekeeper: [PermissionCode.TimesheetEdit],
   viewer: [],
 };
 
 export function isOperatorRole(role: string): boolean {
   return Object.prototype.hasOwnProperty.call(OPERATOR_ROLE_EDIT, String(role || '').toLowerCase());
+}
+
+/**
+ * Which roles an actor may ASSIGN to an account (create / edit / approve
+ * pending). Single source for the backend validation and both admin UIs.
+ * Operator roles and no-access 'employee' — any admin tier; 'admin' — only the
+ * superadmin. Never assignable: 'user' (legacy full access, retired from
+ * assignment), 'pending' (registration state, not a grant), 'superadmin'
+ * (bootstrap-only, bound to the owner login).
+ */
+export function isAssignableSystemRole(actorRole: string, role: string): boolean {
+  const r = String(role || '').toLowerCase();
+  if (isOperatorRole(r) || r === 'employee') return true;
+  if (r === 'admin') return String(actorRole || '').toLowerCase() === 'superadmin';
+  return false;
 }
 
 // Permission map for an operator role (view base + its edit footprint), or

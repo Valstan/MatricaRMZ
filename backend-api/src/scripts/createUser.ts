@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 
+import { isAssignableSystemRole } from '@matricarmz/shared';
 import { pool } from '../database/db.js';
 import { hashPassword } from '../auth/password.js';
 import {
@@ -45,8 +46,12 @@ async function main() {
 
   if (!usernameRaw || !password) {
     console.error(
-      'Использование: pnpm --filter @matricarmz/backend-api user:create -- --username <login> --password <pass> [--role admin|user] [--fullName "Имя"] [--position "Должность"] [--section "Подразделение"]',
+      'Использование: pnpm --filter @matricarmz/backend-api user:create -- --username <login> --password <pass> [--role admin|<операторская роль>|employee] [--fullName "Имя"] [--position "Должность"] [--section "Подразделение"]',
     );
+    process.exit(2);
+  }
+  if (!isAssignableSystemRole('superadmin', role)) {
+    console.error(`Роль «${role}» недоступна для назначения (легаси 'user' и служебные роли не назначаются).`);
     process.exit(2);
   }
 

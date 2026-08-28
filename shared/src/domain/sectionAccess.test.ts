@@ -84,6 +84,7 @@ describe('seedMembershipForRole (day-one: mirrors current factual footprint)', (
     expect(seedMembershipForRole('technolog')).toMatchObject({ production: 'editor', directories: 'editor' });
     expect(seedMembershipForRole('master')).toMatchObject({ work_orders: 'editor', supply: 'editor' });
     expect(seedMembershipForRole('supply')).toMatchObject({ supply: 'editor', warehouse: 'viewer' });
+    expect(seedMembershipForRole('storekeeper')).toMatchObject({ warehouse: 'editor', supply: 'editor', production: 'viewer' });
     expect(seedMembershipForRole('timekeeper')).toMatchObject({ people: 'editor', warehouse: 'viewer' });
   });
 

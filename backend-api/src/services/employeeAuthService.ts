@@ -729,7 +729,12 @@ export async function listEmployeesAuth() {
       const rec = byEntity[id] ?? {};
       const login = String(rec[defs.loginDefId] ?? '').trim();
       const passwordHash = String(rec[defs.passwordDefId] ?? '').trim();
-      const systemRole = String(rec[defs.roleDefId] ?? 'user').trim().toLowerCase();
+      // Fail-closed: a missing/tombstoned role attribute must not read as the
+      // legacy full-access 'user' (prod-verified 2026-08-28: zero live accounts
+      // depend on the old fallback). '' — not 'employee' — so normalizeRole
+      // still resolves to no-access while roleReport's anomaly bucket can tell
+      // "attribute missing" apart from a deliberately assigned employee.
+      const systemRole = String(rec[defs.roleDefId] ?? '').trim().toLowerCase();
       const accessEnabled = rec[defs.accessDefId] === true;
       const fullName = fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '';
       const position = positionDefId ? String(rec[positionDefId] ?? '').trim() : '';
@@ -802,7 +807,7 @@ export async function getEmployeeAuthById(employeeId: string) {
     id: employeeId,
     login: String(rec[defs.loginDefId] ?? '').trim(),
     passwordHash: String(rec[defs.passwordDefId] ?? '').trim(),
-    systemRole: String(rec[defs.roleDefId] ?? 'user').trim().toLowerCase(),
+    systemRole: String(rec[defs.roleDefId] ?? '').trim().toLowerCase(),
     accessEnabled: rec[defs.accessDefId] === true,
     fullName: fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '',
     deleteRequestedAt: Number.isFinite(deleteRequestedAt as number) ? (deleteRequestedAt as number) : null,
@@ -921,7 +926,7 @@ export async function setEmployeeAuth(
 
   if (args.login !== undefined) await upsertAttrValue(employeeId, defs.loginDefId, args.login ? normalizeLogin(args.login) : null);
   if (args.passwordHash !== undefined) await upsertAttrValue(employeeId, defs.passwordDefId, args.passwordHash ?? null);
-  if (args.systemRole !== undefined) await upsertAttrValue(employeeId, defs.roleDefId, args.systemRole ?? 'user');
+  if (args.systemRole !== undefined) await upsertAttrValue(employeeId, defs.roleDefId, args.systemRole ?? 'employee');
   if (args.accessEnabled !== undefined) await upsertAttrValue(employeeId, defs.accessDefId, args.accessEnabled === true);
 
   // For a brand-new user this is a harmless no-op (no tokens yet).
