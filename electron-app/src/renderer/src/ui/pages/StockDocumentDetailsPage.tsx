@@ -133,6 +133,8 @@ function normalizeLineOrder(lines: EditableLine[]): EditableLine[] {
 export function StockDocumentDetailsPage(props: {
   id: string;
   canEdit: boolean;
+  /** Сторно проведённого документа — сервер требует movements.revert (admin-only), не erp.documents.* */
+  canRevert?: boolean;
   /** Быстрое создание детали (шаблон подставится автоматически по имени, как в Производстве) */
   canCreateParts?: boolean;
   onOpenCounterparty?: (id: string) => void;
@@ -718,7 +720,7 @@ export function StockDocumentDetailsPage(props: {
             Отменить документ
           </Button>
         ) : null}
-        {props.canEdit && document?.header.status === 'posted' && !document?.header.reversedByDocumentId && !document?.header.reversalOfId ? (
+        {props.canRevert && document?.header.status === 'posted' && !document?.header.reversedByDocumentId && !document?.header.reversalOfId ? (
           <Button variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => void reverseDocument()}>
             Сторнировать
           </Button>

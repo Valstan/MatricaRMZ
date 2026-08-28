@@ -55,6 +55,14 @@ export type UiCaps = {
   canConfirmEngineDisassemble: boolean;
   canAssemblyReturn: boolean;
   canRevertMovements: boolean;
+
+  // ERP warehouse layer — mirrors the SERVER gates (warehouse.ts / IPC erp.ts):
+  // documents are erp.documents.*, nomenclature is erp.dictionary.edit. Pages
+  // gated by operations.edit/masterdata.edit here used to show buttons the
+  // server would deny (and hide them from storekeeper, who it would allow).
+  canEditWarehouseDocs: boolean;
+  canPostWarehouseDocs: boolean;
+  canEditNomenclature: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -118,6 +126,10 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canAssemblyReturn = has(perms, 'warehouse.assembly_return');
   const canRevertMovements = has(perms, 'movements.revert');
 
+  const canEditWarehouseDocs = has(perms, 'erp.documents.edit');
+  const canPostWarehouseDocs = has(perms, 'erp.documents.post');
+  const canEditNomenclature = has(perms, 'erp.dictionary.edit');
+
   return {
     canViewEmployees,
     canViewTimesheets,
@@ -169,6 +181,10 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canConfirmEngineDisassemble,
     canAssemblyReturn,
     canRevertMovements,
+
+    canEditWarehouseDocs,
+    canPostWarehouseDocs,
+    canEditNomenclature,
   };
 }
 

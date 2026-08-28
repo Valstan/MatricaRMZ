@@ -118,14 +118,15 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const canEditRoleOrAccess = meRole === 'superadmin' && !selectedIsSelf;
   const canEditPermissions = !selectedIsSelf && !adminLocked;
   const canEditPassword = !adminLocked;
-  const canCreateAdmin = meRole === 'superadmin';
-  const canCreateEmployee = meRole === 'superadmin';
   const canEditRole = canEditRoleOrAccess;
   const canEditLogin = !selectedIsSelf && !adminLocked && !(meRole === 'admin' && selectedRole === 'employee');
   const canApprovePending = canManageUsers && (meRole === 'admin' || meRole === 'superadmin');
   // Catalog-driven assignable roles — the legacy 'user' is deliberately not offered.
   const assignableRoleOptions = SYSTEM_ROLE_CATALOG.filter((m) => isAssignableSystemRole('superadmin', m.key));
-  const roleOptionDisabled = (key: string) => (key === 'admin' ? !canCreateAdmin : key === 'employee' ? !canCreateEmployee : false);
+  // Per-option availability follows the same shared helper the backend
+  // validates with (admin may hand out operator roles and no-access employee;
+  // 'admin' stays superadmin-only) — no local copy to drift.
+  const roleOptionDisabled = (key: string) => !isAssignableSystemRole(meRole, key);
 
   useEffect(() => {
     setEditLogin(selectedUser?.login ?? '');

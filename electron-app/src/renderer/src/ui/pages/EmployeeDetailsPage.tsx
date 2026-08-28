@@ -414,13 +414,12 @@ export function EmployeeDetailsPage(props: {
   const [createActive, setCreateActive] = useState(true);
 
   const meRole = String(props.me?.role ?? '').toLowerCase();
-  const canCreateAdmin = meRole === 'superadmin';
-  const canCreateEmployee = meRole === 'superadmin';
   // Assignable role list comes from the shared catalog — the legacy full-access
   // 'user' is deliberately absent (it only kept coming back through hardcoded
-  // dropdowns; 2026-08-28).
+  // dropdowns; 2026-08-28). Per-option availability follows the same shared
+  // helper the backend validates with — no local copy to drift.
   const assignableRoleOptions = SYSTEM_ROLE_CATALOG.filter((m) => isAssignableSystemRole('superadmin', m.key));
-  const roleOptionDisabled = (key: string) => (key === 'admin' ? !canCreateAdmin : key === 'employee' ? !canCreateEmployee : false);
+  const roleOptionDisabled = (key: string) => !isAssignableSystemRole(meRole, key);
 
   const accountUser = useMemo<EmployeeAccount | null>(() => {
     if (!accountPerms?.user) return null;
@@ -432,8 +431,13 @@ export function EmployeeDetailsPage(props: {
       isActive: !!accountPerms.user.isActive,
     };
   }, [accountPerms?.user]);
+  // Admin manages rank-and-file accounts only (mirrors backend
+  // isAdminManageableTarget) — the old literal `role === 'user'` locked admins
+  // out of every account the moment real roles replaced legacy 'user'.
+  const accountRoleLower = String(accountUser?.role ?? '').toLowerCase();
   const canEditLoginPassword =
-    props.canManageUsers && (meRole === 'superadmin' || (meRole === 'admin' && String(accountUser?.role ?? '') === 'user'));
+    props.canManageUsers &&
+    (meRole === 'superadmin' || (meRole === 'admin' && accountRoleLower !== 'admin' && accountRoleLower !== 'superadmin'));
   const canEditRole = props.canManageUsers && meRole === 'superadmin';
   const canToggleAccess = props.canManageUsers && meRole === 'superadmin';
   const canEditPermissions = canEditLoginPassword;

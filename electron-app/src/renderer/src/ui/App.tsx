@@ -2566,6 +2566,9 @@ export function App() {
         canConfirmEngineDisassemble: false,
         canAssemblyReturn: false,
         canRevertMovements: false,
+        canEditWarehouseDocs: false,
+        canPostWarehouseDocs: false,
+        canEditNomenclature: false,
       }
     : capsBase;
   const availableTabs: MenuTabId[] = [
@@ -4993,7 +4996,7 @@ export function App() {
         );
       case 'nomenclature_item':
         return (
-          <NomenclatureDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} onOpenCustomer={openCounterparty} onOpenContract={openContract} onOpenEngineBrand={openEngineBrand} onOpenByCode={openByCode} onClose={close} />
+          <NomenclatureDetailsPage key={k} id={id} canEdit={caps.canEditNomenclature} canEditPartFields={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} onOpenCustomer={openCounterparty} onOpenContract={openContract} onOpenEngineBrand={openEngineBrand} onOpenByCode={openByCode} onClose={close} />
         );
       case 'tool':
         return (
@@ -5006,7 +5009,7 @@ export function App() {
       case 'engine_assembly_bom_item':
         return <EngineAssemblyBomDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} onClose={close} />;
       case 'stock_document':
-        return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditOperations} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
+        return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditWarehouseDocs} canRevert={caps.canRevertMovements} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
       case 'report_preset':
         return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
       default:
@@ -5411,7 +5414,7 @@ export function App() {
         {t === 'nomenclature' && (
           <NomenclaturePage
             onOpen={openNomenclature}
-            canEdit={caps.canEditMasterData}
+            canEdit={caps.canEditNomenclature}
           />
         )}
 
@@ -5457,7 +5460,7 @@ export function App() {
                     ? 'stock_transfer'
                     : undefined
             }
-            canEdit={caps.canEditOperations}
+            canEdit={caps.canEditWarehouseDocs}
             onOpen={(id: string) =>
               void openStockDocument(
                 id,
@@ -5478,14 +5481,14 @@ export function App() {
 
         {t === 'stock_inventory' && (
           <StockInventoryPage
-            canEdit={caps.canEditOperations}
+            canEdit={caps.canEditWarehouseDocs}
             onOpenDocument={(id: string) => void openStockDocument(id, 'stock_inventory')}
           />
         )}
 
         {t === 'repair_fund_audit' && (
           <RepairFundAuditPage
-            canEdit={caps.canEditOperations}
+            canEdit={caps.canEditWarehouseDocs}
             onOpenDocument={(id: string) => void openStockDocument(id, 'stock_documents')}
           />
         )}
@@ -5641,7 +5644,8 @@ export function App() {
           <NomenclatureDetailsPage
             key={cardKey(selectedNomenclatureId)}
             id={selectedNomenclatureId}
-            canEdit={caps.canEditMasterData}
+            canEdit={caps.canEditNomenclature}
+            canEditPartFields={caps.canEditMasterData}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
             onOpenCustomer={openCounterparty}
@@ -5673,7 +5677,8 @@ export function App() {
           <StockDocumentDetailsPage
             key={cardKey(selectedStockDocumentId)}
             id={selectedStockDocumentId}
-            canEdit={caps.canEditOperations}
+            canEdit={caps.canEditWarehouseDocs}
+            canRevert={caps.canRevertMovements}
             canCreateParts={caps.canCreateParts}
             onOpenCounterparty={openCounterparty}
             onOpenEngine={openEngine}

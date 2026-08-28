@@ -59,6 +59,10 @@ type NomenclatureCardTab = 'main' | 'properties' | 'part' | 'instances' | 'stock
 export function NomenclatureDetailsPage(props: {
   id: string;
   canEdit: boolean;
+  /** Embedded part-EAV card edits go through masterdata/parts server gates, not
+   * erp.dictionary.edit — a storekeeper edits the nomenclature row but not the
+   * part fields, a technolog the other way around. */
+  canEditPartFields?: boolean;
   onClose: () => void;
   // Stage E.2: when the nomenclature row is a part class, the card embeds the legacy
   // part-EAV card (description/supplier/status/attachments/usage/custom fields) keyed by
@@ -1300,7 +1304,7 @@ export function NomenclatureDetailsPage(props: {
           <PartDetailsPage
             embedded
             partId={props.id}
-            canEdit={props.canEdit}
+            canEdit={props.canEditPartFields ?? false}
             canViewFiles={props.canViewFiles ?? false}
             canUploadFiles={props.canUploadFiles ?? false}
             {...(props.onOpenCustomer ? { onOpenCustomer: props.onOpenCustomer } : {})}

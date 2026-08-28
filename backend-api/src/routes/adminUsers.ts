@@ -49,6 +49,14 @@ function roleLevel(role: string) {
   return 0;
 }
 
+// Admin (level 1) manages only rank-and-file accounts — legacy 'user', operator
+// roles, 'pending', no-access 'employee' — never fellow admins. Used to gate
+// delete/permissions/manage paths; the old literal `targetRole !== 'user'`
+// broke the moment accounts started getting real roles instead of 'user'.
+function isAdminManageableTarget(targetRole: string): boolean {
+  return roleLevel(targetRole) === 0;
+}
+
 function ensureManageAllowed(args: {
   actorId: string;
   actorRole: string;
@@ -73,8 +81,8 @@ function ensureManageAllowed(args: {
     return { ok: false as const, error: 'роль супер-админа неизменна' };
   }
 
-  if (actorLevel === 1 && (targetLevel > 0 || args.targetRole === 'employee')) {
-    return { ok: false as const, error: 'администратор может управлять только пользователями' };
+  if (actorLevel === 1 && targetLevel > 0) {
+    return { ok: false as const, error: 'администратор не может управлять другими админами' };
   }
 
   return { ok: true as const };
@@ -92,8 +100,8 @@ async function requestUserDelete(args: { actor: AuthenticatedRequest['user']; ta
   if (targetRole === 'superadmin' || isSuperadminLogin(target.login)) {
     return { ok: false as const, error: 'супер-админ защищен' };
   }
-  if (actorRole === 'admin' && targetRole !== 'user') {
-    return { ok: false as const, error: 'администратор может удалять только пользователей' };
+  if (actorRole === 'admin' && !isAdminManageableTarget(targetRole)) {
+    return { ok: false as const, error: 'администратор не может удалять админов' };
   }
 
   await setEmployeeDeleteRequest(args.targetId, {
@@ -220,6 +228,15 @@ adminUsersRouter.post('/users', async (req, res) => {
     const accessEnabled = parsed.data.accessEnabled ?? true;
 
     if (await isLoginTaken(login)) return res.status(409).json({ ok: false, error: 'логин уже существует' });
+
+    // 'create' targeting an entity that already HAS credentials would silently
+    // overwrite them via setEmployeeAuth (incl. through the approval queue,
+    // where the decider can't see the id points at a live account). Creating a
+    // login for a credential-less employee card stays allowed.
+    if (parsed.data.employeeId) {
+      const target = await getEmployeeAuthById(parsed.data.employeeId);
+      if (target?.login) return res.status(409).json({ ok: false, error: 'у этого сотрудника уже есть учётная запись' });
+    }
 
     const actorLevel = roleLevel(actorRole);
     if (actorLevel < 1 || !actor?.id) return res.status(403).json({ ok: false, error: 'недостаточно прав' });
@@ -526,6 +543,9 @@ async function applyUserChange(payload: UserChangePayload, rowId: string): Promi
     const employeeTypeId = await getEmployeeTypeId();
     if (!employeeTypeId) return { ok: false, error: 'тип сотрудника не найден' };
     const existing = await getEmployeeAuthById(employeeId);
+    // Same overwrite guard as at submit — the queue may hold rows crafted
+    // before the guard existed.
+    if (existing?.login) return { ok: false, error: 'у этого сотрудника уже есть учётная запись — отклоните заявку' };
     if (!existing) {
       const created = await createEmployeeEntity(employeeId, Date.now());
       if (!created.ok) return { ok: false, error: created.error };
@@ -700,8 +720,8 @@ adminUsersRouter.put('/users/:id/permissions', async (req, res) => {
       }
     }
 
-    if (actorRole === 'admin' && targetRole !== 'user') {
-      return res.status(403).json({ ok: false, error: 'администратор может управлять только пользователями' });
+    if (actorRole === 'admin' && !isAdminManageableTarget(targetRole)) {
+      return res.status(403).json({ ok: false, error: 'администратор не может управлять правами других админов' });
     }
 
     const ts = Date.now();
