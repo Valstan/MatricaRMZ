@@ -18,6 +18,8 @@ import { changeRequests, entityTypes, entities, attributeDefs, attributeValues, 
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { writeSyncChanges, type SyncWriteInput } from '../services/sync/syncWriteService.js';
+import { partitionLedgerInputsByAuthz } from '../services/sync/ledgerAuthzGuard.js';
+import { recordLedgerAuthzDenial } from '../services/authzDenialLog.js';
 
 function nowMs() {
   return Date.now();
@@ -465,8 +467,19 @@ changesRouter.post('/:id/apply', async (req, res) => {
       }
     }
 
-    // Write through the unified ledger path
-    await writeSyncChanges(inputs, { id: actor.id, username: actor.username, role: actor.role });
+    // Write through the unified ledger path — but ONLY after the same authz
+    // partition every other ledger write goes through (M34: it is THE authz
+    // point; calling writeSyncChanges directly let a crafted change request
+    // write server-only employee attrs — system_role/password_hash/… — past
+    // every guard). Unlike the offline sync queue there is nothing to poison
+    // here, so a denied row fails the apply loudly instead of being dropped.
+    const writeActor = { id: actor.id, username: actor.username, role: actor.role };
+    const partition = await partitionLedgerInputsByAuthz(inputs, writeActor);
+    if (partition.denied.length > 0) {
+      recordLedgerAuthzDenial(writeActor, partition.denied);
+      return res.status(403).json({ ok: false, error: 'изменение отклонено авторизацией', denied: partition.denied });
+    }
+    await writeSyncChanges(partition.allowed, writeActor);
 
     // Mark change request as applied
     await db
