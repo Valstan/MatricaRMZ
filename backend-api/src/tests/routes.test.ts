@@ -45,6 +45,7 @@ vi.mock('../services/employeeAuthService.js', () => ({
   emitEmployeesSyncSnapshotAll: vi.fn().mockResolvedValue({ ok: true }),
   createEmployeeEntity: vi.fn().mockResolvedValue({ ok: true }),
   setEmployeeDeleteRequest: vi.fn().mockResolvedValue({ ok: true }),
+  seedSectionAccessIfMissing: vi.fn().mockResolvedValue({ ok: true, seeded: true }),
 }));
 
 vi.mock('../auth/password.js', () => ({
@@ -238,15 +239,17 @@ describe('POST /admin/users/pending/approve — safe role defaults', () => {
   it('defaults to read-only viewer, not legacy user', async () => {
     const res = await approve();
     expect(res.status).toBe(200);
-    const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
+    const { setEmployeeAuth, seedSectionAccessIfMissing } = await import('../services/employeeAuthService.js');
     expect(vi.mocked(setEmployeeAuth)).toHaveBeenCalledWith(PENDING_ID, { systemRole: 'viewer', accessEnabled: true });
+    expect(vi.mocked(seedSectionAccessIfMissing)).toHaveBeenCalledWith(PENDING_ID, 'viewer');
   });
 
   it('accepts an operator role (storekeeper) from a plain admin', async () => {
     const res = await approve('storekeeper');
     expect(res.status).toBe(200);
-    const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
+    const { setEmployeeAuth, seedSectionAccessIfMissing } = await import('../services/employeeAuthService.js');
     expect(vi.mocked(setEmployeeAuth)).toHaveBeenCalledWith(PENDING_ID, { systemRole: 'storekeeper', accessEnabled: true });
+    expect(vi.mocked(seedSectionAccessIfMissing)).toHaveBeenCalledWith(PENDING_ID, 'storekeeper');
   });
 
   it("rejects the legacy 'user' role outright", async () => {

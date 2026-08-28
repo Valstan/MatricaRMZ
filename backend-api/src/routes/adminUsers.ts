@@ -22,6 +22,7 @@ import {
   isSuperadminLogin,
   listEmployeesAuth,
   normalizeRole,
+  seedSectionAccessIfMissing,
   setEmployeeAuth,
   setEmployeeDeleteRequest,
   setEmployeeFullName,
@@ -291,6 +292,7 @@ adminUsersRouter.post('/users', async (req, res) => {
       systemRole: role,
       accessEnabled,
     });
+    await seedSectionAccessIfMissing(employeeId, role);
     if (parsed.data.fullName) await setEmployeeFullName(employeeId, parsed.data.fullName);
 
     return res.json({ ok: true, id: employeeId });
@@ -406,6 +408,7 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
         return res.status(403).json({ ok: false, error: 'эта роль недоступна для назначения' });
       }
       await setEmployeeAuth(pendingId, { systemRole: role, accessEnabled: true });
+      await seedSectionAccessIfMissing(pendingId, role);
       await emitEmployeeSyncSnapshot(pendingId);
       return res.json({ ok: true });
     }
@@ -518,6 +521,7 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
       if (parsed.data.role !== undefined) patch.systemRole = parsed.data.role.trim().toLowerCase();
       if (parsed.data.accessEnabled !== undefined) patch.accessEnabled = parsed.data.accessEnabled;
       await setEmployeeAuth(id, patch);
+      if (patch.systemRole) await seedSectionAccessIfMissing(id, patch.systemRole);
     }
     if (parsed.data.fullName) await setEmployeeFullName(id, parsed.data.fullName);
 
@@ -557,6 +561,7 @@ async function applyUserChange(payload: UserChangePayload, rowId: string): Promi
       systemRole: createRole,
       accessEnabled: data['accessEnabled'] === true,
     });
+    await seedSectionAccessIfMissing(employeeId, createRole);
     if (data['fullName']) await setEmployeeFullName(employeeId, String(data['fullName']));
     return { ok: true };
   }
@@ -579,6 +584,7 @@ async function applyUserChange(payload: UserChangePayload, rowId: string): Promi
   }
   if (data['accessEnabled'] !== undefined) patch.accessEnabled = data['accessEnabled'] === true;
   if (Object.keys(patch).length > 0) await setEmployeeAuth(rowId, patch);
+  if (patch.systemRole) await seedSectionAccessIfMissing(rowId, patch.systemRole);
   if (data['fullName'] !== undefined && data['fullName']) await setEmployeeFullName(rowId, String(data['fullName']));
   return { ok: true };
 }

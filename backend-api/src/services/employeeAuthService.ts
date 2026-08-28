@@ -4,7 +4,18 @@ import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, 
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens } from '../database/schema.js';
-import { SyncTableName, attributeDefRowSchema, attributeValueRowSchema, entityRowSchema, isOperatorRole, type SystemRole } from '@matricarmz/shared';
+import {
+  SECTION_ACCESS_ATTR,
+  SyncTableName,
+  attributeDefRowSchema,
+  attributeValueRowSchema,
+  entityRowSchema,
+  isOperatorRole,
+  parseSectionMembership,
+  seedMembershipForRole,
+  serializeSectionMembership,
+  type SystemRole,
+} from '@matricarmz/shared';
 
 type NormalizedRole = SystemRole;
 import { recordSyncChanges } from './sync/syncChangeService.js';
@@ -935,6 +946,50 @@ export async function setEmployeeAuth(
   }
 
   return { ok: true as const };
+}
+
+/**
+ * Pure seeding decision for `section_access` on role assignment: the value to
+ * write, or null for "leave as is". Never overwrites a configured matrix (a
+ * role CHANGE keeps hand-tuned sections — the section lists are the final
+ * word); an empty seed (pending/employee/unknown) writes nothing.
+ */
+export function sectionAccessSeedValue(existingRaw: unknown, role: string): string | null {
+  const existing = parseSectionMembership(existingRaw);
+  if (Object.keys(existing).length > 0) return null;
+  const seed = seedMembershipForRole(role);
+  if (Object.keys(seed).length === 0) return null;
+  return serializeSectionMembership(seed);
+}
+
+/**
+ * Assigning a role used to write ONLY system_role — without a section_access
+ * attribute the Ф3 section write-gate is fail-open and client tabs are not
+ * filtered (review finding on PR #707). Seed the role's default membership
+ * whenever the account has none.
+ */
+export async function seedSectionAccessIfMissing(employeeId: string, role: string) {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return { ok: false as const, seeded: false };
+  const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
+  // No def = the section model is not initialized in this DB — nothing to seed.
+  if (!defId) return { ok: true as const, seeded: false };
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, employeeId as any),
+        eq(attributeValues.attributeDefId, defId as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+  const existingRaw = rows[0]?.valueJson ? safeJsonParse(String(rows[0].valueJson)) : null;
+  const value = sectionAccessSeedValue(existingRaw, role);
+  if (value == null) return { ok: true as const, seeded: false };
+  await upsertAttrValue(employeeId, defId, value);
+  return { ok: true as const, seeded: true };
 }
 
 export async function setEmployeeDeleteRequest(
