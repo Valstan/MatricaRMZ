@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import type { AdminUserPermissionsPayload, AdminUserSummary, PermissionDelegation } from '@matricarmz/shared';
-import { permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { SYSTEM_ROLE_CATALOG, isAssignableSystemRole, permAdminOnly, permGroupRu, permTitleRu, systemRoleTitleRu } from '@matricarmz/shared';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import * as adminUsers from '../api/adminUsers.js';
@@ -31,13 +31,13 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     login: '',
     fullName: '',
     password: '',
-    role: 'user',
+    role: 'viewer',
     accessEnabled: true,
   });
   const [resetPassword, setResetPassword] = useState<string>('');
   const [editLogin, setEditLogin] = useState<string>('');
   const [pendingMergeTargets, setPendingMergeTargets] = useState<Record<string, string>>({});
-  const [pendingRoles, setPendingRoles] = useState<Record<string, 'user' | 'admin'>>({});
+  const [pendingRoles, setPendingRoles] = useState<Record<string, string>>({});
   const [releaseVersion, setReleaseVersion] = useState<string>('');
   const [releaseNotes, setReleaseNotes] = useState<string>('');
   const [releaseMeta, setReleaseMeta] = useState<string>('');
@@ -57,12 +57,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     if (!isActive) return 'запрещено';
     const normalized = String(role ?? '').trim().toLowerCase();
     if (!normalized) return 'Пользователь';
-    if (normalized === 'superadmin') return 'Суперадминистратор';
-    if (normalized === 'admin') return 'Администратор';
-    if (normalized === 'employee') return 'Сотрудник';
-    if (normalized === 'pending') return 'Ожидает подтверждения';
-    if (normalized === 'user') return 'Пользователь';
-    return normalized;
+    return systemRoleTitleRu(normalized);
   }
 
   async function refreshUsers() {
@@ -117,7 +112,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   }, [canManageUsers, selectedUserId]);
 
   const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
-  const selectedRole = String(selectedUser?.role ?? 'user').toLowerCase();
+  const selectedRole = String(selectedUser?.role ?? '').toLowerCase();
   const selectedIsSelf = !!me && selectedUserId === me.id;
   const adminLocked = meRole === 'admin' && (selectedRole === 'admin' || selectedRole === 'superadmin');
   const canEditRoleOrAccess = meRole === 'superadmin' && !selectedIsSelf;
@@ -128,6 +123,9 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const canEditRole = canEditRoleOrAccess;
   const canEditLogin = !selectedIsSelf && !adminLocked && !(meRole === 'admin' && selectedRole === 'employee');
   const canApprovePending = canManageUsers && (meRole === 'admin' || meRole === 'superadmin');
+  // Catalog-driven assignable roles — the legacy 'user' is deliberately not offered.
+  const assignableRoleOptions = SYSTEM_ROLE_CATALOG.filter((m) => isAssignableSystemRole('superadmin', m.key));
+  const roleOptionDisabled = (key: string) => (key === 'admin' ? !canCreateAdmin : key === 'employee' ? !canCreateEmployee : false);
 
   useEffect(() => {
     setEditLogin(selectedUser?.login ?? '');
@@ -135,7 +133,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
 
   useEffect(() => {
     if (meRole !== 'superadmin') {
-      setNewUser((p) => ({ ...p, role: 'user', accessEnabled: false }));
+      setNewUser((p) => ({ ...p, role: 'viewer', accessEnabled: false }));
     }
   }, [meRole]);
 
@@ -448,7 +446,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                   .filter((u) => String(u.role).toLowerCase() === 'pending')
                   .map((u) => {
                     const mergeTarget = pendingMergeTargets[u.id] ?? '';
-                    const pendingRole = pendingRoles[u.id] ?? 'user';
+                    const pendingRole = pendingRoles[u.id] ?? 'viewer';
                     return (
                       <div key={u.id} style={{ border: '1px solid #eef2f7', borderRadius: 10, padding: 10 }}>
                         <div style={{ fontWeight: 700, display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -463,16 +461,17 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                           login: {u.login ?? u.id}
                         </div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                          {canCreateAdmin && (
+                          {canApprovePending && (
                             <select
                               value={pendingRole}
-                              onChange={(e) =>
-                                setPendingRoles((p) => ({ ...p, [u.id]: e.target.value === 'admin' ? 'admin' : 'user' }))
-                              }
+                              onChange={(e) => setPendingRoles((p) => ({ ...p, [u.id]: e.target.value }))}
                               disabled={!canApprovePending}
                             >
-                              <option value="user">user</option>
-                              <option value="admin">admin</option>
+                              {assignableRoleOptions.map((m) => (
+                                <option key={m.key} value={m.key} disabled={roleOptionDisabled(m.key)}>
+                                  {m.titleRu}
+                                </option>
+                              ))}
                             </select>
                           )}
                           <Button
@@ -550,13 +549,11 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                   onChange={(e) => setNewUser((p) => ({ ...p, role: e.target.value }))}
                   style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
                 >
-                  <option value="user">user</option>
-                  <option value="employee" disabled={!canCreateEmployee}>
-                    employee
-                  </option>
-                  <option value="admin" disabled={!canCreateAdmin}>
-                    admin
-                  </option>
+                  {assignableRoleOptions.map((m) => (
+                    <option key={m.key} value={m.key} disabled={roleOptionDisabled(m.key)}>
+                      {m.titleRu}
+                    </option>
+                  ))}
                 </select>
                 <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#111827', fontSize: 14, whiteSpace: 'nowrap' }}>
                   <input
@@ -579,7 +576,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                     });
                     setStatus(r.ok ? 'Пользователь создан' : `Ошибка: ${r.error ?? 'unknown'}`);
                     if (r.ok) {
-                      setNewUser({ login: '', fullName: '', password: '', role: 'user', accessEnabled: true });
+                      setNewUser({ login: '', fullName: '', password: '', role: 'viewer', accessEnabled: true });
                       await refreshUsers();
                       setSelectedUserId(r.id);
                     }
@@ -661,15 +658,18 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                         disabled={!canEditRole}
                         style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
                       >
-                        <option value="user">user</option>
-                        <option value="employee" disabled={!canCreateEmployee}>
-                          employee
-                        </option>
-                        <option value="admin" disabled={!canCreateAdmin}>
-                          admin
-                        </option>
+                        {selectedRole !== 'superadmin' && !assignableRoleOptions.some((m) => m.key === selectedRole) && (
+                          <option value={selectedRole} disabled>
+                            {selectedRole ? systemRoleTitleRu(selectedRole) : '(роль не задана)'}
+                          </option>
+                        )}
+                        {assignableRoleOptions.map((m) => (
+                          <option key={m.key} value={m.key} disabled={roleOptionDisabled(m.key)}>
+                            {m.titleRu}
+                          </option>
+                        ))}
                         <option value="superadmin" disabled>
-                          superadmin
+                          {systemRoleTitleRu('superadmin')}
                         </option>
                       </select>
                     </label>

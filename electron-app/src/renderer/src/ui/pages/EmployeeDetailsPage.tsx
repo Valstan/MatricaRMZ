@@ -23,7 +23,7 @@ const EMPLOYEE_CARD_TABS: CardTab<EmployeeCardTab>[] = [
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, accessSectionMeta, dependentsOfSection, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, serializeSectionMembership, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, SYSTEM_ROLE_CATALOG, accessSectionMeta, dependentsOfSection, isAssignableSystemRole, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, serializeSectionMembership, systemRoleTitleRu, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import type { AccessSection, EntityReferenceTarget, QuickCreateRequest, QuickCreateResult, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -405,17 +405,22 @@ export function EmployeeDetailsPage(props: {
   const [permQuery, setPermQuery] = useState('');
   const [accountLogin, setAccountLogin] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
-  const [accountRole, setAccountRole] = useState('user');
+  const [accountRole, setAccountRole] = useState('viewer');
   const [accountActive, setAccountActive] = useState(true);
 
   const [createLogin, setCreateLogin] = useState('');
   const [createPassword, setCreatePassword] = useState('');
-  const [createRole, setCreateRole] = useState('user');
+  const [createRole, setCreateRole] = useState('viewer');
   const [createActive, setCreateActive] = useState(true);
 
   const meRole = String(props.me?.role ?? '').toLowerCase();
   const canCreateAdmin = meRole === 'superadmin';
   const canCreateEmployee = meRole === 'superadmin';
+  // Assignable role list comes from the shared catalog — the legacy full-access
+  // 'user' is deliberately absent (it only kept coming back through hardcoded
+  // dropdowns; 2026-08-28).
+  const assignableRoleOptions = SYSTEM_ROLE_CATALOG.filter((m) => isAssignableSystemRole('superadmin', m.key));
+  const roleOptionDisabled = (key: string) => (key === 'admin' ? !canCreateAdmin : key === 'employee' ? !canCreateEmployee : false);
 
   const accountUser = useMemo<EmployeeAccount | null>(() => {
     if (!accountPerms?.user) return null;
@@ -529,7 +534,7 @@ export function EmployeeDetailsPage(props: {
   useEffect(() => {
     if (!accountUser) return;
     setAccountLogin(accountUser.login ?? '');
-    setAccountRole(String(accountUser.role ?? 'user'));
+    setAccountRole(String(accountUser.role ?? ''));
     setAccountActive(!!accountUser.isActive);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps track the primitive fields read; the accountUser object gets a new identity on every 20s permissions poll, and re-running on it would clobber unsaved login/role/active edits
   }, [accountUser?.id, accountUser?.login, accountUser?.role, accountUser?.isActive]);
@@ -545,7 +550,7 @@ export function EmployeeDetailsPage(props: {
 
   useEffect(() => {
     if (meRole !== 'superadmin') {
-      setCreateRole('user');
+      setCreateRole('viewer');
       setCreateActive(false);
     }
   }, [meRole]);
@@ -1932,15 +1937,18 @@ export function EmployeeDetailsPage(props: {
                     disabled={!canEditRole}
                     style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
                   >
-                    <option value="user">user</option>
-                    <option value="employee" disabled={!canCreateEmployee}>
-                      employee
-                    </option>
-                    <option value="admin" disabled={!canCreateAdmin}>
-                      admin
-                    </option>
+                    {accountRole !== 'superadmin' && !assignableRoleOptions.some((m) => m.key === accountRole) && (
+                      <option value={accountRole} disabled>
+                        {accountRole ? systemRoleTitleRu(accountRole) : '(роль не задана)'}
+                      </option>
+                    )}
+                    {assignableRoleOptions.map((m) => (
+                      <option key={m.key} value={m.key} disabled={roleOptionDisabled(m.key)}>
+                        {m.titleRu}
+                      </option>
+                    ))}
                     <option value="superadmin" disabled>
-                      superadmin
+                      {systemRoleTitleRu('superadmin')}
                     </option>
                   </select>
                 </label>
@@ -2015,13 +2023,11 @@ export function EmployeeDetailsPage(props: {
                   style={{ padding: '8px 10px', borderRadius: 0, border: '1px solid var(--border)' }}
                   disabled={!canEditRole}
                 >
-                  <option value="user">user</option>
-                  <option value="employee" disabled={!canCreateEmployee}>
-                    employee
-                  </option>
-                  <option value="admin" disabled={!canCreateAdmin}>
-                    admin
-                  </option>
+                  {assignableRoleOptions.map((m) => (
+                    <option key={m.key} value={m.key} disabled={roleOptionDisabled(m.key)}>
+                      {m.titleRu}
+                    </option>
+                  ))}
                 </select>
                 <div style={{ color: 'var(--subtle)' }}>Активность</div>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

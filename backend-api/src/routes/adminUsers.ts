@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { and, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
+import { isAssignableSystemRole } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { permissionDelegations, permissions, userPermissions } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
@@ -206,7 +207,7 @@ adminUsersRouter.post('/users', async (req, res) => {
       fullName: z.string().max(200).optional(),
       login: z.string().min(1).max(100),
       password: z.string().min(6).max(500),
-      role: z.string().min(1).max(50).default('user'),
+      role: z.string().min(1).max(50).default('viewer'),
       accessEnabled: z.boolean().optional(),
     });
     const parsed = schema.safeParse(req.body);
@@ -225,12 +226,14 @@ adminUsersRouter.post('/users', async (req, res) => {
     if (isSuperadminLogin(login) && actorLevel < 2) {
       return res.status(403).json({ ok: false, error: 'логин супер-админа зарезервирован' });
     }
+    if (!isAssignableSystemRole(actorRole, role)) {
+      return res.status(403).json({ ok: false, error: 'эта роль недоступна для назначения' });
+    }
 
     // RBAC #474 M4: a non-superadmin admin proposes the new user; a superadmin
     // (later also the HR-head) approves it. Password is hashed at submit time —
     // never store the plaintext in the request queue.
     if (actorLevel === 1) {
-      if (role !== 'user') return res.status(403).json({ ok: false, error: 'администратор может предлагать только роль «пользователь»' });
       const newId = parsed.data.employeeId ?? randomUUID();
       const passwordHash = await hashPassword(parsed.data.password);
       const r = await submitUserChangeRequest({
@@ -243,7 +246,7 @@ adminUsersRouter.post('/users', async (req, res) => {
             login,
             passwordHash,
             fullName: parsed.data.fullName ?? null,
-            role: 'user',
+            role,
             accessEnabled: false,
           },
         },
@@ -359,7 +362,7 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
     const schema = z.object({
       pendingUserId: z.string().uuid(),
       action: z.enum(['approve', 'merge']),
-      role: z.enum(['user', 'admin']).optional(),
+      role: z.string().min(1).max(50).optional(),
       targetUserId: z.string().uuid().optional(),
     });
     const parsed = schema.safeParse(req.body);
@@ -377,7 +380,14 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
     if (pendingRole !== 'pending') return res.status(400).json({ ok: false, error: 'пользователь не имеет статуса pending' });
 
     if (parsed.data.action === 'approve') {
-      const role = (parsed.data.role ?? 'user').toLowerCase();
+      // Default deliberately read-only: one-click approve used to mint the
+      // legacy full-access 'user' — that's how it kept coming back (2026-08-28).
+      // The actor check also closes the hole where a plain admin could approve
+      // straight to 'admin' via direct API call.
+      const role = (parsed.data.role ?? 'viewer').trim().toLowerCase();
+      if (!isAssignableSystemRole(actorRole, role)) {
+        return res.status(403).json({ ok: false, error: 'эта роль недоступна для назначения' });
+      }
       await setEmployeeAuth(pendingId, { systemRole: role, accessEnabled: true });
       await emitEmployeeSyncSnapshot(pendingId);
       return res.json({ ok: true });
@@ -453,8 +463,8 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
     // RBAC #474 M4: a non-superadmin admin proposes the edit; a superadmin
     // approves it. Password is hashed at submit — never queue the plaintext.
     if (actorRole !== 'superadmin') {
-      if (parsed.data.role !== undefined && parsed.data.role.trim().toLowerCase() !== 'user') {
-        return res.status(403).json({ ok: false, error: 'администратор может предлагать только роль «пользователь»' });
+      if (parsed.data.role !== undefined && !isAssignableSystemRole(actorRole, parsed.data.role.trim().toLowerCase())) {
+        return res.status(403).json({ ok: false, error: 'эта роль недоступна для назначения' });
       }
       const data: Record<string, unknown> = {};
       if (parsed.data.login !== undefined) data['login'] = parsed.data.login.trim().toLowerCase();
@@ -479,13 +489,16 @@ adminUsersRouter.patch('/users/:id', async (req, res) => {
     }
 
     // Only superadmin reaches here (admins go through the approval queue above).
+    if (parsed.data.role !== undefined && !isAssignableSystemRole(actorRole, parsed.data.role.trim().toLowerCase())) {
+      return res.status(403).json({ ok: false, error: 'эта роль недоступна для назначения' });
+    }
     if (parsed.data.password) {
       await setEmployeeAuth(id, { passwordHash: await hashPassword(parsed.data.password) });
     }
     if (parsed.data.role || parsed.data.accessEnabled !== undefined || parsed.data.login) {
       const patch: { login?: string | null; systemRole?: string | null; accessEnabled?: boolean | null } = {};
       if (parsed.data.login !== undefined) patch.login = parsed.data.login ? parsed.data.login.trim().toLowerCase() : null;
-      if (parsed.data.role !== undefined) patch.systemRole = parsed.data.role ? parsed.data.role.trim().toLowerCase() : 'user';
+      if (parsed.data.role !== undefined) patch.systemRole = parsed.data.role.trim().toLowerCase();
       if (parsed.data.accessEnabled !== undefined) patch.accessEnabled = parsed.data.accessEnabled;
       await setEmployeeAuth(id, patch);
     }
@@ -504,6 +517,11 @@ async function applyUserChange(payload: UserChangePayload, rowId: string): Promi
 
   if (payload.kind === 'create') {
     if (login && (await isLoginTaken(login))) return { ok: false, error: 'логин уже существует' };
+    const createRole = String(data['role'] ?? 'viewer').trim().toLowerCase();
+    // The decider is a superadmin; legacy queue rows may still carry 'user'.
+    if (!isAssignableSystemRole('superadmin', createRole)) {
+      return { ok: false, error: `роль «${createRole}» недоступна для назначения — отклоните заявку` };
+    }
     const employeeId = String(data['employeeId'] ?? rowId);
     const employeeTypeId = await getEmployeeTypeId();
     if (!employeeTypeId) return { ok: false, error: 'тип сотрудника не найден' };
@@ -516,7 +534,7 @@ async function applyUserChange(payload: UserChangePayload, rowId: string): Promi
     await setEmployeeAuth(employeeId, {
       login,
       passwordHash: String(data['passwordHash'] ?? ''),
-      systemRole: String(data['role'] ?? 'user'),
+      systemRole: createRole,
       accessEnabled: data['accessEnabled'] === true,
     });
     if (data['fullName']) await setEmployeeFullName(employeeId, String(data['fullName']));
@@ -532,7 +550,13 @@ async function applyUserChange(payload: UserChangePayload, rowId: string): Promi
   if (data['passwordHash']) await setEmployeeAuth(rowId, { passwordHash: String(data['passwordHash']) });
   const patch: { login?: string | null; systemRole?: string | null; accessEnabled?: boolean | null } = {};
   if (data['login'] !== undefined) patch.login = login || null;
-  if (data['role'] !== undefined) patch.systemRole = String(data['role']) || 'user';
+  if (data['role'] !== undefined) {
+    const updateRole = String(data['role']).trim().toLowerCase() || 'viewer';
+    if (!isAssignableSystemRole('superadmin', updateRole)) {
+      return { ok: false, error: `роль «${updateRole}» недоступна для назначения — отклоните заявку` };
+    }
+    patch.systemRole = updateRole;
+  }
   if (data['accessEnabled'] !== undefined) patch.accessEnabled = data['accessEnabled'] === true;
   if (Object.keys(patch).length > 0) await setEmployeeAuth(rowId, patch);
   if (data['fullName'] !== undefined && data['fullName']) await setEmployeeFullName(rowId, String(data['fullName']));

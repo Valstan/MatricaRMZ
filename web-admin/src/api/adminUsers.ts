@@ -70,7 +70,7 @@ export function revokeDelegation(id: string, note?: string) {
   });
 }
 
-export function pendingApprove(args: { pendingUserId: string; action: 'approve' | 'merge'; role?: 'user' | 'admin'; targetUserId?: string }) {
+export function pendingApprove(args: { pendingUserId: string; action: 'approve' | 'merge'; role?: string; targetUserId?: string }) {
   return apiJson('/admin/users/pending/approve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -4,6 +4,7 @@ import {
   PermissionCode,
   PERMISSION_CATALOG,
   SYSTEM_ROLE_CATALOG,
+  isAssignableSystemRole,
   isOperatorRole,
   operatorRolePermissions,
   systemRoleTitleRu,
@@ -32,7 +33,7 @@ describe('operator role presets (RBAC #474)', () => {
   });
 
   it('every operator role grants the read-only base but never admin-only', () => {
-    for (const role of ['engineer', 'technolog', 'master', 'supply', 'timekeeper', 'viewer']) {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
       const perms = operatorRolePermissions(role);
       expect(perms, role).not.toBeNull();
       expect(isOperatorRole(role)).toBe(true);
@@ -101,13 +102,53 @@ describe('operator role presets (RBAC #474)', () => {
     expect(perms[PermissionCode.WorkOrdersEdit]).toBeFalsy();
   });
 
+  it('storekeeper edits/posts warehouse documents, nomenclature and supply requests — nothing else', () => {
+    const perms = operatorRolePermissions('storekeeper')!;
+    expect(perms[PermissionCode.ErpDocumentsEdit]).toBe(true);
+    expect(perms[PermissionCode.ErpDocumentsPost]).toBe(true);
+    expect(perms[PermissionCode.ErpDictionaryEdit]).toBe(true);
+    expect(perms[PermissionCode.SupplyRequestsCreate]).toBe(true);
+    expect(perms[PermissionCode.SupplyRequestsEdit]).toBe(true);
+    expect(perms[PermissionCode.FilesUpload]).toBe(true);
+    expect(perms[PermissionCode.WorkOrdersEdit]).toBeFalsy();
+    expect(perms[PermissionCode.EnginesEdit]).toBeFalsy();
+    expect(perms[PermissionCode.TimesheetEdit]).toBeFalsy();
+    // admin-only clamp territory — must not be in the operator footprint
+    expect(perms[PermissionCode.WarehouseLocationsManage]).toBeFalsy();
+    expect(perms[PermissionCode.MovementsRevert]).toBeFalsy();
+  });
+
   it('catalog covers every operator role with a Russian label', () => {
-    for (const role of ['engineer', 'technolog', 'master', 'supply', 'timekeeper', 'viewer']) {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
       const meta = SYSTEM_ROLE_CATALOG.find((r) => r.key === role);
       expect(meta, role).toBeDefined();
       expect(meta!.kind).toBe('operator');
       expect(systemRoleTitleRu(role)).toBe(meta!.titleRu);
       expect(systemRoleTitleRu(role)).not.toBe(role);
+    }
+  });
+});
+
+describe('isAssignableSystemRole', () => {
+  it('operator roles and employee are assignable by any admin tier', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer', 'employee']) {
+      expect(isAssignableSystemRole('admin', role), role).toBe(true);
+      expect(isAssignableSystemRole('superadmin', role), role).toBe(true);
+    }
+  });
+
+  it('admin role is assignable only by the superadmin', () => {
+    expect(isAssignableSystemRole('superadmin', 'admin')).toBe(true);
+    expect(isAssignableSystemRole('admin', 'admin')).toBe(false);
+  });
+
+  it("legacy 'user', 'pending' and 'superadmin' are never assignable", () => {
+    for (const actor of ['admin', 'superadmin']) {
+      expect(isAssignableSystemRole(actor, 'user')).toBe(false);
+      expect(isAssignableSystemRole(actor, 'pending')).toBe(false);
+      expect(isAssignableSystemRole(actor, 'superadmin')).toBe(false);
+      expect(isAssignableSystemRole(actor, '')).toBe(false);
+      expect(isAssignableSystemRole(actor, 'nonsense')).toBe(false);
     }
   });
 });

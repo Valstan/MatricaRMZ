@@ -41,6 +41,10 @@ vi.mock('../services/employeeAuthService.js', () => ({
   setEmployeeFullName: vi.fn().mockResolvedValue({ ok: true }),
   setEmployeeProfile: vi.fn().mockResolvedValue({ ok: true }),
   getSuperadminUserId: vi.fn().mockResolvedValue(null),
+  emitEmployeeSyncSnapshot: vi.fn().mockResolvedValue(undefined),
+  emitEmployeesSyncSnapshotAll: vi.fn().mockResolvedValue({ ok: true }),
+  createEmployeeEntity: vi.fn().mockResolvedValue({ ok: true }),
+  setEmployeeDeleteRequest: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock('../auth/password.js', () => ({
@@ -202,5 +206,60 @@ describe('backend routes', () => {
     expect(logins).not.toContain('sidorov'); // pending
     expect(logins).not.toContain('disabled1'); // accessEnabled=false
     expect(Object.keys(res.body.rows[0]).sort()).toEqual(['fullName', 'login']); // no role/position leaked
+  });
+});
+
+// Actor in the harness is a plain admin (level 1) — exactly the tier whose
+// one-click approve used to mint legacy full-access 'user' accounts.
+describe('POST /admin/users/pending/approve — safe role defaults', () => {
+  const PENDING_ID = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // mockReset drops queued mockResolvedValueOnce leftovers from earlier
+    // describes (clearAllMocks keeps them, and the first call here would
+    // consume a stale value).
+    getEmployeeAuthById.mockReset().mockResolvedValue({
+      id: PENDING_ID,
+      login: 'newbie',
+      systemRole: 'pending',
+      accessEnabled: true,
+      fullName: '',
+    });
+  });
+
+  async function approve(role?: string) {
+    const app = createApp();
+    const body: Record<string, unknown> = { pendingUserId: PENDING_ID, action: 'approve' };
+    if (role !== undefined) body.role = role;
+    return request(app).post('/admin/users/pending/approve').send(body);
+  }
+
+  it('defaults to read-only viewer, not legacy user', async () => {
+    const res = await approve();
+    expect(res.status).toBe(200);
+    const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
+    expect(vi.mocked(setEmployeeAuth)).toHaveBeenCalledWith(PENDING_ID, { systemRole: 'viewer', accessEnabled: true });
+  });
+
+  it('accepts an operator role (storekeeper) from a plain admin', async () => {
+    const res = await approve('storekeeper');
+    expect(res.status).toBe(200);
+    const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
+    expect(vi.mocked(setEmployeeAuth)).toHaveBeenCalledWith(PENDING_ID, { systemRole: 'storekeeper', accessEnabled: true });
+  });
+
+  it("rejects the legacy 'user' role outright", async () => {
+    const res = await approve('user');
+    expect(res.status).toBe(403);
+    const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
+    expect(vi.mocked(setEmployeeAuth)).not.toHaveBeenCalled();
+  });
+
+  it("rejects 'admin' when the actor is a plain admin (no self-escalation via direct API)", async () => {
+    const res = await approve('admin');
+    expect(res.status).toBe(403);
+    const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
+    expect(vi.mocked(setEmployeeAuth)).not.toHaveBeenCalled();
   });
 });
