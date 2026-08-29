@@ -15,6 +15,7 @@ import {
   emitEmployeesSyncSnapshotAll,
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
+  setEmployeeSectionAccess,
   getEmployeeProfileById,
   getEmployeeTypeId,
   getSuperadminUserId,
@@ -150,6 +151,41 @@ async function confirmUserDelete(args: { actor: AuthenticatedRequest['user']; ta
   if (!r.ok) return r;
   return { ok: true as const, mode: 'deleted' as const };
 }
+
+/**
+ * B3/R2: доступы по разделам пишутся ТОЛЬКО этим роутом.
+ *
+ * Прежде их писали две страницы клиента generic-вызовом setAttr через синк —
+ * то есть атрибут суперадминского уровня ехал по общему пути записи, а
+ * защищала его лишь backstop-проверка в ledger-гейте. Запрет вместо
+ * отсутствия канала. Здесь канал закрывается: у записи появляется своя дверь
+ * с проверкой старшинства и громкой валидацией формы.
+ *
+ * Только суперадмин — решение владельца 2026-07-26 «управление доступами в
+ * одних руках»; тот же инвариант держит SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES.
+ * Онлайн-требование приемлемо: это админское действие, не цеховая работа.
+ */
+adminUsersRouter.post('/users/:id/section-access', async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+    if (actorRole !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'доступами по разделам управляет только супер-админ' });
+    }
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const parsed = z.object({ membership: z.record(z.string(), z.unknown()) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const r = await setEmployeeSectionAccess(id, parsed.data.membership);
+    if (!r.ok) return res.status(400).json(r);
+    await emitEmployeeSyncSnapshot(id);
+    return res.json({ ok: true, membership: r.membership });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 adminUsersRouter.get('/users', async (_req, res) => {
   try {

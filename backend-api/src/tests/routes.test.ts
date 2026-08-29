@@ -38,6 +38,7 @@ vi.mock('../services/employeeAuthService.js', () => ({
   isLoginTaken: vi.fn().mockResolvedValue(false),
   isSuperadminLogin: vi.fn().mockReturnValue(false),
   setEmployeeAuth: vi.fn().mockResolvedValue({ ok: true }),
+  setEmployeeSectionAccess: vi.fn().mockResolvedValue({ ok: true, membership: {} }),
   setEmployeeFullName: vi.fn().mockResolvedValue({ ok: true }),
   setEmployeeProfile: vi.fn().mockResolvedValue({ ok: true }),
   getSuperadminUserId: vi.fn().mockResolvedValue(null),
@@ -98,6 +99,19 @@ describe('backend routes', () => {
     const res = await request(app).get('/updates/status');
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+
+  // B3/R2: у section_access появилась своя дверь вместо generic setAttr через
+  // синк, и она суперадминская (решение владельца 2026-07-26 «управление
+  // доступами в одних руках»). Мок middleware выдаёт роль admin — то есть
+  // второй по старшинству тир, который по прочим админским роутам проходит.
+  it('POST /admin/users/:id/section-access: администратору — 403', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/admin/users/emp-1/section-access')
+      .send({ membership: { warehouse: 'editor' } });
+    expect(res.status).toBe(403);
+    expect(String(res.body?.error ?? '')).toContain('супер-админ');
   });
 
   it('GET /admin/users returns users list', async () => {
