@@ -12,13 +12,19 @@ if (-not (Test-Path $envPath)) {
 Import-DotEnv -Path $envPath
 Set-Location $repo
 
-Write-Output '[bootstrap] ensure entity_types + attribute_defs (so seed migrations pass)'
-& corepack pnpm --filter '@matricarmz/backend-api' dev:bootstrap-types
-if ($LASTEXITCODE -ne 0) { throw "dev:bootstrap-types exit ${LASTEXITCODE}" }
-
+# ПОРЯДОК: миграции ПЕРВЫМИ. Прежде bootstrap стоял впереди — потому что
+# миграция 0024 падала на чистой базе без заранее заведённых entity_types, и
+# базу поднимали из дампа прода. Но сам bootstrap пишет в таблицы, которые
+# создаёт миграция 0000, так что на ДЕЙСТВИТЕЛЬНО чистой базе он падал первым.
+# С 2026-08-29 (PR #715) 0024 переживает пустую базу, и порядок стал прямым:
+# миграции создают таблицы, bootstrap наполняет справочные типы.
 Write-Output '[migrate] backend-api db:migrate'
 & corepack pnpm --filter '@matricarmz/backend-api' db:migrate
 if ($LASTEXITCODE -ne 0) { throw "db:migrate exit ${LASTEXITCODE}" }
+
+Write-Output '[bootstrap] ensure entity_types + attribute_defs'
+& corepack pnpm --filter '@matricarmz/backend-api' dev:bootstrap-types
+if ($LASTEXITCODE -ne 0) { throw "dev:bootstrap-types exit ${LASTEXITCODE}" }
 
 Write-Output '[seed] permissions'
 & corepack pnpm --filter '@matricarmz/backend-api' perm:seed

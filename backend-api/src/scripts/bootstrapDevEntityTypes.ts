@@ -14,7 +14,12 @@ import { attributeDefs, entityTypes } from '../database/schema.js';
 import { upsertAttributeDef, upsertEntityType } from '../services/adminMasterdataService.js';
 import { ensureEmployeeAuthDefs } from '../services/employeeAuthService.js';
 
-const ACTOR = { id: 'verify-bootstrap', username: 'verify-bootstrap', role: 'superadmin' } as const;
+// id ПУСТОЙ намеренно. Прежде здесь стояло 'verify-bootstrap', и скрипт падал:
+// row_owners.owner_user_id — это uuid с FK на entities, а «verify-bootstrap» не
+// uuid и никакой сущности не соответствует (на момент bootstrap пользователей
+// ещё нет вовсе). ensureOwner при пустом id владение просто не пишет — ровно то,
+// что нужно скрипту, который создаёт СПРАВОЧНЫЕ типы, а не чьи-то строки.
+const ACTOR = { id: '', username: 'verify-bootstrap', role: 'superadmin' } as const;
 
 async function ensureType(code: string, name: string) {
   const existing = await db
@@ -93,7 +98,14 @@ async function main() {
   const sectionId = await ensureType('section', 'Section');
   await ensureAttr(sectionId, 'name', 'Name', AttributeDataType.Text, 10);
 
-  await ensureEmployeeAuthDefs();
+  // Тип сотрудника ensureEmployeeAuthDefs НЕ создаёт — она лишь доводит его
+  // атрибуты и возвращает ok:false, если типа нет. Прежде её результат не
+  // проверялся, поэтому отсутствие типа проходило молча, а скрипт печатал
+  // «ready»: на дампе прода тип уже был, и дефект не всплывал. На чистой базе
+  // это ломало следующий шаг (dev:seed-fixtures — «тип сотрудника не найден»).
+  await ensureType(EntityTypeCode.Employee, 'Сотрудник');
+  const auth = await ensureEmployeeAuthDefs();
+  if (!auth.ok) throw new Error(`ensureEmployeeAuthDefs: ${auth.error}`);
 
   console.log('[bootstrap] entity_types + attribute_defs ready');
 }

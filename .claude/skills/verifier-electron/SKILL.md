@@ -18,18 +18,9 @@ description: Локальный handle для /verify Electron-приложен�
 2. **Аутентификация PG настроена** — либо `$env:PGPASSWORD` в PowerShell, либо `%APPDATA%\postgresql\pgpass.conf` (формат `host:port:db:user:password`). `Test-PgConnectivity` в `_common.ps1` проверяет соединение перед началом работы.
 3. **Node 22 + pnpm 10.26** через corepack — стандартный setup репо.
 4. **`psql.exe`** в PATH либо в `C:\pgsql\bin\` (или `C:\Program Files\PostgreSQL\<16|14|15|17>\bin\`). `_common.ps1` найдёт автоматически.
-5. **Schema-dump прода** в `.verifier-electron/prod-schema.sql`. Drizzle-миграция `0024_act_completeness_seed.sql` зависит от уже существующих entity_types `engine_brand`/`part`/etc. — на чистой БД она падает. Дамп прода (schema-only, без данных) содержит таблицы + applied migrations marker → миграции при `db:migrate` будут skipped, bootstrap наполнит entity_types/attribute_defs. Сгенерируйте один раз:
+5. ~~**Schema-dump прода**~~ — **больше не нужен (2026-08-29).** Требование существовало из-за миграции `0024_act_completeness_seed.sql`: она брала тип сущности скалярным подзапросом, который на пустой базе давал `NULL`, и накат падал. Обходили дампом прода. Миграция починена (PR [#715](https://github.com/Valstan/MatricaRMZ/pull/715)) — теперь **все миграции накатываются на пустую базу**, а `dev:bootstrap-types` наполняет справочные типы. Дампы `.verifier-electron/prod-schema.sql` / `prod-seeds.sql` можно не заводить; если они есть — `setup-db.ps1` их по-прежнему подхватит.
 
-   ```bash
-   ssh matricarmz "cd MatricaRMZ/backend-api && set -a; source .env; set +a; \
-     pg_dump --schema-only -Fp \$PGDATABASE > /tmp/matricarmz-schema.sql && \
-     pg_dump --data-only -Fp -t __drizzle_migrations -t entity_types -t attribute_defs -t permissions \$PGDATABASE > /tmp/matricarmz-seeds.sql"
-   scp matricarmz:/tmp/matricarmz-schema.sql .verifier-electron/prod-schema.sql
-   scp matricarmz:/tmp/matricarmz-seeds.sql .verifier-electron/prod-seeds.sql
-   ssh matricarmz "rm /tmp/matricarmz-schema.sql /tmp/matricarmz-seeds.sql"
-   ```
-
-   Дампы попадают в `.verifier-electron/` (git-ignored, не утекают). Обновляйте раз в месяц или после крупных миграций. **Без этих файлов self-verify не запустится** (миграция 0024 упадёт).
+   Заодно на чистой базе всплыли два дефекта самого `dev:bootstrap-types`, которых дамп не давал увидеть (оба починены): актор писал в `row_owners.owner_user_id` не-uuid, и тип `employee` не создавался вовсе — `ensureEmployeeAuthDefs` его не заводит, а лишь возвращает `ok:false`, и результат не проверялся.
 
 ## Однократный setup (после клона / при первом запуске)
 

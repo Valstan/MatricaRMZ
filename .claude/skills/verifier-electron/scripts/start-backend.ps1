@@ -20,20 +20,26 @@ if (Test-Path $pidPath) {
     }
 }
 
+# Порт берём из .env.dev, а не из константы: на машине разработчика 3001 может
+# быть занят СОСЕДНИМ проектом (на PC79 там Next.js другого репо), и жёсткая
+# константа делала скилл неподнимаемым без правки трекаемого файла. Поэтому
+# dotenv импортируется ДО проверки порта.
+Import-DotEnv -Path $envPath
+Set-Location $repo
+
+$backendPort = if ($env:PORT) { [int]$env:PORT } else { 3001 }
+
 # Fail fast if port already taken.
 $sock = New-Object System.Net.Sockets.TcpClient
 try {
-    $sock.Connect('127.0.0.1', 3001)
+    $sock.Connect('127.0.0.1', $backendPort)
     $sock.Close()
-    throw '127.0.0.1:3001 already in use - another backend is running.'
+    throw "127.0.0.1:${backendPort} already in use - another backend is running."
 } catch [System.Net.Sockets.SocketException] {
     # port free, OK
 } finally {
     if ($sock.Connected) { $sock.Close() }
 }
-
-Import-DotEnv -Path $envPath
-Set-Location $repo
 
 # Build shared+ledger ONCE up-front. The backend imports their dist/ output; pre-building
 # here means nothing rewrites shared/dist|ledger/dist during the run, so we can launch the
@@ -69,7 +75,7 @@ $lastResp = $null
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 2
     try {
-        $lastResp = Invoke-WebRequest -Uri 'http://127.0.0.1:3001/health' -UseBasicParsing -TimeoutSec 3
+        $lastResp = Invoke-WebRequest -Uri "http://127.0.0.1:${backendPort}/health" -UseBasicParsing -TimeoutSec 3
         if ($lastResp.StatusCode -eq 200) { $ok = $true; break }
     } catch {
         # still booting
