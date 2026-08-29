@@ -760,7 +760,13 @@ export async function listEmployeesAuth() {
       return {
         id,
         login,
-        passwordHash,
+        // B3/R2: наружу отдаётся ФАКТ наличия пароля, а не сам хэш. Все три
+        // потребителя (auth «есть ли хоть один пароль», chat и notes «этот
+        // аккаунт реально заведён») спрашивали ровно это, а получали секрет —
+        // и дальше он ехал по коду двадцати вызывающих. Хэш нужен только для
+        // сверки пароля, а её делают getEmployeeAuthByLogin/ById, не этот
+        // список. Возврат хэша сюда стережёт guard-тест.
+        hasPassword: passwordHash.length > 0,
         systemRole,
         accessEnabled,
         fullName,
