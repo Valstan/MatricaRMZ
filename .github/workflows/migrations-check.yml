@@ -1,18 +1,3 @@
-# ⚠️ ЭТОТ ФАЙЛ ДОЛЖЕН ЛЕЖАТЬ В `.github/workflows/migrations-check.yml`.
-#
-# Он временно живёт здесь, потому что токен `gh` этой машины выдан OAuth-приложению
-# со scope `gist, read:org, repo` — без `workflow`, а GitHub отклоняет push любых
-# изменений в `.github/workflows/**` таким токеном:
-#   ! [remote rejected] refusing to allow an OAuth App to create or update workflow
-#
-# Как поставить на место (один раз, нужен браузер — команда интерактивная):
-#   gh auth refresh -s workflow
-#   git mv docs/ci/migrations-check.yml .github/workflows/migrations-check.yml
-#   git commit -m "ci: гейт миграций на живом PostgreSQL" && git push
-#
-# До этого момента миграция 0086 не исполняется НИГДЕ, кроме прода, — а значит
-# PR с ней мержить нельзя (см. тело PR).
-
 name: Migrations (PostgreSQL)
 
 # Гейт, которого не было: ни typecheck, ни lint, ни vitest не ИСПОЛНЯЮТ SQL, а на
