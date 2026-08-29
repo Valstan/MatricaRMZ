@@ -16,18 +16,16 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import {
   EMPTY_RESTRICTED_WORK_ORDER_POLICY,
-  SECTION_ACCESS_ATTR,
   SyncTableName,
   isRestrictedWorkOrderOwner,
   isRestrictedWorkOrderReader,
-  parseSectionMembership,
   restrictedWorkOrderPolicyFromMemberships,
   type RestrictedWorkOrderPolicy,
   type SectionMembership,
 } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
-import { attributeDefs, attributeValues, operations, rowOwners } from '../../database/schema.js';
+import { operations, rowOwners, userSectionAccess, users } from '../../database/schema.js';
 
 const WORK_ORDER = 'work_order';
 
@@ -49,51 +47,56 @@ type MembershipRow = { login: string; role: string; membership: SectionMembershi
 let membershipRowsCache: { rows: MembershipRow[]; at: number } | null = null;
 
 async function loadSectionMembershipRows(): Promise<MembershipRow[]> {
-  const defRows = await db
-    .select({ id: attributeDefs.id, code: attributeDefs.code })
-    .from(attributeDefs)
-    .where(and(inArray(attributeDefs.code, ['login', 'system_role', SECTION_ACCESS_ATTR]), isNull(attributeDefs.deletedAt)));
-  const loginDefIds = defRows.filter((r) => String(r.code) === 'login').map((r) => String(r.id));
-  const roleDefIds = defRows.filter((r) => String(r.code) === 'system_role').map((r) => String(r.id));
-  const sectionDefIds = defRows.filter((r) => String(r.code) === SECTION_ACCESS_ATTR).map((r) => String(r.id));
-  if (loginDefIds.length === 0 || sectionDefIds.length === 0) return [];
-  const valRows = await db
-    .select({ entityId: attributeValues.entityId, defId: attributeValues.attributeDefId, v: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(
-      and(
-        inArray(attributeValues.attributeDefId, [...loginDefIds, ...roleDefIds, ...sectionDefIds]),
-        isNull(attributeValues.deletedAt),
-      ),
+  // B3/R2: читаем из строгих таблиц (миграция 0086), а не из трёх EAV-атрибутов.
+  // Источник правды на этом этапе всё ещё EAV — строгие таблицы держатся
+  // триггерами и сверяются гейтом `users:parity`; отказ пересборки виден в
+  // users_mirror_failures (0087).
+  //
+  // ДВЕ СЕМАНТИКИ, КОТОРЫЕ ЗДЕСЬ НЕЛЬЗЯ «ПОЧИНИТЬ» ПОПУТНО:
+  //
+  // 1. Отозванные аккаунты НЕ фильтруются. Прежняя EAV-версия читала атрибуты
+  //    независимо от entities.deleted_at, и добавить сюда `users.deleted_at IS
+  //    NULL` значило бы выкинуть уволенного ограниченного владельца из политики —
+  //    то есть РАСКРЫТЬ его закрытые наряды всем. Это выглядело бы как уборка, а
+  //    было бы утечкой.
+  // 2. Строка на КАЖДЫЙ аккаунт, а не на логин. Логин отозванного освобождается
+  //    (частичный UNIQUE), поэтому один логин может встретиться дважды; прежняя
+  //    версия давала по строке на сущность, и getSectionMembershipForLogin брала
+  //    первую найденную. Слияние по логину дало бы объединение доступов — то есть
+  //    больше прав, чем есть сейчас.
+  //
+  // Роль берётся из users.system_role: она уже нормализована (login='valstan' →
+  // superadmin), тогда как EAV-версия читала сырой атрибут. Разница только в
+  // сторону строгости — суперадмин из политики исключается.
+  const rows = await db
+    .select({
+      userId: users.id,
+      login: users.login,
+      role: users.systemRole,
+      sectionId: userSectionAccess.sectionId,
+      level: userSectionAccess.level,
+    })
+    .from(users)
+    .innerJoin(
+      userSectionAccess,
+      and(eq(userSectionAccess.userId, users.id), isNull(userSectionAccess.deletedAt)),
     );
-  const loginByEntity = new Map<string, string>();
-  const roleByEntity = new Map<string, string>();
-  const membershipByEntity = new Map<string, SectionMembership>();
-  const loginDefs = new Set(loginDefIds);
-  const roleDefs = new Set(roleDefIds);
-  for (const r of valRows) {
-    const eid = String(r.entityId);
-    let parsed: unknown = null;
-    try {
-      parsed = JSON.parse(String(r.v ?? 'null'));
-    } catch {
-      parsed = null;
+
+  const byUser = new Map<string, MembershipRow>();
+  for (const r of rows) {
+    const login = String(r.login ?? '').trim().toLowerCase();
+    if (!login) continue;
+    const level = String(r.level ?? '');
+    if (level !== 'viewer' && level !== 'editor') continue;
+    const userId = String(r.userId);
+    let row = byUser.get(userId);
+    if (!row) {
+      row = { login, role: String(r.role ?? '').trim().toLowerCase(), membership: {} };
+      byUser.set(userId, row);
     }
-    if (loginDefs.has(String(r.defId))) {
-      const login = String(parsed ?? '').trim().toLowerCase();
-      if (login) loginByEntity.set(eid, login);
-    } else if (roleDefs.has(String(r.defId))) {
-      roleByEntity.set(eid, String(parsed ?? '').trim().toLowerCase());
-    } else {
-      membershipByEntity.set(eid, parseSectionMembership(parsed));
-    }
+    (row.membership as Record<string, string>)[String(r.sectionId)] = level;
   }
-  const out: MembershipRow[] = [];
-  for (const [eid, membership] of membershipByEntity) {
-    const login = loginByEntity.get(eid);
-    if (login) out.push({ login, role: roleByEntity.get(eid) ?? '', membership });
-  }
-  return out;
+  return [...byUser.values()];
 }
 
 async function cachedMembershipRows(): Promise<MembershipRow[]> {
@@ -184,20 +187,12 @@ export async function getRestrictedWorkOrderIds(): Promise<Set<string>> {
  */
 export async function isAllowlistedReaderById(actorId: string): Promise<boolean> {
   if (!actorId) return false;
-  const defRows = await db.select({ id: attributeDefs.id }).from(attributeDefs).where(eq(attributeDefs.code, 'login')).limit(50);
-  const defIds = defRows.map((r) => String(r.id));
-  if (defIds.length === 0) return false;
-  const valRows = await db
-    .select({ v: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, actorId), inArray(attributeValues.attributeDefId, defIds), isNull(attributeValues.deletedAt)))
-    .limit(1);
-  if (valRows.length === 0) return false;
-  let login = '';
-  try {
-    login = String(JSON.parse(String(valRows[0]!.v ?? '""')) ?? '');
-  } catch {
-    login = '';
-  }
+  // B3/R2: логин актора — из строгой таблицы. Прежде это были два EAV-запроса с
+  // разбором JSON; здесь же исчезает и старая слабость — определение `login`
+  // искалось по коду среди ВСЕХ типов сущностей (`.where(eq(code,'login'))`,
+  // limit 50), тот же класс, что закрывали в v3.16.0.
+  const rows = await db.select({ login: users.login }).from(users).where(eq(users.id, actorId)).limit(1);
+  const login = String(rows[0]?.login ?? '');
+  if (!login) return false;
   return isRestrictedWorkOrderReader(login, await getRestrictedWorkOrderPolicy());
 }
