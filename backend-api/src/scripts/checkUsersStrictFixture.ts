@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 
 import { pool } from '../database/db.js';
+import { getEmployeeAuthById, getEmployeeAuthByLogin } from '../services/employeeAuthService.js';
 
 // B3/R1 — исполняемая приёмка миграции 0086 на НАСТОЯЩЕМ PostgreSQL.
 //
@@ -358,6 +359,34 @@ async function main() {
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE id=$1`, [partId]))?.n,
     '0',
   );
+
+  console.log('\n== 12a. Путь логина читает строгие таблицы ==');
+  // B3/R2: getEmployeeAuthByLogin/ById переехали на users + user_credentials.
+  // Проверяем не мокой, а сквозь настоящую БД — включая то, ради чего переезд и
+  // ценен: ОТОЗВАННЫЙ аккаунт больше не проходит. До переезда карточка мягко
+  // удалялась, access_enabled не гасился, и удалённый сотрудник продолжал
+  // проходить POST /auth/login.
+  const empAuth = await mkEmployee();
+  await setAttr(empAuth, 'login', 'AuthProbe');
+  await setAttr(empAuth, 'system_role', 'master');
+  await setAttr(empAuth, 'password_hash', '$2b$10$authprobehash');
+  await setAttr(empAuth, 'access_enabled', true);
+  await setAttr(empAuth, 'full_name', 'Иванова Мария Петровна');
+
+  const found = await getEmployeeAuthByLogin('authprobe');
+  check('найден по логину', found?.id, empAuth);
+  check('логин нормализован', found?.login, 'authprobe');
+  check('хэш пришёл из user_credentials', found?.passwordHash, '$2b$10$authprobehash');
+  check('доступ включён', found?.accessEnabled, true);
+  check('ФИО пришло из EAV-хвоста', found?.fullName, 'Иванова Мария Петровна');
+  check('поиск нечувствителен к регистру', (await getEmployeeAuthByLogin('AUTHPROBE'))?.id, empAuth);
+
+  await pool.query(`UPDATE entities SET deleted_at = $2 WHERE id = $1`, [empAuth, ts + 100]);
+  check('отозванный НЕ находится по логину', await getEmployeeAuthByLogin('authprobe'), null);
+  check('отозванный НЕ находится по id', await getEmployeeAuthById(empAuth), null);
+
+  await pool.query(`UPDATE entities SET deleted_at = NULL WHERE id = $1`, [empAuth]);
+  check('восстановленный снова находится', (await getEmployeeAuthByLogin('authprobe'))?.id, empAuth);
 
   console.log('\n== 13. Инварианты схемы держат мусор ==');
   const bad = [
