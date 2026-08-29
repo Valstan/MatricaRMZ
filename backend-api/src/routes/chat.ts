@@ -127,8 +127,7 @@ chatRouter.get('/users', requirePermission(PermissionCode.ChatUse), async (req, 
     if (!list.ok) return res.status(500).json({ ok: false, error: list.error });
     const authRows = list.rows.filter((r) => {
       const login = String(r.login ?? '').trim();
-      const passwordHash = String(r.passwordHash ?? '').trim();
-      return r.accessEnabled === true && login && passwordHash;
+      return r.accessEnabled === true && login && r.hasPassword;
     });
     const ids = authRows.map((r) => String(r.id));
 

@@ -107,7 +107,7 @@ authRouter.post('/login', async (req, res) => {
       // damage or tampering — the first unauthenticated caller must NOT become
       // superadmin. (security-hardening-2026-06, mediums remainder)
       const roster = await listEmployeesAuth();
-      const anyPasswordExists = roster.ok && roster.rows.some((r) => r.passwordHash);
+      const anyPasswordExists = roster.ok && roster.rows.some((r) => r.hasPassword);
       if (anyPasswordExists) {
         ingestServerCriticalEvent({
           eventCode: 'auth.superadmin.bootstrap_blocked',
