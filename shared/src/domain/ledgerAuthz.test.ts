@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isServerOnlyEmployeeAttr, ledgerWriteRequirement, operatorMeetsRequirement } from './ledgerAuthz.js';
+import { isServerOnlyAttrCode, isSuperadminOnlyAttrCode, ledgerWriteRequirement, operatorMeetsRequirement } from './ledgerAuthz.js';
 import { PermissionCode, operatorRolePermissions } from './permissions.js';
 import { SyncTableName } from '../sync/tables.js';
 
@@ -81,7 +81,7 @@ describe('ledgerWriteRequirement — operations & tables', () => {
   });
 });
 
-describe('isServerOnlyEmployeeAttr — C2 backstop', () => {
+describe('isServerOnlyAttrCode — C2 backstop', () => {
   it('flags server-managed employee auth/security attribute codes', () => {
     for (const code of [
       'login',
@@ -92,22 +92,38 @@ describe('isServerOnlyEmployeeAttr — C2 backstop', () => {
       'delete_requested_by_id',
       'delete_requested_by_username',
     ]) {
-      expect(isServerOnlyEmployeeAttr('employee', code), code).toBe(true);
+      expect(isServerOnlyAttrCode(code), code).toBe(true);
     }
-    expect(isServerOnlyEmployeeAttr('employee', 'SYSTEM_ROLE')).toBe(true); // case-insensitive
+    expect(isServerOnlyAttrCode('SYSTEM_ROLE')).toBe(true); // case-insensitive
   });
 
   it('allows ordinary employee profile attributes', () => {
     for (const code of ['full_name', 'position', 'chat_display_name', 'telegram_login', 'ui_settings_json']) {
-      expect(isServerOnlyEmployeeAttr('employee', code), code).toBe(false);
+      expect(isServerOnlyAttrCode(code), code).toBe(false);
     }
   });
 
-  it('only bites the employee entity type, and tolerates null', () => {
-    expect(isServerOnlyEmployeeAttr('engine', 'system_role')).toBe(false);
-    expect(isServerOnlyEmployeeAttr('contract', 'access_enabled')).toBe(false);
-    expect(isServerOnlyEmployeeAttr(null, 'system_role')).toBe(false);
-    expect(isServerOnlyEmployeeAttr('employee', null)).toBe(false);
+  // Раньше предикат сужался типом сущности, и ЭТОТ тест закреплял дыру
+  // утверждением isServerOnlyEmployeeAttr('engine','system_role') === false.
+  // Аутентификация ищет аккаунт по атрибуту `login` без фильтра по типу, так что
+  // «system_role на двигателе» — это заведение скрытого суперадмина, а не
+  // безобидная запись. Инвариант перевёрнут. (аудит 2026-08-29)
+  it('bites regardless of which entity type the write claims to target', () => {
+    expect(isServerOnlyAttrCode('system_role')).toBe(true);
+    expect(isServerOnlyAttrCode('access_enabled')).toBe(true);
+    expect(isServerOnlyAttrCode('password_hash')).toBe(true);
+  });
+
+  it('tolerates null/undefined', () => {
+    expect(isServerOnlyAttrCode(null)).toBe(false);
+    expect(isServerOnlyAttrCode(undefined)).toBe(false);
+    expect(isSuperadminOnlyAttrCode(null)).toBe(false);
+  });
+
+  it('section_access остаётся суперадминским независимо от типа', () => {
+    expect(isSuperadminOnlyAttrCode('section_access')).toBe(true);
+    expect(isSuperadminOnlyAttrCode('SECTION_ACCESS')).toBe(true);
+    expect(isSuperadminOnlyAttrCode('full_name')).toBe(false);
   });
 });
 

@@ -39,12 +39,18 @@ export const SERVER_ONLY_EMPLOYEE_ATTR_CODES: ReadonlySet<string> = new Set([
   'delete_requested_by_username',
 ]);
 
-/** True if a write targets a server-managed employee auth/security attribute. */
-export function isServerOnlyEmployeeAttr(
-  entityTypeCode: string | null | undefined,
-  attrCode: string | null | undefined,
-): boolean {
-  if ((entityTypeCode ?? '').trim() !== 'employee') return false;
+// НЕ сужать по типу сущности. Прежняя версия отсекала запись только при
+// entityTypeCode === 'employee', и это был обход целиком: аутентификация ищет
+// аккаунт по значению атрибута `login` БЕЗ фильтра по типу сущности
+// (employeeAuthService.getEmployeeAuthByLogin), а схема не проверяет, что
+// attribute_def принадлежит типу целевой сущности — только FK на entities и на
+// attribute_defs. Значит запись login/password_hash/system_role на сущность
+// ЛЮБОГО другого типа заводила полноценный скрытый аккаунт, а backstop её
+// пропускал. Вдобавок тип приезжал из клиентского пакета и поддавался спуфу.
+// Коды ниже во всём проекте заведены только на типе employee, так что проверка
+// по одному коду ничего легального не ломает и не зависит от того, что заявил
+// клиент. (аудит 2026-08-29)
+export function isServerOnlyAttrCode(attrCode: string | null | undefined): boolean {
   return SERVER_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
 }
 
@@ -55,12 +61,9 @@ export function isServerOnlyEmployeeAttr(
 // grant their own record `section_access: {…: 'editor'}` (privilege escalation).
 export const SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES: ReadonlySet<string> = new Set(['section_access']);
 
-/** True if a write targets an employee attribute only the superadmin may set. */
-export function isSuperadminOnlyEmployeeAttr(
-  entityTypeCode: string | null | undefined,
-  attrCode: string | null | undefined,
-): boolean {
-  if ((entityTypeCode ?? '').trim() !== 'employee') return false;
+/** True if a write targets an attribute only the superadmin may set. Тип сущности
+ * намеренно не проверяется — см. комментарий у isServerOnlyAttrCode. */
+export function isSuperadminOnlyAttrCode(attrCode: string | null | undefined): boolean {
   return SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
 }
 
