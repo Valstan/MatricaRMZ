@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { SyncTableName } from '@matricarmz/shared';
 
 import { listEmployeesAuth } from './employeeAuthService.js';
+import { SYNC_COLUMNS_PENDING_CONTRACT } from './sync/syncSchemaGuard.js';
 
 // B3 (план matrica-v4-kickoff, трек B этап 3) — сторож инвариантов, на которых
 // стоит вся конструкция. Каждый из них сегодня выполняется «сам собой», и
@@ -58,5 +59,27 @@ describe('B3/R2: listEmployeesAuth не отдаёт секрет', () => {
     const probe: ListRow = {} as ListRow;
     const _hasPassword: boolean = probe.hasPassword;
     expect(typeof probe).toBe('object');
+  });
+});
+
+describe('B3: список ожидания sync-контракта не подменяет собой контракт', () => {
+  // Список в syncSchemaGuard гасит ERROR для таблиц, которые несут sync-колонки
+  // заранее. Опасность очевидна: он же может тихо гасить настоящую ошибку, если
+  // таблицу туда впишут и забудут. Поэтому два инварианта.
+
+  it('содержит ровно те таблицы, которые вошли с B3/R1, и ничего сверх', () => {
+    expect(Object.keys(SYNC_COLUMNS_PENDING_CONTRACT).sort()).toEqual(['user_section_access', 'users']);
+  });
+
+  it('ни одна запись списка не пересекается с самим контрактом', () => {
+    for (const table of Object.keys(SYNC_COLUMNS_PENDING_CONTRACT)) {
+      expect(SYNC_TABLES, `${table} уже в контракте — убрать из списка ожидания`).not.toContain(table);
+    }
+  });
+
+  it('у каждой записи есть причина, а не пустая строка', () => {
+    for (const [table, reason] of Object.entries(SYNC_COLUMNS_PENDING_CONTRACT)) {
+      expect(String(reason).trim().length, table).toBeGreaterThan(10);
+    }
   });
 });
