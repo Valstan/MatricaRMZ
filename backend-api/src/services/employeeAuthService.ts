@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, users } from '../database/schema.js';
 import {
   SECTION_ACCESS_ATTR,
   SyncTableName,
@@ -802,82 +802,97 @@ export async function resolveLoginsToFullNames(logins: Array<string | null | und
   return map;
 }
 
+/**
+ * B3/R2: auth-поля читаются из строгих таблиц (users + user_credentials), а не
+ * из EAV. Источник правды на этом этапе всё ещё EAV — строгие таблицы держатся
+ * триггерами (0086), сверяются гейтом `users:parity`, а отказ пересборки виден
+ * в `users_mirror_failures` (0087).
+ *
+ * Профильные поля (`full_name`, денормализованная копия `delete_requested_by_username`)
+ * остаются в EAV: по решению схемы B3 п.8 это атрибуты доставки, а не auth, и
+ * уезжают в HR-таблицу этапа 3b. Поэтому чтение смешанное — и это временно.
+ *
+ * ОТОЗВАННЫЕ АККАУНТЫ ТЕПЕРЬ ОТСЕКАЮТСЯ. Прежняя EAV-версия не смотрела на
+ * entities.deleted_at вовсе, а `confirmUserDelete` мягко удаляет карточку и НЕ
+ * гасит access_enabled — значит удалённый сотрудник продолжал проходить
+ * `POST /auth/login` (проверено выполнением на живой базе 2026-08-29: после
+ * мягкого удаления getEmployeeAuthByLogin возвращал аккаунт с accessEnabled=true
+ * и живым хэшем, а роут логина других проверок не делает). Это чинится здесь
+ * само собой: `users.deleted_at IS NULL`. Соседняя listEmployeesAuth удалённых
+ * фильтровала всегда — то есть расхождение было недосмотром, а не решением.
+ */
 export async function getEmployeeAuthById(employeeId: string) {
-  const defs = await getEmployeeAuthDefIds();
-  if (!defs) return null;
-  const fullNameDefId = await getEmployeeFullNameDefId();
-
-  // Аккаунтом может быть ТОЛЬКО сущность типа employee. Схема этого не держит:
-  // attribute_values ссылается на entities и attribute_defs по отдельности и не
-  // проверяет, что def принадлежит типу сущности. Без этой проверки набор
-  // login/password_hash/system_role, записанный на сущность любого другого типа,
-  // читался отсюда как полноценный аккаунт. (аудит 2026-08-29)
-  const owner = await db
-    .select({ code: entityTypes.code })
-    .from(entities)
-    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-    .where(eq(entities.id, employeeId as any))
+  const rows = await db
+    .select({
+      id: users.id,
+      login: users.login,
+      systemRole: users.systemRole,
+      accessEnabled: users.accessEnabled,
+      deleteRequestedAt: users.deleteRequestedAt,
+      deleteRequestedById: users.deleteRequestedBy,
+      passwordHash: userCredentials.passwordHash,
+    })
+    .from(users)
+    .leftJoin(userCredentials, eq(userCredentials.userId, users.id))
+    .where(and(eq(users.id, employeeId as any), isNull(users.deletedAt)))
     .limit(1);
-  if (String(owner[0]?.code ?? '') !== 'employee') return null;
+  const row = rows[0];
+  if (!row) return null;
 
+  const { fullName, deleteRequestedByUsername } = await readEavProfileTail(employeeId);
+
+  return {
+    id: String(row.id),
+    login: String(row.login ?? '').trim(),
+    passwordHash: String(row.passwordHash ?? '').trim(),
+    systemRole: String(row.systemRole ?? '').trim().toLowerCase(),
+    accessEnabled: row.accessEnabled === true,
+    fullName,
+    deleteRequestedAt: row.deleteRequestedAt == null ? null : Number(row.deleteRequestedAt),
+    deleteRequestedById: row.deleteRequestedById ? String(row.deleteRequestedById) : null,
+    deleteRequestedByUsername,
+  };
+}
+
+/** Хвост, который ещё живёт в EAV: ФИО и денормализованная копия имени инициатора. */
+async function readEavProfileTail(employeeId: string): Promise<{ fullName: string; deleteRequestedByUsername: string | null }> {
+  const defs = await getEmployeeAuthDefIds();
+  const fullNameDefId = await getEmployeeFullNameDefId();
+  const wanted = [fullNameDefId, defs?.deleteRequestedByUsernameDefId].filter(Boolean) as string[];
+  if (wanted.length === 0) return { fullName: '', deleteRequestedByUsername: null };
   const vals = await db
     .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, employeeId as any), isNull(attributeValues.deletedAt)))
-    .limit(5000);
-
+    .where(
+      and(
+        eq(attributeValues.entityId, employeeId as any),
+        inArray(attributeValues.attributeDefId, wanted as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    );
   const rec: Record<string, unknown> = {};
-  for (const v of vals as any[]) {
-    rec[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
-  }
-  const deleteRequestedAtRaw = defs.deleteRequestedAtDefId ? rec[defs.deleteRequestedAtDefId] : null;
-  const deleteRequestedAt =
-    typeof deleteRequestedAtRaw === 'number' ? deleteRequestedAtRaw : deleteRequestedAtRaw != null ? Number(deleteRequestedAtRaw) : null;
+  for (const v of vals as any[]) rec[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
   return {
-    id: employeeId,
-    login: String(rec[defs.loginDefId] ?? '').trim(),
-    passwordHash: String(rec[defs.passwordDefId] ?? '').trim(),
-    systemRole: String(rec[defs.roleDefId] ?? '').trim().toLowerCase(),
-    accessEnabled: rec[defs.accessDefId] === true,
     fullName: fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '',
-    deleteRequestedAt: Number.isFinite(deleteRequestedAt as number) ? (deleteRequestedAt as number) : null,
-    deleteRequestedById: defs.deleteRequestedByIdDefId ? String(rec[defs.deleteRequestedByIdDefId] ?? '').trim() || null : null,
-    deleteRequestedByUsername: defs.deleteRequestedByUsernameDefId ? String(rec[defs.deleteRequestedByUsernameDefId] ?? '').trim() || null : null,
+    deleteRequestedByUsername: defs?.deleteRequestedByUsernameDefId
+      ? String(rec[defs.deleteRequestedByUsernameDefId] ?? '').trim() || null
+      : null,
   };
 }
 
 export async function getEmployeeAuthByLogin(login: string) {
-  const defs = await getEmployeeAuthDefIds();
-  if (!defs) return null;
-  const fullNameDefId = await getEmployeeFullNameDefId();
-
   const normalized = normalizeLogin(login);
   if (!normalized) return null;
-  // Фильтр по типу — внутрь существующего запроса, лишних round-trip'ов не
-  // добавляем: это горячий путь логина. См. комментарий в getEmployeeAuthById.
-  const match = await db
-    .select({ entityId: attributeValues.entityId })
-    .from(attributeValues)
-    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
-    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-    .where(
-      and(
-        eq(attributeValues.attributeDefId, defs.loginDefId as any),
-        eq(attributeValues.valueJson, JSON.stringify(normalized)),
-        isNull(attributeValues.deletedAt),
-        eq(entityTypes.code, 'employee'),
-      ),
-    )
+  // Логин нормализован в самой схеме (CHECK users_login_normalized_ck), поэтому
+  // сравнение прямое. Отозванные отсекаются — см. комментарий выше.
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.login, normalized), isNull(users.deletedAt)))
     .limit(1);
-  const entityId = match[0]?.entityId ? String(match[0].entityId) : null;
-  if (!entityId) return null;
-
-  const data = await getEmployeeAuthById(entityId);
-  if (!data) return null;
-  return {
-    ...data,
-    fullName: fullNameDefId ? data.fullName : '',
-  };
+  const id = rows[0]?.id ? String(rows[0].id) : null;
+  if (!id) return null;
+  return getEmployeeAuthById(id);
 }
 
 async function upsertAttrValue(entityId: string, defId: string, value: unknown) {
