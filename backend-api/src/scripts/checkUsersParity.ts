@@ -75,10 +75,16 @@ function parseEavText(raw: string | null): string | null {
 // '"yes"' и '"true"' доступом не являются. Толерантный разбор был бы
 // расхождением в сторону fail-open — в зеркале доступ появился бы там, где
 // программа его не даёт.
+// Только НАСТОЯЩИЙ булев, как `=== true` в продукте. Через parseEavText делать
+// нельзя: распаковка приводит JSON-строку "true" и булев true к одному тексту.
 function parseEavBool(raw: string | null): boolean | null {
-  const txt = parseEavText(raw);
-  if (txt == null) return null;
-  return txt === 'true';
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'boolean' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseEavMs(raw: string | null): number | null {

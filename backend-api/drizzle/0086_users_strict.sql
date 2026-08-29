@@ -171,9 +171,10 @@ CREATE TABLE user_settings (
 -- раздельные — на entities и на attribute_defs). Читаем строго определения
 -- ТИПА employee.
 -- ============================================================================
-CREATE OR REPLACE FUNCTION eav_emp_text(p_entity uuid, p_code text)
+-- Сырое значение как оно лежит в EAV, без распаковки.
+CREATE OR REPLACE FUNCTION eav_emp_raw(p_entity uuid, p_code text)
 RETURNS text AS $fn$
-DECLARE v_raw text; v_out text;
+DECLARE v_raw text;
 BEGIN
   SELECT av.value_json INTO v_raw
     FROM attribute_values av
@@ -182,6 +183,15 @@ BEGIN
    WHERE av.entity_id = p_entity AND av.deleted_at IS NULL
    ORDER BY av.updated_at DESC, av.id
    LIMIT 1;
+  RETURN v_raw;
+END;
+$fn$ LANGUAGE plpgsql STABLE;
+--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION eav_emp_text(p_entity uuid, p_code text)
+RETURNS text AS $fn$
+DECLARE v_raw text := eav_emp_raw(p_entity, p_code); v_out text;
+BEGIN
   IF v_raw IS NULL THEN RETURN NULL; END IF;
   BEGIN
     v_out := v_raw::jsonb #>> '{}';
@@ -194,15 +204,26 @@ $fn$ LANGUAGE plpgsql STABLE;
 --> statement-breakpoint
 
 -- Булев СТРОГО как его читает продукт: employeeAuthService сравнивает значение
--- с true через ===, то есть '"1"' / '"yes"' / '"true"' для него доступом НЕ
--- являются. Толерантный разбор был бы расхождением в сторону fail-OPEN: в
--- зеркале доступ появился бы там, где программа его не даёт.
+-- с true через ===, поэтому JSON-СТРОКА "true" доступом не является, а булев
+-- true — является. Смотреть надо на ТИП json-значения: после распаковки через
+-- #>> '{}' строка "true" и булев true дают одинаковый текст `true` и становятся
+-- неразличимы (на этом первая версия функции и попалась — поймал гейт живого PG).
+-- Расхождение было бы односторонним и в сторону fail-OPEN: на R2 у человека
+-- появился бы доступ, которого программа не даёт.
+-- Не-булев отдаём NULL: вызывающий сворачивает его в false через coalesce, что и
+-- совпадает с семантикой `=== true`.
 CREATE OR REPLACE FUNCTION eav_emp_bool(p_entity uuid, p_code text)
 RETURNS boolean AS $fn$
-DECLARE v_txt text := eav_emp_text(p_entity, p_code);
+DECLARE v_raw text := eav_emp_raw(p_entity, p_code); v_j jsonb;
 BEGIN
-  IF v_txt IS NULL THEN RETURN NULL; END IF;
-  RETURN v_txt = 'true';
+  IF v_raw IS NULL THEN RETURN NULL; END IF;
+  BEGIN
+    v_j := v_raw::jsonb;
+  EXCEPTION WHEN others THEN
+    RETURN NULL;
+  END;
+  IF v_j IS NULL OR jsonb_typeof(v_j) <> 'boolean' THEN RETURN NULL; END IF;
+  RETURN v_j = 'true'::jsonb;
 END;
 $fn$ LANGUAGE plpgsql STABLE;
 --> statement-breakpoint
