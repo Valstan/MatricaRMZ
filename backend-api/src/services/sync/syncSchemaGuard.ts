@@ -81,9 +81,15 @@ export async function ensureSyncSchemaGuard() {
   if (pending.length > 0) {
     // Info, а не error: состояние запланировано и описано. Но видимым остаётся —
     // иначе список ожидания превратится в свалку, о которой все забыли.
-    logInfo('sync-колонки заведены заранее, контракт по плану позже', {
-      tables: pending.map((t) => `${t}: ${SYNC_COLUMNS_PENDING_CONTRACT[t]}`),
-    });
+    // critical: true — иначе на проде строка не видна вовсе: обычный info там
+    // отфильтрован уровнем логирования (проверено на живом старте — соседняя
+    // строка «sync schema guard ok» видна ровно потому, что помечена так же).
+    // Невидимый список ожидания и есть та свалка, ради которой он заводился.
+    logInfo(
+      'sync-колонки заведены заранее, контракт по плану позже',
+      { tables: pending.map((t) => `${t}: ${SYNC_COLUMNS_PENDING_CONTRACT[t]}`) },
+      { critical: true },
+    );
   }
 
   logInfo('sync schema guard ok', { tables: Array.from(syncTables).length, mode }, { critical: true });
