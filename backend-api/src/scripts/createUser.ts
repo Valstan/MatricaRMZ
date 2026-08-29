@@ -8,6 +8,7 @@ import {
   createEmployeeEntity,
   ensureEmployeeAuthDefs,
   getEmployeeAuthByLogin,
+  seedSectionAccessIfMissing,
   setEmployeeAuth,
   setEmployeeFullName,
   setEmployeeProfile,
@@ -63,6 +64,9 @@ async function main() {
   const existing = await getEmployeeAuthByLogin(login);
   if (existing) {
     await setEmployeeAuth(existing.id, { passwordHash, systemRole: role, accessEnabled: true, login });
+    // Роль без section_access = Ф3-гейт разделов читает пустой membership как
+    // «не засеяно» и пропускает всё (fail-open). REST-пути сеют, CLI не сеял.
+    await seedSectionAccessIfMissing(existing.id, role);
     if (fullName) await setEmployeeFullName(existing.id, fullName);
     if (position || sectionName) {
       const patch: { position?: string | null; sectionName?: string | null } = {};
@@ -85,6 +89,7 @@ async function main() {
     process.exit(1);
   }
   await setEmployeeAuth(id, { login, passwordHash, systemRole: role, accessEnabled: true });
+  await seedSectionAccessIfMissing(id, role);
   if (fullName) await setEmployeeFullName(id, fullName);
   if (position || sectionName) {
     const patch: { position?: string | null; sectionName?: string | null } = {};

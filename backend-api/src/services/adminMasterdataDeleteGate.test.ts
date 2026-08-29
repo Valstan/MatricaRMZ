@@ -40,7 +40,7 @@ vi.mock('./sync/syncChangeService.js', () => ({
 const { attributeDefs, attributeValues, entities, erpEngineAssemblyBomBrandLinks, operations } = await import(
   '../database/schema.js'
 );
-const { softDeleteEntity } = await import('./adminMasterdataService.js');
+const { setEntityAttribute, softDeleteEntity } = await import('./adminMasterdataService.js');
 
 const ACTOR = { id: 'u1', username: 'test-admin', role: 'admin' };
 const TARGET = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -136,5 +136,43 @@ describe('softDeleteEntity — Ф4 расширенный гейт входящ�
 
     const r = await softDeleteEntity(ACTOR, TARGET);
     expect(r.ok).toBe(true);
+  });
+});
+
+
+// Аудит 2026-08-29: POST /admin/masterdata/entities/:id/set-attr пропускал ЛЮБОЙ
+// код атрибута и был закрыт только requireAdmin — обычный `admin` одним запросом
+// ставил себе system_role='superadmin' или переписывал чужой password_hash,
+// минуя isAssignableSystemRole и ensureManageAllowed. Backstop живёт в сервисе:
+// у setEntityAttribute есть и другие вызывающие.
+describe('setEntityAttribute — backstop служебных атрибутов', () => {
+  for (const code of [
+    'system_role',
+    'password_hash',
+    'login',
+    'access_enabled',
+    'delete_requested_at',
+    'delete_requested_by_id',
+    'delete_requested_by_username',
+    'section_access',
+  ]) {
+    it(`отказывает в записи «${code}» обычным путём`, async () => {
+      const r = await setEntityAttribute(ACTOR, TARGET, code, 'superadmin');
+      expect(r.ok).toBe(false);
+      expect(String((r as { error: string }).error)).toContain(code);
+    });
+  }
+
+  it('пропускает служебный атрибут только при явном allowProtectedAttrs (серверные скрипты)', async () => {
+    // Сущности нет в моке → падает на следующей проверке, а НЕ на backstop:
+    // это и доказывает, что opt-in снял именно его.
+    const r = await setEntityAttribute(ACTOR, TARGET, 'section_access', '{}', { allowProtectedAttrs: true });
+    expect(r.ok).toBe(false);
+    expect(String((r as { error: string }).error)).toBe('Сущность не найдена');
+  });
+
+  it('обычные атрибуты не задеты', async () => {
+    const r = await setEntityAttribute(ACTOR, TARGET, 'full_name', 'Иванова Мария Петровна');
+    expect(String((r as { error: string }).error)).toBe('Сущность не найдена');
   });
 });

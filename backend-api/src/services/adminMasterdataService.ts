@@ -21,6 +21,8 @@ import {
   engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
+  isServerOnlyAttrCode,
+  isSuperadminOnlyAttrCode,
   type StatusCode,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
@@ -1188,9 +1190,20 @@ export async function setEntityAttribute(
   entityId: string,
   code: string,
   value: unknown,
-  options: { touchEntity?: boolean; allowSyncConflicts?: boolean } = {},
+  options: { touchEntity?: boolean; allowSyncConflicts?: boolean; allowProtectedAttrs?: boolean } = {},
 ) {
   const touchEntity = options.touchEntity !== false;
+  // Auth/безопасность сотрудника этим путём не пишется. Роут
+  // POST /admin/masterdata/entities/:id/set-attr пропускает ЛЮБОЙ код атрибута,
+  // а закрыт лишь requireAdmin — значит обычный `admin` одним запросом ставил
+  // себе system_role='superadmin' или переписывал чужой password_hash, минуя
+  // isAssignableSystemRole и ensureManageAllowed. Роль назначается только через
+  // /admin/users, где гейты есть. Серверные скрипты, которым сев доступов нужен
+  // законно, передают allowProtectedAttrs явно; роут не передаёт никогда.
+  // (аудит 2026-08-29)
+  if (!options.allowProtectedAttrs && (isServerOnlyAttrCode(code) || isSuperadminOnlyAttrCode(code))) {
+    return { ok: false as const, error: `Атрибут «${code}» не редактируется этим путём` };
+  }
   const e = await db.select().from(entities).where(eq(entities.id, entityId as any)).limit(1);
   if (!e[0]) return { ok: false as const, error: 'Сущность не найдена' };
 

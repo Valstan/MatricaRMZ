@@ -493,3 +493,69 @@ describe('advisory engine reservation gate (Ф2)', () => {
     expect(denied[0]?.reason).toBe('forbidden:server_managed_attr:engine_reservation');
   });
 });
+
+// Аудит 2026-08-29: backstop server-only атрибутов опирался на два значения,
+// которые контролирует КЛИЕНТ — код типа сущности и код attribute_def. Каждый из
+// трёх тестов ниже — сценарий, который до починки проходил и заводил суперадмина
+// через оффлайн-очередь низшей операторской ролью.
+describe('partitionLedgerInputsByAuthz — обходы backstop (регресс)', () => {
+  it('чужой тип сущности не отключает backstop: system_role на двигателе DENIED', async () => {
+    seedTypes();
+    seedEntities([{ id: 'eng-1', entityTypeId: 't-engine' }]);
+    seedDefs([{ id: 'def-role', code: 'system_role' }]);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'eng-1', attribute_def_id: 'def-role' }, row_id: 'a1' },
+    ];
+    const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(allowed).toHaveLength(0);
+    expect(denied[0]?.reason).toBe('forbidden:employee_auth_attr:system_role');
+  });
+
+  it('спуф type_id существующего сотрудника не отключает backstop', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-self', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-role', code: 'system_role' }]);
+
+    const inputs = [
+      // Клиент заявляет, что его карточка — двигатель, и следом пишет себе роль.
+      { type: 'upsert' as const, table: 'entities', row: { id: 'emp-self', type_id: 't-engine' }, row_id: 'emp-self' },
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self', attribute_def_id: 'def-role' }, row_id: 'a1' },
+    ];
+    const { denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(denied.some((d) => d.reason === 'forbidden:employee_auth_attr:system_role')).toBe(true);
+  });
+
+  it('батчевый attribute_def НЕ перекрывает код из БД', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-self', entityTypeId: 't-employee' }]);
+    seedDefs([{ id: 'def-role', code: 'system_role' }]);
+
+    const inputs = [
+      // Тот же def-id, но клиент называет его безобидным кодом.
+      { type: 'upsert' as const, table: 'attribute_defs', row: { id: 'def-role', code: 'full_name' }, row_id: 'def-role' },
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self', attribute_def_id: 'def-role' }, row_id: 'a1' },
+    ];
+    const { denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(denied.some((d) => d.reason === 'forbidden:employee_auth_attr:system_role')).toBe(true);
+  });
+
+  // Прежняя защита (батчевый def с защищённым кодом) обязана уцелеть: батчевый
+  // код по-прежнему применяется к определениям, которых в БД ЕЩЁ нет.
+  it('новый def с защищённым кодом из того же батча по-прежнему DENIED', async () => {
+    seedTypes();
+    seedEntities([{ id: 'emp-self', entityTypeId: 't-employee' }]);
+    seedDefs([]);
+
+    const inputs = [
+      { type: 'upsert' as const, table: 'attribute_defs', row: { id: 'def-new', code: 'system_role' }, row_id: 'def-new' },
+      { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self', attribute_def_id: 'def-new' }, row_id: 'a1' },
+    ];
+    const { denied } = await partitionLedgerInputsByAuthz(inputs as any, ENGINEER);
+
+    expect(denied.some((d) => d.reason === 'forbidden:employee_auth_attr:system_role')).toBe(true);
+  });
+});

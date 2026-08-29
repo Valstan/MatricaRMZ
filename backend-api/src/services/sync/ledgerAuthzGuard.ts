@@ -28,8 +28,8 @@ import {
   isEngineEditBlockedByReservation,
   isEngineReservationGatedOperationType,
   isOperatorRole,
-  isServerOnlyEmployeeAttr,
-  isSuperadminOnlyEmployeeAttr,
+  isServerOnlyAttrCode,
+  isSuperadminOnlyAttrCode,
   ledgerWriteRequirement,
   operatorMeetsRequirement,
   sectionForLedgerWrite,
@@ -73,6 +73,15 @@ export async function partitionLedgerInputsByAuthz(
     .where(isNull(entityTypes.deletedAt));
   const codeByTypeId = new Map<string, string>();
   for (const r of typeRows) codeByTypeId.set(str(r.id), str(r.code));
+  // Тип, ПРИЕХАВШИЙ В ЭТОМ ЖЕ БАТЧЕ, в БД ещё нет — без него entityTypeCode
+  // оказывался пустым, а пустой код ledgerWriteRequirement трактует как `open`.
+  // Из БД взятое НЕ перекрываем: код существующего типа — источник правды.
+  for (const inp of inputs) {
+    if (inp.table !== SyncTableName.EntityTypes) continue;
+    const tid = str(inp.row?.['id'] ?? inp.row_id);
+    const code = str(inp.row?.['code']);
+    if (tid && code && !codeByTypeId.has(tid)) codeByTypeId.set(tid, code);
+  }
 
   // Sync-контракт entities несёт тип в поле `type_id` (entityRowSchema), НЕ
   // `entity_type_id` — чтение не того поля давало entityTypeCode=null для всех
@@ -84,19 +93,19 @@ export async function partitionLedgerInputsByAuthz(
 
   // entity_id -> entity_type_id: from this batch's entities rows first, then DB
   // for the rest (an entity created in the same batch is not yet in the DB).
+  // ПОРЯДОК ВАЖЕН: сперва БД, батч — только для сущностей, которых в БД ещё нет.
+  // Обратный порядок был дырой: клиент слал entities-строку с чужим type_id для
+  // СУЩЕСТВУЮЩЕГО сотрудника, гейт резолвил его тип как, скажем, `part`, и
+  // employee-гейты к атрибутам этой сущности не применялись. (аудит 2026-08-29)
   const typeIdByEntityId = new Map<string, string>();
-  for (const inp of inputs) {
-    if (inp.table === SyncTableName.Entities) {
-      const eid = str(inp.row?.['id'] ?? inp.row_id);
-      const tid = entityRowTypeId(inp);
-      if (eid && tid) typeIdByEntityId.set(eid, tid);
-    }
-  }
   const need = new Set<string>();
   for (const inp of inputs) {
     if (inp.table === SyncTableName.AttributeValues) {
       const eid = str(inp.row?.['entity_id']);
-      if (eid && !typeIdByEntityId.has(eid)) need.add(eid);
+      if (eid) need.add(eid);
+    } else if (inp.table === SyncTableName.Entities) {
+      const eid = str(inp.row?.['id'] ?? inp.row_id);
+      if (eid) need.add(eid);
     }
   }
   if (need.size > 0) {
@@ -105,6 +114,13 @@ export async function partitionLedgerInputsByAuthz(
       .from(entities)
       .where(inArray(entities.id, [...need] as string[]));
     for (const r of rows) typeIdByEntityId.set(str(r.id), str(r.entityTypeId));
+  }
+  for (const inp of inputs) {
+    if (inp.table === SyncTableName.Entities) {
+      const eid = str(inp.row?.['id'] ?? inp.row_id);
+      const tid = entityRowTypeId(inp);
+      if (eid && tid && !typeIdByEntityId.has(eid)) typeIdByEntityId.set(eid, tid);
+    }
   }
 
   // attribute_def_id -> code, for the server-only employee-attr backstop below.
@@ -126,12 +142,16 @@ export async function partitionLedgerInputsByAuthz(
   // Определения, ПРИЕХАВШИЕ В ЭТОМ ЖЕ БАТЧЕ, в БД ещё нет — без них backstop'ы
   // обходятся: клиент кладёт свой attribute_def с защищённым кодом и пишет
   // значение по его id, а гейт видит код как «неизвестный» и пропускает.
-  // Батчевое определение приоритетнее (тот же порядок, что у typeIdByEntityId).
+  // Но батчевый код НЕ перекрывает код из БД: перекрытие было симметричной
+  // дырой — клиент слал attribute_defs-строку с id НАСТОЯЩЕГО `system_role` и
+  // безобидным `code`, и backstop переставал узнавать защищённый атрибут.
+  // Правило: для гейта берётся более достоверное из двух — код из БД, если
+  // определение там есть; батчевый — только для новых id. (аудит 2026-08-29)
   for (const inp of inputs) {
     if (inp.table !== SyncTableName.AttributeDefs) continue;
     const did = str(inp.row?.['id'] ?? inp.row_id);
     const code = str(inp.row?.['code']);
-    if (did && code && defIds.has(did)) codeByDefId.set(did, code);
+    if (did && code && defIds.has(did) && !codeByDefId.has(did)) codeByDefId.set(did, code);
   }
 
   // Advisory-резерв двигателя (Ф2). Собираем двигатели, которых касается батч:
@@ -205,7 +225,7 @@ export async function partitionLedgerInputsByAuthz(
     // (security-hardening-2026-06 C2)
     if (inp.table === SyncTableName.AttributeValues) {
       const attrCode = codeByDefId.get(str(inp.row?.['attribute_def_id'])) ?? null;
-      if (isServerOnlyEmployeeAttr(entityTypeCode, attrCode)) {
+      if (isServerOnlyAttrCode(attrCode)) {
         denied.push({
           table: inp.table,
           row_id: inp.row_id,
@@ -216,7 +236,7 @@ export async function partitionLedgerInputsByAuthz(
       // Управление доступами — только суперадмин (owner decision 2026-07-26).
       // Без этого own_employee-правило позволяло бы оператору выдать СЕБЕ
       // section_access editor'ом всех разделов крафтовой ledger-записью.
-      if (role !== 'superadmin' && isSuperadminOnlyEmployeeAttr(entityTypeCode, attrCode)) {
+      if (role !== 'superadmin' && isSuperadminOnlyAttrCode(attrCode)) {
         denied.push({
           table: inp.table,
           row_id: inp.row_id,

@@ -801,6 +801,19 @@ export async function getEmployeeAuthById(employeeId: string) {
   if (!defs) return null;
   const fullNameDefId = await getEmployeeFullNameDefId();
 
+  // Аккаунтом может быть ТОЛЬКО сущность типа employee. Схема этого не держит:
+  // attribute_values ссылается на entities и attribute_defs по отдельности и не
+  // проверяет, что def принадлежит типу сущности. Без этой проверки набор
+  // login/password_hash/system_role, записанный на сущность любого другого типа,
+  // читался отсюда как полноценный аккаунт. (аудит 2026-08-29)
+  const owner = await db
+    .select({ code: entityTypes.code })
+    .from(entities)
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(eq(entities.id, employeeId as any))
+    .limit(1);
+  if (String(owner[0]?.code ?? '') !== 'employee') return null;
+
   const vals = await db
     .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -834,14 +847,19 @@ export async function getEmployeeAuthByLogin(login: string) {
 
   const normalized = normalizeLogin(login);
   if (!normalized) return null;
+  // Фильтр по типу — внутрь существующего запроса, лишних round-trip'ов не
+  // добавляем: это горячий путь логина. См. комментарий в getEmployeeAuthById.
   const match = await db
     .select({ entityId: attributeValues.entityId })
     .from(attributeValues)
+    .innerJoin(entities, eq(entities.id, attributeValues.entityId))
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
     .where(
       and(
         eq(attributeValues.attributeDefId, defs.loginDefId as any),
         eq(attributeValues.valueJson, JSON.stringify(normalized)),
         isNull(attributeValues.deletedAt),
+        eq(entityTypes.code, 'employee'),
       ),
     )
     .limit(1);

@@ -417,6 +417,18 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
     if (!targetUserId) return res.status(400).json({ ok: false, error: 'идентификатор целевого пользователя обязателен для объединения' });
     const target = await getEmployeeAuthById(targetUserId);
     if (!target) return res.status(404).json({ ok: false, error: 'целевой пользователь не найден' });
+    // Ветка merge переписывала профиль ЛЮБОГО аккаунта, включая суперадмина, без
+    // проверки старшинства — единственная запись в adminUsers мимо
+    // ensureManageAllowed. (аудит 2026-08-29)
+    const mergeGate = ensureManageAllowed({
+      actorId: String(actor.id),
+      actorRole,
+      targetId: targetUserId,
+      targetLogin: target.login,
+      targetRole: normalizeRole(target.login, target.systemRole),
+      touchingRoleOrAccess: false,
+    });
+    if (!mergeGate.ok) return res.status(403).json({ ok: false, error: mergeGate.error });
 
     const pendingProfile = await getEmployeeProfileById(pendingId);
     if (pendingProfile) {

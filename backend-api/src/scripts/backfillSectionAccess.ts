@@ -229,6 +229,7 @@ async function main() {
   for (const { row, seed } of toSeed) {
     const res = await setEntityAttribute(actor, row.id, SECTION_ACCESS_ATTR, serializeSectionMembership(seed), {
       allowSyncConflicts: true,
+      allowProtectedAttrs: true,
     });
     if (!res.ok) {
       log(`   ✗ ${row.login}: ${(res as any).error}`);
