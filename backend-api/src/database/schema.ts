@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -1708,4 +1709,88 @@ export const updatePeers = pgTable(
   }),
 );
 
+// ============================================================================
+// B3/R1 (миграция 0086) — аккаунты, креды, доступы, настройки.
+// Источник правды пока в EAV, эти таблицы держатся триггерами (см. 0086).
+// Читатели переезжают на них в R2, sync-контракт — в R3.
+// ============================================================================
 
+/** Каталог-якорь разделов доступа. Мета (titleRu/menuTabs) живёт в shared-коде. */
+export const accessSections = pgTable('access_sections', {
+  id: text('id').primaryKey(),
+});
+
+/** Аккаунты: строка ⟺ логин. Карточка сотрудника без логина строки здесь НЕ имеет. */
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey(),
+    login: text('login').notNull(),
+    systemRole: text('system_role').notNull(),
+    accessEnabled: boolean('access_enabled').notNull().default(false),
+    deleteRequestedAt: bigint('delete_requested_at', { mode: 'number' }),
+    deleteRequestedBy: uuid('delete_requested_by'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    // Логин освобождается при отзыве аккаунта — unique только среди живых (M12).
+    loginLiveUq: uniqueIndex('users_login_live_uq')
+      .on(t.login)
+      .where(sql`${t.deletedAt} is null`),
+    seqIdx: index('users_seq_idx').on(t.lastServerSeq),
+    roleIdx: index('users_role_idx').on(t.systemRole),
+  }),
+);
+
+/** Секрет отделён структурно: таблицы нет в sync-контракте — это её свойство, не фильтр. */
+export const userCredentials = pgTable('user_credentials', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  passwordHash: text('password_hash').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+});
+
+/** Доступы по разделам — junction вместо JSON. Снятие раздела = soft-delete строки. */
+export const userSectionAccess = pgTable(
+  'user_section_access',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sectionId: text('section_id')
+      .notNull()
+      .references(() => accessSections.id),
+    level: text('level').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    // ПОЛНЫЙ unique, не частичный: снятый раздел оживает той же строкой.
+    pairUq: uniqueIndex('user_section_access_pair_uq').on(t.userId, t.sectionId),
+    userIdx: index('user_section_access_user_idx').on(t.userId),
+    seqIdx: index('user_section_access_seq_idx').on(t.lastServerSeq),
+  }),
+);
+
+/** Дом изгнанных serverOnly-EAV. Не канон и НЕ синкается. */
+export const userSettings = pgTable('user_settings', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  uiSettings: jsonb('ui_settings'),
+  uiProfile: jsonb('ui_profile'),
+  loggingEnabled: boolean('logging_enabled'),
+  loggingMode: text('logging_mode'),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+});

@@ -1,0 +1,90 @@
+# ⚠️ ЭТОТ ФАЙЛ ДОЛЖЕН ЛЕЖАТЬ В `.github/workflows/migrations-check.yml`.
+#
+# Он временно живёт здесь, потому что токен `gh` этой машины выдан OAuth-приложению
+# со scope `gist, read:org, repo` — без `workflow`, а GitHub отклоняет push любых
+# изменений в `.github/workflows/**` таким токеном:
+#   ! [remote rejected] refusing to allow an OAuth App to create or update workflow
+#
+# Как поставить на место (один раз, нужен браузер — команда интерактивная):
+#   gh auth refresh -s workflow
+#   git mv docs/ci/migrations-check.yml .github/workflows/migrations-check.yml
+#   git commit -m "ci: гейт миграций на живом PostgreSQL" && git push
+#
+# До этого момента миграция 0086 не исполняется НИГДЕ, кроме прода, — а значит
+# PR с ней мержить нельзя (см. тело PR).
+
+name: Migrations (PostgreSQL)
+
+# Гейт, которого не было: ни typecheck, ни lint, ни vitest не ИСПОЛНЯЮТ SQL, а на
+# части машин разработчика PostgreSQL не установлен вовсе. Без этой джобы первым
+# местом, где выполняется новая миграция, оказывался прод.
+#
+# Здесь пустой PG получает ВСЕ миграции по журналу, затем на нём проверяются
+# rebuild-функции и триггеры B3/R1 (0086) — фикстурой из заведомо неудобных
+# случаев и сверкой EAV ↔ строгие таблицы.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  migrate-and-verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Одноразовый контейнер, доступный только по localhost этой джобы:
+          # trust вместо пароля, чтобы в репозитории не заводить учётных данных.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: matricarmz
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGDATABASE: matricarmz
+      PGUSER: postgres
+      PGPASSWORD: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared + ledger (backend tsx imports)
+        run: |
+          pnpm --filter @matricarmz/shared build
+          pnpm --filter @matricarmz/ledger build
+
+      - name: Apply all migrations
+        run: pnpm -C backend-api db:migrate
+
+      - name: Verify 0086 rebuild functions and triggers on a fixture
+        env:
+          MATRICA_FIXTURE_ALLOW_WRITE: "1"
+        run: pnpm -C backend-api users:fixture-check
+
+      - name: Parity EAV vs strict tables
+        run: pnpm -C backend-api users:parity
