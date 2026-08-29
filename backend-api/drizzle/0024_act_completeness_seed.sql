@@ -1,3 +1,13 @@
+-- ⚠️ Правка 2026-08-29 (не меняет поведение на уже применённых базах).
+-- Типы сущностей и определения атрибутов заводит ПРИЛОЖЕНИЕ в рантайме, ни одна
+-- миграция их не создаёт. Этот сид молча предполагал, что они уже есть: тип брался
+-- скалярным подзапросом `(SELECT id FROM et_brand)`, который на пустой базе даёт
+-- NULL, и накат падал на `null value in column "type_id"`. Следствие — цепочка
+-- миграций не накатывалась с нуля ВООБЩЕ, и это обходили дампами прода
+-- (см. docs/machines/PC40.md). Теперь нужные CTE стоят в FROM: есть тип — всё как
+-- прежде, нет типа — сид честно вставляет ноль строк вместо падения.
+-- Соседние вставки (attribute_defs) так были написаны изначально.
+
 -- Seed engine brands + parts from "Акт комплектности двигателя" (Table 1)
 -- Uses deterministic UUIDs from md5() and avoids duplicates by name/number.
 
@@ -157,12 +167,12 @@ WITH
 INSERT INTO entities (id, type_id, created_at, updated_at, deleted_at, sync_status)
 SELECT
   brand_map.brand_id,
-  (SELECT id FROM et_brand),
+  et_brand.id,
   now_ms.ts,
   now_ms.ts,
   NULL,
   'synced'
-FROM brand_map, now_ms
+FROM brand_map, now_ms, et_brand
 WHERE brand_map.is_new;
 
 WITH
@@ -213,13 +223,13 @@ INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, creat
 SELECT
   md5('engine_brand:name:' || brand_map.brand_id::text)::uuid,
   brand_map.brand_id,
-  (SELECT id FROM ad_brand_name),
+  ad_brand_name.id,
   to_jsonb(brand_map.name)::text,
   now_ms.ts,
   now_ms.ts,
   NULL,
   'synced'
-FROM brand_map, now_ms
+FROM brand_map, now_ms, ad_brand_name
 WHERE brand_map.is_new
 ON CONFLICT (entity_id, attribute_def_id) DO NOTHING;
 
@@ -421,12 +431,12 @@ WITH
 INSERT INTO entities (id, type_id, created_at, updated_at, deleted_at, sync_status)
 SELECT
   parts_map.part_id,
-  (SELECT id FROM et_part),
+  et_part.id,
   now_ms.ts,
   now_ms.ts,
   NULL,
   'synced'
-FROM parts_map, now_ms
+FROM parts_map, now_ms, et_part
 WHERE parts_map.is_new;
 
 WITH
@@ -619,13 +629,13 @@ INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, creat
 SELECT
   md5('part:name:' || parts_map.part_id::text)::uuid,
   parts_map.part_id,
-  (SELECT id FROM ad_part_name),
+  ad_part_name.id,
   to_jsonb(parts_map.part_name)::text,
   now_ms.ts,
   now_ms.ts,
   NULL,
   'synced'
-FROM parts_map, now_ms
+FROM parts_map, now_ms, ad_part_name
 ON CONFLICT (entity_id, attribute_def_id) DO NOTHING;
 
 WITH
@@ -751,13 +761,13 @@ INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, creat
 SELECT
   md5('part:assembly:' || parts_map.part_id::text)::uuid,
   parts_map.part_id,
-  (SELECT id FROM ad_part_assembly),
+  ad_part_assembly.id,
   to_jsonb(parts_map.assembly_unit_number)::text,
   now_ms.ts,
   now_ms.ts,
   NULL,
   'synced'
-FROM parts_map, now_ms
+FROM parts_map, now_ms, ad_part_assembly
 ON CONFLICT (entity_id, attribute_def_id) DO NOTHING;
 
 WITH
@@ -946,13 +956,13 @@ INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, creat
 SELECT
   md5('part:brands:' || parts_map.part_id::text)::uuid,
   parts_map.part_id,
-  (SELECT id FROM ad_part_brand_ids),
+  ad_part_brand_ids.id,
   to_jsonb(parts_map.brand_ids)::text,
   now_ms.ts,
   now_ms.ts,
   NULL,
   'synced'
-FROM parts_map, now_ms
+FROM parts_map, now_ms, ad_part_brand_ids
 ON CONFLICT (entity_id, attribute_def_id) DO UPDATE
 SET
   value_json = (
