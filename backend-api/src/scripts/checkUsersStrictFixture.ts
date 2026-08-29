@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 
 import { pool } from '../database/db.js';
-import { getEmployeeAuthById, getEmployeeAuthByLogin } from '../services/employeeAuthService.js';
+import { getEmployeeAuthById, getEmployeeAuthByLogin, setEmployeeSectionAccess } from '../services/employeeAuthService.js';
 
 // B3/R1 — исполняемая приёмка миграции 0086 на НАСТОЯЩЕМ PostgreSQL.
 //
@@ -347,6 +347,7 @@ async function main() {
   console.log('\n== 12. Сущность постороннего типа аккаунтом не становится ==');
   const partTypeRow = await one<{ id: string }>(`SELECT id FROM entity_types WHERE code='part'`);
   const partId = randomUUID();
+  const partIdForSectionProbe = partId;
   await pool.query(`INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ($1,$2,$3,$3)`, [partId, partTypeRow!.id, ts]);
   // Пишем employee-шный login-def на деталь — ровно тот сценарий, который до
   // релиза v3.16.0 заводил скрытый аккаунт (аудит 2026-08-29).
@@ -387,6 +388,47 @@ async function main() {
 
   await pool.query(`UPDATE entities SET deleted_at = NULL WHERE id = $1`, [empAuth]);
   check('восстановленный снова находится', (await getEmployeeAuthByLogin('authprobe'))?.id, empAuth);
+
+  console.log('\n== 12b. Санкционированная запись доступов отвергает мусор громко ==');
+  // B3/R2: у section_access появилась своя дверь вместо generic setAttr через
+  // синк. Санитайзер parseSectionMembership молча роняет неизвестное — для
+  // фонового чтения верно, для явного админского действия нет: администратор
+  // обязан узнать, что часть его выбора не сохранилась.
+  const empSec = await mkEmployee();
+  await setAttr(empSec, 'login', 'secwriter');
+  await setAttr(empSec, 'system_role', 'viewer');
+
+  const okWrite = await setEmployeeSectionAccess(empSec, { warehouse: 'editor', reports: 'viewer' });
+  check('корректный набор принят', okWrite.ok, true);
+  check(
+    'зеркало пересобрано триггером',
+    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_section_access WHERE user_id=$1 AND deleted_at IS NULL`, [empSec]))?.n,
+    '2',
+  );
+
+  const badSection = await setEmployeeSectionAccess(empSec, { warehouse: 'editor', nosuchsection: 'viewer' });
+  check('неизвестный раздел отвергнут', badSection.ok, false);
+  check('в ошибке назван виновник', String((badSection as { error?: string }).error ?? '').includes('nosuchsection'), true);
+
+  const badLevel = await setEmployeeSectionAccess(empSec, { warehouse: 'owner' });
+  check('неизвестный уровень отвергнут', badLevel.ok, false);
+
+  // Ровно тот мусор, от которого пришлось обороняться в rebuild_user_sections.
+  const nullLevel = await setEmployeeSectionAccess(empSec, { reports: null });
+  check('уровень null отвергнут', nullLevel.ok, false);
+
+  check(
+    'после отказов доступы не изменились',
+    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_section_access WHERE user_id=$1 AND deleted_at IS NULL`, [empSec]))?.n,
+    '2',
+  );
+
+  check('не объект отвергнут', (await setEmployeeSectionAccess(empSec, 'что-то')).ok, false);
+  check('чужой тип сущности отвергнут', (await setEmployeeSectionAccess(partIdForSectionProbe, { warehouse: 'editor' })).ok, false);
+
+  await pool.query(`UPDATE entities SET deleted_at = $2 WHERE id = $1`, [empSec, ts + 200]);
+  check('удалённому сотруднику не пишем', (await setEmployeeSectionAccess(empSec, { warehouse: 'editor' })).ok, false);
+  await pool.query(`UPDATE entities SET deleted_at = NULL WHERE id = $1`, [empSec]);
 
   console.log('\n== 13. Инварианты схемы держат мусор ==');
   const bad = [

@@ -1007,6 +1007,62 @@ export function sectionAccessSeedValue(existingRaw: unknown, role: string): stri
  * filtered (review finding on PR #707). Seed the role's default membership
  * whenever the account has none.
  */
+/**
+ * B3/R2: единственная САНКЦИОНИРОВАННАЯ точка записи доступов по разделам.
+ *
+ * До неё `section_access` писали две страницы клиента generic-вызовом `setAttr`
+ * через синк. Это давало две беды. Во-первых, атрибут суперадминского уровня
+ * ехал по общему пути записи, и защищать его приходилось backstop'ом в
+ * ledger-гейте — то есть запретом, а не отсутствием канала. Во-вторых, в
+ * значение попадало что угодно: разбор миграции 0086 наткнулся на уровень
+ * `null`, от которого пришлось отдельно обороняться в SQL (иначе NOT NULL ронял
+ * транзакцию чужого пуша).
+ *
+ * Здесь форма проверяется ГРОМКО. Санитайзер `parseSectionMembership` —
+ * канонический и молча роняет неизвестные разделы и уровни; для фонового чтения
+ * это правильно, а для явного админского действия — нет: администратор должен
+ * узнать, что половина его выбора не сохранилась. Поэтому санитайзер работает
+ * как проверка: расхождение по числу ключей = отказ с перечислением отвергнутых.
+ *
+ * Пишет по-прежнему в EAV — на R2 он остаётся источником правды, строгие таблицы
+ * держатся триггерами. На R4 сюда придёт запись в user_section_access, и это
+ * будет правка ОДНОЙ функции, а не двух страниц клиента.
+ */
+export async function setEmployeeSectionAccess(employeeId: string, rawMembership: unknown) {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return { ok: false as const, error: 'тип сотрудника не найден' };
+
+  const owner = await db
+    .select({ typeId: entities.typeId, deletedAt: entities.deletedAt })
+    .from(entities)
+    .where(eq(entities.id, employeeId as any))
+    .limit(1);
+  if (!owner[0] || String(owner[0].typeId) !== String(employeeTypeId)) {
+    return { ok: false as const, error: 'сотрудник не найден' };
+  }
+  if (owner[0].deletedAt != null) return { ok: false as const, error: 'сотрудник удалён' };
+
+  if (rawMembership == null || typeof rawMembership !== 'object' || Array.isArray(rawMembership)) {
+    return { ok: false as const, error: 'ожидался объект «раздел → уровень»' };
+  }
+  const incoming = rawMembership as Record<string, unknown>;
+  const membership = parseSectionMembership(incoming);
+  const rejected = Object.keys(incoming).filter((key) => !(key in membership));
+  if (rejected.length > 0) {
+    return {
+      ok: false as const,
+      error: `неизвестный раздел или уровень: ${rejected.map((k) => `${k}=${String(incoming[k])}`).join(', ')}`,
+    };
+  }
+
+  const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
+  if (!defId) return { ok: false as const, error: 'модель разделов не инициализирована' };
+  // Форма хранения та же, что писал клиент (строка с JSON внутри), — иначе
+  // разъедется и санитайзер, и SQL-разбор в rebuild_user_sections.
+  await upsertAttrValue(employeeId, defId, serializeSectionMembership(membership));
+  return { ok: true as const, membership };
+}
+
 export async function seedSectionAccessIfMissing(employeeId: string, role: string) {
   const employeeTypeId = await getEmployeeTypeId();
   if (!employeeTypeId) return { ok: false as const, seeded: false };
