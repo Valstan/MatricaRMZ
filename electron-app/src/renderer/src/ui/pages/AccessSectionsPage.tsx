@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { EmployeeListItem, SectionAccessLevel, SectionMembership } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
-  SECTION_ACCESS_ATTR,
   accessSectionMeta,
   dependentsOfSection,
   membershipIssues,
@@ -10,7 +9,6 @@ import {
   operatorRolePermissions,
   parseSectionMembership,
   sectionEditorRoleWarning,
-  serializeSectionMembership,
 } from '@matricarmz/shared';
 import type { AccessSection } from '@matricarmz/shared';
 
@@ -154,12 +152,16 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
 
     setSaving(true);
     try {
-      const res = await window.matrica.employees.setAttr(row.id, SECTION_ACCESS_ATTR, serializeSectionMembership(membership));
+      // B3/R2: серверный роут вместо generic setAttr через синк. Он проверяет
+      // форму громко и возвращает нормализованный набор — его и показываем,
+      // чтобы экран не разошёлся с тем, что реально сохранено.
+      const res = await window.matrica.admin.users.sectionAccessSet(row.id, membership as Record<string, string>);
       if (res && (res as { ok?: boolean }).ok === false) {
         setStatus(`Не сохранилось (${row.login}): ${(res as { error?: string }).error ?? 'ошибка'}`);
         return;
       }
-      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, membership } : r)));
+      const saved = ((res as { membership?: SectionMembership }).membership ?? membership) as SectionMembership;
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, membership: saved } : r)));
       setStatus('');
     } finally {
       setSaving(false);

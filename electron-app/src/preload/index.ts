@@ -264,6 +264,8 @@ const matricaApi = {
         ipcRenderer.invoke('admin:users:pendingApprove', args),
       permissionsGet: async (userId: string) => ipcRenderer.invoke('admin:users:permissionsGet', userId),
       permissionsSet: async (userId: string, set: Record<string, boolean>) => ipcRenderer.invoke('admin:users:permissionsSet', userId, set),
+      sectionAccessSet: async (userId: string, membership: Record<string, string>) =>
+        ipcRenderer.invoke('admin:users:sectionAccessSet', userId, membership),
       delegationsList: async (userId: string) => ipcRenderer.invoke('admin:users:delegationsList', userId),
       delegationCreate: async (args: {
         fromUserId: string;
