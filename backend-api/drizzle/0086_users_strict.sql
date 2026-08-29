@@ -162,26 +162,84 @@ CREATE TABLE user_settings (
 --> statement-breakpoint
 
 -- ============================================================================
--- 6) Помощники чтения EAV. eav_attr_text / _ms / _uuid заведены миграцией 0084
--- (CREATE OR REPLACE там же) — не переопределяем. Нужны два новых.
+-- 6) Помощники чтения EAV. eav_attr_text из 0084 здесь НЕ используется: он
+-- находит определение атрибута по одному лишь коду (JOIN ... AND ad.code =
+-- p_code, LIMIT 1 без ORDER BY), не привязываясь к типу сущности. Для зеркал
+-- договоров это безобидно, а для аккаунтов — тот же класс, что закрывали в
+-- v3.16.0: код 'login' может быть заведён и на другом типе, а схема не
+-- запрещает повесить чужое определение на сущность (FK у attribute_values
+-- раздельные — на entities и на attribute_defs). Читаем строго определения
+-- ТИПА employee.
 -- ============================================================================
+CREATE OR REPLACE FUNCTION eav_emp_text(p_entity uuid, p_code text)
+RETURNS text AS $fn$
+DECLARE v_raw text; v_out text;
+BEGIN
+  SELECT av.value_json INTO v_raw
+    FROM attribute_values av
+    JOIN attribute_defs ad ON ad.id = av.attribute_def_id AND ad.code = p_code
+    JOIN entity_types t ON t.id = ad.entity_type_id AND t.code = 'employee'
+   WHERE av.entity_id = p_entity AND av.deleted_at IS NULL
+   ORDER BY av.updated_at DESC, av.id
+   LIMIT 1;
+  IF v_raw IS NULL THEN RETURN NULL; END IF;
+  BEGIN
+    v_out := v_raw::jsonb #>> '{}';
+  EXCEPTION WHEN others THEN
+    v_out := v_raw;
+  END;
+  RETURN nullif(v_out, '');
+END;
+$fn$ LANGUAGE plpgsql STABLE;
+--> statement-breakpoint
 
--- Булев атрибут: в EAV лежит JSON true/false, но встречается и строка.
-CREATE OR REPLACE FUNCTION eav_attr_bool(p_entity uuid, p_code text)
+-- Булев СТРОГО как его читает продукт: employeeAuthService сравнивает значение
+-- с true через ===, то есть '"1"' / '"yes"' / '"true"' для него доступом НЕ
+-- являются. Толерантный разбор был бы расхождением в сторону fail-OPEN: в
+-- зеркале доступ появился бы там, где программа его не даёт.
+CREATE OR REPLACE FUNCTION eav_emp_bool(p_entity uuid, p_code text)
 RETURNS boolean AS $fn$
-DECLARE v_txt text := eav_attr_text(p_entity, p_code);
+DECLARE v_txt text := eav_emp_text(p_entity, p_code);
 BEGIN
   IF v_txt IS NULL THEN RETURN NULL; END IF;
-  RETURN lower(v_txt) IN ('true', 't', '1', 'yes');
+  RETURN v_txt = 'true';
+END;
+$fn$ LANGUAGE plpgsql STABLE;
+--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION eav_emp_ms(p_entity uuid, p_code text)
+RETURNS bigint AS $fn$
+DECLARE v_txt text := eav_emp_text(p_entity, p_code);
+BEGIN
+  IF v_txt IS NULL THEN RETURN NULL; END IF;
+  BEGIN
+    RETURN round(v_txt::numeric)::bigint;
+  EXCEPTION WHEN others THEN
+    RETURN NULL;
+  END;
+END;
+$fn$ LANGUAGE plpgsql STABLE;
+--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION eav_emp_uuid(p_entity uuid, p_code text)
+RETURNS uuid AS $fn$
+DECLARE v_txt text := eav_emp_text(p_entity, p_code);
+BEGIN
+  IF v_txt IS NULL THEN RETURN NULL; END IF;
+  BEGIN
+    RETURN v_txt::uuid;
+  EXCEPTION WHEN others THEN
+    RETURN NULL;
+  END;
 END;
 $fn$ LANGUAGE plpgsql STABLE;
 --> statement-breakpoint
 
 -- JSON-объект из текстового EAV-значения. Мусор и не-объекты — в NULL, чтобы
 -- CHECK jsonb_typeof='object' не валил rebuild на кривой легаси-строке.
-CREATE OR REPLACE FUNCTION eav_attr_jsonb_object(p_entity uuid, p_code text)
+CREATE OR REPLACE FUNCTION eav_emp_jsonb_object(p_entity uuid, p_code text)
 RETURNS jsonb AS $fn$
-DECLARE v_txt text := eav_attr_text(p_entity, p_code); v_out jsonb;
+DECLARE v_txt text := eav_emp_text(p_entity, p_code); v_out jsonb;
 BEGIN
   IF v_txt IS NULL THEN RETURN NULL; END IF;
   BEGIN
@@ -217,13 +275,14 @@ DECLARE
   v_logging_enabled boolean;
   v_logging_mode text;
 BEGIN
+ BEGIN
   SELECT true, e.deleted_at INTO v_found, v_deleted
     FROM entities e
     JOIN entity_types t ON t.id = e.type_id AND t.code = 'employee'
    WHERE e.id = p_id;
   IF v_found IS DISTINCT FROM true THEN RETURN; END IF;
 
-  v_login := lower(btrim(coalesce(eav_attr_text(p_id, 'login'), '')));
+  v_login := lower(btrim(coalesce(eav_emp_text(p_id, 'login'), '')));
 
   -- Карточка без логина — не аккаунт. Если строка была (логин сняли) — сносим:
   -- зеркало производное, а `login NOT NULL` обязан оставаться честным.
@@ -233,7 +292,7 @@ BEGIN
     RETURN;
   END IF;
 
-  v_role_raw := lower(btrim(coalesce(eav_attr_text(p_id, 'system_role'), '')));
+  v_role_raw := lower(btrim(coalesce(eav_emp_text(p_id, 'system_role'), '')));
   IF v_login = 'valstan' THEN
     v_role := 'superadmin';
   ELSIF v_role_raw IN (
@@ -247,8 +306,8 @@ BEGIN
     v_role := 'employee';
   END IF;
 
-  v_req_at := eav_attr_ms(p_id, 'delete_requested_at');
-  v_req_by := eav_attr_uuid(p_id, 'delete_requested_by_id');
+  v_req_at := eav_emp_ms(p_id, 'delete_requested_at');
+  v_req_by := eav_emp_uuid(p_id, 'delete_requested_by_id');
   -- FK-страховка: инициатор, у которого нет своего аккаунта (карточка без
   -- логина, или его ещё не создал первый проход бэкфилла) — в NULL.
   IF v_req_by IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = v_req_by) THEN
@@ -264,7 +323,7 @@ BEGIN
   )
   VALUES (
     p_id, v_login, v_role,
-    coalesce(eav_attr_bool(p_id, 'access_enabled'), false),
+    coalesce(eav_emp_bool(p_id, 'access_enabled'), false),
     v_req_at, v_req_by,
     v_ms, v_ms, v_deleted
   )
@@ -278,7 +337,7 @@ BEGIN
     deleted_at = EXCLUDED.deleted_at;
 
   -- Кред: строка есть, только пока хэш непустой (CHECK непустоты).
-  v_hash := coalesce(eav_attr_text(p_id, 'password_hash'), '');
+  v_hash := coalesce(eav_emp_text(p_id, 'password_hash'), '');
   IF btrim(v_hash) = '' THEN
     DELETE FROM user_credentials WHERE user_id = p_id;
   ELSE
@@ -290,10 +349,10 @@ BEGIN
   END IF;
 
   -- Настройки: строка держится, только пока есть хоть одно значение.
-  v_ui_settings := eav_attr_jsonb_object(p_id, 'ui_settings_json');
-  v_ui_profile := eav_attr_jsonb_object(p_id, 'ui_profile_json');
-  v_logging_enabled := eav_attr_bool(p_id, 'logging_enabled');
-  v_logging_mode := eav_attr_text(p_id, 'logging_mode');
+  v_ui_settings := eav_emp_jsonb_object(p_id, 'ui_settings_json');
+  v_ui_profile := eav_emp_jsonb_object(p_id, 'ui_profile_json');
+  v_logging_enabled := eav_emp_bool(p_id, 'logging_enabled');
+  v_logging_mode := eav_emp_text(p_id, 'logging_mode');
   IF v_ui_settings IS NULL AND v_ui_profile IS NULL AND v_logging_enabled IS NULL AND v_logging_mode IS NULL THEN
     DELETE FROM user_settings WHERE user_id = p_id;
   ELSE
@@ -306,6 +365,20 @@ BEGIN
       logging_mode = EXCLUDED.logging_mode,
       updated_at = EXCLUDED.updated_at;
   END IF;
+ EXCEPTION WHEN others THEN
+  -- ЗЕРКАЛО НИКОГДА НЕ РОНЯЕТ ПИСАТЕЛЯ. Функция выполняется внутри транзакции
+  -- клиентского пуша (applyPushBatch — одна транзакция на весь пакет, без
+  -- SAVEPOINT). Любое исключение отсюда отвергает пакет ЦЕЛИКОМ, и клиент
+  -- ретраит его вечно — отказ синхронизации у человека в цеху.
+  -- Образец 0084, по которому писалась миграция, обойтись без барьера мог:
+  -- у его таблиц нет ни одного CHECK и лишь один FK, прикрытый вручную. Здесь
+  -- же констрейнтов восемь, и защита по значению («предусмотрели этот класс
+  -- мусора») закрывает только то, что автор сумел вообразить.
+  -- Пока источник правды — EAV (R1–R3), отставшее зеркало это дефект данных:
+  -- он виден в логе как WARNING и ловится гейтом users:parity. На R4, когда
+  -- users станет каноном и триггеры уйдут, барьер уходит вместе с ними.
+  RAISE WARNING 'rebuild_user(%) пропущен: % %', p_id, SQLSTATE, SQLERRM;
+ END;
 END;
 $fn$ LANGUAGE plpgsql;
 --> statement-breakpoint
@@ -323,17 +396,23 @@ DECLARE
   v_live text[] := ARRAY[]::text[];
   r record;
 BEGIN
+ BEGIN
   -- Нет аккаунта — нет и его разделов (каскад уже отработал).
   IF NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p_id) THEN RETURN; END IF;
 
-  v_raw := eav_attr_jsonb_object(p_id, 'section_access');
+  v_raw := eav_emp_jsonb_object(p_id, 'section_access');
 
   IF v_raw IS NOT NULL THEN
     FOR r IN SELECT key AS section_id, value AS lvl FROM jsonb_each_text(v_raw) LOOP
       -- Неизвестный раздел (FK) или неизвестный уровень (CHECK) — пропускаем
       -- молча: кривая клиентская строка не должна валить пересборку целиком.
       CONTINUE WHEN NOT EXISTS (SELECT 1 FROM access_sections s WHERE s.id = r.section_id);
-      CONTINUE WHEN r.lvl NOT IN ('viewer', 'editor');
+      -- ВНИМАНИЕ на NULL: jsonb_each_text отдаёт SQL NULL для JSON-null, а
+      -- `NULL NOT IN (...)` даёт NULL, и CONTINUE (срабатывает только на TRUE)
+      -- НЕ прерывал бы итерацию — level=NULL уехал бы в INSERT и словил
+      -- not-null, уронив чужую транзакцию. Именно то, что комментарий выше
+      -- обещает не делать.
+      CONTINUE WHEN r.lvl IS NULL OR r.lvl NOT IN ('viewer', 'editor');
 
       INSERT INTO user_section_access (id, user_id, section_id, level, created_at, updated_at, deleted_at)
       VALUES (gen_random_uuid(), p_id, r.section_id, r.lvl, v_ms, v_ms, NULL)
@@ -352,6 +431,10 @@ BEGIN
    WHERE user_id = p_id
      AND deleted_at IS NULL
      AND NOT (section_id = ANY (v_live));
+ EXCEPTION WHEN others THEN
+  -- См. барьер в rebuild_user: доступы человека не стоят отказа синхронизации.
+  RAISE WARNING 'rebuild_user_sections(%) пропущен: % %', p_id, SQLSTATE, SQLERRM;
+ END;
 END;
 $fn$ LANGUAGE plpgsql;
 --> statement-breakpoint

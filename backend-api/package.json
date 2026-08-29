@@ -17,6 +17,7 @@
     "user:create": "tsx src/scripts/createUser.ts",
     "users:parity": "tsx src/scripts/checkUsersParity.ts",
     "users:fixture-check": "tsx src/scripts/checkUsersStrictFixture.ts",
+    "users:backfill-check": "tsx src/scripts/checkUsersBackfill.ts",
     "demo:seed": "tsx src/scripts/seedPortfolioDemo.ts",
     "warehouse:reclassify-product-to-part": "tsx src/scripts/reclassifyProductToPartItemType.ts",
     "warehouse:reclassify-product-to-part:apply": "tsx src/scripts/reclassifyProductToPartItemType.ts --apply",

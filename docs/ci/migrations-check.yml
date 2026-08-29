@@ -86,5 +86,10 @@ jobs:
           MATRICA_FIXTURE_ALLOW_WRITE: "1"
         run: pnpm -C backend-api users:fixture-check
 
+      - name: Verify backfill (migration sections 10 and 11) on non-empty data
+        env:
+          MATRICA_FIXTURE_ALLOW_WRITE: "1"
+        run: pnpm -C backend-api users:backfill-check
+
       - name: Parity EAV vs strict tables
         run: pnpm -C backend-api users:parity

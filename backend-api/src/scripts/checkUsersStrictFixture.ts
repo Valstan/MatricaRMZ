@@ -221,6 +221,52 @@ async function main() {
     '0',
   );
 
+  console.log('\n== 7a. JSON-null в уровне раздела не роняет транзакцию ==');
+  // Класс, который прежняя версия пропускала: jsonb_each_text отдаёт SQL NULL
+  // для JSON-null, а `NULL NOT IN (...)` даёт NULL, и CONTINUE не срабатывал —
+  // level=NULL уезжал в INSERT и ловил not-null внутри чужой транзакции.
+  const emp8b = await mkEmployee();
+  await setAttr(emp8b, 'login', 'nulllvl1');
+  await setAttr(emp8b, 'system_role', 'viewer');
+  let nullLevelThrew = false;
+  try {
+    await setAttr(emp8b, 'section_access', { warehouse: 'editor', reports: null });
+  } catch {
+    nullLevelThrew = true;
+  }
+  check('запись с null-уровнем не бросает исключение', nullLevelThrew, false);
+  check(
+    'валидный раздел взят, null-уровень пропущен',
+    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_section_access WHERE user_id=$1 AND deleted_at IS NULL`, [emp8b]))?.n,
+    '1',
+  );
+
+  console.log('\n== 7b. access_enabled читается СТРОГО как продукт (=== true) ==');
+  // employeeAuthService считает доступом только настоящий булев true. Толерантное
+  // зеркало ('1'/'yes'/'true') дало бы на R2 доступ, которого программа не даёт,
+  // — расхождение в сторону fail-open, причём parity его бы не увидел.
+  const emp8c = await mkEmployee();
+  await setAttr(emp8c, 'login', 'strictbool1');
+  await setAttr(emp8c, 'system_role', 'viewer');
+  await setAttr(emp8c, 'access_enabled', '1');
+  check(
+    'строка «1» доступом НЕ считается',
+    (await one<{ a: boolean }>(`SELECT access_enabled AS a FROM users WHERE id=$1`, [emp8c]))?.a,
+    false,
+  );
+  await setAttr(emp8c, 'access_enabled', 'true');
+  check(
+    'строка «true» доступом НЕ считается',
+    (await one<{ a: boolean }>(`SELECT access_enabled AS a FROM users WHERE id=$1`, [emp8c]))?.a,
+    false,
+  );
+  await setAttr(emp8c, 'access_enabled', true);
+  check(
+    'булев true доступом считается',
+    (await one<{ a: boolean }>(`SELECT access_enabled AS a FROM users WHERE id=$1`, [emp8c]))?.a,
+    true,
+  );
+
   console.log('\n== 8. Снятие раздела = soft-delete, а не исчезновение строки ==');
   await setAttr(emp1, 'section_access', { work_orders: 'editor' }); // production снят
   check(

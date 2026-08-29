@@ -50,22 +50,35 @@ const SECTION_LEVELS = new Set(['viewer', 'editor']);
 
 type Mismatch = { entityId: string; kind: string; expected: unknown; actual: unknown };
 
+// Зеркало SQL-функции eav_emp_text: приведение к jsonb и извлечение через #>>
+// с пустым путём. Тонкость, из-за которой прежняя версия врала: JSON-литерал
+// null в value_json (а такие строки в EAV встречаются — см. защитный фильтр в
+// backfillSectionAccess) SQL отдаёт как NULL, а наивный String(raw) давал
+// непустую строку 'null'. Расхождение сделало бы parity красным на проде в
+// местах, где зеркало на самом деле право.
 function parseEavText(raw: string | null): string | null {
   if (raw == null) return null;
   let out: string;
   try {
     const parsed = JSON.parse(raw);
-    out = typeof parsed === 'string' ? parsed : String(raw);
+    if (parsed === null) return null;
+    if (typeof parsed === 'string') out = parsed;
+    else if (typeof parsed === 'object') out = JSON.stringify(parsed);
+    else out = String(parsed);
   } catch {
     out = raw;
   }
   return out === '' ? null : out;
 }
 
+// СТРОГО как продукт: employeeAuthService сравнивает через ===, поэтому '"1"',
+// '"yes"' и '"true"' доступом не являются. Толерантный разбор был бы
+// расхождением в сторону fail-open — в зеркале доступ появился бы там, где
+// программа его не даёт.
 function parseEavBool(raw: string | null): boolean | null {
   const txt = parseEavText(raw);
   if (txt == null) return null;
-  return ['true', 't', '1', 'yes'].includes(txt.toLowerCase());
+  return txt === 'true';
 }
 
 function parseEavMs(raw: string | null): number | null {
