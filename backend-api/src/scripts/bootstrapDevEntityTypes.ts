@@ -7,6 +7,7 @@ import {
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   ENGINE_RESERVATION_CODE,
   EntityTypeCode,
+  SECTION_ACCESS_ATTR,
 } from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
@@ -103,9 +104,16 @@ async function main() {
   // проверялся, поэтому отсутствие типа проходило молча, а скрипт печатал
   // «ready»: на дампе прода тип уже был, и дефект не всплывал. На чистой базе
   // это ломало следующий шаг (dev:seed-fixtures — «тип сотрудника не найден»).
-  await ensureType(EntityTypeCode.Employee, 'Сотрудник');
+  const employeeId = await ensureType(EntityTypeCode.Employee, 'Сотрудник');
   const auth = await ensureEmployeeAuthDefs();
   if (!auth.ok) throw new Error(`ensureEmployeeAuthDefs: ${auth.error}`);
+
+  // `section_access` ensureEmployeeAuthDefs тоже не заводит: в проде его создал
+  // одноразовый backfillSectionAccess. Без него модель разделов на стенде просто
+  // выключена, и любой сценарий доступов упирается в «модель разделов не
+  // инициализирована» (поймано CDP-смоуком 2026-08-29). Продовые пути не
+  // трогаем — это скрипт стенда.
+  await ensureAttr(employeeId, SECTION_ACCESS_ATTR, 'Доступ по разделам', AttributeDataType.Text, 90);
 
   console.log('[bootstrap] entity_types + attribute_defs ready');
 }
