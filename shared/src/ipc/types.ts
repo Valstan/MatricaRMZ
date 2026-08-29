@@ -1274,6 +1274,11 @@ export type MatricaApi = {
         | { ok: false; error: string }
       >;
       permissionsSet: (userId: string, set: Record<string, boolean>) => Promise<{ ok: boolean; error?: string }>;
+      /** B3/R2: единственный санкционированный путь записи доступов по разделам (был generic setAttr через синк). */
+      sectionAccessSet: (
+        userId: string,
+        membership: Record<string, string>,
+      ) => Promise<{ ok: boolean; error?: string; membership?: Record<string, 'viewer' | 'editor'> }>;
 
       delegationsList: (
         userId: string,

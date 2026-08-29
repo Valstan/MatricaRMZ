@@ -94,6 +94,29 @@ export async function adminSetUserPermissions(db: BetterSQLite3Database, apiBase
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+/**
+ * B3/R2: доступы по разделам пишутся серверным роутом, а не generic setAttr'ом
+ * через синк. Прежний путь отправлял атрибут СУПЕРАДМИНСКОГО уровня по общему
+ * каналу записи, где его приходилось ловить backstop'ом ledger-гейта, и не
+ * проверял форму — в значение попадал в том числе уровень `null`, ронявший
+ * пересборку зеркала. Сервер теперь валидирует громко и возвращает
+ * нормализованный набор, который экран и показывает.
+ */
+export async function adminSetSectionAccess(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  userId: string,
+  membership: Record<string, string>,
+) {
+  const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/section-access`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ membership }),
+  });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 export async function adminListUserDelegations(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

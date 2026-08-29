@@ -23,7 +23,7 @@ const EMPLOYEE_CARD_TABS: CardTab<EmployeeCardTab>[] = [
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, SYSTEM_ROLE_CATALOG, accessSectionMeta, dependentsOfSection, isAssignableSystemRole, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, serializeSectionMembership, systemRoleTitleRu, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, SYSTEM_ROLE_CATALOG, accessSectionMeta, dependentsOfSection, isAssignableSystemRole, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, systemRoleTitleRu, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import type { AccessSection, EntityReferenceTarget, QuickCreateRequest, QuickCreateResult, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
@@ -2278,7 +2278,10 @@ function SectionAccessMirror(props: {
     setSaving(true);
     setError('');
     try {
-      const r = await window.matrica.employees.setAttr(props.employeeId, SECTION_ACCESS_ATTR, serializeSectionMembership(next));
+      // B3/R2: серверный роут вместо generic setAttr через синк (см. коммент в
+      // AccessSectionsPage). onSaved перечитывает карточку, поэтому нормализованный
+      // ответ отдельно применять не нужно.
+      const r = await window.matrica.admin.users.sectionAccessSet(props.employeeId, next as Record<string, string>);
       if (r && (r as { ok?: boolean }).ok === false) {
         setError((r as { error?: string }).error ?? 'ошибка сохранения');
         return;
