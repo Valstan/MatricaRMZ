@@ -14,6 +14,7 @@ vi.mock('../../database/db.js', () => {
           currentTable = table;
           return chain;
         }),
+        innerJoin: vi.fn(() => chain),
         where: vi.fn(() => chain),
         limit: vi.fn(() => chain),
         then: (resolve: (v: any[]) => any, reject?: (e: any) => any) => {
@@ -30,31 +31,20 @@ vi.mock('../../database/db.js', () => {
   return { db };
 });
 
-const { attributeDefs, attributeValues } = await import('../../database/schema.js');
+const { users } = await import('../../database/schema.js');
 const { getRestrictedWorkOrderPolicy, __clearRestrictedPolicyCache } = await import('./restrictedWorkOrders.js');
 
-const DEF_ROWS = [
-  { id: 'd-login', code: 'login' },
-  { id: 'd-role', code: 'system_role' },
-  { id: 'd-sec', code: 'section_access' },
-];
-
-/** Queue one membership read. Prod stores the membership double-encoded. */
+/**
+ * Queue one membership read. B3/R2: источник — строгие таблицы, поэтому это одна
+ * выборка (users ⋈ user_section_access) вместо двух EAV-запросов. Двойного
+ * кодирования JSON, о которое спотыкалась прежняя версия теста, здесь больше нет.
+ */
 function queueMembershipRead(owner = 'owner1', reader: string | null = 'buh') {
-  const values = [
-    { entityId: 'e1', defId: 'd-login', v: JSON.stringify(owner) },
-    { entityId: 'e1', defId: 'd-role', v: JSON.stringify('master') },
-    { entityId: 'e1', defId: 'd-sec', v: JSON.stringify(JSON.stringify({ restricted_work_orders: 'editor' })) },
-  ];
+  const rows = [{ userId: 'e1', login: owner, role: 'master', sectionId: 'restricted_work_orders', level: 'editor' }];
   if (reader) {
-    values.push(
-      { entityId: 'e2', defId: 'd-login', v: JSON.stringify(reader) },
-      { entityId: 'e2', defId: 'd-role', v: JSON.stringify('admin') },
-      { entityId: 'e2', defId: 'd-sec', v: JSON.stringify(JSON.stringify({ restricted_work_orders: 'viewer' })) },
-    );
+    rows.push({ userId: 'e2', login: reader, role: 'admin', sectionId: 'restricted_work_orders', level: 'viewer' });
   }
-  state.selectByTable.set(attributeDefs, [DEF_ROWS]);
-  state.selectByTable.set(attributeValues, [values]);
+  state.selectByTable.set(users, [rows]);
 }
 
 let clock = Date.UTC(2026, 7, 24, 9, 0, 0);

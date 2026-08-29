@@ -270,18 +270,39 @@ async function main() {
     }
   }
 
+  // Отказы пересборки зеркала (0087). Барьер исключений в rebuild-функциях не
+  // даёт зеркалу ронять транзакцию клиентского пуша, но платит за это тем, что
+  // сбой проглатывается: EAV-запись прошла, строка в users осталась старой.
+  // С R2 на строгие таблицы переехали читатели разделов доступа, поэтому
+  // непустая таблица здесь — это не «зеркало отстало», а «у человека сейчас не
+  // тот доступ». Прогон обязан быть красным даже при нулевых расхождениях:
+  // расхождение могло ещё не проявиться в тех полях, которые сверяет parity.
+  const failures = await pool.query<{ n: string; last_fn: string | null; last_msg: string | null }>(
+    `SELECT count(*)::text AS n,
+            (SELECT fn FROM users_mirror_failures ORDER BY at DESC LIMIT 1) AS last_fn,
+            (SELECT message FROM users_mirror_failures ORDER BY at DESC LIMIT 1) AS last_msg
+       FROM users_mirror_failures`,
+  );
+  const failureCount = Number(failures.rows[0]?.n ?? 0);
   const accounts = usersById.size;
   const cards = byEntity.size;
 
   if (asJson) {
-    console.log(JSON.stringify({ ok: mismatches.length === 0, cards, accounts, mismatches }, null, 2));
+    console.log(JSON.stringify({ ok: mismatches.length === 0 && failureCount === 0, cards, accounts, failureCount, mismatches }, null, 2));
   } else {
     console.log(`Карточек сотрудников: ${cards}`);
     console.log(`Аккаунтов (users):    ${accounts}`);
     console.log(`Кредов:               ${credByUser.size}`);
     console.log(`Живых строк доступа:  ${sectionRows.rows.length}`);
-    if (mismatches.length === 0) {
+    console.log(`Отказов пересборки:   ${failureCount}`);
+    if (failureCount > 0) {
+      console.log(`  последний: ${failures.rows[0]?.last_fn ?? '?'} — ${failures.rows[0]?.last_msg ?? ''}`);
+    }
+    if (mismatches.length === 0 && failureCount === 0) {
       console.log('\n✓ Расхождений EAV ↔ строгие таблицы нет.');
+    } else if (mismatches.length === 0) {
+      console.log(`
+✗ Расхождений нет, но зеркало ${failureCount} раз(а) не пересобралось — строки могли остаться старыми.`);
     } else {
       console.log(`\n✗ Расхождений: ${mismatches.length} (показаны первые ${Math.min(limit, mismatches.length)})`);
       for (const m of mismatches.slice(0, limit)) {
@@ -291,7 +312,7 @@ async function main() {
   }
 
   await pool.end();
-  process.exit(mismatches.length === 0 ? 0 : 1);
+  process.exit(mismatches.length === 0 && failureCount === 0 ? 0 : 1);
 }
 
 main().catch(async (e) => {

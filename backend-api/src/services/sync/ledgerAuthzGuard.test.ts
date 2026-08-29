@@ -14,6 +14,7 @@ vi.mock('../../database/db.js', () => {
           currentTable = table;
           return chain;
         }),
+        innerJoin: vi.fn(() => chain),
         where: vi.fn(() => chain),
         limit: vi.fn(() => chain),
         then: (resolve: (v: any[]) => any, reject?: (e: any) => any) => {
@@ -49,7 +50,7 @@ vi.mock('../engineReservationGuard.js', () => ({
   readEngineReservations: vi.fn(async () => new Map()),
 }));
 
-const { attributeDefs, entities, entityTypes } = await import('../../database/schema.js');
+const { attributeDefs, entities, entityTypes, users } = await import('../../database/schema.js');
 const { partitionLedgerInputsByAuthz } = await import('./ledgerAuthzGuard.js');
 
 function seedTypes() {
@@ -249,22 +250,20 @@ function pushQueue(table: unknown, rows: any[]) {
   state.selectByTable.set(table, q);
 }
 
+// B3/R2: membership приезжает из строгих таблиц (users + user_section_access),
+// одним JOIN вместо пары EAV-запросов с двойным JSON-декодированием.
 function seedMembership(rows: Array<{ login: string; membership: object }>) {
-  pushQueue(attributeDefs, [
-    { id: 'def-login', code: 'login' },
-    { id: 'def-sa', code: 'section_access' },
-  ]);
-  const vals: any[] = [];
+  const out: any[] = [];
   let i = 0;
   for (const r of rows) {
-    const eid = `emp-m${i++}`;
-    vals.push({ entityId: eid, defId: 'def-login', v: JSON.stringify(r.login) });
-    vals.push({ entityId: eid, defId: 'def-sa', v: JSON.stringify(r.membership) });
+    const userId = `emp-m${i++}`;
+    for (const [sectionId, level] of Object.entries(r.membership)) {
+      out.push({ userId, login: r.login, role: '', sectionId, level });
+    }
   }
-  return vals;
+  pushQueue(users, out);
 }
 
-const { attributeValues } = await import('../../database/schema.js');
 
 describe('section viewer write-gate (Ф3)', () => {
   beforeEach(() => {
@@ -273,8 +272,7 @@ describe('section viewer write-gate (Ф3)', () => {
 
   it('seeded viewer of production: engine write DENIED; unmapped type still allowed', async () => {
     seedTypes();
-    const vals = seedMembership([{ login: 'eng', membership: { production: 'viewer' } }]);
-    pushQueue(attributeValues, vals);
+    seedMembership([{ login: 'eng', membership: { production: 'viewer' } }]);
 
     const inputs = [
       { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
@@ -289,8 +287,7 @@ describe('section viewer write-gate (Ф3)', () => {
   // не применялись к upsert'ам сущностей (fail-open на реальном wire).
   it('reservation gate applies to the bare engine entity row (real wire field type_id)', async () => {
     seedTypes();
-    const vals = seedMembership([{ login: 'eng', membership: { production: 'editor' } }]);
-    pushQueue(attributeValues, vals);
+    seedMembership([{ login: 'eng', membership: { production: 'editor' } }]);
     reservationState.live.set('eng-1', {
       v: 1,
       holderUserId: 'other-user',
@@ -312,8 +309,7 @@ describe('section viewer write-gate (Ф3)', () => {
 
   it('seeded editor of production: engine write allowed', async () => {
     seedTypes();
-    const vals = seedMembership([{ login: 'eng', membership: { production: 'editor' } }]);
-    pushQueue(attributeValues, vals);
+    seedMembership([{ login: 'eng', membership: { production: 'editor' } }]);
 
     const inputs = [
       { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
@@ -325,8 +321,7 @@ describe('section viewer write-gate (Ф3)', () => {
 
   it('legacy `user` role does NOT bypass the seeded gate (contracts viewer → contract write denied)', async () => {
     seedTypes();
-    const vals = seedMembership([{ login: 'u', membership: { contracts: 'viewer' } }]);
-    pushQueue(attributeValues, vals);
+    seedMembership([{ login: 'u', membership: { contracts: 'viewer' } }]);
 
     const inputs = [
       { type: 'upsert' as const, table: 'entities', row: { id: 'c1', type_id: 't-contract' }, row_id: 'c1' },
@@ -340,8 +335,7 @@ describe('section viewer write-gate (Ф3)', () => {
     seedTypes();
     seedEntities([{ id: 'emp-self', entityTypeId: 't-employee' }]);
     seedDefs([{ id: 'def-name', code: 'full_name' }]);
-    const vals = seedMembership([{ login: 'eng', membership: { people: 'viewer', production: 'editor' } }]);
-    pushQueue(attributeValues, vals);
+    seedMembership([{ login: 'eng', membership: { people: 'viewer', production: 'editor' } }]);
 
     const inputs = [
       { type: 'upsert' as const, table: 'attribute_values', row: { id: 'a1', entity_id: 'emp-self', attribute_def_id: 'def-name' }, row_id: 'a1' },
