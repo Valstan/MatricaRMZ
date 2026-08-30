@@ -55,6 +55,7 @@ import {
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
+import { buildOrphanCleanupSql } from './sync/repairSql.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
@@ -569,12 +570,17 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       if (!refInfo || refInfo.length === 0) continue;
       const refColNames = new Set(refInfo.map((c) => c.name));
       if (!refColNames.has(fk.refColumn)) continue;
-      const orphanSql = `DELETE FROM ${quoteIdent(table)}
-        WHERE ${quoteIdent(fk.column)} IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM ${quoteIdent(fk.refTable)}
-            WHERE ${quoteIdent(fk.refTable)}.${quoteIdent(fk.refColumn)} = ${quoteIdent(table)}.${quoteIdent(fk.column)}
-          )${pendingGuard}`;
+      // Форма запроса вынесена в sync/repairSql.ts и покрыта тестом: на
+      // самоссылке (users.delete_requested_by -> users.id, первая такая в
+      // контракте) без псевдонима родителя он сносил бы КАЖДУЮ строку с
+      // непустым FK. См. комментарий там.
+      const orphanSql = buildOrphanCleanupSql({
+        table,
+        column: fk.column,
+        refTable: fk.refTable,
+        refColumn: fk.refColumn,
+        pendingGuard,
+      });
       const resFk = await sqlite.run(orphanSql);
       const droppedFk = Number(resFk?.changes ?? 0);
       if (droppedFk > 0) logSync(`repair ${table} orphan fk=${fk.column}->${fk.refTable}.${fk.refColumn} dropped=${droppedFk}`);

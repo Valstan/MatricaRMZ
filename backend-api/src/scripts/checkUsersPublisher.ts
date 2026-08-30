@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 
 import { pool } from '../database/db.js';
+import { getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { runUsersSyncPublisherOnce } from '../services/sync/usersSyncPublisherService.js';
 
 // B3/R3 — исполняемая приёмка ПУТИ ПУБЛИКАЦИИ на настоящем PostgreSQL.
@@ -169,6 +170,103 @@ async function main() {
     Number(
       (await one<{ seq: string }>(`SELECT last_server_seq::text AS seq FROM users WHERE id=$1`, [probe.id]))?.seq,
     ) > 0,
+  );
+
+  // ---- 5. Снимок схемы не выдаёт частичные unique за полные ---------------
+  console.log('\n== 5. Клиенту не уезжает ограничение, которого сервер не применяет ==');
+  // Снимок схемы едет на каждую машину, и ремонт реплики по нему СХЛОПЫВАЕТ
+  // дубли: оставляет одну строку, переписывает на неё чужие ссылки, остальные
+  // удаляет. Частичный unique, выданный за полный, означает применение
+  // ограничения там, где сервер его сознательно не применяет: отозванный
+  // аккаунт слился бы с живым однофамильцем, а его доступы переехали бы на
+  // живого. Проверяем на настоящей схеме, а не на модели.
+  const snapshot = await getSyncSchemaSnapshot();
+  // Снимок несёт только колонки, поэтому сверяем по НАБОРУ КОЛОНОК каждого
+  // частичного unique-индекса сервера: если такой набор в снимке есть и это не
+  // первичный ключ — клиент получил ограничение, которого сервер не применяет.
+  const partials = await pool.query<{ table_name: string; index_name: string; columns: string[] }>(
+    `SELECT t.relname AS table_name, i.relname AS index_name,
+            array_agg(a.attname ORDER BY x.n) AS columns
+       FROM pg_class t
+       JOIN pg_index ix ON t.oid = ix.indrelid
+       JOIN pg_class i ON i.oid = ix.indexrelid
+       JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, n) ON true
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+      WHERE ix.indisunique AND ix.indpred IS NOT NULL
+      GROUP BY t.relname, i.relname`,
+  );
+  const leaked = partials.rows.filter((p) =>
+    (snapshot.tables[p.table_name]?.uniqueConstraints ?? []).some(
+      (u) => !u.isPrimary && JSON.stringify([...u.columns].sort()) === JSON.stringify([...p.columns].sort()),
+    ),
+  );
+  check(
+    'ни один частичный unique не просочился в снимок',
+    leaked.map((l) => `${l.table_name}.${l.index_name}`),
+    [],
+  );
+  ok(
+    'частичные unique на сервере вообще есть (иначе проверка холостая)',
+    partials.rows.length > 0,
+    `найдено ${partials.rows.length}`,
+  );
+  check(
+    'у users в снимке не осталось unique по (login)',
+    (snapshot.tables['users']?.uniqueConstraints ?? []).some(
+      (u) => !u.isPrimary && u.columns.length === 1 && u.columns[0] === 'login',
+    ),
+    false,
+  );
+
+  // ---- 6. Передача логина: тумбстоун публикуется раньше нового владельца ---
+  console.log('\n== 6. Освобождение логина едет раньше его выдачи ==');
+  // Самый дорогой из возможных отказов: если новый владелец логина приедет
+  // раньше тумбстоуна прежнего, клиентский апсерт упрётся в частичный
+  // users_login_live_uq, applyPulledChanges бросит исключение, курсор не
+  // сдвинется — и машина перестанет синхронизироваться совсем, повторяя ту же
+  // страницу вечно. Порядок задаёт публикатор; SELECT без ORDER BY его не
+  // гарантирует, поэтому проверяем исполнением.
+  const donor = await one<{ id: string; login: string }>(
+    `SELECT id, login FROM users WHERE deleted_at IS NULL ORDER BY login DESC LIMIT 1`,
+  );
+  const loginDef = await one<{ id: string }>(
+    `SELECT ad.id FROM attribute_defs ad JOIN entity_types t ON t.id = ad.entity_type_id
+      WHERE t.code='employee' AND ad.code='login'`,
+  );
+  const heirEntity = await one<{ id: string }>(
+    `INSERT INTO entities (id, type_id, created_at, updated_at)
+     SELECT gen_random_uuid(), t.id, $1, $1 FROM entity_types t WHERE t.code='employee' RETURNING id`,
+    [ts],
+  );
+  // Снять логин у прежнего владельца — строка гасится тумбстоуном (0088).
+  await pool.query(`UPDATE attribute_values SET deleted_at=$3 WHERE entity_id=$1 AND attribute_def_id=$2`, [
+    donor!.id,
+    loginDef!.id,
+    ts,
+  ]);
+  // И сразу выдать освободившийся логин другому.
+  await pool.query(
+    `INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$5)`,
+    [randomUUID(), heirEntity!.id, loginDef!.id, JSON.stringify(donor!.login), ts + 3],
+  );
+
+  await runUsersSyncPublisherOnce();
+
+  const donorRow = await one<{ seq: string; deleted: string | null }>(
+    `SELECT last_server_seq::text AS seq, deleted_at::text AS deleted FROM users WHERE id=$1`,
+    [donor!.id],
+  );
+  const heirRow = await one<{ seq: string; login: string }>(
+    `SELECT last_server_seq::text AS seq, login FROM users WHERE id=$1`,
+    [heirEntity!.id],
+  );
+  ok('прежний владелец погашен тумбстоуном', donorRow?.deleted != null);
+  check('логин достался наследнику', heirRow?.login, donor!.login);
+  ok(
+    'seq тумбстоуна МЕНЬШЕ seq нового владельца',
+    Number(donorRow?.seq) < Number(heirRow?.seq),
+    `тумбстоун ${donorRow?.seq}, наследник ${heirRow?.seq}`,
   );
 
   console.log(failures === 0 ? '\nВСЁ ЗЕЛЁНОЕ' : `\nПРОВАЛОВ: ${failures}`);

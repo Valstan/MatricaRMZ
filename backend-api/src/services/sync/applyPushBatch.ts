@@ -1815,7 +1815,15 @@ export async function applyPushBatch(
               allowSyncConflicts: true,
             });
             if (rows.length > 0) {
-              await tx
+              // setWhere + RETURNING — защита от отката содержимого. Публикатор
+              // читает строку вне транзакции записи, поэтому между чтением и
+              // публикацией триггер мог собрать её заново (например, погасить
+              // access_enabled). Без этого условия свежая строка была бы
+              // перезаписана устаревшим снимком: фильтр устаревания её
+              // пропускает, потому что ledger-seq у публикации всегда новее.
+              // Заявка в outbox при этом остаётся (её ключ enqueued_at сменился),
+              // так что строка доедет следующим проходом — уже верным составом.
+              const written = await tx
                 .insert(users)
                 .values(
                   rows.map((r) => ({
@@ -1833,6 +1841,7 @@ export async function applyPushBatch(
                 )
                 .onConflictDoUpdate({
                   target: users.id,
+                  setWhere: sql`${users.updatedAt} <= excluded.updated_at`,
                   set: {
                     login: sql`excluded.login`,
                     systemRole: sql`excluded.system_role`,
@@ -1843,9 +1852,15 @@ export async function applyPushBatch(
                     deletedAt: sql`excluded.deleted_at`,
                     syncStatus: 'synced',
                   },
-                });
-              await updateSeqAndCollect(users, SyncTableName.Users, rows);
-              applied += rows.length;
+                })
+                .returning({ id: users.id });
+              // seq штампуется только тем строкам, которые ДЕЙСТВИТЕЛЬНО записаны:
+              // иначе строка получила бы номер ledger-транзакции, несущей другое
+              // содержимое, и ledger разошёлся бы с PG по составу.
+              const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+              const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+              await updateSeqAndCollect(users, SyncTableName.Users, stamped);
+              applied += stamped.length;
             }
           }
         }
@@ -1862,7 +1877,7 @@ export async function applyPushBatch(
               { allowSyncConflicts: true },
             );
             if (rows.length > 0) {
-              await tx
+              const written = await tx
                 .insert(userSectionAccess)
                 .values(
                   rows.map((r) => ({
@@ -1879,17 +1894,22 @@ export async function applyPushBatch(
                 // Конфликт по id, а не по паре (user_id, section_id): синк ключует
                 // строку по row_id, а пара уже закрыта своим UNIQUE — публикатор
                 // отдаёт ровно ту строку, что лежит в PG, с её собственным id.
+                // setWhere — та же защита от отката содержимого, что у users.
                 .onConflictDoUpdate({
                   target: userSectionAccess.id,
+                  setWhere: sql`${userSectionAccess.updatedAt} <= excluded.updated_at`,
                   set: {
                     level: sql`excluded.level`,
                     updatedAt: sql`excluded.updated_at`,
                     deletedAt: sql`excluded.deleted_at`,
                     syncStatus: 'synced',
                   },
-                });
-              await updateSeqAndCollect(userSectionAccess, SyncTableName.UserSectionAccess, rows);
-              applied += rows.length;
+                })
+                .returning({ id: userSectionAccess.id });
+              const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+              const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+              await updateSeqAndCollect(userSectionAccess, SyncTableName.UserSectionAccess, stamped);
+              applied += stamped.length;
             }
           }
         }

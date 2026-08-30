@@ -34,7 +34,7 @@ const BATCH_LIMIT = 200;
 
 const SYSTEM_ACTOR = { id: 'system', username: 'system', role: 'system' } as const;
 
-type OutboxRow = { rowId: string; tableName: string };
+type OutboxRow = { rowId: string; tableName: string; enqueuedAt: string };
 
 let running = false;
 let timer: NodeJS.Timeout | null = null;
@@ -99,27 +99,71 @@ async function enqueueSeqlessRows(): Promise<void> {
 }
 
 /**
- * Забирает пачку заявок «под себя»: SKIP LOCKED, чтобы одновременные проходы
- * (тик таймера и прогон приёмки) не растащили одну заявку на двоих.
+ * Порядок публикации задаёт порядок seq, а тот — порядок применения на клиенте.
+ *
+ * ТУМБСТОУНЫ ИДУТ РАНЬШЕ ЖИВЫХ СТРОК. Логин освобождается отзывом аккаунта и
+ * может быть выдан другому — сценарий штатный, 0086 его прямо разрешает. Если
+ * новый владелец логина приедет к клиенту раньше тумбстоуна прежнего, апсерт
+ * упрётся в частичный `users_login_live_uq`, applyPulledChanges бросит
+ * исключение, курсор не сдвинется — и машина перестанет синхронизироваться
+ * СОВСЕМ, повторяя ту же страницу вечно. Лечится только сносом локальной базы.
+ *
+ * Порядок SELECT'а такой гарантии не даёт: он зависит от плана запроса. Поэтому
+ * он задан здесь явно и проверяется юнит-тестом, а не наблюдением на живой базе,
+ * где нужный порядок может получиться случайно.
  */
-async function claimBatch(limit: number): Promise<OutboxRow[]> {
+export function orderRowsForPublication<T extends Record<string, unknown>>(rows: T[]): T[] {
+  const byAge = (a: T, b: T) =>
+    Number(a['updatedAt'] ?? 0) - Number(b['updatedAt'] ?? 0) || String(a['id']).localeCompare(String(b['id']));
+  const isTombstone = (r: T) => r['deletedAt'] != null;
+  return [...rows.filter(isTombstone).sort(byAge), ...rows.filter((r) => !isTombstone(r)).sort(byAge)];
+}
+
+/**
+ * Читает пачку заявок, НЕ удаляя их. Удаление — только после успешной публикации
+ * (`ackBatch`), и только если заявка с тех пор не переставлялась.
+ *
+ * Прежняя форма (DELETE ... RETURNING одной транзакцией до публикации) давала
+ * at-most-once: падение между claim и записью теряло изменение навсегда, а
+ * страховочный проход его не подбирал — он ищет строки БЕЗ seq, а у уже
+ * публиковавшейся строки seq есть, просто устаревший.
+ */
+async function takeBatch(limit: number): Promise<OutboxRow[]> {
   const res = await db.execute(sql`
-    delete from users_sync_outbox
-     where (row_id, table_name) in (
-       select row_id, table_name from users_sync_outbox
-        order by enqueued_at asc
-        limit ${limit}
-        for update skip locked
-     )
-    returning row_id, table_name
+    select row_id, table_name, enqueued_at
+      from users_sync_outbox
+     order by enqueued_at asc, row_id asc
+     limit ${limit}
   `);
   const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? (res as unknown as Array<Record<string, unknown>>);
-  return (rows ?? []).map((r) => ({ rowId: String(r['row_id']), tableName: String(r['table_name']) }));
+  return (rows ?? []).map((r) => ({
+    rowId: String(r['row_id']),
+    tableName: String(r['table_name']),
+    enqueuedAt: String(r['enqueued_at']),
+  }));
+}
+
+/**
+ * Снимает заявки ПО КЛЮЧУ (row_id, table_name, enqueued_at). Если триггер
+ * переставил заявку, пока шла публикация, её enqueued_at изменился — такая
+ * заявка переживает ack и будет опубликована следующим проходом уже свежим
+ * содержимым. Без этого правки, случившиеся во время публикации, терялись бы.
+ */
+async function ackBatch(claimed: OutboxRow[]): Promise<void> {
+  if (claimed.length === 0) return;
+  const tuples = sql.join(
+    claimed.map((c) => sql`(${c.rowId}::uuid, ${c.tableName}::text, ${c.enqueuedAt}::bigint)`),
+    sql`, `,
+  );
+  await db.execute(sql`
+    delete from users_sync_outbox
+     where (row_id, table_name, enqueued_at) in (${tuples})
+  `);
 }
 
 /** Один проход публикации. Возвращает число опубликованных строк. */
 export async function publishPendingUserRows(): Promise<number> {
-  const claimed = await claimBatch(BATCH_LIMIT);
+  const claimed = await takeBatch(BATCH_LIMIT);
   if (claimed.length === 0) return 0;
 
   const userIds = claimed.filter((c) => c.tableName === SyncTableName.Users).map((c) => c.rowId);
@@ -132,21 +176,27 @@ export async function publishPendingUserRows(): Promise<number> {
     ? await db.select().from(userSectionAccess).where(inArray(userSectionAccess.id, sectionIds as string[]))
     : [];
 
-  // Заявка на строку, которой в PG больше нет, просто исчезает вместе с заявкой:
-  // публиковать нечего, а тумбстоуны зеркало держит само (0088).
+  // Заявка на строку, которой в PG больше нет, просто снимается: публиковать
+  // нечего, а тумбстоуны зеркало держит само (0088).
   const inputs: SyncWriteInput[] = [
-    // Порядок обязателен: FK user_id -> users, и на клиенте чистка FK-сирот
-    // снесла бы доступы, приехавшие раньше своего аккаунта.
-    ...userRows.map((r) => toUserInput(r as Record<string, unknown>)),
-    ...sectionRows.map((r) => toSectionInput(r as Record<string, unknown>)),
+    // Аккаунты раньше доступов: FK user_id -> users, и клиентская чистка
+    // FK-сирот снесла бы доступы, приехавшие раньше своего аккаунта.
+    ...orderRowsForPublication(userRows as Array<Record<string, unknown>>).map(toUserInput),
+    ...orderRowsForPublication(sectionRows as Array<Record<string, unknown>>).map(toSectionInput),
   ];
-  if (inputs.length === 0) return 0;
 
-  // allowSyncConflicts: публикуем ТЕКУЩЕЕ содержимое строки из PG — это не
-  // клиентский пуш, конфликтовать не с чем; этот же флаг служит обработчику в
-  // applyPushBatch признаком серверной записи.
-  await writeSyncChanges(inputs, SYSTEM_ACTOR, { allowSyncConflicts: true });
-  return inputs.length;
+  if (inputs.length > 0) {
+    // allowSyncConflicts: публикуем ТЕКУЩЕЕ содержимое строки из PG — это не
+    // клиентский пуш, конфликтовать не с чем; этот же флаг служит обработчику в
+    // applyPushBatch признаком серверной записи.
+    await writeSyncChanges(inputs, SYSTEM_ACTOR, { allowSyncConflicts: true });
+  }
+  // Ack только после успешной записи: исключение выше оставляет заявки в очереди.
+  await ackBatch(claimed);
+  // Возвращаем число ОБРАБОТАННЫХ ЗАЯВОК, а не опубликованных строк: цикл в
+  // runUsersSyncPublisherOnce должен останавливаться на «заявок больше нет», а
+  // не на «публиковать было нечего» (заявка на исчезнувшую строку легальна).
+  return claimed.length;
 }
 
 /**
@@ -160,7 +210,13 @@ export async function runUsersSyncPublisherOnce(): Promise<number> {
   let total = 0;
   // Пачками, пока очередь не опустеет: разовый бэкфилл (0088) кладёт в неё
   // сразу все строки, и одним проходом их брать незачем.
-  for (;;) {
+  //
+  // Потолок итераций — страховка от бесконечного цикла: заявка, переставленная
+  // во время публикации, ack переживает намеренно, и при непрерывном потоке
+  // правок очередь могла бы не опустеть никогда. Недоделанное подберёт
+  // следующий тик; терять нечего, потому что заявки остаются в очереди.
+  const MAX_PASSES = 100;
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
     const n = await publishPendingUserRows();
     total += n;
     if (n === 0) break;
@@ -173,7 +229,7 @@ async function tick(): Promise<void> {
   running = true;
   try {
     const total = await runUsersSyncPublisherOnce();
-    if (total > 0) logInfo('users mirror published', { rows: total });
+    if (total > 0) logInfo('users mirror published', { claims: total });
   } catch (e) {
     logError('users mirror publish failed', { error: String(e) });
   } finally {
