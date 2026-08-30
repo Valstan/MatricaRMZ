@@ -101,6 +101,19 @@ function normalizeRow(table: SyncTableName, row: Record<string, unknown>) {
     case SyncTableName.ErpRegStockBalance:
     case SyncTableName.ErpRegStockMovements:
       return base;
+    // B3/R3. Без своих case'ов эти таблицы молча выпали бы из DR-восстановления:
+    // switch без default отдаёт undefined, а вызывающий фильтр выбрасывает такие
+    // строки — база восстановилась бы без аккаунтов и без доступов, и узнали бы
+    // мы об этом ровно в тот момент, когда восстановление понадобилось.
+    // Проверяем ровно NOT NULL-колонки 0086: неполная строка должна отсеяться
+    // здесь, а не упасть на вставке.
+    case SyncTableName.Users:
+      if (!(base as any).login || !(base as any).system_role) return null;
+      if ((base as any).access_enabled == null) (base as any).access_enabled = false;
+      return base;
+    case SyncTableName.UserSectionAccess:
+      if (!(base as any).user_id || !(base as any).section_id || !(base as any).level) return null;
+      return base;
   }
 }
 

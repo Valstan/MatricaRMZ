@@ -37,7 +37,11 @@ export const LedgerTableName = {
   ErpRegContractSettlement: 'erp_reg_contract_settlement',
   ErpRegEmployeeAccess: 'erp_reg_employee_access',
   ErpJournalDocuments: 'erp_journal_documents',
+  // 'users' — легаси-имя от таблицы, снесённой миграцией 0072; с B3/R3 его
+  // переиспользует строгая таблица аккаунтов (новое имя не заводим, иначе в
+  // enum'е окажутся два имени одной таблицы).
   Users: 'users',
+  UserSectionAccess: 'user_section_access',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',
@@ -132,6 +136,7 @@ export function emptyLedgerState(): LedgerState {
       erp_reg_employee_access: {},
       erp_journal_documents: {},
       users: {},
+      user_section_access: {},
       permissions: {},
       user_permissions: {},
       permission_delegations: {},

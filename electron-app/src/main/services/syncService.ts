@@ -49,10 +49,13 @@ import {
   aiChatRequests,
   operations,
   userPresence,
+  users,
+  userSectionAccess,
 } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
+import { buildOrphanCleanupSql } from './sync/repairSql.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
@@ -567,12 +570,17 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       if (!refInfo || refInfo.length === 0) continue;
       const refColNames = new Set(refInfo.map((c) => c.name));
       if (!refColNames.has(fk.refColumn)) continue;
-      const orphanSql = `DELETE FROM ${quoteIdent(table)}
-        WHERE ${quoteIdent(fk.column)} IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM ${quoteIdent(fk.refTable)}
-            WHERE ${quoteIdent(fk.refTable)}.${quoteIdent(fk.refColumn)} = ${quoteIdent(table)}.${quoteIdent(fk.column)}
-          )${pendingGuard}`;
+      // Форма запроса вынесена в sync/repairSql.ts и покрыта тестом: на
+      // самоссылке (users.delete_requested_by -> users.id, первая такая в
+      // контракте) без псевдонима родителя он сносил бы КАЖДУЮ строку с
+      // непустым FK. См. комментарий там.
+      const orphanSql = buildOrphanCleanupSql({
+        table,
+        column: fk.column,
+        refTable: fk.refTable,
+        refColumn: fk.refColumn,
+        pendingGuard,
+      });
       const resFk = await sqlite.run(orphanSql);
       const droppedFk = Number(resFk?.changes ?? 0);
       if (droppedFk > 0) logSync(`repair ${table} orphan fk=${fk.column}->${fk.refTable}.${fk.refColumn} dropped=${droppedFk}`);
@@ -585,6 +593,12 @@ async function clearLocalSyncTablesForFullPull(db: BetterSQLite3Database) {
   // keep stale IDs from old corrupted states.
   await db.delete(chatReads);
   await db.delete(noteShares);
+  // B3/R3, child -> parent. Чистка обязательна именно для реплики аккаунтов:
+  // холодный снапшот отдаёт только живые строки (тумбстоуны в него не попадают),
+  // поэтому без предварительной очистки отозванный или переименованный аккаунт
+  // пережил бы полный pull и продолжал открывать разделы офлайн.
+  await db.delete(userSectionAccess);
+  await db.delete(users);
   await db.delete(attributeValues);
   await db.delete(operations);
   await db.delete(userPresence);
@@ -1628,6 +1642,8 @@ async function applyPulledChanges(
     [SyncTableName.ErpEngineInstances]: [],
     [SyncTableName.ErpRegStockBalance]: [],
     [SyncTableName.ErpRegStockMovements]: [],
+    [SyncTableName.Users]: [],
+    [SyncTableName.UserSectionAccess]: [],
   };
   const warehouseNomenclatureRows: any[] = [];
   const warehouseBalanceRows: any[] = [];
@@ -1860,6 +1876,46 @@ async function applyPulledChanges(
           });
         }
         break;
+      // B3/R3 — реплика аккаунтов. Ветки обязательны: у switch НЕТ `default`,
+      // и таблица без case не даёт ошибки — её строки просто исчезают (живое
+      // доказательство в этом же файле: erpEngineInstances не упомянут здесь ни
+      // разу, хотя сервер их отдаёт).
+      case SyncTableName.Users:
+        {
+          const payload = payloadRaw;
+          groups.users.push({
+            id: payload.id,
+            login: payload.login,
+            systemRole: payload.system_role,
+            // Сервер отдаёт boolean, SQLite хранит 0/1 — приводим явно, иначе
+            // строковый 'false' стал бы истиной.
+            accessEnabled: payload.access_enabled === true || payload.access_enabled === 1,
+            deleteRequestedAt: payload.delete_requested_at ?? null,
+            deleteRequestedBy: payload.delete_requested_by ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.UserSectionAccess:
+        {
+          const payload = payloadRaw;
+          groups.user_section_access.push({
+            id: payload.id,
+            userId: payload.user_id,
+            sectionId: payload.section_id,
+            level: payload.level,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
       case SyncTableName.UserPresence:
         {
           const payload = payloadRaw;
@@ -2040,6 +2096,8 @@ async function applyPulledChanges(
   groups.notes = dedupById(groups.notes);
   groups.note_shares = dedupById(groups.note_shares);
   groups.user_presence = dedupById(groups.user_presence);
+  groups.users = dedupById(groups.users);
+  groups.user_section_access = dedupById(groups.user_section_access);
   groups[SyncTableName.ErpEngineAssemblyBom] = dedupById(groups[SyncTableName.ErpEngineAssemblyBom]);
   groups[SyncTableName.ErpEngineAssemblyBomLines] = dedupById(groups[SyncTableName.ErpEngineAssemblyBomLines]);
   groups[SyncTableName.ErpEngineAssemblyBomBrandLinks] = dedupById(
@@ -2546,6 +2604,36 @@ async function applyPulledChanges(
       recipientUserId: sql`excluded.recipient_user_id`,
       hidden: sql`excluded.hidden`,
       sortOrder: sql`excluded.sort_order`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // B3/R3. Порядок обязателен: аккаунты раньше доступов. `repairLocalSyncTables`
+  // чистит FK-сирот и снесла бы доступы, приехавшие раньше своего аккаунта.
+  if (groups.users.length > 0) {
+    emitApply(SyncTableName.Users, groups.users.length);
+    await upsertPulledRowsInChunks(db, users, groups.users, users.id, {
+      login: sql`excluded.login`,
+      systemRole: sql`excluded.system_role`,
+      accessEnabled: sql`excluded.access_enabled`,
+      deleteRequestedAt: sql`excluded.delete_requested_at`,
+      deleteRequestedBy: sql`excluded.delete_requested_by`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.user_section_access.length > 0) {
+    emitApply(SyncTableName.UserSectionAccess, groups.user_section_access.length);
+    await upsertPulledRowsInChunks(db, userSectionAccess, groups.user_section_access, userSectionAccess.id, {
+      userId: sql`excluded.user_id`,
+      sectionId: sql`excluded.section_id`,
+      level: sql`excluded.level`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

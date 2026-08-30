@@ -22,6 +22,13 @@ export const SyncTableName = {
   ErpEngineInstances: 'erp_engine_instances',
   ErpRegStockBalance: 'erp_reg_stock_balance',
   ErpRegStockMovements: 'erp_reg_stock_movements',
+  // B3/R3: аккаунты и доступы по разделам. Обе — server-write / pull-only:
+  // клиент их только читает (офлайн-гейт разделов), а любая клиентская запись
+  // отбивается табличным backstop'ом в ledgerAuthzGuard. Секрет (user_credentials)
+  // и настройки (user_settings) в контракт НЕ входят — это свойство конструкции,
+  // а не фильтр, и его стережёт usersStrictContract.guard.test.ts.
+  Users: 'users',
+  UserSectionAccess: 'user_section_access',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

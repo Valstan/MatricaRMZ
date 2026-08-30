@@ -37,6 +37,8 @@ import {
   aiChatRequests,
   operations,
   userPresence,
+  users,
+  userSectionAccess,
 } from '../../database/schema.js';
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
 import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
@@ -77,6 +79,18 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpEngineInstances]: {
     drizzle: erpEngineInstances,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInstances, r),
+  },
+  // B3/R3. Видимость решена ЯВНО, а не унаследована: обе таблицы раздаются всем
+  // ролям целиком и в PRIVACY_TABLES не входят. Это паритет с сегодняшним днём —
+  // login / system_role / access_enabled / section_access уже сейчас уезжают на
+  // каждую машину парка через attribute_values (они намеренно не в
+  // HR_SENSITIVE_CODES, см. шапку pullReadFilter.ts). Сузить нельзя и по делу:
+  // офлайн-гейт разделов обязан работать на КАЖДОЙ машине, а не только у админов,
+  // и ему нужна политика целиком, а не своя строка.
+  [SyncTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
+  [SyncTableName.UserSectionAccess]: {
+    drizzle: userSectionAccess,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserSectionAccess, r),
   },
 };
 

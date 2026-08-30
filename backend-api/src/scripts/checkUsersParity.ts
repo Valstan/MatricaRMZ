@@ -186,9 +186,14 @@ async function main() {
     const login = (parseEavText(rec.attrs.get('login') ?? null) ?? '').trim().toLowerCase();
     const row = usersById.get(entityId);
 
-    // Карточка без логина — аккаунта быть НЕ должно.
+    // Карточка без логина — ЖИВОГО аккаунта быть не должно. Тумбстоун допустим и
+    // обязателен: с B3/R3 снятие логина гасит строку, а не сносит (0088). Иначе
+    // снятый аккаунт остался бы жить в реплике каждой машины парка — клиент
+    // применяет pull только апсертами и строк, которых нет в ответе, не удаляет.
     if (login === '') {
-      if (row) mismatches.push({ entityId, kind: 'users:строка есть, а логина в EAV нет', expected: null, actual: row.login });
+      if (row && row.deleted_at == null) {
+        mismatches.push({ entityId, kind: 'users:живая строка есть, а логина в EAV нет', expected: null, actual: row.login });
+      }
       continue;
     }
 

@@ -47,6 +47,8 @@ import {
   operations,
   syncState,
   userPresence,
+  users,
+  userSectionAccess,
 } from '../database/schema.js';
 
 export const ledgerRouter = Router();
@@ -394,6 +396,15 @@ const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Reco
       performed_by: r.performedBy ?? null,
       created_at: Number(r.createdAt),
     }),
+  },
+  // B3/R3 — вторая карта. Держать синхронной с pullChangesSince.ts: дрейф этих
+  // двух карт уже стоил `erp_engine_instances` (шрам двумя блоками выше), а тут
+  // цена дрейфа — пустая реплика аккаунтов на холодном старте и офлайн-гейт,
+  // закрывший доступ всем. Совпадение карт стережёт pgSyncMaps.guard.test.ts.
+  [LedgerTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
+  [LedgerTableName.UserSectionAccess]: {
+    drizzle: userSectionAccess,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserSectionAccess, r),
   },
 };
 

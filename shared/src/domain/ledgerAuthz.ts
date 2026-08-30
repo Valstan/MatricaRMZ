@@ -54,6 +54,29 @@ export function isServerOnlyAttrCode(attrCode: string | null | undefined): boole
   return SERVER_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
 }
 
+// Тот же запрет, но по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
+//
+// Backstop выше сидит на attribute_values и на строгие таблицы не
+// распространяется. Как только users входит в sync-контракт, без этого списка
+// любой авторизованный клиент крафтит ledger-tx `upsert users {id: <свой>,
+// system_role:'superadmin', access_enabled:true}` — эскалация одной строкой.
+// Записи в TABLE_REQUIREMENT недостаточно: для НЕ-operator ролей (admin,
+// легаси `user`, pending, employee) гейт requirement'ов обходится целиком
+// (ledgerAuthzGuard: `if (!operatorScoped) { allowed.push(inp); continue; }`).
+// Поэтому запрет — отдельный, безусловный, ДО ветки operatorScoped.
+//
+// Запись в эти таблицы идёт только серверными дверьми (setEmployeeAuth /
+// setEmployeeSectionAccess) и публикатором зеркала; ни одна из них через
+// клиентский путь пуша не проходит.
+export const SERVER_MANAGED_SYNC_TABLES: ReadonlySet<string> = new Set([
+  SyncTableName.Users,
+  SyncTableName.UserSectionAccess,
+]);
+
+export function isServerManagedSyncTable(table: string | null | undefined): boolean {
+  return SERVER_MANAGED_SYNC_TABLES.has((table ?? '').trim());
+}
+
 // Employee attrs that ONLY the superadmin may write from a client (owner decision
 // 2026-07-26: управление доступами — в одних руках). Not in the server-only list
 // because the superadmin's own client legitimately writes them (AccessSectionsPage /
@@ -141,6 +164,12 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.ErpEngineAssemblyBomLines]: { kind: 'permission', code: PermissionCode.MasterDataEdit },
   [SyncTableName.ErpEngineAssemblyBomBrandLinks]: { kind: 'permission', code: PermissionCode.MasterDataEdit },
   [SyncTableName.ErpEngineInstances]: { kind: 'permission', code: PermissionCode.EnginesEdit },
+  // B3/R3 — вторая линия к безусловному табличному backstop'у выше. Сам по себе
+  // 'superadmin' здесь не защищает (для не-operator ролей гейт обходится), но
+  // оставляет верный ответ, если backstop когда-нибудь снимут: fail-open от
+  // `?? { kind: 'open' }` для этих таблиц недопустим.
+  [SyncTableName.Users]: { kind: 'superadmin' },
+  [SyncTableName.UserSectionAccess]: { kind: 'superadmin' },
 };
 
 /**

@@ -12,6 +12,7 @@ import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
+import { startUsersSyncPublisher } from './services/sync/usersSyncPublisherService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startEngineDedupeJob } from './services/engineDedupeService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
@@ -95,6 +96,9 @@ async function bootstrap() {
     startAuditStatisticsScheduler();
     startAiAgentChatLearningService();
     startSyncPipelineSupervisorService();
+    // B3/R3: зеркало аккаунтов получает seq только здесь — без публикатора
+    // строки users/user_section_access не приезжают инкрементальным pull'ом.
+    startUsersSyncPublisher();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();
     startAiChatDirectWorker();

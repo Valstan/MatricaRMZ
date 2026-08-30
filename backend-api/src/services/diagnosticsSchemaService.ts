@@ -103,6 +103,19 @@ export async function getSyncSchemaSnapshot(): Promise<SyncSchemaSnapshot> {
       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
       WHERE t.relname = ANY($1)
         AND ix.indisunique = true
+        -- ЧАСТИЧНЫЕ unique сюда не попадают, и это принципиально. Снимок едет на
+        -- клиент, где repairLocalSyncTables по нему СХЛОПЫВАЕТ дубли: оставляет
+        -- одну строку, переписывает на неё чужие ссылки, остальные удаляет. Для
+        -- частичного индекса это означает применение ограничения там, где сервер
+        -- его сознательно НЕ применяет.
+        -- Живые примеры на сегодня: erp_nomenclature_code_uq
+        -- (WHERE deleted_at IS NULL AND code <> '' — пустой артикул легален и
+        -- повторяем, это конвенция «артикула нет») и users_login_live_uq
+        -- (WHERE deleted_at IS NULL — логин освобождается при отзыве аккаунта).
+        -- Без этого условия ремонт реплики сливал бы разные номенклатуры с
+        -- пустым артикулом в одну, а отозванный аккаунт — с живым однофамильцем,
+        -- перенося доступы мёртвого на живого. Молча и на каждой машине парка.
+        AND ix.indpred IS NULL
       GROUP BY t.relname, i.relname, ix.indisprimary
       ORDER BY t.relname, i.relname
     `,

@@ -20,10 +20,9 @@ const DEFAULT_SCHEMA = 'public';
  * Список обязан оставаться узким и временным: как только таблица войдёт в
  * SyncTableName, запись отсюда надо убрать — за этим следит проверка ниже.
  */
-export const SYNC_COLUMNS_PENDING_CONTRACT: Readonly<Record<string, string>> = {
-  users: 'B3/R3 — аккаунты входят в контракт вместе с user_section_access',
-  user_section_access: 'B3/R3 — вместе с users',
-};
+// Пусто с B3/R3: users и user_section_access вошли в контракт, и их записи
+// отсюда сняты тем же PR. Ожидающих таблиц сейчас нет.
+export const SYNC_COLUMNS_PENDING_CONTRACT: Readonly<Record<string, string>> = {};
 
 function guardMode() {
   const raw = String(process.env.MATRICA_SYNC_GUARD ?? 'warn').toLowerCase();

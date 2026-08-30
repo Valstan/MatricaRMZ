@@ -62,6 +62,11 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.NoteShares]: noteShares,
   [SyncTableName.CardDrafts]: cardDrafts,
   [SyncTableName.AiChatRequests]: aiChatRequests,
+  // pull-only: клиент в них не пишет, значит и чинить нечего (recovery помечает
+  // ошибочные pending-строки собственного пуша). undefined здесь — решение, а не
+  // забывчивость: карта объявлена Record<SyncTableName, …>, пропуск не собрался бы.
+  [SyncTableName.Users]: undefined,
+  [SyncTableName.UserSectionAccess]: undefined,
   [SyncTableName.ErpNomenclature]: undefined,
   [SyncTableName.ErpEngineAssemblyBom]: undefined,
   [SyncTableName.ErpEngineAssemblyBomLines]: undefined,

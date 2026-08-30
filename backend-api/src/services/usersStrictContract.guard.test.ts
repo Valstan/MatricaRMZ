@@ -31,13 +31,19 @@ describe('B3: серверные таблицы не входят в sync-кон
     expect(SYNC_TABLES).not.toContain('user_settings');
   });
 
-  // users и user_section_access входят в контракт на R3 — осознанным шагом, с
-  // правкой реестра, DTO, ledger-enum и ОБЕИХ клиентских цепочек миграций.
-  // Пока их там нет, и случайное добавление должно упереться в этот тест: он
-  // заставит автора прочитать список требований R3, а не просто дописать строку.
-  it('users и user_section_access ещё не в контракте (входят на R3)', () => {
-    expect(SYNC_TABLES).not.toContain('users');
-    expect(SYNC_TABLES).not.toContain('user_section_access');
+  // R3 состоялся: обе таблицы В контракте. Барьер снят осознанно — вместе с
+  // реестром, DTO, ledger-enum, обеими PG-картами и путём выдачи seq. Проверка
+  // осталась, но перевёрнута: она стережёт, чтобы контракт не потерял их назад
+  // (без users реплика пуста, и офлайн-гейт разделов схлопывается в fail-open).
+  it('users и user_section_access входят в контракт (B3/R3)', () => {
+    expect(SYNC_TABLES).toContain('users');
+    expect(SYNC_TABLES).toContain('user_section_access');
+  });
+
+  // Ровно то, ради чего барьер и стоял: соседняя строка в контракте — не та.
+  it('в контракт вошли ИМЕННО две таблицы, а не соседние по смыслу', () => {
+    const usersFamily = SYNC_TABLES.filter((t) => t.startsWith('user'));
+    expect(usersFamily.sort()).toEqual(['user_presence', 'user_section_access', 'users']);
   });
 
   it('access_sections — серверный каталог-якорь, в контракте ему делать нечего', () => {
@@ -67,8 +73,8 @@ describe('B3: список ожидания sync-контракта не под�
   // заранее. Опасность очевидна: он же может тихо гасить настоящую ошибку, если
   // таблицу туда впишут и забудут. Поэтому два инварианта.
 
-  it('содержит ровно те таблицы, которые вошли с B3/R1, и ничего сверх', () => {
-    expect(Object.keys(SYNC_COLUMNS_PENDING_CONTRACT).sort()).toEqual(['user_section_access', 'users']);
+  it('пуст: с B3/R3 ожидающих таблиц не осталось', () => {
+    expect(Object.keys(SYNC_COLUMNS_PENDING_CONTRACT).sort()).toEqual([]);
   });
 
   it('ни одна запись списка не пересекается с самим контрактом', () => {

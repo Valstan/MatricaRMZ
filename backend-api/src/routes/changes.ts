@@ -283,6 +283,8 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.ErpEngineInstances]: 'Экземпляры двигателей',
       [SyncTableName.ErpRegStockBalance]: 'Остатки склада',
       [SyncTableName.ErpRegStockMovements]: 'Движения склада',
+      [SyncTableName.Users]: 'Учётные записи',
+      [SyncTableName.UserSectionAccess]: 'Доступы по разделам',
       file_assets: 'Файлы',
     };
 

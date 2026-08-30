@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { isServerOnlyAttrCode, isSuperadminOnlyAttrCode, ledgerWriteRequirement, operatorMeetsRequirement } from './ledgerAuthz.js';
+import {
+  isServerManagedSyncTable,
+  isServerOnlyAttrCode,
+  isSuperadminOnlyAttrCode,
+  ledgerWriteRequirement,
+  operatorMeetsRequirement,
+} from './ledgerAuthz.js';
 import { PermissionCode, operatorRolePermissions } from './permissions.js';
 import { SyncTableName } from '../sync/tables.js';
 
@@ -209,5 +215,42 @@ describe('presets satisfy their own area through the gate', () => {
     const perms = operatorRolePermissions('engineer')!;
     const req = ledgerWriteRequirement({ table: ATTRS, entityTypeCode: 'employee' });
     expect(operatorMeetsRequirement(req, { perms, actorId: 'self', ownerEntityId: 'self' })).toBe(true);
+  });
+});
+
+describe('B3/R3 — строгие таблицы аккаунтов закрыты для клиентской записи', () => {
+  // Хвост ledgerWriteRequirement — `?? { kind: 'open' }`: НЕизвестная таблица
+  // падает OPEN. Как только users вошла в контракт, отсутствие записи означало
+  // бы, что любой авторизованный клиент крафтит ledger-tx
+  // `upsert users {id: <свой>, system_role:'superadmin', access_enabled:true}` —
+  // эскалация привилегий одной строкой пуша.
+  const TABLES = [SyncTableName.Users, SyncTableName.UserSectionAccess];
+
+  it('ни одна из них не даёт open', () => {
+    for (const table of TABLES) {
+      expect(ledgerWriteRequirement({ table }).kind, table).not.toBe('open');
+    }
+  });
+
+  it('ни одна операторская роль их не удовлетворяет', () => {
+    for (const table of TABLES) {
+      const req = ledgerWriteRequirement({ table });
+      for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
+        const perms = operatorRolePermissions(role)!;
+        expect(operatorMeetsRequirement(req, { perms, actorId: 'self', ownerEntityId: 'self' }), `${role}/${table}`).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  it('они помечены server-managed — это то, чем их режет backstop до ветки operatorScoped', () => {
+    // Именно этот список, а не requirement, закрывает admin / легаси `user` /
+    // pending / employee: для них гейт requirement'ов обходится целиком.
+    for (const table of TABLES) {
+      expect(isServerManagedSyncTable(table), table).toBe(true);
+    }
+    expect(isServerManagedSyncTable(SyncTableName.AttributeValues)).toBe(false);
+    expect(isServerManagedSyncTable('user_credentials')).toBe(false);
   });
 });

@@ -27,6 +27,8 @@ import {
   noteShareRowSchema,
   cardDraftRowSchema,
   aiChatRequestRowSchema,
+  userRowSchema,
+  userSectionAccessRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
@@ -301,6 +303,20 @@ const ERP_STOCK_MOVEMENT_FIELDS: readonly FieldMapping[] = [
   { db: 'createdAt', dto: 'created_at' },
 ] as const;
 
+const USER_FIELDS = withBase(
+  { db: 'login', dto: 'login' },
+  { db: 'systemRole', dto: 'system_role' },
+  { db: 'accessEnabled', dto: 'access_enabled' },
+  { db: 'deleteRequestedAt', dto: 'delete_requested_at' },
+  { db: 'deleteRequestedBy', dto: 'delete_requested_by' },
+);
+
+const USER_SECTION_ACCESS_FIELDS = withBase(
+  { db: 'userId', dto: 'user_id' },
+  { db: 'sectionId', dto: 'section_id' },
+  { db: 'level', dto: 'level' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -465,6 +481,27 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_STOCK_MOVEMENT_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.ErpNomenclature],
+  },
+  // B3/R3. conflictTarget у доступов — ['id'], НЕ ['userId','sectionId']: синк
+  // ключует строку по row_id (0086 §доступы). dependsOn задаёт и порядок таблиц
+  // в холодном full-state: доступы обязаны ехать ПОСЛЕ аккаунтов, иначе
+  // клиентская чистка FK-сирот снесёт их как строки без родителя.
+  // users НЕ зависит от entities: FK на entities в 0086 сознательно нет.
+  {
+    syncName: SyncTableName.Users,
+    ledgerName: SyncTableName.Users,
+    schema: userRowSchema,
+    fields: USER_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.UserSectionAccess,
+    ledgerName: SyncTableName.UserSectionAccess,
+    schema: userSectionAccessRowSchema,
+    fields: USER_SECTION_ACCESS_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.Users],
   },
 ] as const;
 
