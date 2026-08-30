@@ -5,10 +5,85 @@
 // на эдже — memory anthropic-geo-block, поэтому дефолт именно deepseek).
 import Anthropic from '@anthropic-ai/sdk';
 
+import { logInfo } from '../../utils/logger.js';
+
 const DEEPSEEK_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
 
 /** Потолок обращений к инструментам за один ответ — защита от бесконечного цикла. */
 const MAX_TOOL_STEPS = 12;
+
+/**
+ * DeepSeek кэширует ПРЕФИКС запроса сам, включать нечего (R29, мандат владельца 30.08).
+ * Совпало начало запроса с недавним — эта часть тарифицируется кратно дешевле. Порядок
+ * рендера: tools → system → messages, поэтому любая переменная величина (дата, id, память
+ * пользователя) в начале обнуляет кэш всего запроса, а смена состава `tools` — тоже.
+ *
+ * Замер на проде 2026-08-30 (`deepseek-v4-flash`, Anthropic-совместимый эндпойнт):
+ * повтор с тем же префиксом — `input_tokens` 1756 → 91 при `cache_read_input_tokens` 1664;
+ * дата первой строкой system — `cache_read_input_tokens` 0 при том же тексте ниже.
+ *
+ * Имена полей — anthropic'овские: `cache_read_input_tokens` (это и есть «hit») и
+ * `cache_creation_input_tokens`. Нативных `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`
+ * на этом эндпойнте НЕТ (они есть только у `api.deepseek.com/chat/completions`), и
+ * `input_tokens` здесь — уже только несовпавшая часть, а не весь вход.
+ */
+type LlmRawUsage = {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+};
+
+export type LlmCallUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+};
+
+const EMPTY_USAGE: LlmCallUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+};
+
+/**
+ * Пишет расход и попадание в кэш по КАЖДОМУ http-вызову: иначе эффект любой правки
+ * префикса нечем измерить, а стабильный ноль в `cacheRead` — сигнал, что префикс сломан.
+ * `critical: true` обязателен — в прод-режиме `logInfo` без него не печатается вовсе.
+ */
+function trackUsage(scope: string, model: string, phase: string, raw: LlmRawUsage | null | undefined): LlmCallUsage {
+  const usage: LlmCallUsage = {
+    inputTokens: raw?.input_tokens ?? 0,
+    outputTokens: raw?.output_tokens ?? 0,
+    cacheReadTokens: raw?.cache_read_input_tokens ?? 0,
+    cacheCreationTokens: raw?.cache_creation_input_tokens ?? 0,
+  };
+  const prompt = usage.inputTokens + usage.cacheReadTokens;
+  logInfo(
+    'llm usage',
+    {
+      scope,
+      model,
+      phase,
+      input: usage.inputTokens,
+      output: usage.outputTokens,
+      cacheRead: usage.cacheReadTokens,
+      cacheCreation: usage.cacheCreationTokens,
+      hitPct: prompt > 0 ? Math.round((usage.cacheReadTokens / prompt) * 100) : 0,
+    },
+    { critical: true },
+  );
+  return usage;
+}
+
+function addUsage(acc: LlmCallUsage, one: LlmCallUsage): void {
+  acc.inputTokens += one.inputTokens;
+  acc.outputTokens += one.outputTokens;
+  acc.cacheReadTokens += one.cacheReadTokens;
+  acc.cacheCreationTokens += one.cacheCreationTokens;
+}
 
 let cachedClient: Anthropic | null = null;
 let missingKeyWarned = false;
@@ -69,6 +144,8 @@ export async function callLlm(args: {
   model: string;
   system: string;
   user: string;
+  /** Кто зовёт — попадает в строку `llm usage`, чтобы hit/miss читались по модулям. */
+  scope?: string;
   options?: CallLlmOptions;
 }): Promise<string> {
   const client = getClient();
@@ -86,6 +163,7 @@ export async function callLlm(args: {
       },
       { signal: ac.signal },
     );
+    trackUsage(args.scope ?? 'llm', args.model, 'single', resp.usage);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -123,6 +201,8 @@ export async function callLlmJson<T = unknown>(args: {
   toolName: string;
   toolDescription: string;
   schema: { properties: Record<string, JsonSchemaProperty>; required?: string[] };
+  /** Кто зовёт — попадает в строку `llm usage`, чтобы hit/miss читались по модулям. */
+  scope?: string;
   options?: CallLlmOptions;
 }): Promise<T | null> {
   const client = getClient();
@@ -130,12 +210,14 @@ export async function callLlmJson<T = unknown>(args: {
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   const forcesTool = getLlmProvider() !== 'deepseek';
+  // System собирается ОДИН раз на обе попытки: если бы приписка появлялась только в
+  // откате, повторный запрос уходил бы с другим префиксом и терял кэш целиком. Просьба
+  // словами безвредна и там, где инструмент принуждается параметром.
+  const system = `${args.system}\n\nОтвет верни единственным вызовом инструмента ${args.toolName} — обычным текстом не отвечай.`;
   const request = (forceTool: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
     model: args.model,
     max_tokens: args.options?.maxTokens ?? 1024,
-    system: forceTool
-      ? args.system
-      : `${args.system}\n\nОтвет верни единственным вызовом инструмента ${args.toolName} — обычным текстом не отвечай.`,
+    system,
     tools: [
       {
         name: args.toolName,
@@ -159,6 +241,7 @@ export async function callLlmJson<T = unknown>(args: {
         if (!forcesTool || !isThinkingToolChoiceError(err)) throw err;
         return client.messages.create(request(false), { signal: ac.signal });
       });
+    trackUsage(args.scope ?? 'llm', args.model, 'json', resp.usage);
     const toolUse = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (!toolUse) return null;
     return toolUse.input as T;
@@ -204,6 +287,9 @@ export type LlmWithToolsResult = {
   steps: number;
   inputTokens: number;
   outputTokens: number;
+  /** Сколько входных токенов пришло из префикс-кэша — суммарно по всем шагам ответа. */
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   /** Причина остановки последнего вызова — нужна логам, когда текста нет. */
   stopReason: string | null;
 };
@@ -232,8 +318,12 @@ function appendFinalInstruction(messages: Anthropic.MessageParam[]): void {
 export type SystemBlock =
   | { type: 'text'; text: string; cacheable?: boolean };
 
-function toSystemParam(blocks: SystemBlock[]): string | Anthropic.TextBlockParam[] {
-  if (blocks.length === 1 && !blocks[0]?.cacheable) return blocks[0]?.text ?? '';
+/**
+ * Всегда массив блоков. Прежде форма зависела от их числа (один блок без метки уходил
+ * голой строкой), а число блоков у движков плавает от наличия правил в БД — то есть
+ * сериализация запроса менялась сама собой и рвала префикс на ровном месте.
+ */
+function toSystemParam(blocks: SystemBlock[]): Anthropic.TextBlockParam[] {
   return blocks.map<Anthropic.TextBlockParam>((b) => ({
     type: 'text',
     text: b.text,
@@ -248,6 +338,8 @@ export async function callLlmWithTools(args: {
   tools: LlmToolDef[];
   executeTool: (toolUse: LlmToolUse) => Promise<{ content: string; isError?: boolean }>;
   maxSteps?: number;
+  /** Кто зовёт — попадает в строку `llm usage`, чтобы hit/miss читались по модулям. */
+  scope?: string;
   options?: CallLlmOptions;
 }): Promise<LlmWithToolsResult> {
   const client = getClient();
@@ -255,12 +347,12 @@ export async function callLlmWithTools(args: {
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, MAX_TOOL_STEPS));
+  const scope = args.scope ?? 'llm';
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: args.userMessage },
   ];
   const allToolUses: LlmToolUse[] = [];
-  let inputTokens = 0;
-  let outputTokens = 0;
+  const usage: LlmCallUsage = { ...EMPTY_USAGE };
   let lastText = '';
   try {
     for (let step = 1; step <= maxSteps; step++) {
@@ -275,8 +367,7 @@ export async function callLlmWithTools(args: {
         },
         { signal: ac.signal },
       );
-      inputTokens += resp.usage?.input_tokens ?? 0;
-      outputTokens += resp.usage?.output_tokens ?? 0;
+      addUsage(usage, trackUsage(scope, args.model, `step${step}`, resp.usage));
       const toolUseBlocks = resp.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
@@ -290,8 +381,10 @@ export async function callLlmWithTools(args: {
           text: stepText,
           toolUses: allToolUses,
           steps: step,
-          inputTokens,
-          outputTokens,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheCreationTokens: usage.cacheCreationTokens,
           stopReason: resp.stop_reason,
         };
       }
@@ -322,6 +415,13 @@ export async function callLlmWithTools(args: {
     // их звать, несмотря на текстовую инструкцию — на проде 2026-08-12 так сгорел весь
     // потолок токенов (22 вызова, `stop_reason: max_tokens`, ни строчки текста), и вопрос
     // владельца ушёл в эскалацию как технический сбой. Без тулов ответить нечем, кроме текста.
+    //
+    // Цена по кэшу измерена и признана приемлемой (проба на проде 2026-08-30): запрос без
+    // `tools` рендерится иначе и в кэш шагов цикла не попадает — но попадает в СВОЙ кэш,
+    // общий со всеми прочими финальными вызовами, пока system стабилен. `tool_choice:
+    // {type:'none'}` эндпойнт принимает, однако рендерит запрос ровно как «без тулов»
+    // (`input=5, cache_read=896` против 1152 у варианта с тулами), то есть общего префикса
+    // с шагами не даёт всё равно — менять поведение ради него смысла нет.
     const finalRequest = (withTools: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
       model: args.model,
       max_tokens: args.options?.maxTokens ?? 1024,
@@ -330,13 +430,17 @@ export async function callLlmWithTools(args: {
       messages,
       ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
     });
+    let finalRetried = false;
     const finalResp = await client.messages
       .create(finalRequest(false), { signal: ac.signal })
       // Если эндпойнт не принимает историю с tool_use без объявленных тулов — откатываемся
-      // на прежнее поведение: частичный ответ лучше отказа.
-      .catch(async () => client.messages.create(finalRequest(true), { signal: ac.signal }));
-    inputTokens += finalResp.usage?.input_tokens ?? 0;
-    outputTokens += finalResp.usage?.output_tokens ?? 0;
+      // на прежнее поведение: частичный ответ лучше отказа. Откат стоит ещё одного полного
+      // запроса, поэтому он помечен в логе, а не молчит.
+      .catch(async () => {
+        finalRetried = true;
+        return client.messages.create(finalRequest(true), { signal: ac.signal });
+      });
+    addUsage(usage, trackUsage(scope, args.model, finalRetried ? 'final-retry' : 'final', finalResp.usage));
     const synthesized = finalResp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -346,8 +450,10 @@ export async function callLlmWithTools(args: {
       text: synthesized || lastText,
       toolUses: allToolUses,
       steps: maxSteps,
-      inputTokens,
-      outputTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheCreationTokens: usage.cacheCreationTokens,
       stopReason: finalResp.stop_reason,
     };
   } finally {
@@ -371,6 +477,8 @@ export async function streamLlmWithTools(args: {
   executeTool: (toolUse: LlmToolUse) => Promise<{ content: string; isError?: boolean }>;
   onEvent: (ev: LlmStreamEvent) => void | Promise<void>;
   maxSteps?: number;
+  /** Кто зовёт — попадает в строку `llm usage`, чтобы hit/miss читались по модулям. */
+  scope?: string;
   options?: CallLlmOptions;
 }): Promise<LlmWithToolsResult> {
   const client = getClient();
@@ -378,10 +486,10 @@ export async function streamLlmWithTools(args: {
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   const maxSteps = Math.max(1, Math.min(args.maxSteps ?? 4, MAX_TOOL_STEPS));
+  const scope = args.scope ?? 'llm';
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: args.userMessage }];
   const allToolUses: LlmToolUse[] = [];
-  let inputTokens = 0;
-  let outputTokens = 0;
+  const usage: LlmCallUsage = { ...EMPTY_USAGE };
   let finalText = '';
   try {
     for (let step = 1; step <= maxSteps; step++) {
@@ -400,8 +508,7 @@ export async function streamLlmWithTools(args: {
         if (delta) void args.onEvent({ type: 'text', delta });
       });
       const finalMessage = await stream.finalMessage();
-      inputTokens += finalMessage.usage?.input_tokens ?? 0;
-      outputTokens += finalMessage.usage?.output_tokens ?? 0;
+      addUsage(usage, trackUsage(scope, args.model, `stream-step${step}`, finalMessage.usage));
       const toolUseBlocks = finalMessage.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
@@ -414,8 +521,8 @@ export async function streamLlmWithTools(args: {
       if (toolUseBlocks.length === 0 || finalMessage.stop_reason !== 'tool_use') {
         await args.onEvent({
           type: 'done',
-          inputTokens,
-          outputTokens,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
           steps: step,
           toolUses: allToolUses,
           text: finalText,
@@ -424,8 +531,10 @@ export async function streamLlmWithTools(args: {
           text: finalText,
           toolUses: allToolUses,
           steps: step,
-          inputTokens,
-          outputTokens,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheCreationTokens: usage.cacheCreationTokens,
           stopReason: finalMessage.stop_reason,
         };
       }
@@ -475,8 +584,7 @@ export async function streamLlmWithTools(args: {
       if (delta) void args.onEvent({ type: 'text', delta });
     });
     const synthesizedMessage = await finalStream.finalMessage();
-    inputTokens += synthesizedMessage.usage?.input_tokens ?? 0;
-    outputTokens += synthesizedMessage.usage?.output_tokens ?? 0;
+    addUsage(usage, trackUsage(scope, args.model, 'stream-final', synthesizedMessage.usage));
     const synthesized = synthesizedMessage.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -485,8 +593,8 @@ export async function streamLlmWithTools(args: {
     if (synthesized) finalText = synthesized;
     await args.onEvent({
       type: 'done',
-      inputTokens,
-      outputTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
       steps: maxSteps,
       toolUses: allToolUses,
       text: finalText,
@@ -495,8 +603,10 @@ export async function streamLlmWithTools(args: {
       text: finalText,
       toolUses: allToolUses,
       steps: maxSteps,
-      inputTokens,
-      outputTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheCreationTokens: usage.cacheCreationTokens,
       stopReason: synthesizedMessage.stop_reason,
     };
   } catch (err) {

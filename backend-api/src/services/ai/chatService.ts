@@ -99,31 +99,63 @@ function fastPathReply(message: string): AiAgentSuggestion | null {
   return null;
 }
 
-function buildSystemBlocks(
+const CHAT_SYSTEM_BASE =
+  'Ты помощник в программе Матрица РМЗ — ERP-системе для ремонтно-механического завода. ' +
+  'Отвечай кратко, практично и по шагам, на русском языке. Не выдумывай функции, ' +
+  'которых может не быть в системе. Если не уверен — задай уточняющий вопрос. ' +
+  'У тебя есть read-only tools для доступа к БД (номенклатура, остатки, двигатели, операции, ' +
+  'прогноз сборки, сотрудники без чувствительных полей). Не пытайся изменять данные. ' +
+  'Если для точного ответа нужны данные — вызови соответствующий tool. ' +
+  'После tool-вызова отвечай пользователю строго через tool reply_to_user с полями kind и text.';
+
+/**
+ * System — одна константа, помеченная к кэшированию. Прежде сюда же клались контекст
+ * экрана (id открытой карточки, набираемое значение, миллисекундные счётчики) и выдача
+ * RAG-памяти: и то и другое меняется от вызова к вызову, а значит обнуляло префикс-кэш
+ * целиком на КАЖДОМ запросе (R29, замер на проде 2026-08-30). Переменное теперь уходит
+ * хвостом user-сообщения — см. buildVariableTail.
+ */
+function buildSystemBlocks(): SystemBlock[] {
+  return [{ type: 'text', text: CHAT_SYSTEM_BASE, cacheable: true }];
+}
+
+function buildVariableTail(
   context: any,
   lastEvent: any | null,
   memories: string[],
   eventsSummary: string,
-): SystemBlock[] {
-  const base =
-    'Ты помощник в программе Матрица РМЗ — ERP-системе для ремонтно-механического завода. ' +
-    'Отвечай кратко, практично и по шагам, на русском языке. Не выдумывай функции, ' +
-    'которых может не быть в системе. Если не уверен — задай уточняющий вопрос. ' +
-    'У тебя есть read-only tools для доступа к БД (номенклатура, остатки, двигатели, операции, ' +
-    'прогноз сборки, сотрудники без чувствительных полей). Не пытайся изменять данные. ' +
-    'Если для точного ответа нужны данные — вызови соответствующий tool. ' +
-    'После tool-вызова отвечай пользователю строго через tool reply_to_user с полями kind и text.';
-  const ctxLine = `Контекст: ${buildContextSummary(context, lastEvent) || 'н/д'}\n` +
-    `Последние события пользователя: ${eventsSummary || 'н/д'}`;
+): string {
   const memoryBlock = memories.length
     ? `Память (релевантные факты):\n${memories.map((m, i) => `${i + 1}) ${m}`).join('\n')}`
     : 'Память: пусто.';
-  return [
-    { type: 'text', text: base },
-    { type: 'text', text: ctxLine },
-    { type: 'text', text: memoryBlock, cacheable: true },
-  ];
+  return (
+    `\n\nКонтекст: ${buildContextSummary(context, lastEvent) || 'н/д'}\n` +
+    `Последние события пользователя: ${eventsSummary || 'н/д'}\n` +
+    memoryBlock
+  );
 }
+
+/**
+ * Один литерал на оба пути (обычный и SSE). Прежде это были две копии с РАЗНЫМ описанием,
+ * а блок tools входит в кэшируемый префикс — то есть стрим и не-стрим не переиспользовали
+ * кэш друг друга, хотя запрос по смыслу один и тот же.
+ */
+const REPLY_TOOL_DEF = {
+  name: 'reply_to_user',
+  description:
+    'Финальный ответ пользователю. kind="question" — если нужно уточнение, ' +
+    'kind="suggestion" — если предлагаешь действие, kind="info" — пояснение. ' +
+    'actions — короткие варианты быстрых кнопок (опционально, до 4).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      kind: { type: 'string', enum: ['info', 'question', 'suggestion'] },
+      text: { type: 'string' },
+      actions: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['kind', 'text'],
+  },
+};
 
 async function runWithToolsThenSummarize(args: {
   actorId: string;
@@ -134,28 +166,13 @@ async function runWithToolsThenSummarize(args: {
   toolNames: ReadonlyArray<string>;
 }) {
   const toolDefs = getToolDefinitions(args.toolNames);
-  const replyToolDef = {
-    name: 'reply_to_user',
-    description:
-      'Финальный ответ пользователю. kind="question" — если нужно уточнение, ' +
-      'kind="suggestion" — если предлагаешь действие, kind="info" — пояснение. ' +
-      'actions — короткие варианты быстрых кнопок (опционально, до 4).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        kind: { type: 'string', enum: ['info', 'question', 'suggestion'] },
-        text: { type: 'string' },
-        actions: { type: 'array', items: { type: 'string' } },
-      },
-      required: ['kind', 'text'],
-    },
-  };
   const toolCallNames: string[] = [];
   const result = await callLlmWithTools({
     model: args.model,
     systemBlocks: args.systemBlocks,
     userMessage: args.userMessage,
-    tools: [...toolDefs, replyToolDef],
+    tools: [...toolDefs, REPLY_TOOL_DEF],
+    scope: 'chat',
     options: {
       timeoutMs: AI_TIMEOUT_CHAT_MS,
       maxTokens: AI_CHAT_MAX_TOKENS,
@@ -203,6 +220,7 @@ async function runJsonOnly(args: {
       },
       required: ['kind', 'text'],
     },
+    scope: 'chat-json',
     options: {
       timeoutMs: AI_TIMEOUT_CHAT_MS,
       maxTokens: AI_CHAT_MAX_TOKENS,
@@ -273,8 +291,10 @@ export async function runChatAssist(args: {
     if (AI_CHAT_TOOLS_ENABLED) {
       const permissions = await getEffectivePermissionsForUser(args.actorId);
       const toolCtx: ToolContext = { actorId: args.actorId, permissions };
-      const systemBlocks = buildSystemBlocks(args.context, args.lastEvent ?? null, memories, eventsSummary);
-      const userMessage = `Сообщение пользователя: ${args.message}`;
+      const systemBlocks = buildSystemBlocks();
+      const userMessage =
+        `Сообщение пользователя: ${args.message}` +
+        buildVariableTail(args.context, args.lastEvent ?? null, memories, eventsSummary);
       const result = await runWithToolsThenSummarize({
         actorId: args.actorId,
         ctx: toolCtx,
@@ -291,10 +311,8 @@ export async function runChatAssist(args: {
       const systemText =
         'Ты помощник в программе Матрица РМЗ. Отвечай кратко, по делу, на русском.';
       const userPrompt =
-        `Контекст: ${buildContextSummary(args.context, args.lastEvent ?? null) || 'н/д'}\n` +
-        `Последние события: ${eventsSummary || 'н/д'}\n` +
-        `Память:\n${memories.length ? memories.map((m, i) => `${i + 1}) ${m}`).join('\n') : 'н/д'}\n\n` +
-        `Сообщение: ${args.message}`;
+        `Сообщение: ${args.message}` +
+        buildVariableTail(args.context, args.lastEvent ?? null, memories, eventsSummary);
       reply = await runJsonOnly({ model: modelChat, systemText, userPrompt });
     }
     const llmMs = nowMs() - llmStart;
@@ -460,23 +478,8 @@ export async function runChatAssistStream(
   const llmStart = nowMs();
   const permissions = await getEffectivePermissionsForUser(args.actorId);
   const toolCtx: ToolContext = { actorId: args.actorId, permissions };
-  const systemBlocks = buildSystemBlocks(args.context, args.lastEvent ?? null, memories, eventsSummary);
+  const systemBlocks = buildSystemBlocks();
   const toolDefs = getToolDefinitions(toolNames);
-  const replyToolDef = {
-    name: 'reply_to_user',
-    description:
-      'Финальный ответ пользователю. kind="question" — если нужно уточнение, ' +
-      'kind="suggestion" — если предлагаешь действие, kind="info" — пояснение.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        kind: { type: 'string', enum: ['info', 'question', 'suggestion'] },
-        text: { type: 'string' },
-        actions: { type: 'array', items: { type: 'string' } },
-      },
-      required: ['kind', 'text'],
-    },
-  };
   const toolCallNames: string[] = [];
   let replyFromTool: AiAgentSuggestion | null = null;
 
@@ -484,8 +487,11 @@ export async function runChatAssistStream(
     const result = await streamLlmWithTools({
       model: modelChat,
       systemBlocks,
-      userMessage: `Сообщение пользователя: ${args.message}`,
-      tools: [...toolDefs, replyToolDef],
+      userMessage:
+        `Сообщение пользователя: ${args.message}` +
+        buildVariableTail(args.context, args.lastEvent ?? null, memories, eventsSummary),
+      tools: [...toolDefs, REPLY_TOOL_DEF],
+      scope: 'chat-stream',
       options: { timeoutMs: AI_TIMEOUT_CHAT_MS, maxTokens: AI_CHAT_MAX_TOKENS, temperature: 0.2 },
       maxSteps: 4,
       onEvent: handlers.onEvent,

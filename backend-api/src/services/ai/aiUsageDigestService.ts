@@ -4,7 +4,7 @@
 // русские названия разделов вместо TabId) и постит суперадмину как answered-строку
 // ИИваныча. Наблюдения пишет LLM по готовым числам; при сбое LLM уходит голая
 // статистика — дайджест не имеет права молча пропустить неделю.
-import { and, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
 
 import { REPORT_PRESET_DEFINITIONS, formatClientLabel, sectionLabelForTabKey } from '@matricarmz/shared';
 
@@ -156,6 +156,9 @@ async function loadUiUsage(sinceMs: number, untilMs: number): Promise<UiUsageWin
         lt(auditLog.createdAt, untilMs),
       ),
     )
+    // LIMIT без ORDER BY не определяет, КАКИЕ строки вернутся: при переполнении окна
+    // дайджест молча считал бы произвольную выборку. Берём свежие, порядок детерминирован.
+    .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
     .limit(50_000);
   const out: UiUsageWindows = {
     sections: new Map(),
@@ -236,6 +239,7 @@ async function loadChatStats(sinceMs: number, untilMs: number): Promise<ChatStat
     .select({ username: aiChatRequests.username, status: aiChatRequests.status, createdAt: aiChatRequests.createdAt, questionText: aiChatRequests.questionText })
     .from(aiChatRequests)
     .where(and(isNull(aiChatRequests.deletedAt), gte(aiChatRequests.createdAt, sinceMs), lt(aiChatRequests.createdAt, untilMs)))
+    .orderBy(desc(aiChatRequests.createdAt), desc(aiChatRequests.id))
     .limit(10_000);
   const stats: ChatStats = { total: 0, answered: 0, escalated: 0, prevTotal: 0, askedBy: [] };
   const asked = new Set<string>();
@@ -254,7 +258,9 @@ async function loadChatStats(sinceMs: number, untilMs: number): Promise<ChatStat
     if (status === 'escalated') stats.escalated += 1;
     if (login) asked.add(login);
   }
-  stats.askedBy = Array.from(asked);
+  // Порядок вставки в Set — это порядок строк выборки; сортируем, чтобы одна и та же
+  // неделя давала один и тот же текст дайджеста.
+  stats.askedBy = Array.from(asked).sort();
   return stats;
 }
 
@@ -339,6 +345,7 @@ async function narrateDigest(statsMd: string): Promise<string | null> {
       model: AI_MODEL_ANALYTICS,
       system: NARRATION_SYSTEM_PROMPT,
       user: statsMd,
+      scope: 'usage-digest',
       options: { timeoutMs: 120_000, maxTokens: 1200, temperature: 0.4 },
     });
     return text.trim() || null;

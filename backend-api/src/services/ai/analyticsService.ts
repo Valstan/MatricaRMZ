@@ -181,15 +181,19 @@ async function proposeSql(model: string, message: string, policy: AccessPolicy, 
     'Правила: только SELECT-запросы, без комментариев, без точек с запятой внутри, ' +
     'используй только перечисленные таблицы. Для подсчётов используй count(*)::int. ' +
     'Параметризованные значения передавай через $1, $2 и т.д. с соответствующим массивом params.';
+  // Общее требование к результату — в system (он одинаков для всех вызовов), а список
+  // доступных пользователю таблиц и его память — в хвост: и то и другое различается от
+  // пользователя к пользователю и рвало бы префикс с первой же строки (R29).
   const userPrompt =
-    `Доступные таблицы: ${allowed}\n` +
-    `Контекст памяти (релевантные факты пользователя):\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'н/д'}\n\n` +
+    `Сформируй один SELECT-запрос с LIMIT не более ${MAX_ROWS}.\n\n` +
     `Запрос пользователя: ${message}\n\n` +
-    `Сформируй один SELECT-запрос с LIMIT не более ${MAX_ROWS}.`;
+    `Доступные таблицы: ${allowed}\n` +
+    `Контекст памяти (релевантные факты пользователя):\n${memories.length ? memories.map((x, i) => `${i + 1}) ${x}`).join('\n') : 'н/д'}`;
   const json = await callLlmJson<SqlProposalJson>({
     model,
     system: systemPrompt,
     user: userPrompt,
+    scope: 'analytics-sql',
     toolName: 'propose_sql',
     toolDescription: 'Сформируй SQL-запрос для ответа на вопрос пользователя.',
     schema: {
@@ -242,6 +246,10 @@ async function runAnalyticsViaTools(args: {
       required: ['text'],
     },
   };
+  // System — одна константа с меткой кэша. Блок памяти отсюда убран: он собирается под
+  // конкретный вопрос конкретного пользователя и не повторяется никогда, а метка кэша
+  // стояла именно на нём — то есть граница префикса была проведена по самому изменчивому
+  // месту запроса (R29). Память уехала в хвост user-сообщения.
   const systemBlocks: SystemBlock[] = [
     {
       type: 'text',
@@ -252,23 +260,21 @@ async function runAnalyticsViaTools(args: {
         'Чувствительные поля (зарплаты, паспорта, токены) недоступны — если пользователь о них спрашивает, ' +
         'честно ответь что эти данные защищены. ' +
         'После получения данных вызови present_answer с готовым ответом на русском.',
-    },
-    {
-      type: 'text',
-      text:
-        args.memories.length > 0
-          ? `Память (релевантные факты):\n${args.memories.map((m, i) => `${i + 1}) ${m}`).join('\n')}`
-          : 'Память: пусто.',
       cacheable: true,
     },
   ];
+  const memoryTail =
+    args.memories.length > 0
+      ? `\n\nПамять (релевантные факты):\n${args.memories.map((m, i) => `${i + 1}) ${m}`).join('\n')}`
+      : '\n\nПамять: пусто.';
   const ctx: ToolContext = { actorId: args.actorId, permissions: args.perms };
   const toolCallNames: string[] = [];
   const result = await callLlmWithTools({
     model: args.model,
     systemBlocks,
-    userMessage: `Запрос: ${args.message}`,
+    userMessage: `Запрос: ${args.message}${memoryTail}`,
     tools: [...toolDefs, replyToolDef],
+    scope: 'analytics',
     options: {
       timeoutMs: AI_TIMEOUT_ANALYTICS_MS,
       maxTokens: AI_ANALYTICS_MAX_TOKENS,
