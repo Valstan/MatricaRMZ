@@ -641,3 +641,61 @@ export const syncState = sqliteTable('sync_state', {
 });
 
 
+
+// ============================================================================
+// B3/R3 — реплика аккаунтов и доступов по разделам (pull-only).
+//
+// Реплика НЕ строже сервера. Это правило, а не вкус: клиентская миграция 0020
+// так и называется — `0020_replica_not_stricter`, а прецедент `NOT NULL` на
+// erp_engine_assembly_bom.engine_nomenclature_id валил pull у ВСЕГО парка.
+// Поэтому здесь нет ни NOT NULL сверх серверного набора, ни FK на
+// access_sections (её в контракте нет и не будет — это серверный каталог-якорь).
+//
+// Уникальность логина — ЧАСТИЧНАЯ, только среди живых: на сервере логин
+// освобождается при отзыве аккаунта, и глобальный unique на клиенте заставил бы
+// ремонт реплики снести отозванного, делящего логин с живым. Полный/частичный
+// перекос между сторонами валит гейт #086 (checkReplicaStrictness).
+// ============================================================================
+
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id').primaryKey(), // uuid, совпадает с entities.id карточки сотрудника
+    login: text('login').notNull(),
+    systemRole: text('system_role').notNull(),
+    accessEnabled: integer('access_enabled', { mode: 'boolean' }).notNull().default(false),
+    deleteRequestedAt: integer('delete_requested_at'),
+    deleteRequestedBy: text('delete_requested_by'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    loginLiveUq: uniqueIndex('users_login_live_uq')
+      .on(t.login)
+      .where(sql`deleted_at is null`),
+    roleIdx: index('users_role_idx').on(t.systemRole),
+  }),
+);
+
+export const userSectionAccess = sqliteTable(
+  'user_section_access',
+  {
+    id: text('id').primaryKey(), // uuid; синк ключует строку по нему, а не по паре
+    userId: text('user_id').notNull(),
+    sectionId: text('section_id').notNull(),
+    level: text('level').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    // Полный unique — как на сервере: снятый раздел оживает той же строкой.
+    pairUq: uniqueIndex('user_section_access_pair_uq').on(t.userId, t.sectionId),
+    userIdx: index('user_section_access_user_idx').on(t.userId),
+  }),
+);

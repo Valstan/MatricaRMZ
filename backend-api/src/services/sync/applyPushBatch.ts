@@ -13,6 +13,8 @@ import {
   entityRowSchema,
   entityTypeRowSchema,
   operationRowSchema,
+  userRowSchema,
+  userSectionAccessRowSchema,
   type SyncPushRequest,
 } from '@matricarmz/shared';
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
@@ -40,6 +42,8 @@ import {
   rowOwners,
   syncState,
   userPresence,
+  users,
+  userSectionAccess,
 } from '../../database/schema.js';
 
 // Специальный “контейнер” для операций заявок в снабжение.
@@ -1767,6 +1771,127 @@ export async function applyPushBatch(
             });
           await updateSeqAndCollect(noteShares, SyncTableName.NoteShares, allowed);
           applied += allowed.length;
+        }
+      }
+    }
+
+    // ── B3/R3: аккаунты и доступы по разделам ──────────────────────────
+    //
+    // Эти две таблицы наполняет ПУБЛИКАТОР зеркала (usersSyncPublisher), а не
+    // клиент. Обработчик нужен не ради push'а, а ради seq: updateSeqAndCollect —
+    // единственное место во всём бэкенде, где строке проставляется
+    // last_server_seq, а без него инкрементальный pull (`last_server_seq > since`)
+    // не отдаёт строку НИКОГДА (в SQL `NULL > n` — не TRUE).
+    //
+    // Клиентский пуш сюда дойти не должен: его отбивает табличный backstop в
+    // ledgerAuthzGuard ещё до ledger'а. Проверка ниже — вторая линия: строка,
+    // пришедшая НЕ серверным путём, не применяется и попадает в skipped, то есть
+    // отказ виден, а не проглочен молчаливым «нет обработчика — нет строки».
+    {
+      const trustedServerWrite = isReplayClient || applyOpts.allowSyncConflicts === true;
+
+      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess] as const) {
+        const raw = grouped.get(tableName) ?? [];
+        if (raw.length === 0 || trustedServerWrite) continue;
+        addSkipMetric('conflict', tableName, raw.length, 'server_managed_table');
+        logWarn('sync server-managed table push rejected', {
+          table: tableName,
+          rows: raw.length,
+          client_id: req.client_id,
+          user: actor.username,
+        });
+        for (const r of raw as Array<Record<string, unknown>>) {
+          addSkippedRow({ table: tableName, row_id: String(r?.['id'] ?? ''), reason: 'forbidden' });
+        }
+      }
+
+      if (trustedServerWrite) {
+        // Users
+        {
+          const raw = grouped.get(SyncTableName.Users) ?? [];
+          const parsedAll = parseRows(SyncTableName.Users, raw, userRowSchema);
+          if (parsedAll.length > 0) {
+            const rows = await filterStaleBySeqOrUpdatedAt(users, parsedAll, SyncTableName.Users, {
+              allowSyncConflicts: true,
+            });
+            if (rows.length > 0) {
+              await tx
+                .insert(users)
+                .values(
+                  rows.map((r) => ({
+                    id: r.id as any,
+                    login: r.login,
+                    systemRole: r.system_role,
+                    accessEnabled: r.access_enabled,
+                    deleteRequestedAt: r.delete_requested_at ?? null,
+                    deleteRequestedBy: (r.delete_requested_by ?? null) as any,
+                    createdAt: r.created_at,
+                    updatedAt: r.updated_at,
+                    deletedAt: r.deleted_at ?? null,
+                    syncStatus: 'synced',
+                  })),
+                )
+                .onConflictDoUpdate({
+                  target: users.id,
+                  set: {
+                    login: sql`excluded.login`,
+                    systemRole: sql`excluded.system_role`,
+                    accessEnabled: sql`excluded.access_enabled`,
+                    deleteRequestedAt: sql`excluded.delete_requested_at`,
+                    deleteRequestedBy: sql`excluded.delete_requested_by`,
+                    updatedAt: sql`excluded.updated_at`,
+                    deletedAt: sql`excluded.deleted_at`,
+                    syncStatus: 'synced',
+                  },
+                });
+              await updateSeqAndCollect(users, SyncTableName.Users, rows);
+              applied += rows.length;
+            }
+          }
+        }
+
+        // UserSectionAccess — строго ПОСЛЕ users: FK user_id -> users.
+        {
+          const raw = grouped.get(SyncTableName.UserSectionAccess) ?? [];
+          const parsedAll = parseRows(SyncTableName.UserSectionAccess, raw, userSectionAccessRowSchema);
+          if (parsedAll.length > 0) {
+            const rows = await filterStaleBySeqOrUpdatedAt(
+              userSectionAccess,
+              parsedAll,
+              SyncTableName.UserSectionAccess,
+              { allowSyncConflicts: true },
+            );
+            if (rows.length > 0) {
+              await tx
+                .insert(userSectionAccess)
+                .values(
+                  rows.map((r) => ({
+                    id: r.id as any,
+                    userId: r.user_id as any,
+                    sectionId: r.section_id,
+                    level: r.level,
+                    createdAt: r.created_at,
+                    updatedAt: r.updated_at,
+                    deletedAt: r.deleted_at ?? null,
+                    syncStatus: 'synced',
+                  })),
+                )
+                // Конфликт по id, а не по паре (user_id, section_id): синк ключует
+                // строку по row_id, а пара уже закрыта своим UNIQUE — публикатор
+                // отдаёт ровно ту строку, что лежит в PG, с её собственным id.
+                .onConflictDoUpdate({
+                  target: userSectionAccess.id,
+                  set: {
+                    level: sql`excluded.level`,
+                    updatedAt: sql`excluded.updated_at`,
+                    deletedAt: sql`excluded.deleted_at`,
+                    syncStatus: 'synced',
+                  },
+                });
+              await updateSeqAndCollect(userSectionAccess, SyncTableName.UserSectionAccess, rows);
+              applied += rows.length;
+            }
+          }
         }
       }
     }

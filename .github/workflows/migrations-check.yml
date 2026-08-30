@@ -76,5 +76,14 @@ jobs:
           MATRICA_FIXTURE_ALLOW_WRITE: "1"
         run: pnpm -C backend-api users:backfill-check
 
+      # B3/R3. Единственное место, где путь публикации зеркала реально
+      # ИСПОЛНЯЕТСЯ: нужен живой PG (триггеры + outbox) и живой ledger-append
+      # (он и раздаёт seq). Без seq таблица в контракте выглядит рабочей, а
+      # инкрементальный pull не привозит ни одного изменения — навсегда.
+      - name: Verify mirror publisher assigns last_server_seq
+        env:
+          MATRICA_FIXTURE_ALLOW_WRITE: "1"
+        run: pnpm -C backend-api users:publisher-check
+
       - name: Parity EAV vs strict tables
         run: pnpm -C backend-api users:parity

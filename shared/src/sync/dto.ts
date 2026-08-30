@@ -10,6 +10,7 @@ import {
   erpRegisterStockMovementRowSchema,
 } from './erpDto.js';
 import { OperationTypeCode } from '../domain/enums.js';
+import { SYSTEM_ROLE_CATALOG } from '../domain/permissions.js';
 
 // Базовые поля синхронизации для всех таблиц.
 export const baseRowFields = {
@@ -140,6 +141,36 @@ export const aiChatRequestRowSchema = z.object({
   verdict_text: z.string().nullable().optional(), // вердикт суперадмина по эскалации
 });
 
+// B3/R3 — аккаунты и доступы по разделам.
+//
+// Строгость этих схем ограничена сверху формой БД, а не желанием: та же схема
+// фильтрует ИСХОДЯЩИЕ строки в /ledger/state/changes (routes/ledger.ts), и
+// строка, не прошедшая zod, исчезает из pull МОЛЧА. Поэтому каждое поле здесь
+// повторяет ровно CHECK миграции 0086 — не строже. Набор ролей берётся из
+// SYSTEM_ROLE_CATALOG (он же зеркалится в CHECK миграции); совпадение списков
+// стережёт usersSystemRoleCatalog.guard.test.ts, иначе дрейф вырезал бы
+// аккаунты из синка без единой ошибки в логе.
+//
+// password_hash здесь нет и быть не может: секрет живёт в server-only
+// user_credentials, которой нет в контракте.
+const systemRoleValues = SYSTEM_ROLE_CATALOG.map((r) => r.key) as [string, ...string[]];
+
+export const userRowSchema = z.object({
+  ...baseRowFields,
+  login: z.string().min(1),
+  system_role: z.enum(systemRoleValues),
+  access_enabled: z.boolean(),
+  delete_requested_at: z.number().int().nullable().optional(),
+  delete_requested_by: z.string().uuid().nullable().optional(),
+});
+
+export const userSectionAccessRowSchema = z.object({
+  ...baseRowFields,
+  user_id: z.string().uuid(),
+  section_id: z.string().min(1),
+  level: z.enum(['viewer', 'editor']),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -161,6 +192,8 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpEngineInstances]: erpEngineInstanceRowSchema,
   [SyncTableName.ErpRegStockBalance]: erpRegisterStockBalanceRowSchema,
   [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,
+  [SyncTableName.Users]: userRowSchema,
+  [SyncTableName.UserSectionAccess]: userSectionAccessRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({

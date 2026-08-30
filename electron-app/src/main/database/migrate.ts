@@ -131,6 +131,43 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS ai_chat_requests_sync_status_idx ON ai_chat_requests(sync_status);
   `);
 
+  // users / user_section_access — реплика аккаунтов и доступов по разделам (B3/R3).
+  // Та же причина дубля, что у card_drafts и ai_chat_requests: свежая установка
+  // базлайнит ClientSchemaVersion и идёт мимо версионной цепочки, а холодный
+  // full-sync запросит таблицу и упадёт на «no such table». Реплика НЕ строже
+  // сервера (0020_replica_not_stricter), unique логина — частичный, среди живых.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id text PRIMARY KEY NOT NULL,
+      login text NOT NULL,
+      system_role text NOT NULL,
+      access_enabled integer NOT NULL DEFAULT false,
+      delete_requested_at integer,
+      delete_requested_by text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS users_login_live_uq ON users(login) WHERE deleted_at is null;
+    CREATE INDEX IF NOT EXISTS users_role_idx ON users(system_role);
+
+    CREATE TABLE IF NOT EXISTS user_section_access (
+      id text PRIMARY KEY NOT NULL,
+      user_id text NOT NULL,
+      section_id text NOT NULL,
+      level text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS user_section_access_pair_uq ON user_section_access(user_id, section_id);
+    CREATE INDEX IF NOT EXISTS user_section_access_user_idx ON user_section_access(user_id);
+  `);
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (hasTable('erp_document_lines')) {
     if (!columnNames('erp_document_lines').has('nomenclature_id')) {

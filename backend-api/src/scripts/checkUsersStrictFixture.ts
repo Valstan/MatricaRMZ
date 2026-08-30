@@ -317,21 +317,40 @@ async function main() {
     { a: null, b: null },
   );
 
-  console.log('\n== 10. Снятие логина сносит аккаунт вместе с зависимостями ==');
+  console.log('\n== 10. Снятие логина гасит аккаунт тумбстоуном, а не сносит (B3/R3) ==');
+  // Прежнее поведение (DELETE + каскад) было верным, пока таблицы не было в
+  // sync-контракте. С контрактом снос — дыра: клиент применяет pull только
+  // апсертами и строку, исчезнувшую на сервере, у себя НЕ удаляет; снятый
+  // аккаунт жил бы в реплике каждой машины с access_enabled=true.
   await dropAttr(emp1, 'login');
   check(
-    'строки users нет',
-    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE id=$1`, [emp1]))?.n,
+    'строка осталась и помечена удалённой',
+    (await one<{ n: string }>(
+      `SELECT count(*)::text AS n FROM users WHERE id=$1 AND deleted_at IS NOT NULL`,
+      [emp1],
+    ))?.n,
+    '1',
+  );
+  check(
+    'доступ у неё погашен',
+    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE id=$1 AND access_enabled`, [emp1]))?.n,
     '0',
   );
   check(
-    'кред уехал каскадом',
+    'кред удалён явно (каскада больше нет)',
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_credentials WHERE user_id=$1`, [emp1]))?.n,
     '0',
   );
   check(
-    'разделы уехали каскадом',
-    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_section_access WHERE user_id=$1`, [emp1]))?.n,
+    'настройки удалены явно',
+    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_settings WHERE user_id=$1`, [emp1]))?.n,
+    '0',
+  );
+  check(
+    'логин освобождён: живых строк с ним нет',
+    (await one<{ n: string }>(
+      `SELECT count(*)::text AS n FROM users WHERE login='oper1' AND deleted_at IS NULL`,
+    ))?.n,
     '0',
   );
 

@@ -29,6 +29,7 @@ import {
   isEngineReservationGatedOperationType,
   isOperatorRole,
   isServerOnlyAttrCode,
+  isServerManagedSyncTable,
   isSuperadminOnlyAttrCode,
   ledgerWriteRequirement,
   operatorMeetsRequirement,
@@ -203,6 +204,23 @@ export async function partitionLedgerInputsByAuthz(
   const allowed: SyncWriteInput[] = [];
   const denied: SyncSkippedRow[] = [];
   for (const inp of inputs) {
+    // Табличный backstop (B3/R3). Строгие таблицы аккаунтов пишет ТОЛЬКО сервер;
+    // клиентский пуш в них запрещён любой роли, включая суперадмина, — у него
+    // для этого своя дверь (POST /admin/users/:id/section-access, R2).
+    // Стоит ДО всего остального: ниже по коду ветка `if (!operatorScoped)`
+    // пропускает admin / легаси `user` / pending / employee мимо requirement'ов,
+    // а applyPushBatch молча игнорирует таблицу без обработчика — то есть без
+    // этого отказа крафтовая строка ушла бы в ledger и не появилась в PG,
+    // разведя их беззвучно. С отказом она попадает в skipped и в деньлог.
+    if (isServerManagedSyncTable(inp.table)) {
+      denied.push({
+        table: inp.table,
+        row_id: inp.row_id,
+        reason: `forbidden:server_managed_table:${inp.table}`,
+      });
+      continue;
+    }
+
     let entityTypeCode: string | null = null;
     let ownerEntityId: string | null = null;
     let operationType: string | null = null;
