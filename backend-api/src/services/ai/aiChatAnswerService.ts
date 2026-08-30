@@ -232,7 +232,9 @@ async function recentDialogueForUser(userId: string, excludeRequestId: string): 
         gt(aiChatRequests.answeredAt, nowMs() - DIALOGUE_WINDOW_MS),
       ),
     )
-    .orderBy(desc(aiChatRequests.answeredAt))
+    // Вторичный ключ обязателен: два ответа в одну миллисекунду иначе меняются местами
+    // между вызовами, и текст «недавнего диалога» пляшет на одних и тех же данных.
+    .orderBy(desc(aiChatRequests.answeredAt), desc(aiChatRequests.id))
     .limit(DIALOGUE_MAX_TURNS + 1);
   const turns = rows
     .filter((r) => String(r.id) !== excludeRequestId && r.answerText)
@@ -253,21 +255,27 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   const rulesMd = await getRulesMd();
   const fileBlock = await describeQuestionFile(row.questionFileJson ?? null);
 
-  const systemBlocks: SystemBlock[] = [{ type: 'text', text: BASE_PROMPT }];
-  if (rulesMd) systemBlocks.push({ type: 'text', text: `Правила ответов, заданные администратором:\n${rulesMd}` });
+  // В system остаётся только то, что не меняется от ответа к ответу: базовый промпт и
+  // правила администратора (их правят руками и редко). Блок правил присутствует ВСЕГДА —
+  // при пустых правилах заглушкой: иначе число блоков плавало бы и меняло сериализацию
+  // запроса само по себе. Метка кэша стоит на последнем стабильном блоке — это граница
+  // префикса для anthropic-пути; DeepSeek кэширует сам и метку игнорирует.
+  //
+  // Заметки самообучения и вердикт администратора ушли в user-сообщение: заметки модель
+  // дописывает себе сама после каждого ответа (а при переполнении блок ещё и съезжает
+  // вытеснением с головы), вердикт же относится к одному конкретному обращению. И то и
+  // другое, стоя в system, обнуляло префикс-кэш на каждом запросе — R29.
+  const systemBlocks: SystemBlock[] = [
+    { type: 'text', text: BASE_PROMPT },
+    {
+      type: 'text',
+      text: rulesMd
+        ? `Правила ответов, заданные администратором:\n${rulesMd}`
+        : 'Правила ответов, заданные администратором: не заданы.',
+      cacheable: true,
+    },
+  ];
   const learningMd = await getLearningNotes().catch(() => null);
-  if (learningMd) {
-    systemBlocks.push({
-      type: 'text',
-      text: `Твои накопленные заметки о том, как понимать пользователей (самообучение):\n${learningMd}`,
-    });
-  }
-  if (row.verdictText) {
-    systemBlocks.push({
-      type: 'text',
-      text: `Администратор дал вердикт по этому вопросу — отвечай в соответствии с ним:\n${String(row.verdictText)}`,
-    });
-  }
 
   const personLabel = await personLabelForLogin(String(row.username));
   // Недавний диалог того же сотрудника — контекст для уточняющих вопросов:
@@ -279,6 +287,12 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     `Вопрос сотрудника ${personLabel}:`,
     String(row.questionText),
     ...(fileBlock ? ['', fileBlock] : []),
+    ...(learningMd
+      ? ['', `Твои накопленные заметки о том, как понимать пользователей (самообучение):\n${learningMd}`]
+      : []),
+    ...(row.verdictText
+      ? ['', `Администратор дал вердикт по этому вопросу — отвечай в соответствии с ним:\n${String(row.verdictText)}`]
+      : []),
   ].join('\n');
 
   const tables: AnswerTable[] = [];
@@ -289,6 +303,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     systemBlocks,
     userMessage,
     tools: [...getToolDefinitions(FULL_TOOL_NAMES), ESCALATE_TOOL, ATTACH_TABLE_TOOL, SAVE_LEARNING_NOTE_TOOL],
+    scope: 'iivanych',
     options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
     maxSteps: ANSWER_MAX_STEPS,
     executeTool: async (toolUse: LlmToolUse) => {
@@ -337,6 +352,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
       tools: result.toolUses.map((t) => t.name).join(','),
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      cacheReadTokens: result.cacheReadTokens,
     });
     return;
   }
@@ -374,6 +390,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     attachments: attachRefs.length,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
+    cacheReadTokens: result.cacheReadTokens,
   });
 }
 

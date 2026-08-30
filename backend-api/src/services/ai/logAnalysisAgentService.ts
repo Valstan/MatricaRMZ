@@ -141,7 +141,7 @@ async function loadAssistMetrics(rangeSinceMs: number, rangeUntilMs: number): Pr
     const res = await pool.query(
       `select payload_json from diagnostics_snapshots
         where scope = 'ai_agent_metrics' and created_at >= $1 and created_at <= $2
-        order by created_at desc limit 5000`,
+        order by created_at desc, id desc limit 5000`,
       [rangeSinceMs, rangeUntilMs],
     );
     for (const row of res.rows ?? []) {
@@ -162,6 +162,9 @@ async function loadAssistMetrics(rangeSinceMs: number, rangeUntilMs: number): Pr
   } catch {
     // db error — leave zeroed
   }
+  // Ключи объекта сериализуются в порядке вставки, то есть в порядке строк выборки.
+  // Сортируем, чтобы одинаковый по сути срез давал одинаковый текст промпта.
+  agg.byModel = Object.fromEntries(Object.entries(agg.byModel).sort((x, y) => x[0].localeCompare(y[0])));
   return agg;
 }
 
@@ -216,24 +219,32 @@ function buildPrompt(ctx: LogAnalysisContext): { system: string; user: string } 
     'находки и предложить действия. Отвечай на русском. Если всё спокойно — severity=ok, summary ' +
     'из 1-2 фраз, findings и suggested_actions могут быть пустыми. Если есть тревога — каждой ' +
     'находке давай what (что произошло), why (почему важно) и recommendation (что сделать).';
-  const user = JSON.stringify(
-    {
-      range: {
-        sinceIso: new Date(ctx.rangeSinceMs).toISOString(),
-        untilIso: new Date(ctx.rangeUntilMs).toISOString(),
-        hours: Math.round((ctx.rangeUntilMs - ctx.rangeSinceMs) / 3600_000),
+  // Сообщение открывается СТАБИЛЬНОЙ легендой, а окно разбора уехало последним ключом:
+  // прежде 33-м символом user-сообщения стояла дата прогона, и общий с прошлым прогоном
+  // префикс кончался ровно там (R29). Ключи объекта идут в порядке объявления, поэтому
+  // новые изменчивые поля класть только ПОСЛЕ range.
+  const user =
+    'Сводка состояния сервера. Поля: criticalEvents — критические события за окно; ' +
+    'syncPipeline — здоровье конвейера синхронизации; assistMetrics — расход ИИ-помощника; ' +
+    'recentLogLines — хвост журнала; range — границы окна разбора.\n' +
+    JSON.stringify(
+      {
+        criticalEvents: {
+          count: ctx.criticalEventCount,
+          top: ctx.criticalEventsTop,
+        },
+        syncPipeline: ctx.syncPipeline,
+        assistMetrics: ctx.assistMetrics,
+        recentLogLines: ctx.recentLogLines.slice(-MAX_LOG_LINES),
+        range: {
+          sinceIso: new Date(ctx.rangeSinceMs).toISOString(),
+          untilIso: new Date(ctx.rangeUntilMs).toISOString(),
+          hours: Math.round((ctx.rangeUntilMs - ctx.rangeSinceMs) / 3600_000),
+        },
       },
-      criticalEvents: {
-        count: ctx.criticalEventCount,
-        top: ctx.criticalEventsTop,
-      },
-      syncPipeline: ctx.syncPipeline,
-      assistMetrics: ctx.assistMetrics,
-      recentLogLines: ctx.recentLogLines.slice(-MAX_LOG_LINES),
-    },
-    null,
-    2,
-  );
+      null,
+      2,
+    );
   return { system, user };
 }
 
@@ -261,6 +272,7 @@ export async function runLogAnalysisOnce(args?: { lookbackHours?: number; timeZo
       model: AI_MODEL_ANALYTICS,
       system,
       user,
+      scope: 'log-analysis',
       toolName: 'submit_log_analysis_report',
       toolDescription: 'Сформируй структурированный отчёт о состоянии сервера по предоставленным данным.',
       schema: {
