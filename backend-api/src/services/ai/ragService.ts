@@ -103,14 +103,22 @@ export async function retrieveRagMemories(args: {
   const lookbackMs =
     (Number.isFinite(AI_RAG_LOOKBACK_HOURS) && AI_RAG_LOOKBACK_HOURS > 0 ? AI_RAG_LOOKBACK_HOURS : 24 * 14) * 60 * 60_000;
   const sinceMs = nowMs() - lookbackMs;
+  // Фильтр по автору обязателен: в факте лежит текст переписки (`Q: … A: …`,
+  // ingestRagAssistFact), и без этого условия в блок «Память» одного сотрудника
+  // подмешивались свежие вопросы и ответы всех остальных. Принадлежность владельцу
+  // раньше выражалась лишь прибавкой к релевантности — это ранжирование, а не граница.
+  // Колонка client_id хранит именно actorId (logSnapshot), и по ней есть индекс
+  // (client_id, scope, created_at). Общее знание живёт не здесь, а в правилах
+  // администратора и заметках самообучения — они и задуманы общими.
   const res = await pool.query(
     `select payload_json
        from diagnostics_snapshots
       where scope = 'ai_agent_rag_fact'
-        and created_at >= $1
-      order by created_at desc
-      limit $2`,
-    [sinceMs, Number.isFinite(AI_RAG_SEARCH_LIMIT) ? AI_RAG_SEARCH_LIMIT : 250],
+        and client_id = $1
+        and created_at >= $2
+      order by created_at desc, id desc
+      limit $3`,
+    [args.actorId, sinceMs, Number.isFinite(AI_RAG_SEARCH_LIMIT) ? AI_RAG_SEARCH_LIMIT : 250],
   );
   const rows = Array.isArray(res.rows) ? res.rows : [];
   const relevant: Array<{ score: number; text: string }> = [];
@@ -124,7 +132,6 @@ export async function retrieveRagMemories(args: {
     const entityType = String(payload.entityType ?? '').toLowerCase();
     if (desiredTab && tab && tab === desiredTab) score += 2;
     if (desiredEntityType && entityType && entityType === desiredEntityType) score += 2;
-    if (String(payload.actorId ?? '') === args.actorId) score += 1;
     if (score <= 0) continue;
     relevant.push({ score, text: payload.text });
   }
