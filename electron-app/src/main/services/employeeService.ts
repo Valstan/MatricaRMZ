@@ -1,6 +1,7 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
+  compareAccountsForMembership,
   parseSectionMembership,
   restrictedWorkOrderPolicyFromMemberships,
   type RestrictedWorkOrderPolicy,
@@ -8,7 +9,7 @@ import {
 } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
-import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, users, userSectionAccess } from '../database/schema.js';
 
 
 function safeJsonParse(value: string | null): unknown {
@@ -219,6 +220,84 @@ export async function listEmployeesSummary(
   });
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// B3/R3 — источник доступов по разделам: реплика строгих таблиц вместо EAV.
+//
+// ПЕРЕХОДНАЯ ВЕТКА, а не постоянная. Пока реплика `users` на машине пуста (парк
+// получает её только с релизом, который эти таблицы завёл), читаем по-старому
+// из EAV. Без этой ветки на любой ещё не налившейся машине membership стал бы
+// null, а гейт разделов вернул бы true на КАЖДЫЙ канал — то есть молча
+// превратился бы в декорацию, и ни одной ошибки в логе при этом не было бы.
+//
+// СНЯТЬ вместе с EAV-путями на этапе B6 (вывод EAV из синка). Раньше нельзя:
+// в парке останутся машины со старой сборкой. Позже — значит навсегда.
+//
+// ДВЕ СЕМАНТИКИ ПЕРЕНЕСЕНЫ С СЕРВЕРА ДОСЛОВНО (restrictedWorkOrders.ts):
+//   1. Отозванные аккаунты НЕ фильтруются — иначе уволенный ограниченный
+//      владелец выпал бы из политики, то есть его закрытые наряды раскрылись бы.
+//   2. Строка на КАЖДЫЙ аккаунт, а не на логин: логин отозванного освобождается,
+//      слияние по логину дало бы объединение доступов — больше прав, чем есть.
+// Порядок (живой аккаунт вперёд, дальше по id) тоже повторяет серверный: без
+// него ответ для повторно выданного логина зависел бы от плана запроса.
+// ────────────────────────────────────────────────────────────────────────────
+
+type ReplicaMembershipRow = { id: string; deletedAt: number | null; login: string; role: string; membership: SectionMembership };
+
+/**
+ * `undefined` — реплики ещё нет (читатель обязан уйти в EAV).
+ * Массив (возможно пустой) — реплика налита и это её полный ответ.
+ */
+async function replicaMembershipRows(
+  dataDb: BetterSQLite3Database,
+): Promise<ReplicaMembershipRow[] | undefined> {
+  try {
+    const seeded = await dataDb.select({ id: users.id }).from(users).limit(1);
+    if (seeded.length === 0) return undefined;
+    const rows = await dataDb
+      .select({
+        userId: users.id,
+        login: users.login,
+        role: users.systemRole,
+        sectionId: userSectionAccess.sectionId,
+        level: userSectionAccess.level,
+        deletedAt: users.deletedAt,
+      })
+      .from(users)
+      .innerJoin(
+        userSectionAccess,
+        and(eq(userSectionAccess.userId, users.id), isNull(userSectionAccess.deletedAt)),
+      )
+      .limit(40_000);
+    const byUser = new Map<string, ReplicaMembershipRow>();
+    for (const r of rows) {
+      const login = String(r.login ?? '').trim().toLowerCase();
+      if (!login) continue;
+      const level = String(r.level ?? '');
+      if (level !== 'viewer' && level !== 'editor') continue;
+      const userId = String(r.userId);
+      let row = byUser.get(userId);
+      if (!row) {
+        row = {
+          id: userId,
+          deletedAt: r.deletedAt == null ? null : Number(r.deletedAt),
+          login,
+          role: String(r.role ?? '').trim().toLowerCase(),
+          membership: {},
+        };
+        byUser.set(userId, row);
+      }
+      (row.membership as Record<string, 'viewer' | 'editor'>)[String(r.sectionId)] = level;
+    }
+    // Тот же компаратор, что на сервере (shared): порядок решает, чей ответ
+    // получит человек, если логин был выдан повторно.
+    return [...byUser.values()].sort(compareAccountsForMembership);
+  } catch {
+    // Любая неожиданность на стороне реплики (нет таблицы на очень старой БД,
+    // повреждение) — уходим в EAV, а не отказываем в доступе.
+    return undefined;
+  }
+}
+
 /**
  * Membership «доступа по разделам» текущего пользователя — по логину из локальной БД.
  * null = атрибут не засеян (legacy) → вызывающий обязан работать fail-open (меню как сейчас).
@@ -229,6 +308,15 @@ export async function getSectionMembershipByLogin(
 ): Promise<SectionMembership | null> {
   const l = String(login ?? '').trim().toLowerCase();
   if (!l) return null;
+
+  const replica = await replicaMembershipRows(dataDb);
+  if (replica) {
+    const hit = replica.find((r) => r.login === l);
+    // Пустой membership — «не засеяно» (fail-open), симметрично серверу.
+    if (!hit || Object.keys(hit.membership).length === 0) return null;
+    return hit.membership;
+  }
+
   const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
   if (!employeeTypeId) return null;
   const { byCode } = await getDefsByType(dataDb, employeeTypeId);
@@ -277,6 +365,17 @@ export async function getSectionMembershipByLogin(
 export async function getRestrictedWorkOrderPolicyLocal(
   dataDb: BetterSQLite3Database,
 ): Promise<RestrictedWorkOrderPolicy | null> {
+  const replica = await replicaMembershipRows(dataDb);
+  if (replica) {
+    return restrictedWorkOrderPolicyFromMemberships(
+      replica.map((r) => ({
+        login: r.login,
+        role: r.role,
+        level: r.membership.restricted_work_orders ?? null,
+      })),
+    );
+  }
+
   const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
   if (!employeeTypeId) return null;
   const { byCode } = await getDefsByType(dataDb, employeeTypeId);

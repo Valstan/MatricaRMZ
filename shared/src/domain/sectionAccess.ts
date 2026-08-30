@@ -407,3 +407,30 @@ export function seedMembershipForRole(role: string | null | undefined): SectionM
       return {};
   }
 }
+
+/**
+ * Порядок аккаунтов при разборе доступов по разделам (B3/R3).
+ *
+ * Зачем правило вообще: логин отозванного аккаунта освобождается (частичный
+ * UNIQUE среди живых) и может быть выдан другому человеку. Тогда одному логину
+ * отвечают ДВА аккаунта, а читатели membership берут ПЕРВЫЙ подходящий. Без
+ * явного порядка ответ зависел бы от плана запроса — сегодня один, завтра
+ * другой, у одного и того же человека.
+ *
+ * Живой аккаунт вперёд, дальше по id для устойчивости.
+ *
+ * Живёт здесь, а не по месту, потому что правило обязано совпадать на СЕРВЕРЕ
+ * (`restrictedWorkOrders.loadSectionMembershipRows`) и в КЛИЕНТСКОЙ реплике
+ * (`employeeService.replicaMembershipRows`). Две копии такого правила расходятся
+ * молча, а расхождение здесь — разные права у одного человека на сервере и на
+ * его машине.
+ */
+export function compareAccountsForMembership(
+  a: { deletedAt?: number | null; id: string },
+  b: { deletedAt?: number | null; id: string },
+): number {
+  const aLive = a.deletedAt == null ? 0 : 1;
+  const bLive = b.deletedAt == null ? 0 : 1;
+  if (aLive !== bLive) return aLive - bLive;
+  return String(a.id).localeCompare(String(b.id));
+}
