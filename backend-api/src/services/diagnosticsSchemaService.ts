@@ -51,8 +51,50 @@ function mapAction(code: string | null | undefined) {
   }
 }
 
-export async function getSyncSchemaSnapshot(): Promise<SyncSchemaSnapshot> {
-  const tables = Object.values(SyncTableName);
+/**
+ * Состав таблиц снимка, каким его знали сборки ДО входа аккаунтов в контракт
+ * (B3/R3). Список ЗАМОРОЖЕН намеренно и не выводится из `SyncTableName`.
+ *
+ * Зачем. Клиент хеширует полученный снимок и сравнивает с сохранённым; сборки
+ * **до v3.5.0** на расхождение хеша отвечают ПЕРЕСБОРКОЙ локальной базы — вместе
+ * с неотправленной работой и сессией. На 2026-08-30 таких машин в парке 12 из 26
+ * активных, и одна выходила на связь за два дня до релиза. Добавление двух
+ * таблиц в контракт меняет хеш у всех разом, то есть выкат стёр бы им локальные
+ * данные в течение шестичасового окна кэша схемы.
+ *
+ * Поэтому клиент, не представившийся версией (а старый и не умеет), получает
+ * ровно тот состав, который у него уже закеширован, и его хеш не двигается.
+ * Список не выводится из `SyncTableName` именно ради этого: следующая таблица,
+ * добавленная в контракт, не должна автоматически попасть сюда и уронить парк.
+ *
+ * Снимать вместе с остальными переходными ветками, когда в парке не останется
+ * сборок ниже v3.5.0.
+ */
+export const LEGACY_SCHEMA_SNAPSHOT_TABLES: readonly string[] = [
+  SyncTableName.EntityTypes,
+  SyncTableName.Entities,
+  SyncTableName.AttributeDefs,
+  SyncTableName.AttributeValues,
+  SyncTableName.Operations,
+  SyncTableName.AuditLog,
+  SyncTableName.ChatMessages,
+  SyncTableName.ChatReads,
+  SyncTableName.UserPresence,
+  SyncTableName.Notes,
+  SyncTableName.NoteShares,
+  SyncTableName.CardDrafts,
+  SyncTableName.AiChatRequests,
+  SyncTableName.ErpNomenclature,
+  SyncTableName.ErpEngineAssemblyBom,
+  SyncTableName.ErpEngineAssemblyBomLines,
+  SyncTableName.ErpEngineAssemblyBomBrandLinks,
+  SyncTableName.ErpEngineInstances,
+  SyncTableName.ErpRegStockBalance,
+  SyncTableName.ErpRegStockMovements,
+];
+
+export async function getSyncSchemaSnapshot(opts?: { tables?: readonly string[] }): Promise<SyncSchemaSnapshot> {
+  const tables = [...(opts?.tables ?? Object.values(SyncTableName))];
   const columnsRes = await pool.query(
     `
       SELECT
