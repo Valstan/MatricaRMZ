@@ -4,6 +4,7 @@ import {
   ACCESS_SECTION_CATALOG,
   AccessSection,
   canEditSection,
+  compareAccountsForMembership,
   canViewSection,
   dependentsOfSection,
   membershipIssues,
@@ -226,5 +227,32 @@ describe('sectionEditorRoleWarning (раздел ⇄ роль)', () => {
 
   it('view-центричный раздел (reports) не сверяется', () => {
     expect(sectionEditorRoleWarning({ role: 'viewer', sectionId: AccessSection.Reports, rolePermissions: {} })).toBeNull();
+  });
+});
+
+describe('compareAccountsForMembership — порядок аккаунтов при повторно выданном логине', () => {
+  // Правило обязано совпадать на сервере (restrictedWorkOrders) и в клиентской
+  // реплике (employeeService). Иначе у одного человека будут разные права на
+  // сервере и на его машине — и заметить это можно только по жалобе.
+  it('живой аккаунт идёт раньше отозванного', () => {
+    const live = { id: 'zzz', deletedAt: null };
+    const dead = { id: 'aaa', deletedAt: 100 };
+    expect([dead, live].sort(compareAccountsForMembership)[0]).toBe(live);
+    expect([live, dead].sort(compareAccountsForMembership)[0]).toBe(live);
+  });
+
+  it('среди равных по живости — по id, чтобы порядок не зависел от плана запроса', () => {
+    const rows = [
+      { id: 'c', deletedAt: null },
+      { id: 'a', deletedAt: null },
+      { id: 'b', deletedAt: null },
+    ];
+    expect(rows.sort(compareAccountsForMembership).map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('отсутствующий deletedAt считается живым', () => {
+    const withoutField = { id: 'a' };
+    const dead = { id: 'b', deletedAt: 1 };
+    expect([dead, withoutField].sort(compareAccountsForMembership)[0]).toBe(withoutField);
   });
 });

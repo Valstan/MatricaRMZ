@@ -17,6 +17,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   EMPTY_RESTRICTED_WORK_ORDER_POLICY,
   SyncTableName,
+  compareAccountsForMembership,
   isRestrictedWorkOrderOwner,
   isRestrictedWorkOrderReader,
   restrictedWorkOrderPolicyFromMemberships,
@@ -43,7 +44,7 @@ const WORK_ORDER = 'work_order';
  */
 const POLICY_TTL_MS = 15_000;
 const POLICY_RETRY_MS = 1_000;
-type MembershipRow = { login: string; role: string; membership: SectionMembership };
+type MembershipRow = { id: string; deletedAt: number | null; login: string; role: string; membership: SectionMembership };
 let membershipRowsCache: { rows: MembershipRow[]; at: number } | null = null;
 
 async function loadSectionMembershipRows(): Promise<MembershipRow[]> {
@@ -75,6 +76,7 @@ async function loadSectionMembershipRows(): Promise<MembershipRow[]> {
       role: users.systemRole,
       sectionId: userSectionAccess.sectionId,
       level: userSectionAccess.level,
+      deletedAt: users.deletedAt,
     })
     .from(users)
     .innerJoin(
@@ -91,12 +93,25 @@ async function loadSectionMembershipRows(): Promise<MembershipRow[]> {
     const userId = String(r.userId);
     let row = byUser.get(userId);
     if (!row) {
-      row = { login, role: String(r.role ?? '').trim().toLowerCase(), membership: {} };
+      row = {
+        id: userId,
+        deletedAt: r.deletedAt == null ? null : Number(r.deletedAt),
+        login,
+        role: String(r.role ?? '').trim().toLowerCase(),
+        membership: {},
+      };
       byUser.set(userId, row);
     }
     (row.membership as Record<string, string>)[String(r.sectionId)] = level;
   }
-  return [...byUser.values()];
+  // Порядок обязателен: `getSectionMembershipForLogin` берёт ПЕРВЫЙ аккаунт с
+  // этим логином, а логин отозванного освобождается и может достаться другому —
+  // тогда одному логину отвечают два аккаунта, и без порядка ответ зависел бы от
+  // плана запроса: сегодня один, завтра другой, у одного и того же человека.
+  // Правило живёт в shared, потому что клиентская реплика (B3/R3) обязана
+  // сортировать ТОЧНО ТАК ЖЕ: расхождение здесь — разные права у одного человека
+  // на сервере и на его машине.
+  return [...byUser.values()].sort(compareAccountsForMembership);
 }
 
 async function cachedMembershipRows(): Promise<MembershipRow[]> {
