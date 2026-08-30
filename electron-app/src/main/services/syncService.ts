@@ -367,7 +367,12 @@ async function fetchSyncSchemaSnapshot(db: BetterSQLite3Database, apiBaseUrl: st
   const cached = await loadCachedSyncSchema(db);
   const now = nowMs();
   if (cached && now - lastFetched < SYNC_SCHEMA_CACHE_TTL_MS) return cached;
-  const url = `${apiBaseUrl}/diagnostics/sync-schema`;
+  // Клиент ПРЕДСТАВЛЯЕТСЯ версией. Сервер по ней решает, можно ли отдавать
+  // расширенный снимок схемы: сборки до 3.5.0 на смену его хеша отвечают
+  // ПЕРЕСБОРКОЙ локальной базы вместе с неотправленной работой, а версии в
+  // запросе у них нет и появиться не может — значит «не представился» сервер
+  // обязан читать как «старый» и отдавать прежний состав таблиц.
+  const url = `${apiBaseUrl}/diagnostics/sync-schema?client_version=${encodeURIComponent(app.getVersion())}`;
   const res = await fetchAuthed(db, apiBaseUrl, url, { method: 'GET' }, { attempts: 2, timeoutMs: 15_000, label: 'pull' });
   if (!res.ok) {
     const body = await safeBodyText(res);
