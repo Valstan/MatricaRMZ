@@ -1,6 +1,6 @@
 import 'dotenv/config';
 
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,6 +27,21 @@ import { pool } from '../database/db.js';
 
 const MIGRATION = '0086_users_strict.sql';
 
+// Миграции ПОСЛЕ 0086, которые переопределяют rebuild-функции зеркала. Их надо
+// проиграть следом, иначе приёмка оставляет базу с функциями версии 0086 — то
+// есть молча откатывает ровно то, что проверяет следующий шаг.
+//
+// Это уже случилось незамеченным: с появлением 0087 (запись отказов зеркала)
+// `users:parity` в CI работал по функциям 0086, без mirror_note_failure. Гейт
+// зеленел, а охранял он не тот код, который поедет на прод. Поймано на 0088.
+//
+// Список закреплён явно и сверяется с каталогом миграций ниже: новая миграция,
+// трогающая эти функции и не вписанная сюда, роняет приёмку с внятным текстом,
+// а не воскрешает старый дефект.
+const FUNCTION_REDEFINING_FOLLOW_UPS = ['0087_users_mirror_failures.sql', '0088_users_sync_outbox.sql'];
+
+const MIRROR_FUNCTION_MARKER = /CREATE OR REPLACE FUNCTION (rebuild_user|rebuild_user_sections)\b/;
+
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
@@ -43,22 +58,56 @@ async function one<T>(sql: string, params: unknown[] = []): Promise<T | null> {
   return (r.rows[0] as T | undefined) ?? null;
 }
 
-async function loadStatements(): Promise<string[]> {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const sql = await readFile(join(here, '..', '..', 'drizzle', MIGRATION), 'utf8');
+function drizzleDir(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
+}
+
+async function loadStatements(file: string): Promise<string[]> {
+  const sql = await readFile(join(drizzleDir(), file), 'utf8');
   return sql
     .split('--> statement-breakpoint')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
 
-/** Сносит всё, что заводит 0086, и выполняет её заново — теперь поверх живого EAV. */
+/**
+ * Сверяет список догоняющих миграций с каталогом. Без этой проверки список
+ * протухнет молча: следующая миграция переопределит rebuild-функции, сюда её
+ * никто не впишет, и приёмка снова начнёт откатывать зеркало на 0086.
+ */
+async function assertFollowUpsCoverCatalog(): Promise<void> {
+  const files = (await readdir(drizzleDir()))
+    .filter((f) => f.endsWith('.sql') && f > MIGRATION)
+    .sort();
+  const redefining: string[] = [];
+  for (const f of files) {
+    const sql = await readFile(join(drizzleDir(), f), 'utf8');
+    if (MIRROR_FUNCTION_MARKER.test(sql)) redefining.push(f);
+  }
+  const missing = redefining.filter((f) => !FUNCTION_REDEFINING_FOLLOW_UPS.includes(f));
+  if (missing.length > 0) {
+    console.error(
+      `Отказ: миграции ${missing.join(', ')} переопределяют rebuild-функции зеркала, но не перечислены в ` +
+        `FUNCTION_REDEFINING_FOLLOW_UPS (src/scripts/checkUsersBackfill.ts). Без них приёмка оставит базу с функциями версии 0086 — ` +
+        'и следующие шаги будут проверять не тот код, который поедет на прод. Впишите их и проверьте порядок.',
+    );
+    process.exit(2);
+  }
+}
+
+/**
+ * Сносит всё, что заводит 0086, и выполняет её заново — теперь поверх живого
+ * EAV. Следом проигрывает миграции, переопределявшие rebuild-функции, чтобы
+ * база осталась в АКТУАЛЬНОМ состоянии, а не в историческом.
+ */
 async function rerunMigration(): Promise<void> {
   await pool.query(
-    `DROP TABLE IF EXISTS user_settings, user_section_access, user_credentials, users, access_sections CASCADE`,
+    `DROP TABLE IF EXISTS users_sync_outbox, user_settings, user_section_access, user_credentials, users, access_sections CASCADE`,
   );
-  for (const stmt of await loadStatements()) {
-    await pool.query(stmt);
+  for (const file of [MIGRATION, ...FUNCTION_REDEFINING_FOLLOW_UPS]) {
+    for (const stmt of await loadStatements(file)) {
+      await pool.query(stmt);
+    }
   }
 }
 
@@ -67,6 +116,8 @@ async function main() {
     console.error('Отказ: скрипт пересоздаёт таблицы. Только одноразовая CI-база, с MATRICA_FIXTURE_ALLOW_WRITE=1.');
     process.exit(2);
   }
+
+  await assertFollowUpsCoverCatalog();
 
   const cards = await one<{ n: string }>(
     `SELECT count(*)::text AS n FROM entities e JOIN entity_types t ON t.id = e.type_id AND t.code='employee'`,
@@ -173,9 +224,25 @@ async function main() {
   check('текст ошибки называет причину', /дубли живых логинов/.test(raised), true);
   check('текст ошибки называет сам логин', raised.includes(victimLogin), true);
 
+  // Побочный, но полезный вывод: пока дубль лежал в EAV, триггер пытался
+  // собрать вторую живую строку с тем же логином и упёрся в users_login_live_uq.
+  // Барьер 0086 не дал этому уронить чужую транзакцию, а 0087 обязан был отказ
+  // ЗАПИСАТЬ. Проверяем оба свойства разом — это единственное место, где отказ
+  // зеркала провоцируется намеренно и потому наблюдаем.
+  const provoked = await one<{ n: string }>(
+    `SELECT count(*)::text AS n FROM users_mirror_failures WHERE user_id=$1 AND fn='rebuild_user'`,
+    [dupEntity!.id],
+  );
+  check('отказ зеркала записан, а не только проглочен барьером', Number(provoked?.n) > 0, true);
+
   // Убрать дубль и восстановить согласованное состояние для шага users:parity.
   await pool.query(`DELETE FROM attribute_values WHERE entity_id=$1`, [dupEntity!.id]);
   await pool.query(`DELETE FROM entities WHERE id=$1`, [dupEntity!.id]);
+  // Спровоцированный отказ — не дефект данных, и оставлять его в таблице нельзя:
+  // users:parity справедливо краснеет на непустой users_mirror_failures. Чистим
+  // ТОЧЕЧНО, по id подопытной сущности, чтобы настоящий отказ, случись он рядом,
+  // остался виден.
+  await pool.query(`DELETE FROM users_mirror_failures WHERE user_id=$1`, [dupEntity!.id]);
   await rerunMigration();
   check(
     'после снятия дубля миграция проходит',
