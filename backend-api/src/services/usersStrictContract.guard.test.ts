@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import { SyncTableName } from '@matricarmz/shared';
@@ -87,5 +89,51 @@ describe('B3: список ожидания sync-контракта не под�
     for (const [table, reason] of Object.entries(SYNC_COLUMNS_PENDING_CONTRACT)) {
       expect(String(reason).trim().length, table).toBeGreaterThan(10);
     }
+  });
+});
+
+describe('B3/R4a: listEmployeesAuth читает auth-поля из строгих таблиц', () => {
+  // Сторож исходника, а не поведения: разница видна только на замороженном EAV,
+  // то есть ПОСЛЕ cutover'а — когда чинить уже поздно. Сегодня оба источника
+  // совпадают (зеркало держат триггеры 0086), поэтому обычный тест на данных
+  // остался бы зелёным при любом из двух вариантов кода и ничего не стерёг бы.
+  //
+  // Цена регресса: от этого списка кормятся ростер чата и заметок, подсказка
+  // логинов, админский список, отчёт о доступах и ВЫБОР ПОЛУЧАТЕЛЕЙ
+  // telegram-уведомлений. Возврат к EAV означает, что отозванный сотрудник
+  // продолжит получать тела чужих сообщений во внешний канал (класс инцидента
+  // 3.18.0), а заведённый после cutover — не появится в ростере никогда.
+  const source = readFileSync(new URL('./employeeAuthService.ts', import.meta.url), 'utf8');
+  const body = (() => {
+    const start = source.indexOf('export async function listEmployeesAuth()');
+    expect(start, 'listEmployeesAuth не найдена — сторож потерял предмет').toBeGreaterThan(0);
+    const end = source.indexOf('\nexport ', start + 1);
+    return source.slice(start, end === -1 ? source.length : end);
+  })();
+
+  it.each([
+    ['loginDefId', 'логин'],
+    ['passwordDefId', 'признак наличия пароля'],
+    ['accessDefId', 'признак доступа'],
+    ['deleteRequestedAtDefId', 'дата заявки на удаление'],
+    ['deleteRequestedByIdDefId', 'инициатор заявки'],
+    ['deleteRequestedByUsernameDefId', 'денормализованная копия логина инициатора'],
+  ])('не берёт %s из EAV (%s)', (defId) => {
+    expect(body).not.toContain(defId);
+  });
+
+  it('сырая роль ИЗ EAV остаётся — на ней стоит ведро аномалий roleReport', () => {
+    // Обратный инвариант: это исключение осознанное, и вычистить его «заодно»
+    // с остальными EAV-чтениями нельзя — `users.system_role` NOT NULL и с CHECK
+    // по каталогу, он не отличает «атрибута нет» от «сознательно employee».
+    expect(body).toContain('defs.roleDefId');
+    expect(body).toContain('systemRoleRaw');
+  });
+
+  it('строка списка несёт и канон, и сырое значение', () => {
+    const probe: ListRow = {} as ListRow;
+    const _canon: string = probe.systemRole;
+    const _raw: string = probe.systemRoleRaw;
+    expect(typeof probe).toBe('object');
   });
 });

@@ -125,3 +125,54 @@ describe('normalizeRole — H7 step (в) fail-closed default', () => {
     expect(normalizeRole('valstan', 'sabotage')).toBe('superadmin');
   });
 });
+
+// B3/R4a: источник роли раздвоился. Счёт по ролям идёт по канону
+// (`users.system_role`, поле `systemRole`), а членство в ведре аномалий — по
+// сырому значению из EAV (`systemRoleRaw`). Без этого разделения переезд
+// listEmployeesAuth на строгие таблицы обнулил бы ведро: в strict роль NOT NULL
+// и с CHECK по каталогу, то есть ни пустой строки, ни опечатки там не бывает —
+// отчёт всегда показывал бы «аномалий нет».
+describe('buildRoleReport — раздвоенный источник роли (B3/R4a)', () => {
+  it('считает по канону, а в ведро кладёт по сырому значению', () => {
+    const r = buildRoleReport([
+      // Опечатка в EAV, которую бэкфилл fail-closed свёл в employee.
+      { id: 'x', login: 'x', fullName: null, systemRole: 'employee', systemRoleRaw: 'admn', accessEnabled: true },
+    ]);
+    const by = Object.fromEntries(r.byRole.map((x) => [x.role, x]));
+    expect(by['employee']).toMatchObject({ active: 1, total: 1 });
+    expect(r.userBucket.unknownRawRoles).toEqual(['admn']);
+    expect(r.userBucket.breakdown.find((b) => b.kind === 'unknown')).toMatchObject({ rawValue: 'admn', active: 1 });
+  });
+
+  it('живой admin с пустым сырым значением НЕ аномалия', () => {
+    // Канон говорит «администратор», и права выдаются по нему же. Считать это
+    // аномалией значило бы поднимать ложную тревогу на каждом аккаунте, чей
+    // EAV-атрибут роли не дожил до бэкфилла.
+    const r = buildRoleReport([
+      { id: 'a', login: 'a', fullName: null, systemRole: 'admin', systemRoleRaw: '', accessEnabled: true },
+    ]);
+    expect(r.userBucket.activeTotal).toBe(0);
+    expect(r.userBucket.breakdown).toHaveLength(0);
+  });
+
+  it('карточка без аккаунта остаётся в ведре как (empty)', () => {
+    const r = buildRoleReport([
+      { id: 'n', login: '', fullName: 'Без учётки', systemRole: '', systemRoleRaw: '', accessEnabled: false },
+    ]);
+    expect(r.userBucket.breakdown.find((b) => b.kind === 'empty')).toMatchObject({ rawValue: '(empty)', disabled: 1 });
+  });
+
+  it('пустая строка в systemRoleRaw — значащее состояние, а не «поле не заполнено»', () => {
+    // Фолбэк на systemRole срабатывает только при ОТСУТСТВИИ поля; иначе
+    // «атрибута роли нет» молча читалось бы как канон, и ведро снова ослепло.
+    const withRaw = buildRoleReport([
+      { id: 'q', login: 'q', fullName: null, systemRole: 'employee', systemRoleRaw: '', accessEnabled: true },
+    ]);
+    expect(withRaw.userBucket.breakdown.find((b) => b.kind === 'empty')).toBeDefined();
+
+    const withoutRaw = buildRoleReport([
+      { id: 'q', login: 'q', fullName: null, systemRole: 'employee', accessEnabled: true },
+    ]);
+    expect(withoutRaw.userBucket.breakdown).toHaveLength(0);
+  });
+});

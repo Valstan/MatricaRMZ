@@ -683,6 +683,27 @@ async function getEmployeeAttrDefId(code: string) {
   return getAttributeDefId(employeeTypeId, code);
 }
 
+/**
+ * B3/R4a: auth-поля списка читаются из строгих таблиц, EAV остаётся только под
+ * профильным хвостом и под СЫРЫМ значением роли.
+ *
+ * Почему переезд обязателен раньше cutover'а. От этого списка кормятся ростер
+ * чата и заметок, подсказка логинов, админский список, отчёт о доступах и
+ * выбор получателей telegram-уведомлений. Пока писатель пишет в EAV, разницы
+ * нет; в тот момент, когда писатель уйдёт в strict (R4b), список остался бы
+ * снимком на день заморозки: заведённый после cutover сотрудник не появился бы
+ * в ростере чата НИКОГДА, а отозванный — продолжил бы получать тела чужих
+ * сообщений во внешний канал. Здесь это чинится заранее и без риска: сегодня
+ * strict равен EAV (зеркало держат триггеры 0086, сверяет `users:parity`),
+ * поэтому правка не меняет ни одного ответа, а после cutover остаётся верной.
+ *
+ * `systemRoleRaw` — сознательное исключение. Ведро аномалий roleReport отличает
+ * «атрибута роли нет» от «сознательно назначен employee», а `users.system_role`
+ * этой разницы не хранит: он NOT NULL и с CHECK по каталогу, то есть ни пустой
+ * строки, ни опечатки в нём быть не может. Поэтому канон отдаётся в
+ * `systemRole`, а сырое значение — отдельным полем, и ведро продолжает считать
+ * ровно то, что считало.
+ */
 export async function listEmployeesAuth() {
   const defs = await getEmployeeAuthDefIds();
   if (!defs) return { ok: false as const, error: 'тип сотрудника не найден' };
@@ -700,31 +721,64 @@ export async function listEmployeesAuth() {
   if (ids.length === 0) return { ok: true as const, rows: [] };
 
   const positionDefId = await getEmployeeAttrDefId('role');
+  // Из EAV остаётся профильный хвост (этап 3b) и СЫРАЯ роль — см. док выше.
   const defIds = [
-    defs.loginDefId,
-    defs.passwordDefId,
     defs.roleDefId,
-    defs.accessDefId,
     fullNameDefId,
     chatDisplayDefId,
     positionDefId,
     messengerDefs?.telegramLoginDefId,
     messengerDefs?.maxLoginDefId,
   ].filter(Boolean) as string[];
-  const deleteDefIds = [defs.deleteRequestedAtDefId, defs.deleteRequestedByIdDefId, defs.deleteRequestedByUsernameDefId].filter(
-    Boolean,
-  ) as string[];
   const vals = await db
     .select({ entityId: attributeValues.entityId, attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
     .where(
       and(
         inArray(attributeValues.entityId, ids as any),
-        inArray(attributeValues.attributeDefId, [...defIds, ...deleteDefIds] as any),
+        inArray(attributeValues.attributeDefId, defIds as any),
         isNull(attributeValues.deletedAt),
       ),
     )
     .limit(200_000);
+
+  // Аккаунты. Карточка без аккаунта — легальное состояние (сотрудник без
+  // доступа в программу), поэтому список ведут КАРТОЧКИ, а строки users
+  // подклеиваются. Наличие строки user_credentials и есть `hasPassword`:
+  // password_hash там NOT NULL и с CHECK на непустоту (0086).
+  const accountRows = await db
+    .select({
+      id: users.id,
+      login: users.login,
+      systemRole: users.systemRole,
+      accessEnabled: users.accessEnabled,
+      deleteRequestedAt: users.deleteRequestedAt,
+      deleteRequestedBy: users.deleteRequestedBy,
+      credentialsUserId: userCredentials.userId,
+    })
+    .from(users)
+    .leftJoin(userCredentials, eq(userCredentials.userId, users.id))
+    .where(and(inArray(users.id, ids as any), isNull(users.deletedAt)))
+    .limit(20_000);
+  const accountById = new Map<string, (typeof accountRows)[number]>();
+  for (const a of accountRows) accountById.set(String(a.id), a);
+
+  // Имя инициатора удаления резолвится из `users.delete_requested_by`, а не из
+  // денормализованной копии `delete_requested_by_username` в EAV: копия жила
+  // ради join'а по EAV и после cutover разъехалась бы с датой (дата из strict,
+  // имя из замороженного EAV). Отозванные инициаторы тоже нужны — фильтра по
+  // deleted_at здесь нет, иначе у заявки пропало бы имя вместе с увольнением.
+  const initiatorIds = Array.from(
+    new Set(accountRows.map((a) => (a.deleteRequestedBy ? String(a.deleteRequestedBy) : '')).filter(Boolean)),
+  );
+  const initiatorLogin = new Map<string, string>();
+  if (initiatorIds.length > 0) {
+    const initiators = await db
+      .select({ id: users.id, login: users.login })
+      .from(users)
+      .where(inArray(users.id, initiatorIds as any));
+    for (const i of initiators) initiatorLogin.set(String(i.id), String(i.login ?? '').trim());
+  }
 
   const byEntity: Record<string, Record<string, unknown>> = {};
   for (const v of vals as any[]) {
@@ -738,25 +792,24 @@ export async function listEmployeesAuth() {
     ok: true as const,
     rows: ids.map((id) => {
       const rec = byEntity[id] ?? {};
-      const login = String(rec[defs.loginDefId] ?? '').trim();
-      const passwordHash = String(rec[defs.passwordDefId] ?? '').trim();
-      // Fail-closed: a missing/tombstoned role attribute must not read as the
-      // legacy full-access 'user' (prod-verified 2026-08-28: zero live accounts
-      // depend on the old fallback). '' — not 'employee' — so normalizeRole
-      // still resolves to no-access while roleReport's anomaly bucket can tell
-      // "attribute missing" apart from a deliberately assigned employee.
-      const systemRole = String(rec[defs.roleDefId] ?? '').trim().toLowerCase();
-      const accessEnabled = rec[defs.accessDefId] === true;
+      const account = accountById.get(id);
+      const login = String(account?.login ?? '').trim();
+      // Fail-closed: у карточки без аккаунта роли нет вовсе, и '' — не
+      // 'employee' — оставляет normalizeRole без доступа.
+      const systemRole = String(account?.systemRole ?? '').trim().toLowerCase();
+      // Сырое значение из EAV: ведро аномалий roleReport отличает по нему
+      // «атрибута нет» от «сознательно employee» и видит опечатки, которых
+      // CHECK строгой таблицы существовать не позволяет.
+      const systemRoleRaw = String(rec[defs.roleDefId] ?? '').trim().toLowerCase();
+      const accessEnabled = account?.accessEnabled === true;
       const fullName = fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '';
       const position = positionDefId ? String(rec[positionDefId] ?? '').trim() : '';
       const chatDisplayName = chatDisplayDefId ? String(rec[chatDisplayDefId] ?? '').trim() : '';
       const telegramLogin = messengerDefs?.telegramLoginDefId ? String(rec[messengerDefs.telegramLoginDefId] ?? '').trim() : '';
       const maxLogin = messengerDefs?.maxLoginDefId ? String(rec[messengerDefs.maxLoginDefId] ?? '').trim() : '';
-      const deleteRequestedAtRaw = defs.deleteRequestedAtDefId ? rec[defs.deleteRequestedAtDefId] : null;
-      const deleteRequestedAt =
-        typeof deleteRequestedAtRaw === 'number' ? deleteRequestedAtRaw : deleteRequestedAtRaw != null ? Number(deleteRequestedAtRaw) : null;
-      const deleteRequestedById = defs.deleteRequestedByIdDefId ? String(rec[defs.deleteRequestedByIdDefId] ?? '').trim() : '';
-      const deleteRequestedByUsername = defs.deleteRequestedByUsernameDefId ? String(rec[defs.deleteRequestedByUsernameDefId] ?? '').trim() : '';
+      const deleteRequestedAt = account?.deleteRequestedAt == null ? null : Number(account.deleteRequestedAt);
+      const deleteRequestedById = account?.deleteRequestedBy ? String(account.deleteRequestedBy) : '';
+      const deleteRequestedByUsername = deleteRequestedById ? (initiatorLogin.get(deleteRequestedById) ?? '') : '';
       return {
         id,
         login,
@@ -766,8 +819,9 @@ export async function listEmployeesAuth() {
         // и дальше он ехал по коду двадцати вызывающих. Хэш нужен только для
         // сверки пароля, а её делают getEmployeeAuthByLogin/ById, не этот
         // список. Возврат хэша сюда стережёт guard-тест.
-        hasPassword: passwordHash.length > 0,
+        hasPassword: account?.credentialsUserId != null,
         systemRole,
+        systemRoleRaw,
         accessEnabled,
         fullName,
         position,
@@ -839,7 +893,8 @@ export async function getEmployeeAuthById(employeeId: string) {
   const row = rows[0];
   if (!row) return null;
 
-  const { fullName, deleteRequestedByUsername } = await readEavProfileTail(employeeId);
+  const { fullName } = await readEavProfileTail(employeeId);
+  const deleteRequestedByUsername = await resolveInitiatorLogin(row.deleteRequestedById);
 
   return {
     id: String(row.id),
@@ -854,30 +909,41 @@ export async function getEmployeeAuthById(employeeId: string) {
   };
 }
 
-/** Хвост, который ещё живёт в EAV: ФИО и денормализованная копия имени инициатора. */
-async function readEavProfileTail(employeeId: string): Promise<{ fullName: string; deleteRequestedByUsername: string | null }> {
-  const defs = await getEmployeeAuthDefIds();
+/** Хвост, который ещё живёт в EAV: ФИО (уезжает в HR-таблицу этапа 3b). */
+async function readEavProfileTail(employeeId: string): Promise<{ fullName: string }> {
   const fullNameDefId = await getEmployeeFullNameDefId();
-  const wanted = [fullNameDefId, defs?.deleteRequestedByUsernameDefId].filter(Boolean) as string[];
-  if (wanted.length === 0) return { fullName: '', deleteRequestedByUsername: null };
+  if (!fullNameDefId) return { fullName: '' };
   const vals = await db
-    .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
+    .select({ valueJson: attributeValues.valueJson })
     .from(attributeValues)
     .where(
       and(
         eq(attributeValues.entityId, employeeId as any),
-        inArray(attributeValues.attributeDefId, wanted as any),
+        eq(attributeValues.attributeDefId, fullNameDefId as any),
         isNull(attributeValues.deletedAt),
       ),
-    );
-  const rec: Record<string, unknown> = {};
-  for (const v of vals as any[]) rec[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
-  return {
-    fullName: fullNameDefId ? String(rec[fullNameDefId] ?? '').trim() : '',
-    deleteRequestedByUsername: defs?.deleteRequestedByUsernameDefId
-      ? String(rec[defs.deleteRequestedByUsernameDefId] ?? '').trim() || null
-      : null,
-  };
+    )
+    .limit(1);
+  const raw = vals[0]?.valueJson;
+  return { fullName: String(safeJsonParse(raw ? String(raw) : null) ?? '').trim() };
+}
+
+/**
+ * Логин инициатора заявки на удаление — из строгой таблицы по
+ * `users.delete_requested_by`. Денормализованная копия `delete_requested_by_username`
+ * в EAV этим и убита: она существовала только ради join'а по EAV, а после
+ * cutover пара разъехалась бы (дата из strict, имя из замороженного EAV) —
+ * суперадмин утверждал бы удаление, глядя на ложную атрибуцию. Отозванный
+ * инициатор тоже должен резолвиться, поэтому фильтра по deleted_at нет.
+ */
+async function resolveInitiatorLogin(initiatorId: string | null): Promise<string | null> {
+  if (!initiatorId) return null;
+  const rows = await db
+    .select({ login: users.login })
+    .from(users)
+    .where(eq(users.id, initiatorId as any))
+    .limit(1);
+  return String(rows[0]?.login ?? '').trim() || null;
 }
 
 export async function getEmployeeAuthByLogin(login: string) {
@@ -1100,9 +1166,10 @@ export async function setEmployeeDeleteRequest(
   if (args.requestedById !== undefined && defs.deleteRequestedByIdDefId) {
     await upsertAttrValue(employeeId, defs.deleteRequestedByIdDefId, args.requestedById ?? null);
   }
-  if (args.requestedByUsername !== undefined && defs.deleteRequestedByUsernameDefId) {
-    await upsertAttrValue(employeeId, defs.deleteRequestedByUsernameDefId, args.requestedByUsername ?? null);
-  }
+  // `requestedByUsername` больше не пишется: копия логина инициатора умерла на
+  // R4a, имя резолвится из `users.delete_requested_by` при чтении. Параметр
+  // оставлен в сигнатуре, чтобы вызывающие не переписывались дважды — на R4b
+  // вся эта функция уходит в строгую запись.
   return { ok: true as const };
 }
 
@@ -1236,34 +1303,61 @@ export async function setEmployeeNamePartsFromFullName(employeeId: string, fullN
   return { ok: true as const };
 }
 
+/**
+ * B3/R4a: занятость логина спрашивается у той же таблицы, которая её и держит.
+ * Уникальность живых логинов обеспечивает частичный индекс `users_login_live_uq`
+ * (0086), а проверка ходила в EAV — то есть форма и БД отвечали из разных
+ * источников. Пока они совпадают, это незаметно; после cutover форма сказала бы
+ * «свободен», а запись упёрлась бы в 23505. Отозванные аккаунты логин не
+ * держат — ровно как частичный индекс.
+ */
 export async function isLoginTaken(login: string, exceptEmployeeId?: string | null) {
-  const defs = await getEmployeeAuthDefIds();
-  if (!defs) return false;
   const normalized = normalizeLogin(login);
   if (!normalized) return false;
   const rows = await db
-    .select({ entityId: attributeValues.entityId })
-    .from(attributeValues)
-    .where(
-      and(
-        eq(attributeValues.attributeDefId, defs.loginDefId as any),
-        eq(attributeValues.valueJson, JSON.stringify(normalized)),
-        isNull(attributeValues.deletedAt),
-      ),
-    )
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.login, normalized), isNull(users.deletedAt)))
     .limit(10);
-  return rows.some((r) => String(r.entityId) !== String(exceptEmployeeId ?? ''));
+  return rows.some((r) => String(r.id) !== String(exceptEmployeeId ?? ''));
 }
 
 export function isSuperadminLogin(login: string) {
   return normalizeLogin(login) === SUPERADMIN_LOGIN;
 }
 
+/**
+ * «База не девственная» для bootstrap-гейта суперадмина: существует ли хоть
+ * один пароль. B3/R4a — спрашиваем у `user_credentials`, где пароли и лежат.
+ * Прежняя форма (`listEmployeesAuth().some(hasPassword)`) после cutover
+ * ослабевала бы ровно в том сценарии, ради которого гейт написан: живая база
+ * с замороженным EAV выглядела бы девственной, и первый неаутентифицированный
+ * вызывающий стал бы суперадмином.
+ */
+export async function anyCredentialsExist(): Promise<boolean> {
+  const rows = await db.select({ userId: userCredentials.userId }).from(userCredentials).limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * B3/R4a: суперадмин ищется в строгой таблице. Это цель переназначения ВСЕХ
+ * входящих ссылок удаляемого сотрудника (`reassignUserReferences`), поэтому
+ * резолв по замороженному EAV означал бы, что передача роли суперадмина
+ * невидима, а данные уезжают прежнему владельцу роли.
+ */
 export async function getSuperadminUserId(): Promise<string | null> {
-  const list = await listEmployeesAuth().catch(() => null);
-  if (!list || !list.ok) return null;
-  const byRole = list.rows.find((r) => String(r.systemRole ?? '').toLowerCase() === 'superadmin');
-  if (byRole?.id) return String(byRole.id);
-  const byLogin = list.rows.find((r) => isSuperadminLogin(r.login));
-  return byLogin?.id ? String(byLogin.id) : null;
+  const byRole = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.systemRole, 'superadmin'), isNull(users.deletedAt)))
+    .limit(1)
+    .catch(() => []);
+  if (byRole[0]?.id) return String(byRole[0].id);
+  const byLogin = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.login, SUPERADMIN_LOGIN), isNull(users.deletedAt)))
+    .limit(1)
+    .catch(() => []);
+  return byLogin[0]?.id ? String(byLogin[0].id) : null;
 }
