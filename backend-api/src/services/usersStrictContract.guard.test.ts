@@ -137,3 +137,42 @@ describe('B3/R4a: listEmployeesAuth читает auth-поля из строги
     expect(typeof probe).toBe('object');
   });
 });
+
+describe('B3/R4a: настройки пользователя читаются из user_settings', () => {
+  // Тот же класс, что и у списка аккаунтов, но цена другая: здесь протухшее
+  // чтение не только показывает старое, но и ПИШЕТ. `setEmployeeUiProfile`
+  // берёт из `getEmployeeUiProfile` базу per-key LWW-мерджа — после cutover
+  // база из замороженного EAV начала бы затирать свежие секции рабочего стола.
+  const source = readFileSync(new URL('./employeeAuthService.ts', import.meta.url), 'utf8');
+  const bodyOf = (name: string) => {
+    const start = source.indexOf(`export async function ${name}(`);
+    expect(start, `${name} не найдена — сторож потерял предмет`).toBeGreaterThan(0);
+    const end = source.indexOf('\nexport ', start + 1);
+    return source.slice(start, end === -1 ? source.length : end);
+  };
+
+  it.each(['getEmployeeLoggingSettings', 'getEmployeeUiSettings', 'getEmployeeUiProfile'])(
+    '%s не читает attribute_values',
+    (name) => {
+      expect(bodyOf(name)).not.toContain('attributeValues');
+    },
+  );
+
+  it.each(['getEmployeeLoggingSettings', 'getEmployeeUiSettings', 'getEmployeeUiProfile'])(
+    '%s идёт через readUserSettings',
+    (name) => {
+      expect(bodyOf(name)).toContain('readUserSettings');
+    },
+  );
+
+  // Писатели остаются на EAV до R4b — и это НЕ недоделка, а условие
+  // безопасности: пока триггеры вооружены, `rebuild_user` перезаписывает
+  // user_settings из EAV, и прямая запись была бы затёрта следующей же правкой
+  // любого атрибута сотрудника.
+  it.each(['setEmployeeLoggingSettings', 'setEmployeeUiSettings', 'setEmployeeUiProfile'])(
+    '%s пока пишет в EAV (переезд писателей — R4b, вместе со сносом триггеров)',
+    (name) => {
+      expect(bodyOf(name)).toContain('upsertAttrValue');
+    },
+  );
+});

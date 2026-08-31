@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSectionAccess, users } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSectionAccess, userSettings, users } from '../database/schema.js';
 import {
   SECTION_ACCESS_ATTR,
   SyncTableName,
@@ -583,20 +583,39 @@ async function getEmployeeUiSettingsDefId() {
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
+/**
+ * B3/R4a: настройки читаются из `user_settings`.
+ *
+ * Строку наполняет `rebuild_user` (0088) из тех же четырёх EAV-кодов, поэтому
+ * сегодня источники совпадают, а после cutover (R4b) совпадать перестанут — и
+ * тогда продукт, оставшийся на EAV, откатил бы человеку рабочий стол на день
+ * заморозки. Хуже того, `setEmployeeUiProfile` берёт из этого чтения базу
+ * per-key LWW-мерджа: протухшая база начала бы затирать свежие секции.
+ *
+ * Фолбэка на EAV здесь СОЗНАТЕЛЬНО нет. Отсутствие строки при живом EAV
+ * означает отказ зеркала, а он и так виден: `mirror_note_failure` пишет его в
+ * `users_mirror_failures` (0087), и `users:parity` краснеет на непустой
+ * таблице. Тихий фолбэк спрятал бы ровно то, что 0087 заводился показывать.
+ * Поэтому пустой `users_mirror_failures` — предусловие выката этого релиза.
+ */
+async function readUserSettings(employeeId: string) {
+  const rows = await db
+    .select({
+      uiSettings: userSettings.uiSettings,
+      uiProfile: userSettings.uiProfile,
+      loggingEnabled: userSettings.loggingEnabled,
+      loggingMode: userSettings.loggingMode,
+    })
+    .from(userSettings)
+    .where(eq(userSettings.userId, employeeId as any))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function getEmployeeLoggingSettings(employeeId: string) {
-  const defs = await getEmployeeLoggingDefIds();
-  if (!defs) return { loggingEnabled: false, loggingMode: 'prod' as const };
-  const vals = await db
-    .select({ attributeDefId: attributeValues.attributeDefId, valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, employeeId as any), inArray(attributeValues.attributeDefId, [defs.loggingEnabledDefId, defs.loggingModeDefId] as any), isNull(attributeValues.deletedAt)))
-    .limit(10);
-  const byDefId: Record<string, unknown> = {};
-  for (const v of vals as any[]) {
-    byDefId[String(v.attributeDefId)] = safeJsonParse(v.valueJson ? String(v.valueJson) : null);
-  }
-  const loggingEnabled = byDefId[defs.loggingEnabledDefId] === true;
-  const rawMode = String(byDefId[defs.loggingModeDefId] ?? '').trim().toLowerCase();
+  const row = await readUserSettings(employeeId);
+  const loggingEnabled = row?.loggingEnabled === true;
+  const rawMode = String(row?.loggingMode ?? '').trim().toLowerCase();
   const loggingMode = rawMode === 'dev' ? 'dev' : 'prod';
   return { loggingEnabled, loggingMode };
 }
@@ -618,34 +637,20 @@ export async function setEmployeeLoggingSettings(
 }
 
 export async function getEmployeeUiSettings(employeeId: string): Promise<string | null> {
-  const defId = await getEmployeeUiSettingsDefId();
-  if (!defId) return null;
-  const rows = await db
-    .select({ valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, employeeId as any), eq(attributeValues.attributeDefId, defId as any), isNull(attributeValues.deletedAt)))
-    .limit(1);
-  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : null;
-  if (!raw) return null;
+  const row = await readUserSettings(employeeId);
+  if (row?.uiSettings == null) return null;
   try {
-    return JSON.stringify(sanitizeUiControlSettings(JSON.parse(raw)));
+    return JSON.stringify(sanitizeUiControlSettings(row.uiSettings));
   } catch {
     return null;
   }
 }
 
 export async function getEmployeeUiProfile(employeeId: string): Promise<UserUiProfile | null> {
-  const defId = await getEmployeeAttrDefId(AUTH_CODES.uiProfileJson);
-  if (!defId) return null;
-  const rows = await db
-    .select({ valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(and(eq(attributeValues.entityId, employeeId as any), eq(attributeValues.attributeDefId, defId as any), isNull(attributeValues.deletedAt)))
-    .limit(1);
-  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : null;
-  if (!raw) return null;
+  const row = await readUserSettings(employeeId);
+  if (row?.uiProfile == null) return null;
   try {
-    const profile = sanitizeUserUiProfile(JSON.parse(raw));
+    const profile = sanitizeUserUiProfile(row.uiProfile);
     return profile.updatedAt > 0 ? profile : null;
   } catch {
     return null;
