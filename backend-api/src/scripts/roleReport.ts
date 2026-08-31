@@ -28,6 +28,14 @@ export type EmployeeAuthLike = {
   login: string;
   fullName?: string | null;
   systemRole?: string | null;
+  /**
+   * B3/R4a: сырое значение роли из EAV. `systemRole` теперь приходит из
+   * `users.system_role` — он NOT NULL и с CHECK по каталогу, поэтому ни пустой
+   * строки, ни опечатки в нём быть не может, а ведро аномалий живёт ровно на
+   * этой разнице. Счёт по ролям идёт по канону (strict), членство в ведре — по
+   * сырому значению.
+   */
+  systemRoleRaw?: string | null;
   accessEnabled: boolean;
 };
 
@@ -64,7 +72,10 @@ export type RoleReport = {
 const KNOWN_ROLE_ORDER = SYSTEM_ROLE_CATALOG.map((m) => m.key);
 
 function rawRoleOf(row: EmployeeAuthLike): string {
-  return String(row.systemRole ?? '').trim().toLowerCase();
+  // Пустая строка в `systemRoleRaw` — значащее состояние («атрибута нет»), а не
+  // «поле не заполнено», поэтому фолбэк только по отсутствию самого поля.
+  const raw = row.systemRoleRaw !== undefined ? row.systemRoleRaw : row.systemRole;
+  return String(raw ?? '').trim().toLowerCase();
 }
 
 function userBucketKind(rawRole: string): 'legacy-user' | 'empty' | 'unknown' {

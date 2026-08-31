@@ -43,6 +43,7 @@ import {
   adminRevokeDelegation,
   adminSetUserPermissions,
   adminSetSectionAccess,
+  adminSetSectionAccessOne,
   adminUpdateUser,
 } from '../../services/adminUsersService.js';
 import { adminResyncAllMasterdata, adminResyncEntityType } from '../../services/adminMasterdataRemoteService.js';
@@ -286,6 +287,15 @@ export function registerAdminIpc(ctx: IpcContext) {
     await requirePermOrThrow(ctx, 'admin.users.manage');
     return adminSetSectionAccess(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId, membership);
   });
+
+  ipcMain.handle(
+    'admin:users:sectionAccessSetOne',
+    async (_e, userId: string, sectionId: string, level: 'viewer' | 'editor' | null) => {
+      if (isViewMode(ctx)) return viewModeWriteError() as any;
+      await requirePermOrThrow(ctx, 'admin.users.manage');
+      return adminSetSectionAccessOne(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId, sectionId, level);
+    },
+  );
 
   ipcMain.handle('admin:users:delegationsList', async (_e, userId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError() as any;

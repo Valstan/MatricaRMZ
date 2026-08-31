@@ -2249,6 +2249,8 @@ function SectionAccessMirror(props: {
       }
     }
 
+    // Правки уходят по одной (дельта-дверь), поэтому копим их списком.
+    const edits: Array<{ sectionId: string; level: 'viewer' | 'editor' | null }> = [{ sectionId, level: level || null }];
     const next: Record<string, 'viewer' | 'editor'> = { ...props.membership } as Record<string, 'viewer' | 'editor'>;
     if (level) next[sectionId] = level;
     else delete next[sectionId];
@@ -2270,7 +2272,10 @@ function SectionAccessMirror(props: {
           confirmTone: 'info',
         });
         if (add) {
-          for (const d of missing) next[d.section] = d.level;
+          for (const d of missing) {
+            next[d.section] = d.level;
+            edits.push({ sectionId: d.section, level: d.level });
+          }
         }
       }
     }
@@ -2278,13 +2283,19 @@ function SectionAccessMirror(props: {
     setSaving(true);
     setError('');
     try {
-      // B3/R2: серверный роут вместо generic setAttr через синк (см. коммент в
-      // AccessSectionsPage). onSaved перечитывает карточку, поэтому нормализованный
-      // ответ отдельно применять не нужно.
-      const r = await window.matrica.admin.users.sectionAccessSet(props.employeeId, next as Record<string, string>);
-      if (r && (r as { ok?: boolean }).ok === false) {
-        setError((r as { error?: string }).error ?? 'ошибка сохранения');
-        return;
+      // B3/R4a: шлём ПРАВКУ, а не весь набор (см. коммент в AccessSectionsPage —
+      // база из локального EAV после cutover откатывала бы чужие правки).
+      // onSaved перечитывает карточку, поэтому нормализованный ответ отдельно
+      // применять не нужно.
+      for (const edit of edits) {
+        const r = await window.matrica.admin.users.sectionAccessSetOne(props.employeeId, edit.sectionId, edit.level);
+        if (r && (r as { ok?: boolean }).ok === false) {
+          setError((r as { error?: string }).error ?? 'ошибка сохранения');
+          // Часть правок уже сохранена — карточку перечитываем, чтобы экран не
+          // показывал состояние, которого на сервере нет.
+          props.onSaved();
+          return;
+        }
       }
       props.onSaved();
     } finally {

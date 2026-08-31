@@ -91,6 +91,79 @@ export async function listEmployeeAttributeDefs(db: BetterSQLite3Database) {
     .sort((a, b) => (a.sortOrder - b.sortOrder) || a.code.localeCompare(b.code));
 }
 
+type ReplicaAccount = { login: string; systemRole: string; accessEnabled: boolean; membership: SectionMembership };
+
+/**
+ * Аккаунты из реплики, по id карточки. `undefined` — реплики ещё нет, читатель
+ * обязан уйти в EAV (та же переходная развилка, что у `replicaMembershipRows`,
+ * и снимается она там же — на B6).
+ *
+ * Отличие от `replicaMembershipRows` — LEFT JOIN: аккаунт без единого раздела
+ * это законное состояние, и потерять его здесь значило бы показать живого
+ * человека без логина.
+ */
+async function replicaAccountsById(dataDb: BetterSQLite3Database): Promise<Map<string, ReplicaAccount> | undefined> {
+  try {
+    // Признак «реплика налита» спрашивается у ОБЕИХ таблиц, потому что ответ
+    // склеивается из обеих. Холодный полный прогон идёт таблица за таблицей и
+    // двигает курсор только в самом конце, поэтому обрыв между `users` и
+    // `user_section_access` оставляет машину в состоянии «аккаунты есть,
+    // доступов нет» надолго. Проба по одним лишь `users` прочитала бы это как
+    // «доступов ни у кого нет» — экран показал бы пустую матрицу, а согласие
+    // админа на связанные разделы посчиталось бы от пустого набора.
+    const seeded = await dataDb.select({ id: users.id }).from(users).limit(1);
+    if (seeded.length === 0) return undefined;
+    const accessSeeded = await dataDb.select({ id: userSectionAccess.id }).from(userSectionAccess).limit(1);
+    if (accessSeeded.length === 0) return undefined;
+    const rows = await dataDb
+      .select({
+        userId: users.id,
+        login: users.login,
+        role: users.systemRole,
+        accessEnabled: users.accessEnabled,
+        sectionId: userSectionAccess.sectionId,
+        level: userSectionAccess.level,
+      })
+      .from(users)
+      .leftJoin(
+        userSectionAccess,
+        and(eq(userSectionAccess.userId, users.id), isNull(userSectionAccess.deletedAt)),
+      )
+      .where(isNull(users.deletedAt))
+      .limit(40_000);
+    const byId = new Map<string, ReplicaAccount>();
+    for (const r of rows) {
+      const id = String(r.userId);
+      let acc = byId.get(id);
+      if (!acc) {
+        acc = {
+          login: String(r.login ?? '').trim().toLowerCase(),
+          systemRole: String(r.role ?? '').trim(),
+          accessEnabled: r.accessEnabled === true || Number(r.accessEnabled) === 1,
+          membership: {},
+        };
+        byId.set(id, acc);
+      }
+      const level = String(r.level ?? '');
+      if (level === 'viewer' || level === 'editor') {
+        (acc.membership as Record<string, 'viewer' | 'editor'>)[String(r.sectionId)] = level;
+      }
+    }
+    return byId;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * B3/R4a: auth-поля строки берутся из реплики строгих таблиц, если она налита.
+ *
+ * Этот список кормит экран доступов и колонку «Доступ» в списке сотрудников —
+ * то есть оба места, где админ судит о том, что у человека есть. После cutover
+ * локальный EAV перестанет обновляться, и без этой развилки экран показывал бы
+ * состояние на день заморозки, а админ работал бы вслепую. Профильные поля
+ * (ФИО, подразделение, табельный) остаются из EAV — они и на сервере там.
+ */
 export async function listEmployeesSummary(
   dataDb: BetterSQLite3Database,
   _sysDb: BetterSQLite3Database,
@@ -98,6 +171,7 @@ export async function listEmployeesSummary(
 ) {
   const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
   if (!employeeTypeId) return [];
+  const replicaAccounts = await replicaAccountsById(dataDb);
 
   const rows = await dataDb
     .select({ id: entities.id, updatedAt: entities.updatedAt })
@@ -188,11 +262,22 @@ export async function listEmployeesSummary(
     const terminationRaw = Number(pick(employeeDefByCode.termination_date));
     const terminationDate = Number.isFinite(terminationRaw) && terminationRaw > 0 ? terminationRaw : null;
     const personnelNumber = String(pick(employeeDefByCode.personnel_number) ?? '').trim();
-    const accessEnabled = pick(employeeDefByCode.access_enabled) === true;
-    const systemRole = String(pick(employeeDefByCode.system_role) ?? '').trim();
     const attachmentPreviews = toAttachmentPreviews(pick(employeeDefByCode.attachments));
-    const login = String(pick(employeeDefByCode.login) ?? '').trim().toLowerCase();
-    const sectionAccess = parseSectionMembership(pick(employeeDefByCode.section_access));
+    // Реплика налита — канон берём из неё; нет реплики (старая машина парка) —
+    // как раньше, из EAV. Карточка без аккаунта: пустой логин, доступа нет.
+    const account = replicaAccounts?.get(entityId);
+    const accessEnabled = replicaAccounts
+      ? account?.accessEnabled === true
+      : pick(employeeDefByCode.access_enabled) === true;
+    const systemRole = replicaAccounts
+      ? String(account?.systemRole ?? '').trim()
+      : String(pick(employeeDefByCode.system_role) ?? '').trim();
+    const login = replicaAccounts
+      ? String(account?.login ?? '').trim().toLowerCase()
+      : String(pick(employeeDefByCode.login) ?? '').trim().toLowerCase();
+    const sectionAccess = replicaAccounts
+      ? (account?.membership ?? {})
+      : parseSectionMembership(pick(employeeDefByCode.section_access));
     return {
       id: entityId,
       displayName: fullName || computedName || undefined,
