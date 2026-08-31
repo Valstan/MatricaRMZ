@@ -144,14 +144,21 @@ describe('B3/R4a: настройки пользователя читаются �
   // берёт из `getEmployeeUiProfile` базу per-key LWW-мерджа — после cutover
   // база из замороженного EAV начала бы затирать свежие секции рабочего стола.
   const source = readFileSync(new URL('./employeeAuthService.ts', import.meta.url), 'utf8');
+  // Ищем БЕЗ префикса `export`: терминал маршрута (readUserSettings) не
+  // экспортируется, а без него сторож проверял бы только вызывающих — EAV-фолбэк
+  // внутри самой readUserSettings оставил бы все утверждения зелёными.
+  // Замыкающая `(` не даёт `getEmployeeUiSettings` совпасть с
+  // `getEmployeeUiSettingsDefId`.
   const bodyOf = (name: string) => {
-    const start = source.indexOf(`export async function ${name}(`);
+    const start = source.indexOf(`async function ${name}(`);
     expect(start, `${name} не найдена — сторож потерял предмет`).toBeGreaterThan(0);
-    const end = source.indexOf('\nexport ', start + 1);
-    return source.slice(start, end === -1 ? source.length : end);
+    const end = source.indexOf('\nasync function ', start + 1);
+    const endExported = source.indexOf('\nexport ', start + 1);
+    const stop = [end, endExported].filter((n) => n > 0).sort((a, b) => a - b)[0];
+    return source.slice(start, stop ?? source.length);
   };
 
-  it.each(['getEmployeeLoggingSettings', 'getEmployeeUiSettings', 'getEmployeeUiProfile'])(
+  it.each(['getEmployeeLoggingSettings', 'getEmployeeUiSettings', 'getEmployeeUiProfile', 'readUserSettings'])(
     '%s не читает attribute_values',
     (name) => {
       expect(bodyOf(name)).not.toContain('attributeValues');
@@ -175,4 +182,53 @@ describe('B3/R4a: настройки пользователя читаются �
       expect(bodyOf(name)).toContain('upsertAttrValue');
     },
   );
+});
+
+describe('B3/R4a: база записи читается из того же хранилища, куда идёт запись', () => {
+  // ГЛАВНЫЙ инвариант этого релиза, и единственный, нарушение которого портит
+  // ДАННЫЕ, а не картинку.
+  //
+  // Зеркало имеет право не собраться: барьеры `EXCEPTION WHEN others` в
+  // rebuild_user / rebuild_user_sections (0088) глотают отказ, пишут его в
+  // users_mirror_failures (0087) и НЕ роняют писателя. Значит возможно
+  // состояние «EAV полон, strict пуст». Для читателя, который ПОКАЗЫВАЕТ, это
+  // стоит устаревшего экрана. Для читателя, который служит БАЗОЙ ЗАПИСИ, — это
+  // стоит канона: дельта на пустой базе soft-delete'ит все реальные доступы
+  // человека, а LWW-мердж на пустой базе стирает вкладки, пины и раскладки
+  // колонок. Необратимо и молча.
+  //
+  // Поэтому: показываешь — можно из strict; пишешь — база строго оттуда же,
+  // куда пишешь. На R4b обе базы переезжают в strict ВМЕСТЕ с писателями.
+  const source = readFileSync(new URL('./employeeAuthService.ts', import.meta.url), 'utf8');
+  const bodyOf = (name: string) => {
+    const start = source.indexOf(`async function ${name}(`);
+    expect(start, `${name} не найдена — сторож потерял предмет`).toBeGreaterThan(0);
+    const stop = [source.indexOf('\nasync function ', start + 1), source.indexOf('\nexport ', start + 1)]
+      .filter((n) => n > 0)
+      .sort((a, b) => a - b)[0];
+    return source.slice(start, stop ?? source.length);
+  };
+
+  it('дельта-дверь берёт базу из канона, а не из строгой таблицы', () => {
+    expect(bodyOf('setEmployeeSectionAccessOne')).toContain('readCanonSectionMembership');
+  });
+
+  it('решение о засеве разделов — тоже по канону', () => {
+    expect(bodyOf('seedSectionAccessIfMissing')).toContain('readCanonSectionMembership');
+  });
+
+  it('канон разделов сегодня — это EAV (пока писатель пишет туда же)', () => {
+    expect(bodyOf('readCanonSectionMembership')).toContain('attributeValues');
+    expect(bodyOf('readCanonSectionMembership')).not.toContain('userSectionAccess');
+  });
+
+  it('база LWW-мерджа профиля читается из EAV, а не из user_settings', () => {
+    const body = bodyOf('setEmployeeUiProfile');
+    expect(body).toContain('readEavUiProfile');
+    expect(body).not.toContain('await getEmployeeUiProfile(');
+  });
+
+  it('readEavUiProfile действительно читает EAV', () => {
+    expect(bodyOf('readEavUiProfile')).toContain('attributeValues');
+  });
 });

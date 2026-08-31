@@ -104,8 +104,17 @@ type ReplicaAccount = { login: string; systemRole: string; accessEnabled: boolea
  */
 async function replicaAccountsById(dataDb: BetterSQLite3Database): Promise<Map<string, ReplicaAccount> | undefined> {
   try {
+    // Признак «реплика налита» спрашивается у ОБЕИХ таблиц, потому что ответ
+    // склеивается из обеих. Холодный полный прогон идёт таблица за таблицей и
+    // двигает курсор только в самом конце, поэтому обрыв между `users` и
+    // `user_section_access` оставляет машину в состоянии «аккаунты есть,
+    // доступов нет» надолго. Проба по одним лишь `users` прочитала бы это как
+    // «доступов ни у кого нет» — экран показал бы пустую матрицу, а согласие
+    // админа на связанные разделы посчиталось бы от пустого набора.
     const seeded = await dataDb.select({ id: users.id }).from(users).limit(1);
     if (seeded.length === 0) return undefined;
+    const accessSeeded = await dataDb.select({ id: userSectionAccess.id }).from(userSectionAccess).limit(1);
+    if (accessSeeded.length === 0) return undefined;
     const rows = await dataDb
       .select({
         userId: users.id,

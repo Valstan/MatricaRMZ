@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSectionAccess, userSettings, users } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSettings, users } from '../database/schema.js';
 import {
   SECTION_ACCESS_ATTR,
   SyncTableName,
@@ -657,6 +657,31 @@ export async function getEmployeeUiProfile(employeeId: string): Promise<UserUiPr
   }
 }
 
+/** База LWW-мерджа профиля — из EAV, куда пишет `setEmployeeUiProfile`. Почему не из strict — см. коммент там же. */
+async function readEavUiProfile(employeeId: string): Promise<UserUiProfile | null> {
+  const defId = await getEmployeeAttrDefId(AUTH_CODES.uiProfileJson);
+  if (!defId) return null;
+  const rows = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, employeeId as any),
+        eq(attributeValues.attributeDefId, defId as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : null;
+  if (!raw) return null;
+  try {
+    const profile = sanitizeUserUiProfile(JSON.parse(raw));
+    return profile.updatedAt > 0 ? profile : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function setEmployeeUiProfile(employeeId: string, rawProfile: unknown) {
   await ensureEmployeeAuthDefs().catch(() => null);
   const defId = await getEmployeeAttrDefId(AUTH_CODES.uiProfileJson);
@@ -667,7 +692,15 @@ export async function setEmployeeUiProfile(employeeId: string, rawProfile: unkno
   // старше сохранённого; отсутствующие в PATCH секции не трогаются. Раньше PATCH
   // заменял профиль целиком — клиент, пушащий 4 ключа из 5, молча стирал пятый
   // (aiChatTemplates), а пуш пустого снапшота после неудачного GET стирал пины.
-  const existing = await getEmployeeUiProfile(employeeId);
+  //
+  // База мерджа читается ИЗ EAV, то есть из того же хранилища, куда идёт upsert
+  // ниже, — а не из `user_settings`, откуда читает GET. Разница видна только при
+  // отказе зеркала (барьер `EXCEPTION WHEN others` в rebuild_user, 0088), и она
+  // несимметрична: пустая база у GET значит «показали пустой стол», пустая база
+  // у МЕРДЖА значит, что этим же PATCH'ем в КАНОН запишется усечённый профиль —
+  // вкладки, пины «Моего круга» и раскладки колонок исчезнут безвозвратно. На
+  // R4b переезжает на strict вместе с писателем.
+  const existing = await readEavUiProfile(employeeId);
   const { profile, stale } = mergeUserUiProfiles(existing, rawProfile);
   await upsertAttrValue(employeeId, defId, profile);
   return { ok: true as const, profile, stale };
@@ -1134,15 +1167,45 @@ export async function setEmployeeSectionAccess(employeeId: string, rawMembership
   return { ok: true as const, membership };
 }
 
-/** Живые разделы аккаунта из строгой таблицы — база для дельта-двери. */
-async function readStrictSectionMembership(employeeId: string): Promise<Record<string, string>> {
+/**
+ * Разделы аккаунта ИЗ КАНОНА — база дельта-двери и решения о засеве.
+ *
+ * ПРАВИЛО, КОТОРОЕ ЗДЕСЬ НЕЛЬЗЯ НАРУШАТЬ: база записи читается из того же
+ * хранилища, куда идёт запись. Пишем сейчас в EAV (строгие таблицы держатся
+ * триггерами) — значит и базу берём в EAV.
+ *
+ * Брать базу из strict было бы соблазнительно: это будущий канон, и там она уже
+ * лежит. Но зеркало имеет право не собраться — барьер `EXCEPTION WHEN others` в
+ * `rebuild_user_sections` глотает отказ, пишет его в `users_mirror_failures`
+ * (0087) и НЕ роняет писателя. Тогда strict пуст, а EAV полон, и дельта,
+ * наложенная на пустую базу, записала бы усечённый набор — то есть soft-delete
+ * всех реальных доступов человека. Отказ ПОКАЗА превратился бы в порчу КАНОНА,
+ * причём необратимую и молчаливую.
+ *
+ * Свойство, ради которого дверь заведена, при этом сохраняется целиком: база
+ * читается НА СЕРВЕРЕ, а не приходит от клиента, поэтому протухшая реплика
+ * машины по-прежнему не может ничего откатить.
+ *
+ * На R4b переезжает на `user_section_access` — одновременно с писателем и
+ * сносом триггеров, не раньше и не позже.
+ */
+async function readCanonSectionMembership(employeeId: string): Promise<unknown> {
+  const employeeTypeId = await getEmployeeTypeId();
+  if (!employeeTypeId) return null;
+  const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
+  if (!defId) return null;
   const rows = await db
-    .select({ sectionId: userSectionAccess.sectionId, level: userSectionAccess.level })
-    .from(userSectionAccess)
-    .where(and(eq(userSectionAccess.userId, employeeId as any), isNull(userSectionAccess.deletedAt)));
-  const out: Record<string, string> = {};
-  for (const r of rows) out[String(r.sectionId)] = String(r.level ?? '');
-  return out;
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, employeeId as any),
+        eq(attributeValues.attributeDefId, defId as any),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.valueJson ? safeJsonParse(String(rows[0].valueJson)) : null;
 }
 
 /**
@@ -1168,7 +1231,7 @@ async function readStrictSectionMembership(employeeId: string): Promise<Record<s
  * там от прежних версий каталога, и админ за него не отвечает).
  */
 export async function setEmployeeSectionAccessOne(employeeId: string, sectionId: string, level: unknown) {
-  const applied = applySectionAccessDelta(await readStrictSectionMembership(employeeId), sectionId, level);
+  const applied = applySectionAccessDelta(await readCanonSectionMembership(employeeId), sectionId, level);
   if (!applied.ok) return applied;
   return setEmployeeSectionAccess(employeeId, applied.membership);
 }
@@ -1211,11 +1274,11 @@ export async function seedSectionAccessIfMissing(employeeId: string, role: strin
   const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
   // No def = the section model is not initialized in this DB — nothing to seed.
   if (!defId) return { ok: true as const, seeded: false };
-  // B3/R4a: «уже засеяно?» спрашивается у строгой таблицы. Смена роли проходит
-  // через засев пятью путями, и решение по замороженному EAV означало бы, что
-  // каждая смена роли обнуляет вручную настроенную матрицу доступов до
-  // дефолтной. Сегодня оба источника совпадают, поэтому правка безопасна.
-  const existingRaw = await readStrictSectionMembership(employeeId);
+  // Решение «засеивать?» — по канону, из того же хранилища, куда пойдёт запись
+  // (см. док readCanonSectionMembership). Через засев проходит смена роли пятью
+  // путями, и решение по пустому зеркалу обнулило бы вручную настроенную
+  // матрицу доступов до дефолтной.
+  const existingRaw = await readCanonSectionMembership(employeeId);
   const value = sectionAccessSeedValue(existingRaw, role);
   if (value == null) return { ok: true as const, seeded: false };
   await upsertAttrValue(employeeId, defId, value);

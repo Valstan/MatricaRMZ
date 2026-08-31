@@ -94,6 +94,27 @@ function parseEavMs(raw: string | null): number | null {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
+/**
+ * Канонический текст JSON для сравнения: порядок ключей у jsonb свой, поэтому
+ * побайтовое сравнение краснело бы на совпадающих значениях. Сортируем ключи
+ * РЕКУРСИВНО — replacer-массив JSON.stringify для этого не годится: он
+ * применяется на всех уровнях и вырезал бы вложенные ключи, которых нет в
+ * списке верхнего уровня, то есть прятал бы настоящие расхождения.
+ */
+function canonJson(v: unknown): string | null {
+  if (v == null) return null;
+  const sort = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(sort);
+    if (x && typeof x === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(x as Record<string, unknown>).sort()) out[k] = sort((x as Record<string, unknown>)[k]);
+      return out;
+    }
+    return x;
+  };
+  return JSON.stringify(sort(v));
+}
+
 function parseEavObject(raw: string | null): Record<string, unknown> | null {
   const txt = parseEavText(raw);
   if (txt == null) return null;
@@ -181,6 +202,20 @@ async function main() {
     (await pool.query<{ id: string }>(`SELECT id FROM access_sections`)).rows.map((r) => r.id),
   );
 
+  // B3/R4a: настройки тоже входят в сверку. До этого релиза их читал только
+  // продукт из EAV, поэтому расхождение никого не беспокоило; теперь GET
+  // настроек и рабочего стола идёт в `user_settings`, а на R4b туда же уйдут
+  // писатели — и «зелёный parity» объявлен предусловием того выката. Без этого
+  // блока объявление было бы ложным: четыре колонки не сверялись вовсе.
+  const settingsRows = await pool.query<{
+    user_id: string;
+    ui_settings: unknown;
+    ui_profile: unknown;
+    logging_enabled: boolean | null;
+    logging_mode: string | null;
+  }>(`SELECT user_id, ui_settings, ui_profile, logging_enabled, logging_mode FROM user_settings`);
+  const settingsByUser = new Map(settingsRows.rows.map((r) => [r.user_id, r]));
+
   // 3) Сверка по каждой карточке сотрудника.
   for (const [entityId, rec] of byEntity) {
     const login = (parseEavText(rec.attrs.get('login') ?? null) ?? '').trim().toLowerCase();
@@ -264,6 +299,44 @@ async function main() {
     for (const [sectionId, level] of gotSections) {
       if (!wantSections.has(sectionId)) {
         mismatches.push({ entityId, kind: `user_section_access[${sectionId}]:лишняя живая строка`, expected: null, actual: level });
+      }
+    }
+
+    // Настройки. Правило существования строки — из самой rebuild_user (0088):
+    // строка держится, только пока непусто хоть одно из четырёх значений.
+    const wantUiSettings = parseEavObject(rec.attrs.get('ui_settings_json') ?? null);
+    const wantUiProfile = parseEavObject(rec.attrs.get('ui_profile_json') ?? null);
+    const wantLoggingEnabled = parseEavBool(rec.attrs.get('logging_enabled') ?? null);
+    const wantLoggingMode = parseEavText(rec.attrs.get('logging_mode') ?? null);
+    const wantAnySetting =
+      wantUiSettings != null || wantUiProfile != null || wantLoggingEnabled != null || wantLoggingMode != null;
+    const gotSettings = settingsByUser.get(entityId);
+    if (!wantAnySetting && gotSettings) {
+      mismatches.push({ entityId, kind: 'user_settings:строка есть, а значений в EAV нет', expected: null, actual: '<row>' });
+    } else if (wantAnySetting && !gotSettings) {
+      mismatches.push({ entityId, kind: 'user_settings:значения в EAV есть, а строки нет', expected: '<row>', actual: null });
+    } else if (wantAnySetting && gotSettings) {
+      if (canonJson(wantUiSettings) !== canonJson(gotSettings.ui_settings)) {
+        mismatches.push({ entityId, kind: 'user_settings.ui_settings', expected: '<json>', actual: '<other>' });
+      }
+      if (canonJson(wantUiProfile) !== canonJson(gotSettings.ui_profile)) {
+        mismatches.push({ entityId, kind: 'user_settings.ui_profile', expected: '<json>', actual: '<other>' });
+      }
+      if ((gotSettings.logging_enabled ?? null) !== wantLoggingEnabled) {
+        mismatches.push({
+          entityId,
+          kind: 'user_settings.logging_enabled',
+          expected: wantLoggingEnabled,
+          actual: gotSettings.logging_enabled ?? null,
+        });
+      }
+      if ((gotSettings.logging_mode ?? null) !== wantLoggingMode) {
+        mismatches.push({
+          entityId,
+          kind: 'user_settings.logging_mode',
+          expected: wantLoggingMode,
+          actual: gotSettings.logging_mode ?? null,
+        });
       }
     }
   }

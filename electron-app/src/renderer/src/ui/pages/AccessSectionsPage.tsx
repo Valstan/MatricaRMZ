@@ -163,18 +163,23 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
       // молча возвращала бы матрицу к состоянию на день заморозки и отбирала
       // всё, что выдали с другой машины. Ответ по-прежнему нормализованный
       // набор, его и показываем, чтобы экран не разошёлся с сохранённым.
-      let res: Awaited<ReturnType<typeof window.matrica.admin.users.sectionAccessSetOne>> | null = null;
+      // Правки применяются по одной, поэтому отказ на середине оставляет часть
+      // уже сохранённой. Держим набор ПОСЛЕДНЕЙ удачной правки: перечитать
+      // локальную базу тут нельзя — серверная запись приедет на машину только
+      // следующим синком (до пяти минут), и reload() показал бы состояние ДО
+      // всей пачки, то есть спрятал бы сохранённое. Вдобавок reload() гасит
+      // строку состояния, и сообщение об отказе исчезло бы не прочитанным.
+      let lastOk: SectionMembership | null = null;
       for (const edit of edits) {
-        res = await window.matrica.admin.users.sectionAccessSetOne(row.id, edit.sectionId, edit.level);
+        const res = await window.matrica.admin.users.sectionAccessSetOne(row.id, edit.sectionId, edit.level);
         if (res && (res as { ok?: boolean }).ok === false) {
           setStatus(`Не сохранилось (${row.login}): ${(res as { error?: string }).error ?? 'ошибка'}`);
-          // Ответ последней УДАЧНОЙ правки уже применён на сервере; показываем
-          // то, что он вернул, чтобы экран не врал про откат.
-          await reload();
+          if (lastOk) setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, membership: lastOk as SectionMembership } : r)));
           return;
         }
+        lastOk = ((res as { membership?: SectionMembership } | null)?.membership ?? lastOk) as SectionMembership | null;
       }
-      const saved = ((res as { membership?: SectionMembership } | null)?.membership ?? membership) as SectionMembership;
+      const saved = (lastOk ?? membership) as SectionMembership;
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, membership: saved } : r)));
       setStatus('');
     } finally {
