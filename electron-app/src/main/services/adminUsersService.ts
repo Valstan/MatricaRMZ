@@ -117,6 +117,26 @@ export async function adminSetSectionAccess(
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
+/**
+ * B3/R4a: выдать/снять ОДИН раздел. Базу набора считает сервер, поэтому
+ * протухший локальный EAV этой машины ничего откатить не может.
+ */
+export async function adminSetSectionAccessOne(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  userId: string,
+  sectionId: string,
+  level: 'viewer' | 'editor' | null,
+) {
+  const r = await httpAuthed(db, apiBaseUrl, `/admin/users/${encodeURIComponent(userId)}/section-access/one`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sectionId, level }),
+  });
+  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  return r.json ?? { ok: false as const, error: 'bad json' };
+}
+
 export async function adminListUserDelegations(
   db: BetterSQLite3Database,
   apiBaseUrl: string,

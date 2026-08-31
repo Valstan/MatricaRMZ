@@ -1279,6 +1279,17 @@ export type MatricaApi = {
         userId: string,
         membership: Record<string, string>,
       ) => Promise<{ ok: boolean; error?: string; membership?: Record<string, 'viewer' | 'editor'> }>;
+      /**
+       * B3/R4a: правка ОДНОГО раздела. Предпочтительная форма: базу набора
+       * считает сервер, поэтому протухший локальный EAV не может откатить
+       * доступы, выданные с другой машины. `sectionAccessSet` остаётся ради
+       * сборок в парке, которые об этой двери ещё не знают.
+       */
+      sectionAccessSetOne: (
+        userId: string,
+        sectionId: string,
+        level: 'viewer' | 'editor' | null,
+      ) => Promise<{ ok: boolean; error?: string; membership?: Record<string, 'viewer' | 'editor'> }>;
 
       delegationsList: (
         userId: string,

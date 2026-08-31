@@ -123,6 +123,9 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
       }
     }
 
+    // Правки уходят по одной (дельта-дверь), поэтому копим их списком. Набор
+    // `membership` остаётся только для подсказок и как запасной показ.
+    const edits: Array<{ sectionId: string; level: SectionAccessLevel | null }> = [{ sectionId, level: level ?? null }];
     const membership: SectionMembership = { ...row.membership };
     if (level) (membership as Record<string, SectionAccessLevel>)[sectionId] = level;
     else delete (membership as Record<string, SectionAccessLevel>)[sectionId];
@@ -145,22 +148,33 @@ export function AccessSectionsPage(props: { onOpenEmployee?: (id: string) => voi
           confirmTone: 'info',
         });
         if (add) {
-          for (const d of missing) (membership as Record<string, SectionAccessLevel>)[d.section] = d.level;
+          for (const d of missing) {
+            (membership as Record<string, SectionAccessLevel>)[d.section] = d.level;
+            edits.push({ sectionId: d.section, level: d.level });
+          }
         }
       }
     }
 
     setSaving(true);
     try {
-      // B3/R2: серверный роут вместо generic setAttr через синк. Он проверяет
-      // форму громко и возвращает нормализованный набор — его и показываем,
-      // чтобы экран не разошёлся с тем, что реально сохранено.
-      const res = await window.matrica.admin.users.sectionAccessSet(row.id, membership as Record<string, string>);
-      if (res && (res as { ok?: boolean }).ok === false) {
-        setStatus(`Не сохранилось (${row.login}): ${(res as { error?: string }).error ?? 'ошибка'}`);
-        return;
+      // B3/R4a: шлём ПРАВКУ, а не весь набор. Базу считает сервер по строгой
+      // таблице — иначе эта страница, читающая локальный EAV, после cutover
+      // молча возвращала бы матрицу к состоянию на день заморозки и отбирала
+      // всё, что выдали с другой машины. Ответ по-прежнему нормализованный
+      // набор, его и показываем, чтобы экран не разошёлся с сохранённым.
+      let res: Awaited<ReturnType<typeof window.matrica.admin.users.sectionAccessSetOne>> | null = null;
+      for (const edit of edits) {
+        res = await window.matrica.admin.users.sectionAccessSetOne(row.id, edit.sectionId, edit.level);
+        if (res && (res as { ok?: boolean }).ok === false) {
+          setStatus(`Не сохранилось (${row.login}): ${(res as { error?: string }).error ?? 'ошибка'}`);
+          // Ответ последней УДАЧНОЙ правки уже применён на сервере; показываем
+          // то, что он вернул, чтобы экран не врал про откат.
+          await reload();
+          return;
+        }
       }
-      const saved = ((res as { membership?: SectionMembership }).membership ?? membership) as SectionMembership;
+      const saved = ((res as { membership?: SectionMembership } | null)?.membership ?? membership) as SectionMembership;
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, membership: saved } : r)));
       setStatus('');
     } finally {
