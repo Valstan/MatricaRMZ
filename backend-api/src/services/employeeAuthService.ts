@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, users } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSectionAccess, users } from '../database/schema.js';
 import {
   SECTION_ACCESS_ATTR,
   SyncTableName,
@@ -1129,24 +1129,88 @@ export async function setEmployeeSectionAccess(employeeId: string, rawMembership
   return { ok: true as const, membership };
 }
 
+/** Живые разделы аккаунта из строгой таблицы — база для дельта-двери. */
+async function readStrictSectionMembership(employeeId: string): Promise<Record<string, string>> {
+  const rows = await db
+    .select({ sectionId: userSectionAccess.sectionId, level: userSectionAccess.level })
+    .from(userSectionAccess)
+    .where(and(eq(userSectionAccess.userId, employeeId as any), isNull(userSectionAccess.deletedAt)));
+  const out: Record<string, string> = {};
+  for (const r of rows) out[String(r.sectionId)] = String(r.level ?? '');
+  return out;
+}
+
+/**
+ * B3/R4a: выдать или снять ОДИН раздел. Дверь, которой нельзя откатить чужую
+ * работу.
+ *
+ * Дверь полного набора (`setEmployeeSectionAccess`) перезаписывает матрицу
+ * целиком: всё, чего нет в присланном наборе, снимается. Пока клиент строит
+ * этот набор из своей реплики, а реплика свежая, это верно. Но обе страницы
+ * доступов берут базу из ЛОКАЛЬНОГО EAV, а после cutover локальный EAV
+ * замерзает — и тогда один клик «выдать раздел» на не обновлённой машине
+ * молча вернул бы матрицу к состоянию на день заморозки, отобрав всё
+ * выданное после. Без ошибки, без лога, с надписью «сохранено».
+ *
+ * Лечится не порядком выката, а формой вызова: база набора берётся ЗДЕСЬ, на
+ * сервере, из строгой таблицы, а от клиента приходит только сама правка. Тогда
+ * протухший клиент физически не может ничего откатить — он не присылает того,
+ * что могло бы быть откачено.
+ *
+ * Форма проверяется так же громко, как у полного набора, но громкость
+ * адресная: незнакомый раздел или уровень В ПРАВКЕ — отказ с именем виновника,
+ * а legacy-мусор в уже сохранённой базе молча отбрасывается санитайзером (он
+ * там от прежних версий каталога, и админ за него не отвечает).
+ */
+export async function setEmployeeSectionAccessOne(employeeId: string, sectionId: string, level: unknown) {
+  const applied = applySectionAccessDelta(await readStrictSectionMembership(employeeId), sectionId, level);
+  if (!applied.ok) return applied;
+  return setEmployeeSectionAccess(employeeId, applied.membership);
+}
+
+/**
+ * Чистая часть дельты: наложить правку одного раздела на сохранённую базу.
+ *
+ * Асимметрия громкости здесь намеренная и в этом весь смысл функции:
+ * — ПРАВКА проверяется строго и отказывает с именем виновника (админ должен
+ *   узнать, что его выбор не сохранился — тот же принцип, что в двери полного
+ *   набора);
+ * — БАЗА прогоняется через санитайзер молча: в ней может лежать раздел из
+ *   прежней версии каталога, и отказывать админу за чужой legacy-мусор значило
+ *   бы запереть его без единого рабочего действия.
+ */
+export function applySectionAccessDelta(
+  storedBase: unknown,
+  sectionId: string,
+  level: unknown,
+): { ok: true; membership: Record<string, string> } | { ok: false; error: string } {
+  const section = String(sectionId ?? '').trim();
+  if (!section) return { ok: false, error: 'раздел не указан' };
+  const rawLevel = level == null ? null : String(level).trim();
+  if (rawLevel !== null && rawLevel !== 'viewer' && rawLevel !== 'editor') {
+    return { ok: false, error: `неизвестный уровень: ${section}=${String(level)}` };
+  }
+  if (rawLevel !== null && !(section in parseSectionMembership({ [section]: rawLevel }))) {
+    return { ok: false, error: `неизвестный раздел: ${section}` };
+  }
+
+  const membership = { ...(parseSectionMembership(storedBase) as Record<string, string>) };
+  if (rawLevel === null) delete membership[section];
+  else membership[section] = rawLevel;
+  return { ok: true, membership };
+}
+
 export async function seedSectionAccessIfMissing(employeeId: string, role: string) {
   const employeeTypeId = await getEmployeeTypeId();
   if (!employeeTypeId) return { ok: false as const, seeded: false };
   const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
   // No def = the section model is not initialized in this DB — nothing to seed.
   if (!defId) return { ok: true as const, seeded: false };
-  const rows = await db
-    .select({ valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(
-      and(
-        eq(attributeValues.entityId, employeeId as any),
-        eq(attributeValues.attributeDefId, defId as any),
-        isNull(attributeValues.deletedAt),
-      ),
-    )
-    .limit(1);
-  const existingRaw = rows[0]?.valueJson ? safeJsonParse(String(rows[0].valueJson)) : null;
+  // B3/R4a: «уже засеяно?» спрашивается у строгой таблицы. Смена роли проходит
+  // через засев пятью путями, и решение по замороженному EAV означало бы, что
+  // каждая смена роли обнуляет вручную настроенную матрицу доступов до
+  // дефолтной. Сегодня оба источника совпадают, поэтому правка безопасна.
+  const existingRaw = await readStrictSectionMembership(employeeId);
   const value = sectionAccessSeedValue(existingRaw, role);
   if (value == null) return { ok: true as const, seeded: false };
   await upsertAttrValue(employeeId, defId, value);

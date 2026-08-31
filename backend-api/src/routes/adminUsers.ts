@@ -16,6 +16,7 @@ import {
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
   setEmployeeSectionAccess,
+  setEmployeeSectionAccessOne,
   getEmployeeProfileById,
   getEmployeeTypeId,
   getSuperadminUserId,
@@ -179,6 +180,41 @@ adminUsersRouter.post('/users/:id/section-access', async (req, res) => {
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
     const r = await setEmployeeSectionAccess(id, parsed.data.membership);
+    if (!r.ok) return res.status(400).json(r);
+    await emitEmployeeSyncSnapshot(id);
+    return res.json({ ok: true, membership: r.membership });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/**
+ * B3/R4a: та же дверь, но правкой одного раздела. Клиент присылает ТОЛЬКО
+ * правку; базу набора сервер берёт у себя, из строгой таблицы.
+ *
+ * Зачем вторая дверь вместо переделки первой. Полный набор остаётся легальной
+ * формой для сборок в парке, которые о дельте ещё не знают, — сломать их
+ * означало бы отобрать у админа единственный способ выдать доступ. А новая
+ * форма снимает окно, в котором протухший клиент откатывает чужие правки
+ * (подробности — в доке `setEmployeeSectionAccessOne`). На R4b дверь полного
+ * набора закрывается ГРОМКО («обновите программу»), а не тихим откатом.
+ */
+adminUsersRouter.post('/users/:id/section-access/one', async (req, res) => {
+  try {
+    const actor = (req as unknown as AuthenticatedRequest).user;
+    const actorRole = String(actor?.role ?? '').toLowerCase();
+    if (actorRole !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'доступами по разделам управляет только супер-админ' });
+    }
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
+
+    const parsed = z
+      .object({ sectionId: z.string(), level: z.union([z.literal('viewer'), z.literal('editor'), z.null()]) })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+    const r = await setEmployeeSectionAccessOne(id, parsed.data.sectionId, parsed.data.level);
     if (!r.ok) return res.status(400).json(r);
     await emitEmployeeSyncSnapshot(id);
     return res.json({ ok: true, membership: r.membership });
