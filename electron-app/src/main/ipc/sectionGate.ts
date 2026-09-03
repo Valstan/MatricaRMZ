@@ -68,14 +68,26 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
 // Generic admin:* каналы гейтятся по entity-type сущности. Мапим только
 // чувствительные типы; незамапленный тип (справочники-lookup'ы, использующиеся
 // из чужих карточек) — пропуск, чтобы не ломать сценарии других разделов.
-const ENTITY_TYPE_SECTION: Readonly<Record<string, AccessSection>> = {
+export const ENTITY_TYPE_SECTION: Readonly<Record<string, AccessSection>> = {
   contract: 'contracts',
-  counterparty: 'contracts',
+  // Тип контрагента называется `customer` — так он заведён в базе и так его
+  // гейтит сервер (LEDGER_SECTION_BY_ENTITY_TYPE). Ключ `counterparty`, стоявший
+  // здесь раньше, не совпадал ни с чем: гейт по карточкам контрагентов не
+  // срабатывал вовсе, и viewer раздела «Договоры» правил их беспрепятственно.
+  customer: 'contracts',
   employee: 'people',
   engine: 'production',
   engine_brand: 'production',
   engine_brand_group: 'production',
 };
+
+/**
+ * Типы, которых нет в серверной карте намеренно: сервер гейтит их иначе или не
+ * гейтит вовсе, но клиенту закрыть их полезно. Список существует ради сторожа
+ * `sectionGateEntityTypes.guard.test.ts`: всё остальное в карте обязано совпадать
+ * с серверным именем типа, иначе опечатка тихо отключает гейт.
+ */
+export const CLIENT_ONLY_GATED_ENTITY_TYPES: readonly string[] = ['engine_brand_group'];
 
 // Мутирующие каналы гейтящихся разделов (Ф3): наблюдателю (viewer) — отказ,
 // нужен editor. Только явный список — verb-эвристика ловила бы личные

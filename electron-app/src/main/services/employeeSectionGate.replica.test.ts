@@ -176,4 +176,19 @@ describe('офлайн-гейт: политика закрытых нарядо�
     const policy = await getRestrictedWorkOrderPolicyLocal(db);
     expect([...(policy!.owners)]).toEqual(['owner1']);
   });
+
+  it('аккаунты доехали, а доступы ещё нет → это НЕ «никто не ограничен», а падение в EAV', async () => {
+    // Холодный полный прогон идёт таблица за таблицей: между `users` и
+    // `user_section_access` машина живёт в состоянии «аккаунты есть, доступов нет».
+    // Проба по одним лишь `users` прочитала бы это как пустую политику — и закрытые
+    // наряды показались бы всем, кто в этот момент открыл список или отчёт.
+    const { sqlite, db } = makeDb();
+    seedReplica(sqlite, [{ id: 'half', login: 'somebody', role: 'master' }]); // без sections
+    seedEav(sqlite, [
+      { id: 'e1', login: 'owner1', role: 'master', sections: { restricted_work_orders: 'editor' } },
+    ]);
+    const policy = await getRestrictedWorkOrderPolicyLocal(db);
+    expect(policy).not.toBeNull();
+    expect([...(policy!.owners)]).toEqual(['owner1']);
+  });
 });

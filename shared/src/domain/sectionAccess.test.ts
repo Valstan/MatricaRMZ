@@ -256,3 +256,33 @@ describe('compareAccountsForMembership — порядок аккаунтов п�
     expect([dead, withoutField].sort(compareAccountsForMembership)[0]).toBe(withoutField);
   });
 });
+
+/**
+ * Вкладка, чьи данные закрыты разделом, обязана лежать в меню того же раздела.
+ *
+ * Меню прячется по `menuTabs`, а IPC-гейт закрывает данные по карте типов
+ * сущностей. Разъезд этих двух списков даёт худший из исходов: плитка видна
+ * тому, кому раздел не выдан, и открывается отказом. Так было с «Группами марок»
+ * — данные гейтились как «Производство», а вкладки в его menuTabs не было.
+ */
+describe('меню раздела покрывает вкладки, чьи данные им же и закрыты', () => {
+  it('вкладка «Группы марок» лежит в «Производстве» — там, где гейтятся её данные', () => {
+    const production = ACCESS_SECTION_CATALOG.find((s) => s.id === AccessSection.Production);
+    expect(production?.menuTabs).toContain('engine_brand_groups');
+  });
+
+  it('ни одна вкладка не числится сразу в двух разделах', () => {
+    // Иначе «спрятать» и «закрыть» отвечали бы по-разному в зависимости от того,
+    // чей раздел выдан, — и отказ снова расходился бы с меню.
+    const seen = new Map<string, string>();
+    const duplicates: Array<{ tab: string; sections: string[] }> = [];
+    for (const section of ACCESS_SECTION_CATALOG) {
+      for (const tab of section.menuTabs ?? []) {
+        const prev = seen.get(tab);
+        if (prev) duplicates.push({ tab, sections: [prev, String(section.id)] });
+        else seen.set(tab, String(section.id));
+      }
+    }
+    expect(duplicates).toEqual([]);
+  });
+});

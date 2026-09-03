@@ -255,7 +255,7 @@ export function App() {
     setTab('auth');
   }
 
-  const caps = deriveCaps(permissions);
+  const caps = deriveCaps(permissions, user?.role);
   const isSuperadmin = String(user?.role ?? '').toLowerCase() === 'superadmin';
   const userTab = user ? 'settings' : 'auth';
   const userLabel = user ? user.username : 'Вход';
