@@ -93,6 +93,7 @@ run_case() {
       MATRICA_ENV_FILE="$ENVF" \
       MATRICA_BACKUP_PASSPHRASE_FILE="$PASSPHRASE" \
       MATRICA_BACKUP_LOCK="$ROOT/lock/backup.lock" \
+      MATRICA_BACKUP_DUMP_EST_BYTES=1048576 \
       "$@"
     bash "$SUT" --no-upload ) > "$out" 2>&1
   local rc=$?
@@ -118,6 +119,17 @@ run_case "builds and verifies the archive, excluding *.bak.* / *.corrupt.* / arc
   0 0 'verified: db\.dump \+ 4 root file\(s\) \+ 3 block\(s\)'
 
 # Every failure must alert exactly once — that is the whole point of the rewrite.
+# The shipped MATRICA_BACKUP_DUMP_EST_BYTES default is a live trip-wire: it gates the run before
+# pg_dump has produced a real number, so an oversized default refuses to start on a box where the
+# backup would have succeeded (a 512 MiB default once left prod passing that gate by 24 MiB).
+# Empty value = unset for the script's `:-`, so this case exercises the shipped default; floor 0
+# isolates the estimate, and a three-digit MB figure pins it as small without hardcoding a total.
+run_case "shipped dump estimate keeps the pre-flight under a gigabyte" \
+  0 0 'need ~[0-9]{1,3} MB' MATRICA_BACKUP_DUMP_EST_BYTES= MATRICA_BACKUP_FLOOR_BYTES=0
+
+run_case "non-numeric dump estimate is refused" 1 0 'DUMP_EST_BYTES must be an integer' \
+  MATRICA_BACKUP_DUMP_EST_BYTES=lots
+
 run_case "pg_dump failure alerts once" 1 1 'ERROR: pg_dump failed' FAKE_PGDUMP_FAIL=1
 run_case "unreadable passphrase alerts once" 1 1 'passphrase file not readable' \
   MATRICA_BACKUP_PASSPHRASE_FILE="$ROOT/no-such-pass"

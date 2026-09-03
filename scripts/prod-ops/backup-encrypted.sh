@@ -25,7 +25,12 @@
 #
 # Env knobs: MATRICA_BACKUP_RETENTION (14), MATRICA_BACKUP_ZSTD_RATIO_PCT (50 — expected
 # archive size as % of the ledger), MATRICA_BACKUP_FLOOR_BYTES (1 GiB left for others),
-# MATRICA_BACKUP_LOCK (/var/lib/matricarmz/backup.lock), TMPDIR (/tmp).
+# MATRICA_BACKUP_DUMP_EST_BYTES (128 MiB — see below), MATRICA_BACKUP_LOCK
+# (/var/lib/matricarmz/backup.lock), TMPDIR (/tmp).
+#
+# Alerts read MATRICA_OPS_TELEGRAM_ENABLED, falling back to MATRICA_TELEGRAM_ENABLED.
+# The ops-scoped name exists so a box can alert on backup failures without also enabling
+# the product's Telegram bot polling and critical-event pushes, which read the shared flag.
 
 set -euo pipefail
 
@@ -43,7 +48,14 @@ RETENTION="${MATRICA_BACKUP_RETENTION:-14}"
 RATIO_PCT="${MATRICA_BACKUP_ZSTD_RATIO_PCT:-50}"
 FLOOR_BYTES="${MATRICA_BACKUP_FLOOR_BYTES:-$((1024 * 1024 * 1024))}"
 LOCK_FILE="${MATRICA_BACKUP_LOCK:-/var/lib/matricarmz/backup.lock}"
-DUMP_EST_BYTES=$((512 * 1024 * 1024))
+# Only used by the pre-flight BEFORE pg_dump runs; the gate right after it re-checks with the
+# real size, so an under-estimate costs at most one wasted dump. An over-estimate is the
+# expensive mistake: it refuses to start on a box where the backup would have succeeded.
+# 128 MiB is ~2x the measured prod dump (70.8 MB on 2026-09-03) — that dump is compressed
+# inside pg_dump (--compress=zstd:3), so it is nowhere near the multi-GB uncompressed dumps
+# the retired --compress=0 script used to write.
+DUMP_EST_BYTES="${MATRICA_BACKUP_DUMP_EST_BYTES:-$((128 * 1024 * 1024))}"
+[[ "$DUMP_EST_BYTES" =~ ^[0-9]+$ ]] || { echo "MATRICA_BACKUP_DUMP_EST_BYTES must be an integer (got '$DUMP_EST_BYTES')" >&2; exit 2; }
 LISTING_RESERVE_BYTES=$((64 * 1024 * 1024))
 NO_UPLOAD=0
 for arg in "$@"; do
@@ -61,8 +73,8 @@ log() { printf '[%s] %s\n' "$(date +%FT%T%z)" "$*"; }
 
 telegram_alert() {
   local msg="$1"
-  if [[ "${MATRICA_TELEGRAM_ENABLED:-false}" != "true" ]]; then
-    log "telegram alert suppressed (MATRICA_TELEGRAM_ENABLED != true): ${msg:0:120}"
+  if [[ "${MATRICA_OPS_TELEGRAM_ENABLED:-${MATRICA_TELEGRAM_ENABLED:-false}}" != "true" ]]; then
+    log "telegram alert suppressed (MATRICA_OPS_TELEGRAM_ENABLED != true): ${msg:0:120}"
     return 0
   fi
   if [[ -z "${MATRICA_TELEGRAM_BOT_TOKEN:-}" || -z "${MATRICA_TELEGRAM_ALERT_CHAT_ID:-}" ]]; then
@@ -182,8 +194,13 @@ fi
 # 2. One stream: tar(ledger root files, then blocks/, then db.dump) | zstd | gpg.
 # Root files first so the index/state inside the archive never names a block the archive
 # lacks; blocks are counted BEFORE tar starts — one appended during the run is legitimately
-# absent. tar exit 1 is "files changed while reading" (warning) — accepted: blocks/ are
-# append-only and the source of truth, state is a projection the backend rebuilds.
+# absent. tar exit 1 is "files changed while reading" (warning) — accepted for blocks/, which
+# are append-only and the source of truth.
+# NOT because state.json can be regenerated: ensureLedgerStateFile (backend-api/src/ledger/
+# ledgerService.ts) never reads blocks/ — it restores state.json from a state.json.bak.* copy
+# or writes an EMPTY state. A state.json captured mid-write therefore restores as an empty
+# ledger, not as a rebuilt projection. That is why the restore runbook's height assertion
+# (README.md §Восстановление) is mandatory rather than advisory.
 ROOT_FILES=()
 while IFS= read -r name; do
   case "$name" in
@@ -249,6 +266,13 @@ done
 MEMBER_BLOCKS="$(grep -cE '^blocks/[^/]+\.json$' "$LISTING" || true)"
 if (( MEMBER_BLOCKS < BLOCKS_BEFORE )); then
   fail "verify: archive lists $MEMBER_BLOCKS block(s), expected >= $BLOCKS_BEFORE"
+fi
+# Blocks appended between the count and the end of tar are legitimately inside the archive,
+# but they are AHEAD of the index.json the same archive carries. Restoring such an archive
+# over a populated blocks/ leaves heights the index does not claim: the backend then writes
+# new blocks at index.lastHeight+1 and silently overwrites them with different bytes.
+if (( MEMBER_BLOCKS > BLOCKS_BEFORE )); then
+  log "  WARN: $((MEMBER_BLOCKS - BLOCKS_BEFORE)) block(s) are ahead of the archived index — on restore, truncate blocks/ to index.lastHeight (README.md §Восстановление)"
 fi
 log "  verified: db.dump + ${#ROOT_FILES[@]} root file(s) + $MEMBER_BLOCKS block(s) listed"
 
