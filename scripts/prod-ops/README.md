@@ -117,6 +117,8 @@ python3 -c "import json;print(json.load(open('$MATRICA_LEDGER_DIR/index.json'))[
 
 Старая раскладка (`.tar.gpg`, до сентября 2026; тоже pg_dump 17 → pg_restore ≥ 17): `gpg --batch --passphrase-file <pass> --decrypt --output backup.tar backup.tar.gpg && tar -xvf backup.tar` даёт `db.dump` и `ledger.tar.zst`; ledger распаковывается `zstd -d ledger.tar.zst -o ledger.tar && tar -xvf ledger.tar -C "$MATRICA_LEDGER_DIR"`.
 
+**Где лежат старые копии.** 03.09.2026 все 14 архивов старого формата (31.07–13.08, 15,5 ГБ) перенесены в **`/matricarmz/files/backups-frozen-2026-08/`** — подставлять этот путь в команду скачивания выше. Причина: префикс имени у старого и нового формата общий, а ротация удаляет с `permanently=true`, то есть мимо корзины. Ротация листает базовую папку **не рекурсивно**, поэтому подпапка ей не видна и набор заморожен. Размораживать (возвращать в базовую папку или удалять) — только после того, как архив **нового** формата хотя бы раз восстановят на машине без `/etc/matricarmz/backup.passphrase`: до этого старый набор — единственный проверенный практикой фолбэк. Той же датой сделан первый успешный архив нового формата (`matricarmz-backup-20260903-201439.tar.zst.gpg`, 1703 МБ) — до него ledger был без резервной копии с 13.08.
+
 Проверка без восстановления (то же, что скрипт делает перед отправкой): `gpg --batch --passphrase-file <pass> --decrypt backup.tar.zst.gpg | zstd -d | tar -t | head`.
 
 ## Параметры через env
