@@ -131,6 +131,11 @@ const TECHNICAL_HIDDEN_CODES = new Set<string>([
   'telegram_chat',
   'telegram_message',
   'sync_event',
+  // Цеха живут в `directory_workshops`, склады — в `warehouse_locations`; читают их
+  // оттуда и это же меню, и карточки. Пока эти два EAV-типа оставались открытыми на
+  // запись, «Добавить цех/склад» заводил запись, которую потом не видел никто.
+  'workshop_ref',
+  'warehouse_ref',
 ]);
 
 export function MasterdataPage(props: {

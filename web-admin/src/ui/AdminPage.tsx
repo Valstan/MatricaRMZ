@@ -6,6 +6,7 @@ import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { SearchSelect } from './components/SearchSelect.js';
 import * as masterdata from '../api/masterdata.js';
+import { listWorkshops } from '../api/workshops.js';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
 import { matchesQueryInRecord } from './utils/search.js';
 import { getLinkOpenLabel, openLinkedEntity } from './utils/linkNavigation.js';
@@ -113,6 +114,15 @@ export function MasterdataPage(props: {
     section_id: 'section',
   };
 
+  // Ссылочные цели, которые живут в строгих справочниках, а не в EAV: перечисление
+  // сущностей для них возвращает пусто (типа `workshop` в базе нет), поэтому и список
+  // вариантов, и подпись выбранного значения берутся по REST. Значение — человеческое
+  // имя цели для строки «link → …».
+  const DIRECTORY_LINK_TARGETS: Record<string, string> = {
+    workshop: 'Цех',
+    workshop_ref: 'Цех',
+  };
+
   function safeParseMetaJson(metaJson: string | null): any | null {
     if (!metaJson) return null;
     try {
@@ -165,6 +175,8 @@ export function MasterdataPage(props: {
     if (def.dataType !== 'link') return def.dataType;
     const targetCode = getLinkTargetTypeCode(def);
     if (!targetCode) return 'link';
+    const directory = DIRECTORY_LINK_TARGETS[targetCode];
+    if (directory) return `link → ${directory}`;
     const t = types.find((x) => x.code === targetCode);
     return `link → ${t ? t.name : targetCode}`;
   }
@@ -560,6 +572,14 @@ export function MasterdataPage(props: {
       if (d.dataType !== 'link') continue;
       const targetCode = getLinkTargetTypeCode(d);
       if (!targetCode) continue;
+      if (DIRECTORY_LINK_TARGETS[targetCode]) {
+        const res = await listWorkshops();
+        map[d.code] = (res.rows ?? []).map((row) => ({
+          id: String(row.id),
+          label: String(row.name ?? '').trim() || String(row.code ?? '').trim() || '(без названия)',
+        }));
+        continue;
+      }
       const targetType = types.find((t) => t.code === targetCode);
       if (!targetType) continue;
       const list = await masterdata.listEntities(targetType.id);

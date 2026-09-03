@@ -972,14 +972,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {
     id: 'work_order_payroll_summary',
     title: 'Наряды: начисления по сотрудникам (свод)',
-    description: 'Сводный бухгалтерский срез по сотрудникам и подразделениям за период.',
+    description: 'Сводный бухгалтерский срез по сотрудникам, цехам и подразделениям за период.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs' },
       { type: 'multi_select', key: 'employeeIds', label: 'Сотрудники', optionsSource: 'employees' },
       { type: 'multi_select', key: 'departmentIds', label: 'Подразделения', optionsSource: 'departments' },
     ],
     columns: [
-      { key: 'departmentName', label: 'Подразделение' },
+      // Разрез — оргединица сотрудника: цех (канон) или подразделение (офисные).
+      { key: 'departmentName', label: 'Цех / подразделение' },
       { key: 'employeeName', label: 'Сотрудник' },
       { key: 'personnelNumber', label: 'Таб. №' },
       { key: 'workOrders', label: 'Наряды, шт', kind: 'number', align: 'right' },

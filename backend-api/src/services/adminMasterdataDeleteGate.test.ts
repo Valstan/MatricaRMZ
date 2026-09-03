@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Ф4 (референс-целостность при удалении): серверный softDeleteEntity обязан видеть
 // ссылки не только в одиночных EAV-линках, но и в JSON/junction-хранилищах —
-// contract_sections, meta_json нарядов/заявок, массивные EAV-линки, BOM-junction.
+// contract_sections, meta_json нарядов/заявок, массивные EAV-линки, BOM-junction,
+// brand_links_json деталей.
 
 const state = vi.hoisted(() => ({ selectByTable: new Map<unknown, any[][]>() }));
 
@@ -37,7 +38,7 @@ vi.mock('./sync/syncChangeService.js', () => ({
   recordSyncChanges: vi.fn(async () => undefined),
 }));
 
-const { attributeDefs, attributeValues, entities, erpEngineAssemblyBomBrandLinks, operations } = await import(
+const { attributeDefs, attributeValues, directoryParts, entities, erpEngineAssemblyBomBrandLinks, operations } = await import(
   '../database/schema.js'
 );
 const { setEntityAttribute, softDeleteEntity } = await import('./adminMasterdataService.js');
@@ -127,12 +128,47 @@ describe('softDeleteEntity — Ф4 расширенный гейт входящ�
     if (!r.ok) expect(r.error).toContain('Спецификации BOM');
   });
 
+  // Связь «деталь ↔ марка» переехала в directory_parts.brand_links_json (Phase 3): пока
+  // гейт её не читал, марку с привязанными деталями он отпускал как «без связанных записей»,
+  // и в карточках деталей оставались строки без имени марки.
+  it('отклоняет удаление марки, на которую ссылается brand_links_json детали', async () => {
+    seedTargetEntity();
+    state.selectByTable.set(attributeValues, [[], [], []]);
+    state.selectByTable.set(attributeDefs, [[]]);
+    state.selectByTable.set(operations, [[]]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+    state.selectByTable.set(directoryParts, [
+      [{ brandLinksJson: JSON.stringify([{ id: 'l1', engineBrandId: TARGET, quantity: 2 }]) }],
+    ]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Детали (марки)');
+  });
+
+  // LIKE по json ловит и деталь, где нужный uuid стоит в чужом поле: считать такую ссылкой
+  // значит блокировать удаление без причины, поэтому разбор обязателен, а не только грубый LIKE.
+  it('не считает ссылкой деталь, где uuid марки лежит не в engineBrandId', async () => {
+    seedTargetEntity();
+    state.selectByTable.set(attributeValues, [[], [], []]);
+    state.selectByTable.set(attributeDefs, [[]]);
+    state.selectByTable.set(operations, [[]]);
+    state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+    state.selectByTable.set(directoryParts, [
+      [{ brandLinksJson: JSON.stringify([{ id: TARGET, engineBrandId: null, quantity: 1 }]) }],
+    ]);
+
+    const r = await softDeleteEntity(ACTOR, TARGET);
+    expect(r.ok).toBe(true);
+  });
+
   it('пропускает удаление без входящих ссылок', async () => {
     seedTargetEntity();
     state.selectByTable.set(attributeValues, [[], [], []]);
     state.selectByTable.set(attributeDefs, [[]]);
     state.selectByTable.set(operations, [[]]);
     state.selectByTable.set(erpEngineAssemblyBomBrandLinks, [[]]);
+    state.selectByTable.set(directoryParts, [[]]);
 
     const r = await softDeleteEntity(ACTOR, TARGET);
     expect(r.ok).toBe(true);

@@ -104,14 +104,6 @@ export const HUMAN_LABEL_GUARD_EXCEPTIONS: HumanLabelGuardException[] = [
     reason: 'Колонка приведена к форме «Склад (код)» этим же PR: билдер аудита локацию не резолвит, а заголовок «Склад» обещал название над идентификатором.',
     followUp: 'осознанный размен этапа A; снимается вместе с офлайн-резолвом складов (PR II-b)',
   },
-  {
-    presetId: 'warehouse_stock_path_audit',
-    column: 'partLabel',
-    kind: ID_WHOLE,
-    reason: 'Карточка детали не сущность EAV, поэтому подписи для неё в снапшоте нет вовсе; фолбэк на код — единственное, что отличает строки друг от друга.',
-    followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «резолв склада и детали в двух аудиторских отчётах»',
-  },
-
 ];
 
 export const HUMAN_LABEL_GUARD_UNCOVERED_PRESETS: HumanLabelGuardUncoveredPreset[] = [

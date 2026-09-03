@@ -26,7 +26,7 @@ import {
   type StatusCode,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
+import { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
 import { findContractInternalNumberDuplicate } from './contractNumberGuard.js';
 import {
   engineHasDuplicateBypassFlag,
@@ -625,6 +625,26 @@ async function countExtendedIncomingReferences(entityId: string): Promise<Map<st
     .where(and(eq(erpEngineAssemblyBomBrandLinks.engineBrandId, entityId), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)))
     .limit(10_000);
   if (bomRows.length > 0) bump('Спецификации BOM', bomRows.length);
+
+  // 5. Детали (directory_parts.brand_links_json) — связь «деталь ↔ марка двигателя» живёт
+  // здесь с Phase 3; EAV-контейнеры из пункта 1 её больше не несут, поэтому без этого
+  // прохода марку с тысячей привязанных деталей гейт отпускал как «без связанных записей».
+  const partRows = await db
+    .select({ brandLinksJson: directoryParts.brandLinksJson })
+    .from(directoryParts)
+    .where(and(isNull(directoryParts.deletedAt), like(directoryParts.brandLinksJson, `%${jsonId}%`)))
+    .limit(10_000);
+  let partHits = 0;
+  for (const r of partRows) {
+    const links = r.brandLinksJson ? safeJsonParse(String(r.brandLinksJson)) : null;
+    if (!Array.isArray(links)) continue;
+    // Одна деталь = одна ссылка, сколько бы строк марки в ней ни было: считаем карточки,
+    // а не связи — в диалоге оператор увидит «сколько деталей придётся править».
+    if (links.some((link) => String((link as { engineBrandId?: unknown } | null)?.engineBrandId ?? '') === entityId)) {
+      partHits += 1;
+    }
+  }
+  if (partHits > 0) bump('Детали (марки)', partHits);
 
   return byType;
 }
