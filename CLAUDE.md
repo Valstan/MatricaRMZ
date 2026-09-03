@@ -6,7 +6,7 @@
 
 ## Claude-специфичное
 
-- Slash-команды — [`.claude/commands/`](.claude/commands/) (`/start`, `/close_session`, `/reliz`, `/zavod`, `/obriv`). Их workflow применим любому агенту; см. `AGENTS.md` §«Команды управления сессией».
+- Slash-команды — [`.claude/commands/`](.claude/commands/) (`/start`, `/close_session`, `/reliz`, `/zavod`). Их workflow применим любому агенту; см. `AGENTS.md` §«Команды управления сессией».
 - Скиллы — [`.claude/skills/`](.claude/skills/) (`verifier-electron` — CDP-стенд для e2e-смоуков).
-- Разрешения, авто-режим (`permissions.defaultMode: auto`, `autoMode.soft_deny`) и SessionStart-хук git-sync — [`.claude/settings.json`](.claude/settings.json). Файл общий и лежит в Git.
+- Разрешения, авто-режим (`permissions.defaultMode: auto`, `autoMode.soft_deny`) и два SessionStart-хука (`scripts/git_sync_check.ps1 -Warn` — предупреждение о несинхроне; `.claude/scripts/session_start.ps1` — печать handoff и git status в контекст, D-066) — [`.claude/settings.json`](.claude/settings.json). Файл общий и лежит в Git.
 - Машинно-локальные разрешения — только в игнорируемом `.claude/settings.local.json`.
