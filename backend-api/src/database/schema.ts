@@ -335,7 +335,7 @@ export const fileAssets = pgTable(
     size: bigint('size', { mode: 'number' }).notNull(),
     sha256: text('sha256').notNull(),
 
-    // 'local' (<=10MB) or 'yandex'
+    // 'local' (<= MATRICA_MAX_LOCAL_BYTES, default 10 MiB) or 'yandex'
     storageKind: text('storage_kind').notNull(),
     // For local: relative path inside uploads dir
     localRelPath: text('local_rel_path'),

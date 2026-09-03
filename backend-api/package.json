@@ -15,6 +15,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/database/migrate.ts",
     "user:create": "tsx src/scripts/createUser.ts",
+    "files:offload-to-yandex": "tsx src/scripts/offloadLocalFilesToYandex.ts",
     "users:parity": "tsx src/scripts/checkUsersParity.ts",
     "users:fixture-check": "tsx src/scripts/checkUsersStrictFixture.ts",
     "users:backfill-check": "tsx src/scripts/checkUsersBackfill.ts",

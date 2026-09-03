@@ -25,7 +25,7 @@ curl -fsk https://127.0.0.1/health   # smoke-check
 
 После каждого релиза GitHub Action кладёт новый `MatricaRMZ-Setup-X.Y.Z.exe` в `/opt/matricarmz/updates/`. Старые установщики оттуда не удаляются автоматически — со временем там скапливается ~270 МБ (4–5 версий × ~70 МБ).
 
-Этот таймер раз в неделю запускает [`cleanup-updates.sh`](cleanup-updates.sh), который оставляет 3 самых свежих по `mtime` файла, остальные `MatricaRMZ-Setup-*.exe` удаляет.
+Этот таймер раз в неделю запускает [`cleanup-updates.sh`](cleanup-updates.sh), который оставляет 3 самых свежих по `mtime` файла, остальные `MatricaRMZ-Setup-*.exe` удаляет вместе с их `.blockmap` (осиротевшие карты подбирает отдельным проходом); APK в `android/` чистятся той же политикой. Это **единственный** механизм ретенции каталога обновлений — второго, внерепозиторного (`matricarmz-updates-prune`), быть не должно.
 
 ### Установка на проде
 
@@ -91,5 +91,5 @@ sudo systemctl daemon-reload
 ### Безопасность
 
 - Скрипт **отказывается** работать с каталогами вне `/opt/*` (защита от опечатки `UPDATES_DIR`).
-- Удаляются только файлы по pattern `MatricaRMZ-Setup-*.exe`, всё остальное в каталоге не трогается.
+- Удаляются только `MatricaRMZ-Setup-*.exe` в корне вместе с их `.blockmap` (плюс осиротевшие `.blockmap` без своего `.exe`) и `MatricaRMZ-*.apk` в `android/` (`KEEP_COUNT_APK`, по умолчанию = `KEEP_COUNT`); всё остальное (`latest.*`, `stub/`, чужие файлы) не трогается.
 - Service-unit использует `ProtectSystem=full` + `ProtectHome=true` + `ReadWritePaths=/opt/matricarmz/updates` — даже если скрипт сошёл с ума, он не может писать никуда ещё.

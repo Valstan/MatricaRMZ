@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync, createWriteStream, createReadStream } from 'node:fs';
 import { readFile as readFileAsync, unlink as unlinkAsync, writeFile as writeFileAsync } from 'node:fs/promises';
@@ -11,7 +11,8 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../au
 import { PermissionCode } from '../auth/permissions.js';
 import { canAccessFile } from '../services/fileAccessService.js';
 import { and, eq, isNull } from 'drizzle-orm';
-import { deletePath, ensureFolderDeep, getDownloadHref, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
+import { deletePath, ensureFolderDeep, getDownloadHref, getResourceInfo, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
+import { maxLocalBytes } from '../services/storageLimits.js';
 import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 
 // Multipart parser (no 3rd party): we accept base64 payload for MVP.
@@ -20,7 +21,9 @@ import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 export const filesRouter = Router();
 filesRouter.use(requireAuth);
 
-const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
+// Files up to this size stay on the box, larger ones go to Yandex.Disk (MATRICA_MAX_LOCAL_BYTES,
+// see services/storageLimits.ts; files:offload-to-yandex moves the already stored ones).
+const MAX_LOCAL_BYTES = maxLocalBytes();
 const MAX_UPLOAD_BYTES = 250 * 1024 * 1024; // hard safety cap
 const MAX_PREVIEW_BYTES = 3 * 1024 * 1024; // base64 upload size cap for thumbnail payload (decoded bytes)
 
@@ -208,7 +211,14 @@ filesRouter.post('/yandex/init', requirePermission(PermissionCode.FilesUpload), 
       // (important if a previous init happened but the client didn't finish PUT).
       if (row.storageKind === 'yandex' && row.yandexDiskPath) {
         const diskPath = String(row.yandexDiskPath);
-        const href = await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
+        // A fresh href only when the object is absent or half-written (size differs): an
+        // existing verified copy — e.g. one moved there by files:offload-to-yandex — must
+        // not be overwritable by whoever knows its sha256.
+        const remote = await getResourceInfo(diskPath).catch(() => null);
+        const href =
+          remote && remote.size !== null && remote.size === Number(row.size)
+            ? null
+            : await getUploadHref({ diskPath, overwrite: true, ensureParent: true });
 
         return res.json({
           ok: true,
@@ -309,8 +319,8 @@ filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (
 
 // Upload endpoint: accepts JSON { name, mime?, dataBase64 }.
 // Server decides storage:
-// - <=10MB: store locally
-// - >10MB: store to Yandex.Disk
+// - <= MAX_LOCAL_BYTES (MATRICA_MAX_LOCAL_BYTES, default 10 MiB): store locally
+// - larger: store to Yandex.Disk
 filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
   try {
     const schema = z.object({
@@ -427,6 +437,18 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
   }
 });
 
+async function sendYandexFile(row: any, res: Response) {
+  const diskPath = String(row.yandexDiskPath || '');
+  if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
+  const href = await getDownloadHref(diskPath);
+  const r = await fetch(href);
+  if (!r.ok) return res.status(502).json({ ok: false, error: `ошибка загрузки из Yandex: HTTP ${r.status}` });
+  res.setHeader('Content-Type', row.mime || r.headers.get('content-type') || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  return res.end(buf);
+}
+
 filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
@@ -441,23 +463,30 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
       const rel = String(row.localRelPath || '');
       if (!rel) return res.status(500).json({ ok: false, error: 'локальный относительный путь не указан' });
       const abs = join(uploadsDir(), rel);
-      // set headers
-      res.setHeader('Content-Type', row.mime || 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
-      return createReadStream(abs).pipe(res);
+      const stream = createReadStream(abs);
+      // Headers only once the file is actually open: on an open error the response below
+      // must be plain JSON, not a JSON body labelled as an attachment.
+      stream.once('open', () => {
+        res.setHeader('Content-Type', row.mime || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
+      });
+      stream.on('error', (err) => {
+        // The row may have been flipped to Yandex.Disk by files:offload-to-yandex between
+        // our SELECT and the open — re-read and serve from there; anything else is a 404.
+        void (async () => {
+          if (res.headersSent) return res.end();
+          const fresh = (await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1))[0] as any;
+          if (fresh?.storageKind === 'yandex' && fresh.yandexDiskPath) return sendYandexFile(fresh, res);
+          return res.status(404).json({ ok: false, error: `файл не найден на диске (${String((err as any)?.code ?? err)})` });
+        })().catch((e) => {
+          if (!res.headersSent) res.status(500).json({ ok: false, error: String(e) });
+          else res.end();
+        });
+      });
+      return stream.pipe(res);
     }
 
-    if (row.storageKind === 'yandex') {
-      const diskPath = String(row.yandexDiskPath || '');
-      if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
-      const href = await getDownloadHref(diskPath);
-      const r = await fetch(href);
-      if (!r.ok) return res.status(502).json({ ok: false, error: `ошибка загрузки из Yandex: HTTP ${r.status}` });
-      res.setHeader('Content-Type', row.mime || r.headers.get('content-type') || 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
-      const buf = Buffer.from(await r.arrayBuffer());
-      return res.end(buf);
-    }
+    if (row.storageKind === 'yandex') return sendYandexFile(row, res);
 
     return res.status(500).json({ ok: false, error: `неизвестный тип хранения: ${String(row.storageKind)}` });
   } catch (e) {
@@ -507,39 +536,32 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
       return res.json({ ok: true, queued: true });
     }
 
-    // Удаляем превью (best-effort, хранится локально на сервере)
-    const previewRel = String(row.previewLocalRelPath || '');
-    if (previewRel) {
-      const previewAbs = join(uploadsDir(), previewRel);
-      await unlinkAsync(previewAbs).catch(() => {
-        // ignore
+    // Soft-delete first, under a guard, and take the physical locations from the row as it
+    // was at that instant: a concurrent files:offload-to-yandex may have just moved the bytes.
+    const gone = await db
+      .update(fileAssets)
+      .set({ deletedAt: nowMs() })
+      .where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt)))
+      .returning({
+        storageKind: fileAssets.storageKind,
+        localRelPath: fileAssets.localRelPath,
+        yandexDiskPath: fileAssets.yandexDiskPath,
+        previewLocalRelPath: fileAssets.previewLocalRelPath,
       });
+    const cur = gone[0];
+    if (!cur) return res.status(404).json({ ok: false, error: 'файл не найден' });
+
+    // Физические копии — best-effort: строка уже помечена удалённой.
+    const previewRel = String(cur.previewLocalRelPath || '');
+    if (previewRel) await unlinkAsync(join(uploadsDir(), previewRel)).catch(() => {});
+    if (cur.storageKind === 'local') {
+      const rel = String(cur.localRelPath || '');
+      if (rel) await unlinkAsync(join(uploadsDir(), rel)).catch(() => {});
+    } else if (cur.storageKind === 'yandex') {
+      const diskPath = String(cur.yandexDiskPath || '');
+      if (diskPath) await deletePath(diskPath).catch(() => {});
     }
 
-    // Удаляем физический файл
-    if (row.storageKind === 'local') {
-      const rel = String(row.localRelPath || '');
-      if (rel) {
-        const abs = join(uploadsDir(), rel);
-        try {
-          await unlinkAsync(abs).catch(() => {
-            // Игнорируем ошибки если файл уже удален
-          });
-        } catch {
-          // Игнорируем ошибки удаления файла
-        }
-      }
-    } else if (row.storageKind === 'yandex') {
-      const diskPath = String(row.yandexDiskPath || '');
-      if (diskPath) {
-        await deletePath(diskPath).catch(() => {
-          // Игнорируем ошибки удаления файла на Yandex.Disk
-        });
-      }
-    }
-
-    // Удаляем запись из БД (soft delete)
-    await db.update(fileAssets).set({ deletedAt: nowMs() }).where(eq(fileAssets.id, id as any));
 
     return res.json({ ok: true });
   } catch (e) {

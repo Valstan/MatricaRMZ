@@ -71,13 +71,7 @@
 - Рассмотреть отключение DHT в WebTorrent, если внешние пиры не нужны (обновления раздаются клиентами, и DHT помогает им находить друг друга — выключай только если убедился, что трекер обслуживает всех).
 - При смене провайдера / адресной NAT-схемы пересмотреть `MATRICA_TRUST_PROXY_HOPS`.
 
-1. Зафиксировать порт WebTorrent через env-переменную в `backend-api` (`MATRICA_TORRENT_PEER_PORT`), чтобы UFW мог открыть конкретный, а не случайный порт.
-2. Установить и активировать UFW:
-   - allow `22/tcp` (резерв на время переезда) и нестандартный SSH-порт (основной), `80/tcp`, `443/tcp`, фиксированный WebTorrent-порт (TCP+UDP), порт трекера (если используется), `out` allow all, `deny incoming` default.
-   - после проверки доступа в свежем SSH-сеансе — закрыть `22/tcp` и оставить только нестандартный.
-3. Жёсткие настройки sshd: `PasswordAuthentication no`, `PermitRootLogin no`, `PubkeyAuthentication yes`, `MaxAuthTries 3`, `KbdInteractiveAuthentication no`, `X11Forwarding no`. Перезапустить sshd.
-4. Установить `fail2ban` с jail для `sshd` (4 неудачные попытки → бан 1 час). Включить jail для `nginx-http-auth` (для частых 401).
-5. Опционально: расследовать UDP-листенер WebTorrent (`*:36549`) — он используется для DHT/peer-exchange; решить, нужны ли DHT и tracker, либо отключить DHT и оставить только tracker.
+_Исходный план Фазы 2 снят из файла: он повторял применённое состояние, но с конкретными значениями (директивы sshd, пороги fail2ban, номер UDP-порта) — тем, что §«Публичный репозиторий — тоже recon-поверхность» держит только на сервере. Что именно применено — в списке выше; точные значения — в конфигах на сервере._
 
 ### Фаза 3 — app-level hardening (helmet, CORS, rate-limit) (выполнено)
 Дата применения: 2026-05-18.
@@ -206,7 +200,7 @@ chmod 600 ~/MatricaRMZ/backend-api/ledger/server-key.json
 Три cron-скрипта развёрнуты на проде через `scripts/prod-ops/install-prod-ops.sh`:
 
 - **Шифрованные бэкапы off-VPS** (`/usr/local/sbin/matricarmz-backup-encrypted`, ежедневно ночью — расписание в `/etc/cron.d/matricarmz-ops`):
-  `pg_dump` + tar ledger (zstd −9) → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640, root + группа сервисного пользователя) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
+  одним потоком `tar`(ledger + `pg_dump`) → zstd → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640, root + группа сервисного пользователя) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Архив (`matricarmz-backup-*.tar.zst.gpg`) листается до отправки; предполётная проверка места, `flock` от двойного запуска, Telegram через EXIT-trap при любом исходе, кроме успеха; восстановление — `scripts/prod-ops/README.md`. Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
 - **Cron-аудит зависимостей** (`/usr/local/sbin/matricarmz-audit-deps`, еженедельно):
   `pnpm audit --prod --json` → Telegram-алерт при наличии high/critical. На момент первого запуска найдено **9 high vulnerabilities** — отдельная задача обновления зависимостей.
 - **Алерт по неудачным логинам** (`/usr/local/sbin/matricarmz-watch-failed-auth`, каждые 5 минут):
