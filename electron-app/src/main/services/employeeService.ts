@@ -336,8 +336,14 @@ async function replicaMembershipRows(
   dataDb: BetterSQLite3Database,
 ): Promise<ReplicaMembershipRow[] | undefined> {
   try {
+    // Проба у ОБЕИХ таблиц — по той же причине, что в replicaAccountsById выше.
+    // Здесь цена ошибки выше: на этом ответе стоит политика закрытых нарядов, и
+    // «аккаунты есть, доступов нет» прочиталось бы как «никто не ограничен» —
+    // то есть закрытые наряды показались бы всем, вместо падения в EAV.
     const seeded = await dataDb.select({ id: users.id }).from(users).limit(1);
     if (seeded.length === 0) return undefined;
+    const accessSeeded = await dataDb.select({ id: userSectionAccess.id }).from(userSectionAccess).limit(1);
+    if (accessSeeded.length === 0) return undefined;
     const rows = await dataDb
       .select({
         userId: users.id,
