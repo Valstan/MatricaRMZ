@@ -739,21 +739,29 @@ export async function buildWorkOrderPayrollReport(
 export async function buildWorkOrderPayrollSummaryReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const employeeFilter = asArray(filters?.employeeIds);
   const departmentFilter = asArray(filters?.departmentIds);
   const snapshot = await loadSnapshot(db);
   const departmentOptions = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
+  // Оргединица сотрудника — цех (`directory_workshops`, канон) ИЛИ подразделение (EAV,
+  // остались офисные). Читать только `department_id`, как было, значит сваливать всех
+  // цеховых в одну строку «(не указано)»: у них заполнен `workshop_id`. Разрез считается
+  // тем же правилом, что в «Структуре предприятия» (`presets/catalogs.ts`) — иначе два
+  // отчёта об одних людях отвечают по-разному.
+  const workshopNameById = new Map((await getWorkshops(ctx)).map((w) => [w.id, w.name] as const));
   const employeeMetaById = new Map<string, { employeeName: string; personnelNumber: string; departmentId: string; departmentName: string }>();
 
   for (const employeeId of getIdsByType(snapshot, 'employee')) {
     const attrs = snapshot.attrsByEntity.get(employeeId) ?? {};
-    const departmentId = normalizeText(attrs.department_id, '');
-    // Подпись — человеческая всегда; различать подразделения — работа `departmentId`, который
+    const departmentId = normalizeText(attrs.workshop_id, '') || normalizeText(attrs.department_id, '');
+    // Подпись — человеческая всегда; различать оргединицы — работа `departmentId`, который
     // и служит ключом разреза ниже. Прежний фолбэк `?? departmentId` печатал оператору
     // идентификатор и одновременно был единственным, что не давало разрезу схлопнуться.
     const departmentName =
+      workshopNameById.get(departmentId) ??
       departmentOptions.get(departmentId) ??
       (pickHumanText(attrs.department) || (departmentId ? UNKNOWN_ENTITY_LABEL : '(не указано)'));
     const employeeName = normalizeText(

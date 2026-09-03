@@ -34,7 +34,7 @@ import {
 import { httpAuthed } from '../../httpClient.js';
 import { resolveContractLabel, safeJsonParse, toNumber, normalizeText, asArray, asBool, readPeriod, msToDate, statusLabel } from '../format.js';
 import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext, type Snapshot } from '../context.js';
-import { UNKNOWN_ENGINE_NUMBER_LABEL } from '../options.js';
+import { UNKNOWN_ENGINE_NUMBER_LABEL, UNKNOWN_ENTITY_LABEL } from '../options.js';
 
 // Служебные «исполнители»: их пишет не человек, а сам клиент или веб-админка.
 const SERVICE_PERFORMERS: Record<string, string> = { local: 'Локальный клиент', 'web-admin': 'Веб-администратор' };
@@ -846,8 +846,11 @@ export async function buildWarehouseStockPathAuditReport(
   const balanceRows = await db.select().from(erpRegStockBalance);
   const nomenRows = await db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt));
   const nomSpecById = new Map<string, string | null>();
+  const nomLabelById = new Map<string, string>();
   for (const row of nomenRows as any[]) {
     nomSpecById.set(String(row.id), row.specJson != null ? String(row.specJson) : null);
+    const label = String(row.name ?? '').trim() || String(row.code ?? '').trim();
+    if (label) nomLabelById.set(String(row.id), label);
   }
 
   type Agg = { nom: number; part: number };
@@ -899,7 +902,13 @@ export async function buildWarehouseStockPathAuditReport(
     const wh = sep >= 0 ? key.slice(0, sep) : '';
     const partId = sep >= 0 ? key.slice(sep + 2) : key;
     const partAttrs = snapshot.attrsByEntity.get(partId) ?? {};
-    const label = normalizeText(partAttrs.name, normalizeText(partAttrs.article, partId));
+    // Карточка детали живёт в номенклатуре (id-тождество), поэтому подпись берём оттуда,
+    // а EAV-снимок остаётся вторым источником для деталей, заведённых до перехода.
+    // Последний фолбэк — не сам id: отчёт открывают, чтобы опознать деталь, а UUID её не
+    // опознаёт (в остальных пресетах этого файла на этом месте UNKNOWN_ENTITY_LABEL).
+    const label =
+      nomLabelById.get(partId) ??
+      normalizeText(partAttrs.name, normalizeText(partAttrs.article, UNKNOWN_ENTITY_LABEL));
     if (v.nom > 0 && v.part > 0) {
       dual++;
       rows.push({

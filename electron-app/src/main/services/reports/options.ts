@@ -431,10 +431,15 @@ export async function buildAssemblyBomEngineOptions(
         const rows = Array.isArray((res.json as Record<string, unknown>).rows)
           ? ((res.json as Record<string, unknown>).rows as unknown[])
           : [];
+        // Марки берём из массива связей `engineBrandIds`: скалярной колонки
+        // `engine_brand_id` на шапке BOM нет с миграции 0047 (M:N junction), и
+        // чтение её здесь оставляло обязательный фильтр отчёта пустым. Локальная
+        // ветка ниже читает те же связи через junction — семантика одна.
         const ids = rows
           .map((row) => (row && typeof row === 'object' ? (row as Record<string, unknown>) : {}))
           .filter((row) => row.isDefault === true)
-          .map((row) => String(row.engineBrandId ?? '').trim())
+          .flatMap((row) => (Array.isArray(row.engineBrandIds) ? row.engineBrandIds : []))
+          .map((id) => String(id ?? '').trim())
           .filter(Boolean);
         const options = buildOptionsByIds(ids);
         assemblyBomBrandOptionsCache = {

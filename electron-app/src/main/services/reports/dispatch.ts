@@ -66,7 +66,7 @@ async function dispatchReportPreset(
       case 'work_order_payroll':
         return buildWorkOrderPayrollReport(db, args.filters);
       case 'work_order_payroll_summary':
-        return buildWorkOrderPayrollSummaryReport(db, args.filters);
+        return buildWorkOrderPayrollSummaryReport(db, args.filters, ctx);
       case 'employees_roster':
         return buildEmployeesRosterReport(db, args.filters, ctx);
       case 'organization_structure':

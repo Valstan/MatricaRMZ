@@ -27,10 +27,13 @@ const EMP_C = 'ee550000-0000-4000-8000-00000000000c';
 /** Подразделения, которых нет в справочнике: карточки удалены либо не доехали синхронизацией. */
 const DEPT_GONE_1 = 'c3990000-0000-4000-8000-000000000f01';
 const DEPT_GONE_2 = 'c3990000-0000-4000-8000-000000000f02';
+/** Цеха: канон живёт в `directory_workshops`, в EAV-снимке их карточек нет вовсе. */
+const WORKSHOP_1 = 'a7770000-0000-4000-8000-000000000c01';
+const WORKSHOP_2 = 'a7770000-0000-4000-8000-000000000c02';
 
 type Row = Record<string, unknown>;
 
-function stubDb(): any {
+function stubDb(attrsOverride?: Record<string, Record<string, unknown>>): any {
   const types: Row[] = [
     { id: 'T_employee', code: 'employee' },
     { id: 'T_department', code: 'department' },
@@ -40,7 +43,7 @@ function stubDb(): any {
     { id: EMP_B, typeId: 'T_employee' },
     { id: EMP_C, typeId: 'T_employee' },
   ];
-  const attrs: Record<string, Record<string, unknown>> = {
+  const attrs: Record<string, Record<string, unknown>> = attrsOverride ?? {
     [EMP_A]: { full_name: 'Иванов Иван', login: 'ivanov', department_id: DEPT_GONE_1 },
     [EMP_B]: { full_name: 'Петров Пётр', login: 'petrov', department_id: DEPT_GONE_2 },
     // Третий вовсе без подразделения — такие обязаны собираться в одну строку.
@@ -145,5 +148,59 @@ describe('«Сводка по нарядам»: разрез по подразд
     for (const group of report.totalsByGroup ?? []) {
       expect(looksLikeIdentifier(group.group)).toBe(false);
     }
+  });
+});
+
+/**
+ * Оргединица сотрудника — цех, а не только подразделение.
+ *
+ * Цеха переехали в `directory_workshops` (SSOT), у цеховых рабочих заполнен `workshop_id`,
+ * а `department_id` остался у офисных. Пока свод читал только `department_id`, разрез
+ * «Цех / подразделение» сваливал всех цеховых в одну строку «(не указано)» — на проде это
+ * 264 человека из 408, при том что соседний отчёт «Структура предприятия» те же цеха
+ * показывает. Тест держит разрез: цех участвует, разные цеха не сливаются, канон побеждает.
+ */
+describe('«Сводка по нарядам»: цех участвует в разрезе', () => {
+  const byWorkshop = {
+    [EMP_A]: { full_name: 'Иванов Иван', login: 'ivanov', workshop_id: WORKSHOP_1 },
+    [EMP_B]: { full_name: 'Петров Пётр', login: 'petrov', workshop_id: WORKSHOP_2 },
+    [EMP_C]: { full_name: 'Сидоров Сидор', login: 'sidorov' },
+  };
+
+  it('два разных цеха остаются двумя строками подытогов, а не одной «(не указано)»', async () => {
+    const report = await buildWorkOrderPayrollSummaryReport(stubDb(byWorkshop), undefined);
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.rows).toHaveLength(2);
+    const groups = report.totalsByGroup ?? [];
+    expect(groups).toHaveLength(2);
+    expect(groups.some((g) => g.group === '(не указано)')).toBe(false);
+  });
+
+  it('в подписи цеха нет идентификатора даже без справочника цехов под рукой', async () => {
+    // ctx не передан → getWorkshops вернёт пусто: подписи неизвестны, но разрез обязан
+    // остаться верным, а UUID в ячейку попасть не должен.
+    const report = await buildWorkOrderPayrollSummaryReport(stubDb(byWorkshop), undefined);
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    for (const row of report.rows) {
+      expect(looksLikeIdentifier(String(row.departmentName ?? ''))).toBe(false);
+    }
+    for (const group of report.totalsByGroup ?? []) {
+      expect(looksLikeIdentifier(group.group)).toBe(false);
+    }
+  });
+
+  it('при обоих заполненных полях разрез идёт по цеху — он канон', async () => {
+    const both = {
+      [EMP_A]: { full_name: 'Иванов Иван', login: 'ivanov', workshop_id: WORKSHOP_1, department_id: DEPT_GONE_1 },
+      [EMP_B]: { full_name: 'Петров Пётр', login: 'petrov', workshop_id: WORKSHOP_1, department_id: DEPT_GONE_2 },
+    };
+    const report = await buildWorkOrderPayrollSummaryReport(stubDb(both), undefined);
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    // Один цех на двоих → один подытог, хотя подразделения у них разные.
+    expect(report.totalsByGroup ?? []).toHaveLength(1);
+    expect(report.rows).toHaveLength(2);
   });
 });
