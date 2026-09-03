@@ -61,6 +61,11 @@ MATRICA_TELEGRAM_BOT_TOKEN=bot
 MATRICA_TELEGRAM_ALERT_CHAT_ID=chat
 EOF
 
+# The env file wins over the process environment (on prod it is the source of truth), so a case
+# that needs a different ledger needs its own file, not an exported variable.
+sed "s|^MATRICA_LEDGER_DIR=.*|MATRICA_LEDGER_DIR=$LEDGER_NOKEY|" "$ENVF" > "$ROOT/env-nokey"
+sed "s|^MATRICA_LEDGER_DIR=.*|MATRICA_LEDGER_DIR=$ROOT/tmp|" "$ENVF" > "$ROOT/env-noblocks"
+
 # pg_dump shim: writes a file where --file points, or fails when told to.
 cat > "$ROOT/bin/pg_dump" <<'EOF'
 #!/usr/bin/env bash
@@ -119,8 +124,8 @@ run_case "unreadable passphrase alerts once" 1 1 'passphrase file not readable' 
 run_case "no room refuses before touching anything, and alerts" 1 1 'not enough free space' \
   MATRICA_BACKUP_FLOOR_BYTES=999999999999999
 run_case "bad retention alerts once" 1 1 'RETENTION must be an integer' MATRICA_BACKUP_RETENTION=0
-run_case "ledger without the keyring is refused" 1 1 'data-key\.json' MATRICA_LEDGER_DIR="$LEDGER_NOKEY"
-run_case "ledger without blocks is refused" 1 1 'has no blocks' MATRICA_LEDGER_DIR="$ROOT/tmp"
+run_case "ledger without the keyring is refused" 1 1 'data-key\.json' MATRICA_ENV_FILE="$ROOT/env-nokey"
+run_case "ledger without blocks is refused" 1 1 'has no blocks' MATRICA_ENV_FILE="$ROOT/env-noblocks"
 
 # A missing env file cannot alert (the credentials live in it) but must say exactly that.
 run_case "missing env file says the alert is impossible" 1 0 'ALERT IMPOSSIBLE' \
