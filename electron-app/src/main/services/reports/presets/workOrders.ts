@@ -24,7 +24,10 @@ import {
   type WorkOrdersReportRow,
   type WorkOrdersReportSortBy,
   pickHumanText,
+  canViewWorkOrder,
 } from '@matricarmz/shared';
+
+import { getRestrictedWorkOrderPolicyLocal } from '../../employeeService.js';
 
 import {
   operations,
@@ -51,6 +54,34 @@ export type NormalizedWorkOrderReportCrewMember = {
   ktu: number;
   payoutRub: number;
 };
+
+/**
+ * Отчёты печатают наряды, а наряды закрываются политикой `restricted_work_orders`:
+ * владелец видит только свои, назначенный читатель — все, остальные не видят чужих
+ * закрытых. Вкладка «Наряды» это применяет (`workOrderService.listWorkOrders`),
+ * пресеты — не применяли, и один и тот же человек в отчёте видел то, что в списке
+ * ему не показывают. Фильтр строится один раз на отчёт и адресуется логином автора
+ * наряда (`operations.performed_by`) — тем же полем, что и список.
+ *
+ * Актора нет (вызов без ctx) — считаем обычным: `canViewWorkOrder` тогда скрывает
+ * наряды ограниченных владельцев. Fail-closed здесь дешевле: не показать своё хуже,
+ * чем показать чужое.
+ */
+async function buildRestrictedWorkOrderFilter(
+  db: BetterSQLite3Database,
+  ctx?: ReportBuildContext,
+): Promise<(ownerLogin: string) => boolean> {
+  const policy = (await getRestrictedWorkOrderPolicyLocal(db).catch(() => null)) ?? undefined;
+  const viewerLogin = ctx?.viewer?.login ?? null;
+  const viewerRole = ctx?.viewer?.role ?? null;
+  return (ownerLogin: string) =>
+    canViewWorkOrder({
+      viewerLogin,
+      viewerRole,
+      ownerLogin,
+      ...(policy ? { policy } : {}),
+    });
+}
 
 export type PayrollSummaryBucket = {
   employeeName: string;
@@ -173,6 +204,7 @@ export function resolveWorkOrderTargetLabel(payload: any): string {
 export async function buildWorkOrderCostsReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const brandFilter = asArray(filters?.brandIds);
@@ -180,6 +212,7 @@ export async function buildWorkOrderCostsReport(
   const snapshot = await loadSnapshot(db);
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const rows: Array<Record<string, ReportCellValue>> = [];
+  const maySeeWorkOrder = await buildRestrictedWorkOrderFilter(db, ctx);
   const sourceOps = await db
     .select()
     .from(operations)
@@ -188,6 +221,8 @@ export async function buildWorkOrderCostsReport(
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
+    // Наряд закрытого владельца не печатается тому, кому его не показывает вкладка «Наряды».
+    if (!maySeeWorkOrder(normalizeText(op.performedBy, ''))) continue;
     const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;
@@ -300,6 +335,7 @@ export async function buildWorkOrdersReport(
     return { id: customerId, label };
   };
 
+  const maySeeWorkOrder = await buildRestrictedWorkOrderFilter(db, ctx);
   const sourceOps = await db
     .select()
     .from(operations)
@@ -310,6 +346,8 @@ export async function buildWorkOrdersReport(
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
+    // Наряд закрытого владельца не печатается тому, кому его не показывает вкладка «Наряды».
+    if (!maySeeWorkOrder(normalizeText(op.performedBy, ''))) continue;
     const createdByLogin = normalizeText(op.performedBy, '').toLowerCase();
     const creator = employeeMetaByLogin.get(createdByLogin);
     if (createdByFilter.length > 0 && (!creator?.id || !createdByFilter.includes(creator.id))) continue;
@@ -557,6 +595,7 @@ export function buildWorkOrdersReportChips(a: {
 export async function buildWorkOrderPayrollReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
+  ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
   const employeeFilter = asArray(filters?.employeeIds);
@@ -567,6 +606,7 @@ export async function buildWorkOrderPayrollReport(
     const pn = normalizeText(attrs.personnel_number, '');
     if (pn) personnelByEmployeeId.set(employeeId, pn);
   }
+  const maySeeWorkOrder = await buildRestrictedWorkOrderFilter(db, ctx);
   const sourceOps = await db
     .select()
     .from(operations)
@@ -582,6 +622,8 @@ export async function buildWorkOrderPayrollReport(
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
+    // Наряд закрытого владельца не печатается тому, кому его не показывает вкладка «Наряды».
+    if (!maySeeWorkOrder(normalizeText(op.performedBy, ''))) continue;
     const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;
@@ -640,6 +682,8 @@ export async function buildWorkOrderPayrollReport(
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
+    // Наряд закрытого владельца не печатается тому, кому его не показывает вкладка «Наряды».
+    if (!maySeeWorkOrder(normalizeText(op.performedBy, ''))) continue;
     const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;
@@ -780,6 +824,7 @@ export async function buildWorkOrderPayrollSummaryReport(
     if (meta.personnelNumber) personnelByEmployeeId.set(eid, meta.personnelNumber);
   }
 
+  const maySeeWorkOrder = await buildRestrictedWorkOrderFilter(db, ctx);
   const sourceOps = await db
     .select()
     .from(operations)
@@ -792,6 +837,8 @@ export async function buildWorkOrderPayrollSummaryReport(
   for (const op of sourceOps as any[]) {
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'work_order') continue;
+    // Наряд закрытого владельца не печатается тому, кому его не показывает вкладка «Наряды».
+    if (!maySeeWorkOrder(normalizeText(op.performedBy, ''))) continue;
     const orderDate = Number(payload.orderDate ?? op.performedAt ?? op.createdAt ?? 0);
     if (period.startMs != null && orderDate < period.startMs) continue;
     if (orderDate > period.endMs) continue;

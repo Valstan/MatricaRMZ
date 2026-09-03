@@ -8,7 +8,7 @@ import {
   createWorkOrder,
   deleteWorkOrder,
   getActiveAssemblyVariant,
-  getWorkOrder,
+  getWorkOrderForViewer,
   listAssemblyWorkOrdersForEngine,
   listWorkOrders,
   listWorkOrdersUsingPart,
@@ -30,13 +30,13 @@ export function registerWorkOrdersIpc(ctx: IpcContext) {
   ipcMain.handle('workOrders:usageByPart', async (_e, partId: string) => {
     const gate = await requirePermOrResult(ctx, 'work_orders.view');
     if (!gate.ok) return gate as any;
-    return listWorkOrdersUsingPart(ctx.dataDb(), String(partId ?? ''));
+    return listWorkOrdersUsingPart(ctx.dataDb(), String(partId ?? ''), await ctx.currentViewer());
   });
 
   ipcMain.handle('workOrders:get', async (_e, id: string) => {
     const gate = await requirePermOrResult(ctx, 'work_orders.view');
     if (!gate.ok) return gate as any;
-    return getWorkOrder(ctx.dataDb(), id);
+    return getWorkOrderForViewer(ctx.dataDb(), id, await ctx.currentViewer());
   });
 
   ipcMain.handle('workOrders:activeAssemblyVariant', async (_e, engineId: string) => {

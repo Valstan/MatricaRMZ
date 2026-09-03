@@ -570,15 +570,28 @@ async function loadWorkOrderSummaries(db: BetterSQLite3Database): Promise<WorkOr
 export async function listWorkOrdersUsingPart(
   db: BetterSQLite3Database,
   partId: string,
+  viewer?: { login: string | null; role: string | null },
 ): Promise<{ ok: true; rows: Array<{ id: string; workOrderNumber: number }> } | { ok: false; error: string }> {
   try {
     const needle = String(partId ?? '').trim();
     if (!needle) return { ok: true as const, rows: [] };
     const summaries = await loadWorkOrderSummaries(db);
+    // Блок «Где используется» в карточке детали — такой же список нарядов, как вкладка
+    // «Наряды», и закрывается той же политикой. Без этого строка «Наряд №N» показывала
+    // существование закрытого наряда и вела в него ссылкой.
+    const policy = (await getRestrictedWorkOrderPolicyLocal(db).catch(() => null)) ?? undefined;
     return {
       ok: true as const,
       rows: summaries
         .filter((summary) => summary.partIds.includes(needle))
+        .filter((summary) =>
+          canViewWorkOrder({
+            viewerLogin: viewer?.login ?? null,
+            viewerRole: viewer?.role ?? null,
+            ownerLogin: summary.ownerLogin,
+            ...(policy ? { policy } : {}),
+          }),
+        )
         .map((summary) => ({ id: summary.row.id, workOrderNumber: summary.row.workOrderNumber })),
     };
   } catch (e) {
@@ -682,6 +695,42 @@ export async function getWorkOrder(
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
+}
+
+/**
+ * `getWorkOrder` для запроса ИЗВНЕ (IPC): та же выдача, но закрытый наряд чужого владельца
+ * отвечает «не найден», а не своим содержимым. Отдельная функция, потому что у самого
+ * `getWorkOrder` есть внутренние вызовы на пути сохранения — им наряд нужен всегда, и
+ * добавить фильтр внутрь значило бы сломать запись ради чтения.
+ *
+ * Отказ намеренно неотличим от отсутствия: подтверждать существование закрытого наряда
+ * тому, кому его не показывают, — та же утечка, только в одну строку.
+ */
+export async function getWorkOrderForViewer(
+  db: BetterSQLite3Database,
+  id: string,
+  viewer?: { login: string | null; role: string | null },
+): Promise<{ ok: true; payload: WorkOrderPayload; status: string; updatedAt: number } | { ok: false; error: string }> {
+  const rows = await db
+    .select({ performedBy: operations.performedBy })
+    .from(operations)
+    .where(and(eq(operations.id, id), eq(operations.operationType, WORK_ORDERS_OPERATION_TYPE), isNull(operations.deletedAt)))
+    .limit(1)
+    .catch(() => [] as Array<{ performedBy: string | null }>);
+  const ownerLogin = String(rows[0]?.performedBy ?? '');
+  const policy = (await getRestrictedWorkOrderPolicyLocal(db).catch(() => null)) ?? undefined;
+  if (
+    rows[0] &&
+    !canViewWorkOrder({
+      viewerLogin: viewer?.login ?? null,
+      viewerRole: viewer?.role ?? null,
+      ownerLogin,
+      ...(policy ? { policy } : {}),
+    })
+  ) {
+    return { ok: false as const, error: 'Наряд не найден' };
+  }
+  return getWorkOrder(db, id);
 }
 
 /**
