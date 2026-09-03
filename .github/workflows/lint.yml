@@ -32,3 +32,15 @@ jobs:
       # warnings, so any newly-introduced warning (not just errors) fails the job.
       - name: Lint
         run: pnpm -r lint
+
+  # The encrypted backup is the only copy of the ledger, and its failure mode is silence —
+  # so it gets a gate of its own. The smoke test runs the real script against a fixture
+  # ledger with shimmed pg_dump/curl and `--no-upload` (no network, no Yandex.Disk).
+  prod-ops-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Backup script smoke test
+        run: bash scripts/prod-ops/backup-encrypted.test.sh

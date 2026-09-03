@@ -29,7 +29,15 @@
 
 set -euo pipefail
 
-ENV_FILE="${MATRICA_ENV_FILE:-${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}/backend-api/.env}"
+ENV_FILE="${MATRICA_ENV_FILE:-}"
+if [[ -z "$ENV_FILE" ]]; then
+  # backend-api/.env on prod is a symlink to the secret file and `git clean -fdx` removes it;
+  # without an env file the script cannot even alert, so take the real file when the link is gone.
+  for candidate in "${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}/backend-api/.env" /etc/matricarmz/matricarmz.env; do
+    if [[ -r "$candidate" ]]; then ENV_FILE="$candidate"; break; fi
+  done
+  ENV_FILE="${ENV_FILE:-${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}/backend-api/.env}"
+fi
 PASSPHRASE_FILE="${MATRICA_BACKUP_PASSPHRASE_FILE:-/etc/matricarmz/backup.passphrase}"
 RETENTION="${MATRICA_BACKUP_RETENTION:-14}"
 RATIO_PCT="${MATRICA_BACKUP_ZSTD_RATIO_PCT:-50}"
@@ -54,15 +62,18 @@ log() { printf '[%s] %s\n' "$(date +%FT%T%z)" "$*"; }
 telegram_alert() {
   local msg="$1"
   if [[ "${MATRICA_TELEGRAM_ENABLED:-false}" != "true" ]]; then
-    log "telegram disabled (MATRICA_TELEGRAM_ENABLED != true) — alert not sent: $msg"
+    log "telegram alert suppressed (MATRICA_TELEGRAM_ENABLED != true): ${msg:0:120}"
     return 0
   fi
-  [[ -n "${MATRICA_TELEGRAM_BOT_TOKEN:-}" ]] || return 0
-  [[ -n "${MATRICA_TELEGRAM_ALERT_CHAT_ID:-}" ]] || return 0
+  if [[ -z "${MATRICA_TELEGRAM_BOT_TOKEN:-}" || -z "${MATRICA_TELEGRAM_ALERT_CHAT_ID:-}" ]]; then
+    log "telegram alert suppressed (token or chat id missing): ${msg:0:120}"
+    return 0
+  fi
   curl -fsS -m 15 -o /dev/null \
     -d "chat_id=${MATRICA_TELEGRAM_ALERT_CHAT_ID}" \
     --data-urlencode "text=${msg}" \
-    "https://api.telegram.org/bot${MATRICA_TELEGRAM_BOT_TOKEN}/sendMessage" || true
+    "https://api.telegram.org/bot${MATRICA_TELEGRAM_BOT_TOKEN}/sendMessage" \
+    || log "WARN: telegram delivery failed (curl exit $?)"
 }
 
 fail() {
@@ -86,11 +97,19 @@ trap on_exit EXIT
 # An operator's Ctrl-C or `kill` must count as a failed night too, not as a clean exit.
 trap 'fail "terminated by signal"' INT TERM HUP
 
-[[ -r "$ENV_FILE" ]] || fail "env file not readable: $ENV_FILE"
-[[ -r "$PASSPHRASE_FILE" ]] || fail "passphrase file not readable: $PASSPHRASE_FILE"
+# The env file carries the Telegram credentials, so nothing that can fail may run before it is
+# sourced: an alert is impossible until then. Its own absence is the one unalertable case.
+if [[ ! -r "$ENV_FILE" ]]; then
+  log "ERROR: env file not readable: $ENV_FILE (ALERT IMPOSSIBLE: Telegram credentials live in it)"
+  ALERTED=1
+  exit 1
+fi
 
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
+
+[[ -r "$PASSPHRASE_FILE" ]] || fail "passphrase file not readable: $PASSPHRASE_FILE"
+[[ "$RETENTION" =~ ^[0-9]+$ && "$RETENTION" -ge 1 ]] || fail "MATRICA_BACKUP_RETENTION must be an integer >= 1 (got '$RETENTION')"
 
 # Resolved AFTER sourcing the env file so MATRICA_LEDGER_DIR from .env wins.
 # Default = the canonical relocated ledger (H8 2026-06-30), NOT the repo-local
@@ -133,6 +152,7 @@ log "start backup -> $YANDEX_BASE/${BASE_NAME}.tar.zst.gpg"
 # tenants of the partition (PostgreSQL WAL, uploads, journald). The estimate counts the
 # dump twice — staged file plus its copy inside the archive.
 LEDGER_BYTES="$(du -sb "${EXCLUDES[@]}" "$LEDGER_DIR" | cut -f1)"
+[[ "$LEDGER_BYTES" =~ ^[0-9]+$ ]] || fail "du gave no size for $LEDGER_DIR (excluded by its own pattern?)"
 free_bytes() { df -B1 --output=avail "$TMP_ROOT" | tail -1 | tr -d ' '; }
 need_bytes() { echo $(( LEDGER_BYTES * RATIO_PCT / 100 + 2 * $1 + LISTING_RESERVE_BYTES + FLOOR_BYTES )); }
 FREE_BYTES="$(free_bytes)"
@@ -168,13 +188,18 @@ ROOT_FILES=()
 while IFS= read -r name; do
   case "$name" in
     *.bak.*|*.corrupt.*|*.tmp-*|.ledger.lock) ;;
+    db.dump) log "WARN: ledger root has a stray 'db.dump' — skipped, the name is reserved for the PG dump" ;;
     *) ROOT_FILES+=("$name") ;;
   esac
 done < <(find "$LEDGER_DIR" -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort)
+for required in index.json data-key.json server-key.json; do
+  [[ -f "$LEDGER_DIR/$required" ]] || fail "ledger root has no $required — a restore from this archive would be unreadable"
+  printf '%s\n' "${ROOT_FILES[@]}" | grep -qxF "$required" || fail "$required is excluded from the archive by a pattern"
+done
 BLOCKS_BEFORE="$(find "$LEDGER_DIR/blocks" -maxdepth 1 -name '*.json' | wc -l)"
 (( BLOCKS_BEFORE > 0 )) || fail "ledger has no blocks — refusing to archive an empty ledger"
 log "tar(${#ROOT_FILES[@]} root files + blocks + db.dump) | zstd | gpg AES256 -> $(basename "$ENCRYPTED") ($BLOCKS_BEFORE blocks on disk)"
-set +o pipefail
+set +e +o pipefail
 tar --create --file=- \
     --warning=no-file-changed \
     "${EXCLUDES[@]}" \
@@ -186,7 +211,7 @@ tar --create --file=- \
       --passphrase-file "$PASSPHRASE_FILE" \
       -c --output "$ENCRYPTED"
 RCS=("${PIPESTATUS[@]}")
-set -o pipefail
+set -e -o pipefail
 TAR_RC="${RCS[0]:-0}"
 ZSTD_RC="${RCS[1]:-0}"
 GPG_RC="${RCS[2]:-0}"
@@ -204,12 +229,12 @@ log "  encrypted: $ENC_SIZE (archive/ledger ratio $((ENC_BYTES * 100 / LEDGER_BY
 # listed as "db.dump", "index.json", "blocks/00000001.json" (no "./" prefix).
 log "verify: gpg -d | zstd -d | tar -t"
 LISTING="$WORK_DIR/listing.txt"
-set +o pipefail
+set +e +o pipefail
 gpg --batch --quiet --passphrase-file "$PASSPHRASE_FILE" --decrypt "$ENCRYPTED" \
   | zstd -d -q \
   | tar --list --file=- > "$LISTING"
 VRC=("${PIPESTATUS[@]}")
-set -o pipefail
+set -e -o pipefail
 if [[ "${VRC[0]:-0}" -ne 0 || "${VRC[1]:-0}" -ne 0 || "${VRC[2]:-0}" -ne 0 ]]; then
   fail "verify pipeline failed (gpg=${VRC[0]:-?} zstd=${VRC[1]:-?} tar=${VRC[2]:-?})"
 fi
@@ -232,22 +257,24 @@ if (( NO_UPLOAD == 1 )); then
   exit 0
 fi
 
-# 4. Upload to Yandex.Disk
-log "upload to Yandex.Disk"
-python3 - "$YANDEX_DISK_TOKEN" "$YANDEX_BASE" "$ENCRYPTED" "$RETENTION" <<'PY' || fail "upload script failed"
-import json, os, ssl, sys, time, urllib.parse, urllib.request
+# 4. Upload to Yandex.Disk, then verify the remote copy against the local digest.
+log "sha256 of the archive"
+LOCAL_SHA="$(sha256sum "$ENCRYPTED" | cut -d' ' -f1)"
+log "upload to Yandex.Disk ($ENC_SIZE, sha256 ${LOCAL_SHA:0:12}…)"
+python3 - "$YANDEX_DISK_TOKEN" "$YANDEX_BASE" "$ENCRYPTED" "$ENC_BYTES" "$LOCAL_SHA" <<'PY' || fail "upload failed"
+import json, os, ssl, sys, urllib.error, urllib.parse, urllib.request
 
-TOKEN, BASE, LOCAL_PATH, RETENTION = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+TOKEN, BASE, LOCAL_PATH, SIZE, SHA = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5].lower()
 REMOTE_FILE = f"{BASE}/{os.path.basename(LOCAL_PATH)}"
 API = "https://cloud-api.yandex.net/v1/disk"
 HDR = {"Authorization": f"OAuth {TOKEN}"}
 CTX = ssl.create_default_context()
 
-def req(method, url, headers=None, data=None, expect=None):
+def req(method, url, headers=None, data=None, expect=None, timeout=120):
     h = dict(HDR); h.update(headers or {})
     r = urllib.request.Request(url, data=data, method=method, headers=h)
     try:
-        with urllib.request.urlopen(r, context=CTX, timeout=120) as resp:
+        with urllib.request.urlopen(r, context=CTX, timeout=timeout) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")
@@ -260,38 +287,81 @@ parts = [p for p in BASE.split("/") if p]
 path = ""
 for p in parts:
     path = f"{path}/{p}"
-    url = f"{API}/resources?path={urllib.parse.quote(path)}"
-    req("PUT", url, expect={409})
+    req("PUT", f"{API}/resources?path={urllib.parse.quote(path)}", expect={409})
 
-# Get upload href
 url = f"{API}/resources/upload?path={urllib.parse.quote(REMOTE_FILE)}&overwrite=true"
-status, body = req("GET", url)
-href = json.loads(body)["href"]
+href = json.loads(req("GET", url)[1])["href"]
 
-# PUT file (no auth header on the upload URL — signed link)
-size = os.path.getsize(LOCAL_PATH)
 with open(LOCAL_PATH, "rb") as f:
     r = urllib.request.Request(href, data=f, method="PUT")
-    r.add_header("Content-Length", str(size))
-    with urllib.request.urlopen(r, context=CTX, timeout=600) as resp:
+    r.add_header("Content-Length", str(SIZE))
+    with urllib.request.urlopen(r, context=CTX, timeout=1800) as resp:
         if resp.status not in (201, 202):
             raise SystemExit(f"upload returned {resp.status}")
-print(f"  uploaded ok: {REMOTE_FILE} ({size} bytes)")
 
-# Rotation: list files, delete those beyond RETENTION
-url = (f"{API}/resources?path={urllib.parse.quote(BASE)}"
-       f"&limit=200&sort=-name")
-status, body = req("GET", url)
-items = json.loads(body).get("_embedded", {}).get("items", [])
-files = sorted(
-    [i for i in items if i.get("type") == "file" and i["name"].startswith("matricarmz-backup-")],
-    key=lambda i: i["name"], reverse=True,
-)
-for old in files[RETENTION:]:
-    url = f"{API}/resources?path={urllib.parse.quote(old['path'])}&permanently=true"
-    req("DELETE", url, expect={202, 204})
-    print(f"  rotated out: {old['path']}")
-print(f"  kept {min(len(files), RETENTION)} of {len(files)} backups")
+# The PUT status says the transfer ended, not that the bytes are right. Yandex hashes on
+# ingest — compare before anything else is allowed to trust this copy.
+url = f"{API}/resources?path={urllib.parse.quote(REMOTE_FILE)}&fields=type,size,sha256"
+info = json.loads(req("GET", url)[1])
+problems = []
+if info.get("type") != "file":
+    problems.append(f"type={info.get('type')}")
+if info.get("size") != SIZE:
+    problems.append(f"size={info.get('size')} != {SIZE}")
+remote_sha = str(info.get("sha256", "")).lower()
+if not remote_sha:
+    problems.append("no sha256 from Yandex")
+elif remote_sha != SHA:
+    problems.append("sha256 mismatch")
+if problems:
+    req("DELETE", f"{API}/resources?path={urllib.parse.quote(REMOTE_FILE)}&permanently=true", expect={202, 204, 404})
+    raise SystemExit("remote copy not verified (" + "; ".join(problems) + ") — deleted, nothing rotated")
+print(f"  uploaded and verified: {REMOTE_FILE} ({SIZE} bytes, sha256 ok)")
+PY
+
+# 5. Rotation — separate from the upload so a rotation failure never reads as "the backup did
+# not land", and paginated because the base folder is shared with attachments.
+log "rotate: keep $RETENTION newest"
+python3 - "$YANDEX_DISK_TOKEN" "$YANDEX_BASE" "$(basename "$ENCRYPTED")" "$RETENTION" <<'PY' || fail "rotation failed (upload OK, archive is on Yandex.Disk)"
+import json, ssl, sys, urllib.error, urllib.parse, urllib.request
+
+TOKEN, BASE, JUST_UPLOADED, RETENTION = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+API = "https://cloud-api.yandex.net/v1/disk"
+HDR = {"Authorization": f"OAuth {TOKEN}"}
+CTX = ssl.create_default_context()
+
+def req(method, url, expect=None):
+    r = urllib.request.Request(url, method=method, headers=HDR)
+    try:
+        with urllib.request.urlopen(r, context=CTX, timeout=120) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        if expect and e.code in expect:
+            return e.code, body.encode()
+        raise SystemExit(f"HTTP {e.code} {method} {url}: {body}")
+
+# Page through the whole folder: it also holds attachments, so one page of 200 entries is not
+# the backup set. Missing our own upload in the listing means the view is incomplete — refuse
+# to delete anything on that basis.
+names, offset, limit = [], 0, 200
+while True:
+    url = (f"{API}/resources?path={urllib.parse.quote(BASE)}"
+           f"&limit={limit}&offset={offset}&fields=_embedded.items.name,_embedded.items.type,_embedded.items.path")
+    items = json.loads(req("GET", url)[1]).get("_embedded", {}).get("items", [])
+    names.extend(i for i in items if i.get("type") == "file")
+    if len(items) < limit:
+        break
+    offset += limit
+
+backups = sorted([i for i in names if i["name"].startswith("matricarmz-backup-")],
+                 key=lambda i: i["name"], reverse=True)
+if JUST_UPLOADED not in [i["name"] for i in backups]:
+    raise SystemExit(f"listing does not contain the file just uploaded ({JUST_UPLOADED}) — refusing to rotate")
+for old in backups[RETENTION:]:
+    req("DELETE", f"{API}/resources?path={urllib.parse.quote(old['path'])}&permanently=true", expect={202, 204})
+    print(f"  rotated out: {old['name']}")
+print(f"  kept {min(len(backups), RETENTION)} of {len(backups)} backups")
 PY
 
 log "done: $YANDEX_BASE/${BASE_NAME}.tar.zst.gpg ($ENC_SIZE)"

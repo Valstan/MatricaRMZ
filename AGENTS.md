@@ -120,7 +120,7 @@ git checkout main && git pull
 
 Допустимое — граница осознанная, не лазейка:
 
-- **публичный URL API** (он же хостнейм прода) как дефолт в коде клиентов (`electron-app/src/main/index.ts`, `stub-updater/main.go`, `android-app/vite.config.ts`, `.env.example`) и в nginx-конфиге: он зашит в каждый выпущенный бинарь и в `latest.yml`, прятать его некуда. В прозе доков его не повторяем — пишем «прод»;
+- **публичный URL API** (он же хостнейм прода) как дефолт в коде клиентов (`electron-app/src/main/index.ts`, `stub-updater/main.go`, `android-app/vite.config.ts`, `scripts/client-ops/kaspersky-matrica.ps1`, `*/.env.example`) и в nginx-конфиге: он зашит в каждый выпущенный бинарь и в `latest.yml`, прятать его некуда. В прозе доков его не повторяем — пишем «прод»;
 - **SSH-алиас `matricarmz`** — единственный способ сослаться на сервер в доках и командах; хост, порт, пользователь и ключ живут в `~/.ssh/config` на машине;
 - **инсталляционная раскладка самого приложения** (`/opt/matricarmz/…`, `/etc/matricarmz/…`, `/usr/local/sbin/matricarmz-*`, имена systemd-юнитов) — это описание приложения, а не хоста. Домашний каталог сервисного пользователя пишется как `~/MatricaRMZ` / `$HOME`, systemd-юниты — шаблонами с подстановкой при установке (`deploy/systemd/install-backend.sh`);
 - **закрытые записи** (`mailbox/to-brain/`, `docs/plans/_archive/`, `docs/_archive/`, тексты прошлых релизов в `releaseWelcome.ts`) не переписываем — это записи о том, что было сказано и решено; их правка была бы подделкой переписки, а не гигиеной. Вычистка ничего не отзывает: история публична с первого коммита. `docs/COMPLETED.md` — **не** закрытая запись, а живой индекс (в него дописывают каждый релиз): recon-детали в нём не трогали, ПДн — убрали (см. ниже, D-041).
@@ -256,7 +256,7 @@ New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterd
    gh release download android-vX.Y.Z --pattern "*.apk" -D "$TMP" --clobber   # ЛОКАЛЬНО, не на проде
    scp "$TMP/app-release.apk" matricarmz:/opt/matricarmz/updates/android/MatricaRMZ-X.Y.Z.apk
    ```
-   > ⚠️ **Не гонять `gh release download` на самом проде** — к GitHub CDN оттуда воспроизводимо валится TLS-таймаут. Каталог `updates/` принадлежит `valstan`, так что `scp` идёт без `sudo`. Проверка: `curl -fsSk "https://127.0.0.1/dispatcher/update-plan?platform=android&current=<прежняя>"` → план с новой версией (а не `up-to-date`).
+   > ⚠️ **Не гонять `gh release download` на самом проде** — к GitHub CDN оттуда воспроизводимо валится TLS-таймаут. Каталог `updates/` принадлежит сервисному пользователю (тому же, под которым ходит `ssh matricarmz`), так что `scp` идёт без `sudo`. Проверка: `curl -fsSk "https://127.0.0.1/dispatcher/update-plan?platform=android&current=<прежняя>"` → план с новой версией (а не `up-to-date`).
 
 9. `corepack pnpm release:ledger-publish X.Y.Z` — publishes the release into the ledger. Still **before** restart. Note it does **not** rewrite `latest.json` itself — that is the rescan's job (see step 8).
 10. Restart services: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`. Verify with `curl -fsk https://127.0.0.1/health` (should report new version).

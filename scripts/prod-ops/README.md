@@ -49,7 +49,9 @@ bash scripts/prod-ops/install-prod-ops.sh
 /usr/local/sbin/matricarmz-backup-encrypted
 ```
 
-Telegram-алерт уходит только при `MATRICA_TELEGRAM_ENABLED=true` в `.env` (выключенный TG скрипт пишет в лог строкой `telegram disabled`). Второй одновременный прогон отказывает по `flock` (`/var/lib/matricarmz/backup.lock`).
+Telegram-алерт уходит только при `MATRICA_TELEGRAM_ENABLED=true` в `.env`; выключенный или ненастроенный TG скрипт пишет в лог строкой `telegram alert suppressed …`, так что подавленный алерт виден. Единственный случай, когда алерт невозможен, — нечитаемый сам `.env` (в нём и лежат credentials); скрипт говорит об этом явно (`ALERT IMPOSSIBLE`). Второй одновременный прогон отказывает по `flock` (`/var/lib/matricarmz/backup.lock`).
+
+Скрипт покрыт смоук-тестом `backup-encrypted.test.sh` (фикстура ledger, шимы `pg_dump`/`curl`, `--no-upload`): happy-path и семь путей отказа, каждый — с проверкой, что алерт ушёл ровно один раз. Гоняется в CI (job `prod-ops-backup`); локально на машине без `zstd`/`flock` печатает `SKIP`.
 
 ## Перенос вложений на Я.Диск (`files:offload-to-yandex`)
 
@@ -108,9 +110,12 @@ gpg --batch --passphrase-file <pass> -d backup.tar.zst.gpg | zstd -d | tar -xO d
 
 | Var | Скрипт | Что меняет |
 |---|---|---|
-| `MATRICA_ENV_FILE` | все | путь к .env (default: `$MATRICA_REPO_DIR/backend-api/.env`) |
+| `MATRICA_ENV_FILE` | все | путь к .env (default: `$MATRICA_REPO_DIR/backend-api/.env`, при его отсутствии — `/etc/matricarmz/matricarmz.env`) |
 | `MATRICA_BACKUP_PASSPHRASE_FILE` | backup | путь к passphrase |
-| `MATRICA_BACKUP_RETENTION` | backup | сколько копий хранить (default 14) |
+| `MATRICA_BACKUP_RETENTION` | backup | сколько копий хранить (default 14; целое ≥ 1, иначе отказ) |
+| `MATRICA_BACKUP_ZSTD_RATIO_PCT` | backup | ожидаемый размер архива в % от ledger для предполётной проверки (default 50; фактический печатается каждым прогоном) |
+| `MATRICA_BACKUP_FLOOR_BYTES` | backup | сколько места оставить соседям по разделу (default 1 ГиБ): при нехватке — отказ до первого байта |
+| `MATRICA_BACKUP_LOCK` | backup | файл блокировки от двойного запуска (default `/var/lib/matricarmz/backup.lock`) |
 | `MATRICA_AUTH_WINDOW_MIN` | watch-auth | окно анализа (default 5 мин) |
 | `MATRICA_AUTH_THRESHOLD` | watch-auth | порог 401/403 на IP в окне (default 10) |
 | `MATRICA_AUTH_COOLDOWN_MIN` | watch-auth | минут между повторными алертами по тому же IP (default 60) |
