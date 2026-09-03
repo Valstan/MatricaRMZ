@@ -75,8 +75,12 @@ corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex --apply        
 ```bash
 # Скачать с Я.Диска (название: matricarmz-backup-YYYYMMDD-HHMMSS.tar.zst.gpg;
 # копии до сентября 2026 — matricarmz-backup-*.tar.gpg, их раскладка описана ниже)
+# Папка — YANDEX_DISK_BASE_PATH из прод-env; на проде это /matricarmz/files (та же, где вложения),
+# а /matricarmz-backups — лишь дефолт скрипта, который прод перебивает. Точный путь скрипт печатает
+# строкой `done: <path>`. Подставляем значение, а не $YANDEX_DISK_BASE_PATH: восстановление часто
+# идёт на машине без прод-env (он внутри бэкапа), там переменная развернётся в пустоту.
 curl -L -H "Authorization: OAuth $YANDEX_DISK_TOKEN" \
-  "https://cloud-api.yandex.net/v1/disk/resources/download?path=/matricarmz-backups/<file>" \
+  "https://cloud-api.yandex.net/v1/disk/resources/download?path=/matricarmz/files/<file>" \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['href'])" \
   | xargs curl -L -o backup.tar.zst.gpg
 
@@ -98,7 +102,18 @@ gpg --batch --passphrase-file <pass> -d backup.tar.zst.gpg | zstd -d | tar -xO d
   | pg_restore --clean --if-exists --no-owner --no-privileges -d <db>
 ```
 
-Условия на проде: остановить оба сервиса (`sudo systemctl stop matricarmz-backend-primary matricarmz-backend-secondary`); целевой каталог ledger — из `MATRICA_LEDGER_DIR` в `/etc/matricarmz/matricarmz.env` (**не** `backend-api/ledger` — это паразитная копия); распаковывать от имени сервисного пользователя (`sudo -Hu <user>`); после — права на ключи по `docs/SECURITY.md` (Фаза 1), затем primary → `/health` → secondary. Порядок в архиве гарантирует, что индекс не опережает блоки; блок, дописанный во время бэкапа, отсутствует и в индексе, и в `blocks/` — бэкенд достроит проекцию из блоков при старте.
+Условия на проде: остановить оба сервиса (`sudo systemctl stop matricarmz-backend-primary matricarmz-backend-secondary`); целевой каталог ledger — из `MATRICA_LEDGER_DIR` в `/etc/matricarmz/matricarmz.env` (**не** `backend-api/ledger` — это паразитная копия); распаковывать от имени сервисного пользователя (`sudo -Hu <user>`); после — права на ключи по `docs/SECURITY.md` (Фаза 1), затем primary → `/health` → secondary. Порядок в архиве гарантирует, что индекс не опережает блоки.
+
+**Обязательная проверка высоты — до старта primary, не после.** Оба варианта распаковки кладут файлы поверх населённого каталога (`rsync` без `--delete`, `tar -x`), поэтому блоки прежней жизни ledger'а остаются лежать выше восстановленного индекса. Бэкенд их **не** подберёт и **не** пересчитает индекс: `ensureLedgerStateFile` (`backend-api/src/ledger/ledgerService.ts`) в `blocks/` не заглядывает — он либо копирует `state.json.bak.*`, либо пишет **пустой** state. А `store.ts` берёт высоту как `index.lastHeight + 1` и пишет по этому пути без проверки существования: лишние блоки сначала раздаются клиентам через `listBlocksSince`, а потом молча перезаписываются другими байтами на тех же высотах — это форк цепочки.
+
+```bash
+# старший блок в blocks/ обязан совпасть с lastHeight из индекса
+ls "$MATRICA_LEDGER_DIR"/blocks/*.json | sed 's#.*/##; s#\.json$##' | sort -n | tail -1
+python3 -c "import json;print(json.load(open('$MATRICA_LEDGER_DIR/index.json'))['lastHeight'])"
+# не совпало — удалить всё, что выше lastHeight, и только потом поднимать primary
+```
+
+Если скрипт при сборке архива напечатал `WARN: … block(s) are ahead of the archived index`, эта проверка не формальность: в самом архиве блоки уже опережают его собственный индекс.
 
 Старая раскладка (`.tar.gpg`, до сентября 2026; тоже pg_dump 17 → pg_restore ≥ 17): `gpg --batch --passphrase-file <pass> --decrypt --output backup.tar backup.tar.gpg && tar -xvf backup.tar` даёт `db.dump` и `ledger.tar.zst`; ledger распаковывается `zstd -d ledger.tar.zst -o ledger.tar && tar -xvf ledger.tar -C "$MATRICA_LEDGER_DIR"`.
 
@@ -115,7 +130,9 @@ gpg --batch --passphrase-file <pass> -d backup.tar.zst.gpg | zstd -d | tar -xO d
 | `MATRICA_BACKUP_RETENTION` | backup | сколько копий хранить (default 14; целое ≥ 1, иначе отказ) |
 | `MATRICA_BACKUP_ZSTD_RATIO_PCT` | backup | ожидаемый размер архива в % от ledger для предполётной проверки (default 50; фактический печатается каждым прогоном) |
 | `MATRICA_BACKUP_FLOOR_BYTES` | backup | сколько места оставить соседям по разделу (default 1 ГиБ): при нехватке — отказ до первого байта |
+| `MATRICA_BACKUP_DUMP_EST_BYTES` | backup | оценка размера `db.dump` для предполётной проверки **до** `pg_dump` (default 128 МиБ ≈ 2× замера прода 2026-09-03: 70,8 МБ). Гейт сразу после дампа перепроверяет по фактическому размеру, поэтому заниженная оценка стоит одного лишнего дампа, а завышенная отказывает на боксе, где бэкап прошёл бы |
 | `MATRICA_BACKUP_LOCK` | backup | файл блокировки от двойного запуска (default `/var/lib/matricarmz/backup.lock`) |
+| `MATRICA_OPS_TELEGRAM_ENABLED` | все | включает алерты ops-скриптов, не трогая продуктовый Telegram (`MATRICA_TELEGRAM_ENABLED` включил бы заодно polling бота и critical-events). Не задан — падает обратно на `MATRICA_TELEGRAM_ENABLED` |
 | `MATRICA_AUTH_WINDOW_MIN` | watch-auth | окно анализа (default 5 мин) |
 | `MATRICA_AUTH_THRESHOLD` | watch-auth | порог 401/403 на IP в окне (default 10) |
 | `MATRICA_AUTH_COOLDOWN_MIN` | watch-auth | минут между повторными алертами по тому же IP (default 60) |

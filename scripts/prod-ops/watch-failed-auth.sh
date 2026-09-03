@@ -16,7 +16,7 @@ log() { printf '[%s] %s\n' "$(date +%FT%T%z)" "$*"; }
 
 telegram_send() {
   local msg="$1"
-  [[ "${MATRICA_TELEGRAM_ENABLED:-false}" == "true" ]] || { log "telegram disabled"; return 0; }
+  [[ "${MATRICA_OPS_TELEGRAM_ENABLED:-${MATRICA_TELEGRAM_ENABLED:-false}}" == "true" ]] || { log "telegram disabled"; return 0; }
   [[ -n "${MATRICA_TELEGRAM_BOT_TOKEN:-}" && -n "${MATRICA_TELEGRAM_ALERT_CHAT_ID:-}" ]] || return 0
   curl -fsS -m 15 -o /dev/null \
     -d "chat_id=${MATRICA_TELEGRAM_ALERT_CHAT_ID}" \
