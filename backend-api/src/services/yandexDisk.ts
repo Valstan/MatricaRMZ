@@ -110,6 +110,27 @@ export async function getDownloadHref(diskPath: string): Promise<string> {
   return href;
 }
 
+export type YandexResourceInfo = { type: string | null; size: number | null; sha256: string | null; md5: string | null };
+
+// Metadata Yandex computed on ingest — the only independent witness that an upload
+// landed byte-for-byte. Callers that move data off the box verify against it.
+export async function getResourceInfo(diskPath: string): Promise<YandexResourceInfo> {
+  const token = tokenFromEnv();
+  const p = normalizeDiskPath(diskPath);
+  const q = new URL('https://cloud-api.yandex.net/v1/disk/resources');
+  q.searchParams.set('path', p);
+  q.searchParams.set('fields', 'type,size,sha256,md5');
+  const r = await fetch(q.toString(), { headers: { Authorization: `OAuth ${token}` } });
+  if (!r.ok) throw new Error(`yandex resource info HTTP ${r.status}: ${(await r.text().catch(() => '')) || 'no body'}`);
+  const j = (await r.json().catch(() => null)) as any;
+  return {
+    type: j?.type ? String(j.type) : null,
+    size: typeof j?.size === 'number' ? j.size : null,
+    sha256: j?.sha256 ? String(j.sha256).toLowerCase() : null,
+    md5: j?.md5 ? String(j.md5).toLowerCase() : null,
+  };
+}
+
 export async function deletePath(diskPath: string): Promise<void> {
   const token = tokenFromEnv();
   const p = normalizeDiskPath(diskPath);

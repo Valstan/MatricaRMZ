@@ -2,6 +2,9 @@
 # Удаляет старые сборки клиентов из /opt/matricarmz/updates/, оставляя только
 # N последних по mtime: установщики `MatricaRMZ-Setup-*.exe` в корне каталога и
 # APK планшетного клиента `MatricaRMZ-*.apk` в подкаталоге `android/`.
+# Вместе с установщиком уходит его `.blockmap`; осиротевшие `.blockmap` (без
+# своего `.exe`) убираются отдельным проходом. Единственный механизм ретенции
+# каталога обновлений — второго (внерепозиторного) быть не должно.
 #
 # Запускается systemd-таймером `matricarmz-cleanup-updates.timer` (см. рядом),
 # либо вручную:
@@ -26,7 +29,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --help|-h)
-      sed -n '1,17p' "$0"
+      sed -n '2,/^$/p' "$0"
       exit 0
       ;;
   esac
@@ -85,7 +88,9 @@ prune_dir() {
   echo "  kept:"
   for f in "${kept[@]}"; do echo "    + $f"; done
   echo "  remove:"
-  for f in "${to_remove[@]}"; do echo "    - $f"; done
+  for f in "${to_remove[@]}"; do
+    if [[ -f "$f.blockmap" ]]; then echo "    - $f (+ .blockmap)"; else echo "    - $f"; fi
+  done
 
   if (( DRY_RUN == 1 )); then
     echo "DRY-RUN [$label]: nothing actually removed."
@@ -98,6 +103,11 @@ prune_dir() {
     if rm -f -- "$f"; then
       removed=$((removed + 1))
       freed_bytes=$((freed_bytes + size))
+      # Дельта-карта без установщика бесполезна — уходит вместе с ним.
+      if [[ -f "$f.blockmap" ]]; then
+        size=$(stat -c %s "$f.blockmap" 2>/dev/null || echo 0)
+        rm -f -- "$f.blockmap" && freed_bytes=$((freed_bytes + size))
+      fi
     else
       echo "WARN [$label]: failed to remove $f" >&2
     fi
@@ -106,5 +116,40 @@ prune_dir() {
   echo "OK [$label]: removed $removed file(s), freed $((freed_bytes / 1024 / 1024)) MB. Kept newest $keep."
 }
 
+# `.blockmap` без своего `.exe` (установщик удалён раньше другим путём) —
+# мусор: клиент запрашивает карту только для существующего файла.
+prune_orphan_blockmaps() {
+  local dir="$1" label="$2"
+  [[ -d "$dir" ]] || return 0
+  cd "$dir"
+
+  local orphans=()
+  local bm
+  for bm in MatricaRMZ-Setup-*.exe.blockmap; do
+    [[ -f "$bm" ]] || continue
+    [[ -f "${bm%.blockmap}" ]] || orphans+=("$bm")
+  done
+
+  if (( ${#orphans[@]} == 0 )); then
+    echo "OK [$label]: no orphan blockmaps"
+    return 0
+  fi
+
+  echo "[$label] Found ${#orphans[@]} orphan blockmap(s):"
+  for bm in "${orphans[@]}"; do echo "    - $bm"; done
+
+  if (( DRY_RUN == 1 )); then
+    echo "DRY-RUN [$label]: nothing actually removed."
+    return 0
+  fi
+
+  local removed=0
+  for bm in "${orphans[@]}"; do
+    rm -f -- "$bm" && removed=$((removed + 1))
+  done
+  echo "OK [$label]: removed $removed orphan blockmap(s)."
+}
+
 prune_dir "$UPDATES_DIR" "MatricaRMZ-Setup-*.exe" "$KEEP_COUNT" "installers"
+prune_orphan_blockmaps "$UPDATES_DIR" "blockmaps"
 prune_dir "$UPDATES_DIR/android" "MatricaRMZ-*.apk" "$KEEP_COUNT_APK" "android"

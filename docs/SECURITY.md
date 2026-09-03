@@ -206,7 +206,7 @@ chmod 600 ~/MatricaRMZ/backend-api/ledger/server-key.json
 Три cron-скрипта развёрнуты на проде через `scripts/prod-ops/install-prod-ops.sh`:
 
 - **Шифрованные бэкапы off-VPS** (`/usr/local/sbin/matricarmz-backup-encrypted`, ежедневно ночью — расписание в `/etc/cron.d/matricarmz-ops`):
-  `pg_dump` + tar ledger (zstd −9) → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640, root + группа сервисного пользователя) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
+  одним потоком `tar`(ledger + `pg_dump`) → zstd → GPG AES-256 (passphrase из `/etc/matricarmz/backup.passphrase`, mode 640, root + группа сервисного пользователя) → upload в Yandex.Disk (`YANDEX_DISK_BASE_PATH`) → ротация (хранится 14 последних). Архив (`matricarmz-backup-*.tar.zst.gpg`) листается до отправки; предполётная проверка места, `flock` от двойного запуска, Telegram через EXIT-trap при любом исходе, кроме успеха; восстановление — `scripts/prod-ops/README.md`. Тестовый прогон: 64 с от старта до завершения, итоговый файл ~230 МБ. Tar warning «file changed as we read it» игнорируется (state.json — проекция, blocks/ append-only — backend безопасно восстановит).
 - **Cron-аудит зависимостей** (`/usr/local/sbin/matricarmz-audit-deps`, еженедельно):
   `pnpm audit --prod --json` → Telegram-алерт при наличии high/critical. На момент первого запуска найдено **9 high vulnerabilities** — отдельная задача обновления зависимостей.
 - **Алерт по неудачным логинам** (`/usr/local/sbin/matricarmz-watch-failed-auth`, каждые 5 минут):

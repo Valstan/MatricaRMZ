@@ -6,7 +6,7 @@
 
 | Скрипт | Запуск | Что делает |
 |---|---|---|
-| `backup-encrypted.sh` | ежедневно ночью | `pg_dump` + tar ledger → zstd → GPG AES-256 → Yandex.Disk; ротация 14 копий |
+| `backup-encrypted.sh` | ежедневно ночью | одним потоком `tar`(ledger + `pg_dump`) → zstd → GPG AES-256 → Yandex.Disk; ротация 14 копий; архив проверяется листингом до отправки; Telegram при любом отказе; отказ ещё до старта, если под архив нет места (`--no-upload` — приёмочный прогон без отправки) |
 | `audit-deps.sh` | еженедельно | `pnpm audit --prod --json` → Telegram-алерт при high/critical |
 | `watch-failed-auth.sh` | каждые 5 минут | парсит `/var/log/nginx/matricarmz_access.log`, считает 401/403 по `X-Forwarded-For`, Telegram при всплеске с одного IP (порог и cooldown — в скрипте) |
 
@@ -42,33 +42,65 @@ bash scripts/prod-ops/install-prod-ops.sh
 # Audit deps — может занять минуту
 /usr/local/sbin/matricarmz-audit-deps
 
-# Backup — займёт минуты + создаст файл на Я.Диске
+# Backup, приёмка — строит и проверяет архив, ничего не отправляет (минуты, ~2 ГБ в /tmp на время прогона)
+/usr/local/sbin/matricarmz-backup-encrypted --no-upload
+
+# Backup, полный прогон — плюс отправка на Я.Диск и ротация
 /usr/local/sbin/matricarmz-backup-encrypted
 ```
+
+Telegram-алерт уходит только при `MATRICA_TELEGRAM_ENABLED=true` в `.env` (выключенный TG скрипт пишет в лог строкой `telegram disabled`). Второй одновременный прогон отказывает по `flock` (`/var/lib/matricarmz/backup.lock`).
+
+## Перенос вложений на Я.Диск (`files:offload-to-yandex`)
+
+Вложения до `MATRICA_MAX_LOCAL_BYTES` (по умолчанию 10 МиБ) лежат на боксе, крупнее — на Я.Диске. Когда бокс — дефицитный ресурс, порог опускают в `.env` (новые файлы) и переносят уже сохранённые:
+
+```bash
+cd ~/MatricaRMZ
+corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex                      # dry-run: кандидаты + сироты, ничего не меняет
+corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex --limit 100 --apply  # первая партия, крупные первыми
+corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex --apply              # остальное
+```
+
+- `--min-bytes N` — порог (по умолчанию `MATRICA_MAX_LOCAL_BYTES`, если задан, иначе 1 МиБ); `--limit N` — сколько файлов за прогон (0 = все).
+- Каждый файл: sha256 на диске = строке → загрузка → Яндекс подтверждает размер и sha256/md5 → строка переводится на `yandex` (только если она всё ещё `local` и жива) → локальная копия удаляется. Отказ на любом шаге оставляет строку и локальную копию; загрузка при этом удаляется. Превью не трогаются, маршрут раздачи один и тот же.
+- Второй одновременный `--apply` отказывает (advisory lock в PG). Три отказа подряд с одной причиной — стоп: это среда (токен, сеть, квота), не файлы.
+- Сироты в `uploads/local` (файл без живой локальной строки) печатаются всегда; в `--apply` удаляются только те, чья строка уже на Яндексе и копия там подтверждена.
+- **Лог прогона — манифест.** Строка `OK <id> … -> <path> sha256=<hex>` позволяет после восстановления БД из дампа старше прогона снова привязать строки: `UPDATE file_assets SET storage_kind='yandex', yandex_disk_path=$2, local_rel_path=NULL WHERE id=$1 AND storage_kind='local';`. Сразу после успешного `--apply` — внеочередной `matricarmz-backup-encrypted`, чтобы свежий дамп уже нёс новые пути.
 
 ## Восстановление из бэкапа
 
 ```bash
-# Скачать с Я.Диска (название: matricarmz-backup-YYYYMMDD-HHMMSS.tar.gpg)
+# Скачать с Я.Диска (название: matricarmz-backup-YYYYMMDD-HHMMSS.tar.zst.gpg;
+# копии до сентября 2026 — matricarmz-backup-*.tar.gpg, их раскладка описана ниже)
 curl -L -H "Authorization: OAuth $YANDEX_DISK_TOKEN" \
   "https://cloud-api.yandex.net/v1/disk/resources/download?path=/matricarmz-backups/<file>" \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['href'])" \
-  | xargs curl -L -o backup.tar.gpg
+  | xargs curl -L -o backup.tar.zst.gpg
 
-# Расшифровать (введёт пароль или подсунуть через --passphrase-file)
-gpg --decrypt --output backup.tar backup.tar.gpg
+# Инструменты на машине восстановления: gpg 2.x, zstd, tar, pg_restore >= 17 (postgresql-client-17
+# из PGDG, собранный с zstd — штатный клиент Ubuntu 24.04 (16) дамп pg_dump 17 не читает:
+# «unsupported version (1.16)»). Пароль: --passphrase-file работает только с --batch;
+# для интерактивного ввода — export GPG_TTY=$(tty) и без --batch.
 
-# Распаковать
-tar -xvf backup.tar
-# теперь есть db.dump и ledger.tar.zst
+# Вариант А — со staging-каталогом (нужно ~2× размера ledger свободного места)
+mkdir restore && gpg --batch --passphrase-file <pass> --decrypt backup.tar.zst.gpg | zstd -d | tar -x -C restore
+# теперь restore/db.dump, restore/<index/state/keys>.json и restore/blocks/… (без archive/, *.bak.*, *.corrupt.*)
+pg_restore --list restore/db.dump | head -3        # должен показать Compression: zstd
+pg_restore --clean --if-exists --no-owner --no-privileges -d <db> restore/db.dump
+rsync -a --exclude db.dump restore/ "$MATRICA_LEDGER_DIR"/
 
-# Восстановить PG
-pg_restore --clean --if-exists --no-owner --no-privileges -d <db> db.dump
-
-# Распаковать ledger
-zstd -d ledger.tar.zst -o ledger.tar
-tar -xvf ledger.tar -C <target>
+# Вариант Б — потоком, без staging (место нужно только под сам архив)
+gpg --batch --passphrase-file <pass> -d backup.tar.zst.gpg | zstd -d | tar -x --exclude=db.dump -C "$MATRICA_LEDGER_DIR"
+gpg --batch --passphrase-file <pass> -d backup.tar.zst.gpg | zstd -d | tar -xO db.dump \
+  | pg_restore --clean --if-exists --no-owner --no-privileges -d <db>
 ```
+
+Условия на проде: остановить оба сервиса (`sudo systemctl stop matricarmz-backend-primary matricarmz-backend-secondary`); целевой каталог ledger — из `MATRICA_LEDGER_DIR` в `/etc/matricarmz/matricarmz.env` (**не** `backend-api/ledger` — это паразитная копия); распаковывать от имени сервисного пользователя (`sudo -Hu <user>`); после — права на ключи по `docs/SECURITY.md` (Фаза 1), затем primary → `/health` → secondary. Порядок в архиве гарантирует, что индекс не опережает блоки; блок, дописанный во время бэкапа, отсутствует и в индексе, и в `blocks/` — бэкенд достроит проекцию из блоков при старте.
+
+Старая раскладка (`.tar.gpg`, до сентября 2026; тоже pg_dump 17 → pg_restore ≥ 17): `gpg --batch --passphrase-file <pass> --decrypt --output backup.tar backup.tar.gpg && tar -xvf backup.tar` даёт `db.dump` и `ledger.tar.zst`; ledger распаковывается `zstd -d ledger.tar.zst -o ledger.tar && tar -xvf ledger.tar -C "$MATRICA_LEDGER_DIR"`.
+
+Проверка без восстановления (то же, что скрипт делает перед отправкой): `gpg --batch --passphrase-file <pass> --decrypt backup.tar.zst.gpg | zstd -d | tar -t | head`.
 
 ## Параметры через env
 

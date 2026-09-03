@@ -57,6 +57,12 @@ echo "==> Next scheduled runs:"
 sudo systemctl list-timers matricarmz-cleanup-updates.timer --no-pager || true
 
 echo
+if systemctl list-unit-files 'matricarmz-updates-prune*' --no-legend 2>/dev/null | grep -q .; then
+  echo
+  echo "WARN: найден второй механизм ретенции (matricarmz-updates-prune.*) — по решению владельца живёт только этот скрипт."
+  echo "      Снять: sudo systemctl disable --now matricarmz-updates-prune.timer && sudo rm /etc/systemd/system/matricarmz-updates-prune.{timer,service} /usr/local/bin/matricarmz-updates-prune && sudo systemctl daemon-reload"
+fi
+
 echo "Done. Скрипт будет запускаться еженедельно по воскресеньям в 03:00."
 echo "Логи: sudo journalctl -u matricarmz-cleanup-updates.service"
 echo "Ручной прогон: sudo systemctl start matricarmz-cleanup-updates.service"
