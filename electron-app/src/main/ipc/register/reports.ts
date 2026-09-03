@@ -177,37 +177,37 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:presetList', async () => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return getReportPresetList(ctx.dataDb(), { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return getReportPresetList(ctx.dataDb(), { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:presetPreview', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return buildReportByPreset(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return buildReportByPreset(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:presetPdf', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportReportPresetPdf(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return exportReportPresetPdf(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:presetCsv', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportReportPresetCsv(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return exportReportPresetCsv(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:preset1cXml', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportReportPreset1cXml(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return exportReportPreset1cXml(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:presetPrint', async (_e, args) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return printReportPreset(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return printReportPreset(ctx.dataDb(), args, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:favoritesGet', async (_e, args?: { userId?: string }) => {
@@ -419,19 +419,19 @@ export function registerReportsIpc(ctx: IpcContext) {
   ipcMain.handle('reports:customRun', async (_e, args?: { spec?: unknown }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return runCustomReport(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return runCustomReport(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:customPrint', async (_e, args?: { spec?: unknown }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return printCustomReport(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return printCustomReport(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   ipcMain.handle('reports:customCsv', async (_e, args?: { spec?: unknown }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
     if (!gate.ok) return gate as any;
-    return exportCustomReportCsv(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl() });
+    return exportCustomReportCsv(ctx.dataDb(), args?.spec, { sysDb: ctx.sysDb, apiBaseUrl: ctx.mgr.getApiBaseUrl(), viewer: await ctx.currentViewer() });
   });
 
   const isAdminViewer = async (): Promise<boolean> => {

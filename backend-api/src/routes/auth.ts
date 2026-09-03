@@ -8,7 +8,7 @@ import { chatMessages, refreshTokens } from '../database/schema.js';
 import { signAccessToken, signAccessTokenWithTtl, type AuthUser } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { generateRefreshToken, getRefreshTtlDays, hashRefreshToken } from '../auth/refresh.js';
-import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
+import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { randomUUID } from 'node:crypto';
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser } from '../auth/permissions.js';
 import { userPermissions } from '../database/schema.js';
@@ -331,7 +331,14 @@ authRouter.post('/release-token', requireAuth, async (req, res) => {
   }
 });
 
-authRouter.get('/users/:id/permissions-view', requireAuth, async (req, res) => {
+// Карта прав ЛЮБОГО аккаунта — данные экрана «Сотрудники», и гейт у неё должен быть тот же.
+// Клиент зовёт этот роут под правом employees.view (IPC `employees:permissionsGet`), а сам
+// роут просил только валидный токен: снятое право убирало экран, но не доступ к данным —
+// включая то, кто держит audit.view и админские права (конституция, ст. 5: авторитет доступа
+// на сервере, UI — удобство).
+// `requireAuth` обязателен и рядом: `/auth` монтируется без него (внутри есть /login,
+// /register), а `requirePermission` только читает `req.user` — один он ответил бы 401 всем.
+authRouter.get('/users/:id/permissions-view', requireAuth, requirePermission(PermissionCode.EmployeesView), async (req, res) => {
   try {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });

@@ -43,6 +43,13 @@ export type OkPreview = Extract<ReportPresetPreviewResult, { ok: true }>;
 export type ReportBuildContext = {
   sysDb?: BetterSQLite3Database;
   apiBaseUrl?: string;
+  /**
+   * Кто смотрит отчёт. Нужен пресетам, которые печатают наряды: политика закрытых
+   * нарядов (`restricted_work_orders`) адресуется логином, и без актора отчёт печатал
+   * бы то, что вкладка «Наряды» тому же человеку не показывает. Не задан — считаем
+   * актора обычным (fail-closed): наряды ограниченных владельцев не печатаются.
+   */
+  viewer?: { login: string | null; role: string | null };
 };
 
 export const WAREHOUSE_LOCATION_OPTIONS_TTL_MS = 60_000;
