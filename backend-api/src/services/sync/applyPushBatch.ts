@@ -159,6 +159,13 @@ export async function applyPushBatch(
     skippedRows.push(entry);
   }
 
+  // Первые несколько недостающих id — в журнал: без них диагноз «какой двигатель не доехал»
+  // требовал доступа к машине оператора (04.09.2026: PC19 неделю пушил 8 нарядов на
+  // двигатель, которого нет на сервере, а сервер писал только «missing: 8»).
+  function missingIdSample(rows: Array<Record<string, unknown>>, missingIdField: string, limit = 5): string[] {
+    return Array.from(new Set(rows.map((r) => String(r[missingIdField] ?? '')).filter(Boolean))).slice(0, limit);
+  }
+
   function addDependencySkippedRows(
     table: SyncTableName,
     rows: Array<Record<string, unknown>>,
@@ -667,6 +674,8 @@ export async function applyPushBatch(
             table: SyncTableName.Entities,
             dependency: 'entity_type',
             missing: missingRows.length,
+            missing_ids: missingIdSample(missingRows as Array<Record<string, unknown>>, 'type_id'),
+            row_ids: missingIdSample(missingRows as Array<Record<string, unknown>>, 'id'),
             client_id: req.client_id,
             user: actor.username,
           });
@@ -1141,6 +1150,8 @@ export async function applyPushBatch(
             table: SyncTableName.Operations,
             dependency: 'engine_entity',
             missing: missingOps.length,
+            missing_ids: missingIdSample(missingOps as Array<Record<string, unknown>>, 'engine_entity_id'),
+            row_ids: missingIdSample(missingOps as Array<Record<string, unknown>>, 'id'),
             client_id: req.client_id,
             user: actor.username,
           });
