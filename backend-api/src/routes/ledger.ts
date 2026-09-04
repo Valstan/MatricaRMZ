@@ -15,6 +15,7 @@ import {
 } from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
+import { PG_SYNC_TABLES } from '../services/sync/pgSyncTables.js';
 import { makePullReadFilter, isPullTableAllowedForRole } from '../services/sync/pullReadFilter.js';
 import {
   isPrivacyTable,
@@ -25,31 +26,7 @@ import {
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
-import {
-  attributeDefs,
-  attributeValues,
-  auditLog,
-  chatMessages,
-  chatReads,
-  erpEngineAssemblyBom,
-  erpEngineAssemblyBomBrandLinks,
-  erpEngineAssemblyBomLines,
-  erpEngineInstances,
-  erpNomenclature,
-  erpRegStockBalance,
-  erpRegStockMovements,
-  entities,
-  entityTypes,
-  notes,
-  noteShares,
-  cardDrafts,
-  aiChatRequests,
-  operations,
-  syncState,
-  userPresence,
-  users,
-  userSectionAccess,
-} from '../database/schema.js';
+import { attributeDefs, entityTypes, syncState } from '../database/schema.js';
 
 export const ledgerRouter = Router();
 
@@ -330,83 +307,6 @@ ledgerRouter.get('/state/query', async (req, res) => {
   return res.json({ ok: true, rows: visibleRows });
 });
 
-// PG table mapping for snapshot (source of truth).
-const PG_SYNC_TABLES: Record<string, { drizzle: any; toSyncRow: (r: any) => Record<string, unknown> }> = {
-  [SyncTableName.EntityTypes]: { drizzle: entityTypes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.EntityTypes, r) },
-  [SyncTableName.Entities]: { drizzle: entities, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Entities, r) },
-  [SyncTableName.AttributeDefs]: { drizzle: attributeDefs, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeDefs, r) },
-  [SyncTableName.AttributeValues]: { drizzle: attributeValues, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AttributeValues, r) },
-  [SyncTableName.Operations]: { drizzle: operations, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Operations, r) },
-  [SyncTableName.AuditLog]: { drizzle: auditLog, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AuditLog, r) },
-  [SyncTableName.ChatMessages]: { drizzle: chatMessages, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatMessages, r) },
-  [SyncTableName.ChatReads]: { drizzle: chatReads, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatReads, r) },
-  [SyncTableName.UserPresence]: { drizzle: userPresence, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserPresence, r) },
-  [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
-  [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
-  [SyncTableName.CardDrafts]: { drizzle: cardDrafts, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.CardDrafts, r) },
-  [SyncTableName.AiChatRequests]: { drizzle: aiChatRequests, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AiChatRequests, r) },
-  [LedgerTableName.ErpNomenclature]: {
-    drizzle: erpNomenclature,
-    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpNomenclature, r),
-  },
-  [LedgerTableName.ErpEngineAssemblyBom]: {
-    drizzle: erpEngineAssemblyBom,
-    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBom, r),
-  },
-  [LedgerTableName.ErpEngineAssemblyBomLines]: {
-    drizzle: erpEngineAssemblyBomLines,
-    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomLines, r),
-  },
-  [LedgerTableName.ErpEngineAssemblyBomBrandLinks]: {
-    drizzle: erpEngineAssemblyBomBrandLinks,
-    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineAssemblyBomBrandLinks, r),
-  },
-  // B0: дрейф карт синка — erp_engine_instances была в incremental pull (pullChangesSince),
-  // но отсутствовала здесь: cold rebuild реплики молча терял таблицу целиком.
-  [LedgerTableName.ErpEngineInstances]: {
-    drizzle: erpEngineInstances,
-    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInstances, r),
-  },
-  [LedgerTableName.ErpRegStockBalance]: {
-    drizzle: erpRegStockBalance,
-    // Phase 2.4 PR 3: warehouse_id column dropped — sync отдаёт только warehouse_location_id.
-    toSyncRow: (r: any) => ({
-      id: String(r.id),
-      nomenclature_id: r.nomenclatureId ?? null,
-      part_card_id: r.partCardId ?? null,
-      warehouse_location_id: r.warehouseLocationId ?? null,
-      qty: Number(r.qty ?? 0),
-      reserved_qty: Number(r.reservedQty ?? 0),
-      updated_at: Number(r.updatedAt),
-    }),
-  },
-  [LedgerTableName.ErpRegStockMovements]: {
-    drizzle: erpRegStockMovements,
-    toSyncRow: (r: any) => ({
-      id: String(r.id),
-      nomenclature_id: String(r.nomenclatureId),
-      warehouse_location_id: r.warehouseLocationId ?? null,
-      document_header_id: r.documentHeaderId ?? null,
-      movement_type: String(r.movementType),
-      qty: Number(r.qty ?? 0),
-      direction: String(r.direction),
-      counterparty_id: r.counterpartyId ?? null,
-      reason: r.reason ?? null,
-      performed_at: Number(r.performedAt),
-      performed_by: r.performedBy ?? null,
-      created_at: Number(r.createdAt),
-    }),
-  },
-  // B3/R3 — вторая карта. Держать синхронной с pullChangesSince.ts: дрейф этих
-  // двух карт уже стоил `erp_engine_instances` (шрам двумя блоками выше), а тут
-  // цена дрейфа — пустая реплика аккаунтов на холодном старте и офлайн-гейт,
-  // закрывший доступ всем. Совпадение карт стережёт pgSyncMaps.guard.test.ts.
-  [LedgerTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
-  [LedgerTableName.UserSectionAccess]: {
-    drizzle: userSectionAccess,
-    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserSectionAccess, r),
-  },
-};
 
 ledgerRouter.get('/state/snapshot', async (req, res) => {
   const actor = (req as AuthenticatedRequest).user;

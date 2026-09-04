@@ -55,7 +55,8 @@ describe('B3/R3: две PG-карты синка не расходятся', () 
   const KNOWN_SNAPSHOT_ONLY = ['ErpRegStockBalance', 'ErpRegStockMovements'];
 
   const incremental = pgMapTables(readSource('./pullChangesSince.ts'));
-  const snapshot = pgMapTables(readSource('../../routes/ledger.ts'));
+  // Снапшот-карта с 05.09 живёт в pgSyncTables.ts (общая для /state/snapshot и ledger:resnapshot-state).
+  const snapshot = pgMapTables(readSource('./pgSyncTables.ts'));
 
   it('обе карты содержат users и user_section_access', () => {
     expect(incremental).toContain('Users');
