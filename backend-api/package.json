@@ -17,6 +17,7 @@
     "user:create": "tsx src/scripts/createUser.ts",
     "files:offload-to-yandex": "tsx src/scripts/offloadLocalFilesToYandex.ts",
     "ledger:rebuild-state": "tsx src/scripts/rebuildLedgerState.ts",
+    "ledger:resnapshot-state": "tsx src/scripts/resnapshotLedgerState.ts",
     "users:parity": "tsx src/scripts/checkUsersParity.ts",
     "users:fixture-check": "tsx src/scripts/checkUsersStrictFixture.ts",
     "users:backfill-check": "tsx src/scripts/checkUsersBackfill.ts",
