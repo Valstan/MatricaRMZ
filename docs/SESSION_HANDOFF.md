@@ -5,7 +5,7 @@
 **Status:** ACTIVE
 **Updated:** 2026-09-04 (сессия Fable 5.1 → Opus 5, машина `PC79`)
 **Branch:** `main` = `origin/main` на `a1aa820` (+ PR этой правки); открытых PR нет, веток кроме `main` нет.
-**Не выпущено, ждёт релиза клиента 3.20.0:** шаблоны «Моих отчётов» ([#764](https://github.com/Valstan/MatricaRMZ/pull/764)), unique в режиме отчёта ([#765](https://github.com/Valstan/MatricaRMZ/pull/765)), самолечение пропущенных зависимостей ([#767](https://github.com/Valstan/MatricaRMZ/pull/767)). Серверная часть #765/#766 уже на проде.
+**Не выпущено, ждёт релиза клиента 3.20.0:** шаблоны «Моих отчётов» ([#764](https://github.com/Valstan/MatricaRMZ/pull/764)), unique в режиме отчёта ([#765](https://github.com/Valstan/MatricaRMZ/pull/765)), самолечение пропущенных зависимостей ([#767](https://github.com/Valstan/MatricaRMZ/pull/767)). **⚠️ Серверная часть #765/#766 выкачена ТОЛЬКО НА `secondary`** — см. `PENDING` §«Прод: primary не перезапущен…». Перед релизом 3.20.0 обязателен рестарт `primary`, иначе снимок схемы будет разным на двух инстансах.
 **Last released version:** **v3.19.0** — на проде с 2026-08-31. Теги `v3.19.0` и `android-v3.19.0` отправлены.
 
 ## Текущая нитка
