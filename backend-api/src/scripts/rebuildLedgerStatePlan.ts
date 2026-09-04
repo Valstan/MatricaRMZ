@@ -82,6 +82,31 @@ export function outputPathAllowed(outAbs: string, ledgerDirAbs: string, relative
   return rel.startsWith('..');
 }
 
+/**
+ * Расхождения хеша, объяснённые ревизией 04.09.2026 и потому НЕ считающиеся находкой.
+ *
+ * Все три — след гонки двух одновременных дописываний (закрыта `withLock` + `writeFileAtomic`;
+ * свежих случаев нет). Файл был переписан на месте другим блоком той же высоты, и преемник
+ * ссылается на хеш, которого на диске больше нет. **Транзакции при этом не потеряны:** их `seq`
+ * встречаются в цепочке ровно по одному разу и без дыры рядом, то есть оба соперника писали одну
+ * и ту же транзакцию, разойдясь только полем `created_at`.
+ *
+ * Мусорные хвосты усечены на проде 04.09 (копии — `~/ledger-fix-backup-20260904/`), поэтому файлы
+ * снова разбираются. Ссылку преемника усечение не чинит и не могло: прежнего блока нет ни у кого.
+ *
+ * Список нужен, чтобы проверка целостности не поднимала тревогу на одном и том же месте вечно.
+ * Разбор — `docs/PENDING_FOLLOWUPS.md` §«Ревизия цепочки ledger».
+ */
+export const KNOWN_HASH_MISMATCH_HEIGHTS: Readonly<Record<number, string>> = {
+  211728: 'гонка дописывания 09.04.2026; транзакция seq 558130 на месте, потери нет',
+  237585: 'гонка дописывания 15.04.2026; транзакция seq 595444 на месте, потери нет',
+  237605: 'гонка дописывания 15.04.2026; транзакция seq 595464 на месте, потери нет',
+};
+
+// Единственная дыра в сквозной нумерации на 1,5 млн транзакций. Объяснена, но НЕ закрыта:
+// семь транзакций от 06.03.2026 отсутствуют в цепочке, и по ledger их содержимое не восстановить.
+export const KNOWN_SEQ_GAP = { fromSeq: 421759, toSeq: 421765, note: 'гонка дописывания 06.03.2026; блок проигравшего затёрт победителем' } as const;
+
 export type ReplayProgress = { blocks: number; txs: number; lastHeight: number };
 
 export type ReplayDeps = {
@@ -99,6 +124,7 @@ export type ReplayResult = {
   lastHeight: number;
   gaps: number[];
   bad: BadBlock[];
+  known: Array<{ height: number; note: string }>;
 };
 
 /**
@@ -114,6 +140,7 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
   const files = orderedBlockFiles(deps.listBlockFiles());
   const gaps: number[] = [];
   const bad: BadBlock[] = [];
+  const known: Array<{ height: number; note: string }> = [];
   let blocks = 0;
   let txs = 0;
   let lastHeight = 0;
@@ -134,6 +161,7 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
     // Разрыв высоты — не повод молча продолжить: цепочка на то и цепочка. Считаем и докладываем,
     // потому что пропущенный блок означает, что собранное состояние заведомо неполно.
     if (lastHeight !== 0 && block.height !== lastHeight + 1) gaps.push(block.height);
+    if (KNOWN_HASH_MISMATCH_HEIGHTS[block.height]) known.push({ height: block.height, note: KNOWN_HASH_MISMATCH_HEIGHTS[block.height] as string });
     applyTxs(state, block.txs);
     blocks += 1;
     txs += block.txs.length;
@@ -141,7 +169,7 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
     if (deps.onProgress && blocks % 5000 === 0) deps.onProgress({ blocks, txs, lastHeight });
     if (opts.maxBlocks && blocks >= opts.maxBlocks) break;
   }
-  return { state, blocks, txs, lastHeight, gaps, bad };
+  return { state, blocks, txs, lastHeight, gaps, bad, known };
 }
 
 export type Verdict = 'MATCH' | 'TABLE_SET_SKEW' | 'DATA_DIVERGENCE' | 'HEAD_MOVED';
