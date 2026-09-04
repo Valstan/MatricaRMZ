@@ -59,7 +59,7 @@
 **Сделано 04.09 (PR этой сессии):** `telegramFetch` в `telegramBotService.ts` — таймаут попытки `MATRICA_TELEGRAM_ATTEMPT_TIMEOUT_MS` (8 с) и до `MATRICA_TELEGRAM_ATTEMPTS` (6) повторов на сетевой отказ; curl в `backup-encrypted` / `watch-failed-auth` / `audit-deps` — `--connect-timeout 4 --retry 6 --retry-all-errors`. Обход через relay/прокси отвергнут: все доступные боксы на той же сети.
 
 **Осталось (порядок обязателен):**
-1. Прод: `git pull` → скопировать три скрипта в `/usr/local/sbin/` (тем же `install -m 0755`, как 03.09) → `MATRICA_OPS_TELEGRAM_ENABLED=true` в оба env → искусственный отказ бэкапа (`MATRICA_BACKUP_DUMP_EST_BYTES` больше свободного места → предполётная проверка → `fail` → алерт) → **сообщение в чате**, не строка в логе. Это строка «алерт бэкапа дошёл в чат <дата>» для отчёта D-069/D-076.
+1. ~~Прод, ops-часть~~ — **сделано 04.09 08:35 MSK**: скрипты установлены, `MATRICA_OPS_TELEGRAM_ENABLED=true` в обоих env, искусственный отказ бэкапа доставлен в чат со второй попытки curl (первая — таймаут 4 с). Бэкап **под наблюдением** с 04.09.
 2. Backend: собрать `shared` + `backend-api` из `main`, `MATRICA_TELEGRAM_ENABLED=true` в оба env, рестарт — **в окно, а не в рабочий день** (primary биндится ~53 с, M100). Это поднимет разом critical-events, polling продуктового бота и пуши sync-pipeline — так и задумано, отдельного флага для них нет.
 3. Сколько молчали critical-events: с ≤ 26.05.2026 (первая сохранённая копия env с `false`; тест доставки 18.05) по день рестарта — ≥ 101 день. Журнал сервисов начинается 17.08 и первой неудачной отправки не содержит: notifier все эти дни честно печатал `disabled`.
 
