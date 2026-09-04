@@ -6,7 +6,6 @@ import { join } from 'node:path';
 
 import { db, pool } from '../database/db.js';
 import { fileAssets } from '../database/schema.js';
-import { maxLocalBytes } from '../services/storageLimits.js';
 import { deletePath, getResourceInfo, uploadFileStream } from '../services/yandexDisk.js';
 import {
   fileIdFromLocalName,
@@ -18,19 +17,19 @@ import {
   type OffloadDeps,
 } from './offloadLocalFilesToYandexPlan.js';
 
-// Moves large attachments stored on the box to Yandex.Disk — the store that already
-// holds every file above MAX_LOCAL_BYTES — and frees the box disk. Each file is
-// verified twice: the local bytes must still match the row's sha256 before upload,
-// and Yandex must report the same size and digest after it. Only then the row flips
-// to 'yandex' and the local copy is unlinked; a failed verification removes the upload
-// and leaves the row untouched. Previews stay local, so lists render as before.
+// Moves attachments whose only copy is on the box (storage_kind='local') to Yandex.Disk —
+// the store of record since D-073 — and frees the box disk. Each file is verified twice:
+// the local bytes must still match the row's sha256 before upload, and Yandex must report
+// the same size and digest after it. Only then the row flips to 'yandex' and the local
+// copy is unlinked; a failed verification removes the upload and leaves the row untouched.
+// Previews stay local, so lists render as before. Cache copies of 'yandex' rows are not
+// this script's business (services/fileCache.ts evicts them by TTL).
 // Single-instance: an advisory lock refuses a second --apply while one is running.
 //
-// Dry-run by default (reports candidates and orphans, changes nothing). The threshold
-// defaults to MATRICA_MAX_LOCAL_BYTES when set (the boundary the upload route uses),
-// otherwise 1 MiB:
+// Dry-run by default (reports candidates and orphans, changes nothing). Every live
+// 'local' row is a candidate (--min-bytes 0); the flag narrows the run:
 //   corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex
-//   corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex --min-bytes 1048576 --limit 200 --apply
+//   corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex --limit 200 --apply
 // Every OK line carries id, path and sha256 — keep the log: it is the manifest for
 // re-linking rows after a DB restore from a dump older than the run (README).
 
@@ -135,6 +134,8 @@ async function sweepOrphans(apply: boolean) {
         continue;
       }
       if (row.storageKind === 'local') continue; // the live copy
+      // The cache copy of a 'yandex' row is still referenced — TTL eviction owns it.
+      if (row.localRelPath && abs.replaceAll('\\', '/').endsWith(row.localRelPath.replaceAll('\\', '/'))) continue;
       onYandex += 1;
       if (!apply || !row.yandexDiskPath) {
         console.log(`ORPHAN строка уже на yandex: ${abs}`);
@@ -164,9 +165,7 @@ async function sweepOrphans(apply: boolean) {
 }
 
 async function main() {
-  const args = parseOffloadArgs(process.argv.slice(2), {
-    minBytes: process.env.MATRICA_MAX_LOCAL_BYTES?.trim() ? maxLocalBytes() : 1024 * 1024,
-  });
+  const args = parseOffloadArgs(process.argv.slice(2), { minBytes: 0 });
   const base = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim();
   if (!base) throw new Error('YANDEX_DISK_BASE_PATH не настроен');
 

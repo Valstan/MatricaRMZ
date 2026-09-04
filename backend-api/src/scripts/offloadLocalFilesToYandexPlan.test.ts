@@ -19,7 +19,7 @@ describe('parseOffloadArgs', () => {
     expect(parseOffloadArgs([])).toEqual({ minBytes: 1024 * 1024, limit: 0, apply: false });
   });
 
-  it('takes the threshold default from the caller (MATRICA_MAX_LOCAL_BYTES) but lets --min-bytes override it', () => {
+  it('takes the threshold default from the caller (the script passes 0 since D-073) but lets --min-bytes override it', () => {
     expect(parseOffloadArgs([], { minBytes: 5 })).toMatchObject({ minBytes: 5 });
     expect(parseOffloadArgs(['--min-bytes', '7'], { minBytes: 5 })).toMatchObject({ minBytes: 7 });
   });

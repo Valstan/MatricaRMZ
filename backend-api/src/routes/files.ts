@@ -10,10 +10,12 @@ import { changeRequests, fileAssets } from '../database/schema.js';
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { canAccessFile } from '../services/fileAccessService.js';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { deletePath, ensureFolderDeep, getDownloadHref, getResourceInfo, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
-import { maxLocalBytes } from '../services/storageLimits.js';
+import { cacheRelPath } from '../services/fileCachePlan.js';
+import { verifyUploaded } from '../scripts/offloadLocalFilesToYandexPlan.js';
 import { getEmployeeAuthById } from '../services/employeeAuthService.js';
+import { logWarn } from '../utils/logger.js';
 
 // Multipart parser (no 3rd party): we accept base64 payload for MVP.
 // NOTE: For large files, Electron will stream later; for now keep it simple.
@@ -21,9 +23,9 @@ import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 export const filesRouter = Router();
 filesRouter.use(requireAuth);
 
-// Files up to this size stay on the box, larger ones go to Yandex.Disk (MATRICA_MAX_LOCAL_BYTES,
-// see services/storageLimits.ts; files:offload-to-yandex moves the already stored ones).
-const MAX_LOCAL_BYTES = maxLocalBytes();
+// D-073: хранилище — Я.Диск, бокс — кэш (services/fileCache.ts снимает копии старше TTL).
+// Загрузка кладёт байты в кэш и тут же на Яндекс; если Яндекс недоступен, строка остаётся
+// 'local' и её доводит files:offload-to-yandex — загрузка не должна падать из-за облака.
 const MAX_UPLOAD_BYTES = 250 * 1024 * 1024; // hard safety cap
 const MAX_PREVIEW_BYTES = 3 * 1024 * 1024; // base64 upload size cap for thumbnail payload (decoded bytes)
 
@@ -43,6 +45,40 @@ function previewRelPathForFile(args: { fileId: string; mime: string }): string {
 
 function nowMs() {
   return Date.now();
+}
+
+// Счётчик обращений (D-073 «замеры-слежка»): по распределению «через сколько дней после
+// загрузки к файлу возвращаются» подбирается окно кэша. Не на пути ответа: сбой счётчика
+// не должен стоить выдачи файла.
+function countAccess(fileId: string) {
+  db.update(fileAssets)
+    .set({ accessCount: sql`${fileAssets.accessCount} + 1`, lastAccessedAt: nowMs() })
+    .where(eq(fileAssets.id, fileId as any))
+    .then(() => {})
+    .catch((e) => logWarn('file access counter failed', { fileId, error: String(e) }));
+}
+
+async function writeBytes(abs: string, bytes: Buffer) {
+  mkdirSync(dirname(abs), { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    const ws = createWriteStream(abs);
+    ws.on('error', reject);
+    ws.on('finish', () => resolve());
+    ws.end(bytes);
+  });
+}
+
+// Загрузить на Я.Диск и убедиться, что байты долетели: Яндекс считает sha256 на приёме,
+// это единственный независимый свидетель. Неподтверждённая копия удаляется — иначе строка
+// указывала бы на объект, которому нельзя верить.
+async function uploadVerified(args: { diskPath: string; bytes: Buffer; mime: string | null; sha256: string }) {
+  await uploadBytes({ diskPath: args.diskPath, bytes: args.bytes, mime: args.mime });
+  const md5 = createHash('md5').update(args.bytes).digest('hex');
+  const verdict = verifyUploaded({ size: args.bytes.length, sha256: args.sha256, md5 }, await getResourceInfo(args.diskPath));
+  if (!verdict.ok) {
+    await deletePath(args.diskPath).catch(() => {});
+    throw new Error(`проверка после загрузки на Яндекс: ${verdict.reason}`);
+  }
 }
 
 function safeFilename(name: string): string {
@@ -303,14 +339,16 @@ filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (
     if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
     if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
 
-    if (row.storageKind === 'yandex') {
+    // Пока копия в кэше, клиенту дешевле забрать её с бокса (GET /files/:id), чем ходить
+    // на Яндекс по href: url=null — «качай у нас».
+    if (row.storageKind === 'yandex' && !row.localRelPath) {
       const diskPath = String(row.yandexDiskPath || '');
       if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
       const href = await getDownloadHref(diskPath);
+      countAccess(id);
       return res.json({ ok: true, url: href });
     }
 
-    // For local files, client can just GET /files/:id (stream). Return relative path for convenience.
     return res.json({ ok: true, url: null });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
@@ -318,9 +356,9 @@ filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (
 });
 
 // Upload endpoint: accepts JSON { name, mime?, dataBase64 }.
-// Server decides storage:
-// - <= MAX_LOCAL_BYTES (MATRICA_MAX_LOCAL_BYTES, default 10 MiB): store locally
-// - larger: store to Yandex.Disk
+// Байты ложатся в кэш на боксе и сразу уезжают на Я.Диск (D-073). Строка становится
+// 'yandex' только после подтверждения копии; если облако не ответило — 'local', и её
+// доведёт files:offload-to-yandex. Оператор в обоих случаях получает ok.
 filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async (req, res) => {
   try {
     const schema = z.object({
@@ -379,44 +417,21 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
 
     const baseYandexPath = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim(); // e.g. /MatricaRMZ/releases
 
-    if (size <= MAX_LOCAL_BYTES) {
-      const rel = join('local', id.slice(0, 2), `${id}_${name}`);
-      const abs = join(uploadsDir(), rel);
-      mkdirSync(dirname(abs), { recursive: true });
-      await new Promise<void>((resolve, reject) => {
-        const ws = createWriteStream(abs);
-        ws.on('error', reject);
-        ws.on('finish', () => resolve());
-        ws.end(bytes);
-      });
+    const rel = cacheRelPath(id, name);
+    await writeBytes(join(uploadsDir(), rel), bytes);
 
-      await db.insert(fileAssets).values({
-        id,
-        createdAt,
-        createdByUserId: actor.id,
-        name,
-        mime,
-        size,
-        sha256,
-        storageKind: 'local',
-        localRelPath: rel,
-        yandexDiskPath: null,
-      });
-
-      return res.json({ ok: true, file: { id, name, size, mime, sha256, createdAt } });
-    }
-
-    // Yandex.Disk
+    let diskPath: string | null = null;
     if (!baseYandexPath) {
-      return res.status(500).json({ ok: false, error: 'YANDEX_DISK_BASE_PATH не настроен (обязательно для больших файлов)' });
+      logWarn('file upload: YANDEX_DISK_BASE_PATH не настроен — файл остаётся на боксе', { fileId: id });
+    } else {
+      const candidate = yandexDiskPathForFile({ baseYandexPath, fileId: id, fileName: name, scope: (parsed.data.scope ?? null) as any });
+      try {
+        await uploadVerified({ diskPath: candidate, bytes, mime, sha256 });
+        diskPath = candidate;
+      } catch (e) {
+        logWarn('file upload: Яндекс не принял копию — файл остаётся на боксе до files:offload-to-yandex', { fileId: id, error: String(e) });
+      }
     }
-    const diskPath = yandexDiskPathForFile({
-      baseYandexPath,
-      fileId: id,
-      fileName: name,
-      scope: (parsed.data.scope ?? null) as any,
-    });
-    await uploadBytes({ diskPath, bytes, mime });
 
     await db.insert(fileAssets).values({
       id,
@@ -426,9 +441,10 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
       mime,
       size,
       sha256,
-      storageKind: 'yandex',
-      localRelPath: null,
+      storageKind: diskPath ? 'yandex' : 'local',
+      localRelPath: rel,
       yandexDiskPath: diskPath,
+      localCachedAt: diskPath ? createdAt : null,
     });
 
     return res.json({ ok: true, file: { id, name, size, mime, sha256, createdAt } });
@@ -437,16 +453,41 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
   }
 });
 
+function attachmentHeaders(row: any, res: Response, mimeFallback?: string | null) {
+  res.setHeader('Content-Type', row.mime || mimeFallback || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
+}
+
+// Промах кэша: забрать с Я.Диска, отдать, и — если байты совпали со строкой — положить копию
+// в кэш (прогрев). Прогрев best-effort: клиент получает файл в любом случае.
 async function sendYandexFile(row: any, res: Response) {
   const diskPath = String(row.yandexDiskPath || '');
   if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
   const href = await getDownloadHref(diskPath);
   const r = await fetch(href);
   if (!r.ok) return res.status(502).json({ ok: false, error: `ошибка загрузки из Yandex: HTTP ${r.status}` });
-  res.setHeader('Content-Type', row.mime || r.headers.get('content-type') || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
   const buf = Buffer.from(await r.arrayBuffer());
-  return res.end(buf);
+  attachmentHeaders(row, res, r.headers.get('content-type'));
+  res.end(buf);
+
+  const sha256 = createHash('sha256').update(buf).digest('hex');
+  if (sha256 !== String(row.sha256 || '').toLowerCase()) {
+    logWarn('file cache: скачанное с Яндекса не совпало со строкой — в кэш не кладу', { fileId: row.id });
+    return;
+  }
+  const rel = cacheRelPath(String(row.id), String(row.name || 'file'));
+  try {
+    await writeBytes(join(uploadsDir(), rel), buf);
+    const upd = await db
+      .update(fileAssets)
+      .set({ localRelPath: rel, localCachedAt: nowMs() })
+      .where(and(eq(fileAssets.id, row.id), isNull(fileAssets.localRelPath), isNull(fileAssets.deletedAt)))
+      .returning({ id: fileAssets.id });
+    // Кто-то успел положить копию раньше (второй промах параллельно) — наша лишняя, строка не наша.
+    if (upd.length !== 1) await unlinkAsync(join(uploadsDir(), rel)).catch(() => {});
+  } catch (e) {
+    logWarn('file cache: прогрев не удался', { fileId: row.id, error: String(e) });
+  }
 }
 
 filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req, res) => {
@@ -459,24 +500,26 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
     if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
     if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
 
-    if (row.storageKind === 'local') {
-      const rel = String(row.localRelPath || '');
-      if (!rel) return res.status(500).json({ ok: false, error: 'локальный относительный путь не указан' });
+    if (row.storageKind !== 'local' && row.storageKind !== 'yandex') {
+      return res.status(500).json({ ok: false, error: `неизвестный тип хранения: ${String(row.storageKind)}` });
+    }
+    countAccess(id);
+
+    // Есть локальная копия (единственная у 'local', кэш у 'yandex') — отдаём с диска.
+    const rel = String(row.localRelPath || '');
+    if (rel) {
       const abs = join(uploadsDir(), rel);
       const stream = createReadStream(abs);
       // Headers only once the file is actually open: on an open error the response below
       // must be plain JSON, not a JSON body labelled as an attachment.
-      stream.once('open', () => {
-        res.setHeader('Content-Type', row.mime || 'application/octet-stream');
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(row.name || 'file'))}"`);
-      });
+      stream.once('open', () => attachmentHeaders(row, res));
       stream.on('error', (err) => {
-        // The row may have been flipped to Yandex.Disk by files:offload-to-yandex between
-        // our SELECT and the open — re-read and serve from there; anything else is a 404.
+        // Копию могли снять между SELECT и open (эвикция кэша / files:offload-to-yandex) —
+        // перечитать строку и отдать с Яндекса; всё остальное — 404.
         void (async () => {
           if (res.headersSent) return res.end();
           const fresh = (await db.select().from(fileAssets).where(and(eq(fileAssets.id, id as any), isNull(fileAssets.deletedAt))).limit(1))[0] as any;
-          if (fresh?.storageKind === 'yandex' && fresh.yandexDiskPath) return sendYandexFile(fresh, res);
+          if (fresh?.yandexDiskPath) return sendYandexFile(fresh, res);
           return res.status(404).json({ ok: false, error: `файл не найден на диске (${String((err as any)?.code ?? err)})` });
         })().catch((e) => {
           if (!res.headersSent) res.status(500).json({ ok: false, error: String(e) });
@@ -486,9 +529,8 @@ filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req,
       return stream.pipe(res);
     }
 
-    if (row.storageKind === 'yandex') return sendYandexFile(row, res);
-
-    return res.status(500).json({ ok: false, error: `неизвестный тип хранения: ${String(row.storageKind)}` });
+    if (row.yandexDiskPath) return sendYandexFile(row, res);
+    return res.status(500).json({ ok: false, error: 'у файла нет ни локальной копии, ни пути на Яндексе' });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -551,13 +593,13 @@ filesRouter.delete('/:id', requirePermission(PermissionCode.FilesDelete), async 
     const cur = gone[0];
     if (!cur) return res.status(404).json({ ok: false, error: 'файл не найден' });
 
-    // Физические копии — best-effort: строка уже помечена удалённой.
+    // Физические копии — best-effort: строка уже помечена удалённой. Локальная копия есть
+    // и у 'local' (единственная), и у 'yandex' (кэш) — снимаем обе.
     const previewRel = String(cur.previewLocalRelPath || '');
     if (previewRel) await unlinkAsync(join(uploadsDir(), previewRel)).catch(() => {});
-    if (cur.storageKind === 'local') {
-      const rel = String(cur.localRelPath || '');
-      if (rel) await unlinkAsync(join(uploadsDir(), rel)).catch(() => {});
-    } else if (cur.storageKind === 'yandex') {
+    const rel = String(cur.localRelPath || '');
+    if (rel) await unlinkAsync(join(uploadsDir(), rel)).catch(() => {});
+    if (cur.storageKind === 'yandex') {
       const diskPath = String(cur.yandexDiskPath || '');
       if (diskPath) await deletePath(diskPath).catch(() => {});
     }

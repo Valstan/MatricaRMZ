@@ -335,12 +335,19 @@ export const fileAssets = pgTable(
     size: bigint('size', { mode: 'number' }).notNull(),
     sha256: text('sha256').notNull(),
 
-    // 'local' (<= MATRICA_MAX_LOCAL_BYTES, default 10 MiB) or 'yandex'
+    // Где лежит единственная надёжная копия: 'yandex' (норма с D-073) или 'local' (файл ещё
+    // не уехал на Я.Диск — загрузка при недоступном Яндексе; files:offload-to-yandex доводит).
     storageKind: text('storage_kind').notNull(),
-    // For local: relative path inside uploads dir
+    // Относительный путь внутри uploads. Для 'local' — единственная копия; для 'yandex' —
+    // кэш-копия (может отсутствовать: тогда GET прогревает кэш из Я.Диска).
     localRelPath: text('local_rel_path'),
     // For Yandex: full disk path (as used in API calls)
     yandexDiskPath: text('yandex_disk_path'),
+    // Когда кэш-копия положена на бокс (для сборщика кэша, services/fileCache.ts).
+    localCachedAt: bigint('local_cached_at', { mode: 'number' }),
+    // Счётчик обращений (D-073 «замеры-слежка»): по нему подбирается окно кэша.
+    accessCount: bigint('access_count', { mode: 'number' }).notNull().default(0),
+    lastAccessedAt: bigint('last_accessed_at', { mode: 'number' }),
 
     // Preview (thumbnail) stored locally on server (so all clients can fetch it).
     previewMime: text('preview_mime'),

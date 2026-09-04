@@ -8,6 +8,7 @@ import { startConsistencyDiagnostics } from './services/diagnosticsConsistencySe
 import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.js';
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js';
+import { startFileCacheEvictionJob } from './services/fileCache.js';
 import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
@@ -101,6 +102,8 @@ async function bootstrap() {
     startUsersSyncPublisher();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();
+    // D-073: копии вложений на боксе — кэш; протухшие снимаются, когда Я.Диск подтвердил свою.
+    startFileCacheEvictionJob();
     startAiChatDirectWorker();
     startAiUsageDigestScheduler();
     startLogAnalysisAgent();
