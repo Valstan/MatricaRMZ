@@ -81,7 +81,7 @@ telegram_alert() {
     log "telegram alert suppressed (token or chat id missing): ${msg:0:120}"
     return 0
   fi
-  curl -fsS -m 15 -o /dev/null \
+  curl -fsS --connect-timeout 4 --retry 6 --retry-delay 1 --retry-all-errors -m 15 -o /dev/null \
     -d "chat_id=${MATRICA_TELEGRAM_ALERT_CHAT_ID}" \
     --data-urlencode "text=${msg}" \
     "https://api.telegram.org/bot${MATRICA_TELEGRAM_BOT_TOKEN}/sendMessage" \

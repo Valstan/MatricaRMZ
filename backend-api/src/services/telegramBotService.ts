@@ -1,6 +1,8 @@
 import { logWarn } from '../utils/logger.js';
 
 const MAX_TEXT_LEN = 4000;
+const DEFAULT_ATTEMPTS = 6;
+const DEFAULT_ATTEMPT_TIMEOUT_MS = 8_000;
 let missingTokenWarned = false;
 const loginToChatIdCache = new Map<string, string>();
 
@@ -19,6 +21,29 @@ function parseBoolEnv(raw: string | undefined, fallback: boolean): boolean {
  */
 export function isTelegramIntegrationEnabled(): boolean {
   return parseBoolEnv(process.env.MATRICA_TELEGRAM_ENABLED, true);
+}
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : fallback;
+}
+
+// Сеть хостера теряет около половины SYN к диапазонам Telegram (замер 04.09.2026: 11/20 и 13/20 на двух
+// боксах myjino), остальной интернет и ICMP целы, а установленное соединение живёт нормально. Поэтому
+// лечение — короткая попытка и повтор, а не смена адреса: HTTP-ответ любого кода повтора не требует.
+async function telegramFetch(url: string, init?: RequestInit, extraTimeoutMs = 0): Promise<Response> {
+  const attempts = positiveIntEnv('MATRICA_TELEGRAM_ATTEMPTS', DEFAULT_ATTEMPTS);
+  const timeoutMs = positiveIntEnv('MATRICA_TELEGRAM_ATTEMPT_TIMEOUT_MS', DEFAULT_ATTEMPT_TIMEOUT_MS) + extraTimeoutMs;
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      lastError = e;
+      if (attempt < attempts) await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+  throw new Error(`telegram unreachable after ${attempts} attempts: ${String(lastError)}`);
 }
 
 function normalizeLogin(raw: string): string | null {
@@ -64,7 +89,7 @@ async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; ti
     timeout: String(Math.trunc(timeoutSec)),
   });
   try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?${qs.toString()}`);
+    const r = await telegramFetch(`https://api.telegram.org/bot${token}/getUpdates?${qs.toString()}`, undefined, timeoutSec * 1000);
     if (!r.ok) {
       const t = await r.text().catch(() => '');
       return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'нет тела ответа'}` };
@@ -124,7 +149,7 @@ export async function sendTelegramMessage(args: { toLogin: string; text: string;
   if (args.replyMarkup) body.reply_markup = args.replyMarkup;
 
   try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const r = await telegramFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -138,7 +163,7 @@ export async function sendTelegramMessage(args: { toLogin: string; text: string;
         const resolvedChatId = await resolveChatIdByLogin(normalizedLogin);
         if (resolvedChatId) {
           const retryBody: Record<string, unknown> = { ...body, chat_id: resolvedChatId };
-          const rr = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          const rr = await telegramFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(retryBody),
@@ -173,7 +198,7 @@ export async function sendTelegramMessageToChat(args: { chatId: string | number;
   };
   if (args.replyMarkup) body.reply_markup = args.replyMarkup;
   try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const r = await telegramFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -203,7 +228,7 @@ export async function answerTelegramCallbackQuery(args: { callbackQueryId: strin
   };
   if (args.text) body.text = String(args.text).trim();
   try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    const r = await telegramFetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
