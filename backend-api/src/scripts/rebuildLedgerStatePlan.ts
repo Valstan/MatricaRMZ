@@ -90,7 +90,16 @@ export type ReplayDeps = {
   onProgress?(p: ReplayProgress): void;
 };
 
-export type ReplayResult = { state: LedgerState; blocks: number; txs: number; lastHeight: number; gaps: number[] };
+export type BadBlock = { name: string; reason: string };
+
+export type ReplayResult = {
+  state: LedgerState;
+  blocks: number;
+  txs: number;
+  lastHeight: number;
+  gaps: number[];
+  bad: BadBlock[];
+};
 
 /**
  * Один упорядоченный проход по блокам. Никаких listBlocksSince/listTxsSince: обе читают каталог
@@ -104,13 +113,24 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
   const state = emptyLedgerState();
   const files = orderedBlockFiles(deps.listBlockFiles());
   const gaps: number[] = [];
+  const bad: BadBlock[] = [];
   let blocks = 0;
   let txs = 0;
   let lastHeight = 0;
   for (const name of files) {
     const height = heightFromBlockFileName(name) ?? 0;
     if (opts.toHeight && height > opts.toHeight) break;
-    const block = deps.readBlock(name);
+    // Нечитаемый блок ОБЯЗАН назвать себя. Первая версия падала наружу голым
+    // «Unexpected non-whitespace character after JSON at position 1186» — без имени файла, без
+    // высоты, после нескольких минут работы. Инструмент, который находит порчу и не говорит где,
+    // заставляет искать её вручную среди 396 тыс. файлов. Поймано на первом прогоне на проде.
+    let block: LedgerBlock;
+    try {
+      block = deps.readBlock(name);
+    } catch (e) {
+      bad.push({ name, reason: String((e as Error)?.message ?? e) });
+      continue;
+    }
     // Разрыв высоты — не повод молча продолжить: цепочка на то и цепочка. Считаем и докладываем,
     // потому что пропущенный блок означает, что собранное состояние заведомо неполно.
     if (lastHeight !== 0 && block.height !== lastHeight + 1) gaps.push(block.height);
@@ -121,7 +141,7 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
     if (deps.onProgress && blocks % 5000 === 0) deps.onProgress({ blocks, txs, lastHeight });
     if (opts.maxBlocks && blocks >= opts.maxBlocks) break;
   }
-  return { state, blocks, txs, lastHeight, gaps };
+  return { state, blocks, txs, lastHeight, gaps, bad };
 }
 
 export type Verdict = 'MATCH' | 'TABLE_SET_SKEW' | 'DATA_DIVERGENCE' | 'HEAD_MOVED';

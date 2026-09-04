@@ -144,6 +144,13 @@ function main(): void {
   if (replay.gaps.length > 0) {
     console.log(`ВНИМАНИЕ: разрывы высоты (${replay.gaps.length}), первые: ${replay.gaps.slice(0, 5).join(', ')} — собранное состояние заведомо неполно`);
   }
+  // Нечитаемые блоки — не повод молча выдать вердикт: их транзакции в состояние не попали,
+  // и любое сравнение после этого заведомо неполно. Называем каждый по имени и отказываемся судить.
+  if (replay.bad.length > 0) {
+    console.log(`НЕЧИТАЕМЫХ БЛОКОВ: ${replay.bad.length} — их транзакции в пересборку НЕ вошли`);
+    for (const b of replay.bad.slice(0, 20)) console.log(`  БИТЫЙ ${b.name}: ${b.reason}`);
+    if (replay.bad.length > 20) console.log(`  … и ещё ${replay.bad.length - 20}`);
+  }
 
   const statePath = join(dir, STATE_FILE);
   if (!existsSync(statePath)) {
@@ -156,6 +163,9 @@ function main(): void {
   const live = readJson<LedgerState>(statePath);
   const cmp = compareStates(replay.state, live);
   const headAfter = headHeight(dir);
+  // Вердикт при нечитаемых блоках не выносится вовсе: он был бы вычислен по заведомо неполной
+  // цепочке, а «расхождение» тогда означало бы лишь то, что мы сами не всё прочли.
+  const inconclusive = replay.bad.length > 0;
 
   publishAtomic(outPath, {
     kind: 'matricarmz-ledger-rebuilt-state',
@@ -164,7 +174,9 @@ function main(): void {
     txs: replay.txs,
     headBefore,
     headAfter,
-    verdict: cmp.verdict,
+    verdict: inconclusive ? 'INCONCLUSIVE_BAD_BLOCKS' : cmp.verdict,
+    badBlocks: replay.bad,
+    gaps: replay.gaps,
     state: replay.state,
   });
 
@@ -177,6 +189,16 @@ function main(): void {
   if (!pinned && headAfter !== headBefore && cmp.verdict !== 'MATCH') {
     console.log(`ВЕРДИКТ: HEAD_MOVED — во время прохода приехали блоки ${headBefore} → ${headAfter}. Это не расхождение; повторите на затишье.`);
     process.exitCode = exitCodeFor('HEAD_MOVED');
+    return;
+  }
+
+  if (inconclusive) {
+    console.log(
+      `ВЕРДИКТ НЕ ВЫНОСИТСЯ: ${replay.bad.length} блок(ов) не читаются, цепочка неполна. ` +
+        `Сравнение с state.json показало бы расхождение просто потому, что часть транзакций мы не прочли. ` +
+        `Сначала разобрать битые файлы (см. список выше), потом повторить.`,
+    );
+    process.exitCode = 1;
     return;
   }
 
