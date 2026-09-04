@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyCustomReportTransform,
+  CustomReportSpecMismatchError,
   describeCustomReportFilters,
   sanitizeCustomReportSpec,
   CUSTOM_REPORT_SOURCE_PRESET_IDS,
@@ -158,6 +159,32 @@ describe('applyCustomReportTransform', () => {
     expect(r.groups?.[0]?.count).toBe(2);
   });
 
+  it('шаблон с колонкой, которой нет у источника, — ошибка с перечнем, а не все колонки молча', () => {
+    expect(() => applyCustomReportTransform(columns, rows, { ...baseSpec, columns: ['name', 'ghost'] })).toThrow(
+      CustomReportSpecMismatchError,
+    );
+    try {
+      applyCustomReportTransform(columns, rows, { ...baseSpec, columns: ['ghost', 'ghost2'] });
+    } catch (e) {
+      const err = e as CustomReportSpecMismatchError;
+      expect(err.missingColumns).toEqual(['ghost', 'ghost2']);
+      expect(err.message).toContain('ghost, ghost2');
+      expect(err.message).toContain('пересоберите');
+    }
+  });
+
+  it('фильтр по исчезнувшей колонке — ошибка, а не отчёт без фильтра под тем же именем', () => {
+    expect(() =>
+      applyCustomReportTransform(columns, rows, { ...baseSpec, filters: [{ key: 'ghost', op: 'contains', value: 'x' }] }),
+    ).toThrow(/фильтры по: ghost/);
+  });
+
+  it('совпадающий шаблон строится как раньше', () => {
+    const r = applyCustomReportTransform(columns, rows, { ...baseSpec, columns: ['qty'], filters: [{ key: 'name', op: 'contains', value: 'порш' }] });
+    expect(r.columns.map((c) => c.key)).toEqual(['qty']);
+    expect(r.rows).toHaveLength(2);
+  });
+
   it('ignores groupBy pointing at an unknown column', () => {
     const r = applyCustomReportTransform(columns, rows, { ...baseSpec, groupBy: 'ghost' });
     expect(r.groups).toBeNull();
@@ -173,11 +200,10 @@ describe('applyCustomReportTransform', () => {
     expect(applyCustomReportTransform(columns, rows, { ...baseSpec, aggs: { qty: 'max' } }).totals).toEqual({ qty: 1200.5 });
   });
 
-  it('applies limit and drops unknown filter/sort/column keys', () => {
+  it('applies limit and ignores an unknown sort key (columns and filters must match — see mismatch tests)', () => {
     const r = applyCustomReportTransform(columns, rows, {
       ...baseSpec,
-      columns: ['ghost', 'name'],
-      filters: [{ key: 'ghost', op: 'eq', value: 'x' }],
+      columns: ['name'],
       sort: { key: 'ghost', dir: 'asc' },
       limit: 2,
     });

@@ -2,6 +2,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { BrowserWindow } from 'electron';
 import {
   applyCustomReportTransform,
+  CustomReportSpecMismatchError,
   describeCustomReportFilters,
   sanitizeCustomReportSpec,
   CUSTOM_REPORT_AGG_LABELS_RU,
@@ -67,7 +68,14 @@ export async function runCustomReport(
     ctx,
   );
   if (!base.ok) return base;
-  const t = applyCustomReportTransform(base.columns, base.rows, spec);
+  let t: ReturnType<typeof applyCustomReportTransform>;
+  try {
+    t = applyCustomReportTransform(base.columns, base.rows, spec);
+  } catch (e) {
+    // Шаблон разошёлся с источником — честный отказ вместо чужого разреза под его именем.
+    if (e instanceof CustomReportSpecMismatchError) return { ok: false, error: e.message };
+    throw e;
+  }
   const filterText = describeCustomReportFilters(spec, base.columns);
   const sourceTitle = PRESET_TITLES.get(spec.sourcePresetId) ?? base.title;
   const subtitle = [

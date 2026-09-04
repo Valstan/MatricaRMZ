@@ -372,8 +372,29 @@ function computeTotals(
 }
 
 /**
+ * Шаблон ссылается на колонки, которых у источника больше нет (источник переименовали,
+ * пресет объединили). Молча подставить все колонки и выбросить фильтры — значит построить
+ * под именем шаблона чужой разрез; вместо этого — ошибка с перечнем, что именно не сошлось.
+ */
+export class CustomReportSpecMismatchError extends Error {
+  readonly missingColumns: string[];
+  readonly missingFilterKeys: string[];
+  constructor(missingColumns: string[], missingFilterKeys: string[]) {
+    const parts: string[] = [];
+    if (missingColumns.length > 0) parts.push(`колонки: ${missingColumns.join(', ')}`);
+    if (missingFilterKeys.length > 0) parts.push(`фильтры по: ${missingFilterKeys.join(', ')}`);
+    super(`Шаблон не совпадает с источником — нет ${parts.join('; ')}. Откройте шаблон и пересоберите его.`);
+    this.name = 'CustomReportSpecMismatchError';
+    this.missingColumns = missingColumns;
+    this.missingFilterKeys = missingFilterKeys;
+  }
+}
+
+/**
  * The whole recipe as a pure transform: filter (AND) → sort → project columns
  * in spec order → limit → sum numeric projected columns.
+ * Throws CustomReportSpecMismatchError when the spec names columns or filter keys
+ * the source does not have — never silently widens the projection or drops filters.
  */
 export function applyCustomReportTransform(
   sourceColumns: readonly ReportColumn[],
@@ -381,13 +402,17 @@ export function applyCustomReportTransform(
   spec: CustomReportSpecV1,
 ): CustomReportResult {
   const byKey = new Map(sourceColumns.map((c) => [c.key, c]));
-  const projected =
+  const missingColumns = spec.columns.filter((k) => !byKey.has(k));
+  const missingFilterKeys = spec.filters.map((f) => f.key).filter((k) => !byKey.has(k));
+  if (missingColumns.length > 0 || missingFilterKeys.length > 0) {
+    throw new CustomReportSpecMismatchError([...new Set(missingColumns)], [...new Set(missingFilterKeys)]);
+  }
+  const columns =
     spec.columns.length > 0
       ? spec.columns.map((k) => byKey.get(k)).filter((c): c is ReportColumn => c != null)
       : [...sourceColumns];
-  const columns = projected.length > 0 ? projected : [...sourceColumns];
 
-  const activeFilters = spec.filters.filter((f) => byKey.has(f.key));
+  const activeFilters = spec.filters;
   let rows = sourceRows.filter((row) =>
     activeFilters.every((f) => matchesFilter(row[f.key] ?? null, f, byKey.get(f.key)?.kind)),
   );
