@@ -6,7 +6,7 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../au
 import { PermissionCode } from '../auth/permissions.js';
 import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
 import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
-import { LEGACY_SCHEMA_SNAPSHOT_TABLES, getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
+import { LEGACY_SCHEMA_SNAPSHOT_TABLES, SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
 import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
@@ -135,8 +135,9 @@ diagnosticsRouter.get('/sync-schema', requirePermission(PermissionCode.SyncUse),
     // сохранности данных на машине, а не полноты снимка.
     const raw = String((req.query as Record<string, unknown>)?.client_version ?? '').trim();
     const canTakeFullSnapshot = raw !== '' && compareAppVersion(raw, SCHEMA_SNAPSHOT_SAFE_CLIENT_VERSION) >= 0;
+    const includeUniqueConstraints = raw !== '' && compareAppVersion(raw, SCHEMA_UNIQUE_SAFE_CLIENT_VERSION) >= 0;
     const schema = canTakeFullSnapshot
-      ? await getSyncSchemaSnapshot()
+      ? await getSyncSchemaSnapshot({ includeUniqueConstraints })
       : await getSyncSchemaSnapshot({ tables: LEGACY_SCHEMA_SNAPSHOT_TABLES });
     return res.json({ ok: true, schema });
   } catch (e) {

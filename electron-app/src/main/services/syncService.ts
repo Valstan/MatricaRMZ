@@ -445,9 +445,17 @@ function pickSurvivor(rows: Array<{ id: string; updated_at: number | null; delet
     })[0];
 }
 
-async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: SyncSchemaSnapshot | null) {
+// Дедуп по серверным unique — единственный шаг ремонта, который УДАЛЯЕТ строки реплики по
+// признаку, пришедшему с сервера. До 04.09.2026 сервер не объявлял ни одного unique (тип
+// name[] не разбирался драйвером), поэтому этот путь ни разу не исполнялся на парке.
+// Оживляем в два шага: сначала парк ТОЛЬКО ОТЧИТЫВАЕТСЯ, что удалил бы (строка в серверный
+// лог клиента), и лишь после разбора отчётов флаг переводится в true отдельным релизом.
+const UNIQUE_DEDUP_APPLY = false;
+
+async function repairLocalSyncTables(db: BetterSQLite3Database, serverSchema: SyncSchemaSnapshot | null, apiBaseUrl = '') {
   const sqlite = getSqlExecutor();
   if (!sqlite) return;
+  const dedupReport: Array<{ table: string; groups: number; wouldDelete: number; sample: string[] }> = [];
   const tables = Object.values(SyncTableName);
   const localInfoByTable = new Map<string, Awaited<ReturnType<typeof getLocalTableInfo>>>();
   for (const table of tables) {
@@ -515,6 +523,8 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       serverSchema?.tables?.[table]?.uniqueConstraints?.length
         ? serverSchema.tables[table].uniqueConstraints ?? []
         : await getLocalUniqueConstraints(sqlite, table);
+    const serverDeclared = !!serverSchema?.tables?.[table]?.uniqueConstraints?.length;
+    const tableReport = { table, groups: 0, wouldDelete: 0, sample: [] as string[] };
     for (const uq of uniqueConstraints) {
       const cols = Array.isArray(uq.columns) ? uq.columns.map(String).filter(Boolean) : [];
       if (cols.length === 0) continue;
@@ -542,12 +552,19 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
         const survivor = pickSurvivor(rows);
         if (!survivor) continue;
         const refs = reverseFks.get(table) ?? [];
+        tableReport.groups += 1;
         for (const row of rows) {
           if (!row?.id || row.id === survivor.id) continue;
           if (isUnpushedStatus(row.sync_status)) {
             // A pending duplicate loser stays: local SQLite tolerates it, the push
             // pipeline resolves or flags it. Deleting it would lose local work.
             logSync(`repair ${table} kept pending duplicate id=${row.id} (survivor=${survivor.id})`);
+            continue;
+          }
+          if (serverDeclared && !UNIQUE_DEDUP_APPLY) {
+            tableReport.wouldDelete += 1;
+            if (tableReport.sample.length < 5) tableReport.sample.push(`${row.id}->${survivor.id}`);
+            logSync(`repair ${table} unique dedup REPORT ONLY would delete id=${row.id} (survivor=${survivor.id}, key=${cols.join('+')})`);
             continue;
           }
           for (const ref of refs) {
@@ -563,6 +580,7 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
         }
       }
     }
+    if (tableReport.wouldDelete > 0) dedupReport.push(tableReport);
 
     const fkList =
       serverSchema?.tables?.[table]?.foreignKeys?.length
@@ -590,6 +608,16 @@ async function repairLocalSyncTables(_db: BetterSQLite3Database, serverSchema: S
       const droppedFk = Number(resFk?.changes ?? 0);
       if (droppedFk > 0) logSync(`repair ${table} orphan fk=${fk.column}->${fk.refTable}.${fk.refColumn} dropped=${droppedFk}`);
     }
+  }
+  // Отчёт парка в серверный лог клиента (client-*.log на боксе): по нему решается,
+  // включать ли UNIQUE_DEDUP_APPLY. Не critical — это не отказ, а замер.
+  if (dedupReport.length > 0 && apiBaseUrl) {
+    const total = dedupReport.reduce((s, r) => s + r.wouldDelete, 0);
+    void logMessage(db, apiBaseUrl, 'warn', `repair unique dedup REPORT ONLY: would delete ${total} rows in ${dedupReport.length} tables`, {
+      component: 'sync',
+      action: 'repair_unique_dedup_report',
+      tables: dedupReport,
+    }).catch(() => {});
   }
 }
 
@@ -3293,7 +3321,7 @@ export async function runSync(
         lastPulledSeq === 0 ||
         nowMs() - Number(lastRepairAt || 0) > 6 * 60 * 60_000;
       if (shouldRepair) {
-        await repairLocalSyncTables(db, schema ?? null).catch(() => {});
+        await repairLocalSyncTables(db, schema ?? null, currentApiBaseUrl).catch(() => {});
         await settingsSetNumber(db, SettingsKey.SyncRepairLastRunAt, nowMs()).catch(() => {});
       }
 

@@ -93,8 +93,37 @@ export const LEGACY_SCHEMA_SNAPSHOT_TABLES: readonly string[] = [
   SyncTableName.ErpRegStockMovements,
 ];
 
-export async function getSyncSchemaSnapshot(opts?: { tables?: readonly string[] }): Promise<SyncSchemaSnapshot> {
+// Список колонок из array_agg: массив, если драйвер разобрал тип; строка вида
+// "{a,b}" — если не разобрал (name[] без ::text). Строку тоже принимаем, чтобы
+// класс поломки «тип не разобран → ограничение молча выпало» не повторился.
+export function pgArrayColumns(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map((c) => String(c ?? '').trim()).filter(Boolean);
+  const s = String(raw ?? '').trim();
+  if (!s.startsWith('{') || !s.endsWith('}')) return [];
+  return s
+    .slice(1, -1)
+    .split(',')
+    .map((c) => c.trim().replace(/^"(.*)"$/, '$1'))
+    .filter(Boolean);
+}
+
+// Клиент хеширует снимок ВМЕСТЕ с uniqueConstraints. До 04.09.2026 они были пусты у всех
+// (name[] не разбирался), значит любое их появление меняет хеш всему парку: сборки до v3.5.0
+// на это ПЕРЕСОБИРАЮТ локальную базу, а сборки до 3.20.0 применяют дедуп по unique без
+// режима отчёта. Поэтому unique отдаются только клиентам, которые умеют лишь отчитываться
+// (SCHEMA_UNIQUE_SAFE_CLIENT_VERSION в routes/diagnostics.ts); по умолчанию — пусто, как было.
+// С этой сборки клиент по серверным unique только ОТЧИТЫВАЕТСЯ (UNIQUE_DEDUP_APPLY=false в
+// electron-app syncService.ts). Более старым unique не отдаём: у них дедуп удаляет сразу.
+// Первый релиз с режимом отчёта — 3.20.0 (сторож: константа строго выше текущего VERSION,
+// пока релиз не вышел).
+export const SCHEMA_UNIQUE_SAFE_CLIENT_VERSION = '3.20.0';
+
+export async function getSyncSchemaSnapshot(opts?: {
+  tables?: readonly string[];
+  includeUniqueConstraints?: boolean;
+}): Promise<SyncSchemaSnapshot> {
   const tables = [...(opts?.tables ?? Object.values(SyncTableName))];
+  const includeUnique = opts?.includeUniqueConstraints === true;
   const columnsRes = await pool.query(
     `
       SELECT
@@ -137,7 +166,11 @@ export async function getSyncSchemaSnapshot(opts?: { tables?: readonly string[] 
         t.relname AS table_name,
         i.relname AS index_name,
         ix.indisprimary AS is_primary,
-        array_agg(a.attname ORDER BY x.n) AS columns
+        -- ::text обязателен: attname имеет тип name, и name[] node-postgres НЕ разбирает —
+        -- строка "{code}" приходила как есть, потребитель ниже требовал массив и
+        -- выбрасывал КАЖДУЮ запись. С 2026-08-30 известно, что uniqueConstraints был пуст у
+        -- всех таблиц снимка с самого рождения (PENDING §«Уникальные ограничения…»).
+        array_agg(a.attname::text ORDER BY x.n) AS columns
       FROM pg_class t
       JOIN pg_index ix ON t.oid = ix.indrelid
       JOIN pg_class i ON i.oid = ix.indexrelid
@@ -211,11 +244,12 @@ export async function getSyncSchemaSnapshot(opts?: { tables?: readonly string[] 
 
   for (const row of uniqueRes.rows as Array<{
     table_name: string;
-    columns: string[];
+    columns: string[] | string;
     is_primary: boolean;
   }>) {
+    if (!includeUnique) break;
     const table = ensureTable(row.table_name);
-    const cols = Array.isArray(row.columns) ? row.columns.filter(Boolean) : [];
+    const cols = pgArrayColumns(row.columns);
     if (cols.length === 0) continue;
     table.uniqueConstraints.push({
       columns: cols.map(String),
