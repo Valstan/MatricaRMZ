@@ -5,6 +5,8 @@ import { emptyLedgerState, type LedgerBlock, type LedgerSignedTx, type LedgerSta
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  KNOWN_HASH_MISMATCH_HEIGHTS,
+  KNOWN_SEQ_GAP,
   compareStates,
   exitCodeFor,
   heightFromBlockFileName,
@@ -266,5 +268,23 @@ describe('outputPathAllowed', () => {
   it('другой диск в Windows — это снаружи', () => {
     const win = (from: string, to: string) => (to[0] !== from[0] ? to : relative(from, to));
     expect(outputPathAllowed('E:\\tmp\\rebuilt.json', 'D:\\ledger', win)).toBe(true);
+  });
+});
+
+describe('известные расхождения ревизии 04.09.2026', () => {
+  it('три высоты объяснены и помечены как «потери нет» — иначе проверка будет вечно поднимать тревогу', () => {
+    expect(Object.keys(KNOWN_HASH_MISMATCH_HEIGHTS).map(Number).sort((a, b) => a - b)).toEqual([211728, 237585, 237605]);
+    for (const note of Object.values(KNOWN_HASH_MISMATCH_HEIGHTS)) expect(note).toMatch(/потери нет/);
+  });
+
+  it('дыра в нумерации записана как объяснённая, но НЕ как «потери нет» — семь транзакций действительно отсутствуют', () => {
+    expect(KNOWN_SEQ_GAP.toSeq - KNOWN_SEQ_GAP.fromSeq + 1).toBe(7);
+    expect(KNOWN_SEQ_GAP.note).not.toMatch(/потери нет/);
+  });
+
+  it('прогон помечает известную высоту, а не молчит о ней', () => {
+    const b = { height: 211728, prev_hash: '', created_at: 1, txs: [], hash: 'h' };
+    const r = replayBlocks({ listBlockFiles: () => ['00211728.json'], readBlock: () => b });
+    expect(r.known).toEqual([{ height: 211728, note: expect.stringContaining('558130') }]);
   });
 });
