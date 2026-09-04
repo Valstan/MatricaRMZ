@@ -1,6 +1,5 @@
 import { ipcMain } from 'electron';
 import {
-  CUSTOM_REPORT_TEMPLATES_LIMIT,
   REPORT_PRESET_ALIASES,
   REPORT_PRESET_DEFINITIONS,
   resolveReportPresetId,
@@ -10,6 +9,7 @@ import {
 
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
+import { findTemplate, listTemplates, removeTemplate, upsertTemplate } from '../../services/customReportTemplatesBucket.js';
 
 import {
   buildReportByPreset,
@@ -88,29 +88,9 @@ const FILTER_TEMPLATES_LIMIT = 20;
 
 // Общие (для всех операторов) шаблоны «Моих отчётов» живут в том же блобе под
 // служебным scope-ключом; он не пересекается с userId (uuid) и с '__global__'.
+// Запись в бакет — только через services/customReportTemplatesBucket.ts: она трогает одну
+// строку и переписывает остальные как лежали (в т.ч. непонятые санитайзером).
 const CUSTOM_REPORT_SHARED_SCOPE = '__shared__';
-
-function sanitizeCustomReportTemplates(entries: unknown): CustomReportTemplate[] {
-  if (!Array.isArray(entries)) return [];
-  const out: CustomReportTemplate[] = [];
-  for (const row of entries) {
-    const id = String((row as any)?.id ?? '').trim();
-    const name = String((row as any)?.name ?? '').trim();
-    const spec = sanitizeCustomReportSpec((row as any)?.spec);
-    if (!id || !name || !spec) continue;
-    const createdAtRaw = Number((row as any)?.createdAt ?? 0);
-    const ownerId = String((row as any)?.ownerId ?? '').trim();
-    out.push({
-      id,
-      name,
-      createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? Math.floor(createdAtRaw) : 0,
-      spec,
-      ...(ownerId ? { ownerId } : {}),
-    });
-    if (out.length >= CUSTOM_REPORT_TEMPLATES_LIMIT) break;
-  }
-  return out;
-}
 
 type ReportFilterTemplate = {
   id: string;
@@ -441,8 +421,8 @@ export function registerReportsIpc(ctx: IpcContext) {
 
   // Комбинированный список: личные шаблоны + общие (shared-бакет, помечены shared/ownerId).
   const listCustomTemplates = (byScope: Record<string, unknown>, scope: string): CustomReportTemplate[] => {
-    const personal = sanitizeCustomReportTemplates(byScope[scope]);
-    const shared = sanitizeCustomReportTemplates(byScope[CUSTOM_REPORT_SHARED_SCOPE]).map((t) => ({
+    const personal = listTemplates(byScope[scope]);
+    const shared = listTemplates(byScope[CUSTOM_REPORT_SHARED_SCOPE]).map((t) => ({
       ...t,
       shared: true as const,
     }));
@@ -472,10 +452,9 @@ export function registerReportsIpc(ctx: IpcContext) {
       const bucket = shared ? CUSTOM_REPORT_SHARED_SCOPE : scope;
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
       const byScope = parseByScope<unknown>(raw);
-      const current = sanitizeCustomReportTemplates(byScope[bucket]);
       const id = String(args?.template?.id ?? '').trim() || `crt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       // Замена по id или по имени (пересохранение под тем же именем перезаписывает шаблон).
-      const replaced = current.find((t) => t.id === id || t.name === name);
+      const replaced = findTemplate(byScope[bucket], { id, name });
       if (shared && replaced && replaced.ownerId && replaced.ownerId !== scope && !(await isAdminViewer())) {
         return { ok: false as const, error: 'Общий шаблон может изменить только автор или администратор' };
       }
@@ -486,11 +465,9 @@ export function registerReportsIpc(ctx: IpcContext) {
         spec,
         ...(shared ? { ownerId: replaced?.ownerId ?? scope } : {}),
       };
-      const next = [entry, ...current.filter((t) => t.id !== entry.id && t.name !== entry.name)].slice(
-        0,
-        CUSTOM_REPORT_TEMPLATES_LIMIT,
-      );
-      byScope[bucket] = next;
+      const next = upsertTemplate(byScope[bucket], entry);
+      if (!next.ok) return { ok: false as const, error: next.error };
+      byScope[bucket] = next.bucket;
       await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
       return { ok: true as const, templates: listCustomTemplates(byScope as Record<string, unknown>, scope), id };
     },
@@ -503,18 +480,17 @@ export function registerReportsIpc(ctx: IpcContext) {
     const templateId = String(args?.templateId ?? '').trim();
     const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
     const byScope = parseByScope<unknown>(raw);
-    const personal = sanitizeCustomReportTemplates(byScope[scope]);
-    if (personal.some((t) => t.id === templateId)) {
-      byScope[scope] = personal.filter((t) => t.id !== templateId);
+    if (!templateId) return { ok: false as const, error: 'Шаблон не указан' };
+    const personal = removeTemplate(byScope[scope], templateId);
+    if (personal.removed) {
+      byScope[scope] = personal.bucket;
     } else {
-      const sharedList = sanitizeCustomReportTemplates(byScope[CUSTOM_REPORT_SHARED_SCOPE]);
-      const target = sharedList.find((t) => t.id === templateId);
-      if (target) {
-        if (target.ownerId && target.ownerId !== scope && !(await isAdminViewer())) {
-          return { ok: false as const, error: 'Общий шаблон может удалить только автор или администратор' };
-        }
-        byScope[CUSTOM_REPORT_SHARED_SCOPE] = sharedList.filter((t) => t.id !== templateId);
+      const target = findTemplate(byScope[CUSTOM_REPORT_SHARED_SCOPE], { id: templateId });
+      if (!target) return { ok: false as const, error: 'Шаблон не найден — возможно, уже удалён' };
+      if (target.ownerId && target.ownerId !== scope && !(await isAdminViewer())) {
+        return { ok: false as const, error: 'Общий шаблон может удалить только автор или администратор' };
       }
+      byScope[CUSTOM_REPORT_SHARED_SCOPE] = removeTemplate(byScope[CUSTOM_REPORT_SHARED_SCOPE], templateId).bucket;
     }
     await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
     return { ok: true as const, templates: listCustomTemplates(byScope as Record<string, unknown>, scope) };
