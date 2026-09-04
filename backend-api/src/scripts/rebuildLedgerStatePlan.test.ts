@@ -124,6 +124,20 @@ describe('replayBlocks', () => {
     expect(row.name).toBe('первый');
   });
 
+  it('нечитаемый блок называет себя и не роняет прогон — остальные блоки доигрываются', () => {
+    const d = deps([block(1, [tx()]), block(2, [tx({ tx_id: 't2', seq: 2 })])]);
+    const r = replayBlocks({
+      ...d,
+      readBlock: (n) => {
+        if (n === '00000001.json') throw new Error('Unexpected non-whitespace character after JSON at position 1186');
+        return d.readBlock(n);
+      },
+    });
+    expect(r.bad).toEqual([{ name: '00000001.json', reason: expect.stringContaining('position 1186') }]);
+    expect(r.blocks).toBe(1);
+    expect(r.lastHeight).toBe(2);
+  });
+
   it('считает разрывы высоты, а не проглатывает их', () => {
     const r = replayBlocks(deps([block(1, [tx()]), block(5, [tx({ tx_id: 't2', seq: 2 })])]));
     expect(r.gaps).toEqual([5]);
