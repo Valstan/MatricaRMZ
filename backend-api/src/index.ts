@@ -9,6 +9,7 @@ import { startAiAgentReportsScheduler } from './services/aiAgentReportsService.j
 import { startAiAgentChatLearningService } from './services/aiAgentChatLearningService.js';
 import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js';
 import { startFileCacheEvictionJob } from './services/fileCache.js';
+import { startDiagnosticsRetentionJob } from './services/diagnosticsRetentionService.js';
 import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
@@ -104,6 +105,8 @@ async function bootstrap() {
     startAiChatHistoryCleanup();
     // D-073: копии вложений на боксе — кэш; протухшие снимаются, когда Я.Диск подтвердил свою.
     startFileCacheEvictionJob();
+    // Решение владельца 04.09: diagnostics_snapshots (server/client/ai_agent_event) — 90 дней.
+    startDiagnosticsRetentionJob();
     startAiChatDirectWorker();
     startAiUsageDigestScheduler();
     startLogAnalysisAgent();
