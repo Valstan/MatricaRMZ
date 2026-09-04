@@ -56,6 +56,7 @@ import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { buildOrphanCleanupSql } from './sync/repairSql.js';
+import { planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
@@ -1483,6 +1484,37 @@ function toLedgerTx(table: SyncTableName, row: any) {
     row: syncRow,
     row_id: syncRow.id,
   };
+}
+
+// Пропущенные сервером строки «нет зависимости»: зависимость, которая есть локально,
+// возвращается в очередь (следующий push повезёт её первой); строка без зависимости и
+// здесь уходит в error, а не крутится в каждом push вечно. Правила — sync/dependencyRequeue.ts.
+async function healSkippedDependencies(db: BetterSQLite3Database, skipped: SkippedRowLike[]) {
+  const sqlite = getSqlExecutor();
+  if (!sqlite) return;
+  const plan = await planDependencyRequeue(skipped, async (table, id) => {
+    const rows = (await sqlite.all(`SELECT 1 AS one FROM ${quoteIdent(table)} WHERE id = ? LIMIT 1`, [id])) as unknown[];
+    return rows.length > 0;
+  });
+  for (const [table, ids] of plan.requeue) {
+    let requeued = 0;
+    for (const id of ids) {
+      const res = await sqlite.run(`UPDATE ${quoteIdent(table)} SET sync_status = 'pending' WHERE id = ? AND sync_status <> 'pending'`, [id]);
+      requeued += Number(res?.changes ?? 0);
+      if (table === SyncTableName.Entities) {
+        // Атрибуты сущности едут отдельными строками; без них сервер получит пустую карточку.
+        await sqlite.run(
+          `UPDATE ${quoteIdent(SyncTableName.AttributeValues)} SET sync_status = 'pending' WHERE entity_id = ? AND sync_status = 'synced'`,
+          [id],
+        );
+      }
+    }
+    logSync(`push dependency requeue table=${table} ids=${ids.length} requeued=${requeued}`);
+  }
+  for (const [table, ids] of plan.markError) {
+    await markPendingError(db, table, ids);
+    logSync(`push dependency missing locally too: table=${table} marked error ids=${ids.length} sample=${ids.slice(0, 3).join(',')}`);
+  }
 }
 
 async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, ids: string[]) {
@@ -3736,6 +3768,9 @@ export async function runSync(
                 dependencySkippedCount += 1;
               }
             }
+            await healSkippedDependencies(db, json.skipped as SkippedRowLike[]).catch((e) => {
+              logSync(`push dependency heal failed err=${formatError(e)}`);
+            });
           }
 
           const appliedRows = Array.isArray(json.applied_rows) ? json.applied_rows : null;
