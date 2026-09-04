@@ -1,4 +1,4 @@
-import { relative } from 'node:path';
+import { posix, win32 } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -11,7 +11,7 @@ import {
   projectionRow,
 } from './resnapshotLedgerStatePlan.js';
 
-const LEDGER = 'D:\\srv\\matricarmz-ledger';
+const LEDGER = '/srv/matricarmz-ledger';
 
 describe('parseResnapshotArgs', () => {
   it('по умолчанию — только сверка, без записи', () => {
@@ -28,13 +28,19 @@ describe('parseResnapshotArgs', () => {
 });
 
 describe('backupDirAllowed — бэкап только снаружи каталога леджера', () => {
+  // Пути платформенные: relative() на posix не считает «D:\…» абсолютным, поэтому обе ветки
+  // проверяются своей реализацией явно, а не той, что досталась от ОС раннера.
   it('сам каталог и его подкаталоги отвергаются', () => {
-    expect(backupDirAllowed(LEDGER, LEDGER, relative)).toBe(false);
-    expect(backupDirAllowed(`${LEDGER}\\backup`, LEDGER, relative)).toBe(false);
+    expect(backupDirAllowed(LEDGER, LEDGER, posix.relative)).toBe(false);
+    expect(backupDirAllowed(`${LEDGER}/backup`, LEDGER, posix.relative)).toBe(false);
+    expect(backupDirAllowed('D:\\srv\\ledger', 'D:\\srv\\ledger', win32.relative)).toBe(false);
+    expect(backupDirAllowed('D:\\srv\\ledger\\bak', 'D:\\srv\\ledger', win32.relative)).toBe(false);
   });
   it('соседний каталог и другой диск разрешены', () => {
-    expect(backupDirAllowed('D:\\srv\\ledger-fix-backup', LEDGER, relative)).toBe(true);
-    expect(backupDirAllowed('E:\\tmp', LEDGER, relative)).toBe(true);
+    expect(backupDirAllowed('/srv/ledger-fix-backup', LEDGER, posix.relative)).toBe(true);
+    expect(backupDirAllowed('/tmp', LEDGER, posix.relative)).toBe(true);
+    expect(backupDirAllowed('D:\\srv\\ledger-fix-backup', 'D:\\srv\\ledger', win32.relative)).toBe(true);
+    expect(backupDirAllowed('E:\\tmp', 'D:\\srv\\ledger', win32.relative)).toBe(true);
   });
 });
 
