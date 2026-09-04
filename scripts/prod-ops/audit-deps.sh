@@ -12,7 +12,7 @@ telegram_send() {
   local msg="$1"
   [[ "${MATRICA_OPS_TELEGRAM_ENABLED:-${MATRICA_TELEGRAM_ENABLED:-false}}" == "true" ]] || { log "telegram disabled, msg head: ${msg:0:80}"; return 0; }
   [[ -n "${MATRICA_TELEGRAM_BOT_TOKEN:-}" && -n "${MATRICA_TELEGRAM_ALERT_CHAT_ID:-}" ]] || return 0
-  curl -fsS -m 15 -o /dev/null \
+  curl -fsS --connect-timeout 4 --retry 6 --retry-delay 1 --retry-all-errors -m 15 -o /dev/null \
     -d "chat_id=${MATRICA_TELEGRAM_ALERT_CHAT_ID}" \
     --data-urlencode "text=${msg}" \
     "https://api.telegram.org/bot${MATRICA_TELEGRAM_BOT_TOKEN}/sendMessage" || true
