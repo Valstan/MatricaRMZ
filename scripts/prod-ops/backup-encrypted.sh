@@ -130,7 +130,15 @@ LEDGER_DIR="${MATRICA_LEDGER_DIR:-$HOME/matricarmz-ledger}"
 
 [[ -n "${PGUSER:-}" && -n "${PGPASSWORD:-}" && -n "${PGDATABASE:-}" ]] || fail "PG env vars missing"
 [[ -n "${YANDEX_DISK_TOKEN:-}" ]] || fail "YANDEX_DISK_TOKEN missing"
-[[ -d "$LEDGER_DIR/blocks" ]] || fail "ledger dir has no blocks/: $LEDGER_DIR"
+# С 2026-09 (план ledger-journal-in-pg) история изменений живёт в PostgreSQL, и ledger-дерево
+# на боксе — архив прошлого, если вообще есть. Дерево с blocks/ архивируется как раньше;
+# без него бэкап — только дамп базы, и это штатный режим, а не отказ.
+HAS_LEDGER=0
+if [[ -d "$LEDGER_DIR/blocks" ]]; then
+  HAS_LEDGER=1
+else
+  log "ledger tree absent ($LEDGER_DIR has no blocks/) — archiving PostgreSQL only (journal lives in PG since 2026-09)"
+fi
 YANDEX_BASE="${YANDEX_DISK_BASE_PATH:-/matricarmz-backups}"
 # Normalize: must start with /, no trailing slash
 YANDEX_BASE="/${YANDEX_BASE#/}"
@@ -163,8 +171,11 @@ log "start backup -> $YANDEX_BASE/${BASE_NAME}.tar.zst.gpg"
 # 0. Pre-flight: refuse to start without room for the archive AND a floor for the other
 # tenants of the partition (PostgreSQL WAL, uploads, journald). The estimate counts the
 # dump twice — staged file plus its copy inside the archive.
-LEDGER_BYTES="$(du -sb "${EXCLUDES[@]}" "$LEDGER_DIR" | cut -f1)"
-[[ "$LEDGER_BYTES" =~ ^[0-9]+$ ]] || fail "du gave no size for $LEDGER_DIR (excluded by its own pattern?)"
+LEDGER_BYTES=0
+if (( HAS_LEDGER )); then
+  LEDGER_BYTES="$(du -sb "${EXCLUDES[@]}" "$LEDGER_DIR" | cut -f1)"
+  [[ "$LEDGER_BYTES" =~ ^[0-9]+$ ]] || fail "du gave no size for $LEDGER_DIR (excluded by its own pattern?)"
+fi
 free_bytes() { df -B1 --output=avail "$TMP_ROOT" | tail -1 | tr -d ' '; }
 need_bytes() { echo $(( LEDGER_BYTES * RATIO_PCT / 100 + 2 * $1 + LISTING_RESERVE_BYTES + FLOOR_BYTES )); }
 FREE_BYTES="$(free_bytes)"
@@ -202,26 +213,32 @@ fi
 # ledger, not as a rebuilt projection. That is why the restore runbook's height assertion
 # (README.md §Восстановление) is mandatory rather than advisory.
 ROOT_FILES=()
-while IFS= read -r name; do
-  case "$name" in
-    *.bak.*|*.corrupt.*|*.tmp-*|.ledger.lock) ;;
-    db.dump) log "WARN: ledger root has a stray 'db.dump' — skipped, the name is reserved for the PG dump" ;;
-    *) ROOT_FILES+=("$name") ;;
-  esac
-done < <(find "$LEDGER_DIR" -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort)
-for required in index.json data-key.json server-key.json; do
-  [[ -f "$LEDGER_DIR/$required" ]] || fail "ledger root has no $required — a restore from this archive would be unreadable"
-  printf '%s\n' "${ROOT_FILES[@]}" | grep -qxF "$required" || fail "$required is excluded from the archive by a pattern"
-done
-BLOCKS_BEFORE="$(find "$LEDGER_DIR/blocks" -maxdepth 1 -name '*.json' | wc -l)"
-(( BLOCKS_BEFORE > 0 )) || fail "ledger has no blocks — refusing to archive an empty ledger"
-log "tar(${#ROOT_FILES[@]} root files + blocks + db.dump) | zstd | gpg AES256 -> $(basename "$ENCRYPTED") ($BLOCKS_BEFORE blocks on disk)"
+BLOCKS_BEFORE=0
+TAR_MEMBERS=(-C "$WORK_DIR" db.dump)
+if (( HAS_LEDGER )); then
+  while IFS= read -r name; do
+    case "$name" in
+      *.bak.*|*.corrupt.*|*.tmp-*|.ledger.lock) ;;
+      db.dump) log "WARN: ledger root has a stray 'db.dump' — skipped, the name is reserved for the PG dump" ;;
+      *) ROOT_FILES+=("$name") ;;
+    esac
+  done < <(find "$LEDGER_DIR" -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort)
+  for required in index.json data-key.json server-key.json; do
+    [[ -f "$LEDGER_DIR/$required" ]] || fail "ledger root has no $required — a restore from this archive would be unreadable"
+    printf '%s\n' "${ROOT_FILES[@]}" | grep -qxF "$required" || fail "$required is excluded from the archive by a pattern"
+  done
+  BLOCKS_BEFORE="$(find "$LEDGER_DIR/blocks" -maxdepth 1 -name '*.json' | wc -l)"
+  (( BLOCKS_BEFORE > 0 )) || fail "ledger has no blocks — refusing to archive an empty ledger"
+  TAR_MEMBERS=(-C "$LEDGER_DIR" "${ROOT_FILES[@]}" blocks -C "$WORK_DIR" db.dump)
+  log "tar(${#ROOT_FILES[@]} root files + blocks + db.dump) | zstd | gpg AES256 -> $(basename "$ENCRYPTED") ($BLOCKS_BEFORE blocks on disk)"
+else
+  log "tar(db.dump) | zstd | gpg AES256 -> $(basename "$ENCRYPTED")"
+fi
 set +e +o pipefail
 tar --create --file=- \
     --warning=no-file-changed \
     "${EXCLUDES[@]}" \
-    -C "$LEDGER_DIR" "${ROOT_FILES[@]}" blocks \
-    -C "$WORK_DIR" db.dump \
+    "${TAR_MEMBERS[@]}" \
   | zstd -q -9 -T0 \
   | gpg --batch --yes --quiet \
       --cipher-algo AES256 --s2k-mode 3 --s2k-count 65011712 \
@@ -238,7 +255,11 @@ if [[ $GPG_RC -ne 0 ]]; then fail "gpg failed with exit $GPG_RC"; fi
 rm -f "$DB_DUMP"
 ENC_BYTES="$(stat -c %s "$ENCRYPTED")"
 ENC_SIZE="$((ENC_BYTES / 1048576)) MB"
-log "  encrypted: $ENC_SIZE (archive/ledger ratio $((ENC_BYTES * 100 / LEDGER_BYTES))%, knob RATIO_PCT=$RATIO_PCT)"
+if (( LEDGER_BYTES > 0 )); then
+  log "  encrypted: $ENC_SIZE (archive/ledger ratio $((ENC_BYTES * 100 / LEDGER_BYTES))%, knob RATIO_PCT=$RATIO_PCT)"
+else
+  log "  encrypted: $ENC_SIZE"
+fi
 
 # 3. Verify the archive is readable end to end before calling it a backup: decrypt,
 # decompress and list — streaming, the listing is the only thing written. db.dump, every
@@ -258,23 +279,27 @@ fi
 if (( $(grep -cx 'db.dump' "$LISTING" || true) != 1 )); then
   fail "verify: db.dump is not in the archive"
 fi
-for name in "${ROOT_FILES[@]}"; do
-  if (( $(grep -cxF "$name" "$LISTING" || true) != 1 )); then
-    fail "verify: ledger root file '$name' is not in the archive"
+if (( HAS_LEDGER )); then
+  for name in "${ROOT_FILES[@]}"; do
+    if (( $(grep -cxF "$name" "$LISTING" || true) != 1 )); then
+      fail "verify: ledger root file '$name' is not in the archive"
+    fi
+  done
+  MEMBER_BLOCKS="$(grep -cE '^blocks/[^/]+\.json$' "$LISTING" || true)"
+  if (( MEMBER_BLOCKS < BLOCKS_BEFORE )); then
+    fail "verify: archive lists $MEMBER_BLOCKS block(s), expected >= $BLOCKS_BEFORE"
   fi
-done
-MEMBER_BLOCKS="$(grep -cE '^blocks/[^/]+\.json$' "$LISTING" || true)"
-if (( MEMBER_BLOCKS < BLOCKS_BEFORE )); then
-  fail "verify: archive lists $MEMBER_BLOCKS block(s), expected >= $BLOCKS_BEFORE"
+  # Blocks appended between the count and the end of tar are legitimately inside the archive,
+  # but they are AHEAD of the index.json the same archive carries. Restoring such an archive
+  # over a populated blocks/ leaves heights the index does not claim: the backend then writes
+  # new blocks at index.lastHeight+1 and silently overwrites them with different bytes.
+  if (( MEMBER_BLOCKS > BLOCKS_BEFORE )); then
+    log "  WARN: $((MEMBER_BLOCKS - BLOCKS_BEFORE)) block(s) are ahead of the archived index — on restore, truncate blocks/ to index.lastHeight (README.md §Восстановление)"
+  fi
+  log "  verified: db.dump + ${#ROOT_FILES[@]} root file(s) + $MEMBER_BLOCKS block(s) listed"
+else
+  log "  verified: db.dump only listed"
 fi
-# Blocks appended between the count and the end of tar are legitimately inside the archive,
-# but they are AHEAD of the index.json the same archive carries. Restoring such an archive
-# over a populated blocks/ leaves heights the index does not claim: the backend then writes
-# new blocks at index.lastHeight+1 and silently overwrites them with different bytes.
-if (( MEMBER_BLOCKS > BLOCKS_BEFORE )); then
-  log "  WARN: $((MEMBER_BLOCKS - BLOCKS_BEFORE)) block(s) are ahead of the archived index — on restore, truncate blocks/ to index.lastHeight (README.md §Восстановление)"
-fi
-log "  verified: db.dump + ${#ROOT_FILES[@]} root file(s) + $MEMBER_BLOCKS block(s) listed"
 
 if (( NO_UPLOAD == 1 )); then
   log "no-upload: archive built and verified ($ENC_SIZE), not uploaded, no rotation"

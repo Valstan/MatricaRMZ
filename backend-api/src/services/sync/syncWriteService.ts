@@ -1,16 +1,12 @@
 /**
  * SyncWriteService -- единый путь записи для всех sync-изменений.
  *
- * Поток данных: validate -> ledger (sign+append) -> ledgerTxIndex -> PG tables.
+ * Поток данных: validate -> журнал в PG (seq + ledger_tx_index) -> PG tables.
  * Все серверные модификации sync-таблиц ОБЯЗАНЫ проходить через этот сервис.
- *
- * Заменяет двойной путь: change_log + ledger параллельно.
  */
 import { type LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
 import { ENGINE_INVENTORY_STAGE, SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
 
-import { db } from '../../database/db.js';
-import { ledgerTxIndex } from '../../database/schema.js';
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
 import type { InventoryOperationRow } from '../engineInventoryLinesService.js';
 import { resolveWarehouseLocationIdsByCodes } from '../warehouseLocationsService.js';
@@ -260,7 +256,7 @@ export async function writeSyncChanges(
     }),
   );
 
-  const ledgerResult = signAndAppendDetailed(payloads);
+  const ledgerResult = await signAndAppendDetailed(payloads);
 
   // Build seq map: table:rowId -> max seq
   const seqByKey = new Map<string, number>();
@@ -300,28 +296,10 @@ export async function writeSyncChanges(
     pushOpts,
   );
 
-  // ── Step 3: Project to ledgerTxIndex ─────────────────────
-  const indexRows = upsertsWithSeq
-    .flatMap((pack) =>
-      pack.rows.map((row) => ({
-        serverSeq: Number(row.last_server_seq ?? 0),
-        tableName: String(pack.table),
-        rowId: String(row.id ?? ''),
-        op: row.deleted_at ? 'delete' : 'upsert',
-        payloadJson: JSON.stringify(row),
-        createdAt: Number(row.updated_at ?? ts),
-      })),
-    )
-    .filter((r) => Number.isFinite(r.serverSeq) && r.serverSeq > 0 && !!r.rowId);
+  // (Прежний шаг 3 — проекция в ledger_tx_index — не нужен: журнал в PG пишет сам
+  // signAndAppendDetailed, со штампом seq и актором.)
 
-  if (indexRows.length > 0) {
-    await db
-      .insert(ledgerTxIndex)
-      .values(indexRows as any)
-      .onConflictDoNothing();
-  }
-
-  // ── Step 4: Derived rows ─────────────────────────────────
+  // ── Step 3: Derived rows ─────────────────────────────────
   // Список деталей двигателя: пока клиенты шлют его только внутри meta_json листа, строгие
   // строки erp_engine_inventory_lines выводит сервер — из ТЕХ листов, что реально легли в PG
   // (collected), а не из входа: строка, отброшенную как устаревшую, выводить нельзя.

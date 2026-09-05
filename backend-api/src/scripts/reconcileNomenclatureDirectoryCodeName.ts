@@ -106,7 +106,7 @@ async function main() {
     const saved = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, r.id as any)).limit(1);
     const row = saved[0] as Record<string, any> | undefined;
     if (!row) continue;
-    signAndAppendDetailed([
+    await signAndAppendDetailed([
       {
         type: 'upsert',
         table: LedgerTableName.ErpNomenclature,

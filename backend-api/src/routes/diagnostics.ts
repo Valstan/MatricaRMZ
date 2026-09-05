@@ -8,7 +8,6 @@ import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '..
 import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
 import { LEGACY_SCHEMA_SNAPSHOT_TABLES, SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
 import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
-import { replayLedgerToDb } from '../services/sync/ledgerReplayService.js';
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
 import { deleteAllCriticalEvents, deleteCriticalEventById, listCriticalEvents } from '../services/criticalEventsService.js';
 import { resolveLoginsToFullNames } from '../services/employeeAuthService.js';
@@ -154,15 +153,10 @@ diagnosticsRouter.get('/sync-pipeline-health', requirePermission(PermissionCode.
   }
 });
 
-diagnosticsRouter.post('/ledger/replay', requirePermission(PermissionCode.ClientsManage), async (req, res) => {
-  try {
-    const actor = (req as unknown as AuthenticatedRequest).user;
-    if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
-    const result = await replayLedgerToDb({ id: actor.id, username: actor.username, role: actor.role });
-    return res.json({ ok: true, applied: result.applied });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e) });
-  }
+// Цепочки блоков больше нет (план ledger-journal-in-pg, 2026-09): «переиграть ledger в БД»
+// нечем и незачем — истина и есть PG.
+diagnosticsRouter.post('/ledger/replay', requirePermission(PermissionCode.ClientsManage), (_req, res) => {
+  return res.status(410).json({ ok: false, error: 'ledger replay снят: журнал живёт в PostgreSQL, переигрывать нечего' });
 });
 
 diagnosticsRouter.get('/critical-events', requirePermission(PermissionCode.ClientsManage), async (req, res) => {

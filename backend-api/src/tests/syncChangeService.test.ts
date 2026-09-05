@@ -18,7 +18,7 @@ describe('syncChangeService', () => {
     async () => {
     const { appendLedgerChanges } = await import('../services/sync/syncChangeService.js');
 
-    const result = appendLedgerChanges(
+    const result = await appendLedgerChanges(
       { id: 'u1', username: 'user' },
       [{ tableName: SyncTableName.Entities, rowId: 'e1', op: 'upsert', payloadJson: '{bad-json' }],
     );
@@ -33,7 +33,7 @@ describe('syncChangeService', () => {
     signAndAppendDetailedMock.mockReturnValueOnce({ applied: 1, lastSeq: 42, blockHeight: 7, signed: [] });
     const { appendLedgerChanges } = await import('../services/sync/syncChangeService.js');
 
-    const result = appendLedgerChanges(
+    const result = await appendLedgerChanges(
       { id: 'u1', username: 'operator' },
       [
         {

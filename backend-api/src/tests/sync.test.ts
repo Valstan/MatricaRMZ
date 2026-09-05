@@ -26,6 +26,12 @@ const txMock = {
   })),
 };
 
+// Журнал (ledger_seq) живёт в PG — в этом тесте номера не нужны, а db.execute у мока нет.
+vi.mock('../ledger/ledgerService.js', () => ({
+  getLedgerLastSeq: vi.fn(async () => 0),
+  signAndAppendDetailed: vi.fn(async () => ({ applied: 0, lastSeq: 0, blockHeight: 0, signed: [] })),
+}));
+
 vi.mock('../database/db.js', () => ({
   db: {
     select: vi.fn((fields?: Record<string, unknown>) => ({

@@ -773,7 +773,7 @@ export async function mergeDirectoryParts(args: {
     // Flush ledger + sync AFTER the PG transaction committed. If the tx threw,
     // execution never reaches here (outer catch returns ok:false) and nothing was
     // written to the immutable log — it never reflects a merge that didn't land.
-    if (allLedgerPayloads.length > 0) signAndAppendDetailed(allLedgerPayloads);
+    if (allLedgerPayloads.length > 0) await signAndAppendDetailed(allLedgerPayloads);
     if (allOpSyncChanges.length > 0) {
       await recordSyncChanges(args.actor, allOpSyncChanges, { allowSyncConflicts: true });
     }

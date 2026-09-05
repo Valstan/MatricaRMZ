@@ -4,15 +4,7 @@ import { LedgerTableName, type LedgerTxType } from '@matricarmz/ledger';
 import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { asc, gt, isNull } from 'drizzle-orm';
-import {
-  createSignedCheckpoint,
-  ensureLedgerBootstrap,
-  getLedgerLastSeq,
-  getSignedCheckpoint,
-  listBlocksSince,
-  queryState,
-  signAndAppend,
-} from '../ledger/ledgerService.js';
+import { getLedgerLastSeq, queryState, signAndAppend } from '../ledger/ledgerService.js';
 import { applyLedgerTxs } from '../services/sync/ledgerTxService.js';
 import { pullChangesSince } from '../services/sync/pullChangesSince.js';
 import { PG_SYNC_TABLES } from '../services/sync/pgSyncTables.js';
@@ -26,7 +18,7 @@ import {
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
-import { attributeDefs, entityTypes, syncState } from '../database/schema.js';
+import { attributeDefs, entityTypes, releaseRegistry, syncState } from '../database/schema.js';
 
 export const ledgerRouter = Router();
 
@@ -272,7 +264,7 @@ ledgerRouter.get('/state/query', async (req, res) => {
     ...(parsed.data.limit != null ? { limit: parsed.data.limit } : {}),
     ...(parsed.data.offset != null ? { offset: parsed.data.offset } : {}),
   };
-  const rows = queryState(parsed.data.table, opts);
+  const rows = await queryState(parsed.data.table, opts);
   const queryTable = String(parsed.data.table);
   // Per-user privacy: chat/notes are private — an operator must not read other
   // people's chats/notes via this endpoint. Mirrors /state/changes (pullChangesSince)
@@ -325,7 +317,7 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
 
   // Admin-only pull tables (audit_log) are not synced to operators. (H1-B)
   if (!isPullTableAllowedForRole(tableName, actor.role)) {
-    return res.json({ ok: true, table: tableName, rows: [], has_more: false, next_cursor_id: null, server_last_seq: getLedgerLastSeq() });
+    return res.json({ ok: true, table: tableName, rows: [], has_more: false, next_cursor_id: null, server_last_seq: await getLedgerLastSeq() });
   }
 
   // Use PG as the source of truth for sync tables (avoids ledger state duplicates).
@@ -398,12 +390,12 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
       rows: visibleRows,
       has_more: hasMore,
       next_cursor_id: nextCursorId || null,
-      server_last_seq: getLedgerLastSeq(),
+      server_last_seq: await getLedgerLastSeq(),
     });
   }
 
   // Fallback to in-memory ledger state for non-sync tables (release_registry, etc.)
-  const rows = queryState(parsed.data.table, {
+  const rows = await queryState(parsed.data.table, {
     includeDeleted: parsed.data.include_deleted ?? false,
     sortBy: 'id',
     sortDir: 'asc',
@@ -419,7 +411,7 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
     rows: page,
     has_more: hasMore,
     next_cursor_id: nextCursorId || null,
-    server_last_seq: getLedgerLastSeq(),
+    server_last_seq: await getLedgerLastSeq(),
   });
 });
 
@@ -441,9 +433,6 @@ ledgerRouter.get('/state/changes', async (req, res) => {
       error: 'требуется обновление протокола синхронизации',
       required_sync_protocol_version: 2,
     });
-  }
-  if (parsed.data.since === 0) {
-    await ensureLedgerBootstrap().catch(() => null);
   }
   const actor = (req as AuthenticatedRequest).user;
   if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
@@ -511,46 +500,15 @@ ledgerRouter.get('/state/changes', async (req, res) => {
 // database and never delete synced rows. Work-order visibility is a display-time filter
 // (shared workOrderAccess) applied against the authenticated user.
 
-ledgerRouter.get('/blocks', (req, res) => {
-  // Raw ledger blocks carry full plaintext rows (incl. employee PII) with per-tx
-  // Ed25519 signatures, so they cannot be PII-redacted server-side without breaking
-  // signature verification. Operators get filtered data via /state/changes instead
-  // and have no consumer for /blocks — restrict raw blocks to admins.
-  // (security-hardening-2026-06, Phase 3)
-  const user = (req as AuthenticatedRequest).user;
-  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
-  const role = String(user.role ?? '').toLowerCase();
-  if (role !== 'admin' && role !== 'superadmin') {
-    return res.status(403).json({ ok: false, error: 'только для админов' });
-  }
-  const parsed = z
-    .object({
-      since: z.coerce.number().int().nonnegative().default(0),
-      limit: z.coerce.number().int().min(1).max(2000).optional(),
-    })
-    .safeParse(req.query);
-  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const blocks = listBlocksSince(parsed.data.since, parsed.data.limit ?? 200);
-  const lastHeight = blocks.at(-1)?.height ?? parsed.data.since;
-  return res.json({ ok: true, last_height: lastHeight, blocks });
-});
+// Цепочка блоков, подписанные чекпоинты и проекция сняты (план ledger-journal-in-pg,
+// 2026-09): история — ledger_tx_index в PostgreSQL. Клиенты эти маршруты не звали;
+// админским инструментам — честный 410, а не пустой ответ.
+const LEDGER_CHAIN_GONE = 'цепочка блоков снята: история изменений — таблица ledger_tx_index в PostgreSQL';
+ledgerRouter.get('/blocks', (_req, res) => res.status(410).json({ ok: false, error: LEDGER_CHAIN_GONE }));
+ledgerRouter.get('/checkpoint/latest', (_req, res) => res.status(410).json({ ok: false, error: LEDGER_CHAIN_GONE }));
+ledgerRouter.post('/checkpoint/build', (_req, res) => res.status(410).json({ ok: false, error: LEDGER_CHAIN_GONE }));
 
-ledgerRouter.get('/checkpoint/latest', (_req, res) => {
-  const checkpoint = getSignedCheckpoint();
-  return res.json({ ok: true, checkpoint });
-});
-
-ledgerRouter.post('/checkpoint/build', (req, res) => {
-  const user = (req as AuthenticatedRequest).user;
-  if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
-  const role = String(user.role ?? '').toLowerCase();
-  if (role !== 'admin' && role !== 'superadmin') return res.status(403).json({ ok: false, error: 'только для админов' });
-  void createSignedCheckpoint()
-    .then((checkpoint) => res.json({ ok: true, checkpoint }))
-    .catch((e) => res.status(500).json({ ok: false, error: String(e) }));
-});
-
-ledgerRouter.post('/releases/publish', (req, res) => {
+ledgerRouter.post('/releases/publish', async (req, res) => {
   const user = (req as AuthenticatedRequest).user;
   if (!user) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
   const role = String(user.role ?? '').toLowerCase();
@@ -582,11 +540,26 @@ ledgerRouter.post('/releases/publish', (req, res) => {
     created_by_user_id: user.id,
     created_by_username: user.username,
   };
-  const result = signAndAppend([
+  // Истина — таблица release_registry; журнал получает ту же строку ради истории «кто и когда».
+  await db.insert(releaseRegistry).values({
+    id: row.id as any,
+    version: row.version,
+    notes: row.notes,
+    sha256: row.sha256,
+    fileName: row.file_name,
+    size: row.size,
+    payloadJson: row.payload_json,
+    createdAt: now,
+    createdByUserId: row.created_by_user_id,
+    createdByUsername: row.created_by_username,
+    updatedAt: now,
+    deletedAt: null,
+  });
+  const result = await signAndAppend([
     {
       type: 'upsert',
       table: LedgerTableName.ReleaseRegistry,
-      row,
+      row: { ...row, updated_at: now },
       row_id: row.id,
       actor: { userId: user.id, username: user.username, role: user.role },
       ts: now,
@@ -595,8 +568,8 @@ ledgerRouter.post('/releases/publish', (req, res) => {
   return res.json({ ok: true, applied: result.applied, last_seq: result.lastSeq });
 });
 
-ledgerRouter.get('/releases/latest', (req, res) => {
-  const rows = queryState(LedgerTableName.ReleaseRegistry, {
+ledgerRouter.get('/releases/latest', async (_req, res) => {
+  const rows = await queryState(LedgerTableName.ReleaseRegistry, {
     sortBy: 'created_at',
     sortDir: 'desc',
     limit: 1,

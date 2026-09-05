@@ -405,7 +405,7 @@ async function mergeBomLines(bomId: string, matched: Matched[], label: string): 
       .from(erpEngineAssemblyBomLines)
       .where(and(eq(erpEngineAssemblyBomLines.bomId, bomId), isNull(erpEngineAssemblyBomLines.deletedAt)));
     const signRows = savedRows.filter((row) => touchedIds.has(String(row.id)));
-    signAndAppendDetailed(
+    await signAndAppendDetailed(
       signRows.map((line) => ({
         type: 'upsert' as const,
         table: LedgerTableName.ErpEngineAssemblyBomLines,

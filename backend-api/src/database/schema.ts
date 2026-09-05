@@ -180,6 +180,9 @@ export const changeRequests = pgTable(
 
 
 // Индексная проекция ledger для быстрого pull без чтения block-файлов.
+// Журнал изменений (план ledger-journal-in-pg, 2026-09): единственная история «кто, что,
+// когда». Номер выдаёт SEQUENCE ledger_seq под advisory-lock (ledgerService). Имя таблицы
+// историческое — до 2026-09 это был индекс поверх цепочки блоков.
 export const ledgerTxIndex = pgTable(
   'ledger_tx_index',
   {
@@ -189,12 +192,31 @@ export const ledgerTxIndex = pgTable(
     op: text('op').notNull(),
     payloadJson: text('payload_json').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    actorUserId: text('actor_user_id'),
+    actorUsername: text('actor_username'),
   },
   (t) => ({
     tableRowIdx: index('ledger_tx_index_table_row_idx').on(t.tableName, t.rowId),
     createdIdx: index('ledger_tx_index_created_idx').on(t.createdAt),
   }),
 );
+
+// Реестр выпусков клиента (публикует release:ledger-publish, читает /ledger/releases/latest).
+// До 2026-09 жил только в проекции цепочки; бэкфилл из журнала — миграция 0091.
+export const releaseRegistry = pgTable('release_registry', {
+  id: uuid('id').primaryKey(),
+  version: text('version').notNull(),
+  notes: text('notes'),
+  sha256: text('sha256'),
+  fileName: text('file_name'),
+  size: bigint('size', { mode: 'number' }),
+  payloadJson: text('payload_json'),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  createdByUserId: text('created_by_user_id'),
+  createdByUsername: text('created_by_username'),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  deletedAt: bigint('deleted_at', { mode: 'number' }),
+});
 
 // Состояние синхронизации по рабочему месту (client_id).
 export const syncState = pgTable('sync_state', {

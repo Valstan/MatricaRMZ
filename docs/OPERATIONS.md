@@ -21,7 +21,7 @@
   - `matricarmz-backend-secondary.service` (`127.0.0.1:3002`) — только API (без background jobs)
 - nginx upstream: `127.0.0.1:3001` + `127.0.0.1:3002`
 - Роуты: `backend-api/src/routes/*`
-- Ledger: `backend-api/ledger/`
+- Журнал изменений: таблицы `ledger_tx_index` + `release_registry` в PostgreSQL (цепочка блоков снята 2026-09, см. `docs/plans/ledger-journal-in-pg-2026-09.md`)
 - Складской backend-контур: `backend-api/src/routes/warehouse.ts`, `backend-api/src/services/warehouseService.ts`
 
 ### Electron клиент
@@ -63,8 +63,6 @@ corepack pnpm run dev:electron
 ### Backend
 - `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
 - `MATRICA_JWT_SECRET`
-- `MATRICA_LEDGER_DIR`
-- `MATRICA_LEDGER_DATA_KEY`
 - `MATRICA_LOGS_DIR`
 - `PORT`, `HOST`
 - `MATRICA_INSTANCE_PORT`, `MATRICA_INSTANCE_ROLE`
@@ -99,11 +97,11 @@ corepack pnpm run dev:electron
 - Базовая директория серверных логов: `MATRICA_LOGS_DIR` (по умолчанию `backend-api/logs`)
 
 ## 6) Инварианты, которые нельзя нарушать
-- Синхронизация только через ledger: `POST /ledger/tx/submit`, `GET /ledger/state/changes`.
-- Любые серверные изменения sync-таблиц должны идти через ledger pipeline (`recordSyncChanges()`/ledger API).
+- Синхронизация только через `POST /ledger/tx/submit` и `GET /ledger/state/changes` (имена маршрутов исторические: цепочки блоков нет с 2026-09, за ними — журнал в PG).
+- Любые серверные изменения sync-таблиц должны идти через `writeSyncChanges()` / `recordSyncChanges()`: строка без номера журнала невидима инкрементальному pull.
 - `clientId` должен быть стабильным на клиенте.
 - Временные поля в ms должны храниться как `bigint`.
-- Релизы для автообновления публикуются в ledger с валидными `version/fileName/size/sha256`.
+- Релизы для автообновления публикуются в `release_registry` (`POST /ledger/releases/publish`) с валидными `version/fileName/size/sha256`.
 - В dual-backend контуре singleton background jobs (`sync pipeline supervisor`, `critical events notifier`, schedulers) запускаются только на `primary` (`MATRICA_INSTANCE_ROLE` не должен быть `secondary/readonly/worker`).
 
 ## 7) Что смотреть в первую очередь при новой сессии

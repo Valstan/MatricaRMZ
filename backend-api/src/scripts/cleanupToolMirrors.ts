@@ -147,7 +147,7 @@ async function main() {
 
   for (const row of staleMirrors) {
     await db.update(directoryTools).set({ deletedAt: ts, updatedAt: ts }).where(eq(directoryTools.id, row.id as any));
-    signAndAppendDetailed([
+    await signAndAppendDetailed([
       {
         type: 'delete',
         table: LedgerTableName.DirectoryTools,
@@ -173,7 +173,7 @@ async function main() {
     const saved = await db.select().from(entities).where(eq(entities.id, row.id as any)).limit(1);
     const ent = saved[0];
     if (!ent) continue;
-    signAndAppendDetailed([
+    await signAndAppendDetailed([
       {
         type: 'delete',
         table: LedgerTableName.Entities,
