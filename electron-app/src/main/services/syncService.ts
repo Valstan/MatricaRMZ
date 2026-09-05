@@ -38,6 +38,7 @@ import {
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
+  erpEngineInventoryLines,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -1707,6 +1708,7 @@ async function applyPulledChanges(
     [SyncTableName.ErpEngineInstances]: [],
     [SyncTableName.ErpRegStockBalance]: [],
     [SyncTableName.ErpRegStockMovements]: [],
+    [SyncTableName.ErpEngineInventoryLines]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -1965,6 +1967,46 @@ async function applyPulledChanges(
           });
         }
         break;
+      case SyncTableName.ErpEngineInventoryLines:
+        {
+          const payload = payloadRaw;
+          const bool = (v: unknown) => v === true || v === 1;
+          const optBool = (v: unknown) => (v == null ? null : bool(v));
+          groups.erp_engine_inventory_lines.push({
+            id: payload.id,
+            operationId: payload.operation_id,
+            engineEntityId: payload.engine_entity_id,
+            lineKey: payload.line_key,
+            sortOrder: Number(payload.sort_order ?? 0),
+            partId: payload.part_id ?? null,
+            brandManaged: bool(payload.brand_managed),
+            partName: String(payload.part_name ?? ''),
+            assemblyUnitNumber: String(payload.assembly_unit_number ?? ''),
+            partNumber: String(payload.part_number ?? ''),
+            stampedNumber: String(payload.stamped_number ?? ''),
+            bomVariantGroup: payload.bom_variant_group ?? null,
+            quantity: Number(payload.quantity ?? 0),
+            present: bool(payload.present),
+            actualQty: Number(payload.actual_qty ?? 0),
+            repairableQty: Number(payload.repairable_qty ?? 0),
+            scrapQty: Number(payload.scrap_qty ?? 0),
+            replaceQty: Number(payload.replace_qty ?? 0),
+            replenishmentBranch: payload.replenishment_branch ?? null,
+            scrapReason: String(payload.scrap_reason ?? ''),
+            inCompletenessAct: optBool(payload.in_completeness_act),
+            inDefectAct: optBool(payload.in_defect_act),
+            inCompletenessActOverride: optBool(payload.in_completeness_act_override),
+            inDefectActOverride: optBool(payload.in_defect_act_override),
+            selected: bool(payload.selected),
+            photosJson: payload.photos_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
       case SyncTableName.UserSectionAccess:
         {
           const payload = payloadRaw;
@@ -2163,6 +2205,7 @@ async function applyPulledChanges(
   groups.user_presence = dedupById(groups.user_presence);
   groups.users = dedupById(groups.users);
   groups.user_section_access = dedupById(groups.user_section_access);
+  groups.erp_engine_inventory_lines = dedupById(groups.erp_engine_inventory_lines);
   groups[SyncTableName.ErpEngineAssemblyBom] = dedupById(groups[SyncTableName.ErpEngineAssemblyBom]);
   groups[SyncTableName.ErpEngineAssemblyBomLines] = dedupById(groups[SyncTableName.ErpEngineAssemblyBomLines]);
   groups[SyncTableName.ErpEngineAssemblyBomBrandLinks] = dedupById(
@@ -2699,6 +2742,42 @@ async function applyPulledChanges(
       userId: sql`excluded.user_id`,
       sectionId: sql`excluded.section_id`,
       level: sql`excluded.level`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Строки списка деталей — после operations (родитель) — они применяются выше по файлу.
+  if (groups.erp_engine_inventory_lines.length > 0) {
+    emitApply(SyncTableName.ErpEngineInventoryLines, groups.erp_engine_inventory_lines.length);
+    await upsertPulledRowsInChunks(db, erpEngineInventoryLines, groups.erp_engine_inventory_lines, erpEngineInventoryLines.id, {
+      operationId: sql`excluded.operation_id`,
+      engineEntityId: sql`excluded.engine_entity_id`,
+      lineKey: sql`excluded.line_key`,
+      sortOrder: sql`excluded.sort_order`,
+      partId: sql`excluded.part_id`,
+      brandManaged: sql`excluded.brand_managed`,
+      partName: sql`excluded.part_name`,
+      assemblyUnitNumber: sql`excluded.assembly_unit_number`,
+      partNumber: sql`excluded.part_number`,
+      stampedNumber: sql`excluded.stamped_number`,
+      bomVariantGroup: sql`excluded.bom_variant_group`,
+      quantity: sql`excluded.quantity`,
+      present: sql`excluded.present`,
+      actualQty: sql`excluded.actual_qty`,
+      repairableQty: sql`excluded.repairable_qty`,
+      scrapQty: sql`excluded.scrap_qty`,
+      replaceQty: sql`excluded.replace_qty`,
+      replenishmentBranch: sql`excluded.replenishment_branch`,
+      scrapReason: sql`excluded.scrap_reason`,
+      inCompletenessAct: sql`excluded.in_completeness_act`,
+      inDefectAct: sql`excluded.in_defect_act`,
+      inCompletenessActOverride: sql`excluded.in_completeness_act_override`,
+      inDefectActOverride: sql`excluded.in_defect_act_override`,
+      selected: sql`excluded.selected`,
+      photosJson: sql`excluded.photos_json`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

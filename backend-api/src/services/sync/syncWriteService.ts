@@ -7,11 +7,12 @@
  * Заменяет двойной путь: change_log + ledger параллельно.
  */
 import { type LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
-import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
+import { ENGINE_INVENTORY_STAGE, SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
 import { ledgerTxIndex } from '../../database/schema.js';
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
+import type { InventoryOperationRow } from '../engineInventoryLinesService.js';
 import { resolveWarehouseLocationIdsByCodes } from '../warehouseLocationsService.js';
 import { applyPushBatch, type AppliedSyncChange, type SyncIdRemaps, type SyncSkippedRow } from './applyPushBatch.js';
 
@@ -143,6 +144,40 @@ function normalizeRowTimestamps(
   }
   if (next.sync_status == null) next.sync_status = 'synced';
   return next;
+}
+
+async function deriveLinesForAppliedOperations(collected: AppliedSyncChange[], actor: SyncWriteActor): Promise<void> {
+  const directLineOps = new Set<string>();
+  const ops: InventoryOperationRow[] = [];
+  for (const ch of collected) {
+    if (ch.table === SyncTableName.ErpEngineInventoryLines) {
+      try {
+        const opId = String((JSON.parse(ch.payloadJson) as { operation_id?: unknown }).operation_id ?? '');
+        if (opId) directLineOps.add(opId);
+      } catch {
+        /* строка уже прошла zod при записи; здесь не судим */
+      }
+      continue;
+    }
+    if (ch.table !== SyncTableName.Operations) continue;
+    try {
+      const row = JSON.parse(ch.payloadJson) as Record<string, unknown>;
+      if (String(row.operation_type ?? '') !== ENGINE_INVENTORY_STAGE) continue;
+      ops.push({
+        id: String(row.id ?? ch.rowId),
+        engine_entity_id: String(row.engine_entity_id ?? ''),
+        operation_type: ENGINE_INVENTORY_STAGE,
+        meta_json: row.meta_json == null ? null : String(row.meta_json),
+        deleted_at: row.deleted_at == null ? null : Number(row.deleted_at),
+      });
+    } catch {
+      /* см. выше */
+    }
+  }
+  const todo = ops.filter((o) => !directLineOps.has(o.id));
+  if (todo.length === 0) return;
+  const { deriveEngineInventoryLines } = await import('../engineInventoryLinesService.js');
+  await deriveEngineInventoryLines(todo, actor);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -285,6 +320,15 @@ export async function writeSyncChanges(
       .values(indexRows as any)
       .onConflictDoNothing();
   }
+
+  // ── Step 4: Derived rows ─────────────────────────────────
+  // Список деталей двигателя: пока клиенты шлют его только внутри meta_json листа, строгие
+  // строки erp_engine_inventory_lines выводит сервер — из ТЕХ листов, что реально легли в PG
+  // (collected), а не из входа: строка, отброшенную как устаревшую, выводить нельзя.
+  // Лист, для которого в этом же батче пришли строки таблицы напрямую (клиент E2+), не
+  // трогаем: у него источник — сами строки. Рекурсия конечна: производный батч состоит из
+  // строк таблицы, листов в нём нет.
+  await deriveLinesForAppliedOperations(collected, actor);
 
   return {
     dbApplied: dbResult.applied,

@@ -83,6 +83,7 @@
     "ledger:rotate-data-key": "tsx src/scripts/rotateLedgerDataKey.ts",
     "ledger:rotate-data-key:dry-run": "tsx src/scripts/rotateLedgerDataKey.ts --dry-run",
     "engine-inventory:migrate": "tsx src/scripts/migrateChecklistToEngineInventory.ts",
+    "engine-inventory:backfill-lines": "tsx src/scripts/backfillEngineInventoryLines.ts",
     "support:contact": "tsx src/scripts/setSupportContact.ts",
     "ui:tighten-global-density": "tsx src/scripts/tightenGlobalUiDensity.ts",
     "ui:tighten-global-density:apply": "tsx src/scripts/tightenGlobalUiDensity.ts --apply",

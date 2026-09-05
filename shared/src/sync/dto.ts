@@ -8,6 +8,7 @@ import {
   erpNomenclatureRowSchema,
   erpRegisterStockBalanceRowSchema,
   erpRegisterStockMovementRowSchema,
+  erpEngineInventoryLineRowSchema,
 } from './erpDto.js';
 import { OperationTypeCode } from '../domain/enums.js';
 import { SYSTEM_ROLE_CATALOG } from '../domain/permissions.js';
@@ -192,6 +193,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpEngineInstances]: erpEngineInstanceRowSchema,
   [SyncTableName.ErpRegStockBalance]: erpRegisterStockBalanceRowSchema,
   [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,
+  [SyncTableName.ErpEngineInventoryLines]: erpEngineInventoryLineRowSchema,
   [SyncTableName.Users]: userRowSchema,
   [SyncTableName.UserSectionAccess]: userSectionAccessRowSchema,
 } as const;

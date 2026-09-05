@@ -1728,6 +1728,58 @@ export const accessSections = pgTable('access_sections', {
 });
 
 /** Аккаунты: строка ⟺ логин. Карточка сотрудника без логина строки здесь НЕ имеет. */
+// Список деталей двигателя построчно (план docs/plans/engine-inventory-lines-2026-09.md).
+// Родитель — лист operations(operation_type='engine_inventory'); engine_entity_id дублируется
+// ради фильтра по двигателю без join. part_id без FK сознательно: legacy-строки ссылаются
+// на детали разных эпох справочника (entities до Phase 3, directory_parts/erp_nomenclature после).
+export const erpEngineInventoryLines = pgTable(
+  'erp_engine_inventory_lines',
+  {
+    id: uuid('id').primaryKey(),
+    operationId: uuid('operation_id')
+      .notNull()
+      .references(() => operations.id),
+    engineEntityId: uuid('engine_entity_id')
+      .notNull()
+      .references(() => entities.id),
+    lineKey: text('line_key').notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    partId: text('part_id'),
+    brandManaged: boolean('brand_managed').notNull().default(false),
+    partName: text('part_name').notNull().default(''),
+    assemblyUnitNumber: text('assembly_unit_number').notNull().default(''),
+    partNumber: text('part_number').notNull().default(''),
+    stampedNumber: text('stamped_number').notNull().default(''),
+    bomVariantGroup: text('bom_variant_group'),
+    quantity: integer('quantity').notNull().default(0),
+    present: boolean('present').notNull().default(false),
+    actualQty: integer('actual_qty').notNull().default(0),
+    repairableQty: integer('repairable_qty').notNull().default(0),
+    scrapQty: integer('scrap_qty').notNull().default(0),
+    replaceQty: integer('replace_qty').notNull().default(0),
+    replenishmentBranch: text('replenishment_branch'),
+    scrapReason: text('scrap_reason').notNull().default(''),
+    inCompletenessAct: boolean('in_completeness_act'),
+    inDefectAct: boolean('in_defect_act'),
+    inCompletenessActOverride: boolean('in_completeness_act_override'),
+    inDefectActOverride: boolean('in_defect_act_override'),
+    selected: boolean('selected').notNull().default(false),
+    photosJson: text('photos_json'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    operationOrderIdx: index('erp_engine_inventory_lines_operation_order_idx').on(t.operationId, t.sortOrder),
+    operationKeyIdx: index('erp_engine_inventory_lines_operation_key_idx').on(t.operationId, t.lineKey),
+    engineIdx: index('erp_engine_inventory_lines_engine_idx').on(t.engineEntityId),
+    partIdx: index('erp_engine_inventory_lines_part_idx').on(t.partId),
+    seqIdx: index('erp_engine_inventory_lines_seq_idx').on(t.lastServerSeq),
+  }),
+);
+
 export const users = pgTable(
   'users',
   {
