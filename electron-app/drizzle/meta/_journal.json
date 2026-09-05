@@ -162,6 +162,13 @@
       "when": 1787003600000,
       "tag": "0022_users_replica",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788606000000,
+      "tag": "0023_engine_inventory_lines_replica",
+      "breakpoints": true
     }
   ]
 }

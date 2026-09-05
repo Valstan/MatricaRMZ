@@ -74,6 +74,8 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.ErpEngineInstances]: undefined,
   [SyncTableName.ErpRegStockBalance]: undefined,
   [SyncTableName.ErpRegStockMovements]: undefined,
+  // pull-only до E2.3 плана engine-inventory-lines (клиент пишет строки — тогда и чинить).
+  [SyncTableName.ErpEngineInventoryLines]: undefined,
 };
 const IN_ARRAY_CHUNK = 400;
 

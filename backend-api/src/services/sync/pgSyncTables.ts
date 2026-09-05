@@ -15,6 +15,7 @@ import {
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
   erpEngineInstances,
+  erpEngineInventoryLines,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -65,6 +66,10 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.ErpEngineInstances]: {
     drizzle: erpEngineInstances,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInstances, r),
+  },
+  [LedgerTableName.ErpEngineInventoryLines]: {
+    drizzle: erpEngineInventoryLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInventoryLines, r),
   },
   [LedgerTableName.ErpRegStockBalance]: {
     drizzle: erpRegStockBalance,

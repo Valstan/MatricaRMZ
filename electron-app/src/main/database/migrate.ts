@@ -168,6 +168,48 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS user_section_access_user_idx ON user_section_access(user_id);
   `);
 
+  // erp_engine_inventory_lines — реплика списка деталей двигателя построчно (план
+  // engine-inventory-lines-2026-09, E2.1). Та же причина дубля, что у users выше: свежая
+  // установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS erp_engine_inventory_lines (
+      id text PRIMARY KEY NOT NULL,
+      operation_id text NOT NULL,
+      engine_entity_id text NOT NULL,
+      line_key text NOT NULL,
+      sort_order integer NOT NULL,
+      part_id text,
+      brand_managed integer NOT NULL DEFAULT false,
+      part_name text NOT NULL DEFAULT '',
+      assembly_unit_number text NOT NULL DEFAULT '',
+      part_number text NOT NULL DEFAULT '',
+      stamped_number text NOT NULL DEFAULT '',
+      bom_variant_group text,
+      quantity integer NOT NULL DEFAULT 0,
+      present integer NOT NULL DEFAULT false,
+      actual_qty integer NOT NULL DEFAULT 0,
+      repairable_qty integer NOT NULL DEFAULT 0,
+      scrap_qty integer NOT NULL DEFAULT 0,
+      replace_qty integer NOT NULL DEFAULT 0,
+      replenishment_branch text,
+      scrap_reason text NOT NULL DEFAULT '',
+      in_completeness_act integer,
+      in_defect_act integer,
+      in_completeness_act_override integer,
+      in_defect_act_override integer,
+      selected integer NOT NULL DEFAULT false,
+      photos_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_operation_order_idx ON erp_engine_inventory_lines(operation_id, sort_order);
+    CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_engine_idx ON erp_engine_inventory_lines(engine_entity_id);
+    CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_part_idx ON erp_engine_inventory_lines(part_id);
+  `);
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (hasTable('erp_document_lines')) {
     if (!columnNames('erp_document_lines').has('nomenclature_id')) {

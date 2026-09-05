@@ -657,6 +657,51 @@ export const syncState = sqliteTable('sync_state', {
 // перекос между сторонами валит гейт #086 (checkReplicaStrictness).
 // ============================================================================
 
+// Реплика списка деталей двигателя построчно (план engine-inventory-lines-2026-09).
+// E1/E2.1: pull-only, читатели пока на meta_json; запись с клиента — E2.3.
+// Реплика не строже сервера (0020): CHECK'и сервера здесь не повторяем.
+export const erpEngineInventoryLines = sqliteTable(
+  'erp_engine_inventory_lines',
+  {
+    id: text('id').primaryKey(),
+    operationId: text('operation_id').notNull(),
+    engineEntityId: text('engine_entity_id').notNull(),
+    lineKey: text('line_key').notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    partId: text('part_id'),
+    brandManaged: integer('brand_managed', { mode: 'boolean' }).notNull().default(false),
+    partName: text('part_name').notNull().default(''),
+    assemblyUnitNumber: text('assembly_unit_number').notNull().default(''),
+    partNumber: text('part_number').notNull().default(''),
+    stampedNumber: text('stamped_number').notNull().default(''),
+    bomVariantGroup: text('bom_variant_group'),
+    quantity: integer('quantity').notNull().default(0),
+    present: integer('present', { mode: 'boolean' }).notNull().default(false),
+    actualQty: integer('actual_qty').notNull().default(0),
+    repairableQty: integer('repairable_qty').notNull().default(0),
+    scrapQty: integer('scrap_qty').notNull().default(0),
+    replaceQty: integer('replace_qty').notNull().default(0),
+    replenishmentBranch: text('replenishment_branch'),
+    scrapReason: text('scrap_reason').notNull().default(''),
+    inCompletenessAct: integer('in_completeness_act', { mode: 'boolean' }),
+    inDefectAct: integer('in_defect_act', { mode: 'boolean' }),
+    inCompletenessActOverride: integer('in_completeness_act_override', { mode: 'boolean' }),
+    inDefectActOverride: integer('in_defect_act_override', { mode: 'boolean' }),
+    selected: integer('selected', { mode: 'boolean' }).notNull().default(false),
+    photosJson: text('photos_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    operationOrderIdx: index('erp_engine_inventory_lines_operation_order_idx').on(t.operationId, t.sortOrder),
+    engineIdx: index('erp_engine_inventory_lines_engine_idx').on(t.engineEntityId),
+    partIdx: index('erp_engine_inventory_lines_part_idx').on(t.partId),
+  }),
+);
+
 export const users = sqliteTable(
   'users',
   {

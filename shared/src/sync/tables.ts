@@ -22,6 +22,10 @@ export const SyncTableName = {
   ErpEngineInstances: 'erp_engine_instances',
   ErpRegStockBalance: 'erp_reg_stock_balance',
   ErpRegStockMovements: 'erp_reg_stock_movements',
+  // Список деталей двигателя построчно (план engine-inventory-lines-2026-09). Первая
+  // строгая таблица, которую клиенты будут ПИСАТЬ (push) — с E2; в E1 сервер выводит
+  // строки из meta_json листа сам, клиенты только читают.
+  ErpEngineInventoryLines: 'erp_engine_inventory_lines',
   // B3/R3: аккаунты и доступы по разделам. Обе — server-write / pull-only:
   // клиент их только читает (офлайн-гейт разделов), а любая клиентская запись
   // отбивается табличным backstop'ом в ledgerAuthzGuard. Секрет (user_credentials)

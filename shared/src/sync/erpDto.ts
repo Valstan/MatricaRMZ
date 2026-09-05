@@ -88,6 +88,40 @@ export const erpEngineInstanceRowSchema = z.object({
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),
 });
 
+// Строка списка деталей двигателя. Нормализация (квоты, present-гейт) — в shared
+// `normalizeEngineInventoryRow`; схема лишь держит типы и диапазоны, чтобы мусор с клиента
+// не доезжал до PG. Булевы флаги актов nullable: null = «не задано» у legacy-строк.
+export const erpEngineInventoryLineRowSchema = z.object({
+  ...baseErpFields,
+  operation_id: z.string().uuid(),
+  engine_entity_id: z.string().uuid(),
+  line_key: z.string().min(1),
+  sort_order: z.number().int().min(0),
+  part_id: z.string().nullable().optional(),
+  brand_managed: z.boolean(),
+  part_name: z.string(),
+  assembly_unit_number: z.string(),
+  part_number: z.string(),
+  stamped_number: z.string(),
+  bom_variant_group: z.string().nullable().optional(),
+  quantity: z.number().int().min(0),
+  present: z.boolean(),
+  actual_qty: z.number().int().min(0),
+  repairable_qty: z.number().int().min(0),
+  scrap_qty: z.number().int().min(0),
+  replace_qty: z.number().int().min(0),
+  replenishment_branch: z.enum(['customer', 'repair', 'purchase']).nullable().optional(),
+  scrap_reason: z.string(),
+  in_completeness_act: z.boolean().nullable().optional(),
+  in_defect_act: z.boolean().nullable().optional(),
+  in_completeness_act_override: z.boolean().nullable().optional(),
+  in_defect_act_override: z.boolean().nullable().optional(),
+  selected: z.boolean(),
+  photos_json: z.string().nullable().optional(),
+  last_server_seq: z.number().int().nullable().optional(),
+  sync_status: z.enum(['synced', 'pending', 'error']).optional(),
+});
+
 export const erpEngineAssemblyBomRowSchema = z.object({
   ...baseErpFields,
   name: z.string().min(1),

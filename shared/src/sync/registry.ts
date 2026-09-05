@@ -38,6 +38,7 @@ import {
   erpNomenclatureRowSchema,
   erpRegisterStockBalanceRowSchema,
   erpRegisterStockMovementRowSchema,
+  erpEngineInventoryLineRowSchema,
 } from './erpDto.js';
 
 // ────────────────────────────────────────────────────────────
@@ -285,6 +286,34 @@ const ERP_STOCK_BALANCE_FIELDS: readonly FieldMapping[] = [
   { db: 'updatedAt', dto: 'updated_at' },
 ] as const;
 
+const ERP_ENGINE_INVENTORY_LINE_FIELDS: readonly FieldMapping[] = withBase(
+  { db: 'operationId', dto: 'operation_id' },
+  { db: 'engineEntityId', dto: 'engine_entity_id' },
+  { db: 'lineKey', dto: 'line_key' },
+  { db: 'sortOrder', dto: 'sort_order' },
+  { db: 'partId', dto: 'part_id' },
+  { db: 'brandManaged', dto: 'brand_managed' },
+  { db: 'partName', dto: 'part_name' },
+  { db: 'assemblyUnitNumber', dto: 'assembly_unit_number' },
+  { db: 'partNumber', dto: 'part_number' },
+  { db: 'stampedNumber', dto: 'stamped_number' },
+  { db: 'bomVariantGroup', dto: 'bom_variant_group' },
+  { db: 'quantity', dto: 'quantity' },
+  { db: 'present', dto: 'present' },
+  { db: 'actualQty', dto: 'actual_qty' },
+  { db: 'repairableQty', dto: 'repairable_qty' },
+  { db: 'scrapQty', dto: 'scrap_qty' },
+  { db: 'replaceQty', dto: 'replace_qty' },
+  { db: 'replenishmentBranch', dto: 'replenishment_branch' },
+  { db: 'scrapReason', dto: 'scrap_reason' },
+  { db: 'inCompletenessAct', dto: 'in_completeness_act' },
+  { db: 'inDefectAct', dto: 'in_defect_act' },
+  { db: 'inCompletenessActOverride', dto: 'in_completeness_act_override' },
+  { db: 'inDefectActOverride', dto: 'in_defect_act_override' },
+  { db: 'selected', dto: 'selected' },
+  { db: 'photosJson', dto: 'photos_json' },
+);
+
 const ERP_STOCK_MOVEMENT_FIELDS: readonly FieldMapping[] = [
   { db: 'id', dto: 'id' },
   { db: 'nomenclatureId', dto: 'nomenclature_id' },
@@ -481,6 +510,17 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_STOCK_MOVEMENT_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.ErpNomenclature],
+  },
+  // Список деталей двигателя построчно. Зависит от листа (operations.id — родитель) и от
+  // двигателя; строгой FK на деталь нет сознательно (legacy-строки ссылаются на детали
+  // разных эпох справочника), поэтому в dependsOn её и нет.
+  {
+    syncName: SyncTableName.ErpEngineInventoryLines,
+    ledgerName: SyncTableName.ErpEngineInventoryLines,
+    schema: erpEngineInventoryLineRowSchema,
+    fields: ERP_ENGINE_INVENTORY_LINE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.Operations, SyncTableName.Entities],
   },
   // B3/R3. conflictTarget у доступов — ['id'], НЕ ['userId','sectionId']: синк
   // ключует строку по row_id (0086 §доступы). dependsOn задаёт и порядок таблиц

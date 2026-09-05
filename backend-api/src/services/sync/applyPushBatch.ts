@@ -12,6 +12,7 @@ import {
   aiChatRequestRowSchema,
   entityRowSchema,
   entityTypeRowSchema,
+  erpEngineInventoryLineRowSchema,
   operationRowSchema,
   userRowSchema,
   userSectionAccessRowSchema,
@@ -34,6 +35,7 @@ import {
   diagnosticsSnapshots,
   entities,
   entityTypes,
+  erpEngineInventoryLines,
   notes,
   noteShares,
   cardDrafts,
@@ -1208,6 +1210,123 @@ export async function applyPushBatch(
             queueOwner(SyncTableName.Operations, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
+      }
+    }
+
+    // ErpEngineInventoryLines — строго ПОСЛЕ operations (FK operation_id) и entities.
+    // Первая строгая таблица с записью через push. Сегодня строки приходят от самого
+    // сервера (вывод из листа в writeSyncChanges) и бэкфилла; с E2 плана — от клиентов.
+    // LWW по updated_at через setWhere: строка, приехавшая старше лежащей, не откатывает её.
+    {
+      const raw = grouped.get(SyncTableName.ErpEngineInventoryLines) ?? [];
+      const parsed = parseRows(SyncTableName.ErpEngineInventoryLines, raw, erpEngineInventoryLineRowSchema);
+      let rows = await filterStaleBySeqOrUpdatedAt(erpEngineInventoryLines, parsed, SyncTableName.ErpEngineInventoryLines);
+      if (rows.length > 0) {
+        const opIds = Array.from(new Set(rows.map((r) => String(r.operation_id))));
+        const existingOps = await tx
+          .select({ id: operations.id })
+          .from(operations)
+          .where(inArray(operations.id, opIds as any))
+          .limit(50_000);
+        const known = new Set<string>((existingOps as any[]).map((r) => String(r.id)));
+        const missing = rows.filter((r) => !known.has(String(r.operation_id)));
+        if (missing.length > 0) {
+          addSkipMetric('dependency', SyncTableName.ErpEngineInventoryLines, missing.length, 'operation');
+          addDependencySkippedRows(
+            SyncTableName.ErpEngineInventoryLines,
+            missing as Array<Record<string, unknown>>,
+            'operation',
+            'operation_id',
+          );
+          logSkip('sync dependency rows skipped', {
+            table: SyncTableName.ErpEngineInventoryLines,
+            dependency: 'operation',
+            missing: missing.length,
+            missing_ids: missingIdSample(missing as Array<Record<string, unknown>>, 'operation_id'),
+            row_ids: missingIdSample(missing as Array<Record<string, unknown>>, 'id'),
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missing.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
+        }
+      }
+      if (rows.length > 0) {
+        const written = await tx
+          .insert(erpEngineInventoryLines)
+          .values(
+            rows.map((r) => ({
+              id: r.id as any,
+              operationId: r.operation_id as any,
+              engineEntityId: r.engine_entity_id as any,
+              lineKey: r.line_key,
+              sortOrder: r.sort_order,
+              partId: r.part_id ?? null,
+              brandManaged: r.brand_managed,
+              partName: r.part_name,
+              assemblyUnitNumber: r.assembly_unit_number,
+              partNumber: r.part_number,
+              stampedNumber: r.stamped_number,
+              bomVariantGroup: r.bom_variant_group ?? null,
+              quantity: r.quantity,
+              present: r.present,
+              actualQty: r.actual_qty,
+              repairableQty: r.repairable_qty,
+              scrapQty: r.scrap_qty,
+              replaceQty: r.replace_qty,
+              replenishmentBranch: r.replenishment_branch ?? null,
+              scrapReason: r.scrap_reason,
+              inCompletenessAct: r.in_completeness_act ?? null,
+              inDefectAct: r.in_defect_act ?? null,
+              inCompletenessActOverride: r.in_completeness_act_override ?? null,
+              inDefectActOverride: r.in_defect_act_override ?? null,
+              selected: r.selected,
+              photosJson: r.photos_json ?? null,
+              createdAt: r.created_at,
+              updatedAt: r.updated_at,
+              deletedAt: r.deleted_at ?? null,
+              syncStatus: 'synced',
+            })),
+          )
+          .onConflictDoUpdate({
+            target: erpEngineInventoryLines.id,
+            setWhere: sql`${erpEngineInventoryLines.updatedAt} <= excluded.updated_at`,
+            set: {
+              operationId: sql`excluded.operation_id`,
+              engineEntityId: sql`excluded.engine_entity_id`,
+              lineKey: sql`excluded.line_key`,
+              sortOrder: sql`excluded.sort_order`,
+              partId: sql`excluded.part_id`,
+              brandManaged: sql`excluded.brand_managed`,
+              partName: sql`excluded.part_name`,
+              assemblyUnitNumber: sql`excluded.assembly_unit_number`,
+              partNumber: sql`excluded.part_number`,
+              stampedNumber: sql`excluded.stamped_number`,
+              bomVariantGroup: sql`excluded.bom_variant_group`,
+              quantity: sql`excluded.quantity`,
+              present: sql`excluded.present`,
+              actualQty: sql`excluded.actual_qty`,
+              repairableQty: sql`excluded.repairable_qty`,
+              scrapQty: sql`excluded.scrap_qty`,
+              replaceQty: sql`excluded.replace_qty`,
+              replenishmentBranch: sql`excluded.replenishment_branch`,
+              scrapReason: sql`excluded.scrap_reason`,
+              inCompletenessAct: sql`excluded.in_completeness_act`,
+              inDefectAct: sql`excluded.in_defect_act`,
+              inCompletenessActOverride: sql`excluded.in_completeness_act_override`,
+              inDefectActOverride: sql`excluded.in_defect_act_override`,
+              selected: sql`excluded.selected`,
+              photosJson: sql`excluded.photos_json`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+              syncStatus: 'synced',
+            },
+          })
+          .returning({ id: erpEngineInventoryLines.id });
+        const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+        const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+        await updateSeqAndCollect(erpEngineInventoryLines, SyncTableName.ErpEngineInventoryLines, stamped);
+        applied += stamped.length;
       }
     }
 

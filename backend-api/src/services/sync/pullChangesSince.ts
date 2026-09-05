@@ -26,6 +26,7 @@ import {
   entities,
   entityTypes,
   erpEngineInstances,
+  erpEngineInventoryLines,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
@@ -79,6 +80,10 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpEngineInstances]: {
     drizzle: erpEngineInstances,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInstances, r),
+  },
+  [SyncTableName.ErpEngineInventoryLines]: {
+    drizzle: erpEngineInventoryLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInventoryLines, r),
   },
   // B3/R3. Видимость решена ЯВНО, а не унаследована: обе таблицы раздаются всем
   // ролям целиком и в PRIVACY_TABLES не входят. Это паритет с сегодняшним днём —

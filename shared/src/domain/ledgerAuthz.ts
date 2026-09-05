@@ -164,6 +164,9 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.ErpEngineAssemblyBomLines]: { kind: 'permission', code: PermissionCode.MasterDataEdit },
   [SyncTableName.ErpEngineAssemblyBomBrandLinks]: { kind: 'permission', code: PermissionCode.MasterDataEdit },
   [SyncTableName.ErpEngineInstances]: { kind: 'permission', code: PermissionCode.EnginesEdit },
+  // Строки списка деталей пишет тот же оператор, что и лист (IPC checklists:engine:save
+  // гейтится operations.edit); построчный гейт по двигателю — вместе с push с клиента (E2).
+  [SyncTableName.ErpEngineInventoryLines]: { kind: 'permission', code: PermissionCode.OperationsEdit },
   // B3/R3 — вторая линия к безусловному табличному backstop'у выше. Сам по себе
   // 'superadmin' здесь не защищает (для не-operator ролей гейт обходится), но
   // оставляет верный ответ, если backstop когда-нибудь снимут: fail-open от
