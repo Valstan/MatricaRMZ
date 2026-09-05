@@ -558,7 +558,7 @@ async function main() {
       const touchedSet = new Set(touchedIds);
       const signRows = savedRows.filter((row) => touchedSet.has(String(row.id)));
       if (signRows.length > 0) {
-        signAndAppendDetailed(
+        await signAndAppendDetailed(
           signRows.map((line) => ({
             type: 'upsert' as const,
             table: LedgerTableName.ErpEngineAssemblyBomLines,

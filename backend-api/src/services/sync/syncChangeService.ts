@@ -74,7 +74,7 @@ export async function recordSyncChanges(actor: SyncActor, changes: SyncChange[],
  * Synchronously appends changes to ledger only (no PG projection).
  * Only used by legacy tests.
  */
-export function appendLedgerChanges(actor: SyncActor, changes: SyncChangeJson[]) {
+export async function appendLedgerChanges(actor: SyncActor, changes: SyncChangeJson[]) {
   if (!changes.length) return { applied: 0, lastSeq: 0, blockHeight: 0 };
 
   const payloads: LedgerTxPayload[] = [];
@@ -99,7 +99,7 @@ export function appendLedgerChanges(actor: SyncActor, changes: SyncChangeJson[])
     });
   }
   if (payloads.length === 0) return { applied: 0, lastSeq: 0, blockHeight: 0 };
-  return signAndAppendDetailed(payloads);
+  return await signAndAppendDetailed(payloads);
 }
 
 /**

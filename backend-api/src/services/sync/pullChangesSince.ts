@@ -3,7 +3,7 @@
  *
  * For all SyncTable names the query goes directly against the canonical PG table
  * using `last_server_seq > since`.  This avoids phantom UUIDs that exist in the
- * in-memory ledger / ledger_tx_index but not in PG.
+ * journal (ledger_tx_index) but not in PG.
  *
  * Privacy pre-filtering for chat_messages / chat_reads / notes / note_shares is
  * applied at the SQL level so non-admin users only receive rows they are allowed
@@ -42,7 +42,6 @@ import {
   userSectionAccess,
 } from '../../database/schema.js';
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
-import { ensureLedgerTxIndexUpToDate } from './ledgerTxIndexService.js';
 import { PRIVACY_TABLES, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
 import { isPullTableAllowedForRole } from './pullReadFilter.js';
 
@@ -146,21 +145,19 @@ type ChangeRow = SyncPullResponse['changes'][number];
  * невидимое окно, возвращает ноль, и всё, что придёт на сервер позже, до реплики уже
  * не доедет (лечилось только resetLocalDb).
  *
- * Прыгаем при этом на `ledgerLastSeq`, а НЕ на `serverLastSeq = max(lti, ledger)`:
- * seq новым строкам синк-таблиц раздаёт именно счётчик ledger'а, и на БД с дрейфом
- * счётчиков (индекс ушёл вперёд ledger'а — GOTCHAS «seq drift») прыжок на общий
- * максимум увёл бы курсор ВЫШЕ всех будущих записей и ослепил клиента навсегда.
- * Счётчик снят ДО запросов к таблицам, поэтому строку, записанную во время
- * сканирования, прыжок не проскочит — у неё seq больше.
+ * Прыгаем при этом на `serverLastSeq` — последний номер журнала (ledger_seq). С 2026-09
+ * это единственный счётчик: дрейфа «индекс ушёл вперёд ledger'а» (GOTCHAS «seq drift»)
+ * больше не бывает. Счётчик снят ДО запросов к таблицам, поэтому строку, записанную во
+ * время сканирования, прыжок не проскочит — у неё seq больше.
  */
 export function nextPullCursor(
   pageChanges: ReadonlyArray<Pick<ChangeRow, 'server_seq'>>,
   effectiveSince: number,
-  ledgerLastSeq: number,
+  serverLastSeq: number,
 ): number {
   const last = pageChanges.at(-1)?.server_seq;
   if (last != null) return last;
-  return Math.max(effectiveSince, ledgerLastSeq);
+  return Math.max(effectiveSince, serverLastSeq);
 }
 
 /** Convert a PG row to the standard change-row format used by the pull response. */
@@ -192,17 +189,8 @@ export async function pullChangesSince(
 ): Promise<SyncPullResponse> {
   const requestedLimit = Math.max(1, Math.min(20000, Number(limit) || 5000));
 
-  // Still keep LTI up-to-date for non-sync tables (release_registry etc.)
-  await ensureLedgerTxIndexUpToDate().catch(() => null);
-
-  // Determine the global "last seq" from both PG-based sync tables and ledger
-  const ltiMaxRow = await db
-    .select({ max: sql<number>`coalesce(max(${ledgerTxIndex.serverSeq}), 0)` })
-    .from(ledgerTxIndex)
-    .limit(1);
-  const ltiLastSeq = Number(ltiMaxRow[0]?.max ?? 0);
-  const ledgerLastSeq = getLedgerLastSeq();
-  const serverLastSeq = Math.max(ltiLastSeq, ledgerLastSeq);
+  // Журнал в PG — единственный источник номеров (ledger_seq + ledger_tx_index).
+  const serverLastSeq = await getLedgerLastSeq();
 
   const effectiveSince = Math.max(0, Math.min(Number(since ?? 0), serverLastSeq));
 
@@ -338,7 +326,7 @@ export async function pullChangesSince(
 
   const hasMore = allChanges.length > safeLimit;
   const pageChanges = allChanges.slice(0, safeLimit);
-  const lastSeq = nextPullCursor(pageChanges, effectiveSince, ledgerLastSeq);
+  const lastSeq = nextPullCursor(pageChanges, effectiveSince, serverLastSeq);
 
   return {
     sync_protocol_version: 2,

@@ -137,7 +137,10 @@ run_case "no room refuses before touching anything, and alerts" 1 1 'not enough 
   MATRICA_BACKUP_FLOOR_BYTES=999999999999999
 run_case "bad retention alerts once" 1 1 'RETENTION must be an integer' MATRICA_BACKUP_RETENTION=0
 run_case "ledger without the keyring is refused" 1 1 'data-key\.json' MATRICA_ENV_FILE="$ROOT/env-nokey"
-run_case "ledger without blocks is refused" 1 1 'has no blocks' MATRICA_ENV_FILE="$ROOT/env-noblocks"
+# С 2026-09 журнал живёт в PostgreSQL: без ledger-дерева бэкап — только дамп базы, и это
+# штатный режим (после архивации цепочки каталога на боксе не будет).
+run_case "without a ledger tree the dump alone is archived and verified" 0 0 'verified: db\.dump only listed' \
+  MATRICA_ENV_FILE="$ROOT/env-noblocks"
 
 # A missing env file cannot alert (the credentials live in it) but must say exactly that.
 run_case "missing env file says the alert is impossible" 1 0 'ALERT IMPOSSIBLE' \

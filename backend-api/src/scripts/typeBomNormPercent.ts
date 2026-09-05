@@ -85,7 +85,7 @@ async function main() {
     .select()
     .from(erpEngineAssemblyBomLines)
     .where(inArray(erpEngineAssemblyBomLines.id, toUpdate.map((u) => u.id)));
-  signAndAppendDetailed(
+  await signAndAppendDetailed(
     (savedRows as Array<Record<string, unknown>>).map((line) => ({
       type: 'upsert' as const,
       table: LedgerTableName.ErpEngineAssemblyBomLines,

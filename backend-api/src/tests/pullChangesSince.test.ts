@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { entities, ledgerTxIndex } from '../database/schema.js';
 
-const ensureLedgerTxIndexUpToDateMock = vi.fn();
 const getLedgerLastSeqMock = vi.fn(() => 0);
 const rowsByTable = new Map<unknown, any[][]>();
 
@@ -11,10 +10,6 @@ function dequeueRows(table: unknown) {
   if (!queue || queue.length === 0) return [];
   return queue.shift() ?? [];
 }
-
-vi.mock('../services/sync/ledgerTxIndexService.js', () => ({
-  ensureLedgerTxIndexUpToDate: (...args: any[]) => ensureLedgerTxIndexUpToDateMock(...args),
-}));
 
 vi.mock('../ledger/ledgerService.js', () => ({
   getLedgerLastSeq: () => getLedgerLastSeqMock(),
@@ -39,15 +34,14 @@ describe('pullChangesSince', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     rowsByTable.clear();
-    ensureLedgerTxIndexUpToDateMock.mockResolvedValue(undefined);
     getLedgerLastSeqMock.mockReturnValue(0);
     process.env.MATRICA_SYNC_PULL_ADAPTIVE_ENABLED = '0';
   });
 
   it('sets has_more and server_cursor by page rows', async () => {
     const { pullChangesSince } = await import('../services/sync/pullChangesSince.js');
+    getLedgerLastSeqMock.mockReturnValue(100);
     rowsByTable.set(ledgerTxIndex, [
-      [{ max: 100 }],
       [
         {
           table: 'release_registry',
@@ -80,7 +74,6 @@ describe('pullChangesSince', () => {
     ]]);
 
     const res = await pullChangesSince(0, { id: 'u2', role: 'user' }, 1);
-    expect(ensureLedgerTxIndexUpToDateMock).toHaveBeenCalledTimes(1);
     expect(res.server_last_seq).toBe(100);
     expect(res.has_more).toBe(true);
     expect(res.server_cursor).toBeGreaterThan(0);
@@ -90,7 +83,8 @@ describe('pullChangesSince', () => {
 
   it('adds last_server_seq into payload_json of returned rows', async () => {
     const { pullChangesSince } = await import('../services/sync/pullChangesSince.js');
-    rowsByTable.set(ledgerTxIndex, [[{ max: 20 }], []]);
+    getLedgerLastSeqMock.mockReturnValue(20);
+    rowsByTable.set(ledgerTxIndex, [[]]);
     rowsByTable.set(entities, [[{
       id: 'e1',
       typeId: 't1',

@@ -76,78 +76,15 @@ export type LedgerTxPayload = {
   ts: number;
 };
 
+// Транзакция журнала с выданным номером. `signature`/`public_key` остались от цепочки
+// блоков (снята 2026-09, план ledger-journal-in-pg): журнал в PostgreSQL не подписывает.
 export type LedgerSignedTx = LedgerTxPayload & {
   seq: number;
   tx_id: string;
-  signature: string;
-  public_key: string;
+  signature?: string;
+  public_key?: string;
 };
 
-export type LedgerBlock = {
-  height: number;
-  prev_hash: string;
-  created_at: number;
-  txs: LedgerSignedTx[];
-  hash: string;
-};
-
-export type LedgerState = {
-  tables: Record<LedgerTableName, Record<string, Record<string, unknown>>>;
-};
-
-export function emptyLedgerState(): LedgerState {
-  return {
-    tables: {
-      entity_types: {},
-      entities: {},
-      attribute_defs: {},
-      attribute_values: {},
-      operations: {},
-      audit_log: {},
-      chat_messages: {},
-      chat_reads: {},
-      user_presence: {},
-      notes: {},
-      note_shares: {},
-      card_drafts: {},
-      ai_chat_requests: {},
-      erp_part_templates: {},
-      erp_part_cards: {},
-      erp_tool_templates: {},
-      erp_tool_cards: {},
-      erp_counterparties: {},
-      erp_contracts: {},
-      erp_employee_cards: {},
-      directory_engine_brands: {},
-      directory_parts: {},
-      directory_tools: {},
-      directory_goods: {},
-      directory_services: {},
-      erp_nomenclature: {},
-      erp_engine_assembly_bom: {},
-      erp_engine_assembly_bom_lines: {},
-      erp_engine_assembly_bom_brand_links: {},
-      erp_engine_instances: {},
-      erp_engine_inventory_lines: {},
-      erp_document_headers: {},
-      erp_document_lines: {},
-      erp_reg_stock_balance: {},
-      erp_reg_stock_movements: {},
-      erp_reg_part_usage: {},
-      erp_reg_contract_settlement: {},
-      erp_reg_employee_access: {},
-      erp_journal_documents: {},
-      users: {},
-      user_section_access: {},
-      permissions: {},
-      user_permissions: {},
-      permission_delegations: {},
-      file_assets: {},
-      client_settings: {},
-      release_registry: {},
-    },
-  };
-}
 
 export function canonicalizeTxPayload(payload: LedgerTxPayload): string {
   const stable = {

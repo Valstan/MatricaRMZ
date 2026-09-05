@@ -114,13 +114,13 @@ async function loadSkippedRows24h() {
   return { dependency, conflict, byTable };
 }
 
-function countLedgerRows(syncTable: SyncTableName): number {
+async function countLedgerRows(syncTable: SyncTableName): Promise<number> {
   const pageSize = 5000;
   let total = 0;
   let cursorValue: string | number | undefined;
   let cursorId: string | undefined;
   for (let i = 0; i < 20_000; i += 1) {
-    const rows = queryState(syncTable as any, {
+    const rows = await queryState(syncTable as any, {
       includeDeleted: false,
       sortBy: 'id',
       sortDir: 'asc',
@@ -140,13 +140,13 @@ function countLedgerRows(syncTable: SyncTableName): number {
   return total;
 }
 
-function loadLedgerRows(syncTable: SyncTableName): Array<Record<string, unknown>> {
+async function loadLedgerRows(syncTable: SyncTableName): Promise<Array<Record<string, unknown>>> {
   const pageSize = 5000;
   const out: Array<Record<string, unknown>> = [];
   let cursorValue: string | number | undefined;
   let cursorId: string | undefined;
   for (let i = 0; i < 20_000; i += 1) {
-    const rows = queryState(syncTable as any, {
+    const rows = await queryState(syncTable as any, {
       includeDeleted: false,
       sortBy: 'id',
       sortDir: 'asc',
@@ -195,7 +195,7 @@ async function maxProjectionSeq(): Promise<number> {
 
 export async function getSyncPipelineHealth() {
   const generatedAt = Date.now();
-  const ledgerLastSeq = toNumber(getLedgerLastSeq());
+  const ledgerLastSeq = toNumber(await getLedgerLastSeq());
   const skippedRows24h = await loadSkippedRows24h();
 
   const idxMax = await db
@@ -213,7 +213,7 @@ export async function getSyncPipelineHealth() {
     operations: { ledgerCount: 0, projectionCount: 0, diffAbs: 0, diffRatio: 0 },
   };
 
-  const ledgerEntityTypes = loadLedgerRows(SyncTableName.EntityTypes);
+  const ledgerEntityTypes = await loadLedgerRows(SyncTableName.EntityTypes);
   const entityTypeByCode = new Map<string, Record<string, unknown>>();
   const entityTypeCodeById = new Map<string, string>();
   const bulkEntityTypeIds = new Set<string>();
@@ -244,7 +244,7 @@ export async function getSyncPipelineHealth() {
     if (canonicalId) canonicalEntityTypeIdById.set(id, canonicalId);
   }
 
-  const ledgerAttributeDefs = loadLedgerRows(SyncTableName.AttributeDefs);
+  const ledgerAttributeDefs = await loadLedgerRows(SyncTableName.AttributeDefs);
   const attributeDefByKey = new Map<string, Record<string, unknown>>();
   for (const row of ledgerAttributeDefs) {
     const id = String(row.id ?? '');
@@ -272,7 +272,7 @@ export async function getSyncPipelineHealth() {
     if (canonicalDefId) canonicalAttributeDefIdById.set(id, canonicalDefId);
   }
 
-  const ledgerAttributeValues = loadLedgerRows(SyncTableName.AttributeValues);
+  const ledgerAttributeValues = await loadLedgerRows(SyncTableName.AttributeValues);
   const attributeValueByPair = new Map<string, Record<string, unknown>>();
   for (const row of ledgerAttributeValues) {
     const entityId = String(row.entity_id ?? '');
@@ -287,7 +287,7 @@ export async function getSyncPipelineHealth() {
   }
 
   for (const t of TABLES) {
-    let ledgerCount = countLedgerRows(t.syncName);
+    let ledgerCount = await countLedgerRows(t.syncName);
     if (t.syncName === SyncTableName.EntityTypes) {
       ledgerCount = entityTypeByCode.size;
     } else if (t.syncName === SyncTableName.AttributeDefs) {

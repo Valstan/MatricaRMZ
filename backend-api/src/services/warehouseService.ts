@@ -1790,7 +1790,7 @@ export async function upsertWarehouseNomenclature(args: {
     const saved = await db.select().from(erpNomenclature).where(eq(erpNomenclature.id, id)).limit(1);
     const row = saved[0];
     if (row) {
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'upsert',
           table: LedgerTableName.ErpNomenclature,
@@ -1849,7 +1849,7 @@ export async function deleteWarehouseNomenclature(args: {
         .where(and(eq(directoryParts.id, args.id), isNull(directoryParts.deletedAt)));
     }
     if (row) {
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'delete',
           table: LedgerTableName.ErpNomenclature,
@@ -2265,7 +2265,7 @@ export async function upsertWarehouseEngineInstance(args: {
     const saved = await db.select().from(erpEngineInstances).where(eq(erpEngineInstances.id, id)).limit(1);
     const row = saved[0];
     if (row) {
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'upsert',
           table: LedgerTableName.ErpEngineInstances,
@@ -2305,7 +2305,7 @@ export async function deleteWarehouseEngineInstance(args: { id: string }): Promi
     const saved = await db.select().from(erpEngineInstances).where(eq(erpEngineInstances.id, String(args.id))).limit(1);
     const row = saved[0];
     if (row) {
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'delete',
           table: LedgerTableName.ErpEngineInstances,
@@ -3154,7 +3154,7 @@ export async function reverseWarehouseDocument(args: {
         ts,
       });
     }
-    if (ledgerPayloads.length > 0) signAndAppendDetailed(ledgerPayloads);
+    if (ledgerPayloads.length > 0) await signAndAppendDetailed(ledgerPayloads);
 
     return { ok: true, id: reversalId, docNo: reversalDocNo };
   } catch (e) {
@@ -3891,7 +3891,7 @@ export async function postWarehouseDocument(args: {
         ts,
       });
     }
-    if (ledgerPayloads.length > 0) signAndAppendDetailed(ledgerPayloads);
+    if (ledgerPayloads.length > 0) await signAndAppendDetailed(ledgerPayloads);
 
     // Engine phase transitions (Stage 2): only when the document is a parts-movement v1 document
     // tied to a specific engine_id via header payload. Failures are logged but never block posting.

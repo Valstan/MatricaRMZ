@@ -114,12 +114,12 @@ function topPendingItems(
     }));
 }
 
-function forEachLedgerRow(table: SyncTableName, onRow: (row: Record<string, unknown>) => void) {
+async function forEachLedgerRow(table: SyncTableName, onRow: (row: Record<string, unknown>) => void) {
   const pageSize = Math.max(500, Math.min(20_000, Number(process.env.MATRICA_DIAGNOSTICS_LEDGER_PAGE_SIZE ?? 5000)));
   let cursorValue: string | number | undefined;
   let cursorId: string | undefined;
   for (let page = 0; page < 10_000; page += 1) {
-    const rows = queryState(table as any, {
+    const rows = await queryState(table as any, {
       includeDeleted: false,
       sortBy: 'id',
       sortDir: 'asc',
@@ -138,13 +138,13 @@ function forEachLedgerRow(table: SyncTableName, onRow: (row: Record<string, unkn
   }
 }
 
-function computeLedgerTableSnapshot(table: SyncTableName): SnapshotSection {
+async function computeLedgerTableSnapshot(table: SyncTableName): Promise<SnapshotSection> {
   let count = 0;
   let maxUpdatedAt: number | null = null;
   let sumUpdatedAt = 0;
   let pendingCount = 0;
   let errorCount = 0;
-  forEachLedgerRow(table, (row) => {
+  await forEachLedgerRow(table, (row) => {
     count += 1;
     const updatedAt = toNumber(row.updated_at);
     if (updatedAt != null) {
@@ -176,10 +176,10 @@ function safeJsonParse(raw: string | null | undefined): unknown {
 export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
   const generatedAt = nowMs();
   try {
-    const serverSeq = getLedgerLastSeq();
+    const serverSeq = await getLedgerLastSeq();
     const tables: Record<string, SnapshotSection> = {};
     for (const table of SNAPSHOT_TABLES) {
-      tables[table] = computeLedgerTableSnapshot(table);
+      tables[table] = await computeLedgerTableSnapshot(table);
     }
 
     const typeByCode = new Map<string, string>();
@@ -200,7 +200,7 @@ export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
       typeStats.set(code, { count: 0, maxUpdatedAt: null, sumUpdatedAt: 0, pendingCount: 0, errorCount: 0, pendingRows: [] });
     }
 
-    forEachLedgerRow(SyncTableName.EntityTypes, (row) => {
+    await forEachLedgerRow(SyncTableName.EntityTypes, (row) => {
       const code = toStringValue(row.code);
       const id = toStringValue(row.id);
       if (!ENTITY_TYPE_CODES.includes(code) || !id) return;
@@ -208,7 +208,7 @@ export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
       codeByTypeId.set(id, code);
     });
 
-    forEachLedgerRow(SyncTableName.AttributeDefs, (row) => {
+    await forEachLedgerRow(SyncTableName.AttributeDefs, (row) => {
       const typeId = toStringValue(row.entity_type_id);
       const code = toStringValue(row.code);
       const id = toStringValue(row.id);
@@ -219,7 +219,7 @@ export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
     });
 
     const pendingEntityById = new Map<string, { code: string; rowIndex: number }>();
-    forEachLedgerRow(SyncTableName.Entities, (row) => {
+    await forEachLedgerRow(SyncTableName.Entities, (row) => {
       const typeId = toStringValue(row.type_id);
       const code = codeByTypeId.get(typeId);
       if (!code) return;
@@ -252,7 +252,7 @@ export async function computeServerSnapshot(): Promise<ConsistencySnapshot> {
     if (pendingEntityById.size > 0 && labelDefByTypeCode.size > 0) {
       const labelDefToCode = new Map<string, string>();
       for (const [code, defId] of labelDefByTypeCode.entries()) labelDefToCode.set(defId, code);
-      forEachLedgerRow(SyncTableName.AttributeValues, (row) => {
+      await forEachLedgerRow(SyncTableName.AttributeValues, (row) => {
         const entityId = toStringValue(row.entity_id);
         const defId = toStringValue(row.attribute_def_id);
         if (!entityId || !defId) return;

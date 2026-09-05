@@ -14,7 +14,7 @@
 | [`backend-api/`](../backend-api) | Express REST API + Drizzle ORM (PostgreSQL) | API endpoints, бизнес-логика, миграции, фоновые job'ы |
 | [`shared/`](../shared) | Общие типы и pure-логика TS | Изменения видимые и UI и API, доменные правила (BOM, forecast, signatures) |
 | [`web-admin/`](../web-admin) | Веб-админка (React, отдельно от Electron) | Админ-задачи через браузер |
-| [`ledger/`](../ledger) | Encrypted event log + keyring (enc:v1/v2) | Шифрование sync-пакетов, ротация ключей |
+| [`ledger/`](../ledger) | Типы контракта журнала (`LedgerTableName`, `LedgerTxPayload`) | Имена таблиц журнала/синка; цепочка блоков снята 2026-09 ([план](plans/ledger-journal-in-pg-2026-09.md)) |
 | [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger; `prod-ops/` — ops прод-VPS; `client-ops/` — инструменты для машин парка | Релизный процесс (см. `AGENTS.md` §Release); настройка антивируса на клиенте — [`client-ops/README.md`](../scripts/client-ops/README.md) |
 | [`deploy/`](../deploy) | nginx config + systemd units | Прод-конфигурация nginx / systemd таймеры |
 
@@ -28,7 +28,7 @@
 | **Инструмент: позиция vs экземпляр** | `services/toolsService.ts` (экземпляры), `pages/ToolDetailsPage.tsx`, `scripts/migrateToolCatalogToNomenclature.ts` | Наименование живёт в номенклатуре, конкретная единица — в EAV-`tool`; выдаётся экземпляр. Граница — [`WAREHOUSE.md`](WAREHOUSE.md#инструмент-позиция--экземпляр-2026-08-13) |
 | **Прогноз сборки** | `services/warehouseForecastService.ts` | Прогноз 7 дней, kit-варианты, edge cases (см. v1.22.0 блок A) |
 | **Наряды** | `services/workOrderClosingService.ts`, `services/servicePricingService.ts` | 4 типа нарядов (Regular/Repair/Assembly/Manufacturing), подписи, ценообразование услуг |
-| **Sync + Ledger** | `routes/sync.ts`, `routes/ledger.ts`, `services/masterdataSyncService.ts`, `services/syncPipelineSupervisorService.ts` | Синхронизация клиент↔сервер, ledger event log, supervisor (singleton на primary) |
+| **Sync + журнал** | `routes/ledger.ts` (push `/tx/submit`, pull `/state/*`), `services/sync/syncWriteService.ts` (единый путь записи), `ledger/ledgerService.ts` (журнал в PG: `ledger_seq` + `ledger_tx_index` под advisory-lock, `queryState`), `services/syncPipelineSupervisorService.ts` | Синхронизация клиент↔сервер, история изменений, supervisor (singleton на primary). Блоков, подписей и проекции нет с 2026-09 |
 | **Список деталей двигателя (строгая таблица)** | `services/engineInventoryLinesService.ts` (вывод строк из листа, диф по `line_key`), `scripts/backfillEngineInventoryLines.ts`, shared `domain/engineInventoryLines.ts` (конвертация строка↔лист), миграция `0090`, клиентская реплика `electron-app/drizzle/0023` + `migrate.ts` | `erp_engine_inventory_lines`: одна строка = одна деталь листа `engine_inventory`. Сервер выводит строки из `meta_json` при каждой записи листа (`writeSyncChanges` шаг 4); читатели пока на `meta_json`. План — [`plans/engine-inventory-lines-2026-09.md`](plans/engine-inventory-lines-2026-09.md) |
 | **AI** | `services/aiAgent*.ts`, `services/ai/claudeTools.ts` | AI-tools, learning, chat — **выключено на проде** ([Anthropic geo-block](PENDING_FOLLOWUPS.md#-блокер-anthropic-api-блокирует-рф-ip)) |
 | **Auth / Users** | `routes/auth.ts`, `services/employeeAuthService.ts`, `services/userDeletionService.ts` | Логин сотрудников, GDPR-delete, refresh tokens |
@@ -79,7 +79,7 @@
 - **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0059_directory_parts_spec_columns.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
 - **SQLite (клиент):** локальный кэш. Миграции — `electron-app/drizzle/`. Накат при старте Electron.
 - **EAV (`attribute_values`):** атрибуты сущностей без DDL. Новые атрибуты регистрировать в `ensureAttributeDefs` (`SimpleMasterdataDetailsPage.tsx`). См. `AGENTS.md` §EAV.
-- **Ledger (encrypted event log):** [`ledger/`](../ledger), keyring enc:v2 (multi-key, backward-compat с enc:v1).
+- **Журнал изменений:** таблица `ledger_tx_index` (seq, таблица, строка, payload открытым текстом со штампом seq, актор) + `SEQUENCE ledger_seq`; реестр выпусков — `release_registry`. Пишет только `ledgerService.signAndAppendDetailed` (через `writeSyncChanges`).
 
 ## Deploy / Operations
 

@@ -49,8 +49,8 @@ import { signAndAppendDetailed } from '../ledger/ledgerService.js';
  * поведение всего erp-контура — отдельный пункт в PENDING_FOLLOWUPS.
  *
  * ⚠️ ПРЕДУСЛОВИЯ ПРОГОНА (проверяются скриптом, кроме последнего):
- *   • боевой env просорсен (MATRICA_LEDGER_DIR) — иначе подпись уйдёт в паразитный
- *     ledger с новыми ключами (GOTCHAS M30);
+ *   • боевой env просорсен (PG*) — журнал изменений живёт в той же базе, что и данные
+ *     (с 2026-09; прежняя грабля «паразитный ledger» M30 больше не существует);
  *   • ВСЕ живые клиенты ≥ 2026.712.1818 (partial unique на code, client migration
  *     0016 / schema-version 11). На старом клиенте пустой код ломает применение pull'а;
  *   • ledger-replay должен переживать пустой код — `normalizeRow` отбрасывал строки
@@ -215,7 +215,7 @@ async function writePair(
   });
 
   if (outcome === 'written' && saved) {
-    signAndAppendDetailed([
+    await signAndAppendDetailed([
       {
         type: 'upsert',
         table: LedgerTableName.ErpNomenclature,
@@ -230,12 +230,6 @@ async function writePair(
 }
 
 async function assertPreconditions(): Promise<void> {
-  if (!process.env.MATRICA_LEDGER_DIR) {
-    throw new Error(
-      'MATRICA_LEDGER_DIR не задан — просорсь боевой env перед прогоном (GOTCHAS M30), ' +
-        'иначе подпись уйдёт в паразитный ledger с новыми ключами',
-    );
-  }
   const since = Date.now() - CLIENT_ALIVE_WINDOW_MS;
   const clients = await db
     .select({

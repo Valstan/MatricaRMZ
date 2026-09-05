@@ -89,6 +89,10 @@ curl -L -H "Authorization: OAuth $YANDEX_DISK_TOKEN" \
 # «unsupported version (1.16)»). Пароль: --passphrase-file работает только с --batch;
 # для интерактивного ввода — export GPG_TTY=$(tty) и без --batch.
 
+# С 2026-09 (журнал в PostgreSQL, план ledger-journal-in-pg) архив содержит ТОЛЬКО db.dump —
+# ledger-дерево попадает в него, лишь если на боксе ещё лежит каталог с blocks/. Для таких
+# архивов всё про blocks/индекс/высоту ниже не применяется: восстановление = pg_restore.
+
 # Вариант А — со staging-каталогом (нужно ~2× размера ledger свободного места)
 mkdir restore && gpg --batch --passphrase-file <pass> --decrypt backup.tar.zst.gpg | zstd -d | tar -x -C restore
 # теперь restore/db.dump, restore/<index/state/keys>.json и restore/blocks/… (без archive/, *.bak.*, *.corrupt.*)

@@ -829,7 +829,7 @@ export async function upsertWarehouseAssemblyBom(args: {
     const savedBom = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
     if (savedBom[0]) {
       const row = savedBom[0];
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'upsert',
           table: LedgerTableName.ErpEngineAssemblyBom,
@@ -863,7 +863,7 @@ export async function upsertWarehouseAssemblyBom(args: {
       .where(eq(erpEngineAssemblyBomBrandLinks.bomId, id));
     if (allBrandLinks.length > 0) {
       const actorPayload = { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' };
-      signAndAppendDetailed(
+      await signAndAppendDetailed(
         allBrandLinks.map((link) => ({
           type: (link.deletedAt == null ? 'upsert' : 'delete') as 'upsert' | 'delete',
           table: LedgerTableName.ErpEngineAssemblyBomBrandLinks,
@@ -887,7 +887,7 @@ export async function upsertWarehouseAssemblyBom(args: {
     }
     if (clearedDefaultLinks.length > 0) {
       const actorPayload = { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' };
-      signAndAppendDetailed(
+      await signAndAppendDetailed(
         clearedDefaultLinks.map((link) => ({
           type: 'upsert' as const,
           table: LedgerTableName.ErpEngineAssemblyBomBrandLinks,
@@ -915,7 +915,7 @@ export async function upsertWarehouseAssemblyBom(args: {
       .from(erpEngineAssemblyBomLines)
       .where(and(eq(erpEngineAssemblyBomLines.bomId, id), isNull(erpEngineAssemblyBomLines.deletedAt)));
     if (savedLines.length > 0) {
-      signAndAppendDetailed(
+      await signAndAppendDetailed(
         savedLines.map((line) => ({
           type: 'upsert' as const,
           table: LedgerTableName.ErpEngineAssemblyBomLines,
@@ -1054,7 +1054,7 @@ export async function deleteWarehouseAssemblyBom(args: { id: string; actor: Acto
       actor,
       ts,
     }));
-    signAndAppendDetailed([
+    await signAndAppendDetailed([
       ...lineDeletes,
       ...brandLinkDeletes,
       {
@@ -1103,7 +1103,7 @@ export async function activateWarehouseAssemblyBomAsDefault(args: {
     const saved = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
     const savedRow = saved[0];
     if (savedRow) {
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'upsert',
           table: LedgerTableName.ErpEngineAssemblyBom,
@@ -1144,7 +1144,7 @@ export async function archiveWarehouseAssemblyBom(args: { id: string; actor: Act
     const saved = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
     const row = saved[0];
     if (row) {
-      signAndAppendDetailed([
+      await signAndAppendDetailed([
         {
           type: 'upsert',
           table: LedgerTableName.ErpEngineAssemblyBom,
@@ -1268,7 +1268,7 @@ export async function renameWarehouseBomComponentTypes(args: {
         .where(inArray(erpEngineAssemblyBomLines.id, ids as any));
       const updatedRows = await db.select().from(erpEngineAssemblyBomLines).where(inArray(erpEngineAssemblyBomLines.id, ids as any));
       renamedLineCount += updatedRows.length;
-      signAndAppendDetailed(
+      await signAndAppendDetailed(
         updatedRows.map((line) => ({
           type: 'upsert' as const,
           table: LedgerTableName.ErpEngineAssemblyBomLines,
