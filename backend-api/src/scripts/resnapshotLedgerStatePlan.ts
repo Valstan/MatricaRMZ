@@ -129,14 +129,31 @@ function stable(v: unknown): string {
     .join(',')}}`;
 }
 
+// Поля, которые проставляет сервер ПОСЛЕ того, как транзакция легла в цепочку: цепочка хранит
+// строку до штампа, PG — после. При сверке «цепочка ↔ PG» они расходятся почти в каждой строке
+// и ничего не говорят о данных, поэтому исключаются. При сверке «PG ↔ state.json» — нет: там
+// обе стороны после штампа, и расхождение в них — настоящее.
+export const CHAIN_BOOKKEEPING_FIELDS: readonly string[] = ['last_server_seq', 'sync_status'];
+
+export type DiffOptions = { sampleSize?: number; ignoreFields?: readonly string[]; tables?: readonly string[] };
+
 // Сверка по ОТКРЫТОМУ тексту. Шифротекст сравнивать нельзя: у AES-GCM случайный IV, и одна и
 // та же строка, зашифрованная дважды, различается байтами; после ротации ключа различается
 // ещё и эпоха (`enc:v1` в блоках против `enc:v2` в проекции). Второй прогон rebuild-state
 // 04.09 показал ~5 тыс. таких «расхождений», которые расхождениями не были.
-export function diffStates(left: LedgerState, right: LedgerState, decryptRow: (row: Row) => Row, sampleSize = 3): TableDiff[] {
+export function diffStates(left: LedgerState, right: LedgerState, decryptRow: (row: Row) => Row, opts: DiffOptions = {}): TableDiff[] {
+  const sampleSize = opts.sampleSize ?? 3;
+  const ignore = new Set(opts.ignoreFields ?? []);
+  const strip = (row: Row): Row => {
+    if (ignore.size === 0) return row;
+    const out: Row = {};
+    for (const [k, v] of Object.entries(row)) if (!ignore.has(k)) out[k] = v;
+    return out;
+  };
   const lt = left.tables as Tables;
   const rt = right.tables as Tables;
-  const names = [...new Set([...Object.keys(lt), ...Object.keys(rt)])].sort();
+  const all = [...new Set([...Object.keys(lt), ...Object.keys(rt)])].sort();
+  const names = opts.tables ? all.filter((t) => opts.tables!.includes(t)) : all;
   const result: TableDiff[] = [];
   for (const table of names) {
     const a = lt[table] ?? {};
@@ -159,8 +176,8 @@ export function diffStates(left: LedgerState, right: LedgerState, decryptRow: (r
         if (d.sampleOnlyLeft.length < sampleSize) d.sampleOnlyLeft.push(id);
         continue;
       }
-      const ra = decryptRow(a[id]!);
-      const rb = decryptRow(b[id]!);
+      const ra = strip(decryptRow(a[id]!));
+      const rb = strip(decryptRow(b[id]!));
       if (stable(ra) === stable(rb)) continue;
       d.differing += 1;
       if (d.sampleDiffering.length < sampleSize) d.sampleDiffering.push(id);
@@ -179,16 +196,19 @@ export function diffStates(left: LedgerState, right: LedgerState, decryptRow: (r
   return result;
 }
 
-export function formatTableDiff(d: TableDiff): string {
+export type DiffLabels = { left: string; right: string };
+
+export function formatTableDiff(d: TableDiff, labels: DiffLabels = { left: 'PG', right: 'state.json' }): string {
   const fields = Object.entries(d.fields)
     .sort((x, y) => y[1] - x[1])
     .slice(0, 6)
     .map(([k, n]) => `${k}=${n}`)
     .join(' ');
-  const lines = [`${d.table}: PG=${d.left} state.json=${d.right} толькоPG=${d.onlyLeft} толькоState=${d.onlyRight} разных=${d.differing}`];
+  const { left, right } = labels;
+  const lines = [`${d.table}: ${left}=${d.left} ${right}=${d.right} только${left}=${d.onlyLeft} только${right}=${d.onlyRight} разных=${d.differing}`];
   if (fields) lines.push(`    поля: ${fields}`);
-  if (d.sampleOnlyLeft.length) lines.push(`    только в PG: ${d.sampleOnlyLeft.join(', ')}`);
-  if (d.sampleOnlyRight.length) lines.push(`    только в state.json: ${d.sampleOnlyRight.join(', ')}`);
+  if (d.sampleOnlyLeft.length) lines.push(`    только в ${left}: ${d.sampleOnlyLeft.join(', ')}`);
+  if (d.sampleOnlyRight.length) lines.push(`    только в ${right}: ${d.sampleOnlyRight.join(', ')}`);
   if (d.sampleDiffering.length) lines.push(`    разные: ${d.sampleDiffering.join(', ')}`);
   return lines.join('\n');
 }
