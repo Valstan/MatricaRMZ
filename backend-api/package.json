@@ -79,6 +79,7 @@
     "workshop:add-employees:apply": "tsx src/scripts/addWorkshopEmployees.ts --apply",
     "engine-inventory:migrate": "tsx src/scripts/migrateChecklistToEngineInventory.ts",
     "engine-inventory:backfill-lines": "tsx src/scripts/backfillEngineInventoryLines.ts",
+    "ledger:import-release-registry": "tsx src/scripts/importReleaseRegistryFromProjection.ts",
     "support:contact": "tsx src/scripts/setSupportContact.ts",
     "ui:tighten-global-density": "tsx src/scripts/tightenGlobalUiDensity.ts",
     "ui:tighten-global-density:apply": "tsx src/scripts/tightenGlobalUiDensity.ts --apply",
