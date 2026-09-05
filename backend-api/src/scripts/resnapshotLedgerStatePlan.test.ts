@@ -3,6 +3,7 @@ import { posix, win32 } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  CHAIN_BOOKKEEPING_FIELDS,
   backupDirAllowed,
   buildProjectionFromPg,
   diffStates,
@@ -123,6 +124,25 @@ describe('diffStates — сверка по открытому тексту', () 
     expect(d.map((x) => x.table)).toEqual(['t', 'u']);
     expect(d[0]).toMatchObject({ onlyLeft: 1, onlyRight: 1, differing: 1, fields: { v: 1 }, sampleDiffering: ['b'] });
     expect(d[1]).toMatchObject({ left: 0, right: 1, onlyRight: 1 });
-    expect(formatTableDiff(d[0]!)).toContain('толькоPG=1 толькоState=1 разных=1');
+    expect(formatTableDiff(d[0]!)).toContain('толькоPG=1 толькоstate.json=1 разных=1');
+    expect(formatTableDiff(d[0]!, { left: 'цепочка', right: 'PG' })).toContain('цепочка=2 PG=2 толькоцепочка=1 толькоPG=1');
+  });
+
+  // Сверка «цепочка ↔ PG»: цепочка хранит строку ДО серверного штампа, PG — после. Без
+  // исключения штампов расходилась бы почти каждая строка, и отчёт ничего бы не показывал.
+  it('ignoreFields снимает серверные штампы, tables ограничивает сверку PG-таблицами', () => {
+    const chain = { tables: { t: { a: { id: 'a', v: 1, last_server_seq: 5, sync_status: 'pending' } }, release_registry: { r: { id: 'r' } } } } as any;
+    const pg = { tables: { t: { a: { id: 'a', v: 1, last_server_seq: 9, sync_status: 'synced' } } } } as any;
+    expect(diffStates(chain, pg, (r) => r)).toHaveLength(2);
+    expect(diffStates(chain, pg, (r) => r, { ignoreFields: CHAIN_BOOKKEEPING_FIELDS, tables: ['t'] })).toEqual([]);
+    expect(CHAIN_BOOKKEEPING_FIELDS).toEqual(['last_server_seq', 'sync_status']);
+  });
+
+  it('ignoreFields не прячет настоящие расхождения в остальных полях', () => {
+    const chain = { tables: { t: { a: { id: 'a', v: 1, last_server_seq: 5 } } } } as any;
+    const pg = { tables: { t: { a: { id: 'a', v: 2, last_server_seq: 9 } } } } as any;
+    const d = diffStates(chain, pg, (r) => r, { ignoreFields: CHAIN_BOOKKEEPING_FIELDS });
+    expect(d[0]).toMatchObject({ differing: 1, fields: { v: 1 } });
+    expect(d[0]!.fields.last_server_seq).toBeUndefined();
   });
 });

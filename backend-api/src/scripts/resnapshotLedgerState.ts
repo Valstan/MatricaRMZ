@@ -9,6 +9,7 @@ import { db, pool } from '../database/db.js';
 import { decryptRowSensitiveWithKeyring, encryptRowSensitiveWithKeyring, loadKeyring } from '../ledger/dataKeyring.js';
 import { PG_SYNC_TABLES } from '../services/sync/pgSyncTables.js';
 import {
+  CHAIN_BOOKKEEPING_FIELDS,
   backupDirAllowed,
   buildProjectionFromPg,
   diffStates,
@@ -39,6 +40,12 @@ import {
 // PG-источника (release_registry) берутся из живой проекции; при --chain-rebuilt <файл
 // rebuild-state --out> в них добираются строки, которых в проекции нет или которые в цепочке
 // новее — для этих таблиц цепочка единственный писатель.
+//
+// С --chain-rebuilt печатается и ВТОРОЙ отчёт — «цепочка ↔ PG» по PG-таблицам, по открытому
+// тексту, без серверных штампов (last_server_seq, sync_status). Это единственное место, где
+// цепочка сверяется с истиной: rebuild-state сам с данными не сверяется (вариант А — цепочка
+// журнал, а не истина). «Только в цепочке» = попытки, которых истина не приняла, или строки,
+// жёстко удалённые из PG; «только в PG» = записи мимо ledger'а; «разные» = PG новее.
 //
 // ЗАПУСК (на проде — вне окна ночного бэкапа):
 //   corepack pnpm -F @matricarmz/backend-api ledger:resnapshot-state                       # только сверка
@@ -124,8 +131,18 @@ async function main(): Promise<void> {
   console.log(`\nСВЕРКА новой проекции (слева, PG) с живым state.json (справа), по открытому тексту:`);
   if (diffs.length === 0) console.log('  расхождений нет');
   for (const d of diffs) console.log('  ' + formatTableDiff(d).replace(/\n/g, '\n  '));
+  let chainDiffs: ReturnType<typeof diffStates> | null = null;
+  if (chainRebuilt) {
+    chainDiffs = diffStates(chainRebuilt, built.state, decrypt, { ignoreFields: CHAIN_BOOKKEEPING_FIELDS, tables: built.fromPg });
+    console.log(`\nСВЕРКА цепочки (слева, rebuild-state) с PG-проекцией (справа), по открытому тексту, без серверных штампов (${CHAIN_BOOKKEEPING_FIELDS.join(', ')}):`);
+    if (chainDiffs.length === 0) console.log('  цепочка и PG совпадают по PG-таблицам');
+    for (const d of chainDiffs) console.log('  ' + formatTableDiff(d, { left: 'цепочка', right: 'PG' }).replace(/\n/g, '\n  '));
+  }
   if (args.reportPath) {
-    writeFileSync(resolve(args.reportPath), JSON.stringify({ kind: 'matricarmz-ledger-resnapshot-report', at: Date.now(), headBefore, diffs }, null, 2));
+    writeFileSync(
+      resolve(args.reportPath),
+      JSON.stringify({ kind: 'matricarmz-ledger-resnapshot-report', at: Date.now(), headBefore, diffs, ...(chainDiffs ? { chainVsPg: chainDiffs } : {}) }, null, 2),
+    );
     console.log(`отчёт: ${resolve(args.reportPath)}`);
   }
 

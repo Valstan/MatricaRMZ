@@ -1,14 +1,18 @@
-import { applyTxs, computeLedgerStateHashes, emptyLedgerState, type LedgerBlock, type LedgerState } from '@matricarmz/ledger';
+import { applyTxs, emptyLedgerState, type LedgerBlock, type LedgerState } from '@matricarmz/ledger';
 
 // Чистая половина `ledger:rebuild-state` — разбор аргументов, порядок блоков, прогон и вердикт.
 // Вынесена сюда по той же причине, что и у files:offload-to-yandex: ошибка в этой логике не
 // падает, она молча выносит неверный вердикт о целостности леджера. Форма обязана быть под тестом.
 //
-// Почему инструмент вообще нужен: проекцию `state.json` НИКТО не умеет собрать из блоков —
-// единственные писатели (`appendBlock`/`appendRemoteBlock`) делают read-modify-write, а
-// восстановление при порче (`ensureLedgerStateFile`) берёт свежий `state.json.bak.*` либо пишет
-// ПУСТОЕ состояние, блоки не читая. То есть сегодня проекция авторитетна де-факто, и любая её
-// потеря необратима. Этот инструмент возвращает выводимость: состояние снова следствие цепочки.
+// Что инструмент проверяет — и чего НЕ проверяет (вариант А, решение владельца 2026-09-05).
+// Цепочка блоков — журнал, а не истина: она держит блок-призрак (транзакции, которые нигде не
+// применились, M104) и не знает о записях в PostgreSQL мимо ledger'а. Поэтому «состояние
+// выводится из цепочки» больше не критерий, и сверять пересборку с `state.json` по хешам
+// нельзя: она разойдётся на здоровом леджере. Здесь выносится вердикт только о САМОЙ цепочке —
+// читаются ли все блоки, нет ли разрывов высоты, какие высоты объяснены. Сверка того, что
+// цепочка знает, с истиной (PG) идёт по открытому тексту в `ledger:resnapshot-state
+// --chain-rebuilt <файл --out>`: у него есть и PG, и keyring, а у этого инструмента — нарочно ни
+// того, ни другого.
 
 export type RebuildArgs = { outPath: string; maxBlocks: number; toHeight: number };
 
@@ -113,6 +117,24 @@ export const KNOWN_SEQ_GAP = {
   note: 'гонка дописывания 06.03.2026; блок проигравшего затёрт победителем; строки сверены с PG 04.09 — в базе есть, в цепочке нет',
 } as const;
 
+/**
+ * Блоки-призраки: записаны в цепочку, но их транзакции нигде не состоялись (M104).
+ *
+ * `appendBlock` публикует файл блока и индекс РАНЬШЕ проекции и раньше PG; обрыв между ними
+ * оставляет блок, чьи транзакции не применились ни в `state.json`, ни в PostgreSQL, ни в
+ * `ledger_tx_index`. Клиент получает ошибку и повторяет push другими seq — удачная попытка лежит
+ * в цепочке дальше. Пересборка такой блок обязана ПРОПУСТИТЬ: применив его, она воскресит строки,
+ * которых рабочее хранилище не принимало.
+ *
+ * Запись сюда — только после проверки всех row_id блока по PG. Для 386592 проверено 05.09.2026:
+ * из 1000 строк 767 в PG нет, 190 есть в версии старше блока, 43 — обновлены клиентом позже
+ * с другими seq; ни у одной строки PG `updated_at` не равен метке транзакции блока.
+ * Разбор — `docs/GOTCHAS.md` M104, `docs/PENDING_FOLLOWUPS.md` §«Второй прогон rebuild-state».
+ */
+export const KNOWN_GHOST_BLOCKS: Readonly<Record<number, string>> = {
+  386592: 'блок-призрак 13.08.2026 (M104): seq 1360011…1361010, 1000 attribute_values, нигде не применились — пропущен; все 1000 row_id сверены с PG 05.09.2026',
+};
+
 export type ReplayProgress = { blocks: number; txs: number; lastHeight: number };
 
 export type ReplayDeps = {
@@ -131,6 +153,7 @@ export type ReplayResult = {
   gaps: number[];
   bad: BadBlock[];
   known: Array<{ height: number; note: string }>;
+  ghosts: Array<{ height: number; txs: number; note: string }>;
 };
 
 /**
@@ -147,6 +170,7 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
   const gaps: number[] = [];
   const bad: BadBlock[] = [];
   const known: Array<{ height: number; note: string }> = [];
+  const ghosts: Array<{ height: number; txs: number; note: string }> = [];
   let blocks = 0;
   let txs = 0;
   let lastHeight = 0;
@@ -168,99 +192,43 @@ export function replayBlocks(deps: ReplayDeps, opts: { maxBlocks?: number; toHei
     // потому что пропущенный блок означает, что собранное состояние заведомо неполно.
     if (lastHeight !== 0 && block.height !== lastHeight + 1) gaps.push(block.height);
     if (KNOWN_HASH_MISMATCH_HEIGHTS[block.height]) known.push({ height: block.height, note: KNOWN_HASH_MISMATCH_HEIGHTS[block.height] as string });
-    applyTxs(state, block.txs);
+    // Блок-призрак читается и считается пройденным (высота, разрывы), но в состояние НЕ
+    // применяется: его транзакции нигде не состоялись, и пересборка, взявшая их, воскресила бы
+    // строки, которых нет в истине.
+    const ghostNote = KNOWN_GHOST_BLOCKS[block.height];
+    if (ghostNote) {
+      ghosts.push({ height: block.height, txs: block.txs.length, note: ghostNote });
+    } else {
+      applyTxs(state, block.txs);
+      txs += block.txs.length;
+    }
     blocks += 1;
-    txs += block.txs.length;
     lastHeight = block.height;
     if (deps.onProgress && blocks % 5000 === 0) deps.onProgress({ blocks, txs, lastHeight });
     if (opts.maxBlocks && blocks >= opts.maxBlocks) break;
   }
-  return { state, blocks, txs, lastHeight, gaps, bad, known };
+  return { state, blocks, txs, lastHeight, gaps, bad, known, ghosts };
 }
 
-export type Verdict = 'MATCH' | 'TABLE_SET_SKEW' | 'DATA_DIVERGENCE' | 'HEAD_MOVED';
-
-export type CompareResult = {
-  verdict: Verdict;
-  stateHashEqual: boolean;
-  onlyInRebuilt: string[];
-  onlyInLive: string[];
-  divergentTables: string[];
-  emptyAsymmetric: boolean;
-  detail: string;
-};
-
-function rowCount(state: LedgerState, table: string): number {
-  const rows = (state.tables as Record<string, Record<string, unknown>>)[table];
-  return rows ? Object.keys(rows).length : 0;
-}
+export type ChainVerdict = 'CHAIN_READABLE' | 'CHAIN_INCOMPLETE';
 
 /**
- * Вердикт даётся по ПОТАБЛИЧНЫМ хешам, а `stateHash` — только сводка.
+ * Вердикт — о цепочке как о журнале, не о данных.
  *
- * Разница принципиальна: `stateHash` считается по отсортированному списку пар «имя таблицы →
- * хеш», поэтому он меняется от одного лишь появления НОВОГО ПУСТОГО ключа — например когда в
- * `emptyLedgerState()` добавили таблицу, а `state.json` с тех пор целиком не переписывался
- * (`loadState` не досыпает новые пустые таблицы в загруженный файл). Данные при этом совпадают
- * до байта. Инструмент, судящий по одному `stateHash`, кричал бы «повреждение» на здоровом
- * леджере — и его перестали бы слушать ровно к тому дню, когда повреждение случится всерьёз.
- *
- * Поэтому асимметрия по набору таблиц — отдельный вердикт, и только если КАЖДАЯ асимметричная
- * таблица пуста с обеих сторон. Непустая таблица, которой нет во втором состоянии, — это уже
- * расхождение данных, а не бухгалтерия.
+ * `CHAIN_READABLE`: каждый блок разобран, высоты идут без разрывов; объяснённые высоты и
+ * блоки-призраки пройдены и названы. Это НЕ значит «состояние совпадает с истиной» — за это
+ * отвечает сверка с PG в `resnapshot-state --chain-rebuilt`.
+ * `CHAIN_INCOMPLETE`: есть нечитаемые блоки или разрывы высоты; собранное состояние заведомо
+ * неполно, и сравнивать его с чем бы то ни было бессмысленно — сначала разобрать файлы.
  */
-export function compareStates(rebuilt: LedgerState, live: LedgerState): CompareResult {
-  const r = computeLedgerStateHashes(rebuilt);
-  const l = computeLedgerStateHashes(live);
-  const rTables = Object.keys(r.tableHashes).sort();
-  const lTables = Object.keys(l.tableHashes).sort();
-  const onlyInRebuilt = rTables.filter((t) => !lTables.includes(t));
-  const onlyInLive = lTables.filter((t) => !rTables.includes(t));
-  const shared = rTables.filter((t) => lTables.includes(t));
-  const divergentTables = shared.filter((t) => r.tableHashes[t] !== l.tableHashes[t]);
-  const asymmetric = [...onlyInRebuilt.map((t) => rowCount(rebuilt, t)), ...onlyInLive.map((t) => rowCount(live, t))];
-  const emptyAsymmetric = asymmetric.every((n) => n === 0);
-  const stateHashEqual = r.stateHash === l.stateHash;
-
-  if (divergentTables.length > 0) {
-    return {
-      verdict: 'DATA_DIVERGENCE',
-      stateHashEqual,
-      onlyInRebuilt,
-      onlyInLive,
-      divergentTables,
-      emptyAsymmetric,
-      detail: `расходятся данные в таблицах: ${divergentTables.join(', ')}`,
-    };
-  }
-  if (onlyInRebuilt.length === 0 && onlyInLive.length === 0) {
-    return { verdict: 'MATCH', stateHashEqual, onlyInRebuilt, onlyInLive, divergentTables, emptyAsymmetric, detail: 'состояние выводится из цепочки блоков полностью' };
-  }
-  if (!emptyAsymmetric) {
-    return {
-      verdict: 'DATA_DIVERGENCE',
-      stateHashEqual,
-      onlyInRebuilt,
-      onlyInLive,
-      divergentTables,
-      emptyAsymmetric,
-      detail: `таблица есть только с одной стороны и НЕ пуста: ${[...onlyInRebuilt, ...onlyInLive].join(', ')}`,
-    };
-  }
-  return {
-    verdict: 'TABLE_SET_SKEW',
-    stateHashEqual,
-    onlyInRebuilt,
-    onlyInLive,
-    divergentTables,
-    emptyAsymmetric,
-    detail:
-      `данные совпадают до байта, различается только набор пустых таблиц ` +
-      `(только в пересборке: ${onlyInRebuilt.join(', ') || '—'}; только в state.json: ${onlyInLive.join(', ') || '—'}). ` +
-      `Обычная причина — таблицу добавили в emptyLedgerState() позже, чем state.json последний раз переписывался целиком. Потери данных нет.`,
-  };
+export function chainVerdict(replay: Pick<ReplayResult, 'bad' | 'gaps'>): { verdict: ChainVerdict; detail: string } {
+  const parts: string[] = [];
+  if (replay.bad.length > 0) parts.push(`нечитаемых блоков: ${replay.bad.length}`);
+  if (replay.gaps.length > 0) parts.push(`разрывов высоты: ${replay.gaps.length}`);
+  if (parts.length > 0) return { verdict: 'CHAIN_INCOMPLETE', detail: `${parts.join(', ')} — собранное состояние неполно, сначала разобрать файлы` };
+  return { verdict: 'CHAIN_READABLE', detail: 'все блоки читаются, высоты без разрывов; сверка с истиной — resnapshot-state --chain-rebuilt' };
 }
 
-export function exitCodeFor(verdict: Verdict): number {
-  return verdict === 'MATCH' || verdict === 'TABLE_SET_SKEW' ? 0 : 1;
+export function exitCodeFor(verdict: ChainVerdict): number {
+  return verdict === 'CHAIN_READABLE' ? 0 : 1;
 }

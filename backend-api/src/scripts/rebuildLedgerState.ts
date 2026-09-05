@@ -1,12 +1,12 @@
 import 'dotenv/config';
 
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, fsyncSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync, fsyncSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
-import type { LedgerBlock, LedgerState } from '@matricarmz/ledger';
+import type { LedgerBlock } from '@matricarmz/ledger';
 
 import {
-  compareStates,
+  chainVerdict,
   exitCodeFor,
   outputPathAllowed,
   parseRebuildArgs,
@@ -14,14 +14,17 @@ import {
   type ReplayDeps,
 } from './rebuildLedgerStatePlan.js';
 
-// ledger:rebuild-state — собирает проекцию состояния из блоков и сверяет её с живым state.json.
+// ledger:rebuild-state — проходит цепочку блоков целиком, собирает из неё состояние в --out и
+// выносит вердикт о ЦЕПОЧКЕ: читается ли каждый блок, нет ли разрывов высоты.
 //
-// ЗАЧЕМ. Сегодня `state.json` не восстанавливается ниоткуда: единственные писатели делают
-// read-modify-write, а `ensureLedgerStateFile` при порче берёт свежий `state.json.bak.*` либо
-// пишет ПУСТОЕ состояние — блоки не читает. Бэкап это не спасает: `scripts/prod-ops/backup-encrypted.sh`
-// не сверяет state с блоками, и `state.json` даже не входит в список обязательных файлов архива.
-// Пока пересборки нет, проекция авторитетна де-факто, а значит любая её потеря необратима и
-// никакая компакция невозможна. Инструмент возвращает выводимость состояния из цепочки.
+// ЗАЧЕМ. Цепочка — журнал, а не истина (вариант А, решение владельца 2026-09-05): она держит
+// блок-призрак (M104 — транзакции, которые нигде не применились) и не знает о записях в PG мимо
+// ledger'а. Поэтому инструмент больше НЕ сверяет пересборку с `state.json`: по шифротексту это
+// давало тысячи ложных расхождений (случайный IV, эпохи ключа), а по смыслу «состояние
+// выводится из цепочки» перестало быть критерием. Что цепочка знает и чего не знает истина —
+// показывает `ledger:resnapshot-state -- --chain-rebuilt <файл --out>`, по открытому тексту.
+// Здесь остаётся то, что можно проверить без PG и без ключа: целостность самой цепочки.
+// Блоки-призраки (`KNOWN_GHOST_BLOCKS`) читаются, называются и в состояние не применяются.
 //
 // ЧЕГО ОН НЕ ДЕЛАЕТ — и это структурно, а не на словах. В файле НЕТ пути записи внутрь каталога
 // леджера: единственная запись идёт в `--out`, и путь внутри LEDGER_DIR отвергается до чтения
@@ -40,13 +43,13 @@ import {
 // ЗАПУСК (только чтение, ничего не меняет):
 //   corepack pnpm -F @matricarmz/backend-api ledger:rebuild-state
 //   corepack pnpm -F @matricarmz/backend-api ledger:rebuild-state -- --out /tmp/rebuilt.json
-//   corepack pnpm -F @matricarmz/backend-api ledger:rebuild-state -- --to-height 100   # сверка с checkpoint.json
+//   corepack pnpm -F @matricarmz/backend-api ledger:rebuild-state -- --to-height 100
+//   затем: corepack pnpm -F @matricarmz/backend-api ledger:resnapshot-state -- --chain-rebuilt /tmp/rebuilt.json
 //
-// КОДЫ ВОЗВРАТА: 0 — состояние выводится из блоков (MATCH или TABLE_SET_SKEW);
-//                1 — расхождение данных или head сдвинулся; 2 — отказ до начала работы.
+// КОДЫ ВОЗВРАТА: 0 — цепочка читается целиком (CHAIN_READABLE);
+//                1 — нечитаемые блоки или разрывы высоты (CHAIN_INCOMPLETE); 2 — отказ до начала работы.
 
 const INDEX_FILE = 'index.json';
-const STATE_FILE = 'state.json';
 
 function ledgerDir(): string {
   // Так же, как сервер (`resolveLedgerDir`), но БЕЗ mkdir и без импорта ledgerService: тот тянет
@@ -117,11 +120,11 @@ function main(): void {
   console.log(`  каталог леджера: ${dir}`);
   console.log(`  вывод:           ${outPath}`);
 
-  // Высоту фиксируем ДО прохода и перепроверяем ПОСЛЕ. Сервис живой: если за время чтения
-  // приехали новые блоки, собранное состояние отстаёт от state.json на законных основаниях,
-  // и это отдельный вердикт, а не расхождение. Замок при этом не держим: проход идёт минуты,
-  // а он рассчитан на операции в 15 секунд — держать его так долго значит останавливать приём
-  // данных с цеха. Атомарная запись гарантирует, что рваного файла мы не прочтём.
+  // Высоту фиксируем ДО прохода и печатаем ПОСЛЕ. Сервис живой: если за время чтения приехали
+  // новые блоки, собранное состояние отстаёт от head на законных основаниях — читателю --out
+  // (resnapshot-state) важно знать, до какой высоты оно собрано. Замок при этом не держим:
+  // проход идёт минуты, а он рассчитан на операции в 15 секунд — держать его так долго значит
+  // останавливать приём данных с цеха. Атомарная запись гарантирует, что рваного файла мы не прочтём.
   const headBefore = headHeight(dir);
   const started = process.hrtime.bigint();
 
@@ -152,26 +155,18 @@ function main(): void {
     console.log(`известных расхождений пройдено: ${replay.known.length} (ревизия 04.09.2026, не находка)`);
     for (const k of replay.known) console.log(`  высота ${k.height}: ${k.note}`);
   }
+  if (replay.ghosts.length > 0) {
+    console.log(`блоков-призраков пропущено: ${replay.ghosts.length} (M104, в состояние не применены)`);
+    for (const g of replay.ghosts) console.log(`  высота ${g.height} (${g.txs} тр.): ${g.note}`);
+  }
   if (replay.bad.length > 0) {
     console.log(`НЕЧИТАЕМЫХ БЛОКОВ: ${replay.bad.length} — их транзакции в пересборку НЕ вошли`);
     for (const b of replay.bad.slice(0, 20)) console.log(`  БИТЫЙ ${b.name}: ${b.reason}`);
     if (replay.bad.length > 20) console.log(`  … и ещё ${replay.bad.length - 20}`);
   }
 
-  const statePath = join(dir, STATE_FILE);
-  if (!existsSync(statePath)) {
-    console.log('state.json отсутствует — сверять не с чем. Пересобранное состояние сохранено, вердикт не выносится.');
-    publishAtomic(outPath, { kind: 'matricarmz-ledger-rebuilt-state', builtFromHeight: replay.lastHeight, blocks: replay.blocks, state: replay.state });
-    process.exitCode = 1;
-    return;
-  }
-
-  const live = readJson<LedgerState>(statePath);
-  const cmp = compareStates(replay.state, live);
   const headAfter = headHeight(dir);
-  // Вердикт при нечитаемых блоках не выносится вовсе: он был бы вычислен по заведомо неполной
-  // цепочке, а «расхождение» тогда означало бы лишь то, что мы сами не всё прочли.
-  const inconclusive = replay.bad.length > 0;
+  const verdict = chainVerdict(replay);
 
   publishAtomic(outPath, {
     kind: 'matricarmz-ledger-rebuilt-state',
@@ -180,42 +175,16 @@ function main(): void {
     txs: replay.txs,
     headBefore,
     headAfter,
-    verdict: inconclusive ? 'INCONCLUSIVE_BAD_BLOCKS' : cmp.verdict,
+    verdict: verdict.verdict,
     badBlocks: replay.bad,
     gaps: replay.gaps,
+    ghosts: replay.ghosts,
     state: replay.state,
   });
 
-  const liveSize = statSync(statePath).size;
-  console.log(`state.json: ${mb(liveSize)} МБ, head до прохода ${headBefore}, после ${headAfter}`);
-
-  // «Head сдвинулся» проверяем только когда прогон шёл до конца цепочки: при --to-height мы
-  // сознательно остановились раньше, и отставание — не новость, а условие запуска.
-  const pinned = args.toHeight > 0 || args.maxBlocks > 0;
-  if (!pinned && headAfter !== headBefore && cmp.verdict !== 'MATCH') {
-    console.log(`ВЕРДИКТ: HEAD_MOVED — во время прохода приехали блоки ${headBefore} → ${headAfter}. Это не расхождение; повторите на затишье.`);
-    process.exitCode = exitCodeFor('HEAD_MOVED');
-    return;
-  }
-
-  if (inconclusive) {
-    console.log(
-      `ВЕРДИКТ НЕ ВЫНОСИТСЯ: ${replay.bad.length} блок(ов) не читаются, цепочка неполна. ` +
-        `Сравнение с state.json показало бы расхождение просто потому, что часть транзакций мы не прочли. ` +
-        `Сначала разобрать битые файлы (см. список выше), потом повторить.`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  console.log(`ВЕРДИКТ: ${cmp.verdict} — ${cmp.detail}`);
-  if (cmp.onlyInRebuilt.length || cmp.onlyInLive.length) {
-    console.log(`  таблицы только в пересборке: ${cmp.onlyInRebuilt.join(', ') || '—'}`);
-    console.log(`  таблицы только в state.json: ${cmp.onlyInLive.join(', ') || '—'}`);
-  }
-  if (cmp.divergentTables.length) console.log(`  расходятся: ${cmp.divergentTables.join(', ')}`);
-  console.log(`  stateHash совпал: ${cmp.stateHashEqual ? 'да' : 'нет'} (сводка; вердикт даётся по потабличным хешам)`);
-  process.exitCode = exitCodeFor(cmp.verdict);
+  console.log(`head до прохода ${headBefore}, после ${headAfter}${headAfter !== headBefore ? ' — приехали новые блоки, состояние собрано до высоты ' + replay.lastHeight : ''}`);
+  console.log(`ВЕРДИКТ: ${verdict.verdict} — ${verdict.detail}`);
+  process.exitCode = exitCodeFor(verdict.verdict);
 }
 
 try {

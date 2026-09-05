@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { emptyLedgerState, type LedgerBlock, type LedgerSignedTx, type LedgerState } from '@matricarmz/ledger';
+import { emptyLedgerState, type LedgerBlock, type LedgerSignedTx } from '@matricarmz/ledger';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  KNOWN_GHOST_BLOCKS,
   KNOWN_HASH_MISMATCH_HEIGHTS,
   KNOWN_SEQ_GAP,
-  compareStates,
+  chainVerdict,
   exitCodeFor,
   heightFromBlockFileName,
   isBlockFileName,
@@ -35,12 +36,6 @@ function tx(over: Partial<LedgerSignedTx> = {}): LedgerSignedTx {
 
 function block(height: number, txs: LedgerSignedTx[]): LedgerBlock {
   return { height, prev_hash: '', created_at: height * 10, txs, hash: `h${height}` };
-}
-
-function stateWith(table: string, rows: Record<string, Record<string, unknown>>): LedgerState {
-  const s = emptyLedgerState();
-  (s.tables as Record<string, Record<string, Record<string, unknown>>>)[table] = rows;
-  return s;
 }
 
 describe('parseRebuildArgs', () => {
@@ -164,48 +159,53 @@ describe('replayBlocks', () => {
   });
 });
 
-describe('compareStates — вердикт по потабличным хешам, а не по stateHash', () => {
-  it('одинаковые состояния — MATCH', () => {
-    const a = stateWith('entities', { r1: { id: 'r1', v: 1 } });
-    const b = stateWith('entities', { r1: { id: 'r1', v: 1 } });
-    expect(compareStates(a, b)).toMatchObject({ verdict: 'MATCH', stateHashEqual: true });
-  });
-
-  it('разные данные в общей таблице — DATA_DIVERGENCE', () => {
-    const a = stateWith('entities', { r1: { id: 'r1', v: 1 } });
-    const b = stateWith('entities', { r1: { id: 'r1', v: 2 } });
-    const r = compareStates(a, b);
-    expect(r.verdict).toBe('DATA_DIVERGENCE');
-    expect(r.divergentTables).toContain('entities');
-  });
-
-  it('лишняя ПУСТАЯ таблица — TABLE_SET_SKEW, а не повреждение: данные совпадают до байта', () => {
-    const rebuilt = stateWith('entities', { r1: { id: 'r1' } });
-    const live = stateWith('entities', { r1: { id: 'r1' } });
-    delete (live.tables as Record<string, unknown>)['user_section_access'];
-    const r = compareStates(rebuilt, live);
-    expect(r.verdict).toBe('TABLE_SET_SKEW');
-    expect(r.onlyInRebuilt).toEqual(['user_section_access']);
-    expect(r.divergentTables).toEqual([]);
-    expect(r.stateHashEqual).toBe(false); // именно поэтому судить по stateHash нельзя
+// Вариант А (2026-09-05): цепочка — журнал, не истина. Вердикт — о читаемости цепочки, а не о
+// совпадении данных: сверка с данными по хешам шифротекста давала тысячи ложных расхождений и
+// воскрешала бы блок-призрак. Сверка с истиной (PG) живёт в resnapshot-state --chain-rebuilt.
+describe('chainVerdict — о цепочке, не о данных', () => {
+  it('все блоки читаются, разрывов нет — CHAIN_READABLE, код 0', () => {
+    const r = chainVerdict({ bad: [], gaps: [] });
+    expect(r.verdict).toBe('CHAIN_READABLE');
     expect(exitCodeFor(r.verdict)).toBe(0);
   });
 
-  it('лишняя НЕПУСТАЯ таблица — уже DATA_DIVERGENCE: это данные, которых пересборка не воспроизвела', () => {
-    const rebuilt = stateWith('entities', { r1: { id: 'r1' } });
-    const live = stateWith('entities', { r1: { id: 'r1' } });
-    (live.tables as Record<string, Record<string, unknown>>)['user_section_access'] = { u1: { id: 'u1' } };
-    delete (rebuilt.tables as Record<string, unknown>)['user_section_access'];
-    const r = compareStates(rebuilt, live);
-    expect(r.verdict).toBe('DATA_DIVERGENCE');
-    expect(r.emptyAsymmetric).toBe(false);
+  it('нечитаемый блок — CHAIN_INCOMPLETE, код 1: сравнивать неполное состояние не с чем', () => {
+    const r = chainVerdict({ bad: [{ name: '00000005.json', reason: 'Unexpected token' }], gaps: [] });
+    expect(r.verdict).toBe('CHAIN_INCOMPLETE');
+    expect(r.detail).toMatch(/нечитаемых блоков: 1/);
+    expect(exitCodeFor(r.verdict)).toBe(1);
   });
 
-  it('коды возврата: выводимость из цепочки — 0, расхождение — 1', () => {
-    expect(exitCodeFor('MATCH')).toBe(0);
-    expect(exitCodeFor('TABLE_SET_SKEW')).toBe(0);
-    expect(exitCodeFor('DATA_DIVERGENCE')).toBe(1);
-    expect(exitCodeFor('HEAD_MOVED')).toBe(1);
+  it('разрыв высоты — тоже CHAIN_INCOMPLETE', () => {
+    expect(chainVerdict({ bad: [], gaps: [7] }).verdict).toBe('CHAIN_INCOMPLETE');
+  });
+
+  it('вердикт не берётся судить о данных: в нём нет слов о совпадении состояния', () => {
+    // Сторож против возвращения старого смысла: «состояние выводится из цепочки» больше не критерий.
+    expect(chainVerdict({ bad: [], gaps: [] }).detail).not.toMatch(/выводится|совпада/);
+  });
+});
+
+describe('блок-призрак (M104) пропускается, а не применяется', () => {
+  it('386592 записан как призрак с отсылкой к сверке всех row_id по PG', () => {
+    expect(Object.keys(KNOWN_GHOST_BLOCKS).map(Number)).toEqual([386592]);
+    expect(KNOWN_GHOST_BLOCKS[386592]).toMatch(/1000 row_id сверены с PG/);
+    // Призрак и объяснённый хеш — разные классы: одна высота не может быть в обоих списках.
+    for (const h of Object.keys(KNOWN_GHOST_BLOCKS)) expect(KNOWN_HASH_MISMATCH_HEIGHTS[Number(h)]).toBeUndefined();
+  });
+
+  it('транзакции призрака в состояние не попадают, но блок считается пройденным', () => {
+    const ghost = block(386592, [tx({ tx_id: 'g1', seq: 1360011, row: { id: 'ghost-row', name: 'не состоялась' } })]);
+    const next = block(386593, [tx({ tx_id: 'n1', seq: 1361011, row: { id: 'real-row', name: 'состоялась' } })]);
+    const r = replayBlocks({ listBlockFiles: () => ['00386592.json', '00386593.json'], readBlock: (n) => (n === '00386592.json' ? ghost : next) });
+    const entities = (r.state.tables as Record<string, Record<string, unknown>>)['entities']!;
+    expect(entities['ghost-row']).toBeUndefined();
+    expect(entities['real-row']).toBeDefined();
+    expect(r.blocks).toBe(2);
+    expect(r.txs).toBe(1);
+    expect(r.gaps).toEqual([]);
+    expect(r.lastHeight).toBe(386593);
+    expect(r.ghosts).toEqual([{ height: 386592, txs: 1, note: expect.stringContaining('M104') }]);
   });
 });
 
