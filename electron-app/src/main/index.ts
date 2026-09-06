@@ -27,6 +27,7 @@ import {
   startBackgroundUpdatePolling,
 } from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings, setReportedActivity } from './services/clientAdminService.js';
+import { setLanShareEnabled } from './services/lanUpdateService.js';
 import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
@@ -605,6 +606,9 @@ app.whenReady().then(() => {
       const cached = remote ?? (await getCachedClientSettings(db));
 
       const updatesEnabled = cached.updatesEnabled !== false;
+      // Раздача установщика соседним машинам цеха включается ровно этой настройкой — до update-flow,
+      // потому что именно он и регистрирует машину пиром. Прежде настройка доезжала и не читалась.
+      setLanShareEnabled(cached.torrentEnabled !== false);
 
       // Dev-only верификация окна обновления симуляцией (в проде env не выставлен).
       const simUpdate = process.env.MATRICA_SIMULATE_UPDATE;
