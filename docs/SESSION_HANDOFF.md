@@ -43,7 +43,7 @@
    ```
    ssh matricarmz 'tail -5 /var/log/matricarmz/backup.log; sudo journalctl -u matricarmz-backend-primary --since "-24h" | grep -icE "23505|duplicate"'
    ```
-   Там же — приёмка правки поллера (ноль = 409 больше нет; заодно видно, ловит ли новая строка долгие проходы):
+   **Приёмка правки поллера уже частично снята в ночь выката и выглядит убедительно:** за 3,5 часа — **76 строк `slower than its tick`** (проход съедал тик и подавлялся флагом) и **два 409**, оба в секунды рестарта primary при выкатах. То есть самоконфликт тика закрыт, а остаток — другой случай: уходящий процесс не отменяет свой опрос на `SIGTERM`, и его запрос пересекается с запросом поднявшегося. Лечится отменой опроса в graceful shutdown; отдельная мелкая правка, не срочная. Утром досмотреть за сутки:
    ```
    ssh matricarmz "sudo journalctl -u matricarmz-backend-primary --since '2026-09-06 21:19' | grep -cE '409|Conflict'; sudo journalctl -u matricarmz-backend-primary --since '2026-09-06 21:19' | grep -c 'slower than its tick'"
    ```
