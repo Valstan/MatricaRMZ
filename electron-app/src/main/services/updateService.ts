@@ -18,6 +18,7 @@ import { extractYandexFolderItems, extractYandexResourceMeta } from './yandexRes
 import { getUpdatesRootDir, setConfiguredUpdatesRootDir } from './updatePaths.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import {
+  DEFAULT_LAN_SHARE_PORT,
   getLanServerPort,
   getLocalLanPeers,
   isLanUpdateEnabled,
@@ -1268,8 +1269,12 @@ async function tryDownloadFromTorrentPeers(
     `peer list mode=${opts?.localOnly ? 'local' : 'any'} peers=${selectedPeers.length} version=${meta.version} infoHash=${meta.infoHash}`,
   );
 
-  const fallbackPortRaw = Number(process.env.MATRICA_UPDATE_PEER_HTTP_PORT ?? 3001);
-  const fallbackPort = Number.isFinite(fallbackPortRaw) && fallbackPortRaw > 0 ? Math.floor(fallbackPortRaw) : 3001;
+  // Запасной порт — тот же, на котором раздаёт наш собственный клиент: пир, не сообщивший порт при
+  // регистрации, слушает именно его. Прежняя константа 3001 — порт серверного backend, к машине
+  // цеха отношения не имеющий; совпасть она могла только случайно.
+  const fallbackPortRaw = Number(process.env.MATRICA_UPDATE_PEER_HTTP_PORT ?? DEFAULT_LAN_SHARE_PORT);
+  const fallbackPort =
+    Number.isFinite(fallbackPortRaw) && fallbackPortRaw > 0 ? Math.floor(fallbackPortRaw) : DEFAULT_LAN_SHARE_PORT;
   const candidates: string[] = [];
   for (const peer of selectedPeers) {
     const ip = String(peer.ip ?? '').trim();

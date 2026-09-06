@@ -15,20 +15,52 @@ type LanServerState = {
 
 let currentServer: LanServerState | null = null;
 
-function isEnabledByEnv() {
+/**
+ * Порт раздачи фиксирован, а не случаен: правило брандмауэра на машине цеха нельзя выписать на
+ * порт, который меняется при каждом запуске. Установщик правило создать не может (`oneClick`,
+ * `perMachine: false` — прав администратора у него нет), поэтому его ставит разовый обход
+ * админом — `scripts/client-ops/lan-share-firewall.ps1`.
+ */
+export const DEFAULT_LAN_SHARE_PORT = 38080;
+
+/**
+ * Единственная ручка раздачи между машинами.
+ *
+ * Раньше их было четыре, и ни одна не работала: три переменных окружения, которых на упакованном
+ * клиенте взяться неоткуда (раздача выключена, слушаем loopback, порт случайный), и настройка
+ * `torrentEnabled`, которая доезжала с сервера, сохранялась в базу и **никогда не читалась**. Из-за
+ * этого реестр пиров был пуст всё время существования механизма. Теперь решает именно она: значение
+ * приезжает с сервера и ставится один раз при старте, до запуска update-flow (`main/index.ts`).
+ * Смена настройки на сервере вступает в силу при следующем запуске клиента.
+ */
+let shareEnabled = false;
+
+export function setLanShareEnabled(enabled: boolean): void {
+  shareEnabled = enabled;
+}
+
+/** Обход для разработки: снаружи заданная переменная сильнее доставленной настройки. */
+function envOverride(): boolean | null {
   const raw = String(process.env.MATRICA_UPDATE_LAN_ENABLED ?? '').trim().toLowerCase();
-  if (!raw) return false;
+  if (!raw) return null;
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
-function pickBindHost(): string {
-  const raw = String(process.env.MATRICA_UPDATE_LAN_BIND ?? '').trim().toLowerCase();
-  if (raw === '0.0.0.0') return '0.0.0.0';
-  return '127.0.0.1';
+export function isLanUpdateEnabled(): boolean {
+  return envOverride() ?? shareEnabled;
 }
 
-export function isLanUpdateEnabled(): boolean {
-  return isEnabledByEnv();
+/**
+ * По умолчанию слушаем сеть, а не loopback: раздача, доступная только самой машине, — это ровно то
+ * состояние, в котором механизм и простоял. `127.0.0.1` остаётся как явный запрет для разработки.
+ */
+export function resolveLanShareBinding(): { host: string; port: number } {
+  const rawHost = String(process.env.MATRICA_UPDATE_LAN_BIND ?? '').trim().toLowerCase();
+  const host = rawHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
+  const rawPort = String(process.env.MATRICA_UPDATE_LAN_PORT ?? '').trim();
+  const parsed = Number(rawPort);
+  const port = rawPort && Number.isFinite(parsed) && parsed >= 0 && parsed <= 65535 ? parsed : DEFAULT_LAN_SHARE_PORT;
+  return { host, port };
 }
 
 function isPrivateIp(address: string): boolean {
@@ -64,14 +96,6 @@ function getLocalLanIps(): string[] {
   return Array.from(ips);
 }
 
-function pickPortFromEnv(): number {
-  const raw = String(process.env.MATRICA_UPDATE_LAN_PORT ?? '').trim();
-  if (!raw) return 0;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0 || n > 65535) return 0;
-  return n;
-}
-
 function parseRange(rangeHeader: string | undefined, size: number): { start: number; end: number } | null {
   if (!rangeHeader) return null;
   const m = rangeHeader.match(/bytes=(\d+)-(\d+)?/i);
@@ -94,8 +118,8 @@ async function readFileSize(filePath: string): Promise<number | null> {
 }
 
 export async function startLanUpdateServer(filePath: string, fileName: string): Promise<{ ok: true; port: number } | { ok: false; error: string }> {
-  if (!isEnabledByEnv()) {
-    return { ok: false as const, error: 'lan update disabled by MATRICA_UPDATE_LAN_ENABLED' };
+  if (!isLanUpdateEnabled()) {
+    return { ok: false as const, error: 'lan share disabled by client setting' };
   }
   const safeName = basename(fileName);
   const safePath = join(getUpdatesRootDir(), safeName);
@@ -163,12 +187,12 @@ export async function startLanUpdateServer(filePath: string, fileName: string): 
     }
   });
 
-  const port = pickPortFromEnv();
+  const { host, port } = resolveLanShareBinding();
   return await new Promise((resolve) => {
     server.once('error', (err) => {
       resolve({ ok: false as const, error: String(err) });
     });
-    server.listen(port, pickBindHost(), () => {
+    server.listen(port, host, () => {
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
       currentServer = { server, port: actualPort, filePath: finalPath, fileName: safeName };
@@ -186,8 +210,8 @@ export function getLanServerFileName(): string | null {
 }
 
 export function getLocalLanPeers(port: number): Array<{ ip: string; port: number }> {
-  if (!isEnabledByEnv()) return [];
-  if (pickBindHost() !== '0.0.0.0') return [];
+  if (!isLanUpdateEnabled()) return [];
+  if (resolveLanShareBinding().host !== '0.0.0.0') return [];
   const ips = getLocalLanIps();
   return ips.map((ip) => ({ ip, port }));
 }
@@ -204,7 +228,7 @@ export async function registerLanPeers(
   peers: Array<{ ip: string; port: number }>,
   accessToken?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!isEnabledByEnv()) return { ok: false as const, error: 'lan update disabled by MATRICA_UPDATE_LAN_ENABLED' };
+  if (!isLanUpdateEnabled()) return { ok: false as const, error: 'lan share disabled by client setting' };
   if (!apiBaseUrl || !version || peers.length === 0) return { ok: false as const, error: 'missing args' };
   // Peer endpoints now require auth — skip silently when logged out (pre-login),
   // the caller falls back to central-server download. (security-hardening-2026-06)
@@ -233,7 +257,7 @@ export async function listLanPeers(
   exclude?: { ip?: string; port?: number },
   accessToken?: string,
 ): Promise<Array<{ ip: string; port?: number }>> {
-  if (!isEnabledByEnv()) return [];
+  if (!isLanUpdateEnabled()) return [];
   if (!apiBaseUrl || !version) return [];
   if (!accessToken) return [];
   const params = new URLSearchParams({ version });
@@ -263,7 +287,7 @@ export async function registerUpdatePeers(
   peers: Array<{ ip: string; port: number }>,
   accessToken?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!isEnabledByEnv()) return { ok: false as const, error: 'lan update disabled by MATRICA_UPDATE_LAN_ENABLED' };
+  if (!isLanUpdateEnabled()) return { ok: false as const, error: 'lan share disabled by client setting' };
   if (!apiBaseUrl || !infoHash || peers.length === 0) return { ok: false as const, error: 'missing args' };
   if (!accessToken) return { ok: false as const, error: 'no auth token' };
   const url = joinUrl(apiBaseUrl, '/updates/peers');
@@ -290,7 +314,7 @@ export async function listUpdatePeers(
   exclude?: { ip?: string; port?: number },
   accessToken?: string,
 ): Promise<Array<{ ip: string; port?: number }>> {
-  if (!isEnabledByEnv()) return [];
+  if (!isLanUpdateEnabled()) return [];
   if (!apiBaseUrl || !infoHash) return [];
   if (!accessToken) return [];
   const params = new URLSearchParams({ infoHash });
