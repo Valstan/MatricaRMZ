@@ -34,6 +34,24 @@ let lastScanAt: number | null = null;
 let lastError: string | null = null;
 let cachedFileHash: { path: string; mtimeMs: number; size: number; sha256: string } | null = null;
 
+/**
+ * Аппарат BitTorrent — трекер и сеяние WebTorrent — по умолчанию **выключен** (решение владельца
+ * 2026-09-06). У него нет потребителя: клиент по BitTorrent не говорит вовсе, в его зависимостях
+ * нет ни одной торрент-библиотеки, а единственным посетителем трекера был сам сервер — он сеял
+ * торрент, чей announce вёл на URL, отвечающий 404, и делал так около 105 раз в сутки вхолостую.
+ * Разбор с числами — `docs/PENDING_FOLLOWUPS.md` §«Торрент-раздача не имеет потребителя».
+ *
+ * Код оставлен целиком и включается одной переменной, если решение передумают.
+ *
+ * Что от аппарата НЕ зависит и продолжает работать при выключенном: раздача установщика между
+ * машинами цеха (реестр пиров по версии, `kind=lan_http`), выдача `/updates/file`, манифест
+ * `latest.json` и приёмка релиза по `/updates/status`.
+ */
+function isTorrentApparatusEnabled(): boolean {
+  const raw = String(process.env.MATRICA_TORRENT_APPARATUS_ENABLED ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
 const RESCAN_INTERVAL_MS = 60_000;
 const LAN_PEER_TTL_MS = 120_000;
 const LAN_PEER_CLEANUP_INTERVAL_MS = 600_000;
@@ -228,31 +246,14 @@ async function createTorrentBuffer(filePath: string, trackers: string[], webSeed
 }
 
 async function seedLatestInstaller(latest: { path: string; version: string; name: string; size: number; isSetup: boolean }) {
-  const trackers = getTrackerUrls();
+  const apparatus = isTorrentApparatusEnabled();
+  const trackers = apparatus ? getTrackerUrls() : [];
   const publicBase = getPublicBaseUrl();
   const webSeedUrl = publicBase ? `${publicBase}/updates/file/${encodeURIComponent(latest.name)}` : null;
-  const torrentBuffer = await createTorrentBuffer(latest.path, trackers, webSeedUrl);
-  const torrentPath = join(dirname(latest.path), 'latest.torrent');
-  await writeFile(torrentPath, torrentBuffer);
-
-  if (!torrentClient) {
-    /**
-     * Если задан MATRICA_TORRENT_PEER_PORT — закрепляем порт для TCP-peer-listener и DHT;
-     * это нужно, чтобы UFW мог открыть конкретный порт вместо случайного.
-     */
-    const peerPortRaw = Number(process.env.MATRICA_TORRENT_PEER_PORT ?? 0);
-    const peerPort = Number.isFinite(peerPortRaw) && peerPortRaw > 0 && peerPortRaw < 65536 ? peerPortRaw : 0;
-    const opts: ConstructorParameters<typeof WebTorrent>[0] = { dht: true, tracker: true };
-    if (peerPort > 0) {
-      (opts as Record<string, unknown>).torrentPort = peerPort;
-      (opts as Record<string, unknown>).dhtPort = peerPort;
-    }
-    torrentClient = new WebTorrent(opts);
-  }
-  if (currentTorrent) {
-    torrentClient.remove(currentTorrent.infoHash, {}, () => {
-      // removed
-    });
+  const torrentBuffer = apparatus ? await createTorrentBuffer(latest.path, trackers, webSeedUrl) : Buffer.alloc(0);
+  if (apparatus) {
+    const torrentPath = join(dirname(latest.path), 'latest.torrent');
+    await writeFile(torrentPath, torrentBuffer);
   }
 
   const manifestPath = join(dirname(latest.path), 'latest.json');
@@ -278,13 +279,41 @@ async function seedLatestInstaller(latest: { path: string; version: string; name
           isSetup: latest.isSetup,
           infoHash,
           trackers,
-          torrentFile: 'latest.torrent',
+          ...(apparatus ? { torrentFile: 'latest.torrent' } : {}),
         },
         null,
         2,
       ),
       'utf8',
     );
+
+  if (!apparatus) {
+    // Состояние и манифест собираются как обычно — на них держатся `/updates/status`, приёмка
+    // релиза и чтение с secondary. Нет только infoHash: он берётся из сеяния, а сеяния нет.
+    currentState = buildState();
+    await writeManifest(null);
+    return;
+  }
+
+  if (!torrentClient) {
+    /**
+     * Если задан MATRICA_TORRENT_PEER_PORT — закрепляем порт для TCP-peer-listener и DHT;
+     * это нужно, чтобы UFW мог открыть конкретный порт вместо случайного.
+     */
+    const peerPortRaw = Number(process.env.MATRICA_TORRENT_PEER_PORT ?? 0);
+    const peerPort = Number.isFinite(peerPortRaw) && peerPortRaw > 0 && peerPortRaw < 65536 ? peerPortRaw : 0;
+    const opts: ConstructorParameters<typeof WebTorrent>[0] = { dht: true, tracker: true };
+    if (peerPort > 0) {
+      (opts as Record<string, unknown>).torrentPort = peerPort;
+      (opts as Record<string, unknown>).dhtPort = peerPort;
+    }
+    torrentClient = new WebTorrent(opts);
+  }
+  if (currentTorrent) {
+    torrentClient.remove(currentTorrent.infoHash, {}, () => {
+      // removed
+    });
+  }
 
   currentTorrent = torrentClient.add(torrentBuffer, { path: dirname(latest.path) });
   currentTorrent.on('error', (err: unknown) => logWarn('torrent seed error', { error: String(err) }));
@@ -315,7 +344,10 @@ async function loadStateFromDisk(
     readFile(manifestPath, 'utf8').catch(() => null),
     readFile(torrentPath).catch(() => null),
   ]);
-  if (!manifestRaw || !torrentBuffer) {
+  // Файла `latest.torrent` при выключенном аппарате нет и быть не должно — требовать его здесь
+  // значило бы обнулить состояние на secondary, а на нём держатся `/updates/status` и приёмка
+  // релиза. Манифест обязателен всегда, торрент — только когда аппарат включён.
+  if (!manifestRaw || (isTorrentApparatusEnabled() && !torrentBuffer)) {
     lastError = 'manifest_or_torrent_missing';
     currentState = null;
     return;
@@ -333,7 +365,14 @@ async function loadStateFromDisk(
     currentState = null;
     return;
   }
-  const trackers = Array.isArray(manifest.trackers) && manifest.trackers.length ? manifest.trackers : getTrackerUrls();
+  // Пустой список трекеров в манифесте — это факт («аппарат выключен»), а не пробел, который надо
+  // залатать подстановкой. Достраиваем только когда аппарат включён.
+  const trackers =
+    Array.isArray(manifest.trackers) && manifest.trackers.length
+      ? manifest.trackers
+      : isTorrentApparatusEnabled()
+        ? getTrackerUrls()
+        : [];
   currentState = {
     version: latest.version,
     fileName: latest.name,
@@ -342,7 +381,7 @@ async function loadStateFromDisk(
     isSetup: latest.isSetup,
     infoHash: manifest.infoHash ?? null,
     trackers,
-    torrentBuffer,
+    torrentBuffer: torrentBuffer ?? Buffer.alloc(0),
   };
 }
 
@@ -365,7 +404,9 @@ async function rescanForState(isPrimary: boolean) {
       currentState?.version === latest.version &&
       currentState.fileName === latest.name &&
       currentState.size === latest.size &&
-      currentState.infoHash
+      // При выключенном аппарате infoHash пуст всегда — требовать его значило бы пересобирать
+      // состояние и переписывать манифест каждую минуту впустую.
+      (currentState.infoHash || !isTorrentApparatusEnabled())
     ) {
       lastError = null;
       return;
@@ -395,7 +436,7 @@ export function startUpdateTorrentService() {
   const instanceRole = getInstanceRole();
   const isPrimary = shouldRunBackgroundJobs(instanceRole);
 
-  if (isPrimary) {
+  if (isPrimary && isTorrentApparatusEnabled()) {
     const port = Number(process.env.MATRICA_TORRENT_TRACKER_PORT ?? 6969);
     if (!trackerServer) {
       trackerServer = new TrackerServer({ http: true, udp: true, ws: false });
@@ -411,12 +452,21 @@ export function startUpdateTorrentService() {
         logInfo('tracker listening', { port }, { critical: true });
       });
     }
+  } else if (!isPrimary) {
+    logInfo('torrent update service: scan-only mode', { instanceRole: instanceRole || 'unknown' }, { critical: true });
+  } else {
+    logInfo('torrent apparatus disabled (MATRICA_TORRENT_APPARATUS_ENABLED)', {}, { critical: true });
+  }
+
+  if (isPrimary) {
+    // Чистка реестра пиров живёт ОТДЕЛЬНО от аппарата BitTorrent: реестр обслуживает раздачу
+    // установщика между машинами цеха, которая к торренту отношения не имеет. Раньше её таймер
+    // стоял внутри блока трекера — выключение аппарата остановило бы протухание пиров, и клиенты
+    // ходили бы к машинам, которых давно нет в сети.
     setInterval(
       () => void cleanupExpiredPeers().catch((e: unknown) => logWarn('peer cleanup failed', describeError(e))),
       LAN_PEER_CLEANUP_INTERVAL_MS,
     );
-  } else {
-    logInfo('torrent update service: scan-only mode', { instanceRole: instanceRole || 'unknown' }, { critical: true });
   }
 
   void rescanForState(isPrimary).catch((e: unknown) => logError('torrent scan failed', { error: String(e) }));
@@ -459,7 +509,7 @@ export function getUpdateTorrentStatus() {
   return {
     enabled: !!updatesDir,
     updatesDir,
-    trackers: updatesDir ? getTrackerUrls() : [],
+    trackers: updatesDir && isTorrentApparatusEnabled() ? getTrackerUrls() : [],
     lastScanAt,
     lastError,
     latest: currentState
