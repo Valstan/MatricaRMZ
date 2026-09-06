@@ -111,7 +111,9 @@ async function ackSyncRequest(args: {
 
 export async function getCachedClientSettings(db: BetterSQLite3Database): Promise<RemoteClientSettings> {
   const updatesEnabled = await settingsGetBoolean(db, SettingsKey.UpdatesEnabled, true);
-  const torrentEnabled = await settingsGetBoolean(db, SettingsKey.TorrentEnabled, true);
+  // Умолчание «выключено»: раздача открывает слушающий порт, поэтому её нельзя включать по
+  // умолчанию — ни на новой машине, ни когда сервер недоступен и значение брать неоткуда.
+  const torrentEnabled = await settingsGetBoolean(db, SettingsKey.TorrentEnabled, false);
   const loggingEnabled = await settingsGetBoolean(db, SettingsKey.LoggingEnabled, true);
   const rawMode = await settingsGetString(db, SettingsKey.LoggingMode);
   const loggingMode = rawMode ? (rawMode === 'dev' ? 'dev' : 'prod') : 'dev';
@@ -177,7 +179,9 @@ export async function applyRemoteClientSettings(args: {
       return await getCachedClientSettings(db);
     }
     const updatesEnabled = json.settings.updatesEnabled !== false;
-    const torrentEnabled = json.settings.torrentEnabled !== false;
+    // Именно `=== true`, а не «всё, что не false»: отсутствие поля в ответе не должно открывать
+    // слушающий порт на машине цеха. Для остальных настроек цена ошибки другая, там мягче.
+    const torrentEnabled = json.settings.torrentEnabled === true;
     const loggingEnabled = json.settings.loggingEnabled === true;
     const loggingMode = json.settings.loggingMode === 'dev' ? 'dev' : 'prod';
 

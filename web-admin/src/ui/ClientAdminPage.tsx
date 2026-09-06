@@ -290,16 +290,17 @@ export function ClientAdminPage() {
                     </Button>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                    <span className="muted" style={{ fontSize: 13, minWidth: 86 }}>Торрент</span>
+                    <span className="muted" style={{ fontSize: 13, minWidth: 86 }}>Раздача соседям</span>
                     <Button
                       variant={row.torrentEnabled ? 'primary' : 'ghost'}
                       disabled={!row.updatesEnabled}
+                      title="Этот компьютер отдаёт скачанный установщик соседним машинам в сети завода. Требует правила брандмауэра на машине (scripts/client-ops/lan-share-firewall.ps1) и перезапуска клиента."
                       onClick={() => {
                         if (!row.updatesEnabled) return;
                         void patchClient(row.clientId, { torrentEnabled: !row.torrentEnabled });
                       }}
                     >
-                      {row.torrentEnabled ? 'Включен' : 'Отключен'}
+                      {row.torrentEnabled ? 'Включена' : 'Отключена'}
                     </Button>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>

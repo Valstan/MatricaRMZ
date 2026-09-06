@@ -391,7 +391,10 @@ export const clientSettings = pgTable('client_settings', {
   clientId: text('client_id').primaryKey(),
 
   updatesEnabled: boolean('updates_enabled').notNull().default(true),
-  torrentEnabled: boolean('torrent_enabled').notNull().default(true),
+  // Раздача установщика соседним машинам цеха. Умолчание — выключено (миграция 0092): фича
+  // открывает на машине слушающий порт, а он бесполезен без правила брандмауэра, которое ставится
+  // руками админа. «Включено по умолчанию» здесь означало бы порт на каждой новой машине парка.
+  torrentEnabled: boolean('torrent_enabled').notNull().default(false),
   loggingEnabled: boolean('logging_enabled').notNull().default(true),
   loggingMode: text('logging_mode').notNull().default('dev'),
   uiGlobalSettingsJson: text('ui_global_settings_json'),
