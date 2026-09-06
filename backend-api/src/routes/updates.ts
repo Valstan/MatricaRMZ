@@ -89,6 +89,12 @@ updatesRouter.get('/latest.torrent', (req, res) => {
   if (!st) {
     return res.status(404).json({ ok: false, error: 'торрент-файл обновления не найден' });
   }
+  // Пустой буфер означает, что аппарат BitTorrent выключен (по умолчанию — см.
+  // updateTorrentService). Отдать пустой файл было бы хуже отказа: клиент получил бы «успех» и
+  // битый торрент вместо внятного «этого больше нет».
+  if (!st.torrentBuffer.length) {
+    return res.status(410).json({ ok: false, error: 'раздача по BitTorrent отключена' });
+  }
   res.setHeader('Content-Type', 'application/x-bittorrent');
   res.setHeader('Content-Disposition', `attachment; filename="MatricaRMZ-${st.version}.torrent"`);
   return res.end(st.torrentBuffer);
