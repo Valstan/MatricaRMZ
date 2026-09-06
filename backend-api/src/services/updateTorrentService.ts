@@ -381,7 +381,10 @@ async function loadStateFromDisk(
     isSetup: latest.isSetup,
     infoHash: manifest.infoHash ?? null,
     trackers,
-    torrentBuffer: torrentBuffer ?? Buffer.alloc(0),
+    // При выключенном аппарате буфер пуст ВСЕГДА, даже если `latest.torrent` ещё лежит на диске от
+    // прежней работы: иначе secondary продолжал бы раздавать протухший торрент, и `410` на
+    // `/updates/latest.torrent` зависел бы от того, на какой инстанс попал запрос через nginx.
+    torrentBuffer: isTorrentApparatusEnabled() ? (torrentBuffer ?? Buffer.alloc(0)) : Buffer.alloc(0),
   };
 }
 
