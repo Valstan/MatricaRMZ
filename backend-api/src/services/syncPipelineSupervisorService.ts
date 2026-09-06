@@ -27,6 +27,42 @@ const BOT_POLL_ERROR_LOG_STREAK = 3;
 const BOT_POLL_SILENT_COUNTER_LOG_MS = 10 * 60_000;
 let knownSuperadminChatId: string | null = null;
 
+/**
+ * Тик, который не имеет права наложиться сам на себя.
+ *
+ * Опрос бота приходит каждые 15 с, а один проход живёт до ~155 с: `telegramFetch` делает до шести
+ * попыток по 8 с (лечение потерь SYN на сети хостера, M101), и `processBotUpdates` повторяет запрос
+ * трижды. Наложившийся проход Telegram видит как второго потребителя и отвечает
+ * `409 Conflict: terminated by other getUpdates request` — то есть обрывает наш же предыдущий опрос
+ * (GOTCHAS M108). Текст ошибки при этом описывает наблюдение Telegram, а не нашу топологию, поэтому
+ * разбор уходит искать второй процесс; гарантия должна стоять здесь и быть проверяемой тестом.
+ *
+ * `run` обязан ловить свои ошибки — отказ опроса это штатный исход, а не исключение.
+ */
+export function createSingleFlightTick(
+  run: () => Promise<void>,
+  onSettled: (info: { elapsedMs: number; skippedTicks: number }) => void,
+) {
+  let inFlight = false;
+  let skippedTicks = 0;
+  return () => {
+    if (inFlight) {
+      skippedTicks += 1;
+      return;
+    }
+    inFlight = true;
+    const startedAt = Date.now();
+    void run()
+      .catch(() => undefined)
+      .finally(() => {
+        inFlight = false;
+        const skipped = skippedTicks;
+        skippedTicks = 0;
+        onSettled({ elapsedMs: Date.now() - startedAt, skippedTicks: skipped });
+      });
+  };
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -425,12 +461,24 @@ export function startSyncPipelineSupervisorService() {
   setInterval(() => void tickNightly(), CHECK_TICK_MS);
   setInterval(() => logBotPollSilentCounter(false), CHECK_TICK_MS);
   if (actionsEnabled) {
-    setInterval(() => {
-      void processBotUpdates().catch((e) => {
-        markSyncPipelineBotPollFailure(String(e));
-        logWarn('sync pipeline bot polling failed', { component: 'sync', subsystem: 'pipeline_bot_poll', error: String(e) });
-      });
-    }, BOT_POLL_MS);
+    const tickBotUpdates = createSingleFlightTick(
+      () =>
+        processBotUpdates().catch((e) => {
+          markSyncPipelineBotPollFailure(String(e));
+          logWarn('sync pipeline bot polling failed', { component: 'sync', subsystem: 'pipeline_bot_poll', error: String(e) });
+        }),
+      ({ elapsedMs, skippedTicks }) => {
+        if (skippedTicks <= 0) return;
+        logWarn('sync pipeline bot poll slower than its tick', {
+          component: 'sync',
+          subsystem: 'pipeline_bot_poll',
+          elapsedMs,
+          tickMs: BOT_POLL_MS,
+          skippedTicks,
+        });
+      },
+    );
+    setInterval(tickBotUpdates, BOT_POLL_MS);
   }
 
   logInfo('sync pipeline supervisor started', {
