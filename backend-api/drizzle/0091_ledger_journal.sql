@@ -4,12 +4,17 @@
 -- уходят из пути записи. Журнал изменений — ledger_tx_index (уже полный: sync-таблицы
 -- писались в него с 2026-06, остальное догонялось из цепочки), номер — SEQUENCE ledger_seq.
 --
--- 1) Последовательность стартует с максимального известного номера журнала. Если lastSeq
---    цепочки (index.json) окажется выше — setval руками при выкате (J2 п. 2): миграция файл
---    цепочки не читает.
+-- 1) Последовательность номеров. Стартовое значение выставляется В КОНЦЕ файла — после DDL,
+--    чтобы снимок максимума не успел устареть между SELECT и COMMIT.
+--
+--    ⚠️ ОБЯЗАТЕЛЬНОЕ УСЛОВИЕ ВЫКАТА: оба backend-инстанса ОСТАНОВЛЕНЫ на время миграции
+--    (план ledger-journal-in-pg §J2). Пока работает старая сборка, номера раздаёт её файловый
+--    счётчик цепочки (`index.json`), и он пишет в этот же `ledger_tx_index`. Два независимых
+--    счётчика против первичного ключа дают либо занятый номер (отказ записи), либо — что хуже —
+--    строку, которую клиент с уже продвинутым курсором не увидит никогда. Останов писателей —
+--    единственное, что закрывает второй случай; от первого страхует самолечение счётчика в
+--    `ledgerService.ensureSequenceAheadOfJournal`.
 CREATE SEQUENCE IF NOT EXISTS ledger_seq AS bigint;
---> statement-breakpoint
-SELECT setval('ledger_seq', GREATEST((SELECT COALESCE(max(server_seq), 0) FROM ledger_tx_index), 1), true);
 --> statement-breakpoint
 -- 2) Актор был только в блоке; журнал обязан его нести сам.
 ALTER TABLE ledger_tx_index ADD COLUMN IF NOT EXISTS actor_user_id text;
@@ -58,3 +63,7 @@ WHERE COALESCE(p->>'version', '') <> ''
 ON CONFLICT (id) DO NOTHING;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS release_registry_created_idx ON release_registry (created_at DESC);
+--> statement-breakpoint
+-- 4) Старт последовательности — последним шагом, когда всё остальное уже на месте.
+--    `is_called = true` означает «этот номер уже выдан», то есть первый nextval вернёт max+1.
+SELECT setval('ledger_seq', GREATEST((SELECT COALESCE(max(server_seq), 0) FROM ledger_tx_index), 1), true);

@@ -45,8 +45,18 @@ async function main(): Promise<void> {
   const state = JSON.parse(readFileSync(path, 'utf8')) as { tables?: Record<string, Record<string, Row>> };
   const rows = Object.values(state.tables?.release_registry ?? {}).filter((r) => String(r.version ?? '').trim() !== '');
   console.log(`  выпусков в проекции: ${rows.length}`);
-  const encrypted = rows.filter((r) => typeof r.payload_json === 'string' && String(r.payload_json).startsWith('enc:')).length;
-  if (encrypted > 0) throw new Error(`${encrypted} строк с шифрованным payload_json — keyring снят, такие строки перенести нельзя`);
+  // Шифрованный payload_json не роняет перенос: keyring снят вместе с цепочкой, расшифровать
+  // такую строку уже нечем, но сам выпуск (версия, файл, sha256, дата) лежит открытым текстом и
+  // нужен автообновлению. Переносим строку без метаданных и называем id вслух — отказ от всего
+  // прогона стоил бы дороже, чем потеря необязательного поля.
+  const encryptedIds = rows
+    .filter((r) => typeof r.payload_json === 'string' && String(r.payload_json).startsWith('enc:'))
+    .map((r) => String(r.id));
+  if (encryptedIds.length > 0) {
+    console.log(`  ⚠ строк с шифрованным payload_json: ${encryptedIds.length} — переносятся с payload_json = NULL`);
+    console.log(`    id: ${encryptedIds.slice(0, 10).join(', ')}${encryptedIds.length > 10 ? ' …' : ''}`);
+  }
+  const encryptedSet = new Set(encryptedIds);
 
   const existing = await pool.query<{ id: string }>('SELECT id FROM release_registry');
   const known = new Set(existing.rows.map((r) => String(r.id)));
@@ -70,7 +80,7 @@ async function main(): Promise<void> {
         r.sha256 == null ? null : String(r.sha256),
         r.file_name == null ? null : String(r.file_name),
         num(r.size),
-        r.payload_json == null ? null : String(r.payload_json),
+        r.payload_json == null || encryptedSet.has(String(r.id)) ? null : String(r.payload_json),
         createdAt,
         r.created_by_user_id == null ? null : String(r.created_by_user_id),
         r.created_by_username == null ? null : String(r.created_by_username),

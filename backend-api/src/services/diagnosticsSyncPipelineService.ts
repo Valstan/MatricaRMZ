@@ -3,7 +3,7 @@ import { SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { diagnosticsSnapshots, ledgerTxIndex } from '../database/schema.js';
-import { getLedgerLastSeq, queryState } from '../ledger/ledgerService.js';
+import { getLedgerLastSeq, getLedgerSeqGap, loadLedgerTableRows } from '../ledger/ledgerService.js';
 import { getSyncPipelineBotPollMetrics } from './syncPipelineBotPollMetricsService.js';
 
 type TableKey = 'entity_types' | 'entities' | 'attribute_defs' | 'attribute_values' | 'operations';
@@ -42,28 +42,26 @@ function computeRatio(a: number, b: number) {
   return Math.abs(a - b) / base;
 }
 
-function computeStatus(args: {
-  ledgerToIndexLag: number;
-  indexToProjectionLag: number;
-  maxTableRatio: number;
-  skippedDependencyRows24h: number;
-}) {
-  const { ledgerToIndexLag, indexToProjectionLag, maxTableRatio, skippedDependencyRows24h } = args;
-  if (ledgerToIndexLag > 10_000 || indexToProjectionLag > 10_000 || maxTableRatio > 0.15) return 'critical';
+// Отставание журнала от индекса как ПОРОГ снято 2026-09 (план ledger-journal-in-pg): журнал
+// и индекс — одна и та же таблица, разойтись им нечем, и условие такого гейта не может стать
+// истинным. Оставшийся счётчик сожжённых номеров (seq gap) сюда не заводим сознательно: он
+// только растёт от откатов, порог по нему сработал бы один раз и навсегда (brain #284
+// «гейт без области»).
+function computeStatus(args: { indexToProjectionLag: number; maxTableRatio: number; skippedDependencyRows24h: number }) {
+  const { indexToProjectionLag, maxTableRatio, skippedDependencyRows24h } = args;
+  if (indexToProjectionLag > 10_000 || maxTableRatio > 0.15) return 'critical';
   if (skippedDependencyRows24h > CRITICAL_DEPENDENCY_SKIPS_24H) return 'critical';
-  if (ledgerToIndexLag > 2_000 || indexToProjectionLag > 2_000 || maxTableRatio > 0.05) return 'warn';
+  if (indexToProjectionLag > 2_000 || maxTableRatio > 0.05) return 'warn';
   if (skippedDependencyRows24h > WARN_DEPENDENCY_SKIPS_24H) return 'warn';
   return 'ok';
 }
 
 function reasons(args: {
-  ledgerToIndexLag: number;
   indexToProjectionLag: number;
   worstTable: { key: string; diffRatio: number } | null;
   skippedRows24h: { dependency: number; conflict: number };
 }) {
   const out: string[] = [];
-  if (args.ledgerToIndexLag > 0) out.push(`ledger_tx_index lag=${args.ledgerToIndexLag}`);
   if (args.indexToProjectionLag > 0) out.push(`projection lag by last_server_seq=${args.indexToProjectionLag}`);
   if (args.skippedRows24h.dependency > 0) out.push(`skipped dependency rows 24h=${args.skippedRows24h.dependency}`);
   if (args.skippedRows24h.conflict > 0) out.push(`skipped conflict rows 24h=${args.skippedRows24h.conflict}`);
@@ -114,56 +112,16 @@ async function loadSkippedRows24h() {
   return { dependency, conflict, byTable };
 }
 
+// Один проход по таблице вместо постраничного обхода: страницы через queryState тянули бы
+// таблицу из PG заново на каждую страницу (квадратично; у operations страница — это ещё и
+// десятки мегабайт meta_json). Порядок строк здесь никому не важен — ниже считаются
+// количества и «самая свежая по updated_at» запись.
 async function countLedgerRows(syncTable: SyncTableName): Promise<number> {
-  const pageSize = 5000;
-  let total = 0;
-  let cursorValue: string | number | undefined;
-  let cursorId: string | undefined;
-  for (let i = 0; i < 20_000; i += 1) {
-    const rows = await queryState(syncTable as any, {
-      includeDeleted: false,
-      sortBy: 'id',
-      sortDir: 'asc',
-      limit: pageSize,
-      ...(cursorValue != null ? { cursorValue } : {}),
-      ...(cursorId ? { cursorId } : {}),
-    }) as Array<Record<string, unknown>>;
-    if (!Array.isArray(rows) || rows.length === 0) break;
-    total += rows.length;
-    if (rows.length < pageSize) break;
-    const last = rows[rows.length - 1];
-    const nextId = String(last?.id ?? '');
-    if (!nextId) break;
-    cursorValue = nextId;
-    cursorId = nextId;
-  }
-  return total;
+  return (await loadLedgerTableRows(syncTable as any)).length;
 }
 
 async function loadLedgerRows(syncTable: SyncTableName): Promise<Array<Record<string, unknown>>> {
-  const pageSize = 5000;
-  const out: Array<Record<string, unknown>> = [];
-  let cursorValue: string | number | undefined;
-  let cursorId: string | undefined;
-  for (let i = 0; i < 20_000; i += 1) {
-    const rows = await queryState(syncTable as any, {
-      includeDeleted: false,
-      sortBy: 'id',
-      sortDir: 'asc',
-      limit: pageSize,
-      ...(cursorValue != null ? { cursorValue } : {}),
-      ...(cursorId ? { cursorId } : {}),
-    }) as Array<Record<string, unknown>>;
-    if (!Array.isArray(rows) || rows.length === 0) break;
-    out.push(...rows);
-    if (rows.length < pageSize) break;
-    const last = rows[rows.length - 1];
-    const nextId = String(last?.id ?? '');
-    if (!nextId) break;
-    cursorValue = nextId;
-    cursorId = nextId;
-  }
-  return out;
+  return await loadLedgerTableRows(syncTable as any);
 }
 
 function isBulkEntityTypeRow(row: Record<string, unknown>) {
@@ -314,14 +272,15 @@ export async function getSyncPipelineHealth() {
   }
 
   const projectionMaxSeq = USE_PG_SNAPSHOT_FOR_DRIFT ? indexMaxSeq : rawProjectionMaxSeq;
-  const ledgerToIndexLag = Math.max(0, ledgerLastSeq - indexMaxSeq);
+  // Поле сохранило имя (его читают web-admin и лог-аналитик), но смысл теперь честный:
+  // номера, которые последовательность выдала, а журнал не получил — то есть откаты.
+  const ledgerToIndexLag = await getLedgerSeqGap();
   const indexToProjectionLag = USE_PG_SNAPSHOT_FOR_DRIFT ? 0 : Math.max(0, indexMaxSeq - projectionMaxSeq);
   const worstTable = Object.entries(tables)
     .map(([key, v]) => ({ key, diffRatio: v.diffRatio }))
     .sort((a, b) => b.diffRatio - a.diffRatio)[0] ?? null;
   const maxTableRatio = worstTable?.diffRatio ?? 0;
   const status = computeStatus({
-    ledgerToIndexLag,
     indexToProjectionLag,
     maxTableRatio,
     skippedDependencyRows24h: skippedRows24h.dependency,
@@ -341,7 +300,7 @@ export async function getSyncPipelineHealth() {
     tables,
     botPoll: getSyncPipelineBotPollMetrics(),
     skippedRows24h,
-    reasons: reasons({ ledgerToIndexLag, indexToProjectionLag, worstTable, skippedRows24h }),
+    reasons: reasons({ indexToProjectionLag, worstTable, skippedRows24h }),
   };
 }
 

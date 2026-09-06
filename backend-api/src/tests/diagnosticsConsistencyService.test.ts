@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncTableName } from '@matricarmz/shared';
 
-const queryStateMock = vi.fn();
+const loadLedgerTableRowsMock = vi.fn();
 const getLedgerLastSeqMock = vi.fn();
 
 vi.mock('../ledger/ledgerService.js', () => ({
-  queryState: (...args: any[]) => queryStateMock(...args),
+  loadLedgerTableRows: (...args: any[]) => loadLedgerTableRowsMock(...args),
   getLedgerLastSeq: (...args: any[]) => getLedgerLastSeqMock(...args),
 }));
 
@@ -22,20 +22,12 @@ vi.mock('../utils/logger.js', () => ({
   logInfo: vi.fn(),
 }));
 
-function pagedRows(rows: Array<Record<string, unknown>>, opts?: { cursorValue?: string | number; limit?: number }) {
-  const cursor = opts?.cursorValue == null ? null : String(opts.cursorValue);
-  const limit = Math.max(1, Number(opts?.limit ?? 5000));
-  const filtered = cursor == null ? rows : rows.filter((r) => String(r.id ?? '') > cursor);
-  return filtered.slice(0, limit);
-}
-
 describe('diagnostics consistency snapshot', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.MATRICA_DIAGNOSTICS_LEDGER_PAGE_SIZE = '2';
   });
 
-  it('computes server snapshot with pending/error items and paged ledger reads', async () => {
+  it('computes server snapshot with pending/error items, one read per table', async () => {
     getLedgerLastSeqMock.mockReturnValue(12345);
     const manyEntities = Array.from({ length: 510 }, (_, i) => ({
       id: `e-${String(i + 10).padStart(4, '0')}`,
@@ -85,10 +77,7 @@ describe('diagnostics consistency snapshot', () => {
       ],
     ]);
 
-    queryStateMock.mockImplementation((table: string, opts?: { cursorValue?: string | number; limit?: number }) => {
-      const rows = byTable.get(String(table)) ?? [];
-      return pagedRows(rows, opts);
-    });
+    loadLedgerTableRowsMock.mockImplementation((table: string) => byTable.get(String(table)) ?? []);
 
     const { computeServerSnapshot } = await import('../services/diagnosticsConsistencyService.js');
     const snapshot = await computeServerSnapshot();
@@ -105,15 +94,21 @@ describe('diagnostics consistency snapshot', () => {
     expect(engineSnapshot?.pendingItems?.[1]?.id).toBe('e-0001');
     expect(engineSnapshot?.pendingItems?.[1]?.label).toBe('Engine A');
 
-    const hasPagedRead = queryStateMock.mock.calls.some(
-      (call) => String(call[0]) === SyncTableName.Entities && call[1]?.cursorValue != null,
-    );
-    expect(hasPagedRead).toBe(true);
+    // Свойство, а не реализация: снимок читает каждую таблицу РОВНО ОДИН раз. До 2026-09 он
+    // обходил её страницами, и с переездом журнала в PostgreSQL каждая страница стала заново
+    // тянуть таблицу целиком — 510 строк entities давали бы 256 полных выборок, а у operations
+    // страница весит десятки мегабайт meta_json.
+    // Число чтений задаётся числом логических проходов (таблица целиком + разрез по типам),
+    // а НЕ числом строк. 510 сущностей при прежнем постраничном обходе с курсором давали
+    // сотни полных выборок таблицы.
+    const entitiesReads = loadLedgerTableRowsMock.mock.calls.filter((call) => String(call[0]) === SyncTableName.Entities);
+    expect(entitiesReads.length).toBeLessThanOrEqual(2);
+    expect(loadLedgerTableRowsMock.mock.calls.every((call) => call[1]?.cursorValue === undefined)).toBe(true);
   });
 
   it('returns degraded snapshot when ledger read throws', async () => {
     getLedgerLastSeqMock.mockReturnValue(1);
-    queryStateMock.mockImplementation(() => {
+    loadLedgerTableRowsMock.mockImplementation(() => {
       throw new Error('ledger unavailable');
     });
 
