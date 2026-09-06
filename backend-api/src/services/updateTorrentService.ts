@@ -400,7 +400,14 @@ export function startUpdateTorrentService() {
     if (!trackerServer) {
       trackerServer = new TrackerServer({ http: true, udp: true, ws: false });
       trackerServer.on('error', (err: unknown) => logWarn('tracker error', { error: String(err) }));
-      trackerServer.listen(port, '0.0.0.0', () => {
+      /**
+       * Адрес бинда задаётся по протоколам, а не одной строкой: при `udp: true` библиотека поднимает
+       * и udp4, и udp6, а udp6-сокет на IPv4-литерале `'0.0.0.0'` падает с `EINVAL`. Прод жил с этим
+       * с 30.08: http и udp4 поднимались, лог печатал `tracker error`, а колбэк готовности не
+       * вызывался вовсе — он ждёт все три сокета, — и строки `tracker listening` не было ни разу.
+       * То есть отказ был виден, а успех — нет.
+       */
+      trackerServer.listen(port, { http: '0.0.0.0', udp: '0.0.0.0', udp6: '::' }, () => {
         logInfo('tracker listening', { port }, { critical: true });
       });
     }
