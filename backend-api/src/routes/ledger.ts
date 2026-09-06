@@ -540,40 +540,54 @@ ledgerRouter.post('/releases/publish', async (req, res) => {
     created_by_user_id: user.id,
     created_by_username: user.username,
   };
-  // Истина — таблица release_registry; журнал получает ту же строку ради истории «кто и когда».
-  await db.insert(releaseRegistry).values({
-    id: row.id as any,
-    version: row.version,
-    notes: row.notes,
-    sha256: row.sha256,
-    fileName: row.file_name,
-    size: row.size,
-    payloadJson: row.payload_json,
-    createdAt: now,
-    createdByUserId: row.created_by_user_id,
-    createdByUsername: row.created_by_username,
-    updatedAt: now,
-    deletedAt: null,
-  });
-  const result = await signAndAppend([
-    {
-      type: 'upsert',
-      table: LedgerTableName.ReleaseRegistry,
-      row: { ...row, updated_at: now },
-      row_id: row.id,
-      actor: { userId: user.id, username: user.username, role: user.role },
-      ts: now,
-    },
-  ]);
-  return res.json({ ok: true, applied: result.applied, last_seq: result.lastSeq });
+  // Порядок важен: сначала журнал (он умеет переспросить номер и упасть), потом строка-истина.
+  // Обратный порядок оставлял бы выпуск в таблице после отказа журнала, и повторная попытка
+  // публикатора завела бы второй выпуск той же версии.
+  //
+  // try/catch обязателен: обработчик асинхронный, а Express 4 отвергнутый промис не видит —
+  // без него ошибка ушла бы в unhandledRejection, ответ не был бы отправлен вовсе, и клиент
+  // висел бы до таймаута сокета вместо честного 500.
+  try {
+    const result = await signAndAppend([
+      {
+        type: 'upsert',
+        table: LedgerTableName.ReleaseRegistry,
+        row: { ...row, updated_at: now },
+        row_id: row.id,
+        actor: { userId: user.id, username: user.username, role: user.role },
+        ts: now,
+      },
+    ]);
+    await db.insert(releaseRegistry).values({
+      id: row.id as any,
+      version: row.version,
+      notes: row.notes,
+      sha256: row.sha256,
+      fileName: row.file_name,
+      size: row.size,
+      payloadJson: row.payload_json,
+      createdAt: now,
+      createdByUserId: row.created_by_user_id,
+      createdByUsername: row.created_by_username,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    return res.json({ ok: true, applied: result.applied, last_seq: result.lastSeq });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 ledgerRouter.get('/releases/latest', async (_req, res) => {
-  const rows = await queryState(LedgerTableName.ReleaseRegistry, {
-    sortBy: 'created_at',
-    sortDir: 'desc',
-    limit: 1,
-    includeDeleted: false,
-  });
-  return res.json({ ok: true, release: rows[0] ?? null });
+  try {
+    const rows = await queryState(LedgerTableName.ReleaseRegistry, {
+      sortBy: 'created_at',
+      sortDir: 'desc',
+      limit: 1,
+      includeDeleted: false,
+    });
+    return res.json({ ok: true, release: rows[0] ?? null });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 });

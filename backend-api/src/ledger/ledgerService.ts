@@ -26,7 +26,40 @@ import { PG_SYNC_TABLES } from '../services/sync/pgSyncTables.js';
 // Один ключ на всю базу: писатели журнала сериализуются, как раньше замком .ledger.lock.
 const LEDGER_LOCK_KEY = 7_311_2026;
 
+/** Столько раз пробуем заново, если номер уже занят (см. `ensureSequenceAheadOfJournal`). */
+const SEQ_RETRIES = 3;
+
 export type LedgerAppendResult = { applied: number; lastSeq: number; blockHeight: number; signed: LedgerSignedTx[] };
+
+/**
+ * Поднять `ledger_seq` до максимума журнала, если последовательность отстала.
+ *
+ * Отставание возможно ровно в одном случае — когда в таблицу писал КТО-ТО ЕЩЁ, минуя
+ * последовательность. При выкате 2026-09 это была снятая цепочка блоков: она держала свой
+ * счётчик в `index.json`, и пока старая сборка ещё работала, её номера продолжали ложиться в
+ * `ledger_tx_index`. Номер — первичный ключ, поэтому совпадение роняло бы весь append.
+ * Самолечение делает это восстановимым состоянием, а не отказом: подняли счётчик — и пишем
+ * дальше. Дыры в номерах безвредны: курсор pull'а идёт по фактическому максимуму таблицы.
+ */
+async function ensureSequenceAheadOfJournal(): Promise<void> {
+  await db.execute(
+    sql`select setval('ledger_seq', greatest((select last_value from ledger_seq), (select coalesce(max(server_seq), 0) from ledger_tx_index)), true)`,
+  );
+}
+
+/** Занятый номер журнала: PostgreSQL 23505 по первичному ключу `ledger_tx_index`. */
+function isDuplicateSeqError(e: unknown): boolean {
+  let cur: unknown = e;
+  for (let depth = 0; cur && depth < 5; depth += 1) {
+    const err = cur as { code?: unknown; constraint?: unknown; message?: unknown; cause?: unknown };
+    if (String(err.code ?? '') === '23505') {
+      const where = `${String(err.constraint ?? '')} ${String(err.message ?? '')}`;
+      return where.includes('ledger_tx_index') || String(err.constraint ?? '') === '';
+    }
+    cur = err.cause;
+  }
+  return false;
+}
 
 function payloadRow(tx: LedgerSignedTx): Record<string, unknown> {
   if (tx.row) return { ...tx.row, last_server_seq: tx.seq };
@@ -48,7 +81,24 @@ export async function signAndAppendDetailed(payloads: LedgerTxPayload[]): Promis
     if (!rowIdOf(p)) throw new Error(`ledger_tx_without_row_id: ${String(p.table)}`);
   }
   const now = Date.now();
-  const signed = await db.transaction(async (tx) => {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= SEQ_RETRIES; attempt += 1) {
+    try {
+      const signed = await appendBatch(payloads, now);
+      return { applied: signed.length, lastSeq: signed.at(-1)?.seq ?? 0, blockHeight: 0, signed };
+    } catch (e) {
+      // Занятый номер — единственная ошибка, которую лечим сами: поднимаем счётчик и пишем
+      // заново. Всё остальное (валидация, FK, обрыв связи) отдаём наверх как было.
+      if (!isDuplicateSeqError(e) || attempt === SEQ_RETRIES) throw e;
+      lastError = e;
+      await ensureSequenceAheadOfJournal();
+    }
+  }
+  throw lastError;
+}
+
+async function appendBatch(payloads: LedgerTxPayload[], now: number): Promise<LedgerSignedTx[]> {
+  return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${LEDGER_LOCK_KEY})`);
     const seqRes = await tx.execute(sql`select nextval('ledger_seq')::bigint as seq from generate_series(1, ${payloads.length})`);
     const seqs = (seqRes.rows as Array<{ seq: unknown }>).map((r) => Number(r.seq));
@@ -70,7 +120,6 @@ export async function signAndAppendDetailed(payloads: LedgerTxPayload[]): Promis
     );
     return out;
   });
-  return { applied: signed.length, lastSeq: signed.at(-1)?.seq ?? 0, blockHeight: 0, signed };
 }
 
 export async function signAndAppend(payloads: LedgerTxPayload[]): Promise<{ applied: number; lastSeq: number; blockHeight: number }> {
@@ -78,13 +127,34 @@ export async function signAndAppend(payloads: LedgerTxPayload[]): Promise<{ appl
   return { applied: r.applied, lastSeq: r.lastSeq, blockHeight: r.blockHeight };
 }
 
-/** Последний выданный номер журнала. Берётся и из последовательности, и из таблицы:
- * откатившаяся транзакция оставляет дыру в номерах, но не может понизить максимум. */
+/**
+ * Верхняя граница журнала — максимум ЗАПИСАННЫХ строк, а не `last_value` последовательности.
+ *
+ * Разница принципиальна, потому что это число клиент сохраняет как курсор. `nextval` не
+ * транзакционен: откат сжигает номера, и `last_value` навсегда уходит выше последней
+ * записанной строки. Отдав такой номер курсором, мы бы двигали клиента ЗА пределы того, что
+ * вообще существует, а на пустой странице (`nextPullCursor`) — перепрыгивали бы строки,
+ * которые ещё коммитятся. Максимум таблицы такого свойства не имеет: строки журнала пишутся
+ * под `pg_advisory_xact_lock`, то есть коммитятся в порядке номеров.
+ */
 export async function getLedgerLastSeq(): Promise<number> {
-  const r = await db.execute(
-    sql`select greatest((select last_value from ledger_seq), (select coalesce(max(server_seq), 0) from ledger_tx_index))::bigint as seq`,
-  );
+  const r = await db.execute(sql`select coalesce(max(server_seq), 0)::bigint as seq from ledger_tx_index`);
   return Number((r.rows?.[0] as { seq?: unknown } | undefined)?.seq ?? 0) || 0;
+}
+
+/**
+ * Сожжённые номера: последовательность выдала, а строки в журнале нет.
+ *
+ * Диагностический счётчик, НЕ повод для тревоги сам по себе: `nextval` не транзакционен,
+ * поэтому каждый откат писателя оставляет дыру, и величина только растёт. Годится как
+ * наблюдение («сегодня откатов больше обычного»), не годится как гейт — порог по ней
+ * сработал бы один раз и навсегда.
+ */
+export async function getLedgerSeqGap(): Promise<number> {
+  const r = await db.execute(
+    sql`select greatest((select last_value from ledger_seq) - (select coalesce(max(server_seq), 0) from ledger_tx_index), 0)::bigint as gap`,
+  );
+  return Number((r.rows?.[0] as { gap?: unknown } | undefined)?.gap ?? 0) || 0;
 }
 
 function releaseRegistryRow(r: Record<string, unknown>): Record<string, unknown> {
@@ -113,6 +183,22 @@ async function loadTableRows(table: LedgerTableName): Promise<Array<Record<strin
   if (!entry) return [];
   const rows = await db.select().from(entry.drizzle);
   return (rows as Array<Record<string, unknown>>).map((r) => entry.toSyncRow(r));
+}
+
+/**
+ * Все строки таблицы в DTO-форме за один проход по PostgreSQL.
+ *
+ * Для диагностики, которая считает или сверяет таблицу ЦЕЛИКОМ. Постраничный обход через
+ * `queryState` для этого не годится: каждая страница заново тянет всю таблицу из PG, то есть
+ * работа растёт квадратично по числу строк, а у `operations` каждая строка несёт ещё и
+ * `meta_json` в десятки килобайт.
+ */
+export async function loadLedgerTableRows(
+  table: LedgerTableName,
+  opts: { includeDeleted?: boolean } = {},
+): Promise<Array<Record<string, unknown>>> {
+  const rows = await loadTableRows(table);
+  return opts.includeDeleted ? rows : rows.filter((r) => r.deleted_at == null);
 }
 
 export type QueryStateOptions = {

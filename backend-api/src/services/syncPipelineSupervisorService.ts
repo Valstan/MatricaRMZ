@@ -100,7 +100,7 @@ function formatPipelineMessage(health: Awaited<ReturnType<typeof getSyncPipeline
   const lines: string[] = [];
   lines.push(`[Синхронизация] ${levelEmoji(health.status)} (${source === 'nightly' ? 'плановый запуск' : 'ручной запуск'})`);
   lines.push(
-    `последовательность: журнал=${health.seq.ledgerLastSeq}, индекс=${health.seq.indexMaxSeq}, проекция=${health.seq.projectionMaxSeq}, отставание=${health.seq.ledgerToIndexLag}/${health.seq.indexToProjectionLag}`,
+    `последовательность: журнал=${health.seq.ledgerLastSeq}, проекция=${health.seq.projectionMaxSeq}, отставание проекции=${health.seq.indexToProjectionLag}, сожжённых номеров=${health.seq.ledgerToIndexLag}`,
   );
   lines.push(
     `дрейф: entity_types=${health.tables.entity_types.diffRatio.toFixed(4)}, entities=${health.tables.entities.diffRatio.toFixed(4)}, attribute_defs=${health.tables.attribute_defs.diffRatio.toFixed(4)}, attribute_values=${health.tables.attribute_values.diffRatio.toFixed(4)}, operations=${health.tables.operations.diffRatio.toFixed(4)}`,

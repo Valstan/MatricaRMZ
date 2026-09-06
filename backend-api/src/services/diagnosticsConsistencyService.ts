@@ -11,7 +11,7 @@ import {
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { resolveLoginsToFullNames } from './employeeAuthService.js';
 import { logError, logInfo } from '../utils/logger.js';
-import { getLedgerLastSeq, queryState } from '../ledger/ledgerService.js';
+import { getLedgerLastSeq, loadLedgerTableRows } from '../ledger/ledgerService.js';
 
 type SnapshotSection = {
   count: number;
@@ -114,28 +114,13 @@ function topPendingItems(
     }));
 }
 
+// Один проход по таблице. Постраничный обход (он был здесь до 2026-09) с переездом журнала в
+// PostgreSQL стал квадратичным: каждая страница заново читает таблицу целиком, а у operations
+// это ещё и десятки мегабайт meta_json на страницу. Снимок считает количества и суммы —
+// порядок строк ему безразличен.
 async function forEachLedgerRow(table: SyncTableName, onRow: (row: Record<string, unknown>) => void) {
-  const pageSize = Math.max(500, Math.min(20_000, Number(process.env.MATRICA_DIAGNOSTICS_LEDGER_PAGE_SIZE ?? 5000)));
-  let cursorValue: string | number | undefined;
-  let cursorId: string | undefined;
-  for (let page = 0; page < 10_000; page += 1) {
-    const rows = await queryState(table as any, {
-      includeDeleted: false,
-      sortBy: 'id',
-      sortDir: 'asc',
-      limit: pageSize,
-      ...(cursorValue != null ? { cursorValue } : {}),
-      ...(cursorId ? { cursorId } : {}),
-    }) as Array<Record<string, unknown>>;
-    if (!Array.isArray(rows) || rows.length === 0) break;
-    for (const row of rows) onRow(row);
-    if (rows.length < pageSize) break;
-    const last = rows[rows.length - 1];
-    const nextId = toStringValue(last?.id);
-    if (!nextId) break;
-    cursorValue = nextId;
-    cursorId = nextId;
-  }
+  const rows = await loadLedgerTableRows(table as any);
+  for (const row of rows) onRow(row);
 }
 
 async function computeLedgerTableSnapshot(table: SyncTableName): Promise<SnapshotSection> {
