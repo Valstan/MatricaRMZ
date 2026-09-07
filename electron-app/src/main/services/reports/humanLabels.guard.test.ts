@@ -33,6 +33,20 @@ import { describe, expect, it, vi } from 'vitest';
 // поэтому пустого объекта достаточно — писать в файл на прогоне тестов и не надо.
 vi.mock('electron', () => ({ app: {} }));
 
+// Справочник складов приходит по сети (локальной реплики нет). Сторож раньше гонял билдеры
+// офлайн и подсовывал в фикстуру движения поле `warehouseId` — колонки с таким именем в
+// клиентской реплике не существует, то есть «второй путь» жил только в тесте и держал
+// зелёным мёртвый код. Теперь справочник отвечает, как в жизни.
+vi.mock('../httpClient.js', () => ({
+  httpAuthed: async (_db: unknown, _base: string, path: string) =>
+    path.startsWith('/warehouse-locations')
+      ? {
+          ok: true,
+          json: { ok: true, rows: [{ id: 'w-1', code: 'workshop_3', name: 'Цех №3', type: 'workshop' }] },
+        }
+      : { ok: true, json: { ok: true, rows: [] } },
+}));
+
 import {
   REPORT_PRESET_DEFINITIONS,
   StockMovementType,
@@ -443,13 +457,12 @@ function erpRows(shape: FixtureShape) {
       createdAt: T0,
     },
   ];
-  // Выпуск цеха. Признак цеха при недоступном справочнике локаций (а сторож гоняет билдеры
-  // без `ctx`, то есть всегда офлайн) определяется ТОЛЬКО легаси-полем `warehouseId`.
+  // Выпуск цеха. Признак цеха — тип локации из справочника (замокан выше): другого источника
+  // у клиента нет, поэтому и в фикстуре его быть не должно.
   movements.push({
     id: 'm4',
     nomenclatureId: ID.nomenclature,
-    warehouseLocationId: ID.warehouse,
-    warehouseId: 'workshop_3',
+    warehouseLocationId: 'w-1',
     documentHeaderId: ID.docHeader,
     movementType: StockMovementType.RepairIn,
     qty: 4,
@@ -667,7 +680,11 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
 ];
 
 async function runPreset(presetId: string, shape: FixtureShape, filters?: Record<string, unknown>) {
-  return buildReportByPreset(stubDb(shape), { presetId: presetId as never, ...(filters ? { filters } : {}) });
+  return buildReportByPreset(
+    stubDb(shape),
+    { presetId: presetId as never, ...(filters ? { filters } : {}) },
+    { sysDb: {} as never, apiBaseUrl: 'http://reports.test.invalid' },
+  );
 }
 
 /**
