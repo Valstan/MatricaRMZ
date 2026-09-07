@@ -65,6 +65,7 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   // pull-only: клиент в них не пишет, значит и чинить нечего (recovery помечает
   // ошибочные pending-строки собственного пуша). undefined здесь — решение, а не
   // забывчивость: карта объявлена Record<SyncTableName, …>, пропуск не собрался бы.
+  [SyncTableName.WarehouseLocations]: undefined,
   [SyncTableName.Users]: undefined,
   [SyncTableName.UserSectionAccess]: undefined,
   [SyncTableName.ErpNomenclature]: undefined,

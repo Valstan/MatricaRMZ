@@ -29,6 +29,7 @@ import {
   aiChatRequestRowSchema,
   userRowSchema,
   userSectionAccessRowSchema,
+  warehouseLocationRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
@@ -332,6 +333,16 @@ const ERP_STOCK_MOVEMENT_FIELDS: readonly FieldMapping[] = [
   { db: 'createdAt', dto: 'created_at' },
 ] as const;
 
+const WAREHOUSE_LOCATION_FIELDS = withBase(
+  { db: 'type', dto: 'type' },
+  { db: 'code', dto: 'code' },
+  { db: 'name', dto: 'name' },
+  { db: 'workshopId', dto: 'workshop_id' },
+  { db: 'isActive', dto: 'is_active' },
+  { db: 'sortOrder', dto: 'sort_order' },
+  { db: 'metadataJson', dto: 'metadata_json' },
+);
+
 const USER_FIELDS = withBase(
   { db: 'login', dto: 'login' },
   { db: 'systemRole', dto: 'system_role' },
@@ -527,6 +538,14 @@ const ENTRIES: readonly SyncTableEntry[] = [
   // в холодном full-state: доступы обязаны ехать ПОСЛЕ аккаунтов, иначе
   // клиентская чистка FK-сирот снесёт их как строки без родителя.
   // users НЕ зависит от entities: FK на entities в 0086 сознательно нет.
+  {
+    syncName: SyncTableName.WarehouseLocations,
+    ledgerName: SyncTableName.WarehouseLocations,
+    schema: warehouseLocationRowSchema,
+    fields: WAREHOUSE_LOCATION_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
   {
     syncName: SyncTableName.Users,
     ledgerName: SyncTableName.Users,

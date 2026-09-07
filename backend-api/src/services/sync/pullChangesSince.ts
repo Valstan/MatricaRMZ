@@ -40,6 +40,7 @@ import {
   userPresence,
   users,
   userSectionAccess,
+  warehouseLocations,
 } from '../../database/schema.js';
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
 import { PRIVACY_TABLES, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
@@ -91,6 +92,10 @@ const PG_SYNC_TABLES: Record<
   // HR_SENSITIVE_CODES, см. шапку pullReadFilter.ts). Сузить нельзя и по делу:
   // офлайн-гейт разделов обязан работать на КАЖДОЙ машине, а не только у админов,
   // и ему нужна политика целиком, а не своя строка.
+  [SyncTableName.WarehouseLocations]: {
+    drizzle: warehouseLocations,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.WarehouseLocations, r),
+  },
   [SyncTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
   [SyncTableName.UserSectionAccess]: {
     drizzle: userSectionAccess,

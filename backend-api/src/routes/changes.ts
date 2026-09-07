@@ -281,6 +281,7 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.ErpEngineAssemblyBomLines]: 'Строки спецификаций',
       [SyncTableName.ErpEngineAssemblyBomBrandLinks]: 'Связи спецификаций с марками',
       [SyncTableName.ErpEngineInstances]: 'Экземпляры двигателей',
+      [SyncTableName.WarehouseLocations]: 'Склады и цеха',
       [SyncTableName.ErpRegStockBalance]: 'Остатки склада',
       [SyncTableName.ErpRegStockMovements]: 'Движения склада',
       [SyncTableName.ErpEngineInventoryLines]: 'Список деталей двигателя',

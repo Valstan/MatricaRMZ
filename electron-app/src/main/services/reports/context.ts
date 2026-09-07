@@ -15,7 +15,8 @@ import {
   attributeValues,
   entities,
   entityTypes,
-  } from '../../database/schema.js';
+    warehouseLocations,
+} from '../../database/schema.js';
 
 import { httpAuthed } from '../httpClient.js';
 
@@ -65,6 +66,44 @@ export let warehouseLocationByIdCache:
       byId: Map<string, WarehouseLocationLookup>;
     }
   | null = null;
+
+/**
+ * Справочник складов и цехов из локальной реплики (`warehouse_locations`, миграция клиента 0024).
+ * Это ПЕРВЫЙ источник: отчёты обязаны отличать цех от склада и без связи с сервером — раньше
+ * справочник жил только по сети, и при её отсутствии разрез «по цехам» отдавал пустоту (M112).
+ */
+export async function getWarehouseLocationsFromReplica(db: BetterSQLite3Database): Promise<Map<string, WarehouseLocationLookup>> {
+  const byId = new Map<string, WarehouseLocationLookup>();
+  try {
+    const rows = await db.select().from(warehouseLocations).where(isNull(warehouseLocations.deletedAt)).limit(5_000);
+    for (const raw of rows as Array<Record<string, unknown>>) {
+      const id = String(raw.id ?? '').trim();
+      if (!id) continue;
+      byId.set(id, {
+        code: String(raw.code ?? '').trim(),
+        name: String(raw.name ?? '').trim() || id,
+        type: String(raw.type ?? '').trim(),
+      });
+    }
+  } catch {
+    // Таблицы ещё нет (клиент до 0024 / база на переезде) — молча отдаём пустую карту,
+    // вызывающий сходит по сети. Роняться отчёту здесь нельзя.
+  }
+  return byId;
+}
+
+/**
+ * Справочник для билдера отчёта: сперва локальная реплика, и только если она пуста — сеть
+ * (клиент до 0024 или ещё не доехавший первый pull). Сетевой ответ кэшируется, как и прежде.
+ */
+export async function getWarehouseLocationsForReport(
+  db: BetterSQLite3Database,
+  ctx?: ReportBuildContext,
+): Promise<Map<string, WarehouseLocationLookup>> {
+  const local = await getWarehouseLocationsFromReplica(db);
+  if (local.size > 0) return local;
+  return getWarehouseLocationsById(ctx);
+}
 
 export async function getWarehouseLocationsById(ctx?: ReportBuildContext): Promise<Map<string, WarehouseLocationLookup>> {
   const normalizedApiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');

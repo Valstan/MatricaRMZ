@@ -71,6 +71,10 @@ export function isServerOnlyAttrCode(attrCode: string | null | undefined): boole
 export const SERVER_MANAGED_SYNC_TABLES: ReadonlySet<string> = new Set([
   SyncTableName.Users,
   SyncTableName.UserSectionAccess,
+  // Справочник складов ведут только серверные двери (`warehouseLocationsService`), клиент
+  // его читает. Без этой строки любой авторизованный клиент мог бы крафтить строку локации
+  // и, например, переименовать цех у всего парка.
+  SyncTableName.WarehouseLocations,
 ]);
 
 export function isServerManagedSyncTable(table: string | null | undefined): boolean {
@@ -171,6 +175,7 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // 'superadmin' здесь не защищает (для не-operator ролей гейт обходится), но
   // оставляет верный ответ, если backstop когда-нибудь снимут: fail-open от
   // `?? { kind: 'open' }` для этих таблиц недопустим.
+  [SyncTableName.WarehouseLocations]: { kind: 'superadmin' },
   [SyncTableName.Users]: { kind: 'superadmin' },
   [SyncTableName.UserSectionAccess]: { kind: 'superadmin' },
 };

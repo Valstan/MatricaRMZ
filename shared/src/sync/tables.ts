@@ -31,6 +31,10 @@ export const SyncTableName = {
   // отбивается табличным backstop'ом в ledgerAuthzGuard. Секрет (user_credentials)
   // и настройки (user_settings) в контракт НЕ входят — это свойство конструкции,
   // а не фильтр, и его стережёт usersStrictContract.guard.test.ts.
+  // Справочник складов и цехов: server-write / pull-only, как users. На клиенте он нужен
+  // офлайн (разрез отчётов «по цехам» строится по типу локации), а жил только на сервере —
+  // отчёт при отсутствии связи не мог отличить цех от склада и отдавал пустоту (M112).
+  WarehouseLocations: 'warehouse_locations',
   Users: 'users',
   UserSectionAccess: 'user_section_access',
 } as const;

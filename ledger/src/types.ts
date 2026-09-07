@@ -30,6 +30,7 @@ export const LedgerTableName = {
   ErpEngineAssemblyBomBrandLinks: 'erp_engine_assembly_bom_brand_links',
   ErpEngineInstances: 'erp_engine_instances',
   ErpEngineInventoryLines: 'erp_engine_inventory_lines',
+  WarehouseLocations: 'warehouse_locations',
   ErpDocumentHeaders: 'erp_document_headers',
   ErpDocumentLines: 'erp_document_lines',
   ErpRegStockBalance: 'erp_reg_stock_balance',

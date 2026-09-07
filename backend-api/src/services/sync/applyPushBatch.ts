@@ -15,6 +15,7 @@ import {
   erpEngineInventoryLineRowSchema,
   operationRowSchema,
   userRowSchema,
+  warehouseLocationRowSchema,
   userSectionAccessRowSchema,
   type SyncPushRequest,
 } from '@matricarmz/shared';
@@ -46,6 +47,7 @@ import {
   userPresence,
   users,
   userSectionAccess,
+  warehouseLocations,
 } from '../../database/schema.js';
 
 // Специальный “контейнер” для операций заявок в снабжение.
@@ -1920,7 +1922,7 @@ export async function applyPushBatch(
     {
       const trustedServerWrite = isReplayClient || applyOpts.allowSyncConflicts === true;
 
-      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess] as const) {
+      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations] as const) {
         const raw = grouped.get(tableName) ?? [];
         if (raw.length === 0 || trustedServerWrite) continue;
         addSkipMetric('conflict', tableName, raw.length, 'server_managed_table');
@@ -2039,6 +2041,59 @@ export async function applyPushBatch(
               const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
               const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
               await updateSeqAndCollect(userSectionAccess, SyncTableName.UserSectionAccess, stamped);
+              applied += stamped.length;
+            }
+          }
+        }
+
+        // Справочник складов и цехов (0093). Пишут его только серверные двери
+        // (`warehouseLocationsService` через `writeSyncChanges`), клиент читает реплику.
+        {
+          const raw = grouped.get(SyncTableName.WarehouseLocations) ?? [];
+          const parsedAll = parseRows(SyncTableName.WarehouseLocations, raw, warehouseLocationRowSchema);
+          if (parsedAll.length > 0) {
+            const rows = await filterStaleBySeqOrUpdatedAt(warehouseLocations, parsedAll, SyncTableName.WarehouseLocations, {
+              allowSyncConflicts: true,
+            });
+            if (rows.length > 0) {
+              const written = await tx
+                .insert(warehouseLocations)
+                .values(
+                  rows.map((r) => ({
+                    id: r.id as any,
+                    type: r.type,
+                    code: r.code,
+                    name: r.name,
+                    workshopId: (r.workshop_id ?? null) as any,
+                    isActive: r.is_active,
+                    sortOrder: r.sort_order,
+                    metadataJson: r.metadata_json ?? null,
+                    createdAt: r.created_at,
+                    updatedAt: r.updated_at,
+                    deletedAt: r.deleted_at ?? null,
+                    syncStatus: 'synced',
+                  })),
+                )
+                .onConflictDoUpdate({
+                  target: warehouseLocations.id,
+                  setWhere: sql`${warehouseLocations.updatedAt} <= excluded.updated_at`,
+                  set: {
+                    type: sql`excluded.type`,
+                    code: sql`excluded.code`,
+                    name: sql`excluded.name`,
+                    workshopId: sql`excluded.workshop_id`,
+                    isActive: sql`excluded.is_active`,
+                    sortOrder: sql`excluded.sort_order`,
+                    metadataJson: sql`excluded.metadata_json`,
+                    updatedAt: sql`excluded.updated_at`,
+                    deletedAt: sql`excluded.deleted_at`,
+                    syncStatus: 'synced',
+                  },
+                })
+                .returning({ id: warehouseLocations.id });
+              const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+              const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+              await updateSeqAndCollect(warehouseLocations, SyncTableName.WarehouseLocations, stamped);
               applied += stamped.length;
             }
           }

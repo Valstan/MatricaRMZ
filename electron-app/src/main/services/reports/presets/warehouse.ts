@@ -33,7 +33,7 @@ import {
 
 import { httpAuthed } from '../../httpClient.js';
 import { resolveContractLabel, safeJsonParse, toNumber, normalizeText, asArray, asBool, readPeriod, msToDate, statusLabel } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, buildBrandFilterMatcher, type ReportBuildContext, type Snapshot } from '../context.js';
+import { getWarehouseLocationsForReport, getPreset, loadSnapshot, getIdsByType, buildBrandFilterMatcher, type ReportBuildContext, type Snapshot } from '../context.js';
 import { UNKNOWN_ENGINE_NUMBER_LABEL, UNKNOWN_ENTITY_LABEL } from '../options.js';
 
 // Служебные «исполнители»: их пишет не человек, а сам клиент или веб-админка.
@@ -402,7 +402,7 @@ export async function buildPartMovementJournalReport(
 
   // Phase 2.4 PR 2.5: lookup uuid→{code,name,type} для filter compare и label resolve.
   // UI после v1.30.0 шлёт UUID в warehouseIds.
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
   const snapshot = await loadSnapshot(db);
   const fullNameByLogin = buildFullNameByLogin(snapshot);
 
@@ -518,7 +518,7 @@ export async function buildStockTurnoverReport(
     .trim()
     .toLowerCase();
 
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
 
   const nomenRows = await db
     .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
@@ -636,7 +636,7 @@ export async function buildWorkshopThroughputReport(
   const endMs = Number((filters as Record<string, unknown> | undefined)?.endMs ?? 0);
   const warehouseFilter = asArray(filters?.warehouseIds);
   // Phase 2.4 PR 2.5: lookup uuid → type для "только workshop" фильтра.
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
 
   // Разрез отчёта — «по цехам», а цех известен только из справочника локаций (он приходит по
   // сети, локальной реплики нет). Пустой справочник давал ноль строк, неотличимый от «за период
@@ -1162,7 +1162,7 @@ export async function buildRepairFundReconciliationReport(
     .trim()
     .toLowerCase();
 
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
 
   type Bucket = { instances: number; fundQty: number; stampedNumbers: string[] };
   const agg = new Map<string, Bucket>();

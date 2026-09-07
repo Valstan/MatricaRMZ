@@ -45,7 +45,7 @@ import { httpAuthed } from '../../httpClient.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, buildBrandFilterMatcher, resolveEngineBrandRef, type ReportBuildContext, type Snapshot } from '../context.js';
+import { getWarehouseLocationsForReport, getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, buildBrandFilterMatcher, resolveEngineBrandRef, type ReportBuildContext, type Snapshot } from '../context.js';
 import {
   buildOptions,
   buildCounterpartyOptions,
@@ -808,7 +808,7 @@ export async function buildEngineReadinessToAssembleReport(
   }
 
   // Phase 2.4 PR 2.5: считаем доступные остатки в цеховых складах + repair_fund через uuid lookup.
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
   const balanceRows = await db.select().from(erpRegStockBalance);
   const stockByNom = new Map<string, number>();
   for (const raw of balanceRows as Array<Record<string, unknown>>) {
@@ -1165,7 +1165,7 @@ export async function buildEngineKittingReport(
   }
 
   // Доступные остатки (qty − reserved) без технических локаций; ремфонд — отдельно.
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
   const balanceRows = (await db.select().from(erpRegStockBalance)) as Array<Record<string, unknown>>;
   const availableByNom = new Map<string, number>();
   const repairFundByNom = new Map<string, number>();
@@ -1366,7 +1366,7 @@ export async function buildNormsPurchasePlanReport(
   }
 
   // Свободные остатки (qty − reserved) без технических локаций; ремфонд — отдельной колонкой.
-  const locByUuid = await getWarehouseLocationsById(ctx);
+  const locByUuid = await getWarehouseLocationsForReport(db, ctx);
   const balanceRows = (await db.select().from(erpRegStockBalance)) as Array<Record<string, unknown>>;
   const availableByNom = new Map<string, number>();
   const repairFundByNom = new Map<string, number>();

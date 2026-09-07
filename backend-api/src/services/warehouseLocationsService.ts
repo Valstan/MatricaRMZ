@@ -198,6 +198,7 @@ export async function upsertWarehouseLocation(args: {
           sortOrder: Math.trunc(Number(args.sortOrder ?? 0)),
           metadataJson: args.metadataJson ?? null,
           updatedAt: ts,
+          syncStatus: 'pending',
         })
         .where(eq(warehouseLocations.id, id));
     } else {
@@ -212,6 +213,7 @@ export async function upsertWarehouseLocation(args: {
         metadataJson: args.metadataJson ?? null,
         createdAt: ts,
         updatedAt: ts,
+        syncStatus: 'pending',
       });
     }
     invalidateLocationCache();
@@ -238,7 +240,7 @@ export async function softDeleteWarehouseLocation(args: { id: string }): Promise
     const ts = nowMs();
     await db
       .update(warehouseLocations)
-      .set({ deletedAt: ts, isActive: false, updatedAt: ts })
+      .set({ deletedAt: ts, isActive: false, updatedAt: ts, syncStatus: 'pending' })
       .where(eq(warehouseLocations.id, id));
     invalidateLocationCache();
     return { ok: true, id };
@@ -274,12 +276,13 @@ export async function seedSystemLocations(): Promise<Result<{ created: number; u
           metadataJson: null,
           createdAt: ts,
           updatedAt: ts,
+          syncStatus: 'pending',
         });
         created += 1;
       } else if (String(existing[0].name) !== meta.name) {
         await db
           .update(warehouseLocations)
-          .set({ name: meta.name, updatedAt: ts })
+          .set({ name: meta.name, updatedAt: ts, syncStatus: 'pending' })
           .where(eq(warehouseLocations.id, meta.id));
         updated += 1;
       }
@@ -321,7 +324,7 @@ export async function syncFromWorkshop(args: {
       if (!existing[0]) return { ok: true, id: null };
       await db
         .update(warehouseLocations)
-        .set({ deletedAt: ts, isActive: false, updatedAt: ts })
+        .set({ deletedAt: ts, isActive: false, updatedAt: ts, syncStatus: 'pending' })
         .where(eq(warehouseLocations.id, existing[0].id));
       invalidateLocationCache();
       return { ok: true, id: String(existing[0].id) };
@@ -341,6 +344,7 @@ export async function syncFromWorkshop(args: {
           isActive: args.isActive,
           sortOrder: Math.trunc(Number(args.sortOrder ?? 0)),
           updatedAt: ts,
+          syncStatus: 'pending',
         })
         .where(eq(warehouseLocations.id, existing[0].id));
       invalidateLocationCache();
@@ -363,6 +367,7 @@ export async function syncFromWorkshop(args: {
           isActive: args.isActive,
           sortOrder: Math.trunc(Number(args.sortOrder ?? 0)),
           updatedAt: ts,
+          syncStatus: 'pending',
         })
         .where(eq(warehouseLocations.id, byCode[0].id));
       invalidateLocationCache();
@@ -381,6 +386,7 @@ export async function syncFromWorkshop(args: {
       metadataJson: null,
       createdAt: ts,
       updatedAt: ts,
+      syncStatus: 'pending',
     });
     invalidateLocationCache();
     return { ok: true, id };
