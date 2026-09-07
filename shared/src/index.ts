@@ -16,6 +16,7 @@ export * from './domain/docxText.js';
 export * from './domain/pastableFile.js';
 export * from './domain/engineActSnapshot.js';
 export * from './domain/contractInternalNumber.js';
+export * from './domain/engineCustomer.js';
 export * from './domain/engineInternalNumber.js';
 export * from './domain/engineReservation.js';
 export * from './domain/engineFlatFields.js';
