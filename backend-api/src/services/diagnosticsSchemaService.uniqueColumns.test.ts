@@ -7,13 +7,19 @@ import { describe, expect, it } from 'vitest';
 import { SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, pgArrayColumns } from './diagnosticsSchemaService.js';
 
 describe('SCHEMA_UNIQUE_SAFE_CLIENT_VERSION', () => {
-  it('не ниже версии, в которой клиент получил режим отчёта (3.20.0): более старые сборки удаляют по unique сразу', () => {
+  it('порог отсекает сборки без режима отчёта: не ниже 3.20.0 и не из будущего', () => {
     const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
-    // Пока 3.20.0 не выпущена, константа строго выше текущего VERSION; после выпуска — равна ей или ниже.
+
+    // Порог — исторический: клиенты 3.20.0 и новее по серверным unique только отчитываются,
+    // более старые применяют дедуп сразу. Он не обязан расти вместе с версией программы, и
+    // прежняя формулировка требовала именно этого: сравнение с `pkg.version` было записано
+    // как «не ниже», и первый же следующий релиз (3.21.0) уронил тест на константе, которая
+    // ничем не провинилась. Правильных условий два, и оба про сам порог.
     expect(compareAppVersion(SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, '3.20.0')).toBeGreaterThanOrEqual(0);
-    expect(compareAppVersion(SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, pkg.version)).toBeGreaterThanOrEqual(
-      compareAppVersion('3.20.0', pkg.version) > 0 ? 1 : 0,
-    );
+
+    // Порог не может указывать на сборку, которой ещё нет: тогда unique не получит НИКТО, и
+    // отчёт о расхождениях молча не соберётся ни с одной машины парка.
+    expect(compareAppVersion(SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, pkg.version)).toBeLessThanOrEqual(0);
   });
 });
 
