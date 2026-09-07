@@ -70,6 +70,8 @@ function isTypingTarget(el: Element | null): boolean {
 export function DesktopPane(props: {
   desktop: UserUiProfileDesktop;
   onChange: (next: UserUiProfileDesktop) => void;
+  /** Отправить файл ярлыка коллеге: окно выбора получателя открывает владелец панели. */
+  onSendFile?: (fileId: string, fileName: string) => void;
   /** Открыть ярлык (deep-link). Ярлык без link просто ничего не делает. */
   onOpenLink: (link: unknown, shortcutId: string) => void;
   /** Шаг размера плитки по рейтингу использования. Нет ответа — сегодняшний вид (0). */
@@ -998,6 +1000,16 @@ export function DesktopPane(props: {
                       onClick={() => {
                         setCtxMenu(null);
                         void saveFileCopy(ctxMenu.id);
+                      }}
+                    />
+                  ) : null}
+                  {props.onSendFile && desktopFileFromLink(desktop.shortcuts.find((x) => x.id === ctxMenu.id)?.link) ? (
+                    <CtxItem
+                      label="📤 Отправить файл…"
+                      onClick={() => {
+                        const file = desktopFileFromLink(desktop.shortcuts.find((x) => x.id === ctxMenu.id)?.link);
+                        setCtxMenu(null);
+                        if (file) props.onSendFile?.(file.fileId, file.name);
                       }}
                     />
                   ) : null}

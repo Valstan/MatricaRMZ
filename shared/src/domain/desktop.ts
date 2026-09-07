@@ -55,6 +55,12 @@ export type UserUiProfileDesktop = {
   /** Отметка одноразового переезда «Быстрого запуска» в ярлыки. Роумится: вторая
    *  машина переезд не повторит, удалённая вручную плитка не воскреснет. */
   shortcutsMigratedAt?: number;
+  /**
+   * Разобранные входящие: id сообщений чата с файлом, по которым оператор уже сказал
+   * «принять» или «отклонить». Роумится вместе с секцией — иначе на второй машине те же
+   * файлы предложатся заново, а «принять» повторно положит их дубли.
+   */
+  inboxHandledIds?: string[];
 };
 
 /** Счётчик использования ярлыков: id → дневной бакет `ГГГГ-ММ-ДД` → число открытий.
@@ -70,6 +76,9 @@ export type DesktopUsage = {
 export const DESKTOP_DEFAULT_LAYOUT: DesktopLayout = { chatPct: 33, peoplePct: 30 };
 
 export const DESKTOP_MAX_SHORTCUTS = 200;
+/** Сколько разобранных входящих помним. Список — не история, а защита от повторного
+ *  предложения; старое из него уходит вместе с сообщениями, которых уже нет в чате. */
+export const DESKTOP_MAX_INBOX_HANDLED = 500;
 
 /**
  * Встроенные ярлыки Верстака: они НЕ хранятся в профиле пользователя, а подмешиваются при
@@ -247,6 +256,13 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
       }
     }
   }
+  const inboxHandledIds: string[] = [];
+  if (Array.isArray(r.inboxHandledIds)) {
+    for (const raw of r.inboxHandledIds.slice(-DESKTOP_MAX_INBOX_HANDLED)) {
+      const id = String(raw ?? '').trim().slice(0, 80);
+      if (id && !inboxHandledIds.includes(id)) inboxHandledIds.push(id);
+    }
+  }
   const layoutRaw = (typeof r.layout === 'object' && r.layout != null ? r.layout : {}) as Record<string, unknown>;
   const migratedAt = Number(r.shortcutsMigratedAt ?? 0);
   return {
@@ -257,6 +273,7 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
       peoplePct: clampPct(layoutRaw.peoplePct, DESKTOP_DEFAULT_LAYOUT.peoplePct),
     },
     ...(Number.isFinite(migratedAt) && migratedAt > 0 ? { shortcutsMigratedAt: migratedAt } : {}),
+    ...(inboxHandledIds.length > 0 ? { inboxHandledIds } : {}),
   };
 }
 
@@ -437,6 +454,26 @@ export function desktopMigrateQuickStart(
     liveKeys.add(key);
   }
   return { ...next, shortcutsMigratedAt: now };
+}
+
+/**
+ * Отметить входящие сообщения разобранными («принял» или «отклонил» — для списка это одно и
+ * то же: предлагать их больше не надо). Список подрезается с головы: он защита от повтора,
+ * а не архив переписки.
+ */
+export function desktopMarkInboxHandled(d: UserUiProfileDesktop, messageIds: string[]): UserUiProfileDesktop {
+  const add = messageIds.map((x) => String(x ?? '').trim()).filter(Boolean);
+  if (add.length === 0) return d;
+  const merged = [...(d.inboxHandledIds ?? [])];
+  for (const id of add) if (!merged.includes(id)) merged.push(id);
+  const trimmed = merged.slice(-DESKTOP_MAX_INBOX_HANDLED);
+  return { ...d, inboxHandledIds: trimmed };
+}
+
+/** Не разобранные входящие: сообщение с файлом, по которому оператор ещё не сказал ни да, ни нет. */
+export function desktopPendingInbox<T extends { messageId: string }>(d: UserUiProfileDesktop, incoming: readonly T[]): T[] {
+  const handled = new Set(d.inboxHandledIds ?? []);
+  return incoming.filter((m) => !handled.has(String(m.messageId)));
 }
 
 /** Создать папку. */
