@@ -3,6 +3,18 @@ import { logWarn } from '../utils/logger.js';
 const MAX_TEXT_LEN = 4000;
 const DEFAULT_ATTEMPTS = 6;
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 8_000;
+/**
+ * Опрос `getUpdates` живёт по своему, укороченному бюджету — он повторяется по расписанию,
+ * и повторы внутри одного прохода дублируют это расписание. Отправка сообщения — разовая,
+ * повторить её некому, поэтому у неё бюджет прежний (6 × 8 с).
+ *
+ * Худший случай прохода обязан укладываться в период опроса (`BOT_POLL_MS`, 15 с): проверка
+ * арифметическая и делается в момент правки, а не в момент разбора — иначе проход съедает
+ * свой же тик, и это видно только по логам через сутки. Гарантию держит
+ * `telegramPollWorstCaseMs` + тест `telegramPollBudget.test.ts`.
+ */
+const DEFAULT_POLL_ATTEMPTS = 2;
+const DEFAULT_POLL_ATTEMPT_TIMEOUT_MS = 5_000;
 let missingTokenWarned = false;
 const loginToChatIdCache = new Map<string, string>();
 
@@ -31,9 +43,14 @@ function positiveIntEnv(name: string, fallback: number): number {
 // Сеть хостера теряет около половины SYN к диапазонам Telegram (замер 04.09.2026: 11/20 и 13/20 на двух
 // боксах myjino), остальной интернет и ICMP целы, а установленное соединение живёт нормально. Поэтому
 // лечение — короткая попытка и повтор, а не смена адреса: HTTP-ответ любого кода повтора не требует.
-async function telegramFetch(url: string, init?: RequestInit, extraTimeoutMs = 0): Promise<Response> {
-  const attempts = positiveIntEnv('MATRICA_TELEGRAM_ATTEMPTS', DEFAULT_ATTEMPTS);
-  const timeoutMs = positiveIntEnv('MATRICA_TELEGRAM_ATTEMPT_TIMEOUT_MS', DEFAULT_ATTEMPT_TIMEOUT_MS) + extraTimeoutMs;
+async function telegramFetch(
+  url: string,
+  init?: RequestInit,
+  extraTimeoutMs = 0,
+  budget: 'send' | 'poll' = 'send',
+): Promise<Response> {
+  const { attempts, timeoutMs: baseTimeoutMs } = telegramAttemptBudget(budget);
+  const timeoutMs = baseTimeoutMs + extraTimeoutMs;
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -44,6 +61,31 @@ async function telegramFetch(url: string, init?: RequestInit, extraTimeoutMs = 0
     }
   }
   throw new Error(`telegram unreachable after ${attempts} attempts: ${String(lastError)}`);
+}
+
+export function telegramAttemptBudget(budget: 'send' | 'poll'): { attempts: number; timeoutMs: number } {
+  if (budget === 'poll') {
+    return {
+      attempts: positiveIntEnv('MATRICA_TELEGRAM_POLL_ATTEMPTS', DEFAULT_POLL_ATTEMPTS),
+      timeoutMs: positiveIntEnv('MATRICA_TELEGRAM_POLL_ATTEMPT_TIMEOUT_MS', DEFAULT_POLL_ATTEMPT_TIMEOUT_MS),
+    };
+  }
+  return {
+    attempts: positiveIntEnv('MATRICA_TELEGRAM_ATTEMPTS', DEFAULT_ATTEMPTS),
+    timeoutMs: positiveIntEnv('MATRICA_TELEGRAM_ATTEMPT_TIMEOUT_MS', DEFAULT_ATTEMPT_TIMEOUT_MS),
+  };
+}
+
+/**
+ * Худший случай одного прохода опроса в миллисекундах: все попытки истекли по таймауту,
+ * плюс паузы между ними (250 мс × номер попытки). `longPollSec` — серверное ожидание Telegram,
+ * оно прибавляется к каждой попытке (сейчас опрос короткий, 0).
+ */
+export function telegramPollWorstCaseMs(longPollSec = 0): number {
+  const { attempts, timeoutMs } = telegramAttemptBudget('poll');
+  let backoff = 0;
+  for (let attempt = 1; attempt < attempts; attempt++) backoff += 250 * attempt;
+  return attempts * (timeoutMs + longPollSec * 1000) + backoff;
 }
 
 function normalizeLogin(raw: string): string | null {
@@ -89,7 +131,12 @@ async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; ti
     timeout: String(Math.trunc(timeoutSec)),
   });
   try {
-    const r = await telegramFetch(`https://api.telegram.org/bot${token}/getUpdates?${qs.toString()}`, undefined, timeoutSec * 1000);
+    const r = await telegramFetch(
+      `https://api.telegram.org/bot${token}/getUpdates?${qs.toString()}`,
+      undefined,
+      timeoutSec * 1000,
+      'poll',
+    );
     if (!r.ok) {
       const t = await r.text().catch(() => '');
       return { ok: false as const, error: `telegram HTTP ${r.status}: ${t || 'нет тела ответа'}` };

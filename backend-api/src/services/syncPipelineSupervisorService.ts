@@ -11,7 +11,6 @@ import {
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import {
-  classifySyncPipelineBotPollError,
   getSyncPipelineBotPollMetrics,
   markSyncPipelineBotPollAttempt,
   markSyncPipelineBotPollFailure,
@@ -22,7 +21,7 @@ import { logError, logInfo, logWarn } from '../utils/logger.js';
 const DEFAULT_TZ = 'Europe/Moscow';
 const DEFAULT_DAILY_TIME = '21:00';
 const CHECK_TICK_MS = 60_000;
-const BOT_POLL_MS = 15_000;
+export const BOT_POLL_MS = 15_000;
 const BOT_POLL_ERROR_LOG_STREAK = 3;
 const BOT_POLL_SILENT_COUNTER_LOG_MS = 10 * 60_000;
 let knownSuperadminChatId: string | null = null;
@@ -30,9 +29,10 @@ let knownSuperadminChatId: string | null = null;
 /**
  * Тик, который не имеет права наложиться сам на себя.
  *
- * Опрос бота приходит каждые 15 с, а один проход живёт до ~155 с: `telegramFetch` делает до шести
- * попыток по 8 с (лечение потерь SYN на сети хостера, M101), и `processBotUpdates` повторяет запрос
- * трижды. Наложившийся проход Telegram видит как второго потребителя и отвечает
+ * Опрос бота приходит каждые `BOT_POLL_MS`, и худший случай прохода теперь в этот период
+ * укладывается (`telegramPollWorstCaseMs`, ~10 с против 15 с). Так было не всегда: проход жил до
+ * ~155 с — шесть попыток по 8 с в `telegramFetch` (лечение потерь SYN, M101) поверх трёх кругов в
+ * `processBotUpdates`. Наложившийся проход Telegram видит как второго потребителя и отвечает
  * `409 Conflict: terminated by other getUpdates request` — то есть обрывает наш же предыдущий опрос
  * (GOTCHAS M108). Текст ошибки при этом описывает наблюдение Telegram, а не нашу топологию, поэтому
  * разбор уходит искать второй процесс; гарантия должна стоять здесь и быть проверяемой тестом.
@@ -61,10 +61,6 @@ export function createSingleFlightTick(
         onSettled({ elapsedMs: Date.now() - startedAt, skippedTicks: skipped });
       });
   };
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseBool(raw: string | undefined, fallback: boolean) {
@@ -372,17 +368,12 @@ export function startSyncPipelineSupervisorService() {
     }
     botPollingDisabledLogged = false;
     markSyncPipelineBotPollAttempt();
-    let updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
-    if (!updatesRes.ok && classifySyncPipelineBotPollError(updatesRes.error) === 'transient') {
-      await sleep(800);
-      markSyncPipelineBotPollAttempt();
-      updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
-    }
-    if (!updatesRes.ok && classifySyncPipelineBotPollError(updatesRes.error) === 'transient') {
-      await sleep(1_600);
-      markSyncPipelineBotPollAttempt();
-      updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
-    }
+    // Повторов внутри прохода нет намеренно: опрос идёт каждые BOT_POLL_MS, и следующий тик —
+    // это и есть повтор. Прежние два круга по 800/1600 мс поверх шести попыток `telegramFetch`
+    // растягивали проход до ~155 с при периоде 15 с; тик съедал сам себя, а Telegram видел в этом
+    // второго потребителя (M108). Отказ прохода ничего не теряет: `updateOffset` не сдвигается,
+    // те же обновления приедут через 15 с.
+    const updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
     if (!updatesRes.ok) {
       botPollFailureStreak += 1;
       const err = String(updatesRes.error ?? '');
