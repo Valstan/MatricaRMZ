@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  cascadeVisibleOptions,
   REPORT_PRESET_DEFINITIONS,
   REPORT_PRESET_THEMES,
   REPORT_THEMES,
@@ -186,3 +187,58 @@ describe('report themes', () => {
   });
 });
 
+
+describe('cascadeVisibleOptions', () => {
+  const options = [
+    { value: 'C1', label: 'Договор 1', linkedIds: ['CP1'] },
+    { value: 'C2', label: 'Договор 2', linkedIds: ['CP1'] },
+    { value: 'C3', label: 'Договор 3', linkedIds: ['CP2'] },
+    { value: 'C4', label: 'Договор без заказчика' },
+  ];
+
+  it('пустой родитель — показываем всё', () => {
+    expect(cascadeVisibleOptions(options, ['counterpartyIds'], {}).map((o) => o.value)).toEqual(['C1', 'C2', 'C3', 'C4']);
+    expect(cascadeVisibleOptions(options, ['counterpartyIds'], { counterpartyIds: [] }).map((o) => o.value)).toEqual([
+      'C1',
+      'C2',
+      'C3',
+      'C4',
+    ]);
+  });
+
+  it('выбранный родитель оставляет только связанное с ним; несвязанное выпадает', () => {
+    const visible = cascadeVisibleOptions(options, ['counterpartyIds'], { counterpartyIds: ['CP1'] });
+    expect(visible.map((o) => o.value)).toEqual(['C1', 'C2']);
+  });
+
+  it('несколько родителей применяются по «И»', () => {
+    const brands = [
+      { value: 'BR1', label: 'Д-245', linkedIds: ['CP1', 'C1', 'C2'] },
+      { value: 'BR2', label: 'ЯМЗ-238', linkedIds: ['CP1', 'C2'] },
+      { value: 'BR3', label: 'КамАЗ-740', linkedIds: ['CP2', 'C3'] },
+    ];
+    const filters = { counterpartyIds: ['CP1'], contractIds: ['C1'] };
+    expect(cascadeVisibleOptions(brands, ['counterpartyIds', 'contractIds'], filters).map((o) => o.value)).toEqual(['BR1']);
+  });
+
+  it('без cascadeFrom список не трогаем', () => {
+    expect(cascadeVisibleOptions(options, undefined, { counterpartyIds: ['CP1'] }).length).toBe(options.length);
+  });
+});
+
+describe('отбор «Движения двигателей по заказчикам» каскадный', () => {
+  it('заказчик → договор → марка', () => {
+    const flow = preset('engine_flow_by_counterparty');
+    const byKey = (key: string) => flow?.filters.find((f) => 'key' in f && (f as { key: string }).key === key);
+    const counterparties = byKey('counterpartyIds');
+    const contracts = byKey('contractIds');
+    const brands = byKey('brandIds');
+    expect(counterparties && 'cascadeFrom' in counterparties ? counterparties.cascadeFrom : undefined).toBeUndefined();
+    expect(contracts && 'cascadeFrom' in contracts ? contracts.cascadeFrom : undefined).toEqual(['counterpartyIds']);
+    expect(brands && 'cascadeFrom' in brands ? brands.cascadeFrom : undefined).toEqual(['counterpartyIds', 'contractIds']);
+    // Порядок в списке фильтров — это порядок ступеней на экране.
+    const keys = flow?.filters.map((f) => ('key' in f ? (f as { key: string }).key : '')) ?? [];
+    expect(keys.indexOf('counterpartyIds')).toBeLessThan(keys.indexOf('contractIds'));
+    expect(keys.indexOf('contractIds')).toBeLessThan(keys.indexOf('brandIds'));
+  });
+});

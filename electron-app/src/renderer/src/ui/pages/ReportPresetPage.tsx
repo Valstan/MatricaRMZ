@@ -12,6 +12,7 @@ import type {
   ReportPrintLayout,
 } from '@matricarmz/shared';
 import {
+  cascadeVisibleOptions,
   looksLikeIdentifier,
   resolveReportPresetId,
   formatWorkOrdersStatusCountsLine,
@@ -388,6 +389,31 @@ export function ReportPresetPage(props: {
       return { ...prev, [activePreset.id]: next };
     });
   }, [activePreset, optionSets]);
+
+  // Каскад отбора: сузили родителя — выбранные ниже значения, выпавшие из каскада, снимаем.
+  // Оставить их значило бы фильтровать отчёт тем, чего оператор больше не видит в списке.
+  useEffect(() => {
+    if (!activePreset) return;
+    setFiltersByPreset((prev) => {
+      const current = prev[activePreset.id] ?? buildDefaultFilters(activePreset);
+      let changed = false;
+      const next: ReportPresetFilters = { ...current };
+      for (const filter of activePreset.filters) {
+        if (filter.type !== 'multi_select' || !filter.cascadeFrom?.length) continue;
+        const selected = Array.isArray(next[filter.key]) ? (next[filter.key] as unknown[]).map(String) : [];
+        if (selected.length === 0) continue;
+        const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+        if (sourceOptions.length === 0) continue;
+        const allowed = new Set(cascadeVisibleOptions(sourceOptions, filter.cascadeFrom, next).map((o) => o.value));
+        const kept = selected.filter((value) => allowed.has(value));
+        if (kept.length === selected.length) continue;
+        next[filter.key] = kept;
+        changed = true;
+      }
+      if (!changed) return prev;
+      return { ...prev, [activePreset.id]: next };
+    });
+  }, [activePreset, activeFilters, optionSets]);
 
   useEffect(() => {
     setPreview(null);
@@ -1292,9 +1318,12 @@ export function ReportPresetPage(props: {
         </div>
       );
     }
-    const options = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+    const sourceOptions = filter.optionsSource ? optionSets[filter.optionsSource] ?? [] : filter.options ?? [];
+    // Каскад: пока родитель пуст — весь список, иначе только связанное с выбранным выше.
+    const options = cascadeVisibleOptions(sourceOptions, filter.cascadeFrom, activeFilters);
+    const cascadeNarrowed = filter.cascadeFrom != null && options.length < sourceOptions.length;
     const selected = Array.isArray(activeFilters[filter.key]) ? (activeFilters[filter.key] as unknown[]).map(String) : [];
-    const selectedLabels = options.filter((o) => selected.includes(o.value));
+    const selectedLabels = sourceOptions.filter((o) => selected.includes(o.value));
     return (
       <div key={filter.key} style={{ display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1316,6 +1345,12 @@ export function ReportPresetPage(props: {
             onQueryChange={(next) => patchFilterSearch(filter.key, next)}
             onChange={(next) => patchFilter(filter.key, next)}
           />
+          {cascadeNarrowed ? (
+            // Иначе оператор ищет договор, который «пропал», и не связывает это с заказчиком выше.
+            <div data-cascade-note style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 4 }}>
+              Список сужен выбором выше: {options.length} из {sourceOptions.length}
+            </div>
+          ) : null}
           {selectedLabels.length > 0 && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
               {selectedLabels.map((o) => (
