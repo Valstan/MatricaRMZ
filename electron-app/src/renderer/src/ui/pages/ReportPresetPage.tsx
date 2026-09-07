@@ -1412,7 +1412,8 @@ export function ReportPresetPage(props: {
         ? 'за всё время'
         : `${periodBasisVal === 'arrival' ? 'по приходу' : periodBasisVal === 'created' ? 'по созданию' : 'по отгрузке'}: ${toInputDate(activeFilters.startMs) || '…'} — ${toInputDate(activeFilters.endMs) || '…'}`;
     const selCount = (key: string) => (Array.isArray(activeFilters[key]) ? (activeFilters[key] as unknown[]).length : 0);
-    const scopeSummary = `Контракты: ${selCount('contractIds') || 'все'} · Марки: ${selCount('brandIds') || 'все'} · Заказчики: ${selCount('counterpartyIds') || 'все'}`;
+    // Сводка идёт ступенями каскада, в том же порядке, что и контролы внутри секции.
+    const scopeSummary = `Заказчики: ${selCount('counterpartyIds') || 'все'} · Контракты: ${selCount('contractIds') || 'все'} · Марки: ${selCount('brandIds') || 'все'}`;
     const stateVal = String(activeFilters.engineState ?? 'all');
     const stateNames: Record<string, string> = {
       all: 'все',
@@ -1428,7 +1429,7 @@ export function ReportPresetPage(props: {
       <div style={{ display: 'grid', gap: 8 }}>
         {section('ec_view', '1', 'Разрез отчёта', viewSummary, ['groupBy', 'columns'])}
         {section('ec_period', '2', 'Период и даты', periodSummary, ['period', 'periodBasis', 'arrivalPeriod', 'repairStartPeriod', 'repairEndPeriod', 'shippingPeriod'])}
-        {section('ec_scope', '3', 'Отбор', scopeSummary, ['contractIds', 'brandIds', 'counterpartyIds'])}
+        {section('ec_scope', '3', 'Отбор', scopeSummary, ['counterpartyIds', 'contractIds', 'brandIds'])}
         {section('ec_state', '4', 'Состояние и фильтры', stateSummary, ['engineState', 'repairActiveFilter', 'scrapFilter', 'completenessActFilter', 'overdueOnly', 'agingDays'])}
       </div>
     );

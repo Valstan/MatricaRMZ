@@ -36,13 +36,19 @@ describe('каскад фильтров доезжает до контрола',
     expect(PAGE).toContain('Список сужен выбором выше');
   });
 
-  it('каскад объявлен в отчёте «Движение двигателей по заказчикам»', () => {
-    const flow = REPORT_PRESET_DEFINITIONS.find((preset) => preset.id === 'engine_flow_by_counterparty');
+  it.each(['engine_flow_by_counterparty', 'engines'])('каскад объявлен в отчёте %s', (presetId) => {
+    const preset = REPORT_PRESET_DEFINITIONS.find((item) => item.id === presetId);
     const cascade = (key: string) => {
-      const filter = flow?.filters.find((f) => 'key' in f && (f as { key: string }).key === key);
+      const filter = preset?.filters.find((f) => 'key' in f && (f as { key: string }).key === key);
       return filter && 'cascadeFrom' in filter ? filter.cascadeFrom : undefined;
     };
     expect(cascade('contractIds')).toEqual(['counterpartyIds']);
     expect(cascade('brandIds')).toEqual(['counterpartyIds', 'contractIds']);
+  });
+
+  it('секция «Отбор» отчёта «Двигатели» перечисляет ступени в порядке каскада', () => {
+    // Секция раскладывает контролы по своему списку ключей, а не по порядку в пресете:
+    // разъедутся — на экране марка окажется прежде заказчика, который её сужает.
+    expect(PAGE).toContain("'Отбор', scopeSummary, ['counterpartyIds', 'contractIds', 'brandIds']");
   });
 });

@@ -226,9 +226,9 @@ describe('cascadeVisibleOptions', () => {
   });
 });
 
-describe('отбор «Движения двигателей по заказчикам» каскадный', () => {
+describe.each(['engine_flow_by_counterparty', 'engines'])('отбор отчёта %s каскадный', (presetId) => {
   it('заказчик → договор → марка', () => {
-    const flow = preset('engine_flow_by_counterparty');
+    const flow = preset(presetId);
     const byKey = (key: string) => flow?.filters.find((f) => 'key' in f && (f as { key: string }).key === key);
     const counterparties = byKey('counterpartyIds');
     const contracts = byKey('contractIds');
