@@ -1,14 +1,18 @@
 import React, { useMemo, useState } from 'react';
 
 import {
+  ENGINE_FACETS,
+  applyEngineFacets,
+  sanitizeEngineFacetSelection,
   classifyEngineContractBinding,
   engineInternalNumberSortKey,
   findArchivedArrivalIds,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
 } from '@matricarmz/shared';
-import type { EngineListItem } from '@matricarmz/shared';
+import type { EngineFacetId, EngineFacetSelection, EngineListItem } from '@matricarmz/shared';
 
+import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -128,8 +132,11 @@ export type EnginesPageUiState = {
   onlyReclamation?: boolean;
   /** Фильтр «Акт комплектности»: yes = заполнен (начат), no = не заполнен. */
   completenessFilter?: 'all' | 'yes' | 'no';
-  /** Фильтр по контрагенту (customerId); пусто = все. */
+  /** Фильтр по контрагенту (customerId); пусто = все. Легаси: переезжает в `facets.customer`. */
   customerFilter?: string;
+  /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
+  facetFields?: EngineFacetId[];
+  facets?: EngineFacetSelection;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -345,6 +352,20 @@ export function EnginesPage(props: {
   const onlyReclamation = listState.onlyReclamation === true;
   const completenessFilter = listState.completenessFilter ?? 'all';
   const customerFilter = String(listState.customerFilter ?? '');
+  // Старый одиночный выбор контрагента переезжает в ступень «Контрагент»: у оператора не
+  // должно остаться двух фильтров об одном и том же, из которых один невидим.
+  const facets = useMemo<EngineFacetSelection>(() => {
+    const base = sanitizeEngineFacetSelection(listState.facets);
+    if (!customerFilter || (base.customer ?? []).length > 0) return base;
+    return { ...base, customer: [customerFilter] };
+  }, [listState.facets, customerFilter]);
+  const facetFields = useMemo<EngineFacetId[]>(() => {
+    const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
+    const known = raw.filter((id): id is EngineFacetId => ENGINE_FACETS.some((f) => f.id === id));
+    const active = (Object.keys(facets) as EngineFacetId[]).filter((id) => (facets[id] ?? []).length > 0);
+    // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
+    return Array.from(new Set([...known, ...active]));
+  }, [listState.facetFields, facets]);
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -365,7 +386,7 @@ export function EnginesPage(props: {
       if (onlyReclamation && engine.isReclamation !== true) return false;
       if (completenessFilter === 'yes' && engine.hasCompletenessAct !== true) return false;
       if (completenessFilter === 'no' && engine.hasCompletenessAct === true) return false;
-      if (customerFilter && String(engine.customerId ?? '') !== customerFilter) return false;
+      // Отбор по ступеням идёт ниже одним проходом — здесь только прочие фильтры шапки.
       if (!hasDateFilter) return true;
       const arrivalDate = typeof engine.arrivalDate === 'number' && Number.isFinite(engine.arrivalDate) ? engine.arrivalDate : null;
       if (arrivalDate == null) return false;
@@ -373,18 +394,11 @@ export function EnginesPage(props: {
       if (toMs != null && arrivalDate > toMs) return false;
       return true;
     });
-  }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation, completenessFilter, customerFilter]);
+  }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation, completenessFilter]);
 
-  // Опции фильтра по контрагенту — из самих строк списка (у кого он вообще заполнен).
-  const customerOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const e of props.engines) {
-      const id = String(e.customerId ?? '').trim();
-      const name = String(e.customerName ?? '').trim();
-      if (id && name && !byId.has(id)) byId.set(id, name);
-    }
-    return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  }, [props.engines]);
+  /** Ступенчатый фильтр применяется последним: его варианты считаются по уже отобранному. */
+  const facetFiltered = useMemo(() => applyEngineFacets(filtered, facets), [filtered, facets]);
+
 
   // Этикетка клеится на тару с деталями двигателя: в QR — полный внутренний номер
   // ('41/26'), тот же, что набит на деталях. Скан (сканер печатает как клавиатура) →
@@ -392,13 +406,13 @@ export function EnginesPage(props: {
   // сейчас отфильтровано в списке, — не весь справочник.
   const labelTargets = useMemo(
     () =>
-      filtered.map((e) => ({
+      facetFiltered.map((e) => ({
         id: e.id,
         code: formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear),
         name: String(e.engineBrand ?? '').trim() || 'Двигатель',
         subtitle: e.engineNumber ? `№ двигателя ${e.engineNumber}` : null,
       })),
-    [filtered],
+    [facetFiltered],
   );
 
   function toggleSort(key: typeof sortKey) {
@@ -419,7 +433,7 @@ export function EnginesPage(props: {
     // (exact → prefix → substring → … from the tiered matcher) — keep the most
     // relevant rows at the top instead of overriding with the column sort. The
     // column sort applies only when browsing without a query.
-    if (String(query ?? '').trim()) return filtered;
+    if (String(query ?? '').trim()) return facetFiltered;
     const dir = sortDir === 'asc' ? 1 : -1;
     const byText = (a: string, b: string) => a.localeCompare(b, 'ru') * dir;
     const byDate = (a?: number | null, b?: number | null) => {
@@ -427,7 +441,7 @@ export function EnginesPage(props: {
       const bv = b ?? -1;
       return (av - bv) * dir;
     };
-    const items = [...filtered];
+    const items = [...facetFiltered];
     items.sort((a, b) => {
       switch (sortKey) {
         case 'engineNumber':
@@ -460,7 +474,7 @@ export function EnginesPage(props: {
       }
     });
     return items;
-  }, [filtered, sortDir, sortKey, query]);
+  }, [facetFiltered, sortDir, sortKey, query]);
 
   const displayRows = sorted;
 
@@ -794,19 +808,6 @@ export function EnginesPage(props: {
           Рекламационные
         </Button>
         <select
-          value={customerFilter}
-          onChange={(e) => patchState({ customerFilter: e.target.value, page: 0 })}
-          title="Фильтр по контрагенту"
-          style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db', maxWidth: 200, background: customerFilter ? 'rgba(37, 99, 235, 0.08)' : undefined }}
-        >
-          <option value="">Контрагент: все</option>
-          {customerOptions.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
           value={completenessFilter}
           onChange={(e) => patchState({ completenessFilter: e.target.value as 'all' | 'yes' | 'no', page: 0 })}
           title="Фильтр по акту комплектности: заполнен = хотя бы одна деталь отмечена «на месте»"
@@ -847,6 +848,17 @@ export function EnginesPage(props: {
           onToggleVisible={columnLayout.setVisible}
           onMove={columnLayout.moveColumn}
           onReset={columnLayout.resetToDefault}
+        />
+      </div>
+
+      <div style={{ marginTop: 8, flex: '0 0 auto' }}>
+        <EngineFacetFilter
+          engines={filtered}
+          selection={facets}
+          fields={facetFields}
+          onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
+          onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
+          onReset={() => patchState({ facets: {}, facetFields: [], customerFilter: '', page: 0 })}
         />
       </div>
 
