@@ -24,7 +24,7 @@ import { httpAuthed } from '../httpClient.js';
 
 
 import { UNKNOWN_CONTRACT_LABEL, toNumber, normalizeText, asArray, entityLabel } from './format.js';
-import { isSqliteMissingEngineBrandIdColumn, isSqliteMissingBomBrandLinksTable, loadSnapshot, getIdsByType, getIdsByTypeCodes, getWorkshops, WAREHOUSE_LOCATION_OPTIONS_TTL_MS, type Snapshot, type ReportBuildContext } from './context.js';
+import { isSqliteMissingEngineBrandIdColumn, isSqliteMissingBomBrandLinksTable, loadSnapshot, getIdsByType, getIdsByTypeCodes, getWorkshops, buildContractCounterpartyIndex, resolveEngineCounterpartyId, WAREHOUSE_LOCATION_OPTIONS_TTL_MS, type Snapshot, type ReportBuildContext } from './context.js';
 
 export const ASSEMBLY_BOM_BRAND_OPTIONS_TTL_MS = 60_000;
 export let assemblyBomBrandOptionsCache:
@@ -486,13 +486,7 @@ export function buildFilterCascadeLinks(snapshot: Snapshot): {
   contractParents: Map<string, string[]>;
   brandParents: Map<string, string[]>;
 } {
-  const contractCounterparty = new Map<string, string>();
-  for (const contractId of getIdsByType(snapshot, 'contract')) {
-    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
-    const sections = parseContractSections(attrs);
-    const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
-    if (counterpartyId) contractCounterparty.set(contractId, counterpartyId);
-  }
+  const contractCounterparty = buildContractCounterpartyIndex(snapshot);
 
   const brandLinks = new Map<string, Set<string>>();
   for (const engineId of getIdsByType(snapshot, 'engine')) {
@@ -500,9 +494,7 @@ export function buildFilterCascadeLinks(snapshot: Snapshot): {
     const brandId = normalizeText(attrs.engine_brand_id, '');
     if (!brandId) continue;
     const contractId = normalizeText(attrs.contract_id, '');
-    const counterpartyId =
-      normalizeText(attrs.counterparty_id ?? attrs.customer_id, '') ||
-      (contractId ? contractCounterparty.get(contractId) ?? '' : '');
+    const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterparty);
     let links = brandLinks.get(brandId);
     if (!links) {
       links = new Set<string>();
