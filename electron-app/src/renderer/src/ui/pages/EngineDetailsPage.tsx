@@ -488,6 +488,12 @@ export function EngineDetailsPage(props: {
   // customerId в deps и эффект перезапускался бы на каждый выбор контрагента.
   const customerIdRef = useRef(customerId);
   customerIdRef.current = customerId;
+  // Заказчик, вычисленный из договора. Решение владельца 07.09: договор — источник истины,
+  // и при перецепке двигателя заказчик едет за ним сам. Поле карточки остаётся запасным
+  // путём (у 1149 двигателей договора нет вовсе) и при выбранном договоре не переписывается:
+  // прежнее значение остаётся в базе следом, но нигде не показывается.
+  const [contractCustomerId, setContractCustomerId] = useState('');
+  const effectiveCustomerId = contractCustomerId || customerId;
   // Цех, выполнивший ремонт (захват цех-измерения, warehouse-analytics C2). Id из
   // канонного справочника directory_workshops (как наряды/склад), не workshop_ref.
   const [workshopId, setWorkshopId] = useState(String(props.engine.attributes?.workshop_id ?? ''));
@@ -863,7 +869,8 @@ export function EngineDetailsPage(props: {
 
   useEffect(() => {
     if (!contractId) {
-      // C-#8: контрагент теперь первичный и независим — НЕ обнуляем его при пустом контракте.
+      // Договора нет — показываем поле карточки (запасной путь) и даём его править.
+      setContractCustomerId('');
       setContractSectionOptions([]);
       return;
     }
@@ -872,11 +879,8 @@ export function EngineDetailsPage(props: {
         const contract = await window.matrica.admin.entities.get(contractId);
         const sections = parseContractSections((contract as { attributes?: Record<string, unknown> })?.attributes ?? {});
         setContractSectionOptions(buildContractSectionOptions(sections));
-        // Обратный путь (контракт → контрагент) — только запасной: заполняем контрагента из
-        // контракта, лишь когда он ещё не задан (выбор контракта первым / backfill старых карточек).
-        if (sections.primary.customerId && !customerIdRef.current) {
-          setCustomerId(sections.primary.customerId);
-        }
+        const contractAttrs = ((contract as { attributes?: Record<string, unknown> })?.attributes ?? {}) as Record<string, unknown>;
+        setContractCustomerId(String(sections.primary.customerId ?? contractAttrs.customer_id ?? '').trim());
       } catch {
         setContractSectionOptions([]);
       }
@@ -1080,7 +1084,9 @@ export function EngineDetailsPage(props: {
         engine_brand_id: asNullableText(engineBrandId),
         engine_brand: asNullableText(brandLabel),
         arrival_date: fromInputDate(arrivalDate),
-        customer_id: asNullableText(customerId),
+        // Заказчик вычисляется из договора — тогда карточку не переписываем: отдаём то же
+        // значение, что уже лежит, и диф остаётся пустым. Без договора поле правится как прежде.
+        customer_id: contractCustomerId ? asNullableText(props.engine.attributes?.customer_id) : asNullableText(customerId),
         contract_id: asNullableText(contractId),
         contract_section_number: asNullableText(resolvedSectionKey),
         workshop_id: asNullableText(workshopId),
@@ -1754,9 +1760,18 @@ export function EngineDetailsPage(props: {
           code: 'customer_id',
           defaultOrder: 30,
           label: 'Контрагент',
-          value: linkLabel('customer_id', customerId),
-          render: (
-            // C-#8: контрагент выбирается первым и фильтрует список контрактов ниже.
+          value: linkLabel('customer_id', effectiveCustomerId),
+          render: contractCustomerId ? (
+            // Договор выбран — заказчик берётся из него и руками не правится: чтобы сменить
+            // заказчика, меняют договор. Подпись говорит откуда значение, иначе поле выглядит
+            // сломанным («почему не редактируется?»).
+            <div style={{ display: 'grid', gap: 4 }}>
+              <div data-customer-source="contract">{linkLabel('customer_id', contractCustomerId)}</div>
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>из договора — меняется вместе с ним</div>
+            </div>
+          ) : (
+            // Договора нет — работает запасной путь: заказчик указывается в карточке, и он же
+            // фильтрует список договоров ниже (C-#8).
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(30ch, 48ch) auto', gap: 8, alignItems: 'start' }}>
               <EntityReferenceField
                 target="customer"
@@ -1946,7 +1961,7 @@ export function EngineDetailsPage(props: {
     ['Номер двигателя', engineNumber],
     ['Внутренний номер', internalNumberFull],
     ['Марка двигателя', engineBrand],
-    ['Контрагент', linkLabel('customer_id', customerId)],
+    ['Контрагент', linkLabel('customer_id', effectiveCustomerId)],
     ['Контракт', linkLabel('contract_id', contractId)],
     ['ДС контракта', contractSectionLabel],
     ['Дата прихода', formatDateLabel(arrivalDate)],
@@ -1996,7 +2011,7 @@ export function EngineDetailsPage(props: {
         engineNumber,
         engineBrand,
         arrivalDate,
-        customer: pickLabel('customer_id', customerId),
+        customer: pickLabel('customer_id', effectiveCustomerId),
         contract: pickLabel('contract_id', contractId),
       },
       orderedPrintRows,
