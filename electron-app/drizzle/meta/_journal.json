@@ -169,6 +169,13 @@
       "when": 1788606000000,
       "tag": "0023_engine_inventory_lines_replica",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788778558090,
+      "tag": "0024_warehouse_locations_replica",
+      "breakpoints": true
     }
   ]
 }

@@ -1138,9 +1138,14 @@ export const warehouseLocations = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
+    // Справочник входит в контракт синхронизации (pull-only, миграция 0093): номер журнала
+    // проставляет writeSyncChanges, по нему клиенты и отбирают изменения.
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
     codeUq: uniqueIndex('warehouse_locations_code_uq').on(t.code).where(sql`${t.deletedAt} is null`),
+    seqIdx: index('warehouse_locations_seq_idx').on(t.lastServerSeq),
     typeIdx: index('warehouse_locations_type_idx').on(t.type),
     workshopIdx: index('warehouse_locations_workshop_id_idx').on(t.workshopId).where(sql`${t.deletedAt} is null`),
   }),

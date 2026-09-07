@@ -25,6 +25,7 @@ import {
   userPresence,
   users,
   userSectionAccess,
+  warehouseLocations,
 } from '../../database/schema.js';
 
 export type PgSyncTableEntry = { drizzle: any; toSyncRow: (r: any) => Record<string, unknown> };
@@ -99,6 +100,10 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
       performed_by: r.performedBy ?? null,
       created_at: Number(r.createdAt),
     }),
+  },
+  [LedgerTableName.WarehouseLocations]: {
+    drizzle: warehouseLocations,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.WarehouseLocations, r),
   },
   [LedgerTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
   [LedgerTableName.UserSectionAccess]: {

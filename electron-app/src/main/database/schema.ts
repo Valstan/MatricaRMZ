@@ -634,6 +634,24 @@ export const warehouseCommandOutbox = sqliteTable(
   }),
 );
 
+// Реплика справочника складов и цехов (pull-only, 07.09.2026): тип локации решает, цех это или
+// склад, а отчёты обязаны отвечать на это и без связи с сервером (M112).
+export const warehouseLocations = sqliteTable('warehouse_locations', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  code: text('code').notNull(),
+  name: text('name').notNull(),
+  workshopId: text('workshop_id'),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  metadataJson: text('metadata_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+});
+
 export const syncState = sqliteTable('sync_state', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

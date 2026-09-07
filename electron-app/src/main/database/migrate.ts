@@ -210,6 +210,30 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_part_idx ON erp_engine_inventory_lines(part_id);
   `);
 
+  // warehouse_locations — реплика справочника складов и цехов (pull-only, 07.09.2026). Та же
+  // причина дубля, что у таблиц выше: свежая установка идёт мимо версионной цепочки, а холодный
+  // full-sync запросит таблицу. Реплика не строже сервера (0020): ни CHECK по type, ни unique
+  // по code здесь не повторяем.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS warehouse_locations (
+      id text PRIMARY KEY NOT NULL,
+      type text NOT NULL,
+      code text NOT NULL,
+      name text NOT NULL,
+      workshop_id text,
+      is_active integer NOT NULL DEFAULT true,
+      sort_order integer NOT NULL DEFAULT 0,
+      metadata_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS warehouse_locations_type_idx ON warehouse_locations(type);
+    CREATE INDEX IF NOT EXISTS warehouse_locations_code_idx ON warehouse_locations(code);
+  `);
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (hasTable('erp_document_lines')) {
     if (!columnNames('erp_document_lines').has('nomenclature_id')) {

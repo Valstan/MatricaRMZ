@@ -345,6 +345,7 @@ export const LEDGER_SECTION_BY_TABLE: Readonly<Record<string, AccessSection>> = 
   erp_engine_instances: AccessSection.Production,
   // Строки списка деталей — та же секция, что и сам лист (operations без типа → Production).
   erp_engine_inventory_lines: AccessSection.Production,
+  warehouse_locations: AccessSection.Warehouse,
 };
 
 /**

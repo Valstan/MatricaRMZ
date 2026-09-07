@@ -52,6 +52,7 @@ import {
   userPresence,
   users,
   userSectionAccess,
+  warehouseLocations,
 } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
@@ -1709,6 +1710,7 @@ async function applyPulledChanges(
     [SyncTableName.ErpRegStockBalance]: [],
     [SyncTableName.ErpRegStockMovements]: [],
     [SyncTableName.ErpEngineInventoryLines]: [],
+    [SyncTableName.WarehouseLocations]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -1959,6 +1961,29 @@ async function applyPulledChanges(
             accessEnabled: payload.access_enabled === true || payload.access_enabled === 1,
             deleteRequestedAt: payload.delete_requested_at ?? null,
             deleteRequestedBy: payload.delete_requested_by ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Справочник складов и цехов — pull-only реплика (0024). Без ветки строки просто
+      // исчезли бы: у switch нет `default`, и молчаливая потеря таблицы здесь уже случалась.
+      case SyncTableName.WarehouseLocations:
+        {
+          const payload = payloadRaw;
+          groups.warehouse_locations.push({
+            id: payload.id,
+            type: payload.type,
+            code: payload.code,
+            name: payload.name,
+            workshopId: payload.workshop_id ?? null,
+            // Сервер отдаёт boolean, SQLite хранит 0/1 — приводим явно.
+            isActive: payload.is_active === true || payload.is_active === 1,
+            sortOrder: Number(payload.sort_order ?? 0),
+            metadataJson: payload.metadata_json ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -2742,6 +2767,24 @@ async function applyPulledChanges(
       userId: sql`excluded.user_id`,
       sectionId: sql`excluded.section_id`,
       level: sql`excluded.level`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Справочник складов и цехов: ни от кого не зависит, порядок безразличен.
+  if (groups.warehouse_locations.length > 0) {
+    emitApply(SyncTableName.WarehouseLocations, groups.warehouse_locations.length);
+    await upsertPulledRowsInChunks(db, warehouseLocations, groups.warehouse_locations, warehouseLocations.id, {
+      type: sql`excluded.type`,
+      code: sql`excluded.code`,
+      name: sql`excluded.name`,
+      workshopId: sql`excluded.workshop_id`,
+      isActive: sql`excluded.is_active`,
+      sortOrder: sql`excluded.sort_order`,
+      metadataJson: sql`excluded.metadata_json`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

@@ -172,6 +172,19 @@ export const userSectionAccessRowSchema = z.object({
   level: z.enum(['viewer', 'editor']),
 });
 
+// Справочник складов и цехов — pull-only реплика. Клиент читает её офлайн (тип локации решает,
+// цех это или склад), писать её может только сервер: см. SERVER_MANAGED_SYNC_TABLES.
+export const warehouseLocationRowSchema = z.object({
+  ...baseRowFields,
+  type: z.enum(['system', 'workshop', 'regular']),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  workshop_id: z.string().uuid().nullable().optional(),
+  is_active: z.boolean(),
+  sort_order: z.number().int(),
+  metadata_json: z.string().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -194,6 +207,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpRegStockBalance]: erpRegisterStockBalanceRowSchema,
   [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,
   [SyncTableName.ErpEngineInventoryLines]: erpEngineInventoryLineRowSchema,
+  [SyncTableName.WarehouseLocations]: warehouseLocationRowSchema,
   [SyncTableName.Users]: userRowSchema,
   [SyncTableName.UserSectionAccess]: userSectionAccessRowSchema,
 } as const;
