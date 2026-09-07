@@ -114,8 +114,9 @@ export function pgArrayColumns(raw: unknown): string[] {
 // (SCHEMA_UNIQUE_SAFE_CLIENT_VERSION в routes/diagnostics.ts); по умолчанию — пусто, как было.
 // С этой сборки клиент по серверным unique только ОТЧИТЫВАЕТСЯ (UNIQUE_DEDUP_APPLY=false в
 // electron-app syncService.ts). Более старым unique не отдаём: у них дедуп удаляет сразу.
-// Первый релиз с режимом отчёта — 3.20.0 (сторож: константа строго выше текущего VERSION,
-// пока релиз не вышел).
+// Первый релиз с режимом отчёта — 3.20.0, выпущен 07.09.2026. Порог исторический и с версией
+// программы НЕ растёт: сторож проверяет, что он не ниже 3.20.0 и не указывает на несуществующую
+// сборку (иначе unique не получил бы никто).
 export const SCHEMA_UNIQUE_SAFE_CLIENT_VERSION = '3.20.0';
 
 export async function getSyncSchemaSnapshot(opts?: {
