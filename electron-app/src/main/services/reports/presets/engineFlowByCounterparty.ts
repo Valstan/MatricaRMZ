@@ -6,7 +6,9 @@ import {
   ENGINE_FLOW_PRINT_SECTIONS,
   ENGINE_FLOW_REQUIRED_COLUMN_KEYS,
   ENGINE_INTERNAL_NUMBER_CODE,
+  PRIMARY_CONTRACT_SECTION_KEY,
   STATUS_CODES,
+  canonicalContractSectionKey,
   isContractAddonToken,
   isScrapEngine,
   parseContractSections,
@@ -184,7 +186,14 @@ export async function buildEngineFlowByCounterpartyReport(
 
     // Двигатели одного договора, привязанные к разным ДС, разводятся по строкам:
     // приёмка и отгрузка у ДС свои, и в бумаге их складывают отдельно.
-    const sectionToken = normalizeText(attrs.contract_section_number, '');
+    //
+    // Ключ секции берём канонический. В сыром поле у основного договора за годы
+    // накопилось всё подряд — `primary`, пусто, легаси-номер самого договора, случайные
+    // цифры из чужого поля, — а группировка по сырому значению разрывала ОДИН договор
+    // на несколько блоков с одинаковой меткой и раздельными подытогами. Секции ровно
+    // две (договор и ДС), поэтому всё, что не «ДС {seq}», — основной договор.
+    const sectionToken =
+      canonicalContractSectionKey(normalizeText(attrs.contract_section_number, '')) || PRIMARY_CONTRACT_SECTION_KEY;
     const isAddon = isContractAddonToken(sectionToken);
     if (contractSectionFilter === 'primary' && isAddon) continue;
     if (contractSectionFilter === 'addon' && !isAddon) continue;

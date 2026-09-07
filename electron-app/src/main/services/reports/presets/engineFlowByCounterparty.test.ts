@@ -274,6 +274,87 @@ describe('короткий номер на ГОЗ-номерах', () => {
   });
 });
 
+// В сыром `contract_section_number` у основного договора лежит что угодно: `primary`, пусто,
+// легаси-номер самого договора, случайные цифры из чужого поля. Секции ровно две.
+describe('секция основного договора: разнородные ключи не рвут договор на блоки', () => {
+  const secTypeRows: Row[] = [
+    { id: 'T_ENGINE', code: 'engine' },
+    { id: 'T_CONTRACT', code: 'contract' },
+    { id: 'T_CP', code: 'counterparty' },
+  ];
+  const secEngines: Record<string, string | undefined> = {
+    K_A: undefined, // поле пустое
+    K_B: 'primary', // канон
+    K_C: '3', // номер двигателя в списке платежей, попавший не в то поле
+    K_D: '125/2026', // легаси: ключом секции служил сам номер договора
+    K_E: 'ДС 2', // настоящее ДС — вот его разводить надо
+  };
+  const secEntityRows: Row[] = [
+    { id: 'CP1', typeId: 'T_CP' },
+    { id: 'K1', typeId: 'T_CONTRACT' },
+    ...Object.keys(secEngines).map((id) => ({ id, typeId: 'T_ENGINE' })),
+  ];
+  const secAttrs: Record<string, Record<string, unknown>> = {
+    CP1: { name: 'АО «Первый заказчик»' },
+    K1: { contract_sections: contractSections('125/2026', 'CP1') },
+    ...Object.fromEntries(
+      Object.entries(secEngines).map(([id, token]) => [
+        id,
+        { contract_id: 'K1', arrival_date: ARRIVAL, ...(token == null ? {} : { contract_section_number: token }) },
+      ]),
+    ),
+  };
+  const secValueRows: Row[] = [];
+  for (const [entityId, attrs] of Object.entries(secAttrs)) {
+    for (const [code, value] of Object.entries(attrs)) {
+      secValueRows.push({ entityId, attributeDefId: code, valueJson: JSON.stringify(value) });
+    }
+  }
+  const secDb = (): any => ({
+    select: () => ({
+      from: (table: unknown) => {
+        const rows =
+          table === entityTypes
+            ? secTypeRows
+            : table === entities
+              ? secEntityRows
+              : table === attributeDefs
+                ? defRows
+                : table === attributeValues
+                  ? secValueRows
+                  : [];
+        const chain: any = { where: () => chain, limit: () => Promise.resolve(rows) };
+        return chain;
+      },
+    }),
+  });
+
+  it('всё, что не «ДС {seq}», сходится в один блок основного договора', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(secDb(), {});
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+
+    const primary = report.rows.filter((r) => r.contractShortLabel === '*125');
+    expect(primary).toHaveLength(1); // а не четыре блока с одинаковой меткой
+    expect(primary[0]?.arrivedQty).toBe(4); // K_A + K_B + K_C + K_D
+
+    const addon = report.rows.filter((r) => r.contractShortLabel === '*125 / ДС 2');
+    expect(addon).toHaveLength(1);
+    expect(addon[0]?.arrivedQty).toBe(1);
+
+    // Счётчик шапки считает договоры, а не блоки: основной + ДС.
+    expect(report.totals?.contracts).toBe(2);
+  });
+
+  it('фильтр «только основной договор» оставляет разнородные ключи и убирает ДС', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(secDb(), { contractSectionFilter: 'primary' });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]?.arrivedQty).toBe(4);
+  });
+});
+
 describe('renderEngineFlowPrintHtml', () => {
   it('печатная форма: A4-разметка, блоки заказчиков, подытоги договора и общий итог', async () => {
     const report = await buildEngineFlowByCounterpartyReport(stubDb(), {});
