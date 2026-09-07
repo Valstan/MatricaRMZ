@@ -2,6 +2,7 @@ import { isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  parseContractSections,
   REPORT_PRESET_DEFINITIONS,
   type ReportPresetDefinition,
   type ReportPresetId,
@@ -191,5 +192,41 @@ export function getIdsByTypeCodes(snapshot: Snapshot, typeCodes: string[]): stri
     for (const id of getIdsByType(snapshot, code)) out.add(id);
   }
   return Array.from(out);
+}
+
+/**
+ * Заказчик договора: сперва основной раздел (`contract_sections`), затем легаси-атрибут.
+ * У большинства договоров заполнен только раздел — чтение одного `customer_id` их не видит.
+ */
+export function buildContractCounterpartyIndex(snapshot: Snapshot): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const sections = parseContractSections(attrs);
+    const counterpartyId = String(sections.primary.customerId ?? attrs.customer_id ?? '').trim();
+    if (counterpartyId) index.set(contractId, counterpartyId);
+  }
+  return index;
+}
+
+/**
+ * Заказчик двигателя — единственная трактовка на все отчёты (решение владельца 07.09).
+ *
+ * Читаем карточку двигателя, а при пустом поле дочитываем с его договора: в карточке
+ * заказчик обычно не дублируется, и без фолбэка половина парка уходит в «(без заказчика)»,
+ * а фильтр «Заказчики» молча теряет двигатели с известным по договору заказчиком.
+ * Раньше эту цепочку каждый отчёт складывал сам, и складывал по-разному — «Движение по
+ * заказчикам» с фолбэком, «Двигатели» без него, «Наряды» без `counterparty_id` и без
+ * разделов договора; один и тот же выбор давал три разных ответа.
+ */
+export function resolveEngineCounterpartyId(
+  engineAttrs: Record<string, unknown> | undefined,
+  contractCounterpartyById: Map<string, string>,
+): string {
+  const attrs = engineAttrs ?? {};
+  const own = String(attrs.counterparty_id ?? attrs.customer_id ?? '').trim();
+  if (own) return own;
+  const contractId = String(attrs.contract_id ?? '').trim();
+  return contractId ? contractCounterpartyById.get(contractId) ?? '' : '';
 }
 

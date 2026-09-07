@@ -38,7 +38,7 @@ import { formatMoscowDate } from '../../../utils/dateUtils.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { safeJsonParse, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate } from '../format.js';
-import { getPreset, getWorkshops, loadSnapshot, getIdsByType, type ReportBuildContext } from '../context.js';
+import { getPreset, getWorkshops, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, type ReportBuildContext } from '../context.js';
 import { relatedEntityLabel, buildOptions, buildCounterpartyOptions, UNKNOWN_ENTITY_LABEL, BRAND_MISSING } from '../options.js';
 
 export type NormalizedWorkOrderReportLine = {
@@ -322,13 +322,13 @@ export async function buildWorkOrdersReport(
       .filter((name) => name && name !== UNKNOWN_ENTITY_LABEL.toLowerCase()),
   );
 
-  // Контрагент наряда: двигатель строки → его контракт/заказчик → контрагент (кратк. имя, иначе полное).
+  // Контрагент наряда: двигатель строки → его заказчик (общая трактовка на все отчёты) →
+  // контрагент (кратк. имя, иначе полное).
+  const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const resolveCounterparty = (engineId: string): { id: string; label: string } => {
     if (!engineId) return { id: '', label: '' };
     const eAttrs = snapshot.attrsByEntity.get(engineId) ?? {};
-    let customerId = normalizeText(eAttrs.customer_id, '');
-    const contractId = normalizeText(eAttrs.contract_id, '');
-    if (!customerId && contractId) customerId = normalizeText(snapshot.attrsByEntity.get(contractId)?.customer_id, '');
+    const customerId = resolveEngineCounterpartyId(eAttrs, contractCounterpartyById);
     if (!customerId) return { id: '', label: '' };
     const cAttrs = snapshot.attrsByEntity.get(customerId) ?? {};
     const label = normalizeText(cAttrs.short_name, '') || normalizeText(cAttrs.name, '') || relatedEntityLabel(snapshot, customerId);

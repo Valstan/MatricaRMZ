@@ -45,7 +45,7 @@ import { httpAuthed } from '../../httpClient.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext, type Snapshot } from '../context.js';
+import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, type ReportBuildContext, type Snapshot } from '../context.js';
 import {
   buildOptions,
   buildCounterpartyOptions,
@@ -84,6 +84,7 @@ export async function buildEngineStagesReport(
   const brandFilter = asArray(filters?.brandIds);
   const counterpartyFilter = asArray(filters?.counterpartyIds);
   const snapshot = await loadSnapshot(db);
+  const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const latestOps = await db
     .select()
     .from(operations)
@@ -111,7 +112,7 @@ export async function buildEngineStagesReport(
     if (period.startMs != null && (!latest || latest.ts < period.startMs)) continue;
     const contractId = normalizeText(attrs.contract_id, '');
     const brandId = normalizeText(attrs.engine_brand_id, '');
-    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
+    const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterpartyById);
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
@@ -317,6 +318,7 @@ export async function buildEnginesReport(
     : new Map<string, boolean>();
 
   const snapshot = await loadSnapshot(db);
+  const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
@@ -324,13 +326,11 @@ export async function buildEnginesReport(
   // «По контрактам», и метрикой «в срок» (on-time) для всех разрезов.
   const contractPlanById = new Map<string, number>();
   const contractDueAtById = new Map<string, number | null>();
-  const contractCounterpartyById = new Map<string, string>();
   for (const contractId of getIdsByType(snapshot, 'contract')) {
     const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
     const sections = parseContractSections(attrs);
     contractPlanById.set(contractId, collectContractEngineQty(attrs));
     contractDueAtById.set(contractId, effectiveContractDueAt(sections) ?? asNumberOrNull(attrs.due_date));
-    contractCounterpartyById.set(contractId, normalizeText(sections.primary.customerId ?? attrs.customer_id, ''));
   }
 
   const now = Date.now();
@@ -348,7 +348,7 @@ export async function buildEnginesReport(
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const contractId = normalizeText(attrs.contract_id, '');
-    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
+    const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterpartyById);
 
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
@@ -622,6 +622,7 @@ export async function buildScrapRegisterReport(
   const columnKeys = asArray(filters?.columns);
 
   const snapshot = await loadSnapshot(db);
+  const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
   if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
@@ -662,7 +663,7 @@ export async function buildScrapRegisterReport(
   const engineCtx = (attrs: Record<string, unknown>, id: string): { ctx: EngineCtx; pass: boolean; haystack: string } => {
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const contractId = normalizeText(attrs.contract_id, '');
-    const counterpartyId = normalizeText(attrs.counterparty_id ?? attrs.customer_id, '');
+    const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterpartyById);
     const internal = formatEngineInternalNumber(
       normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
       attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE],

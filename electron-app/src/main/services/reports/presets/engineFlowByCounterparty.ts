@@ -22,7 +22,7 @@ import {
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { normalizeText, asArray, asNumberOrNull, entityLabel, toNumber } from '../format.js';
-import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
+import { getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId } from '../context.js';
 import { BRAND_MISSING, buildOptions, buildCounterpartyOptions, resolveCounterpartyLabel } from '../options.js';
 
 const NO_COUNTERPARTY = '(без заказчика)';
@@ -124,12 +124,11 @@ export async function buildEngineFlowByCounterpartyReport(
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
-  const contractCounterpartyById = new Map<string, string>();
+  const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const contractNumberById = new Map<string, string>();
   for (const contractId of getIdsByType(snapshot, 'contract')) {
     const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
     const sections = parseContractSections(attrs);
-    contractCounterpartyById.set(contractId, normalizeText(sections.primary.customerId ?? attrs.customer_id, ''));
     contractNumberById.set(
       contractId,
       normalizeText(sections.primary.number ?? attrs.contract_number ?? attrs.number, '') || entityLabel(attrs, ''),
@@ -143,8 +142,7 @@ export async function buildEngineFlowByCounterpartyReport(
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const contractId = normalizeText(attrs.contract_id, '');
-    const counterpartyId =
-      normalizeText(attrs.counterparty_id ?? attrs.customer_id, '') || (contractId ? contractCounterpartyById.get(contractId) ?? '' : '');
+    const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterpartyById);
 
     if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
