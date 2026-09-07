@@ -10,6 +10,16 @@ import type { SupportContact } from '../domain/supportContact.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
+/** Архив со скриптами обслуживания, который едет вместе с клиентом. */
+export type ClientOpsBundleInfo = {
+  fileName: string;
+  path: string;
+  available: boolean;
+  /** Пароль архива — не секрет: он лишь делает архив непрозрачным для антивируса (M94). */
+  password: string;
+  contents: string[];
+};
+
 export type EngineListItem = {
   id: string;
   engineNumber?: string;
@@ -1012,6 +1022,12 @@ export type MatricaApi = {
     /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
     dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
     dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;
+  };
+  /** Скрипты обслуживания машины парка: архив едет с клиентом, доступен любому вошедшему. */
+  clientOps: {
+    bundle: () => Promise<ClientOpsBundleInfo>;
+    reveal: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    saveCopy: () => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
   };
   maintenance: {
     emptyCardsAnalyze: () => Promise<MaintenanceEmptyCardsAnalyzeResult>;
@@ -2341,7 +2357,7 @@ export type MatricaApi = {
     >;
     // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).
     // Карточка файла по id. Тем же вызовом сервер проверяет ДОСТУП: 403, если файл
-    // читать нельзя. Ярлык на Верстаке прав не даёт, поэтому «взять со Верстака»
+    // читать нельзя. Ярлык на Верстаке прав не даёт, поэтому «взять с Верстака»
     // обязано спрашивать именно здесь, а не собирать FileRef из подписи плитки.
     meta: (args: { fileId: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
     pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;

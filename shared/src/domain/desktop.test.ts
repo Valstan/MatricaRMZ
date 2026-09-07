@@ -377,7 +377,7 @@ describe('файловый ярлык', () => {
     expect(desktopShortcutLinkKey(desktopFileLink({ id: 'f-2', name: 'Акт.pdf' }))).not.toBe(desktopShortcutLinkKey(a));
   });
 
-  it('карточке видны живые файлы и со Верстака, и из папок, но не из корзины', () => {
+  it('карточке видны живые файлы и с Верстака, и из папок, но не из корзины', () => {
     let d = createEmptyDesktop();
     d = desktopAddFolder(d, { id: 'f1', name: 'Ящик' }, NOW);
     d = desktopAddShortcut(d, { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
@@ -392,7 +392,7 @@ describe('файловый ярлык', () => {
     expect(files[0]).toEqual({ shortcutId: 'a', fileId: 'file-a', name: 'Акт.pdf', mime: null, label: 'Акт.pdf' });
   });
 
-  it('переименованный ярлык отдаёт и подпись со Верстака, и настоящее имя файла', () => {
+  it('переименованный ярлык отдаёт и подпись с Верстака, и настоящее имя файла', () => {
     let d = desktopAddShortcut(createEmptyDesktop(), { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
     d = desktopRenameShortcut(d, 'a', 'Акт по 41-му');
     const [file] = desktopLiveFileShortcuts(d);

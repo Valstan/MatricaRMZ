@@ -9,6 +9,7 @@ export type ActionButtonId =
   | 'chat_link'
   | 'notes_link'
   | 'desktop_shortcut'
+  | 'client_ops'
   | 'program_feedback'
   | 'sync'
   | 'user'
@@ -34,6 +35,7 @@ export const ACTION_BUTTONS: ActionButtonDescriptor[] = [
   { id: 'chat_link', label: 'Ссылка в чат', icon: '💬', group: 'tools_menu' },
   { id: 'notes_link', label: 'Ссылка в заметки', icon: '📝', group: 'tools_menu' },
   { id: 'desktop_shortcut', label: 'На Верстак', icon: '🖥️', group: 'tools_menu' },
+  { id: 'client_ops', label: 'Скрипты обслуживания', icon: '🧰', group: 'tools_menu' },
   { id: 'program_feedback', label: 'Правка программы', icon: '✏️', group: 'communication' },
   { id: 'chat', label: 'Чат', icon: '💬', group: 'communication' },
   { id: 'ai_chat', label: 'ИИваныч', icon: '🤖', group: 'communication' },

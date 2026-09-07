@@ -64,6 +64,9 @@ import {
   createEmptyDesktop,
   createEmptyDesktopUsage,
   desktopFileFromLink,
+  isBuiltinDesktopLink,
+  withBuiltinDesktopShortcuts,
+  stripBuiltinDesktopShortcuts,
   desktopLiveFileShortcuts,
   desktopMigrateQuickStart,
   desktopMoveToTrash,
@@ -97,6 +100,7 @@ const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
 );
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
+import { ClientOpsDialog } from './components/ClientOpsDialog.js';
 import { DesktopPane } from './components/DesktopPane.js';
 import { DesktopFilesProvider } from './components/DesktopFilesContext.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
@@ -977,6 +981,8 @@ export function App() {
   // «Верстак» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
   // Секция `desktop` профиля — применяется с GET, уезжает push-эффектом ниже.
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
+  // Окно «Скрипты обслуживания»: открывается встроенной плиткой Верстака и пунктом МЕНЮ.
+  const [clientOpsOpen, setClientOpsOpen] = useState(false);
   // Единственный канал коротких сообщений оператору: плашка над телом вкладки. Второй,
   // мёртвый (`postLoginSyncMsg` → `_headerInlineStatusText`, никуда не вставленный), снят
   // 25.08 — его тексты переехали сюда.
@@ -2317,6 +2323,9 @@ export function App() {
         break;
       case 'desktop_shortcut':
         addCurrentPositionToDesktop();
+        break;
+      case 'client_ops':
+        setClientOpsOpen(true);
         break;
       case 'program_feedback':
         setProgramFeedbackOpen(true);
@@ -3858,6 +3867,11 @@ export function App() {
    * оператору его надо назвать словами, а не сырым «meta HTTP 403».
    */
   async function openDesktopShortcut(link: unknown) {
+    // Встроенная плитка ведёт не в раздел программы, а в окно со скриптами обслуживания.
+    if (isBuiltinDesktopLink(link)) {
+      setClientOpsOpen(true);
+      return;
+    }
     const file = desktopFileFromLink(link);
     if (!file) {
       await navigateDeepLink(link as ChatDeepLinkPayload);
@@ -3869,7 +3883,7 @@ export function App() {
     const text = /403/.test(error)
       ? `Файл «${file.name}» вам недоступен: он принадлежит другому сотруднику. Попросите приложить его к нужной карточке.`
       : /404/.test(error)
-        ? `Файла «${file.name}» больше нет в программе — видимо, его удалили. Ярлык можно убрать со Верстака.`
+        ? `Файла «${file.name}» больше нет в программе — видимо, его удалили. Ярлык можно убрать с Верстака.`
         : `Не удалось открыть «${file.name}»: ${error}`;
     notifyOperator(text, 'error');
   }
@@ -5983,8 +5997,11 @@ export function App() {
       />
       <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
         <DesktopPane
-          desktop={desktopUi}
-          onChange={setDesktopUi}
+          // Встроенная плитка «Скрипты обслуживания» подмешивается при отрисовке и вырезается
+          // при записи: секция Верстака — LWW, и разложенная в профиль плитка жила бы до
+          // первого пуша любого клиента. Вычисляемая есть у всех и сразу.
+          desktop={withBuiltinDesktopShortcuts(desktopUi)}
+          onChange={(next) => setDesktopUi(stripBuiltinDesktopShortcuts(next))}
           stepOf={desktopTileSteps}
           canUploadFiles={caps.canUploadFiles}
           onNotify={notifyOperator}
@@ -6087,6 +6104,7 @@ export function App() {
           onSubmit={submitProgramFeedback}
           onClose={() => setProgramFeedbackOpen(false)}
         />
+        <ClientOpsDialog open={clientOpsOpen} onClose={() => setClientOpsOpen(false)} notify={notifyOperator} />
         <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
           {viewMode && (
             <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(248, 113, 113, 0.5)", background: "rgba(248, 113, 113, 0.16)", color: "var(--danger)", fontWeight: 800 }}>
