@@ -65,7 +65,7 @@ export function V3TabShell(props: {
   onCollapsedSectionsChange: (next: string[]) => void;
   onMenuTab: (t: MenuTabId) => void;
   onAction: (id: ActionButtonId) => void;
-  /** Ярлык кнопки МЕНЮ на Рабочий стол (контекстное меню и закреп сверху). */
+  /** Ярлык кнопки МЕНЮ на Верстак (контекстное меню и закреп сверху). */
   onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
   /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
   notice?: ShellNotice | null;
@@ -75,7 +75,7 @@ export function V3TabShell(props: {
   activeSectionTabId: TabId;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  /** Галстук «На Рабочий стол»: лежит ли ярлык этой вкладки на столе (тумблер). */
+  /** Галстук «На Верстак»: лежит ли ярлык этой вкладки на Верстаке (тумблер). */
   isOnDesktop?: (tab: OpenTab) => boolean;
   onToggleDesktop?: (tab: OpenTab) => void;
   /** Закрепить карточку второй панелью рядом с активной («2 рядом»). */
@@ -349,8 +349,8 @@ export function V3TabShell(props: {
                   ⑃
                 </button>
               )}
-              {/* На Android Рабочего стола нет (он живёт на экране чата) — галстук не показываем,
-                  как и действие «На рабочий стол» в МЕНЮ (v2ButtonCatalog ANDROID_HIDDEN_ACTIONS). */}
+              {/* На Android Верстака нет (он живёт на экране чата) — галстук не показываем,
+                  как и действие «На Верстак» в МЕНЮ (v2ButtonCatalog ANDROID_HIDDEN_ACTIONS). */}
               {(tab.kind === 'card' || tab.kind === 'list') && props.onToggleDesktop && !isAndroid && (() => {
                 // Подсказка не должна врать: пока заголовок карточки — фолбэк («Вид · id6»),
                 // ярлык получил бы техническое имя, поэтому кнопка гаснет с пояснением.
@@ -359,8 +359,8 @@ export function V3TabShell(props: {
                 const title = pending
                   ? 'Название ещё загружается — ярлык появится, когда карточка назовёт себя'
                   : onDesktop
-                    ? `Убрать с Рабочего стола ярлык «${tab.label}»`
-                    : `Добавить на Рабочий стол ярлык «${tab.label}»`;
+                    ? `Убрать с Верстака ярлык «${tab.label}»`
+                    : `Добавить на Верстак ярлык «${tab.label}»`;
                 return (
                   <button
                     type="button"

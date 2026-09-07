@@ -53,7 +53,7 @@ function seeded() {
 }
 
 describe('desktop domain', () => {
-  it('в корзину и обратно: ярлык не стирается, возврат кладёт на стол', () => {
+  it('в корзину и обратно: ярлык не стирается, возврат кладёт на Верстак', () => {
     let d = seeded();
     d = desktopMoveToTrash(d, 's1', NOW + 1);
     expect(desktopSurfaceShortcuts(d).map((s) => s.id)).toEqual(['s2']);
@@ -70,7 +70,7 @@ describe('desktop domain', () => {
     expect(d.shortcuts.map((s) => s.id)).toEqual(['s1']);
   });
 
-  it('папка: укладка ярлыка, возврат на стол, удаление папки уводит содержимое в корзину', () => {
+  it('папка: укладка ярлыка, возврат на Верстак, удаление папки уводит содержимое в корзину', () => {
     let d = seeded();
     d = desktopMoveToFolder(d, 's1', 'f1');
     expect(desktopFolderShortcuts(d, 'f1').map((s) => s.id)).toEqual(['s1']);
@@ -83,7 +83,7 @@ describe('desktop domain', () => {
     expect(desktopTrashShortcuts(d).map((s) => s.id)).toEqual(['s2']);
   });
 
-  it('ярлык с осиротевшим folderId рендерится на столе, а не исчезает', () => {
+  it('ярлык с осиротевшим folderId рендерится на Верстаке, а не исчезает', () => {
     const d = sanitizeDesktopSection({
       shortcuts: [{ id: 's1', label: 'X', icon: '🔗', folderId: 'ghost', deletedAt: null, createdAt: NOW }],
       folders: [],
@@ -122,11 +122,11 @@ describe('desktop domain', () => {
   });
 });
 
-// «Прививка» релиза 1 (план «рабочий стол и человеко-понятные названия»): санитайзер
+// «Прививка» релиза 1 (план «Верстак и человеко-понятные названия»): санитайзер
 // обязан знать поля РАНЬШЕ, чем появится код, который их пишет. sanitizeUserUiProfile
 // зовётся и на чтении, и на записи, а LWW заменяет секцию целиком — клиент, не знающий
 // поля, стёр бы его у всех машин пользователя при первом же сохранении.
-describe('прививка: поля рабочего стола переживают санитайзер', () => {
+describe('прививка: поля Верстака переживают санитайзер', () => {
   it('координата плитки сохраняется и приводится к целым ячейкам', () => {
     const d = sanitizeDesktopSection({
       shortcuts: [{ id: 's1', label: 'A', createdAt: NOW, pos: { col: 3.7, row: 0 } }],
@@ -269,7 +269,7 @@ describe('тумблер ярлыка', () => {
   });
 });
 
-describe('«Добавить на Рабочий стол» из меню кнопок — не тумблер', () => {
+describe('«Добавить на Верстак» из меню кнопок — не тумблер', () => {
   const link = { kind: 'app_link', tab: 'engines' };
 
   it('кладёт один раз: второй раз — exists, ничего не снимает; из корзины возвращает свой', () => {
@@ -318,7 +318,7 @@ describe('переезд «Быстрого запуска» в ярлыки', (
     expect(again).toBe(d);
   });
 
-  it('не дублирует ссылку, которая уже лежит на столе, и не перетирает совпавший id', () => {
+  it('не дублирует ссылку, которая уже лежит на Верстаке, и не перетирает совпавший id', () => {
     let d = createEmptyDesktop();
     d = desktopAddShortcut(d, { id: 'mine', label: 'Мой табель', icon: '🗓️', link: { kind: 'app_link', tab: 'timesheets' } }, NOW);
     const migrated = desktopMigrateQuickStart(d, items, NOW + 1);
@@ -377,7 +377,7 @@ describe('файловый ярлык', () => {
     expect(desktopShortcutLinkKey(desktopFileLink({ id: 'f-2', name: 'Акт.pdf' }))).not.toBe(desktopShortcutLinkKey(a));
   });
 
-  it('карточке видны живые файлы и со стола, и из папок, но не из корзины', () => {
+  it('карточке видны живые файлы и со Верстака, и из папок, но не из корзины', () => {
     let d = createEmptyDesktop();
     d = desktopAddFolder(d, { id: 'f1', name: 'Ящик' }, NOW);
     d = desktopAddShortcut(d, { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
@@ -392,7 +392,7 @@ describe('файловый ярлык', () => {
     expect(files[0]).toEqual({ shortcutId: 'a', fileId: 'file-a', name: 'Акт.pdf', mime: null, label: 'Акт.pdf' });
   });
 
-  it('переименованный ярлык отдаёт и подпись со стола, и настоящее имя файла', () => {
+  it('переименованный ярлык отдаёт и подпись со Верстака, и настоящее имя файла', () => {
     let d = desktopAddShortcut(createEmptyDesktop(), { id: 'a', label: 'Акт.pdf', icon: '📕', link: desktopFileLink({ id: 'file-a', name: 'Акт.pdf' }) }, NOW);
     d = desktopRenameShortcut(d, 'a', 'Акт по 41-му');
     const [file] = desktopLiveFileShortcuts(d);
@@ -469,7 +469,7 @@ describe('раскладка сетки', () => {
     expect(g.shortcuts.find((p) => p.id === 'a')).toEqual({ id: 'a', col: 1, row: 0, cells: 1 });
   });
 
-  it('узкий стол не теряет плитку: не влезшая координата переносится на свободное место', () => {
+  it('узкий Верстак не теряет плитку: не влезшая координата переносится на свободное место', () => {
     const g = desktopLayoutGrid({ folderIds: [], shortcuts: [one('a', { col: 7, row: 0 })], cols: 2 });
     expect(g.shortcuts).toEqual([{ id: 'a', col: 0, row: 0, cells: 1 }]);
   });
@@ -506,10 +506,10 @@ describe('раскладка сетки', () => {
     ]);
   });
 
-  // Плитка шире всего стола — это не выдуманный случай: разделитель тянется до узкой полосы,
+  // Плитка шире всего Верстака — это не выдуманный случай: разделитель тянется до узкой полосы,
   // а крупный шаг рейтинга требует двух ячеек. Наивный поиск свободного места («перебираем
   // строки, пока не влезет») в этом случае крутится вечно и вешает поток целиком.
-  it('плитка шире стола занимает всё, что есть, и не вешает раскладку', () => {
+  it('плитка шире Верстака занимает всё, что есть, и не вешает раскладку', () => {
     expect(desktopLayoutGrid({ folderIds: [], shortcuts: [{ id: 'big', cells: 2 }], cols: 1 }).shortcuts).toEqual([
       { id: 'big', col: 0, row: 0, cells: 1 },
     ]);
@@ -532,7 +532,7 @@ describe('раскладка сетки', () => {
 });
 
 describe('запись координат пачкой', () => {
-  it('пишет координаты и возвращает новый стол', () => {
+  it('пишет координаты и возвращает новый Верстак', () => {
     const d = seeded();
     const next = desktopSetPositions(d, [{ id: 's1', pos: { col: 2, row: 1 } }]);
     expect(next).not.toBe(d);
@@ -627,7 +627,7 @@ describe('шаг размера по рейтингу', () => {
   const DAY = 86_400_000;
   const ids = (n: number) => Array.from({ length: n }, (_, i) => `s${i + 1}`);
 
-  it('никто ничего не открывал — весь стол на шаге 0, сегодняшним видом', () => {
+  it('никто ничего не открывал — весь Верстак на шаге 0, сегодняшним видом', () => {
     const steps = desktopUsageSteps(createEmptyDesktopUsage(), ids(8), NOW);
     expect(Object.values(steps)).toEqual(Array(8).fill(0));
   });
@@ -655,8 +655,8 @@ describe('шаг размера по рейтингу', () => {
     expect(steps.s1).toBe(-1);
   });
 
-  // Это то, что стоит проговорить владельцу: заброшенный стол не «дышит» размерами.
-  it('на заброшенном столе плитки не скачут: все счета падают синхронно', () => {
+  // Это то, что стоит проговорить владельцу: заброшенный Верстак не «дышит» размерами.
+  it('на заброшенном Верстаке плитки не скачут: все счета падают синхронно', () => {
     let u = createEmptyDesktopUsage();
     const many = ids(12);
     many.forEach((id, i) => {
@@ -676,7 +676,7 @@ describe('шаг размера по рейтингу', () => {
     expect(after.s12).toBeGreaterThan(after.s1 ?? 0);
   });
 
-  it('пустой стол — пустая карта шагов', () => {
+  it('пустой Верстак — пустая карта шагов', () => {
     expect(desktopUsageSteps(createEmptyDesktopUsage(), [], NOW)).toEqual({});
   });
 });

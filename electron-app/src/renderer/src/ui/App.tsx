@@ -626,10 +626,10 @@ function isKnownSectionTab(tabId: TabId): boolean {
 }
 
 const SINGLETON_TAB_LABELS: Record<'chat' | 'ai_chat' | 'settings', string> = {
-  // Этап 5 (19.08б): вкладка чата стала экраном «Рабочий стол» — чат слева,
+  // Этап 5 (19.08б): вкладка чата стала экраном «Верстак» — чат слева,
   // ярлыки/папки/корзина справа. Id 'chat' сохранён: восстановление сессий,
   // deep-link'и и бейдж непрочитанных продолжают работать без миграции.
-  chat: 'Рабочий стол',
+  chat: 'Верстак',
   ai_chat: 'ИИваныч',
   settings: 'Настройки',
 };
@@ -974,7 +974,7 @@ export function App() {
   // маунте страницы), в профиль едут отдельной секцией: событие об изменении
   // поднимает nonce → пуш перечитывает актуальный набор.
   const [columnLayoutsNonce, setColumnLayoutsNonce] = useState(0);
-  // «Рабочий стол» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
+  // «Верстак» (этап 5, 19.08б): ярлыки/папки/корзина + раскладка сплитов.
   // Секция `desktop` профиля — применяется с GET, уезжает push-эффектом ниже.
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
   // Единственный канал коротких сообщений оператору: плашка над телом вкладки. Второй,
@@ -982,8 +982,8 @@ export function App() {
   // 25.08 — его тексты переехали сюда.
   const [shellNotice, setShellNotice] = useState<ShellNotice | null>(null);
   const shellNoticeTimerRef = useRef<number | null>(null);
-  // Зеркало стола для обработчиков. Панель МЕНЮ живёт и в скрытой keep-alive вкладке
-  // (FrozenWhileHidden не перерисовывает её), и её колбэки держат стол на момент последней
+  // Зеркало Верстака для обработчиков. Панель МЕНЮ живёт и в скрытой keep-alive вкладке
+  // (FrozenWhileHidden не перерисовывает её), и её колбэки держат Верстак на момент последней
   // отрисовки; исход, посчитанный от стейл-снимка, затёр бы setDesktopUi'ем более свежее.
   // Ref обновляет сам App на каждом рендере — он не замораживается.
   const desktopUiRef = useRef(desktopUi);
@@ -1903,14 +1903,14 @@ export function App() {
             uiProfileKeySigsRef.current.columnLayouts = JSON.stringify(readAllColumnLayouts());
             if (applied > 0) setColumnLayoutsNonce((n) => n + 1);
           }
-          // «Рабочий стол»: серверная секция применяется поверх локальной (LWW
+          // «Верстак»: серверная секция применяется поверх локальной (LWW
           // секцией целиком решает merge на сервере; sanitize терпит незнакомые link'и).
           const desktopSection = sanitizeDesktopSection(p.desktop);
           if (desktopSection) {
             setDesktopUi(desktopSection);
             uiProfileKeySigsRef.current.desktop = JSON.stringify(desktopSection);
           } else {
-            // У этого пользователя стола на сервере нет — не показывать чужой.
+            // У этого пользователя Верстака на сервере нет — не показывать чужой.
             setDesktopUi(createEmptyDesktop());
           }
           const usageSection = sanitizeDesktopUsageSection(p.desktopUsage);
@@ -1945,9 +1945,9 @@ export function App() {
     };
   }, [authStatus.loggedIn, authStatus.user?.id, uiProfileRetryNonce]);
 
-  // Одноразовый переезд «Быстрого запуска» в ярлыки Рабочего стола (этап B). Только
-  // после успешного GET профиля (ready-гейт): серверный стол уже применён, и локальный
-  // список не уедет в чужой или пустой стол. Отметка роумится — вторая машина переезд
+  // Одноразовый переезд «Быстрого запуска» в ярлыки Верстака (этап B). Только
+  // после успешного GET профиля (ready-гейт): серверный Верстак уже применён, и локальный
+  // список не уедет в чужой или пустой Верстак. Отметка роумится — вторая машина переезд
   // не повторит; функциональный setState держит идемпотентность при гонке с пушем.
   useEffect(() => {
     const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
@@ -1994,8 +1994,8 @@ export function App() {
     }
     const layouts = readAllColumnLayouts();
     if (Object.keys(layouts).length > 0) snapshot.columnLayouts = layouts;
-    // «Рабочий стол» едет своей секцией. Пуш включается только после успешного
-    // GET (ready-гейт выше), так что серверный стол уже применён и затереть его
+    // «Верстак» едет своей секцией. Пуш включается только после успешного
+    // GET (ready-гейт выше), так что серверный Верстак уже применён и затереть его
     // дефолтом нельзя.
     snapshot.desktop = desktopUi;
     // Счётчик использования — своей секцией. В снимок попадает только СВЁРНУТОЕ значение:
@@ -2334,7 +2334,7 @@ export function App() {
         break;
       case 'chat':
         if (chatOpen) dispatchTabs({ type: 'CLOSE', id: 'chat' });
-        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
+        else dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
         break;
       case 'tablet_mode':
         toggleUiMode();
@@ -2659,10 +2659,10 @@ export function App() {
     }
     if (!uid || chatTabSeededRef.current === uid) return;
     chatTabSeededRef.current = uid;
-    // «Рабочий стол» — стартовый экран после входа (решение владельца, этап 5),
+    // «Верстак» — стартовый экран после входа (решение владельца, этап 5),
     // поэтому focus: true. Восстановленная сессия может увести на другую вкладку
-    // своим фокусом — это ок, стол остаётся в полосе.
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
+    // своим фокусом — это ок, Верстак остаётся в полосе.
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
   }, [authStatus.loggedIn, canChat, authStatus.user?.id]);
 
   const aiTabSeededRef = useRef('');
@@ -2692,7 +2692,7 @@ export function App() {
   // For pending users: open chat automatically.
   useEffect(() => {
     const role = String(authStatus.user?.role ?? '').toLowerCase();
-    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
+    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
   }, [authStatus.loggedIn, authStatus.user?.role, canChat, chatOpen]);
 
   function resolveChatSoundUrl(fileName: string) {
@@ -2903,11 +2903,11 @@ export function App() {
   }
 
   // «Быстрый запуск» (pinnedShortcuts) больше никем не правится: звезда, «Мой круг» и
-  // каталог отчётов перешли на ярлыки Рабочего стола (этап B). Список читается ради
+  // каталог отчётов перешли на ярлыки Верстака (этап B). Список читается ради
   // одноразового переезда и продолжает роумиться как есть, чтобы старый клиент на
   // другой машине не потерял свои пины до обновления.
 
-  // ── Галстук «На Рабочий стол» (этап B): ярлыки стола — единая модель закладок ──
+  // ── Галстук «На Верстак» (этап B): ярлыки Верстака — единая модель закладок ──
 
   /** Ссылка ярлыка для вкладки — та же форма, что у «Быстрого запуска» и currentAppLink. */
   function desktopLinkForOpenTab(openTab: OpenTab): ChatDeepLinkPayload | null {
@@ -2951,15 +2951,15 @@ export function App() {
   /** Сообщение называет то, что произошло: упор в лимит — не «добавлено». */
   function announceDesktopOutcome(outcome: DesktopToggleOutcome | DesktopPutOutcome, label: string) {
     if (outcome === 'limit') {
-      notifyOperator('На Рабочем столе уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
+      notifyOperator('На Верстаке уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
       return;
     }
     notifyOperator(
       outcome === 'added'
-        ? `Ярлык «${label}» добавлен на Рабочий стол.`
+        ? `Ярлык «${label}» добавлен на Верстак.`
         : outcome === 'removed'
-          ? `Ярлык «${label}» убран с Рабочего стола (лежит в корзине).`
-          : `Ярлык «${label}» уже на Рабочем столе.`,
+          ? `Ярлык «${label}» убран с Верстака (лежит в корзине).`
+          : `Ярлык «${label}» уже на Верстаке.`,
     );
   }
 
@@ -3034,7 +3034,7 @@ export function App() {
   const desktopFiles = useMemo(() => desktopLiveFileShortcuts(desktopUi), [desktopUi]);
 
   // Шаг размера считается по СВЁРНУТОМУ счёту, а не по свежим кликам: иначе плитка меняла
-  // бы размер прямо под курсором оператора. Распределение строится по ярлыкам стола —
+  // бы размер прямо под курсором оператора. Распределение строится по ярлыкам Верстака —
   // содержимое папок в нём не участвует и рисуется дефолтным шагом.
   const desktopTileSteps = useMemo(
     () =>
@@ -3825,7 +3825,7 @@ export function App() {
   }
 
   function openChatFromHistory() {
-    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Рабочий стол', focus: true });
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
   }
 
   async function navigateToRoute(route: DeepLinkRoute) {
@@ -3852,8 +3852,8 @@ export function App() {
   }
 
   /**
-   * Двойной клик по плитке стола. Файловый ярлык открывает файл в системе, остальные —
-   * переходят на экран. Ярлык на столе доступа к файлу НЕ даёт (`ui_profile_json` не
+   * Двойной клик по плитке Верстака. Файловый ярлык открывает файл в системе, остальные —
+   * переходят на экран. Ярлык на Верстаке доступа к файлу НЕ даёт (`ui_profile_json` не
    * входит в файло-несущие атрибуты сервера), поэтому отказ здесь — штатный исход, и
    * оператору его надо назвать словами, а не сырым «meta HTTP 403».
    */
@@ -3869,7 +3869,7 @@ export function App() {
     const text = /403/.test(error)
       ? `Файл «${file.name}» вам недоступен: он принадлежит другому сотруднику. Попросите приложить его к нужной карточке.`
       : /404/.test(error)
-        ? `Файла «${file.name}» больше нет в программе — видимо, его удалили. Ярлык можно убрать со стола.`
+        ? `Файла «${file.name}» больше нет в программе — видимо, его удалили. Ярлык можно убрать со Верстака.`
         : `Не удалось открыть «${file.name}»: ${error}`;
     notifyOperator(text, 'error');
   }
@@ -4222,7 +4222,7 @@ export function App() {
     return null;
   }
 
-  /** «На рабочий стол» из меню действий: ярлык текущего раздела/карточки, без ухода со страницы. */
+  /** «На Верстак» из меню действий: ярлык текущего раздела/карточки, без ухода со страницы. */
   function addCurrentPositionToDesktop() {
     if (!authStatus.loggedIn) return;
     const link = currentAppLink as ChatDeepLinkPayload;
@@ -5938,8 +5938,8 @@ export function App() {
     canClose: true,
   } : null;
 
-  // Экран «Рабочий стол» (этап 5, 19.08б): чат слева (дефолт — треть), рабочий
-  // стол с ярлыками справа; обе границы тянутся мышкой, проценты роумятся в
+  // Экран «Верстак» (этап 5, 19.08б): чат слева (дефолт — треть), рабочий
+  // Верстак с ярлыками справа; обе границы тянутся мышкой, проценты роумятся в
   // секции `desktop` профиля.
   const renderChatTabContent = () => (
     <div style={{ height: '100%', display: 'flex', minWidth: 0 }}>

@@ -2,7 +2,7 @@ import type { GlobalSearchHit } from './globalSearch.js';
 import type { ChatDeepLinkPayload } from '../ipc/types.js';
 
 // Маршрут ссылки приложения. Живёт в shared, потому что тот же разбор нужен и
-// renderer'у (навигация), и домену рабочего стола (ключ ярлыка для дедупа): две
+// renderer'у (навигация), и домену Верстака (ключ ярлыка для дедупа): две
 // копии приоритета полей разъехались бы молча.
 export type DeepLinkRoute =
   | { kind: 'card'; cardKind: string; id: string }

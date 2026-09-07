@@ -34,7 +34,7 @@ import { matricaPlatform } from '../platform.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useConfirm } from './ConfirmContext.js';
 
-// MIME-тип DnD внутри рабочего стола: сторонние перетаскивания (файлы из
+// MIME-тип DnD внутри Верстака: сторонние перетаскивания (файлы из
 // проводника, текст) им не прикидываются и молча игнорируются.
 const DND_SHORTCUT = 'application/x-matrica-desktop-shortcut';
 
@@ -56,7 +56,7 @@ function isTypingTarget(el: Element | null): boolean {
 }
 
 /**
- * «Рабочий стол» — правая зона экрана «чат + рабочий стол» (этап 5 пакета
+ * «Верстак» — правая зона экрана «чат + Верстак» (этап 5 пакета
  * 2026-08-19б): ярлыки-ссылки, папки окном поверх, корзина в правом нижнем углу.
  * Всё состояние живёт снаружи (ключ `desktop` в ui_profile_json) — компонент
  * получает снимок и репортит изменения через onChange.
@@ -64,7 +64,7 @@ function isTypingTarget(el: Element | null): boolean {
  * Раскладка (этап C): плитки лежат в СЕТКЕ, координата хранится в ячейках. Число колонок
  * плавает вместе с разделителем, поэтому нарисованное место считает `desktopLayoutGrid` —
  * плитка, чья ячейка в текущей ширине не существует, показывается на свободном месте, но
- * сохранённую координату не теряет: иначе одно движение разделителя переписало бы стол на
+ * сохранённую координату не теряет: иначе одно движение разделителя переписало бы Верстак на
  * всех машинах пользователя (запись профиля = две строки в ledger, грабля M79).
  */
 export function DesktopPane(props: {
@@ -74,7 +74,7 @@ export function DesktopPane(props: {
   onOpenLink: (link: unknown, shortcutId: string) => void;
   /** Шаг размера плитки по рейтингу использования. Нет ответа — сегодняшний вид (0). */
   stepOf?: Record<string, number>;
-  /** Право загружать файлы (`files.upload`). Без него стол принимает дроп и объясняет отказ. */
+  /** Право загружать файлы (`files.upload`). Без него Верстак принимает дроп и объясняет отказ. */
   canUploadFiles?: boolean;
   /** Короткое сообщение оператору — тот же единственный канал, что у всей оболочки. */
   onNotify?: (text: string, tone?: 'info' | 'error') => void;
@@ -123,7 +123,7 @@ export function DesktopPane(props: {
   const surface = desktopSurfaceShortcuts(desktop);
   const trash = desktopTrashShortcuts(desktop);
 
-  // Сколько колонок влезает. Ширина зоны плавает вместе с разделителем «чат | стол»,
+  // Сколько колонок влезает. Ширина зоны плавает вместе с разделителем «чат | Верстак»,
   // поэтому считаем по факту, а не по константе.
   useEffect(() => {
     const el = scrollRef.current;
@@ -177,8 +177,8 @@ export function DesktopPane(props: {
     onChange(next);
   }
 
-  // Delete и Escape — только когда фокус внутри стола: тот же Delete в чате не должен
-  // сносить ярлыки, а стол живёт на одном экране с полем ввода сообщения.
+  // Delete и Escape — только когда фокус внутри Верстака: тот же Delete в чате не должен
+  // сносить ярлыки, а Верстак живёт на одном экране с полем ввода сообщения.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const active = document.activeElement;
@@ -351,7 +351,7 @@ export function DesktopPane(props: {
       next = put.desktop;
       if (put.outcome === 'added') addedIds.push(id);
       if (put.outcome === 'limit') {
-        notify('На Рабочем столе уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
+        notify('На Верстаке уже 200 ярлыков — освободите место, корзина не в счёт.', 'error');
         break;
       }
     }
@@ -365,11 +365,11 @@ export function DesktopPane(props: {
     if (result.failures.length > 0) {
       const shown = result.failures.slice(0, 3).map((f) => `«${f.task.fileName}» — ${f.error}`);
       const tail = result.failures.length > 3 ? ` и ещё ${result.failures.length - 3}` : '';
-      notify(`Не легли на стол: ${shown.join('; ')}${tail}`, 'error');
+      notify(`Не легли на Верстак: ${shown.join('; ')}${tail}`, 'error');
       return;
     }
-    if (addedIds.length > 0) notify(`На Рабочий стол легло файлов: ${addedIds.length}.`);
-    else if (result.successes.length > 0) notify('Эти файлы уже лежат на Рабочем столе.');
+    if (addedIds.length > 0) notify(`На Верстак легло файлов: ${addedIds.length}.`);
+    else if (result.successes.length > 0) notify('Эти файлы уже лежат на Верстаке.');
   }
 
   async function saveFileCopy(shortcutId: string) {
@@ -398,7 +398,7 @@ export function DesktopPane(props: {
     const start = pointFromEvent(e.clientX, e.clientY);
     if (!start) return;
     if (!e.ctrlKey && !e.metaKey) clearSelection();
-    // Фокус на зону: без него оконные Delete/Escape не поймут, что оператор в столе.
+    // Фокус на зону: без него оконные Delete/Escape не поймут, что оператор в Верстаке.
     rootRef.current?.focus({ preventScroll: true });
     const base = e.ctrlKey || e.metaKey ? new Set(selected) : new Set<string>();
     setLasso({ x0: start.x, y0: start.y, x1: start.x, y1: start.y });
@@ -707,7 +707,7 @@ export function DesktopPane(props: {
           })}
           {desktop.folders.length === 0 && surface.length === 0 && (
             <div style={{ position: 'absolute', top: 4, left: 4, color: theme.colors.muted, fontSize: 13, padding: 16, maxWidth: 420 }}>
-              Рабочий стол пуст. Кнопка «На рабочий стол» в МЕНЮ добавит сюда ярлык текущего раздела;
+              Верстак пуст. Кнопка «На Верстак» в МЕНЮ добавит сюда ярлык текущего раздела;
               ПКМ по свободному месту — создать папку.
             </div>
           )}
@@ -755,7 +755,7 @@ export function DesktopPane(props: {
         onDragOver={(e) => allowDrop(e, 'trash')}
         onDragLeave={() => setDragOverTarget((t) => (t === 'trash' ? null : t))}
         onDrop={(e) => {
-          // Как и у папки: без stopPropagation дроп доиграет полотном и ярлык вернётся на стол.
+          // Как и у папки: без stopPropagation дроп доиграет полотном и ярлык вернётся на Верстак.
           e.preventDefault();
           e.stopPropagation();
           const ids = draggedIds(e);
@@ -790,7 +790,7 @@ export function DesktopPane(props: {
         <span style={{ fontSize: 11, color: theme.colors.muted }}>Корзина{trash.length > 0 ? ` (${trash.length})` : ''}</span>
       </button>
 
-      {/* Содержимое корзины — всплывашка над кнопкой; ярлык можно утащить обратно на стол */}
+      {/* Содержимое корзины — всплывашка над кнопкой; ярлык можно утащить обратно на Верстак */}
       {trashOpen && trash.length > 0 && (
         <div
           style={{
@@ -821,12 +821,12 @@ export function DesktopPane(props: {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>{trash.map((s) => shortcutTile(s, { inTrash: true }))}</div>
           <div style={{ fontSize: 11, color: theme.colors.muted, padding: '6px 6px 2px' }}>
-            Перетащите ярлык на стол, чтобы вернуть; ПКМ по корзине — очистить.
+            Перетащите ярлык на Верстак, чтобы вернуть; ПКМ по корзине — очистить.
           </div>
         </div>
       )}
 
-      {/* Окно папки поверх стола, ≈¾ зоны */}
+      {/* Окно папки поверх Верстака, ≈¾ зоны */}
       {openFolder && (
         <div
           data-desktop-folder-window
@@ -844,7 +844,7 @@ export function DesktopPane(props: {
           <div
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => {
-              // Внутри окна папки меню поверхности стола не нужно.
+              // Внутри окна папки меню поверхности Верстака не нужно.
               e.preventDefault();
               e.stopPropagation();
             }}
@@ -883,7 +883,7 @@ export function DesktopPane(props: {
             </div>
             <div
               // Подсказка ниже обещает приём ярлыков — значит окно обязано быть приёмником:
-              // иначе дроп всплывал бы к полотну и ярлык уезжал на стол вместо папки.
+              // иначе дроп всплывал бы к полотну и ярлык уезжал на Верстак вместо папки.
               onDragOver={(e) => allowDrop(e, `folder:${openFolder.id}`)}
               onDrop={(e) => {
                 e.preventDefault();
@@ -899,7 +899,7 @@ export function DesktopPane(props: {
               {desktopFolderShortcuts(desktop, openFolder.id).map((s) => shortcutTile(s))}
               {desktopFolderShortcuts(desktop, openFolder.id).length === 0 && (
                 <div style={{ color: theme.colors.muted, fontSize: 13, padding: 10 }}>
-                  Папка пуста. Перетащите сюда ярлыки со стола.
+                  Папка пуста. Перетащите сюда ярлыки со Верстака.
                 </div>
               )}
             </div>
@@ -907,7 +907,7 @@ export function DesktopPane(props: {
         </div>
       )}
 
-      {/* Загрузка файлов: полоса прогресса поверх стола и диалог имени файла */}
+      {/* Загрузка файлов: полоса прогресса поверх Верстака и диалог имени файла */}
       {uploadFlow.progress.active && (
         <div
           data-desktop-upload
@@ -984,7 +984,7 @@ export function DesktopPane(props: {
               })()}
               {ctxMenu.inTrash ? (
                 <CtxItem
-                  label="↩ Вернуть на стол"
+                  label="↩ Вернуть на Верстак"
                   onClick={() => {
                     setCtxMenu(null);
                     onChange(desktopRestoreFromTrash(desktop, ctxMenu.id));

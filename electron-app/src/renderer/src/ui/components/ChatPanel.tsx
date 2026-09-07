@@ -46,7 +46,7 @@ export function ChatPanel(props: {
   onChatContextChange?: (ctx: { selectedUserId: string | null; adminMode: boolean }) => void;
   viewMode: boolean;
   /**
-   * Ширина колонки собеседников в процентах зоны чата (экран «Рабочий стол»,
+   * Ширина колонки собеседников в процентах зоны чата (экран «Верстак»,
    * этап 5). Без этих пропсов колонка остаётся фиксированной, как раньше.
    */
   peoplePct?: number;
@@ -495,7 +495,7 @@ export function ChatPanel(props: {
         </div>
       )}
 
-      {/* Граница «участники ↔ переписка» тянется мышкой (экран «Рабочий стол») */}
+      {/* Граница «участники ↔ переписка» тянется мышкой (экран «Верстак») */}
       {!adminMode && props.peoplePct != null && props.onPeoplePctChange && (
         <div
           data-chat-people-resizer

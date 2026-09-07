@@ -84,9 +84,9 @@ export function HistoryPage(props: {
   meUserId: string;
   recentVisits: RecentVisitEntry[];
   quickStartRatings?: Array<{ tab: string; score: number; lastAt?: number }>;
-  /** Живые ярлыки Рабочего стола — «Мой круг» показывает их же (одно место для закладок). */
+  /** Живые ярлыки Верстака — «Мой круг» показывает их же (одно место для закладок). */
   desktopShortcuts?: DesktopShortcut[];
-  /** Убрать ярлык со стола (в корзину) — тот же смысл, что у корзины на самом столе. */
+  /** Убрать ярлык со Верстака (в корзину) — тот же смысл, что у корзины на самом Верстаке. */
   onRemoveShortcut?: (shortcutId: string) => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onOpenNotes: (noteId?: string | null) => void;
@@ -151,7 +151,7 @@ export function HistoryPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tabVisibleRef is a stable ref read inside the mount-only poll callback; adding it would resubscribe on every render
   }, [props.meUserId]);
 
-  // Плитки = ярлыки стола со ссылкой на раздел/карточку. Файловые ярлыки (этап D) здесь
+  // Плитки = ярлыки Верстака со ссылкой на раздел/карточку. Файловые ярлыки (этап D) здесь
   // не показываем — открыть их отсюда нечем.
   const pinnedTiles = useMemo(() => {
     const tiles: PinnedTile[] = [];
@@ -413,9 +413,9 @@ export function HistoryPage(props: {
         >
           <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
             <TieIcon active size={18} />
-            Ярлыки Рабочего стола
+            Ярлыки Верстака
           </div>
-          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Те же ярлыки, что лежат на Рабочем столе: галстук на вкладке кладёт их сюда и туда разом.</div>
+          <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Те же ярлыки, что лежат на Верстаке: галстук на вкладке кладёт их сюда и туда разом.</div>
           <div
             style={{
               display: 'grid',
@@ -445,7 +445,7 @@ export function HistoryPage(props: {
                   minHeight: 66,
                   width: '100%',
                 }}
-                title={`${tile.title} (правый клик — убрать с Рабочего стола)`}
+                title={`${tile.title} (правый клик — убрать с Верстака)`}
               >
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 8, rowGap: 4, alignItems: 'center', minWidth: 0 }}>
                   <span style={{ gridRow: 1, gridColumn: 1, fontSize: 20, lineHeight: 1 }}>{tile.icon}</span>
@@ -490,7 +490,7 @@ export function HistoryPage(props: {
               borderRadius: 6,
             }}
           >
-            Убрать с Рабочего стола (в корзину)
+            Убрать с Верстака (в корзину)
           </button>
         </div>
       )}
