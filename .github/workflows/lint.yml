@@ -44,3 +44,9 @@ jobs:
 
       - name: Backup script smoke test
         run: bash scripts/prod-ops/backup-encrypted.test.sh
+
+      # Тот же класс: еженедельный аудит зависимостей — единственный, кто сообщает о находках,
+      # и он уже писал «alert sent» при выключенном Telegram. Смоук держит и это, и то, что
+      # список принятых находок не может стать вечным глушителем.
+      - name: Deps audit script smoke test
+        run: bash scripts/prod-ops/audit-deps.test.sh
