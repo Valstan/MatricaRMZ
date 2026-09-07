@@ -252,7 +252,11 @@ export function syncSlotsWithPlan(
   // оставались только по последней строке (баг «слоты под последнюю марку»).
   const groups = new Map<string, { sectionKey: string; engineBrandId: string; qty: number; pricesKop: number[] }>();
   for (const plan of planned) {
-    const key = `${plan.sectionKey} ${plan.engineBrandId}`;
+    // Разделитель составного ключа — только escape-последовательностью. Здесь стоял
+    // СЫРОЙ байт NUL, и из-за него grep/ripgrep считали весь файл бинарным и молча его
+    // пропускали: он не попадал ни в один сплошной поиск по коду. Поймано 07.09.2026
+    // ровно так — аудитом, который этот файл не увидел.
+    const key = `${plan.sectionKey}\u0000${plan.engineBrandId}`;
     const g = groups.get(key) ?? { sectionKey: plan.sectionKey, engineBrandId: plan.engineBrandId, qty: 0, pricesKop: [] };
     const priceKop = Math.round(plan.unitPrice * 100);
     for (let i = 0; i < plan.qty; i += 1) g.pricesKop.push(priceKop);

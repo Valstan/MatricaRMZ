@@ -14,6 +14,7 @@ import {
   isEngineReservationLive,
   parseEngineReservation,
   STATUS_CODES,
+  isEavFlagSet,
   applyStatusFlagChange,
   engineInternalNumberDuplicateMessage,
   engineInternalNumberKey,
@@ -619,7 +620,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
         if (code) {
           const rawValue = rowValues.get(statusDefId);
           const raw = rawValue != null ? safeJsonParse(rawValue) : null;
-          statusFlags[code] = raw === true || raw === 'true' || raw === 1;
+          statusFlags[code] = isEavFlagSet(raw);
         }
       }
     }
@@ -1128,7 +1129,7 @@ export async function advanceEngineStatusForWorkOrder(
   const details = await getEngineDetails(db, id);
   const attrs = details.attributes ?? {};
   const current: Partial<Record<StatusCode, boolean>> = {};
-  for (const code of STATUS_CODES) current[code] = attrs[code] === true;
+  for (const code of STATUS_CODES) current[code] = isEavFlagSet(attrs[code]);
 
   // Утильный двигатель: сборочный наряд (собрать обратно перед возвратом заказчику)
   // не должен переводить его в «Начат ремонт»/«Отремонтирован» и гасить метки утиля.

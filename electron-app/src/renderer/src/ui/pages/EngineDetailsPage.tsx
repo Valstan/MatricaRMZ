@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -502,7 +502,7 @@ export function EngineDetailsPage(props: {
     const attrs = props.engine.attributes ?? {};
     const out: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) {
-      out[c] = Boolean(attrs[c]);
+      out[c] = isEavFlagSet(attrs[c]);
     }
     return out;
   });
@@ -793,12 +793,12 @@ export function EngineDetailsPage(props: {
     setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
     const attrs = props.engine.attributes ?? {};
     const flags: Partial<Record<StatusCode, boolean>> = {};
-    for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
+    for (const c of STATUS_CODES) flags[c] = isEavFlagSet(attrs[c]);
     setStatusFlags(flags);
     const dates: Partial<Record<StatusCode, number | null>> = {};
     for (const c of STATUS_CODES) dates[c] = normalizeDateInput(attrs[statusDateCode(c)]);
     setStatusDates(dates);
-    setReclFlag(Boolean(attrs.reclamation_flag));
+    setReclFlag(isEavFlagSet(attrs.reclamation_flag));
     setReclAcceptedDate(toInputDate(attrs.reclamation_accepted_date as number | null | undefined));
     setReclCustomerReason(String(attrs.reclamation_customer_reason ?? ''));
     setReclActualDefect(String(attrs.reclamation_actual_defect ?? ''));
@@ -808,8 +808,8 @@ export function EngineDetailsPage(props: {
     setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
     setReclComment(String(attrs.reclamation_comment ?? ''));
     setScrapReason(String(attrs.scrap_reason ?? ''));
-    setRepeatArrivalFlag(Boolean(attrs.repeat_arrival_flag));
-    setNumberCollisionFlag(Boolean(attrs.number_collision_flag));
+    setRepeatArrivalFlag(isEavFlagSet(attrs.repeat_arrival_flag));
+    setNumberCollisionFlag(isEavFlagSet(attrs.number_collision_flag));
     setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
     if (newEngineFlagId.current !== props.engineId) {
       newEngineFlagId.current = props.engineId;
@@ -1113,8 +1113,8 @@ export function EngineDetailsPage(props: {
       }
 
       const currentValues: Record<string, unknown> = {
-        repeat_arrival_flag: Boolean(attrs.repeat_arrival_flag),
-        number_collision_flag: Boolean(attrs.number_collision_flag),
+        repeat_arrival_flag: isEavFlagSet(attrs.repeat_arrival_flag),
+        number_collision_flag: isEavFlagSet(attrs.number_collision_flag),
         previous_arrival_id: asNullableText(attrs.previous_arrival_id),
         [ENGINE_INTERNAL_NUMBER_YEAR_CODE]: (() => {
           const y = Number(attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE]);
@@ -1131,10 +1131,10 @@ export function EngineDetailsPage(props: {
         workshop_id: asNullableText(attrs.workshop_id),
       };
       for (const c of STATUS_CODES) {
-        currentValues[c] = Boolean(attrs[c]);
+        currentValues[c] = isEavFlagSet(attrs[c]);
         currentValues[statusDateCode(c)] = normalizeDateInput(attrs[statusDateCode(c)]);
       }
-      currentValues.reclamation_flag = Boolean(attrs.reclamation_flag);
+      currentValues.reclamation_flag = isEavFlagSet(attrs.reclamation_flag);
       currentValues.reclamation_accepted_date = normalizeDateInput(attrs.reclamation_accepted_date);
       currentValues.reclamation_customer_reason = asNullableText(attrs.reclamation_customer_reason);
       currentValues.reclamation_actual_defect = asNullableText(attrs.reclamation_actual_defect);
@@ -2334,12 +2334,12 @@ export function EngineDetailsPage(props: {
               setContractSectionNumber(canonicalContractSectionKey(props.engine.attributes?.contract_section_number as string | null | undefined));
               const attrs = props.engine.attributes ?? {};
               const flags: Partial<Record<StatusCode, boolean>> = {};
-              for (const c of STATUS_CODES) flags[c] = Boolean(attrs[c]);
+              for (const c of STATUS_CODES) flags[c] = isEavFlagSet(attrs[c]);
               setStatusFlags(flags);
               const dates: Partial<Record<StatusCode, number | null>> = {};
               for (const c of STATUS_CODES) dates[c] = normalizeDateInput(attrs[statusDateCode(c)]);
               setStatusDates(dates);
-              setReclFlag(Boolean(attrs.reclamation_flag));
+              setReclFlag(isEavFlagSet(attrs.reclamation_flag));
               setReclAcceptedDate(toInputDate(attrs.reclamation_accepted_date as number | null | undefined));
               setReclCustomerReason(String(attrs.reclamation_customer_reason ?? ''));
               setReclActualDefect(String(attrs.reclamation_actual_defect ?? ''));
@@ -2349,8 +2349,8 @@ export function EngineDetailsPage(props: {
               setReclShippedDate(toInputDate(attrs.reclamation_shipped_date as number | null | undefined));
               setReclComment(String(attrs.reclamation_comment ?? ''));
               setScrapReason(String(attrs.scrap_reason ?? ''));
-              setRepeatArrivalFlag(Boolean(attrs.repeat_arrival_flag));
-              setNumberCollisionFlag(Boolean(attrs.number_collision_flag));
+              setRepeatArrivalFlag(isEavFlagSet(attrs.repeat_arrival_flag));
+              setNumberCollisionFlag(isEavFlagSet(attrs.number_collision_flag));
               setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
               setSessionChanged(false);
             }}

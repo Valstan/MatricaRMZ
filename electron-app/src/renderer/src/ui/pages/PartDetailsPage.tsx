@@ -12,7 +12,7 @@ import {
   parseContractSections,
   PART_TEMPLATE_ID_ATTR_CODE,
 } from '@matricarmz/shared';
-import { STATUS_CODES, STATUS_LABELS, statusDateCode, type StatusCode } from '@matricarmz/shared';
+import { STATUS_CODES, STATUS_LABELS, isEavFlagSet, statusDateCode, type StatusCode } from '@matricarmz/shared';
 import type { FileRef, PartMetadata } from '@matricarmz/shared';
 import { ensureAttributeDefs, orderFieldsByDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -588,7 +588,7 @@ export function PartDetailsPage(props: {
       void loadBrandLinks(String(part.id));
     }
     const flags: Partial<Record<StatusCode, boolean>> = {};
-    for (const c of STATUS_CODES) flags[c] = Boolean(byCode[c]?.value);
+    for (const c of STATUS_CODES) flags[c] = isEavFlagSet(byCode[c]?.value);
     setStatusFlags(flags);
     const dates: Partial<Record<StatusCode, number | null>> = {};
     for (const c of STATUS_CODES) dates[c] = normalizeDateInput(byCode[statusDateCode(c)]?.value);

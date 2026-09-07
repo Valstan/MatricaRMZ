@@ -3,6 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
   STATUS_CODES,
+  isEavFlagSet,
   aggregateContractExecutionProgress,
   collectEngineBrandIdsFromContractSections,
   sumEngineBrandQtyByBrandFromContractSections,
@@ -134,7 +135,7 @@ export function computeContractBasedAssemblyPriorityFromSnapshot(
       const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
       if (normalizeText(eattrs.contract_id, '') !== contractId) continue;
       const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
-      for (const code of STATUS_CODES) statusFlags[code] = Boolean(eattrs[code]);
+      for (const code of STATUS_CODES) statusFlags[code] = isEavFlagSet(eattrs[code]);
       engineItems.push({ statusFlags });
       if (computeObjectProgress(statusFlags) < 99.5) pendingEngines++;
     }
@@ -331,7 +332,7 @@ export function computeContractBasedAssemblyPriorityFromSnapshot(
           const eattrs = snapshot.attrsByEntity.get(engineId) ?? {};
           if (normalizeText(eattrs.contract_id, '') !== row.contractId) continue;
           const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
-          for (const code of STATUS_CODES) statusFlags[code] = Boolean(eattrs[code]);
+          for (const code of STATUS_CODES) statusFlags[code] = isEavFlagSet(eattrs[code]);
           const prog = computeObjectProgress(statusFlags);
           if (!eattrs.status_customer_accepted && prog < 99.5) continue;
           const bid = normalizeText(eattrs.engine_brand_id, normalizeText(eattrs.engine_brand, ''));

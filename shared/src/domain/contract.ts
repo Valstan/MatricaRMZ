@@ -121,6 +121,35 @@ export function statusProgressPct(code: StatusCode | null | undefined): number {
 }
 
 /**
+ * Значение флага статуса из EAV — единственный разбор на весь проект.
+ *
+ * В базе одно и то же «нет» лежит тремя представлениями: настоящим булевым (так пишет
+ * карточка), строкой `'false'` (импорт 11.06.2026) и отсутствием строки вовсе. Простое
+ * `Boolean(value)` на строке `'false'` даёт **истину** — и отчёт печатает статус, которого
+ * у двигателя нет. Обратная ошибка не менее тиха: строгое `value === true` роняет `'true'`
+ * из того же импорта, и гейт пропускает то, что обязан был остановить.
+ */
+export function isEavFlagSet(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const t = value.trim().toLowerCase();
+    return t === 'true' || t === '1';
+  }
+  return false;
+}
+
+/** Снимок всех флагов статуса из EAV-атрибутов сущности. */
+export function statusFlagsFromAttrs(
+  attrs: Record<string, unknown> | null | undefined,
+): Partial<Record<StatusCode, boolean>> {
+  const flags: Partial<Record<StatusCode, boolean>> = {};
+  if (!attrs) return flags;
+  for (const code of STATUS_CODES) flags[code] = isEavFlagSet(attrs[code]);
+  return flags;
+}
+
+/**
  * Утильный двигатель — признан неремонтопригодным на дефектовке (`status_scrap_confirmed`)
  * либо уже возвращён заказчику как утиль (`status_rework_sent`). Единый источник истины
  * для связки «утиль ⇄ наряд на сборку»: для такого двигателя утильные детали в дефектовке

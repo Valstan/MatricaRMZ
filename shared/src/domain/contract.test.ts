@@ -7,6 +7,9 @@ import {
   classifyEngineContractBinding,
   computeObjectProgress,
   isContractAddonToken,
+  isEavFlagSet,
+  isScrapEngine,
+  statusFlagsFromAttrs,
   isContractLaggingVsSchedule,
   linearScheduleExpectedProgressPct,
   parseContractExecutionParts,
@@ -242,5 +245,47 @@ describe('canonical contract section key', () => {
     });
     const options = buildContractSectionOptions(sections);
     expect(options[0]).toMatchObject({ id: 'primary', isPrimary: true, label: 'Основной договор' });
+  });
+});
+
+// На проде 23 флага лежат СТРОКАМИ (разовый импорт 11.06.2026), из них 14 — 'false'.
+// Boolean('false') === true, поэтому отчёты печатали статусы, которых у двигателя нет.
+describe('isEavFlagSet — три представления одного «нет»', () => {
+  it('истина только у настоящего да: true, "true", 1', () => {
+    expect(isEavFlagSet(true)).toBe(true);
+    expect(isEavFlagSet('true')).toBe(true);
+    expect(isEavFlagSet(' TRUE ')).toBe(true);
+    expect(isEavFlagSet(1)).toBe(true);
+    expect(isEavFlagSet('1')).toBe(true);
+  });
+
+  it('строковое "false" — это НЕТ, хотя Boolean("false") даёт да', () => {
+    expect(Boolean('false')).toBe(true); // ловушка, ради которой всё и написано
+    expect(isEavFlagSet('false')).toBe(false);
+    expect(isEavFlagSet('False')).toBe(false);
+    expect(isEavFlagSet(false)).toBe(false);
+    expect(isEavFlagSet(0)).toBe(false);
+    expect(isEavFlagSet('')).toBe(false);
+    expect(isEavFlagSet(null)).toBe(false);
+    expect(isEavFlagSet(undefined)).toBe(false);
+  });
+
+  it('статусы двигателя снимаются одинаково, каким бы представлением ни лежали', () => {
+    const flags = statusFlagsFromAttrs({
+      status_scrap_confirmed: 'false',
+      status_rework_sent: false,
+      status_repaired: 'true',
+      status_customer_sent: true,
+    });
+    expect(flags.status_scrap_confirmed).toBe(false);
+    expect(flags.status_rework_sent).toBe(false);
+    expect(flags.status_repaired).toBe(true);
+    expect(flags.status_customer_sent).toBe(true);
+    expect(flags.status_rejected).toBe(false); // атрибута нет вовсе
+  });
+
+  it('утиль по строковому "false" больше не мерещится', () => {
+    expect(isScrapEngine(statusFlagsFromAttrs({ status_scrap_confirmed: 'false' }))).toBe(false);
+    expect(isScrapEngine(statusFlagsFromAttrs({ status_rework_sent: 'true' }))).toBe(true);
   });
 });
