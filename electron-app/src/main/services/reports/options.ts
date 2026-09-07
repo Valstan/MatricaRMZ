@@ -474,15 +474,71 @@ export async function buildAssemblyBomEngineOptions(
   return buildOptionsByIds(rows.map((row) => String(row.engineBrandId ?? '').trim()).filter(Boolean));
 }
 
+/**
+ * Связи для каскада фильтров отбора (заказчик → договор → марка), `cascadeVisibleOptions`.
+ * Договор связан со своим заказчиком; марка — с договорами и заказчиками, у которых она
+ * реально встречается на двигателях (списка марок в договоре нигде нет, он выводится из
+ * карточек). Заказчик двигателя берётся так же, как в отчёте «Движение двигателей по
+ * заказчикам»: своё поле, при пустом — заказчик договора, иначе половина парка осталась бы
+ * без связи и выпала бы из каскада.
+ */
+export function buildFilterCascadeLinks(snapshot: Snapshot): {
+  contractParents: Map<string, string[]>;
+  brandParents: Map<string, string[]>;
+} {
+  const contractCounterparty = new Map<string, string>();
+  for (const contractId of getIdsByType(snapshot, 'contract')) {
+    const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
+    const sections = parseContractSections(attrs);
+    const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');
+    if (counterpartyId) contractCounterparty.set(contractId, counterpartyId);
+  }
+
+  const brandLinks = new Map<string, Set<string>>();
+  for (const engineId of getIdsByType(snapshot, 'engine')) {
+    const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
+    const brandId = normalizeText(attrs.engine_brand_id, '');
+    if (!brandId) continue;
+    const contractId = normalizeText(attrs.contract_id, '');
+    const counterpartyId =
+      normalizeText(attrs.counterparty_id ?? attrs.customer_id, '') ||
+      (contractId ? contractCounterparty.get(contractId) ?? '' : '');
+    let links = brandLinks.get(brandId);
+    if (!links) {
+      links = new Set<string>();
+      brandLinks.set(brandId, links);
+    }
+    if (contractId) links.add(contractId);
+    if (counterpartyId) links.add(counterpartyId);
+  }
+
+  return {
+    contractParents: new Map(
+      Array.from(contractCounterparty, ([contractId, counterpartyId]) => [contractId, [counterpartyId]] as [string, string[]]),
+    ),
+    brandParents: new Map(
+      Array.from(brandLinks, ([brandId, links]) => [brandId, Array.from(links)] as [string, string[]]),
+    ),
+  };
+}
+
+export function attachOptionLinks(options: ReportFilterOption[], links: Map<string, string[]>): ReportFilterOption[] {
+  return options.map((option) => {
+    const linked = links.get(option.value);
+    return linked && linked.length > 0 ? { ...option, linkedIds: linked } : option;
+  });
+}
+
 export async function getReportPresetList(db: BetterSQLite3Database, ctx?: ReportBuildContext): Promise<ReportPresetListResult> {
   try {
     const snapshot = await loadSnapshot(db);
+    const cascadeLinks = buildFilterCascadeLinks(snapshot);
     return {
       ok: true,
       presets: REPORT_PRESET_DEFINITIONS,
       optionSets: {
-        contracts: buildOptions(snapshot, 'contract'),
-        brands: buildOptions(snapshot, 'engine_brand'),
+        contracts: attachOptionLinks(buildOptions(snapshot, 'contract'), cascadeLinks.contractParents),
+        brands: attachOptionLinks(buildOptions(snapshot, 'engine_brand'), cascadeLinks.brandParents),
         assemblyBrands: await buildAssemblyBomEngineOptions(db, snapshot, ctx),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
         assembly_forecast_contracts: buildAssemblyForecastContractOptions(snapshot),

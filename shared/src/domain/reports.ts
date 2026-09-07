@@ -46,6 +46,12 @@ export type ReportFilterOption = {
   label: string;
   hintText?: string;
   searchText?: string;
+  /**
+   * Идентификаторы «родителей» опции для каскадных фильтров: у договора — заказчик,
+   * у марки — договоры и заказчики, в которых она встречается. Пусто — опция не участвует
+   * в каскаде и при выбранном родителе не показывается (см. `cascadeVisibleOptions`).
+   */
+  linkedIds?: string[];
 };
 
 export type ReportOptionSource =
@@ -86,6 +92,11 @@ export type ReportFilterSpec =
       options?: ReportFilterOption[];
       /** Если true — UI предзаполнит фильтр всеми доступными значениями. */
       selectAllByDefault?: boolean;
+      /**
+       * Ключи фильтров-родителей: пока родитель пуст — видно всё, как только в нём что-то
+       * выбрано — остаются только опции, связанные с выбранным (`ReportFilterOption.linkedIds`).
+       */
+      cascadeFrom?: string[];
       labelHint?: string;
     }
   | {
@@ -479,6 +490,30 @@ export type ReportRow = Record<string, ReportCellValue>;
 export type ReportTotals = Record<string, number>;
 
 export type ReportPresetFilters = Record<string, unknown>;
+
+/**
+ * Каскад фильтров отбора: заказчик → договор → марка. Пока родитель пуст, показываем всё;
+ * как только в родителе что-то выбрано — оставляем опции, связанные хотя бы с одним выбранным.
+ *
+ * Родители применяются по «И»: марка при выбранных заказчике и договоре обязана встречаться
+ * и там, и там. Опция без `linkedIds` при активном родителе выпадает — связи у неё нет,
+ * значит и в отобранном она не встречается.
+ */
+export function cascadeVisibleOptions(
+  options: readonly ReportFilterOption[],
+  cascadeFrom: readonly string[] | undefined,
+  filters: ReportPresetFilters | undefined,
+): ReportFilterOption[] {
+  const parents = (cascadeFrom ?? [])
+    .map((key) => (Array.isArray(filters?.[key]) ? (filters[key] as unknown[]).map(String).filter(Boolean) : []))
+    .filter((selected) => selected.length > 0)
+    .map((selected) => new Set(selected));
+  if (parents.length === 0) return [...options];
+  return options.filter((option) => {
+    const links = option.linkedIds ?? [];
+    return parents.every((selected) => links.some((id) => selected.has(id)));
+  });
+}
 
 export type ReportPresetListResult =
   | {
@@ -1279,9 +1314,29 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
         unboundedByDefault: true,
         labelHint: 'Только двигатели, отгруженные в этот период (двигатели без отгрузки отсеиваются). Пусто — без ограничения.',
       },
-      { type: 'multi_select', key: 'counterpartyIds', label: 'Заказчики', optionsSource: 'counterparties' },
-      { type: 'multi_select', key: 'contractIds', label: 'Договоры', optionsSource: 'contracts' },
-      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      {
+        type: 'multi_select',
+        key: 'counterpartyIds',
+        label: 'Заказчики',
+        optionsSource: 'counterparties',
+        labelHint: 'Первая ступень отбора: договоры и марки ниже сузятся до выбранных заказчиков. Пусто — все заказчики.',
+      },
+      {
+        type: 'multi_select',
+        key: 'contractIds',
+        label: 'Договоры',
+        optionsSource: 'contracts',
+        cascadeFrom: ['counterpartyIds'],
+        labelHint: 'Только договоры выбранных заказчиков. Заказчики не выбраны — все договоры.',
+      },
+      {
+        type: 'multi_select',
+        key: 'brandIds',
+        label: 'Марки двигателей',
+        optionsSource: 'brands',
+        cascadeFrom: ['counterpartyIds', 'contractIds'],
+        labelHint: 'Только марки, встречающиеся в отобранных договорах и у отобранных заказчиков. Ничего не выбрано — все марки.',
+      },
       {
         type: 'select',
         key: 'scrapFilter',
