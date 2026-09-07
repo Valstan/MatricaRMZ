@@ -3,6 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
   parseContractSections,
+  resolveEngineCustomer,
   REPORT_PRESET_DEFINITIONS,
   type ReportPresetDefinition,
   type ReportPresetId,
@@ -258,14 +259,22 @@ export function buildBrandFilterMatcher(
   };
 }
 
+/**
+ * Заказчик двигателя для отчётов — обёртка над общим правилом `resolveEngineCustomer`
+ * (`shared/domain/engineCustomer.ts`): там записано, почему договор читается ПЕРВЫМ, а поле
+ * карточки остаётся запасным путём. Здесь — только распаковка EAV-атрибутов.
+ */
 export function resolveEngineCounterpartyId(
   engineAttrs: Record<string, unknown> | undefined,
   contractCounterpartyById: Map<string, string>,
 ): string {
   const attrs = engineAttrs ?? {};
-  const own = String(attrs.counterparty_id ?? attrs.customer_id ?? '').trim();
-  if (own) return own;
-  const contractId = String(attrs.contract_id ?? '').trim();
-  return contractId ? contractCounterpartyById.get(contractId) ?? '' : '';
+  return resolveEngineCustomer(
+    {
+      contractId: String(attrs.contract_id ?? '').trim(),
+      customerId: String(attrs.counterparty_id ?? attrs.customer_id ?? '').trim(),
+    },
+    contractCounterpartyById,
+  ).id;
 }
 

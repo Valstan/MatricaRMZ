@@ -100,10 +100,22 @@ function stubDb(): any {
 }
 
 describe('resolveEngineCounterpartyId', () => {
-  it('поле карточки главнее договора', async () => {
+  it('договор главнее поля карточки: перецепили двигатель — заказчик поехал за договором', async () => {
     const snapshot = await loadSnapshot(stubDb());
     const index = buildContractCounterpartyIndex(snapshot);
-    expect(resolveEngineCounterpartyId({ counterparty_id: 'CP2', contract_id: 'C1' }, index)).toBe('CP2');
+    // Решение владельца 07.09: заказчик не прибивается к карточке. Значение в карточке —
+    // след прежней привязки, и после перецепки договора оно устаревает; на проде так
+    // разошлись 12 двигателей из 1358 заполненных.
+    expect(resolveEngineCounterpartyId({ counterparty_id: 'CP2', contract_id: 'C1' }, index)).toBe('CP1');
+  });
+
+  it('карточка остаётся запасным путём: без договора заказчик берётся из неё', async () => {
+    const snapshot = await loadSnapshot(stubDb());
+    const index = buildContractCounterpartyIndex(snapshot);
+    // 1149 двигателей на проде несут заказчика ТОЛЬКО в карточке — правило «всегда из
+    // договора» стёрло бы его им всем.
+    expect(resolveEngineCounterpartyId({ counterparty_id: 'CP2' }, index)).toBe('CP2');
+    expect(resolveEngineCounterpartyId({ counterparty_id: 'CP2', contract_id: 'C_UNKNOWN' }, index)).toBe('CP2');
   });
 
   it('пустое поле дочитывается с договора — и через разделы, и через легаси-атрибут', async () => {
