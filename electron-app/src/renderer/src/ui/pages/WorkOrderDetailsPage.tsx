@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  parseContractSections,
+  resolveEngineCustomer,
   NOMENCLATURE_ITEM_TYPE_LABELS,
   WORK_ORDER_KIND_DESCRIPTIONS,
   WORK_ORDER_KIND_LABELS,
@@ -668,13 +670,23 @@ export function WorkOrderDetailsPage(props: {
         const engine = engines.find((e) => e.id === engineId);
         if (!engine) continue;
         let contractSuffix = '';
-        let customerId = String(engine.customerId ?? '').trim();
+        let cardCustomerId = String(engine.customerId ?? '').trim();
+        let contractCustomerId = '';
         if (engine.contractId) {
           const c = await window.matrica.admin.entities.get(engine.contractId).catch(() => null);
           const attrs = ((c as any)?.attributes ?? {}) as Record<string, unknown>;
           contractSuffix = shortContractSuffix(attrs.number == null ? '' : String(attrs.number));
-          if (!customerId && attrs.customer_id) customerId = String(attrs.customer_id);
+          // Заказчик — из договора: сперва основной раздел, затем легаси-атрибут. Прежде читался
+          // только легаси и только когда карточка пуста, то есть наряд показывал устаревшего
+          // заказчика после перецепки двигателя (общее правило — `resolveEngineCustomer`).
+          const sections = parseContractSections(attrs);
+          contractCustomerId = String(sections.primary.customerId ?? attrs.customer_id ?? '').trim();
         }
+        const { id: customerId } = resolveEngineCustomer(
+          { contractId: engine.contractId ?? '', customerId: cardCustomerId },
+          new Map(contractCustomerId && engine.contractId ? [[engine.contractId, contractCustomerId]] : []),
+        );
+        cardCustomerId = customerId;
         let counterparty = '';
         if (customerId) {
           const cust = await window.matrica.admin.entities.get(customerId).catch(() => null);

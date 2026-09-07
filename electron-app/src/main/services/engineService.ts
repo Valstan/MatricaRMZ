@@ -22,6 +22,7 @@ import {
   isValidEngineInternalNumberYear,
   normalizeLookupCompact,
   parseContractSections,
+  resolveEngineCustomer,
   searchLookupOptionsTiered,
   statusDateCode,
   type StatusCode,
@@ -140,6 +141,84 @@ async function getContractSignedAtMap(db: BetterSQLite3Database): Promise<Map<st
     }
 
     if (signedAt != null) out.set(contractId, signedAt);
+  }
+
+  return out;
+}
+
+/**
+ * Договор → его заказчик. Основной раздел (`contract_sections`), при пустом — легаси-атрибут
+ * `customer_id` самого договора. Нужна списку двигателей: заказчик двигателя считается из
+ * договора (`resolveEngineCustomer`), а не берётся из карточки — иначе перецепка двигателя на
+ * другой договор не меняет ни колонку «Контрагент», ни отбор по нему.
+ */
+async function getContractCustomerMap(db: BetterSQLite3Database): Promise<Map<string, string>> {
+  const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Contract);
+  if (!typeId) return new Map();
+
+  const contractRows = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+    .limit(20_000);
+  const contractIds = contractRows.map((row) => String(row.id)).filter(Boolean);
+  if (contractIds.length === 0) return new Map();
+
+  const contractDefs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const sectionsDefId = contractDefs.find((row) => String(row.code) === 'contract_sections')?.id ?? null;
+  const customerDefId = contractDefs.find((row) => String(row.code) === 'customer_id')?.id ?? null;
+  const defIds = [sectionsDefId, customerDefId].filter(Boolean) as string[];
+  if (defIds.length === 0) return new Map();
+
+  const valueRows = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+    })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, contractIds),
+        inArray(attributeValues.attributeDefId, defIds),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(200_000);
+
+  const valuesByContract = new Map<string, Map<string, string | null>>();
+  for (const row of valueRows) {
+    const entityId = String(row.entityId);
+    let map = valuesByContract.get(entityId);
+    if (!map) {
+      map = new Map<string, string | null>();
+      valuesByContract.set(entityId, map);
+    }
+    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+  }
+
+  const out = new Map<string, string>();
+  for (const contractId of contractIds) {
+    const values = valuesByContract.get(contractId) ?? new Map<string, string | null>();
+    let customerId = '';
+
+    if (sectionsDefId) {
+      const raw = values.get(sectionsDefId);
+      if (raw != null) {
+        const sections = parseContractSections({ contract_sections: safeJsonParse(raw) });
+        customerId = String(sections.primary.customerId ?? '').trim();
+      }
+    }
+    if (!customerId && customerDefId) {
+      const raw = values.get(customerDefId);
+      if (raw != null) customerId = String(safeStringFromJson(raw) ?? '').trim();
+    }
+
+    if (customerId) out.set(contractId, customerId);
   }
 
   return out;
@@ -379,6 +458,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
   const contractSignedAtById = await getContractSignedAtMap(db);
+  const contractCustomerById = await getContractCustomerMap(db);
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
   const baseDefIds = [
@@ -566,7 +646,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
     const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
 
-    const customerName = customerId ? customerNameById.get(customerId) : undefined;
+    // Заказчик считается из договора, а поле карточки — запасной путь (общее правило
+    // `resolveEngineCustomer`): перецепили двигатель на другой договор — и колонка, и отбор
+    // по контрагенту едут за ним сами, без ручной правки карточки.
+    const resolvedCustomerId = resolveEngineCustomer({ contractId: contractId ?? '', customerId: customerId ?? '' }, contractCustomerById).id;
+    const customerName = resolvedCustomerId ? customerNameById.get(resolvedCustomerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
     const contractSignedAt = contractId ? contractSignedAtById.get(contractId) : undefined;
     // Ф2: бейдж «занят» в списке — стартовом экране планшетного режима. Без него
@@ -581,7 +665,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       internalNumberFull: formatEngineInternalNumber(internalNumber ?? '', internalNumberYear),
       engineBrand: engineBrand ?? '',
       engineBrandId: engineBrandId ?? '',
-      customerId: customerId ?? '',
+      customerId: resolvedCustomerId,
       ...(customerName ? { customerName } : {}),
       contractId: contractId ?? '',
       ...(contractName ? { contractName } : {}),
