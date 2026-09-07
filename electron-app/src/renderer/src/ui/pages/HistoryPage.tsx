@@ -86,7 +86,7 @@ export function HistoryPage(props: {
   quickStartRatings?: Array<{ tab: string; score: number; lastAt?: number }>;
   /** Живые ярлыки Верстака — «Мой круг» показывает их же (одно место для закладок). */
   desktopShortcuts?: DesktopShortcut[];
-  /** Убрать ярлык со Верстака (в корзину) — тот же смысл, что у корзины на самом Верстаке. */
+  /** Убрать ярлык с Верстака (в корзину) — тот же смысл, что у корзины на самом Верстаке. */
   onRemoveShortcut?: (shortcutId: string) => void;
   onNavigate: (link: ChatDeepLinkPayload) => void;
   onOpenNotes: (noteId?: string | null) => void;

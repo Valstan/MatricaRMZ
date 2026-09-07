@@ -20,6 +20,9 @@ const ANDROID_HIDDEN_ACTIONS: ReadonlySet<ActionButtonId> = new Set<ActionButton
   'ai_chat',
   'chat_link',
   'program_feedback',
+  // Скрипты обслуживания — про Windows-машину (PowerShell, антивирус, брандмауэр);
+  // на планшете их не запустить, и архива в сборке нет.
+  'client_ops',
   // «Верстак» живёт на экране чата — на Android чата нет, ярлык добавлять некуда.
   'desktop_shortcut',
 ]);

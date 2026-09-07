@@ -70,6 +70,56 @@ export type DesktopUsage = {
 export const DESKTOP_DEFAULT_LAYOUT: DesktopLayout = { chatPct: 33, peoplePct: 30 };
 
 export const DESKTOP_MAX_SHORTCUTS = 200;
+
+/**
+ * Встроенные ярлыки Верстака: они НЕ хранятся в профиле пользователя, а подмешиваются при
+ * отрисовке и вырезаются перед записью.
+ *
+ * Почему не разложить их всем в `ui_profile_json`: секция Верстака — LWW, и клиент пушит
+ * свою целиком. Разложенная сервером плитка живёт до первого пуша любого клиента, а на 149
+ * профилях это гонка, которую выигрывает не тот, кто прав, а тот, кто позже сохранил. Плюс
+ * ярлык, разложенный однажды, не переживает ни переустановку, ни новую машину.
+ *
+ * Вычисляемая плитка этих проблем не имеет: она есть у всех и сразу, не занимает места в
+ * профиле и не может быть затёрта чужой записью.
+ */
+export const BUILTIN_SHORTCUT_PREFIX = 'builtin:';
+
+/** Ярлык «Скрипты обслуживания» — помощник по антивирусу и правило брандмауэра для раздачи. */
+export const CLIENT_OPS_SHORTCUT_ID = 'builtin:client-ops';
+
+export const BUILTIN_DESKTOP_LINK_KIND = 'builtin';
+
+export function isBuiltinShortcutId(id: string | null | undefined): boolean {
+  return String(id ?? '').startsWith(BUILTIN_SHORTCUT_PREFIX);
+}
+
+/** Подмешать встроенные ярлыки к секции для ОТРИСОВКИ. Хранить результат нельзя. */
+export function withBuiltinDesktopShortcuts(section: UserUiProfileDesktop): UserUiProfileDesktop {
+  if (section.shortcuts.some((s) => s.id === CLIENT_OPS_SHORTCUT_ID)) return section;
+  const builtin: DesktopShortcut = {
+    id: CLIENT_OPS_SHORTCUT_ID,
+    label: 'Скрипты обслуживания',
+    icon: '🧰',
+    link: { kind: BUILTIN_DESKTOP_LINK_KIND, action: 'client_ops' },
+    folderId: null,
+    deletedAt: null,
+    createdAt: 0,
+  };
+  return { ...section, shortcuts: [builtin, ...section.shortcuts] };
+}
+
+/** Ссылка встроенной плитки: ведёт не в раздел программы, а в её собственное окно. */
+export function isBuiltinDesktopLink(link: unknown): boolean {
+  if (typeof link !== 'object' || link == null) return false;
+  return String((link as Record<string, unknown>).kind ?? "") === BUILTIN_DESKTOP_LINK_KIND;
+}
+
+/** Убрать встроенные ярлыки ПЕРЕД записью: в профиле их быть не должно. */
+export function stripBuiltinDesktopShortcuts(section: UserUiProfileDesktop): UserUiProfileDesktop {
+  const shortcuts = section.shortcuts.filter((s) => !isBuiltinShortcutId(s.id));
+  return shortcuts.length === section.shortcuts.length ? section : { ...section, shortcuts };
+}
 export const DESKTOP_MAX_FOLDERS = 40;
 const MAX_LABEL = 160;
 const MAX_LINK_JSON = 4000;
@@ -94,6 +144,10 @@ function sanitizeShortcut(raw: unknown): DesktopShortcut | null {
   const id = String(r.id ?? '').trim().slice(0, 80);
   const label = String(r.label ?? '').trim().slice(0, MAX_LABEL);
   if (!id || !label) return null;
+  // Встроенный ярлык подмешивается при отрисовке и в профиле не хранится. Отсекаем на входе
+  // тоже: иначе клиент, сохранивший его однажды, разнёс бы копию по всем машинам — и она
+  // осталась бы там навсегда, даже если саму плитку из кода уберут.
+  if (isBuiltinShortcutId(id)) return null;
   const createdAt = Number(r.createdAt ?? 0);
   const deletedAt = Number(r.deletedAt ?? NaN);
   const out: DesktopShortcut = {
@@ -445,7 +499,7 @@ export type DesktopFileShortcut = {
 };
 
 /**
- * Живые файловые ярлыки — и со Верстака, и из папок; корзина не в счёт.
+ * Живые файловые ярлыки — и с Верстака, и из папок; корзина не в счёт.
  *
  * Нужны карточке: вложения она забирает СО СТОЛА сама, своим обычным механизмом. Обратное
  * направление (Верстак пишет в карточку) не работает — у трёх карточек из девяти список

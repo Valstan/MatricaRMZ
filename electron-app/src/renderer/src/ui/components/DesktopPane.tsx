@@ -899,7 +899,7 @@ export function DesktopPane(props: {
               {desktopFolderShortcuts(desktop, openFolder.id).map((s) => shortcutTile(s))}
               {desktopFolderShortcuts(desktop, openFolder.id).length === 0 && (
                 <div style={{ color: theme.colors.muted, fontSize: 13, padding: 10 }}>
-                  Папка пуста. Перетащите сюда ярлыки со Верстака.
+                  Папка пуста. Перетащите сюда ярлыки с Верстака.
                 </div>
               )}
             </div>

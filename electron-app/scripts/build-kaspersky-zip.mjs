@@ -28,8 +28,12 @@ import sevenBin from '7zip-bin'
 const PASSWORD = '111'
 const INNER_DIR = 'kaspersky-matrica' // top-level folder inside the zip → clean extract
 // Operators do not need the acceptance tests; everything else is useful on a park machine.
+// Архив стал общим для скриптов обслуживания машины (решение владельца 07.09.2026: они лежат
+// на Верстаке у ВСЕХ, а не только у админов). Имя файла оставлено прежним — на него завязаны
+// установщик (installer.nsh) и памятка на рабочем столе Windows.
 const FILES = [
   'kaspersky-matrica.ps1',
+  'lan-share-firewall.ps1',
   'guide.ru.md',
   'README.md',
   'Запустить.cmd',
