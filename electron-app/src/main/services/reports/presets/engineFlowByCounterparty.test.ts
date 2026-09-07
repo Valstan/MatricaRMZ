@@ -6,7 +6,8 @@ import { buildEngineFlowByCounterpartyReport } from './engineFlowByCounterparty.
 
 // Синтетический снапшот: loadSnapshot — единственное обращение билдера к БД.
 // Два заказчика; у CP1 два договора, второй с ДС; в C1 две марки; двигатели всех состояний.
-//   C1/BR1: E1 на заводе (в ремонте), E2 отгружен, E3 утиль на заводе, E4 утиль отправлен
+//   C1/BR1: E1 на заводе (в ремонте), E2 отгружен, E3 утиль на заводе, E4 утиль отправлен,
+//           E8 признан утильным и уехал заказчику обычной отгрузкой — тоже «утиль отправлен»
 //   C1/BR2: E5 на заводе
 //   C2 (ДС 2)/BR1: E6 отгружен — заказчик у двигателя не проставлен, берётся с договора
 //   C3 (CP2)/BR2: E7 на заводе
@@ -29,7 +30,7 @@ const entityRows: Row[] = [
   { id: 'C1', typeId: 'T_CONTRACT' },
   { id: 'C2', typeId: 'T_CONTRACT' },
   { id: 'C3', typeId: 'T_CONTRACT' },
-  ...['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7'].map((id) => ({ id, typeId: 'T_ENGINE' })),
+  ...['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8'].map((id) => ({ id, typeId: 'T_ENGINE' })),
 ];
 
 const attrCodes = [
@@ -70,6 +71,16 @@ const attrData: Record<string, Record<string, unknown>> = {
   // Заказчик у двигателя не заполнен — должен подтянуться с договора C2.
   E6: { engine_brand_id: 'BR1', contract_id: 'C2', contract_section_number: 'ДС 2', arrival_date: ARRIVAL, status_customer_sent: true },
   E7: { engine_brand_id: 'BR2', contract_id: 'C3', counterparty_id: 'CP2', arrival_date: ARRIVAL },
+  // Утиль, уехавший заказчику обычной отгрузкой (без флага «Утиль — отправлен заказчику»).
+  // Раньше он оседал в «отгружено» и выпадал из разбивки утиля.
+  E8: {
+    engine_brand_id: 'BR1',
+    contract_id: 'C1',
+    counterparty_id: 'CP1',
+    arrival_date: ARRIVAL,
+    status_scrap_confirmed: true,
+    status_customer_sent: true,
+  },
 };
 
 const valueRows: Row[] = [];
@@ -119,14 +130,15 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     expect(report.ok).toBe(true);
     if (!report.ok) return;
 
-    // C1/BR1: E1 (в ремонте), E2 (отгружен), E3 (утиль на заводе), E4 (утиль отправлен)
+    // C1/BR1: E1 (в ремонте), E2 (отгружен), E3 (утиль на заводе), E4 (утиль отправлен),
+    // E8 (утиль, уехал обычной отгрузкой)
     const c1br1 = findRow(report.rows, '*125', 'Д-245');
     expect(c1br1).toBeDefined();
-    expect(c1br1?.arrivedQty).toBe(4);
-    expect(c1br1?.shippedQty).toBe(1);
-    expect(c1br1?.scrapTotalQty).toBe(2);
+    expect(c1br1?.arrivedQty).toBe(5);
+    expect(c1br1?.shippedQty).toBe(1); // только E2: утильный E8 сюда не попадает
+    expect(c1br1?.scrapTotalQty).toBe(3);
     expect(c1br1?.scrapAtFactoryQty).toBe(1);
-    expect(c1br1?.scrapSentQty).toBe(1);
+    expect(c1br1?.scrapSentQty).toBe(2); // E4 (по флагу) + E8 (по отгрузке)
     expect(c1br1?.atFactoryQty).toBe(2); // E1 + E3
     expect(c1br1?.inRepairQty).toBe(1); // E1 (E3 — утиль на заводе)
 
@@ -143,13 +155,26 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     for (const row of report.rows) {
       expect(Number(row.arrivedQty)).toBe(Number(row.shippedQty) + Number(row.scrapSentQty) + Number(row.atFactoryQty));
       expect(Number(row.atFactoryQty)).toBe(Number(row.scrapAtFactoryQty) + Number(row.inRepairQty));
+      // Утиль не имеет состояния вне этих двух: иначе «утиль всего» больше суммы своих колонок,
+      // и оператор ищет пропавшие двигатели (E8 раньше терялся в «отгружено»).
+      expect(Number(row.scrapTotalQty)).toBe(Number(row.scrapAtFactoryQty) + Number(row.scrapSentQty));
     }
-    expect(report.totals?.arrivedQty).toBe(7);
+    expect(report.totals?.arrivedQty).toBe(8);
     expect(report.totals?.shippedQty).toBe(2); // E2, E6
-    expect(report.totals?.scrapQty).toBe(2); // E3, E4
+    expect(report.totals?.scrapQty).toBe(3); // E3, E4, E8
     expect(report.totals?.atFactoryQty).toBe(4); // E1, E3, E5, E7
     expect(report.totals?.counterparties).toBe(2);
     expect(report.totals?.contracts).toBe(3);
+  });
+
+  it('пояснения под таблицей сходятся арифметически — включая разбивку утиля', async () => {
+    const report = await buildEngineFlowByCounterpartyReport(stubDb(), {});
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const notes = report.footerNotes ?? [];
+    expect(notes).toContain('Пришло = отгружено заказчику + утиль отправлен + на заводе (8 = 2 + 2 + 4).');
+    expect(notes).toContain('На заводе = утиль на заводе + в ремонте (4 = 1 + 3).');
+    expect(notes).toContain('Утиль всего = утиль на заводе + утиль отправлен (3 = 1 + 2); в «отгружено заказчику» утильные не входят.');
   });
 
   it('короткий номер договора: «*» + три последние цифры части до первого «/», ДС суффиксом', async () => {

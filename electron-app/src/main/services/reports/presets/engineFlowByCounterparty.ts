@@ -78,14 +78,21 @@ function accFlow(target: FlowAgg, delta: FlowAgg): void {
  *
  * Состояния двигателя не пересчитываются: переиспользуются каноническая
  * `resolveEngineShippingState` (отгрузка заказчику по customer_sent/accepted) и
- * `isScrapEngine`. Три состояния взаимоисключающие, чтобы бумага сходилась:
- * - `scrapSent` — `status_rework_sent`: утиль вернули заказчику, завод покинул;
- * - `shipped` — покинул завод как отремонтированный (не rework);
+ * `isScrapEngine`. Завод покинул = есть отгрузка заказчику ЛИБО стоит
+ * `status_rework_sent` (у утиль-возврата дат отгрузки может не быть вовсе).
+ * Три состояния взаимоисключающие, чтобы бумага сходилась:
+ * - `scrapSent` — утиль, покинувший завод: и по флагу «Утиль — отправлен заказчику»,
+ *   и признанный утильным (`status_scrap_confirmed`) до обычной отгрузки;
+ * - `shipped` — покинул завод НЕ утилем (отремонтированный);
  * - `atFactory` — всё остальное; внутри делится на `scrapAtFactory` (утиль признан,
  *   но ещё лежит у нас) и `inRepair`.
  *
- * Отсюда инвариант каждого уровня: `arrived = shipped + scrapSent + atFactory`
- * и `atFactory = scrapAtFactory + inRepair`.
+ * Отсюда инварианты каждого уровня: `arrived = shipped + scrapSent + atFactory`,
+ * `atFactory = scrapAtFactory + inRepair` и — что важнее для чтения бумаги —
+ * `scrapTotal = scrapAtFactory + scrapSent`: у утиля нет состояния вне этих двух.
+ * Раньше `scrapSent` признавал утилем-выбытием только `status_rework_sent`, и утиль,
+ * уехавший заказчику обычной отгрузкой, оседал в `shipped`, выпадая из разбивки утиля:
+ * «утиль всего» не сходился с суммой своих же колонок (на проде 07.09 — 39 двигателей).
  *
  * Заказчик берётся у двигателя, а при пустом поле — у его договора: иначе половина
  * парка утекала бы в группу «(без заказчика)», ведь в карточке двигателя заказчик
@@ -151,10 +158,13 @@ export async function buildEngineFlowByCounterpartyReport(
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
     for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
     const scrap = isScrapEngine(statusFlags);
-    const scrapSent = statusFlags.status_rework_sent === true;
     const { onSite: baseOnSite, shippingDate } = resolveEngineShippingState(attrs);
-    const atFactory = baseOnSite && !scrapSent;
-    const shipped = !baseOnSite && !scrapSent;
+    // «Утиль — отправлен заказчику» — выбытие само по себе: дат отгрузки у возврата
+    // без ремонта обычно не проставляют, а завод он покинул.
+    const leftFactory = !baseOnSite || statusFlags.status_rework_sent === true;
+    const atFactory = !leftFactory;
+    const scrapSent = scrap && leftFactory;
+    const shipped = !scrap && leftFactory;
     const scrapAtFactory = scrap && atFactory;
 
     const arrivalMs = toNumber(attrs.arrival_date) || toNumber(attrs.acceptance_at);
@@ -315,9 +325,10 @@ export async function buildEngineFlowByCounterpartyReport(
       atFactoryQty: grand.atFactory,
     },
     footerNotes: [
-      `Пришло = отправлено заказчику + утиль отправлен + на заводе (${grand.arrived} = ${grand.shipped} + ${grand.scrapSent} + ${grand.atFactory}).`,
+      `Пришло = отгружено заказчику + утиль отправлен + на заводе (${grand.arrived} = ${grand.shipped} + ${grand.scrapSent} + ${grand.atFactory}).`,
       `На заводе = утиль на заводе + в ремонте (${grand.atFactory} = ${grand.scrapAtFactory} + ${grand.inRepair}).`,
-      `Доля утиля: ${scrapPct}% (${grand.scrapTotal} из ${grand.arrived}); из них ещё на заводе ${grand.scrapAtFactory}, возвращено заказчику ${grand.scrapSent}.`,
+      `Утиль всего = утиль на заводе + утиль отправлен (${grand.scrapTotal} = ${grand.scrapAtFactory} + ${grand.scrapSent}); в «отгружено заказчику» утильные не входят.`,
+      `Доля утиля: ${scrapPct}% (${grand.scrapTotal} из ${grand.arrived}).`,
       '«Пришло» — число заведённых карточек двигателей (повторный заезд считается отдельно).',
     ],
     generatedAt: Date.now(),
