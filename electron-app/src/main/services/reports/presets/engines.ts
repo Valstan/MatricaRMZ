@@ -45,7 +45,7 @@ import { httpAuthed } from '../../httpClient.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, type ReportBuildContext, type Snapshot } from '../context.js';
+import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, buildBrandFilterMatcher, resolveEngineBrandRef, type ReportBuildContext, type Snapshot } from '../context.js';
 import {
   buildOptions,
   buildCounterpartyOptions,
@@ -85,6 +85,7 @@ export async function buildEngineStagesReport(
   const counterpartyFilter = asArray(filters?.counterpartyIds);
   const snapshot = await loadSnapshot(db);
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
+  const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const latestOps = await db
     .select()
     .from(operations)
@@ -114,7 +115,7 @@ export async function buildEngineStagesReport(
     const brandId = normalizeText(attrs.engine_brand_id, '');
     const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterpartyById);
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    if (!brandMatches(resolveEngineBrandRef(attrs))) continue;
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
     const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
     for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
@@ -319,6 +320,7 @@ export async function buildEnginesReport(
 
   const snapshot = await loadSnapshot(db);
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
+  const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
   const counterpartyOptions = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
 
@@ -350,7 +352,7 @@ export async function buildEnginesReport(
     const contractId = normalizeText(attrs.contract_id, '');
     const counterpartyId = resolveEngineCounterpartyId(attrs, contractCounterpartyById);
 
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    if (!brandMatches(resolveEngineBrandRef(attrs))) continue;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
 
@@ -623,6 +625,7 @@ export async function buildScrapRegisterReport(
 
   const snapshot = await loadSnapshot(db);
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
+  const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
   if (!engineTypeId) return { ok: false, error: 'Тип сущности "engine" не найден' };
   const contractOptions = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
@@ -670,7 +673,7 @@ export async function buildScrapRegisterReport(
     );
     const engineNumber = engineNumberLabel(attrs);
     let pass = true;
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) pass = false;
+    if (!brandMatches(resolveEngineBrandRef(attrs))) pass = false;
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) pass = false;
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) pass = false;
     return {
@@ -824,13 +827,14 @@ export async function buildEngineReadinessToAssembleReport(
 
   // G13: BOM берём через loadBomKitForBrand (REST + офлайн-fallback) — локальные BOM-таблицы
   // на клиентах пусты (не входят в sync), прежний код читал их и показывал 0 компонентов.
+  const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const brandKitCache = new Map<string, { bomName: string; kitLines: BomKitLine[] }>();
   const engineRows = Array.from(snapshot.entitiesById.values()).filter((e) => e.typeId === engineTypeId);
   const rows: Array<Record<string, ReportCellValue>> = [];
   for (const engine of engineRows) {
     const attrs = snapshot.attrsByEntity.get(engine.id) ?? {};
     const brandId = String(attrs.engine_brand_id ?? '').trim();
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    if (!brandMatches(resolveEngineBrandRef(attrs))) continue;
     const phase = String(attrs.engine_phase ?? '').trim();
     if (phase && phase !== 'received' && phase !== 'disassembled') continue;
     const engineInternalNumber = formatEngineInternalNumber(

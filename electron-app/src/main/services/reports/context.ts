@@ -219,6 +219,45 @@ export function buildContractCounterpartyIndex(snapshot: Snapshot): Map<string, 
  * заказчикам» с фолбэком, «Двигатели» без него, «Наряды» без `counterparty_id` и без
  * разделов договора; один и тот же выбор давал три разных ответа.
  */
+/**
+ * Марка двигателя записана двумя способами: ссылкой `engine_brand_id` на справочник и текстом
+ * `engine_brand` в карточке. Отчёты обязаны видеть оба — фильтр отдаёт идентификаторы, а часть
+ * карточек несёт только текст (на 07.09.2026 таких двигателей два, но 1936 несут оба сразу,
+ * и отчёт, который кладёт их в одну ячейку, зависит от порядка строк EAV — см. M112).
+ */
+export function resolveEngineBrandRef(engineAttrs: Record<string, unknown> | undefined): { id: string; name: string } {
+  const attrs = engineAttrs ?? {};
+  return {
+    id: String(attrs.engine_brand_id ?? '').trim(),
+    name: String(attrs.engine_brand ?? '').trim(),
+  };
+}
+
+/**
+ * Сопоставление марки с фильтром: по идентификатору либо по названию. Оператор выбирает марки
+ * из справочника, то есть в фильтре всегда идентификаторы — но карточка может нести только текст,
+ * и сравнение «идентификатор с идентификатором» такую карточку молча теряет.
+ *
+ * `brandLabels` — подписи выбранных марок (`buildOptions(snapshot, 'engine_brand')`), по ним и
+ * идёт сравнение с текстом, без учёта регистра.
+ */
+export function buildBrandFilterMatcher(
+  brandFilter: readonly string[],
+  brandLabels: Map<string, string>,
+): (ref: { id: string; name: string }) => boolean {
+  if (brandFilter.length === 0) return () => true;
+  const ids = new Set(brandFilter.map((id) => String(id).trim()).filter(Boolean));
+  const names = new Set(
+    Array.from(ids)
+      .map((id) => String(brandLabels.get(id) ?? '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+  return (ref) => {
+    if (ref.id && ids.has(ref.id)) return true;
+    return Boolean(ref.name) && names.has(ref.name.toLowerCase());
+  };
+}
+
 export function resolveEngineCounterpartyId(
   engineAttrs: Record<string, unknown> | undefined,
   contractCounterpartyById: Map<string, string>,

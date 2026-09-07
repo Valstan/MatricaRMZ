@@ -38,7 +38,7 @@ import { formatMoscowDate } from '../../../utils/dateUtils.js';
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 
 import { safeJsonParse, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate } from '../format.js';
-import { getPreset, getWorkshops, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, type ReportBuildContext } from '../context.js';
+import { getPreset, getWorkshops, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, buildBrandFilterMatcher, resolveEngineBrandRef, type ReportBuildContext } from '../context.js';
 import { relatedEntityLabel, buildOptions, buildCounterpartyOptions, UNKNOWN_ENTITY_LABEL, BRAND_MISSING } from '../options.js';
 
 export type NormalizedWorkOrderReportLine = {
@@ -211,6 +211,7 @@ export async function buildWorkOrderCostsReport(
   const employeeFilter = asArray(filters?.employeeIds);
   const snapshot = await loadSnapshot(db);
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
+  const brandMatches = buildBrandFilterMatcher(brandFilter, brandOptions);
   const rows: Array<Record<string, ReportCellValue>> = [];
   const maySeeWorkOrder = await buildRestrictedWorkOrderFilter(db, ctx);
   const sourceOps = await db
@@ -231,8 +232,11 @@ export async function buildWorkOrderCostsReport(
     if (employeeFilter.length > 0 && !crewIds.some((id: string) => employeeFilter.includes(id))) continue;
     const partId = normalizeText(payload.partId ?? op.engineEntityId, '');
     const partAttrs = partId ? snapshot.attrsByEntity.get(partId) : undefined;
-    const brandId = normalizeText(partAttrs?.engine_brand_id, '');
-    if (brandFilter.length > 0 && (!brandId || !brandFilter.includes(brandId))) continue;
+    const brandRef = resolveEngineBrandRef(partAttrs);
+    const brandId = brandRef.id;
+    // Марка ищется и по ссылке, и по тексту карточки — как в «Отчёте по нарядам» ниже.
+    // Двум отчётам одного файла разная досягаемость одного фильтра стоила тихой потери строк.
+    if (!brandMatches(brandRef)) continue;
     const works = normalizeWorkOrderReportLines(payload);
     const fallbackWorkLabel = resolveWorkOrderTargetLabel(payload);
     const normalizedWorks = works.length > 0 ? works : [{ serviceName: fallbackWorkLabel || '(без названия)', qty: 1, amountRub: Math.max(0, toNumber(payload.totalAmountRub)) }];

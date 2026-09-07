@@ -33,7 +33,7 @@ import {
 
 import { httpAuthed } from '../../httpClient.js';
 import { resolveContractLabel, safeJsonParse, toNumber, normalizeText, asArray, asBool, readPeriod, msToDate, statusLabel } from '../format.js';
-import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, type ReportBuildContext, type Snapshot } from '../context.js';
+import { getWarehouseLocationsById, getPreset, loadSnapshot, getIdsByType, buildBrandFilterMatcher, type ReportBuildContext, type Snapshot } from '../context.js';
 import { UNKNOWN_ENGINE_NUMBER_LABEL, UNKNOWN_ENTITY_LABEL } from '../options.js';
 
 // Служебные «исполнители»: их пишет не человек, а сам клиент или веб-админка.
@@ -99,8 +99,20 @@ export async function buildPartsDemandReport(
   const brandIdDefId = defByCode.get('engine_brand_id') ?? '';
   const brandNameDefId = defByCode.get('engine_brand') ?? '';
   const engineContractId = new Map<string, string>();
-  const engineBrand = new Map<string, string>();
+  // Ссылка на справочник и текст в карточке — РАЗНЫЕ поля, и складывать их в одну ячейку нельзя:
+  // прежний код клал сюда то, что встретится в EAV последним, а фильтр сравнивал с
+  // идентификаторами. У кого записаны оба (1936 двигателей на 07.09.2026), исход зависел от
+  // порядка строк — то есть фильтр по марке был не узким, а недетерминированным (M112).
+  const engineBrandRef = new Map<string, { id: string; name: string }>();
   const contractIds = new Set<string>();
+  const brandRefOf = (engineId: string) => {
+    let ref = engineBrandRef.get(engineId);
+    if (!ref) {
+      ref = { id: '', name: '' };
+      engineBrandRef.set(engineId, ref);
+    }
+    return ref;
+  };
   for (const v of values as any[]) {
     const defId = String(v.attributeDefId);
     if (defId === contractDefId) {
@@ -113,9 +125,27 @@ export async function buildPartsDemandReport(
     }
     if (defId === brandIdDefId || defId === brandNameDefId) {
       const value = normalizeText(safeJsonParse(String(v.valueJson ?? '')), '');
-      if (value) engineBrand.set(String(v.entityId), value);
+      if (value) {
+        const ref = brandRefOf(String(v.entityId));
+        if (defId === brandIdDefId) ref.id = value;
+        else ref.name = value;
+      }
     }
   }
+  // Подписи выбранных марок — из атрибута `name` тех же строк EAV: этот билдер снимка не
+  // грузит, а сравнивать текст карточки не с чем, если названия марок не знать.
+  const nameDefId = defByCode.get('name') ?? '';
+  const brandLabels = new Map<string, string>();
+  if (brandFilter.length > 0 && nameDefId) {
+    const wanted = new Set(brandFilter.map(String));
+    for (const v of values as any[]) {
+      if (String(v.attributeDefId) !== nameDefId) continue;
+      const entityId = String(v.entityId);
+      if (!wanted.has(entityId) || brandLabels.has(entityId)) continue;
+      brandLabels.set(entityId, normalizeText(safeJsonParse(String(v.valueJson ?? '')), ''));
+    }
+  }
+  const brandMatches = buildBrandFilterMatcher(brandFilter, brandLabels);
   const contractLabel = new Map<string, string>();
   const labelDefIds = ['number', 'name', 'contract_number'].map((code) => defByCode.get(code)).filter(Boolean) as string[];
   for (const v of values as any[]) {
@@ -138,10 +168,7 @@ export async function buildPartsDemandReport(
     const engineId = String(op.engineEntityId ?? '');
     const contractId = engineContractId.get(engineId) ?? '';
     if (contractFilter.length > 0 && (!contractId || !contractFilter.includes(contractId))) continue;
-    if (brandFilter.length > 0) {
-      const brandValue = engineBrand.get(engineId) ?? '';
-      if (!brandValue || !brandFilter.includes(brandValue)) continue;
-    }
+    if (!brandMatches(engineBrandRef.get(engineId) ?? { id: '', name: '' })) continue;
     const payload = safeJsonParse(String(op.metaJson ?? '')) as any;
     if (!payload || payload.kind !== 'repair_checklist' || !payload.answers) continue;
     const contractLabelText = resolveContractLabel(contractId, contractLabel);
@@ -413,7 +440,11 @@ export async function buildPartMovementJournalReport(
     if (endMs > 0 && performedAt > endMs) continue;
 
     const warehouseLocationId = String(raw.warehouseLocationId ?? '');
-    const legacyWarehouseId = String(raw.warehouseId ?? '');
+    // Легаси-код локации берём у самой локации (`code` = `default` / `workshop_3` / …), а не из
+    // строки движения: в клиентской реплике колонки `warehouse_id` нет вовсе, и прежний фолбэк
+    // читал undefined — то есть подпись при недоступном справочнике схлопывалась в прочерк
+    // у ВСЕХ строк, а не «у незнакомых» (M112).
+    const legacyWarehouseId = locByUuid.get(warehouseLocationId)?.code ?? '';
     if (warehouseFilter.length > 0 && !warehouseFilter.includes(warehouseLocationId)) continue;
 
     const movementType = String(raw.movementType ?? '');
@@ -607,6 +638,26 @@ export async function buildWorkshopThroughputReport(
   // Phase 2.4 PR 2.5: lookup uuid → type для "только workshop" фильтра.
   const locByUuid = await getWarehouseLocationsById(ctx);
 
+  // Разрез отчёта — «по цехам», а цех известен только из справочника локаций (он приходит по
+  // сети, локальной реплики нет). Пустой справочник давал ноль строк, неотличимый от «за период
+  // ничего не ремонтировали»: пустота в отчёте обязана называть свою причину.
+  if (locByUuid.size === 0) {
+    const presetUnavailable = getPreset('workshop_throughput');
+    return {
+      ok: true,
+      presetId: 'workshop_throughput',
+      title: presetUnavailable.title,
+      subtitle: 'Справочник складов недоступен — цеха не определяются',
+      columns: presetUnavailable.columns,
+      rows: [],
+      totals: { totalRepaired: 0, lines: 0 },
+      footerNotes: [
+        'Отчёт строится по типу локации из справочника складов, а он сейчас не отвечает (нет связи с сервером). Это не «ремонтов не было»: цеха просто нечем отличить от прочих складов. Повторите при доступном сервере.',
+      ],
+      generatedAt: Date.now(),
+    };
+  }
+
   const movementRows = await db.select().from(erpRegStockMovements);
   const nomenRows = await db
     .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name })
@@ -623,12 +674,12 @@ export async function buildWorkshopThroughputReport(
     const movementType = String(raw.movementType ?? '');
     if (movementType !== StockMovementType.RepairIn) continue;
     const warehouseLocationId = String(raw.warehouseLocationId ?? '');
-    const legacyWarehouseId = String(raw.warehouseId ?? '');
-    // Phase 2.4 PR 2.5: type='workshop' через lookup; fallback на legacy startsWith когда
-    // lookup пуст (offline / locByUuid не загружен).
+    // Цех — это тип локации из справочника. Второго источника у клиента нет: реплики
+    // `warehouse_locations` в SQLite не существует, а прежний фолбэк читал `raw.warehouseId`,
+    // которого нет в таблице движений вовсе. Поэтому при недоступном справочнике отчёт не
+    // угадывает, а честно говорит об этом — см. проверку `locByUuid.size` выше (M112).
     const loc = locByUuid.get(warehouseLocationId);
-    const isWorkshop = loc ? loc.type === 'workshop' : legacyWarehouseId.startsWith('workshop_');
-    if (!isWorkshop) continue;
+    if (!loc || loc.type !== 'workshop') continue;
     if (warehouseFilter.length > 0 && !warehouseFilter.includes(warehouseLocationId)) continue;
     const performedAt = Number(raw.performedAt ?? 0);
     if (startMs > 0 && performedAt < startMs) continue;

@@ -69,13 +69,6 @@ export const HUMAN_LABEL_GUARD_EXCEPTIONS: HumanLabelGuardException[] = [
     reason: 'Подпись группы подытогов — та же строка, что и в колонке «Склад»; чинится там же и одним куском.',
     followUp: 'план desktop-and-human-labels-2026-08, PR II-b — «ключи группировки, не зависящие от подписи»',
   },
-  {
-    presetId: 'workshop_throughput',
-    column: 'warehouseLabel',
-    kind: ID_WHOLE,
-    reason: 'Тот же `warehouseLocationLabel` без справочника: колонка «Цех» показывает идентификатор локации, пока резолв не переедет в офлайн-кэш.',
-    followUp: 'план desktop-and-human-labels-2026-08, PR II-b — резолв склада в отчётах',
-  },
 
   // --- Класс 2: колонка НАЗЫВАЕТСЯ кодом, и это осознанный размен этапа A ---
   //
