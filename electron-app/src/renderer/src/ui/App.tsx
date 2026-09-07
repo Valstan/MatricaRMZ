@@ -3925,7 +3925,7 @@ export function App() {
     const target = sendFileTarget;
     if (!target) return;
     const r = await window.matrica.desktopTransfer
-      .sendFile({ fileId: target.fileId, recipientUserId })
+      .sendToColleague({ fileId: target.fileId, recipientUserId })
       .catch((e) => ({ ok: false as const, error: String(e) }));
     setSendFileTarget(null);
     if (r.ok) notifyOperator(`Файл «${r.fileName}» отправлен — он появится у коллеги на Верстаке после подтверждения.`);

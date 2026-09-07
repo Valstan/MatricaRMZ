@@ -12,7 +12,7 @@ import { desktopInboxList, desktopSendFile } from '../../services/desktopTransfe
  * что и на отправку файла в чат, потому что это буквально она и есть.
  */
 export function registerDesktopTransferIpc(ctx: IpcContext) {
-  ipcMain.handle('desktopTransfer:sendFile', async (_e, args: { fileId: string; recipientUserId: string }) => {
+  ipcMain.handle('desktopTransfer:send', async (_e, args: { fileId: string; recipientUserId: string }) => {
     if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'передача файлов недоступна в режиме бэкапа' };
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'chat.use');

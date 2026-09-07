@@ -1040,7 +1040,7 @@ export type MatricaApi = {
   };
   /** Передача файлов между Верстаками: отправка коллеге и разбор входящих. */
   desktopTransfer: {
-    sendFile: (args: { fileId: string; recipientUserId: string }) => Promise<DesktopSendFileResult>;
+    sendToColleague: (args: { fileId: string; recipientUserId: string }) => Promise<DesktopSendFileResult>;
     inbox: () => Promise<{ ok: true; items: DesktopInboxItem[] } | { ok: false; error: string }>;
   };
   /** Скрипты обслуживания машины парка: архив едет с клиентом, доступен любому вошедшему. */
