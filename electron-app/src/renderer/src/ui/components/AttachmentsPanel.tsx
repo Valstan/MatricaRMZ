@@ -141,7 +141,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     if (controlledSelection) props.onSelectedChange?.(next);
     else setOwnSelected(next);
   };
-  // «Взять с Рабочего стола»: список ярлыков приходит контекстом из App — панель живёт в
+  // «Взять с Верстака»: список ярлыков приходит контекстом из App — панель живёт в
   // девяти карточках, и протаскивать проп через каждую значит завести девять мест, где его
   // можно забыть.
   const desktopFiles = useDesktopFiles();
@@ -340,14 +340,14 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
   }
 
   /**
-   * «Взять с Рабочего стола». Карточка забирает файл сама и кладёт его СВОИМ обычным
+   * «Взять с Верстака». Карточка забирает файл сама и кладёт его СВОИМ обычным
    * механизмом (props.onChange) — обратное направление невозможно: у трёх карточек список
    * вложений живёт в памяти открытой карточки и уходит в БД снимком при её закрытии.
    *
    * Карточка файла спрашивается у сервера, а не собирается из подписи плитки. Так и полный
-   * FileRef получается настоящим, и — главное — проверяется ДОСТУП: ярлык на столе прав на
+   * FileRef получается настоящим, и — главное — проверяется ДОСТУП: ярлык на Верстаке прав на
    * файл не даёт, поэтому приложить можно только то, что оператор и так вправе открыть.
-   * Без этой проверки «взять со стола» стало бы способом выдать себе доступ: вложение
+   * Без этой проверки «взять со Верстака» стало бы способом выдать себе доступ: вложение
    * карточки само является для сервера основанием доступа.
    */
   async function takeFromDesktop() {
@@ -358,7 +358,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
       setDesktopPicked(new Set());
       return;
     }
-    setBusy('Берём файлы с Рабочего стола...');
+    setBusy('Берём файлы с Верстака...');
     const taken: FileRef[] = [];
     const failures: string[] = [];
     for (const f of picked) {
@@ -602,10 +602,10 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             {desktopFiles.length > 0 && (
               <Button
                 variant="ghost"
-                title="Приложить файл, который лежит у вас на Рабочем столе"
+                title="Приложить файл, который лежит у вас на Верстаке"
                 onClick={() => setDesktopPickerOpen((v) => !v)}
               >
-                🖥 Взять с Рабочего стола
+                🖥 Взять с Верстака
               </Button>
             )}
           </>
@@ -685,7 +685,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
           молча ничего не делало бы. */}
       {desktopPickerOpen && props.canUpload && !isAndroid && (
         <div data-attachments-desktop-picker style={{ marginTop: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, background: '#f8fafc' }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Файлы на вашем Рабочем столе</div>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Файлы на вашем Верстаке</div>
           <div style={{ display: 'grid', gap: 6, marginBottom: 12, maxHeight: 220, overflowY: 'auto' }}>
             {desktopFiles.map((f) => {
               const already = list.some((x) => x.id === f.fileId);
@@ -727,7 +727,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             </Button>
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
-            Файл останется и на Рабочем столе — карточка получает ссылку на него, а не копию.
+            Файл останется и на Верстаке — карточка получает ссылку на него, а не копию.
           </div>
         </div>
       )}

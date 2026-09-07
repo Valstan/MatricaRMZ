@@ -29,7 +29,7 @@ export function ReportsCatalogPage(props: {
   onOpenPreset: (presetId: ReportPresetId) => void;
   themeId: ReportThemeId | null;
   onThemeChange: (themeId: ReportThemeId | null) => void;
-  /** Пресеты, ярлыки которых лежат на Рабочем столе (этап B: «Мой круг» и стол — одна модель). */
+  /** Пресеты, ярлыки которых лежат на Верстаке (этап B: «Мой круг» и Верстак — одна модель). */
   desktopPresetIds?: string[];
   onAddToDesktop?: (presetId: ReportPresetId, title: string) => void;
   onRemoveFromDesktop?: (presetId: ReportPresetId) => void;
@@ -398,7 +398,7 @@ export function ReportsCatalogPage(props: {
                   borderRadius: 6,
                 }}
               >
-                {isPinned ? 'Убрать с Рабочего стола' : '🧣 Добавить на Рабочий стол'}
+                {isPinned ? 'Убрать с Верстака' : '🧣 Добавить на Верстак'}
               </button>
             );
           })()}

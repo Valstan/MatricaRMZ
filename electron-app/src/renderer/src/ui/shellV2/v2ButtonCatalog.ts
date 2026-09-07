@@ -20,7 +20,7 @@ const ANDROID_HIDDEN_ACTIONS: ReadonlySet<ActionButtonId> = new Set<ActionButton
   'ai_chat',
   'chat_link',
   'program_feedback',
-  // «Рабочий стол» живёт на экране чата — на Android чата нет, ярлык добавлять некуда.
+  // «Верстак» живёт на экране чата — на Android чата нет, ярлык добавлять некуда.
   'desktop_shortcut',
 ]);
 

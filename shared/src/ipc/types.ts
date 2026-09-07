@@ -2341,7 +2341,7 @@ export type MatricaApi = {
     >;
     // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).
     // Карточка файла по id. Тем же вызовом сервер проверяет ДОСТУП: 403, если файл
-    // читать нельзя. Ярлык на Рабочем столе прав не даёт, поэтому «взять со стола»
+    // читать нельзя. Ярлык на Верстаке прав не даёт, поэтому «взять со Верстака»
     // обязано спрашивать именно здесь, а не собирать FileRef из подписи плитки.
     meta: (args: { fileId: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
     pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
@@ -2361,7 +2361,7 @@ export type MatricaApi = {
     copyToFolder: (args: { fileIds: string[] }) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
     // Собирает оригиналы во временную папку и открывает её в Проводнике (для перетаскивания в Telegram/MAX); mailto — заодно открыть черновик письма.
     revealForShare: (args: { fileIds: string[]; label?: string; mailto?: boolean }) => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
-    // Собирает выбранные фото в один PDF и сохраняет по выбранному пути (по умолчанию — Рабочий стол).
+    // Собирает выбранные фото в один PDF и сохраняет по выбранному пути (по умолчанию — Верстак).
     assemblePdf: (args: { fileIds: string[]; defaultName?: string }) => Promise<{ ok: true; savePath: string } | { ok: false; error: string }>;
     // Печатает выбранные фото (1 фото на A4) на принтер.
     print: (args: { fileIds: string[]; listHtml?: string }) => Promise<{ ok: true } | { ok: false; error: string }>;

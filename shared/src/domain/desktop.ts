@@ -1,13 +1,13 @@
 import { resolveDeepLinkRoute } from './deepLinkRoute.js';
 import type { ChatDeepLinkPayload } from '../ipc/types.js';
 
-// «Рабочий стол» — стартовый экран после входа (этап 5 пакета владельца 2026-08-19б):
+// «Верстак» — стартовый экран после входа (этап 5 пакета владельца 2026-08-19б):
 // ярлыки-ссылки на разделы/карточки, папки, корзина и раскладка сплитов экрана
-// «чат + рабочий стол». Хранится ключом `desktop` в employee.ui_profile_json
-// (per-key LWW из v3.5.0) — стол едет за пользователем между машинами.
+// «чат + Верстак». Хранится ключом `desktop` в employee.ui_profile_json
+// (per-key LWW из v3.5.0) — Верстак едет за пользователем между машинами.
 
-/** Место плитки в сетке стола. Ячейки, а не пиксели: стол — резиновая половина
- *  экрана «чат + рабочий стол», и абсолютные пиксели поехали бы при первом же
+/** Место плитки в сетке Верстака. Ячейки, а не пиксели: Верстак — резиновая половина
+ *  экрана «чат + Верстак», и абсолютные пиксели поехали бы при первом же
  *  перетаскивании разделителя. */
 export type DesktopShortcutPos = {
   col: number;
@@ -23,10 +23,10 @@ export type DesktopShortcut = {
   /**
    * ChatDeepLinkPayload как есть. Валидируется только «объект разумного размера»
    * (как recentVisits.link): ярлык на раздел, которого нет в ЭТОЙ версии клиента,
-   * храним и не рендерим — id-чурн релизов не должен стирать чужой рабочий стол.
+   * храним и не рендерим — id-чурн релизов не должен стирать чужой Верстак.
    */
   link?: unknown;
-  /** null — лежит на столе; иначе id папки. Ярлык с несуществующей папкой рендерится на столе. */
+  /** null — лежит на Верстаке; иначе id папки. Ярлык с несуществующей папкой рендерится на Верстаке. */
   folderId: string | null;
   /** null — живой; иначе момент удаления: ярлык лежит в корзине, откуда его можно вернуть. */
   deletedAt: number | null;
@@ -42,7 +42,7 @@ export type DesktopFolder = {
 };
 
 export type DesktopLayout = {
-  /** Ширина зоны чата в процентах экрана «Рабочий стол» (владельческий дефолт — треть). */
+  /** Ширина зоны чата в процентах экрана «Верстак» (владельческий дефолт — треть). */
   chatPct: number;
   /** Ширина колонки собеседников в процентах зоны чата. */
   peoplePct: number;
@@ -74,7 +74,7 @@ export const DESKTOP_MAX_FOLDERS = 40;
 const MAX_LABEL = 160;
 const MAX_LINK_JSON = 4000;
 const MAX_GRID_CELL = 999;
-/** Окно рейтинга — 30 дней (см. план «рабочий стол и человеко-понятные названия»). */
+/** Окно рейтинга — 30 дней (см. план «Верстак и человеко-понятные названия»). */
 export const DESKTOP_USAGE_MAX_DAYS = 30;
 const MAX_USAGE_COUNT = 1_000_000;
 const USAGE_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -206,7 +206,7 @@ export function sanitizeDesktopSection(raw: unknown): UserUiProfileDesktop | und
   };
 }
 
-/** Живые ярлыки на самом столе (не в папке, не в корзине). */
+/** Живые ярлыки на самом Верстаке (не в папке, не в корзине). */
 export function desktopSurfaceShortcuts(d: UserUiProfileDesktop): DesktopShortcut[] {
   const folderIds = new Set(d.folders.map((f) => f.id));
   return d.shortcuts.filter((s) => s.deletedAt == null && (s.folderId == null || !folderIds.has(s.folderId)));
@@ -222,7 +222,7 @@ export function desktopTrashShortcuts(d: UserUiProfileDesktop): DesktopShortcut[
   return d.shortcuts.filter((s) => s.deletedAt != null);
 }
 
-/** Ярлык — в корзину (из стола или папки). */
+/** Ярлык — в корзину (из Верстака или папки). */
 export function desktopMoveToTrash(d: UserUiProfileDesktop, shortcutId: string, now: number): UserUiProfileDesktop {
   return {
     ...d,
@@ -230,7 +230,7 @@ export function desktopMoveToTrash(d: UserUiProfileDesktop, shortcutId: string, 
   };
 }
 
-/** Вернуть ярлык из корзины на стол. */
+/** Вернуть ярлык из корзины на Верстак. */
 export function desktopRestoreFromTrash(d: UserUiProfileDesktop, shortcutId: string): UserUiProfileDesktop {
   return {
     ...d,
@@ -243,7 +243,7 @@ export function desktopEmptyTrash(d: UserUiProfileDesktop): UserUiProfileDesktop
   return { ...d, shortcuts: d.shortcuts.filter((s) => s.deletedAt == null) };
 }
 
-/** Переложить ярлык в папку (folderId=null — на стол). */
+/** Переложить ярлык в папку (folderId=null — на Верстак). */
 export function desktopMoveToFolder(d: UserUiProfileDesktop, shortcutId: string, folderId: string | null): UserUiProfileDesktop {
   return {
     ...d,
@@ -265,7 +265,7 @@ export function desktopDeleteFolder(d: UserUiProfileDesktop, folderId: string, n
   };
 }
 
-/** Живые ярлыки — на столе и в папках; корзина в лимит не входит. */
+/** Живые ярлыки — на Верстаке и в папках; корзина в лимит не входит. */
 export function desktopLiveShortcutCount(d: UserUiProfileDesktop): number {
   return d.shortcuts.reduce((n, s) => n + (s.deletedAt == null ? 1 : 0), 0);
 }
@@ -274,7 +274,7 @@ export function desktopLiveShortcutCount(d: UserUiProfileDesktop): number {
  * Ключ ссылки ярлыка для дедупа: один ярлык на одну ссылку. Карточка — по роуту
  * (`engine:<id>`; специальное поле и универсальная пара cardKind/entityId дают один
  * ключ), раздел — `tab:<tab>`. Файловый ярлык этапа D — по `fileId`: у всех файлов
- * стола одна «вкладка», и ключ по ней слил бы их в один. null — дедупить нечего.
+ * Верстака одна «вкладка», и ключ по ней слил бы их в один. null — дедупить нечего.
  */
 export function desktopShortcutLinkKey(link: unknown): string | null {
   if (typeof link !== 'object' || link == null) return null;
@@ -293,7 +293,7 @@ export function desktopShortcutLinkKey(link: unknown): string | null {
 
 export type DesktopShortcutInput = { id: string; label: string; icon: string; link?: unknown };
 
-/** Добавить ярлык на стол (id генерирует вызывающий — crypto.randomUUID в renderer). */
+/** Добавить ярлык на Верстак (id генерирует вызывающий — crypto.randomUUID в renderer). */
 export function desktopAddShortcut(d: UserUiProfileDesktop, shortcut: DesktopShortcutInput, now: number): UserUiProfileDesktop {
   if (desktopLiveShortcutCount(d) >= DESKTOP_MAX_SHORTCUTS) return d;
   return {
@@ -308,7 +308,7 @@ export function desktopAddShortcut(d: UserUiProfileDesktop, shortcut: DesktopSho
 export type DesktopToggleOutcome = 'added' | 'removed' | 'limit';
 
 /**
- * Тумблер кнопки-галстука: ссылки на столе нет — положить (из корзины вернуть свой же
+ * Тумблер кнопки-галстука: ссылки на Верстаке нет — положить (из корзины вернуть свой же
  * ярлык, а не плодить новый), есть — убрать в корзину. Исход возвращается явно, чтобы
  * сообщение оператору называло то, что произошло: упор в лимит — не «добавлено».
  */
@@ -333,7 +333,7 @@ export function desktopToggleShortcut(
 export type DesktopPutOutcome = 'added' | 'exists' | 'limit';
 
 /**
- * «Добавить на Рабочий стол» из меню кнопок: не тумблер — пункт называется «добавить»,
+ * «Добавить на Верстак» из меню кнопок: не тумблер — пункт называется «добавить»,
  * и снимать ярлык он не должен. Лежащий ярлык (в т.ч. в папке) — `exists`, из корзины
  * возвращается свой же.
  */
@@ -358,10 +358,10 @@ export function desktopRenameShortcut(d: UserUiProfileDesktop, shortcutId: strin
 }
 
 /**
- * Одноразовый переезд «Быстрого запуска» в ярлыки стола. Отметка роумится, поэтому
+ * Одноразовый переезд «Быстрого запуска» в ярлыки Верстака. Отметка роумится, поэтому
  * вторая машина переезд не повторит и удалённая вручную плитка не воскреснет. Id
  * детерминирован по ключу ссылки: две машины, переехавшие до первого sync'а, дадут
- * один ярлык, а не два. Занятый чужим ярлыком id и уже лежащая на столе ссылка —
+ * один ярлык, а не два. Занятый чужим ярлыком id и уже лежащая на Верстаке ссылка —
  * пропускаются, не перетираются.
  */
 export function desktopMigrateQuickStart(
@@ -400,12 +400,12 @@ export function desktopRenameFolder(d: UserUiProfileDesktop, folderId: string, n
 
 // ─── Файловые ярлыки (этап D) ────────────────────────────────────────────────
 //
-// Файл на столе — полезная нагрузка ВНУТРИ существующего `link`, а не новое поле ярлыка:
+// Файл на Верстаке — полезная нагрузка ВНУТРИ существующего `link`, а не новое поле ярлыка:
 // поле, не известное санитайзеру, исчезло бы при первом же сохранении, а `link` проходит
 // как есть (см. sanitizeShortcut). Ключ дедупа для него заложен ещё этапом B —
 // desktopShortcutLinkKey отдаёт `file:<fileId>`.
 //
-// Ярлык на столе НЕ даёт доступа к файлу: `ui_profile_json` намеренно не входит в список
+// Ярлык на Верстаке НЕ даёт доступа к файлу: `ui_profile_json` намеренно не входит в список
 // файло-несущих атрибутов сервера, иначе любой, кто узнал id, выдавал бы файл себе сам
 // (PENDING_FOLLOWUPS §Security п.6). Обычно это незаметно — файл загрузил сам оператор, и
 // его открывает ранняя ветка `createdByUserId`.
@@ -440,15 +440,15 @@ export type DesktopFileShortcut = {
   /** Имя файла на момент загрузки. */
   name: string;
   mime: string | null;
-  /** Подпись плитки — её оператор мог переименовать, и на столе он видит именно её. */
+  /** Подпись плитки — её оператор мог переименовать, и на Верстаке он видит именно её. */
   label: string;
 };
 
 /**
- * Живые файловые ярлыки — и со стола, и из папок; корзина не в счёт.
+ * Живые файловые ярлыки — и со Верстака, и из папок; корзина не в счёт.
  *
  * Нужны карточке: вложения она забирает СО СТОЛА сама, своим обычным механизмом. Обратное
- * направление (стол пишет в карточку) не работает — у трёх карточек из девяти список
+ * направление (Верстак пишет в карточку) не работает — у трёх карточек из девяти список
  * вложений живёт в памяти открытой карточки и уходит в БД снимком при закрытии, то есть
  * внешняя запись потерялась бы молча.
  */
@@ -485,13 +485,13 @@ export function desktopFileIcon(fileName: string): string {
   return FILE_ICONS.find((row) => row.ext.includes(ext))?.icon ?? '📎';
 }
 
-// ─── Сетка стола (этап C) ────────────────────────────────────────────────────
+// ─── Сетка Верстака (этап C) ────────────────────────────────────────────────────
 //
 // Координата плитки хранится в ЯЧЕЙКАХ (см. DesktopShortcutPos), а рисуется всегда через
-// раскладку ниже. Разница принципиальная: стол — резиновая половина экрана, число колонок
-// плавает вместе с разделителем, и плитка, лежащая в 8-й колонке, при узком столе просто
+// раскладку ниже. Разница принципиальная: Верстак — резиновая половина экрана, число колонок
+// плавает вместе с разделителем, и плитка, лежащая в 8-й колонке, при узком Верстаке просто
 // не имеет своего места. Раскладка в этом случае переносит её на свободное — но
-// СОХРАНЁННУЮ координату не трогает: иначе одно движение разделителя переписало бы стол у
+// СОХРАНЁННУЮ координату не трогает: иначе одно движение разделителя переписало бы Верстак у
 // всех машин пользователя (каждая запись профиля = две строки в ledger, грабля M79).
 
 /** Шаг размера плитки. Ноль — сегодняшний вид, его метрики менять нельзя. */
@@ -552,7 +552,7 @@ export type DesktopGrid = {
  *
  * Порядок разбора: папки → ярлыки с координатой (по строкам сверху вниз, слева направо) →
  * всё остальное первым свободным местом. Ярлык, чья координата не помещается в текущую
- * ширину или занята, попадает в последнюю очередь — то есть узкий стол не теряет плиток и
+ * ширину или занята, попадает в последнюю очередь — то есть узкий Верстак не теряет плиток и
  * не накладывает их друг на друга.
  */
 export function desktopLayoutGrid(input: DesktopGridInput): DesktopGrid {
@@ -560,7 +560,7 @@ export function desktopLayoutGrid(input: DesktopGridInput): DesktopGrid {
   const taken = new Set<string>();
   const key = (row: number, col: number) => `${row}:${col}`;
 
-  /** Плитка шире всего стола занимает столько, сколько есть: иначе места ей не нашлось бы никогда. */
+  /** Плитка шире всего Верстака занимает столько, сколько есть: иначе места ей не нашлось бы никогда. */
   const span = (cells: number): 1 | 2 => (Math.min(cells, cols) >= 2 ? 2 : 1);
 
   function free(row: number, col: number, cells: number): boolean {
@@ -615,7 +615,7 @@ export function desktopLayoutGrid(input: DesktopGridInput): DesktopGrid {
 }
 
 /**
- * Записать координаты пачкой — одно изменение стола на один жест, а не на плитку.
+ * Записать координаты пачкой — одно изменение Верстака на один жест, а не на плитку.
  * Совпадающие с текущими координаты не считаются изменением: дроп плитки на её же место
  * не должен стоить записи профиля.
  */
@@ -652,7 +652,7 @@ export function desktopMoveToTrashMany(
   return changed ? { ...d, shortcuts } : d;
 }
 
-/** Пачка ярлыков — в папку (или на стол при null). Координаты снимаются: место в папке своё. */
+/** Пачка ярлыков — в папку (или на Верстак при null). Координаты снимаются: место в папке своё. */
 export function desktopMoveToFolderMany(
   d: UserUiProfileDesktop,
   shortcutIds: string[],
@@ -673,7 +673,7 @@ export function desktopMoveToFolderMany(
 // ─── Рейтинг использования (этап C) ──────────────────────────────────────────
 //
 // Размер плитки — не абсолютное число открытий, а МЕСТО В ЛИЧНОМ РАСПРЕДЕЛЕНИИ. Отсюда
-// приятное следствие, которое стоит знать: на заброшенном столе плитки не скачут — все
+// приятное следствие, которое стоит знать: на заброшенном Верстаке плитки не скачут — все
 // счета падают синхронно, порядок не меняется. Плитка уменьшается только относительно тех,
 // которыми продолжают пользоваться.
 
@@ -781,7 +781,7 @@ function stepCeiling(n: number): DesktopTileStep {
  *
  * Равные счета получают ОДИН шаг — по середине своей группы. Это важно на старте: пока
  * оператор ничего не открывал, счета у всех нулевые, середина списка попадает в полосу
- * 30 %, и весь стол стоит на шаге 0 — ровно сегодняшним видом. Без правила ничьих первый
+ * 30 %, и весь Верстак стоит на шаге 0 — ровно сегодняшним видом. Без правила ничьих первый
  * же ярлык случайно оказался бы гигантским.
  */
 export function desktopUsageSteps(

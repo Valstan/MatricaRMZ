@@ -73,7 +73,7 @@ export const TAB_SHORTCUT_META: Record<string, { icon: string; title: string; gr
 /**
  * Плитка «Быстрого запуска» по строковому id легаси-списка (`tab:`, `report:`, `favorite:`).
  * «Мой круг» его больше не рисует — резолвер живёт ради одноразового переезда списка в
- * ярлыки Рабочего стола (этап B): подпись и ссылка берутся отсюда, как и раньше.
+ * ярлыки Верстака (этап B): подпись и ссылка берутся отсюда, как и раньше.
  */
 export function resolveQuickStartTile(shortcutId: string, reportPresets?: Array<{ id: string; title: string }>): PinnedTile | null {
   const normalized = String(shortcutId ?? '').trim();
