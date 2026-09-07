@@ -10,6 +10,21 @@ import type { SupportContact } from '../domain/supportContact.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
+/** Входящий файл на Верстак: личное сообщение чата с файлом, адресованное мне. */
+export type DesktopInboxItem = {
+  messageId: string;
+  senderUserId: string;
+  senderUsername: string;
+  fileId: string;
+  fileName: string;
+  mime: string | null;
+  sentAt: number;
+};
+
+export type DesktopSendFileResult =
+  | { ok: true; messageId: string; fileName: string }
+  | { ok: false; error: string };
+
 /** Архив со скриптами обслуживания, который едет вместе с клиентом. */
 export type ClientOpsBundleInfo = {
   fileName: string;
@@ -1022,6 +1037,11 @@ export type MatricaApi = {
     /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
     dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
     dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;
+  };
+  /** Передача файлов между Верстаками: отправка коллеге и разбор входящих. */
+  desktopTransfer: {
+    sendFile: (args: { fileId: string; recipientUserId: string }) => Promise<DesktopSendFileResult>;
+    inbox: () => Promise<{ ok: true; items: DesktopInboxItem[] } | { ok: false; error: string }>;
   };
   /** Скрипты обслуживания машины парка: архив едет с клиентом, доступен любому вошедшему. */
   clientOps: {

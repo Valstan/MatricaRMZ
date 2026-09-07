@@ -29,7 +29,8 @@ function safeFilename(name: string): string {
   return base.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
 }
 
-async function currentUser(db: BetterSQLite3Database): Promise<{ id: string; username: string; role: string } | null> {
+/** Текущий вошедший: нужен и чату, и передаче файлов между Верстаками. */
+export async function currentUser(db: BetterSQLite3Database): Promise<{ id: string; username: string; role: string } | null> {
   const s = await getSession(db).catch(() => null);
   const u = s?.user;
   if (!u?.id) return null;

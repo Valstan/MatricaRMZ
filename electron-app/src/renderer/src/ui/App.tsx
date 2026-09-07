@@ -65,6 +65,11 @@ import {
   createEmptyDesktopUsage,
   desktopFileFromLink,
   isBuiltinDesktopLink,
+  desktopMarkInboxHandled,
+  desktopPendingInbox,
+  desktopFileLink,
+  desktopFileIcon,
+  type DesktopInboxItem,
   withBuiltinDesktopShortcuts,
   stripBuiltinDesktopShortcuts,
   desktopLiveFileShortcuts,
@@ -101,6 +106,8 @@ const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ClientOpsDialog } from './components/ClientOpsDialog.js';
+import { DesktopInboxBar } from './components/DesktopInboxBar.js';
+import { SendFileToColleagueDialog } from './components/SendFileToColleagueDialog.js';
 import { DesktopPane } from './components/DesktopPane.js';
 import { DesktopFilesProvider } from './components/DesktopFilesContext.js';
 import { ProgramFeedbackDialog, type ProgramFeedbackKind } from './components/ProgramFeedbackDialog.js';
@@ -983,6 +990,9 @@ export function App() {
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
   // Окно «Скрипты обслуживания»: открывается встроенной плиткой Верстака и пунктом МЕНЮ.
   const [clientOpsOpen, setClientOpsOpen] = useState(false);
+  // Передача файлов между Верстаками: что отправляем и что нам прислали.
+  const [sendFileTarget, setSendFileTarget] = useState<{ fileId: string; name: string } | null>(null);
+  const [desktopInbox, setDesktopInbox] = useState<DesktopInboxItem[]>([]);
   // Единственный канал коротких сообщений оператору: плашка над телом вкладки. Второй,
   // мёртвый (`postLoginSyncMsg` → `_headerInlineStatusText`, никуда не вставленный), снят
   // 25.08 — его тексты переехали сюда.
@@ -3866,6 +3876,62 @@ export function App() {
    * входит в файло-несущие атрибуты сервера), поэтому отказ здесь — штатный исход, и
    * оператору его надо назвать словами, а не сырым «meta HTTP 403».
    */
+  // Входящие файлы: читаются из локальной реплики чата, поэтому работают и без сети.
+  const reloadDesktopInbox = useCallback(async () => {
+    try {
+      const r = await window.matrica.desktopTransfer.inbox();
+      setDesktopInbox(r.ok ? r.items : []);
+    } catch {
+      setDesktopInbox([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authStatus.loggedIn) {
+      setDesktopInbox([]);
+      return;
+    }
+    void reloadDesktopInbox();
+  }, [authStatus.loggedIn, reloadDesktopInbox]);
+
+  /** Принять присланные файлы: ярлыки ложатся на СВОЙ Верстак, предложение уходит из полосы. */
+  function acceptDesktopInbox(items: DesktopInboxItem[]) {
+    setDesktopUi((prev) => {
+      let next = prev;
+      let added = 0;
+      for (const item of items) {
+        const put = desktopPutShortcut(
+          next,
+          { id: `file-${item.fileId}`, label: item.fileName, icon: desktopFileIcon(item.fileName), link: desktopFileLink({ id: item.fileId, name: item.fileName, mime: item.mime }) },
+          Date.now(),
+        );
+        if (put.outcome === 'added') added += 1;
+        next = put.desktop;
+      }
+      next = desktopMarkInboxHandled(next, items.map((x) => x.messageId));
+      notifyOperator(added > 0 ? `Принято файлов на Верстак: ${added}.` : 'Эти файлы уже лежат на Верстаке.');
+      return next;
+    });
+    setDesktopInbox((prev) => prev.filter((x) => !items.some((i) => i.messageId === x.messageId)));
+  }
+
+  /** Отклонить: снимаем предложение с Верстака. Ни файл, ни сообщение не трогаем — чужое. */
+  function declineDesktopInbox(items: DesktopInboxItem[]) {
+    setDesktopUi((prev) => desktopMarkInboxHandled(prev, items.map((x) => x.messageId)));
+    setDesktopInbox((prev) => prev.filter((x) => !items.some((i) => i.messageId === x.messageId)));
+  }
+
+  async function sendDesktopFileTo(recipientUserId: string) {
+    const target = sendFileTarget;
+    if (!target) return;
+    const r = await window.matrica.desktopTransfer
+      .sendFile({ fileId: target.fileId, recipientUserId })
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    setSendFileTarget(null);
+    if (r.ok) notifyOperator(`Файл «${r.fileName}» отправлен — он появится у коллеги на Верстаке после подтверждения.`);
+    else notifyOperator(`Не удалось отправить файл: ${r.error}`, 'error');
+  }
+
   async function openDesktopShortcut(link: unknown) {
     // Встроенная плитка ведёт не в раздел программы, а в окно со скриптами обслуживания.
     if (isBuiltinDesktopLink(link)) {
@@ -5995,7 +6061,12 @@ export function App() {
         }}
         style={{ width: 6, flexShrink: 0, cursor: 'col-resize' }}
       />
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <DesktopInboxBar
+          items={desktopPendingInbox(desktopUi, desktopInbox)}
+          onAccept={acceptDesktopInbox}
+          onDecline={declineDesktopInbox}
+        />
         <DesktopPane
           // Встроенная плитка «Скрипты обслуживания» подмешивается при отрисовке и вырезается
           // при записи: секция Верстака — LWW, и разложенная в профиль плитка жила бы до
@@ -6005,6 +6076,7 @@ export function App() {
           stepOf={desktopTileSteps}
           canUploadFiles={caps.canUploadFiles}
           onNotify={notifyOperator}
+          onSendFile={(fileId, name) => setSendFileTarget({ fileId, name })}
           onOpenLink={(link, shortcutId) => {
             bumpDesktopUsage(shortcutId);
             void openDesktopShortcut(link);
@@ -6105,6 +6177,12 @@ export function App() {
           onClose={() => setProgramFeedbackOpen(false)}
         />
         <ClientOpsDialog open={clientOpsOpen} onClose={() => setClientOpsOpen(false)} notify={notifyOperator} />
+        <SendFileToColleagueDialog
+          open={sendFileTarget != null}
+          fileName={sendFileTarget?.name ?? ''}
+          onClose={() => setSendFileTarget(null)}
+          onSend={sendDesktopFileTo}
+        />
         <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
           {viewMode && (
             <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(248, 113, 113, 0.5)", background: "rgba(248, 113, 113, 0.16)", color: "var(--danger)", fontWeight: 800 }}>
