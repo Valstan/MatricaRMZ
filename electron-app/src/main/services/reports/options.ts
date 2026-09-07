@@ -9,7 +9,9 @@ import {
   ENGINE_INTERNAL_NUMBER_YEAR_CODE,
   formatEngineInternalNumber,
   humanLabel,
+  isScrapEngine,
   pickHumanText,
+  statusFlagsFromAttrs,
   type ReportFilterOption,
   type ReportPresetListResult,
   } from '@matricarmz/shared';
@@ -189,7 +191,12 @@ export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
   const engines = getIdsByType(snapshot, 'engine')
     .map((id) => {
       const attrs = snapshot.attrsByEntity.get(id) ?? {};
-      if (normalizeText(attrs.status_scrap_confirmed, '') || normalizeText(attrs.status_rework_sent, '')) return null;
+      // Утильность — только через общую `isScrapEngine`, как в списке двигателей, в отчётах
+      // и в гейте выдачи наряда сборки. Прежняя ручная проверка читала флаги через
+      // `normalizeText`, а он возвращает СТРОКУ: у снятой галочки это `'false'` — непустая,
+      // то есть истинная. Из списка выпадал каждый двигатель, у которого метку утиля
+      // когда-либо ставили и сняли: на проде 147 живых двигателей из 378 с такой отметкой.
+      if (isScrapEngine(statusFlagsFromAttrs(attrs))) return null;
       const engineNumber = normalizeText(attrs.engine_number, '');
       const internalNumber = formatEngineInternalNumber(
         normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),

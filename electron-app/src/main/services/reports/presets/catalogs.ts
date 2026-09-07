@@ -3,6 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
   STATUS_CODES,
+  isEavFlagSet,
   computeObjectProgress,
   type ReportCellValue,
   type ReportPresetFilters,
@@ -532,7 +533,7 @@ export async function buildCounterpartiesSummaryReport(
     const contractId = normalizeText(attrs.contract_id, '');
     if (!contractId) continue;
     const statusFlags: Partial<Record<(typeof STATUS_CODES)[number], boolean>> = {};
-    for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
+    for (const code of STATUS_CODES) statusFlags[code] = isEavFlagSet(attrs[code]);
     const progress = computeObjectProgress(statusFlags);
     const current = progressByContract.get(contractId) ?? { sum: 0, count: 0 };
     current.sum += progress;

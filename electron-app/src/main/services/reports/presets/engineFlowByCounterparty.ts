@@ -8,6 +8,7 @@ import {
   ENGINE_INTERNAL_NUMBER_CODE,
   PRIMARY_CONTRACT_SECTION_KEY,
   STATUS_CODES,
+  isEavFlagSet,
   canonicalContractSectionKey,
   isContractAddonToken,
   isScrapEngine,
@@ -158,7 +159,7 @@ export async function buildEngineFlowByCounterpartyReport(
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
 
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
-    for (const code of STATUS_CODES) statusFlags[code] = Boolean(attrs[code]);
+    for (const code of STATUS_CODES) statusFlags[code] = isEavFlagSet(attrs[code]);
     const scrap = isScrapEngine(statusFlags);
     const { onSite: baseOnSite, shippingDate } = resolveEngineShippingState(attrs);
     // «Утиль — отправлен заказчику» — выбытие само по себе: дат отгрузки у возврата

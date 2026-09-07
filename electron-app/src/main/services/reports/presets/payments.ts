@@ -14,6 +14,7 @@ import {
   type ReportPresetFilters,
   type ReportPresetPreviewResult,
   STATUS_CODES,
+  isEavFlagSet,
   HUMAN_LABEL_DASH,
   pickHumanText,
 } from '@matricarmz/shared';
@@ -51,7 +52,7 @@ function sumByKind(slot: PaymentSlot, kinds: string[]): number {
 
 function engineRepairedFlags(attrs: Record<string, unknown>): Partial<Record<string, boolean>> {
   const flags: Partial<Record<string, boolean>> = {};
-  for (const code of STATUS_CODES) flags[code] = Boolean(attrs[code]);
+  for (const code of STATUS_CODES) flags[code] = isEavFlagSet(attrs[code]);
   return flags;
 }
 
