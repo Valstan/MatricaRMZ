@@ -33,6 +33,7 @@ describe('якоря смоуков на месте', () => {
     'data-desktop-lasso',
     'data-desktop-drop-marker',
     'data-desktop-upload',
+    'data-desktop-watermark',
   ];
 
   it('каждый якорь ставится компонентом', () => {
@@ -123,5 +124,32 @@ describe('файлы из Проводника', () => {
 
   it('отказ в праве загрузки объясняется, а не проглатывается', () => {
     expect(PANE).toContain('canUploadFiles === false');
+  });
+});
+
+describe('фоновая подпись «ВЕРСТАК» не мешает работать', () => {
+  // Подпись растянута на всю панель. Такой слой без `pointer-events: none` съел бы и лассо
+  // выделения, и ПКМ по свободному месту, и перетаскивание — причём молча: жест просто
+  // перестал бы работать, а виноватым выглядел бы Верстак, а не украшение поверх него.
+  const block = PANE.slice(PANE.indexOf("data-desktop-watermark"), PANE.indexOf("Полотно сетки"));
+
+  it('слой не перехватывает мышь', () => {
+    expect(block).toContain("pointerEvents: 'none'");
+  });
+
+  it('подпись не выделяется и не читается экранным диктором как содержимое', () => {
+    expect(block).toContain("userSelect: 'none'");
+    expect(block).toContain('aria-hidden');
+  });
+
+  it('содержимое лежит выше подписи', () => {
+    // Полотно с плитками получает свой слой явно: иначе порядок решался бы случаем разметки.
+    expect(PANE).toContain("position: 'relative', zIndex: 1 }}");
+  });
+
+  it('цвет берётся от темы, а не задан серым по белому', () => {
+    // У половины парка тёмная тема — фиксированный серый превратился бы там в грязное пятно.
+    expect(block).toContain("color: 'var(--text)'");
+    expect(block).toContain('opacity: 0.07');
   });
 });

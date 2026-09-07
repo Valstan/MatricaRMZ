@@ -657,10 +657,49 @@ export function DesktopPane(props: {
         outline: 'none',
       }}
     >
+      {/*
+        Подпись «ВЕРСТАК» фоном во всю ширину (просьба владельца 07.09.2026): чтобы название
+        экрана видел каждый, но чтобы оно не спорило с содержимым.
+
+        Цвет берётся от текста темы с малой непрозрачностью, а не задан серым по белому:
+        у половины парка тёмная тема, и серые буквы на её фоне превратились бы в грязное пятно.
+        `pointer-events: none` обязателен — иначе подпись перехватывала бы и лассо выделения,
+        и ПКМ по свободному месту, и перетаскивание плиток.
+      */}
+      <div
+        data-desktop-watermark
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          zIndex: 0,
+          overflow: 'hidden',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 'clamp(48px, 15vw, 260px)',
+            fontWeight: 800,
+            letterSpacing: '0.18em',
+            color: 'var(--text)',
+            opacity: 0.07,
+            whiteSpace: 'nowrap',
+            textTransform: 'uppercase',
+          }}
+        >
+          Верстак
+        </span>
+      </div>
       {/* Полотно сетки: папки в начале, ярлыки — по своим ячейкам */}
       <div
         ref={scrollRef}
-        style={{ height: '100%', overflowY: 'auto', padding: PAD }}
+        // Содержимое лежит НАД подписью: иначе плитки и лассо оказались бы под ней.
+        style={{ height: '100%', overflowY: 'auto', padding: PAD, position: 'relative', zIndex: 1 }}
         onPointerDown={onSurfacePointerDown}
         onDragOver={(e) => {
           // Файлы из Проводника — своя ветка: у них нет нашего MIME, и allowDrop их не пустит.
