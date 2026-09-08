@@ -64,9 +64,12 @@ export type EngineListItem = {
   hasDefectAct?: boolean;
   /** Дата дефектовки (attr `defect_date`) — для фильтра по датам. */
   defectDate?: number | null;
-  /** Цех, в котором двигатель сейчас (attr `workshop_id` + справочник цехов). */
+  /** Цех, в котором двигатель сейчас (последнее событие истории, иначе attr `workshop_id`). */
   workshopId?: string;
   workshopName?: string;
+  /** Последнее событие истории ремонта — «что с двигателем происходило» для ступени списка. */
+  lastHistoryAction?: string;
+  lastHistoryAt?: number;
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;

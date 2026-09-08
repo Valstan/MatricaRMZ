@@ -181,3 +181,36 @@ describe('стадия ремонта, цех и акт дефектовки', (
     expect(ids(applyEngineFacets(dated, { defectAct: ['no'] }))).toEqual(['d2', 'd3']);
   });
 });
+
+// Ступени по истории ремонта (шаг 5 пакета владельца): «что с двигателем происходило» и когда.
+const historyRows = [
+  { id: 'h1', lastHistoryAction: 'Перемещение в другой цех', lastHistoryAt: DAY_05, workshopId: 'W1', workshopName: 'Цех 1' },
+  { id: 'h2', lastHistoryAction: 'Ремонт закончен', lastHistoryAt: DAY_09, workshopId: 'W2', workshopName: 'Цех 2' },
+  { id: 'h3' },
+] as unknown as EngineListItem[];
+
+describe('ступени по истории ремонта', () => {
+  it('отбирает по последнему событию', () => {
+    expect(ids(applyEngineFacets(historyRows, { historyAction: ['ремонт закончен'] }))).toEqual(['h2']);
+  });
+
+  it('двигатель без истории собирается в «событий нет»', () => {
+    expect(ids(applyEngineFacets(historyRows, { historyAction: ['none'] }))).toEqual(['h3']);
+  });
+
+  it('подпись значения — как ввёл оператор, а отбор нечувствителен к регистру', () => {
+    const options = engineFacetOptions(historyRows, {}, 'historyAction');
+    const moved = options.find((o) => o.value === 'перемещение в другой цех');
+    expect(moved?.label).toBe('Перемещение в другой цех');
+  });
+
+  it('дата события отбирается диапазоном', () => {
+    expect(ids(applyEngineFacets(historyRows, { historyDate: { from: '2026-09-07' } }))).toEqual(['h2']);
+    // Двигатель без событий в отбор по диапазону не попадает.
+    expect(ids(applyEngineFacets(historyRows, { historyDate: { from: '2026-01-01' } }))).toEqual(['h1', 'h2']);
+  });
+
+  it('история и цех сужают вместе — «кто был в этом цехе и что с ним делали»', () => {
+    expect(ids(applyEngineFacets(historyRows, { workshop: ['W1'], historyAction: ['перемещение в другой цех'] }))).toEqual(['h1']);
+  });
+});

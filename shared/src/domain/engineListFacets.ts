@@ -36,7 +36,9 @@ export type EngineFacetId =
   | 'reclamation'
   | 'arrivalDate'
   | 'defectDate'
-  | 'shippingDate';
+  | 'shippingDate'
+  | 'historyAction'
+  | 'historyDate';
 
 export type EngineFacetValue = FacetValue;
 export type EngineFacetDateRange = FacetDateRange;
@@ -192,6 +194,23 @@ export const ENGINE_FACETS: readonly EngineFacetDescriptor[] = [
     id: 'shippingDate',
     label: 'Дата отгрузки',
     dateOf: (e) => dateMs(e.shippingDate),
+  },
+  {
+    kind: 'values',
+    id: 'historyAction',
+    // «Что с двигателем происходило» — последнее событие истории ремонта. По нему видно, где
+    // двигатель застрял: список отбирается по действию, а не по одной лишь стадии из карточки.
+    label: 'Последнее событие',
+    valueOf: (e) => {
+      const action = text(e.lastHistoryAction);
+      return action ? { value: action.toLowerCase(), label: action } : { value: 'none', label: 'событий нет' };
+    },
+  },
+  {
+    kind: 'dateRange',
+    id: 'historyDate',
+    label: 'Дата события',
+    dateOf: (e) => dateMs(e.lastHistoryAt),
   },
 ] as const;
 

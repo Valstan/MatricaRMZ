@@ -85,6 +85,7 @@ export const OPERATION_DESCRIPTORS: Record<string, OperationDescriptor> = {
   test: { label: 'Испытания', icon: '🧪', phase: 'test' },
   packaging: { label: 'Упаковка', icon: '📦', phase: 'shipment' },
   workshop_transfer: { label: 'Межцеховая передача', icon: '🔁', phase: 'other' },
+  repair_history_entry: { label: 'История ремонта', icon: '🗒️', phase: 'other' },
   tool_movement: { label: 'Движение инструмента', icon: '🔩', phase: 'other' },
   stock_receipt: { label: 'Приход на склад', icon: '⬆️', phase: 'other' },
   stock_issue: { label: 'Расход со склада', icon: '⬇️', phase: 'other' },
