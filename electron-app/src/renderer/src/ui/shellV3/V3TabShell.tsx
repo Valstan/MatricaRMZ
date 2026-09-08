@@ -67,6 +67,8 @@ export function V3TabShell(props: {
   onAction: (id: ActionButtonId) => void;
   /** Ярлык кнопки МЕНЮ на Верстак (контекстное меню и закреп сверху). */
   onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
+  /** Непрочитанные сообщения чата — бейдж на вкладке Верстака (владелец 08.09.2026). */
+  chatUnread?: number;
   /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
   notice?: ShellNotice | null;
   openTabs: OpenTab[];
@@ -338,6 +340,13 @@ export function V3TabShell(props: {
                 title={isSecondary ? `${tab.label} — открыта во второй панели` : tab.label}
               >
                 {isMenu ? `🧱 ${tab.label}` : isSecondary ? `▐ ${tab.label}` : tab.label}
+                {/* Непрочитанные сообщения видны, даже когда оператор в другой вкладке
+                    (владелец 08.09.2026): раньше о письме узнавали, только зайдя в чат. */}
+                {tab.kind === 'chat' && Number(props.chatUnread ?? 0) > 0 && (
+                  <span className="v3-tab-bell" data-chat-unread={String(props.chatUnread)} title={`Непрочитанных сообщений: ${props.chatUnread}`}>
+                    🔔{props.chatUnread}
+                  </span>
+                )}
               </button>
               {canSplit && (
                 <button
@@ -478,7 +487,7 @@ export function V3TabShell(props: {
             иначе они наложились бы друг на друга нечитаемой кашей. */}
         {tabsHintVisible && !props.notice && (
           <div className="v3-tabs-hint" role="status">
-            ⚠ Много вкладок — закройте отработанные.
+            ⚠ Много вкладок — проверьте, что всё сохранено, и закройте отработанные.
           </div>
         )}
         {props.notice && (

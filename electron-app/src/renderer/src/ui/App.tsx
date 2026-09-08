@@ -6005,7 +6005,10 @@ export function App() {
       id: t.id,
       kind: t.kind,
       label: t.label,
-      canClose: t.kind !== 'menu',
+      // Меню, Верстак и ИИваныч закрыть нельзя (владелец 08.09.2026): в них заходят в любой
+      // момент, а закрытая вкладка возвращалась только при следующем входе в программу —
+      // крестик у них означал «спрятать до перезахода», чего оператор не ожидает.
+      canClose: t.kind !== 'menu' && t.kind !== 'chat' && t.kind !== 'ai_chat',
       ...(t.kind === 'list' ? { tabId: t.tabId as TabId } : {}),
       ...(t.kind === 'card'
         ? { tabId: t.cardKind as TabId, cardKind: t.cardKind as TabId, entityId: t.entityId, titleIsFallback: t.titleIsFallback }
@@ -6211,6 +6214,7 @@ export function App() {
           ) : null}
           {isV3 ? (
             <V3TabShell
+              chatUnread={chatUnreadTotal}
               availableTabs={sectionGatedTabs}
               tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
               menuLabels={menuLabels}

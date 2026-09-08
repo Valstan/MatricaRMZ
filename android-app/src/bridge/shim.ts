@@ -87,7 +87,8 @@ const matrica = {
     },
   }),
   app: stubGroup('app', {
-    version: async () => SPIKE_VERSION,
+    // Та же форма, что у Electron и у моста на устройстве: `{ ok, version }`.
+    version: async () => ({ ok: true as const, version: SPIKE_VERSION }),
     respondToCloseRequest: () => {
       /* no window lifecycle outside Electron */
     },

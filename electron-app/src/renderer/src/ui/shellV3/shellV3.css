@@ -438,3 +438,34 @@
 .v3-card-body .card-panel {
   max-width: 100% !important;
 }
+
+/* Колокольчик непрочитанных на вкладке Верстака (владелец 08.09.2026). Дёргается раз в 10 с:
+   постоянная анимация в поле зрения утомляет и перестаёт замечаться, разовый рывок —
+   замечается. Сама «тряска» занимает первые 6% цикла, остальное время колокольчик стоит. */
+.v3-tab-bell {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--danger, #dc2626);
+  animation: v3-bell-shake 10s ease-in-out infinite;
+  transform-origin: 50% 0;
+}
+
+@keyframes v3-bell-shake {
+  0% { transform: rotate(0deg); }
+  1% { transform: rotate(14deg); }
+  2% { transform: rotate(-12deg); }
+  3% { transform: rotate(9deg); }
+  4% { transform: rotate(-7deg); }
+  5% { transform: rotate(4deg); }
+  6% { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* Оператор может выключить анимацию системной настройкой — уважаем её, число остаётся. */
+@media (prefers-reduced-motion: reduce) {
+  .v3-tab-bell {
+    animation: none;
+  }
+}

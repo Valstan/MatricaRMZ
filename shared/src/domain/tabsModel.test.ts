@@ -27,6 +27,7 @@ import {
   type TabsAction,
   type TabsState,
 } from './tabsModel.js';
+import { V3_MAX_TOTAL_TABS, V3_WARN_TOTAL_TABS } from './uiShellV2.js';
 
 function run(state: TabsState, ...actions: TabsAction[]): TabsState {
   return actions.reduce(tabsReducer, state);
@@ -418,7 +419,9 @@ describe('tabsModel: сессия и сброс', () => {
   });
 
   it('RESTORE обрезает сессию громко и отбрасывает битые карточки', () => {
-    const cards: CardRef[] = Array.from({ length: 12 }, (_, i) => cardRef('engine', `E${i}`));
+    // Считаем от лимита: он менялся (8 → 13 при поднятии потолка вкладок 08.09.2026), и
+    // тест с зашитым числом переставал проверять обрезку — просто переставал её вызывать.
+    const cards: CardRef[] = Array.from({ length: MAX_CARD_TABS + 4 }, (_, i) => cardRef('engine', `E${i}`));
     cards.push({ cardKind: '  ', entityId: '', title: 'мусор', titleIsFallback: false });
     const res = reduceTabs(createTabsState(), {
       type: 'RESTORE',
@@ -654,11 +657,19 @@ describe('tabsModel: ответы оболочке', () => {
   });
 
   it('порог предупреждения считает вкладки один раз', () => {
-    expect(shouldWarnTabsCount(5)).toBe(false);
-    expect(shouldWarnTabsCount(6)).toBe(true);
+    // Порог поднят до 10 (владелец 08.09.2026): на пяти вкладках предупреждение
+    // срабатывало в обычной работе и превратилось в фон.
+    expect(shouldWarnTabsCount(10)).toBe(false);
+    expect(shouldWarnTabsCount(11)).toBe(true);
     const s = run(createTabsState(), openList('a', 'A'), openList('b', 'B'), openList('c', 'C'), openList('d', 'D'));
     expect(s.tabs).toHaveLength(5);
     expect(shouldWarnTabsCount(s.tabs.length)).toBe(false);
+  });
+
+  it('потолок вкладок выше порога предупреждения', () => {
+    // Иначе предупреждение появлялось бы ровно тогда, когда открыть уже нечего:
+    // вместо совета «закройте отработанные» получилось бы уведомление о запрете.
+    expect(V3_MAX_TOTAL_TABS).toBeGreaterThan(V3_WARN_TOTAL_TABS);
   });
 
   it('идентичность активной карточки одна и производная', () => {
