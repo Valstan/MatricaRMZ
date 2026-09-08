@@ -56,12 +56,28 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER).toContain('data-facet-reset');
   });
 
+  it('тулбар очищен от кнопок, чью работу делает шапка столбцов и раздел «Отчёты»', () => {
+    // Владелец 08.09.2026: колонку превью убирают в шапке, а отчёт «Двигатели» живёт в
+    // каталоге отчётов (пресет engines) — вторые точки входа только дублировали.
+    expect(PAGE).not.toContain('Отключить превью');
+    // Ищем сам вызов, а не слова: упоминание отчёта осталось в комментарии — и это правильно,
+    // он объясняет, куда делась кнопка.
+    expect(PAGE).not.toContain('props.onOpenReport');
+    expect(PAGE, 'мёртвый механизм видимости не должен остаться в коде').not.toContain('requireShowPreviews');
+  });
+
   it('кнопка «Фильтры» стоит в тулбаре сразу после поиска и «Похожих»', () => {
     // Владелец 08.09.2026: свёрнутая панель не должна занимать полосу — кнопка живёт рядом
     // с поиском, а панель разворачивается ниже.
     const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 400);
     expect(toolbar).toContain('<EngineFacetToggleButton');
     expect(FILTER).toContain('export function FacetToggleButton');
+    // Поле поиска не тянется на всю ширину: растяжку забирает распорка ПОСЛЕ кнопок,
+    // иначе «Похожие» и «Фильтры» уезжают к правому краю от поиска.
+    const toolbarStart = PAGE.indexOf('className="mx-page-toolbar"');
+    const beforeSearch = PAGE.slice(toolbarStart, PAGE.indexOf('placeholder="Поиск по всем данным двигателя'));
+    expect(beforeSearch, 'растяжка перед поиском развела бы группу по краям').not.toContain('flex: 1');
+    expect(PAGE).toContain('<div style={{ flex: 1 }} />');
     expect(FILTER).toContain("{props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}");
   });
 

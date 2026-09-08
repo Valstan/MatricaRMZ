@@ -110,7 +110,8 @@ export function FacetFilter<Row>(props: {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700 }}>Фильтр по столбцам:</span>
+        {/* Подписи у ряда нет: кнопка «Фильтры» уже сказала, что это фильтры, а сами кнопки
+            названы столбцами (владелец 08.09.2026). */}
         {props.facets.map((facet) => {
           const on = chosen.has(facet.id);
           const picked = pickedCount(facet.id);
