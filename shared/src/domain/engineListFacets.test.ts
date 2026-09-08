@@ -6,7 +6,9 @@ import {
   activeEngineFacetCount,
   applyEngineFacets,
   clearEngineFacet,
+  engineFacetById,
   engineFacetOptions,
+  setEngineFacetDateBound,
   sanitizeEngineFacetSelection,
   toggleEngineFacetValue,
 } from './engineListFacets.js';
@@ -99,5 +101,83 @@ describe('ступенчатый фильтр списка двигателей'
     expect(sanitizeEngineFacetSelection(null)).toEqual({});
     expect(sanitizeEngineFacetSelection({ brand: 'BR1' })).toEqual({});
     expect(sanitizeEngineFacetSelection({ brand: ['BR1', 'BR1', ''], нет_такого: ['x'] })).toEqual({ brand: ['BR1'] });
+  });
+});
+
+// Ступени, добавленные по просьбе владельца 08.09.2026: стадия ремонта, цех, акт дефектовки
+// и диапазоны дат. Диапазон — не список значений, поэтому у него свои правила отбора.
+const DAY_05 = Date.parse('2026-09-05T10:00:00');
+const DAY_07 = Date.parse('2026-09-07T10:00:00');
+const DAY_09 = Date.parse('2026-09-09T10:00:00');
+
+const dated = [
+  { id: 'd1', arrivalDate: DAY_05, defectDate: DAY_05, workshopId: 'W1', workshopName: 'Цех 1', hasDefectAct: true, statusFlags: { status_repair_started: true } },
+  { id: 'd2', arrivalDate: DAY_07, defectDate: DAY_09, workshopId: 'W2', workshopName: 'Цех 2', statusFlags: { status_repair_started: true, status_repaired: true } },
+  { id: 'd3', arrivalDate: DAY_09, workshopId: '', statusFlags: {} },
+] as unknown as EngineListItem[];
+
+describe('ступени по датам', () => {
+  it('диапазон включает обе границы целиком, а не с полуночи', () => {
+    expect(ids(applyEngineFacets(dated, { arrivalDate: { from: '2026-09-05', to: '2026-09-07' } }))).toEqual(['d1', 'd2']);
+  });
+
+  it('одна дата означает ровно этот день', () => {
+    expect(ids(applyEngineFacets(dated, { arrivalDate: { from: '2026-09-07', to: '2026-09-07' } }))).toEqual(['d2']);
+  });
+
+  it('открытая граница отбирает в одну сторону', () => {
+    expect(ids(applyEngineFacets(dated, { arrivalDate: { to: '2026-09-05' } }))).toEqual(['d1']);
+    expect(ids(applyEngineFacets(dated, { arrivalDate: { from: '2026-09-09' } }))).toEqual(['d3']);
+  });
+
+  it('двигатель без даты в отбор по диапазону не попадает', () => {
+    expect(ids(applyEngineFacets(dated, { defectDate: { from: '2026-09-01' } }))).toEqual(['d1', 'd2']);
+  });
+
+  it('пустой диапазон не отбирает и не считается активной ступенью', () => {
+    expect(ids(applyEngineFacets(dated, { arrivalDate: {} }))).toEqual(['d1', 'd2', 'd3']);
+    expect(activeEngineFacetCount({ arrivalDate: {} })).toBe(0);
+    expect(activeEngineFacetCount({ arrivalDate: { from: '2026-09-05' } })).toBe(1);
+  });
+
+  it('у ступени по датам нет списка вариантов', () => {
+    expect(engineFacetOptions(dated, {}, 'arrivalDate')).toEqual([]);
+  });
+
+  it('диапазон и значения сужают вместе', () => {
+    expect(ids(applyEngineFacets(dated, { arrivalDate: { from: '2026-09-05' }, workshop: ['W2'] }))).toEqual(['d2']);
+  });
+
+  it('санитайзер пропускает только YYYY-MM-DD и режет мусор', () => {
+    expect(sanitizeEngineFacetSelection({ arrivalDate: { from: '2026-09-05', to: 'вчера' } })).toEqual({ arrivalDate: { from: '2026-09-05' } });
+    expect(sanitizeEngineFacetSelection({ arrivalDate: ['2026-09-05'] })).toEqual({});
+    expect(sanitizeEngineFacetSelection({ workshop: { from: '2026-09-05' } })).toEqual({});
+  });
+
+  it('setEngineFacetDateBound снимает ступень, когда обе границы пусты', () => {
+    const one = setEngineFacetDateBound({}, 'arrivalDate', 'from', '2026-09-05');
+    expect(one).toEqual({ arrivalDate: { from: '2026-09-05' } });
+    expect(setEngineFacetDateBound(one, 'arrivalDate', 'from', '')).toEqual({});
+  });
+});
+
+describe('стадия ремонта, цех и акт дефектовки', () => {
+  it('стадия — самый поздний выставленный флаг, а не все сразу', () => {
+    expect(engineFacetById('status')?.kind).toBe('values');
+    expect(ids(applyEngineFacets(dated, { status: ['status_repaired'] }))).toEqual(['d2']);
+    expect(ids(applyEngineFacets(dated, { status: ['status_repair_started'] }))).toEqual(['d1']);
+  });
+
+  it('двигатель без единого флага попадает в «без стадии»', () => {
+    expect(ids(applyEngineFacets(dated, { status: ['none'] }))).toEqual(['d3']);
+  });
+
+  it('двигатель без цеха отбирается отдельным значением', () => {
+    expect(ids(applyEngineFacets(dated, { workshop: ['none'] }))).toEqual(['d3']);
+  });
+
+  it('акт дефектовки делит список надвое без «нет значения»', () => {
+    expect(ids(applyEngineFacets(dated, { defectAct: ['yes'] }))).toEqual(['d1']);
+    expect(ids(applyEngineFacets(dated, { defectAct: ['no'] }))).toEqual(['d2', 'd3']);
   });
 });
