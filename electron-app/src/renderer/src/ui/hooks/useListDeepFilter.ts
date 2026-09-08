@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import type { SearchMode } from '@matricarmz/shared';
+
 import { filterPreparedRecords, prepareRecordSearch } from '../utils/search.js';
 
 const DEEP_DEBOUNCE_MS = 250;
@@ -55,9 +57,13 @@ export function useListDeepFilter<T>(
   getId: (r: T) => string,
   getLabel: (r: T) => string,
   query: string,
-  opts?: { entityBacked?: boolean },
+  opts?: { entityBacked?: boolean; mode?: SearchMode },
 ) {
   const entityBacked = opts?.entityBacked !== false;
+  // Просьба владельца 08.09.2026: списки ищут точное совпадение, пока оператор сам не
+  // попросил похожие. Тир-2 (внутрь карточек) режима не знает намеренно — он и так ищет
+  // вхождение подстроки, то есть уже точен; «похожие» добавляет только тир-1.
+  const mode: SearchMode = opts?.mode ?? 'exact';
   const deepIds = useCardContentIds(rows, getId, query, entityBacked);
 
   const prepared = useMemo(() => prepareRecordSearch(rows, getId, getLabel), [rows, getId, getLabel]);
@@ -66,12 +72,12 @@ export function useListDeepFilter<T>(
 
   const { filtered, similarMode } = useMemo(() => {
     if (!q) return { filtered: rows, similarMode: false };
-    const tier1 = filterPreparedRecords(prepared, q);
+    const tier1 = filterPreparedRecords(prepared, q, mode);
     if (!deepIds || deepIds.size === 0) return { filtered: tier1.records, similarMode: tier1.similarMode };
     const seen = new Set(tier1.records.map(getId));
     const deepOnly = rows.filter((r) => deepIds.has(getId(r)) && !seen.has(getId(r)));
     return { filtered: [...tier1.records, ...deepOnly], similarMode: tier1.similarMode };
-  }, [q, rows, prepared, deepIds, getId]);
+  }, [q, rows, prepared, deepIds, getId, mode]);
 
   return { filtered, similarMode, total: rows.length, matched: q ? filtered.length : rows.length };
 }

@@ -14,6 +14,7 @@ import {
 import type { EngineFacetId, EngineFacetSelection, EngineListItem } from '@matricarmz/shared';
 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -140,6 +141,8 @@ export type EnginesPageUiState = {
   facets?: EngineFacetSelection;
   /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
   facetsOpen?: boolean;
+  /** Поиск показывает и похожее (опечатки, часть слова, раскладка). По умолчанию — только точное. */
+  searchSimilar?: boolean;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -365,6 +368,7 @@ export function EnginesPage(props: {
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
   const facetsOpen = listState.facetsOpen === true;
+  const searchSimilar = listState.searchSimilar === true;
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -375,7 +379,7 @@ export function EnginesPage(props: {
   // Верхний поиск: tier-1 по полям строки + tier-2 внутрь карточек (EAV).
   const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
   const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
-  const deepFilter = useListDeepFilter(props.engines, getRowId, getRowLabel, query);
+  const deepFilter = useListDeepFilter(props.engines, getRowId, getRowLabel, query, { mode: searchModeOf(listState.searchSimilar) });
   const similarMode = deepFilter.similarMode;
   // Все отборы, кроме поиска, живут теперь в ступенях: рекламация, акт комплектности и даты
   // прихода стали ступенями и применяются одним проходом ниже.
@@ -786,6 +790,7 @@ export function EnginesPage(props: {
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
         </div>
+        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
         <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
         </span>
@@ -860,6 +865,22 @@ export function EnginesPage(props: {
           }}
         >
           Точных совпадений нет — показаны похожие.
+        </div>
+      )}
+
+      {query.trim() && !searchSimilar && displayRows.length === 0 && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: 'rgba(245, 158, 11, 0.15)',
+            color: '#92400e',
+            fontSize: 13,
+            flex: '0 0 auto',
+          }}
+        >
+          Точных совпадений нет. Нажмите «≈ Похожие», чтобы показать близкие: опечатки, часть слова, другая раскладка.
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
@@ -41,6 +42,8 @@ export function ServicesByBrandPage(props: {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
+  // Поиск по спискам: точное совпадение по умолчанию, похожее — по кнопке (владелец 08.09.2026).
+  const [searchSimilar, setSearchSimilar] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [busy, setBusy] = useState(false);
 
@@ -96,7 +99,7 @@ export function ServicesByBrandPage(props: {
   const deepIds = useCardContentIds(services, getServiceId, query);
   const filteredServices = useMemo(() => {
     return services.filter((s) => {
-      if (!matchesQueryInRecord(query, { name: s.name }) && !(deepIds?.has(String(s.id)) ?? false)) return false;
+      if (!matchesQueryInRecord(query, { name: s.name }, undefined, searchModeOf(searchSimilar)) && !(deepIds?.has(String(s.id)) ?? false)) return false;
       if (!selectedBrandId) return true;
       const isUniversal = s.engineBrandIds.length === 0;
       const isBound = s.engineBrandIds.includes(selectedBrandId);
@@ -111,7 +114,7 @@ export function ServicesByBrandPage(props: {
           return true;
       }
     });
-  }, [services, query, deepIds, selectedBrandId, filterMode]);
+  }, [services, query, deepIds, selectedBrandId, filterMode, searchSimilar]);
 
   function toggleService(serviceId: string) {
     if (!selectedBrandId || !props.canEdit) return;
@@ -216,6 +219,10 @@ export function ServicesByBrandPage(props: {
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Поиск услуги</span>
           <Input value={query} placeholder="Название…" onChange={(e) => setQuery(e.target.value)} />
+        </label>
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>&nbsp;</span>
+          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
         </label>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Фильтр</span>

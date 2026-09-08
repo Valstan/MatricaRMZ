@@ -199,14 +199,39 @@ function scorePreparedWithVariants<T extends LookupOptionLike>(p: PreparedLookup
  */
 export const LOOKUP_FILTER_MIN_SCORE = 600;
 
+/**
+ * Режим поиска в СПИСКАХ (просьба владельца 08.09.2026: «по умолчанию точное совпадение,
+ * а рядом кнопка — показать похожее»).
+ *
+ * `exact` — только точное вхождение введённого во все поля строки: равенство, начало поля,
+ * подстрока без пробелов (`240-1` ≡ `2401`) и «все слова запроса нашлись». Отброшены
+ * подпоследовательность, частичное совпадение слов, исправление раскладки и опечатки —
+ * они и создают то самое «глаза разбегаются».
+ * `similar` — прежнее поведение: раскладка, частичные совпадения и опечатки в хвосте.
+ *
+ * По умолчанию `similar`: выпадающие списки и лукапы этой правкой не меняются, режим
+ * включают только списки.
+ */
+export type SearchMode = 'exact' | 'similar';
+
+/**
+ * Порог точного режима: равенство (1000-940), начало (920-860), компактная подстрока
+ * (840-780) и «все слова нашлись» (760/700). Ниже — частичные слова (560/520) и
+ * подпоследовательность (420-360), от которых оператор и просил избавиться.
+ */
+export const LOOKUP_EXACT_MIN_SCORE = 700;
+
 export function rankPreparedLookupOptions<T extends LookupOptionLike>(
   prepared: Array<PreparedLookupOption<T>>,
   query: string,
-  opts: { minScore?: number } = {},
+  opts: { minScore?: number; mode?: SearchMode } = {},
 ): T[] {
-  const variants = prepareQueryVariants(query);
-  if (variants.length === 0) return prepared.map((p) => p.option);
-  const minScore = opts.minScore ?? 0;
+  const exact = opts.mode === 'exact';
+  const allVariants = prepareQueryVariants(query);
+  if (allVariants.length === 0) return prepared.map((p) => p.option);
+  // В точном режиме вариант раскладки — уже не то, что оператор ввёл.
+  const variants = exact ? allVariants.slice(0, 1) : allVariants;
+  const minScore = Math.max(opts.minScore ?? 0, exact ? LOOKUP_EXACT_MIN_SCORE : 0);
   return prepared
     .map((p, index) => ({ p, index, score: scorePreparedWithVariants(p, variants) }))
     .filter((entry) => entry.score >= 0 && entry.score >= minScore)
@@ -282,9 +307,11 @@ export type TieredSearchResult<T> = {
 export function searchPreparedLookupOptionsTiered<T extends LookupOptionLike>(
   prepared: Array<PreparedLookupOption<T>>,
   query: string,
-  opts: { minScore?: number } = {},
+  opts: { minScore?: number; mode?: SearchMode } = {},
 ): TieredSearchResult<T> {
   const primary = rankPreparedLookupOptions(prepared, query, opts);
+  // Точный режим опечаток не прощает — это его смысл.
+  if (opts.mode === 'exact') return { primary, similar: [] };
   const variants = prepareQueryVariants(query);
   if (variants.length === 0 || primary.length > 0) return { primary, similar: [] };
 

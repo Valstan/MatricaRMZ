@@ -10,6 +10,7 @@ import { TwoColumnList } from '../components/TwoColumnList.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
@@ -31,6 +32,8 @@ export function EngineBrandsPage(props: {
   const [brandToGroups, setBrandToGroups] = useState<Map<string, string[]>>(new Map());
   const [groupFilterId, setGroupFilterId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Поиск по спискам: точное совпадение по умолчанию, похожее — по кнопке (владелец 08.09.2026).
+  const [searchSimilar, setSearchSimilar] = useState(false);
   const [status, setStatus] = useState('');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const width = useWindowWidth();
@@ -145,10 +148,10 @@ export function EngineBrandsPage(props: {
     () =>
       rows.filter(
         (r) =>
-          (matchesQueryInRecord(query, { name: r.name, id: r.id }) || (deepIds?.has(String(r.id)) ?? false)) &&
+          (matchesQueryInRecord(query, { name: r.name, id: r.id }, undefined, searchModeOf(searchSimilar)) || (deepIds?.has(String(r.id)) ?? false)) &&
           (!groupFilterId || (brandToGroups.get(r.id) ?? []).includes(groupFilterId)),
       ),
-    [rows, query, deepIds, groupFilterId, brandToGroups],
+    [rows, query, deepIds, groupFilterId, brandToGroups, searchSimilar],
   );
 
   const sortedRows = useMemo(() => {
@@ -276,6 +279,7 @@ export function EngineBrandsPage(props: {
             placeholder="Поиск по наименованию или id..."
           />
         </div>
+        <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
         {groupOptions.length > 0 ? (
           <div style={{ width: 240 }} title="Показать только марки выбранной группы">
             <SearchSelect

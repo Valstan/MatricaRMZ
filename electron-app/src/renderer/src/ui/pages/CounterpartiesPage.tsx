@@ -18,6 +18,7 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -94,10 +95,13 @@ export function CounterpartiesPage(props: {
     showPreviews: true,
     pageSize: 50 as WarehouseListPageSize,
     pageIndex: 0,
+    searchSimilar: false,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
   const query = String(listState.query ?? '');
   const showPreviews = listState.showPreviews !== false;
+  const searchSimilar = listState.searchSimilar === true;
+  const searchMode = searchModeOf(searchSimilar);
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
@@ -165,8 +169,8 @@ export function CounterpartiesPage(props: {
   const getRowId = useCallback((row: Row) => String(row.id), []);
   const deepIds = useCardContentIds(rows, getRowId, query);
   const filtered = useMemo(() => {
-    return rows.filter((row) => matchesQueryInRecord(query, row) || (deepIds?.has(String(row.id)) ?? false));
-  }, [rows, query, deepIds]);
+    return rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode) || (deepIds?.has(String(row.id)) ?? false));
+  }, [rows, query, deepIds, searchMode]);
 
   const sorted = useSortedItems(
     filtered,
@@ -396,6 +400,7 @@ export function CounterpartiesPage(props: {
         )}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
         </div>
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}

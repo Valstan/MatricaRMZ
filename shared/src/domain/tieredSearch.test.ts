@@ -4,8 +4,11 @@ import {
   buildLookupHighlightParts,
   damerauLevenshtein,
   keyboardLayoutVariants,
+  prepareLookupOptions,
   rankLookupOptions,
+  rankPreparedLookupOptions,
   searchLookupOptionsTiered,
+  searchPreparedLookupOptionsTiered,
 } from './tieredSearch.js';
 
 describe('tieredSearch (tiers 1-2, moved from electron searchMatching)', () => {
@@ -125,5 +128,53 @@ describe('searchLookupOptionsTiered (tier 3 — «похожие»)', () => {
     const r = searchLookupOptionsTiered(options, 'хх');
     expect(r.primary).toHaveLength(0);
     expect(r.similar).toHaveLength(0);
+  });
+});
+
+// Режимы поиска в списках (просьба владельца 08.09.2026): по умолчанию точное совпадение,
+// похожее — по отдельной кнопке. Раньше похожее подмешивалось всегда, и «глаза разбегаются».
+describe('режим поиска exact vs similar', () => {
+  const options = [
+    { id: '1', label: 'Двигатель 240-1' },
+    { id: '2', label: 'Насос топливный' },
+    { id: '3', label: 'Двигатель 240-11' },
+  ];
+
+  it('точный режим находит по вхождению, включая номер без дефиса', () => {
+    const prepared = prepareLookupOptions(options);
+    expect(rankPreparedLookupOptions(prepared, '2401', { mode: 'exact' }).map((o) => o.id)).toEqual(['1', '3']);
+    expect(rankPreparedLookupOptions(prepared, 'насос', { mode: 'exact' }).map((o) => o.id)).toEqual(['2']);
+  });
+
+  it('точный режим не прощает опечатку, обычный — прощает', () => {
+    const prepared = prepareLookupOptions(options);
+    expect(searchPreparedLookupOptionsTiered(prepared, 'нассос', { mode: 'exact' }).similar).toEqual([]);
+    expect(searchPreparedLookupOptionsTiered(prepared, 'нассос').similar.map((o) => o.id)).toEqual(['2']);
+  });
+
+  it('точный режим не исправляет раскладку, обычный — исправляет', () => {
+    const prepared = prepareLookupOptions(options);
+    // «yfcjc» — «насос», набранное в латинской раскладке.
+    expect(rankPreparedLookupOptions(prepared, 'yfcjc', { mode: 'exact' })).toEqual([]);
+    expect(rankPreparedLookupOptions(prepared, 'yfcjc').map((o) => o.id)).toEqual(['2']);
+  });
+
+  it('точный режим отсекает подпоследовательность и часть слова', () => {
+    const prepared = prepareLookupOptions([{ id: '1', label: 'Двигатель 240-1' }]);
+    // «дтл» — подпоследовательность «двигатель», в точном режиме это не совпадение.
+    expect(rankPreparedLookupOptions(prepared, 'дтл', { mode: 'exact' })).toEqual([]);
+    // Часть слова из нескольких: одно слово совпало, второе нет.
+    expect(rankPreparedLookupOptions(prepared, 'двигатель насос', { mode: 'exact' })).toEqual([]);
+  });
+
+  it('точный режим находит по всем словам запроса, если нашлись все', () => {
+    const prepared = prepareLookupOptions([{ id: '1', label: 'Двигатель ЯМЗ 240 турбо' }]);
+    expect(rankPreparedLookupOptions(prepared, 'ямз турбо', { mode: 'exact' }).map((o) => o.id)).toEqual(['1']);
+  });
+
+  it('по умолчанию режим прежний — выпадающие списки этой правкой не меняются', () => {
+    const prepared = prepareLookupOptions(options);
+    expect(rankPreparedLookupOptions(prepared, 'yfcjc').map((o) => o.id)).toEqual(['2']);
+    expect(rankPreparedLookupOptions(prepared, 'дтл').length).toBeGreaterThan(0);
   });
 });

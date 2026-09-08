@@ -38,6 +38,7 @@ import {
 } from '@matricarmz/shared';
 
 import { FacetFilter } from '../components/FacetFilter.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
 import {
   buildCopyRowsStatus,
@@ -113,6 +114,8 @@ type ContractsListUiState = {
   facets?: ContractFacetSelection;
   /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
   facetsOpen?: boolean;
+  /** Поиск показывает и похожее. По умолчанию — только точное совпадение. */
+  searchSimilar?: boolean;
 };
 
 /** Марки контракта — из основного раздела и всех ДС: ступень отбирает по любой из них. */
@@ -481,12 +484,13 @@ export function ContractsPage(props: {
   );
 
   // Верхний поиск: поля строки + внутрь карточки (EAV).
+  const searchMode = searchModeOf(listState.searchSimilar === true);
   const getRowId = useCallback((row: { id: string }) => String(row.id), []);
   const deepIds = useCardContentIds(rows, getRowId, query);
   // Поиск отбирает первым, ступени — вторым: варианты ступеней считаются по найденному.
   const searched = useMemo(
-    () => rows.filter((row) => matchesQueryInRecord(query, row) || (deepIds?.has(String(row.id)) ?? false)),
-    [rows, query, deepIds],
+    () => rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode) || (deepIds?.has(String(row.id)) ?? false)),
+    [rows, query, deepIds, searchMode],
   );
 
   // Старый фильтр дат заключения переезжает в ступень «Дата заключения»: два фильтра об одном
@@ -507,6 +511,7 @@ export function ContractsPage(props: {
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
   const facetsOpen = listState.facetsOpen === true;
+  const searchSimilar = listState.searchSimilar === true;
 
   const filtered = useMemo(() => applyContractFacets(searched, facets), [searched, facets]);
 
@@ -985,6 +990,7 @@ export function ContractsPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контракта…" />
         </div>
+        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
