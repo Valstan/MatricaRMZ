@@ -18,6 +18,7 @@ import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.j
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
@@ -130,8 +131,6 @@ export type EnginesPageUiState = {
   page: number;
   /** Легаси-тумблер превью: колонку теперь скрывают в шапке столбцов, поле больше не читается. */
   showPreviews?: boolean;
-  contractDateFrom: string;
-  contractDateTo: string;
   onlyReclamation?: boolean;
   /** Фильтр «Акт комплектности»: yes = заполнен (начат), no = не заполнен. */
   completenessFilter?: 'all' | 'yes' | 'no';
@@ -152,8 +151,6 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
     sortKey: 'arrivalDate',
     sortDir: 'desc',
     page: 0,
-    contractDateFrom: '',
-    contractDateTo: '',
   };
 }
 
@@ -338,26 +335,22 @@ export function EnginesPage(props: {
   const query = listState.query;
   const sortKey = listState.sortKey;
   const sortDir = listState.sortDir;
-  const contractDateFrom = String(listState.contractDateFrom ?? '');
-  const contractDateTo = String(listState.contractDateTo ?? '');
   const onlyReclamation = listState.onlyReclamation === true;
   const completenessFilter = listState.completenessFilter ?? 'all';
   const customerFilter = String(listState.customerFilter ?? '');
-  // Старые одиночные фильтры тулбара (контрагент, рекламация, акт комплектности, даты прихода)
-  // переезжают в свои ступени: у оператора не должно остаться двух фильтров об одном и том же,
-  // из которых один невидим. Переезд читающий — в состоянии списка старые поля остаются лежать,
-  // пока их не перезапишет первая же правка фильтра.
+  // Старые одиночные фильтры тулбара (контрагент, рекламация, акт комплектности) переезжают
+  // в свои ступени: у оператора не должно остаться двух фильтров об одном и том же, из которых
+  // один невидим. Переезд читающий — в состоянии списка старые поля остаются лежать, пока их
+  // не перезапишет первая же правка фильтра. Даты прихода не переезжают вовсе: их поля убраны
+  // из тулбара, а сохранённая граница продолжала бы отбирать список, и снять её было бы нечем.
   const facets = useMemo<EngineFacetSelection>(() => {
     const base = sanitizeEngineFacetSelection(listState.facets);
     const out: EngineFacetSelection = { ...base };
     if (customerFilter && !engineFacetIsActive(base, 'customer')) out.customer = [customerFilter];
     if (onlyReclamation && !engineFacetIsActive(base, 'reclamation')) out.reclamation = ['yes'];
     if (completenessFilter !== 'all' && !engineFacetIsActive(base, 'completenessAct')) out.completenessAct = [completenessFilter];
-    if ((contractDateFrom || contractDateTo) && !engineFacetIsActive(base, 'arrivalDate')) {
-      out.arrivalDate = { ...(contractDateFrom ? { from: contractDateFrom } : {}), ...(contractDateTo ? { to: contractDateTo } : {}) };
-    }
     return out;
-  }, [listState.facets, customerFilter, onlyReclamation, completenessFilter, contractDateFrom, contractDateTo]);
+  }, [listState.facets, customerFilter, onlyReclamation, completenessFilter]);
   const facetFields = useMemo<EngineFacetId[]>(() => {
     const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
     const known = raw.filter((id): id is EngineFacetId => ENGINE_FACETS.some((f) => f.id === id));
@@ -770,28 +763,29 @@ export function EnginesPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* mx-page-toolbar — на планшете ряд уезжает, когда оператор листает список
           (возврат: язычок 🔍 у левого края, он же ставит курсор в поиск). */}
-      <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap' }}>
+      <PageToolbar>
         {/* Отчёт «Двигатели» живёт в разделе «Отчёты» (пресет `engines`, темы «Двигатели» и
             «Контракты») — вторая точка входа из списка только дублировала каталог. */}
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
-        {/* Поиск и то, что им управляет, стоят вместе слева: «Похожие» и «Фильтры» относятся
-            к поиску и отбору, а не к прочим кнопкам ряда (владелец 08.09.2026). Растяжку
-            забирает распорка ПОСЛЕ них, поэтому группа не разъезжается по ширине окна.
+        {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем.
             Ширину обёртке не задаём: поле само ограничено 48ch, и любая большая ширина
             превратилась бы в пустоту между поиском и кнопками. */}
-        <div>
+        <ToolbarPin>
           <Input
             value={query}
             onChange={(e) => patchState({ query: e.target.value, page: 0 })}
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
-        </div>
-        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
-        <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} />
+        </ToolbarPin>
+        <ToolbarPin>
+          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
+        </ToolbarPin>
+        <ToolbarPin>
+          <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} />
+        </ToolbarPin>
         <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
         </span>
-        <div style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
@@ -813,15 +807,7 @@ export function EnginesPage(props: {
             Печать списка
           </Button>
         )}
-        <ColumnSettingsButton
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
-      </div>
+      </PageToolbar>
 
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>
         <EngineFacetFilter
@@ -829,6 +815,17 @@ export function EnginesPage(props: {
           selection={facets}
           fields={facetFields}
           open={facetsOpen}
+          columnsControl={
+            <ColumnSettingsButton
+              label="Колонки списка"
+              columns={columnDescriptors}
+              order={columnLayout.order}
+              isVisible={columnLayout.isVisible}
+              onToggleVisible={columnLayout.setVisible}
+              onMove={columnLayout.moveColumn}
+              onReset={columnLayout.resetToDefault}
+            />
+          }
           onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
           onReset={() =>
@@ -838,8 +835,6 @@ export function EnginesPage(props: {
               customerFilter: '',
               onlyReclamation: false,
               completenessFilter: 'all',
-              contractDateFrom: '',
-              contractDateTo: '',
               page: 0,
             })
           }

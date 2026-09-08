@@ -9,6 +9,9 @@ import {
   chatExport,
   chatList,
   chatMarkRead,
+  chatRoomDelete,
+  chatRoomSave,
+  chatRoomsList,
   chatSendDeepLink,
   chatSendTextEverywhere,
   chatSendFile,
@@ -69,6 +72,28 @@ export function registerChatIpc(ctx: IpcContext) {
     // непрочитанные, просто листая архив. Поэтому только live.
     if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
     return await chatMarkRead(ctx.sysDb, args);
+  });
+
+  // Гейт возвращает УСПЕХ при наличии права (`{ ok: true }`), а не `undefined`: читать его
+  // как «отказ» нельзя — обработчик тогда всегда отвечает `ok` и до сервиса не доходит.
+  ipcMain.handle('chat:roomsList', async () => {
+    const gate = await requireChatUse();
+    if (!gate.ok) return gate;
+    return await chatRoomsList(ctx.dataDb());
+  });
+
+  ipcMain.handle('chat:roomSave', async (_e, args) => {
+    const gate = await requireChatUse();
+    if (!gate.ok) return gate;
+    if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
+    return await chatRoomSave(ctx.sysDb, args ?? {});
+  });
+
+  ipcMain.handle('chat:roomDelete', async (_e, args) => {
+    const gate = await requireChatUse();
+    if (!gate.ok) return gate;
+    if (ctx.mode().mode !== 'live') return { ok: false as const, error: 'chat disabled in backup mode' };
+    return await chatRoomDelete(ctx.sysDb, args ?? {});
   });
 
   ipcMain.handle('chat:unreadCount', async () => {

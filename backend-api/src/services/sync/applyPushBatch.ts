@@ -4,8 +4,10 @@ import {
   attributeDefRowSchema,
   attributeValueRowSchema,
   auditLogRowSchema,
+  canSeeChatRoom,
   chatMessageRowSchema,
   chatReadRowSchema,
+  chatRoomRowSchema,
   noteRowSchema,
   noteShareRowSchema,
   cardDraftRowSchema,
@@ -33,6 +35,7 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  chatRooms,
   diagnosticsSnapshots,
   entities,
   entityTypes,
@@ -1382,6 +1385,69 @@ export async function applyPushBatch(
       }
     }
 
+    // ChatRooms — правит только создатель. Комната приезжает ДО сообщений: сообщение
+    // комнаты, чьей строки ещё нет, некому было бы показать.
+    {
+      const raw = grouped.get(SyncTableName.ChatRooms) ?? [];
+      const parsedAll = parseRows(SyncTableName.ChatRooms, raw, chatRoomRowSchema);
+      if (parsedAll.length > 0 && actorId) {
+        const rows = await filterStaleBySeqOrUpdatedAt(chatRooms, parsedAll, SyncTableName.ChatRooms);
+        const ids = Array.from(new Set(rows.map((r) => String(r.id))));
+        const existing =
+          ids.length === 0
+            ? []
+            : await tx
+                .select({ id: chatRooms.id, ownerUserId: chatRooms.ownerUserId })
+                .from(chatRooms)
+                .where(inArray(chatRooms.id, ids as any))
+                .limit(50_000);
+        const ownerById = new Map(existing.map((r) => [String(r.id), String(r.ownerUserId ?? '')]));
+        const allowed: typeof rows = [];
+        for (const r of rows) {
+          const currentOwner = ownerById.get(String(r.id));
+          if (currentOwner === undefined) {
+            // Новая комната: создателем становится тот, кто её прислал, что бы он ни написал
+            // в поле. Иначе можно было бы завести комнату «от чужого имени» и получить над
+            // ней права правки.
+            allowed.push({ ...r, owner_user_id: actorId });
+            continue;
+          }
+          if (currentOwner !== actorId && !actorIsAdmin) {
+            throw new Error('sync_policy_denied: chat_room_owner');
+          }
+          allowed.push({ ...r, owner_user_id: currentOwner });
+        }
+        if (allowed.length > 0) {
+          await tx
+            .insert(chatRooms)
+            .values(
+              allowed.map((r) => ({
+                id: r.id as any,
+                ownerUserId: r.owner_user_id as any,
+                title: r.title,
+                membersJson: r.members_json ?? null,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at,
+                deletedAt: r.deleted_at ?? null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoUpdate({
+              target: chatRooms.id,
+              set: {
+                title: sql`excluded.title`,
+                membersJson: sql`excluded.members_json`,
+                updatedAt: sql`excluded.updated_at`,
+                deletedAt: sql`excluded.deleted_at`,
+                syncStatus: 'synced',
+              },
+            });
+          await updateSeqAndCollect(chatRooms, SyncTableName.ChatRooms, allowed);
+          applied += allowed.length;
+        }
+      }
+    }
+
     // ChatMessages
     {
       const raw = grouped.get(SyncTableName.ChatMessages) ?? [];
@@ -1449,6 +1515,28 @@ export async function applyPushBatch(
           allowed.push(r);
         }
 
+        // Писать в комнату может только её участник. Проверяем ЗДЕСЬ, а не на клиенте:
+        // клиентская проверка защищает от ошибки, серверная — от намерения.
+        const roomIds = Array.from(
+          new Set(allowed.map((r) => (r.room_id ? String(r.room_id) : '')).filter((id) => id.length > 0)),
+        );
+        if (roomIds.length > 0 && !actorIsAdmin) {
+          const roomRows = await tx
+            .select({ id: chatRooms.id, ownerUserId: chatRooms.ownerUserId, membersJson: chatRooms.membersJson })
+            .from(chatRooms)
+            .where(inArray(chatRooms.id, roomIds as any))
+            .limit(50_000);
+          const roomById = new Map(roomRows.map((r) => [String(r.id), r]));
+          for (const r of allowed) {
+            const roomId = r.room_id ? String(r.room_id) : '';
+            if (!roomId) continue;
+            const room = roomById.get(roomId);
+            if (!room || !canSeeChatRoom({ ownerUserId: String(room.ownerUserId ?? ''), membersJson: room.membersJson }, actorId)) {
+              throw new Error('sync_policy_denied: chat_room_member');
+            }
+          }
+        }
+
         if (allowed.length > 0) {
           await tx
             .insert(chatMessages)
@@ -1458,6 +1546,7 @@ export async function applyPushBatch(
                 senderUserId: r.sender_user_id as any,
                 senderUsername: r.sender_username,
                 recipientUserId: r.recipient_user_id ? (r.recipient_user_id as any) : null,
+                roomId: r.room_id ? (r.room_id as any) : null,
                 messageType: r.message_type,
                 bodyText: r.body_text ?? null,
                 payloadJson: r.payload_json ?? null,
@@ -1473,6 +1562,7 @@ export async function applyPushBatch(
                 senderUserId: sql`excluded.sender_user_id`,
                 senderUsername: sql`excluded.sender_username`,
                 recipientUserId: sql`excluded.recipient_user_id`,
+                roomId: sql`excluded.room_id`,
                 messageType: sql`excluded.message_type`,
                 bodyText: sql`excluded.body_text`,
                 payloadJson: sql`excluded.payload_json`,

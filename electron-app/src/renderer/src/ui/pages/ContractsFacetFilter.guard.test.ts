@@ -25,9 +25,12 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(PAGE).toContain('rows={searched}');
   });
 
-  it('старый фильтр дат заключения снят, а его значения переезжают в ступень', () => {
+  it('старых полей дат заключения нет ни в тулбаре, ни в состоянии списка', () => {
     expect(PAGE, 'два фильтра об одном и том же — один из них невидим').not.toContain('title="Дата заключения контракта: с"');
-    expect(PAGE).toContain("if ((!contractDateFrom && !contractDateTo) || contractFacetIsActive(base, 'signedAt')) return base;");
+    // Владелец 08.09.2026: поля убраны совсем. Сохранённая граница не переезжает в ступень —
+    // снять её было бы нечем, поля на экране больше нет.
+    expect(PAGE).not.toContain('contractDateFrom');
+    expect(PAGE).not.toContain('contractDateTo');
   });
 
   it('поля карточки доезжают до строки — иначе ступень отбирает пустоту', () => {
@@ -41,9 +44,17 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(PAGE).toContain('Array.from(new Set([...known, ...active]))');
   });
 
-  it('кнопка сброса чистит ступени, их значения и легаси-поля дат', () => {
-    expect(PAGE).toContain("onReset={() => patchState({ facets: {}, facetFields: [], contractDateFrom: '', contractDateTo: '' })}");
+  it('кнопка сброса чистит ступени и их значения', () => {
+    expect(PAGE).toContain('onReset={() => patchState({ facets: {}, facetFields: [] })}');
     expect(FILTER).toContain('data-facet-reset');
+  });
+
+  it('ряд кнопок — одна строка, а выбор колонок переехал в панель фильтров', () => {
+    expect(PAGE).toContain('<PageToolbar>');
+    expect(PAGE).toContain('<ToolbarPin>');
+    expect(PAGE).toContain('label="Колонки списка"');
+    expect(PAGE).toContain('columnsControl={');
+    expect(FILTER).toContain('data-facet-columns');
   });
 
   it('тулбар без кнопки превью: колонку убирают в шапке столбцов', () => {

@@ -7,6 +7,7 @@ export const LedgerTableName = {
   AuditLog: 'audit_log',
   ChatMessages: 'chat_messages',
   ChatReads: 'chat_reads',
+  ChatRooms: 'chat_rooms',
   UserPresence: 'user_presence',
   Notes: 'notes',
   NoteShares: 'note_shares',

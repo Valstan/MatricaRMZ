@@ -3,6 +3,7 @@ import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matri
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { Input } from '../components/Input.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
@@ -654,15 +655,7 @@ export function NomenclaturePage(props: {
           bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, padding: 8, overflow: 'hidden' }}>
-            <div
-              style={{
-                display: 'grid',
-                gap: 8,
-                alignItems: 'center',
-                gridTemplateColumns: 'auto minmax(240px, 1fr) minmax(190px, 0.7fr) minmax(190px, 0.8fr) minmax(200px, 0.8fr) auto auto auto',
-                flexShrink: 0,
-              }}
-            >
+            <PageToolbar>
               {props.canEdit ? (
                 <Button
                   onClick={() => {
@@ -678,15 +671,24 @@ export function NomenclaturePage(props: {
                   Добавить позицию
                 </Button>
               ) : null}
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по наименованию, коду, штрихкоду…" />
-              <select value={itemType} onChange={(e) => setItemType((e.target.value || '') as NomenclatureItemType | '')} style={{ minWidth: 180, padding: '8px 10px' }}>
+              <ToolbarPin>
+                <div style={{ width: 280 }}>
+                  <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по наименованию, коду, штрихкоду…" />
+                </div>
+              </ToolbarPin>
+              <select
+                value={itemType}
+                onChange={(e) => setItemType((e.target.value || '') as NomenclatureItemType | '')}
+                title="Тип позиции"
+                style={{ width: 180, padding: '8px 10px' }}
+              >
                 {itemTypeOptions.map((item) => (
                   <option key={item.id || 'all'} value={item.id}>
                     {item.label}
                   </option>
                 ))}
               </select>
-              <select value={directoryKind} onChange={(e) => setDirectoryKind(e.target.value)} style={{ minWidth: 180, padding: '8px 10px' }}>
+              <select value={directoryKind} onChange={(e) => setDirectoryKind(e.target.value)} title="Источник позиции" style={{ width: 180, padding: '8px 10px' }}>
                 <option value="">Все источники</option>
                 <option value="engine_brand">Марки двигателя</option>
                 <option value="part">Детали</option>
@@ -694,12 +696,14 @@ export function NomenclaturePage(props: {
                 <option value="good">Товары</option>
                 <option value="service">Услуги</option>
               </select>
-              <SearchSelect
-                value={groupId}
-                options={lookupToSelectOptions(lookups.nomenclatureGroups)}
-                placeholder="Группа номенклатуры"
-                onChange={setGroupId}
-              />
+              <div style={{ width: 200 }}>
+                <SearchSelect
+                  value={groupId}
+                  options={lookupToSelectOptions(lookups.nomenclatureGroups)}
+                  placeholder="Группа номенклатуры"
+                  onChange={setGroupId}
+                />
+              </div>
               {!isAndroidPlatform() && (
                 <Button
                   variant="ghost"
@@ -710,6 +714,7 @@ export function NomenclaturePage(props: {
                 </Button>
               )}
               <ColumnSettingsButton
+                label="Колонки списка"
                 columns={columnDescriptors}
                 order={columnLayout.order}
                 isVisible={columnLayout.isVisible}
@@ -726,19 +731,22 @@ export function NomenclaturePage(props: {
               <Button variant="ghost" onClick={() => void openLabelDialog()} disabled={labelLoading}>
                 {labelLoading ? 'Загрузка…' : 'Печать этикеток'}
               </Button>
-              {printDialogOpen && (
-                <ListPrintDialog
-                  title="Склад · Номенклатура"
-                  unitLabel="Позиций"
-                  columns={printColumns}
-                  visibleColumnIds={visibleColumns.map((c) => c.id)}
-                  rows={printRows}
-                  selectedRows={[]}
-                  storageKey="list:nomenclature:columns:printFields"
-                  onClose={() => setPrintDialogOpen(false)}
-                />
-              )}
-            </div>
+            </PageToolbar>
+
+            {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со
+                своей кнопкой и открывался бы внутри выпадающей панели. */}
+            {printDialogOpen && (
+              <ListPrintDialog
+                title="Склад · Номенклатура"
+                unitLabel="Позиций"
+                columns={printColumns}
+                visibleColumnIds={visibleColumns.map((c) => c.id)}
+                rows={printRows}
+                selectedRows={[]}
+                storageKey="list:nomenclature:columns:printFields"
+                onClose={() => setPrintDialogOpen(false)}
+              />
+            )}
 
             {refsError ? <div style={{ color: 'var(--danger)', flexShrink: 0 }}>Справочники склада: {refsError}</div> : null}
             {status ? (

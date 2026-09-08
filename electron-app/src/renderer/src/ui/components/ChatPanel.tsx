@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ChatDeepLinkPayload, ChatMessageItem, ChatUnreadCountResult, ChatUserItem } from '@matricarmz/shared';
+import { compareChatConversations } from '@matricarmz/shared';
+import type {
+  ChatDeepLinkPayload,
+  ChatMessageItem,
+  ChatRoomItem,
+  ChatUnreadCountResult,
+  ChatUserItem,
+} from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -28,13 +35,21 @@ function onlineDot(online: boolean | null | undefined, size = 9) {
   );
 }
 
-/** Собеседник в левой колонке: общий чат — псевдо-собеседник с id `null`. */
+/**
+ * Строка левой колонки. Три рода бесед: общий чат (id `null`), человек и комната. Род
+ * хранится явно, а не выводится из `id`: у комнаты идентификатор такой же строки, и без
+ * признака она была бы неотличима от собеседника.
+ */
 type ConversationItem = {
+  kind: 'global' | 'person' | 'room';
   id: string | null;
   title: string;
   online: boolean | null;
   unread: number;
   role: string;
+  /** Время последнего сообщения — ключ порядка списка (владелец 08.09.2026). */
+  lastMessageAt: number;
+  canEdit?: boolean;
 };
 
 export function ChatPanel(props: {
@@ -56,7 +71,16 @@ export function ChatPanel(props: {
   // Скрытая вкладка чата не поллит и, что важнее, не помечает входящие прочитанными.
   const tabVisible = useTabVisible();
   const [users, setUsers] = useState<ChatUserItem[]>([]);
+  const [rooms, setRooms] = useState<ChatRoomItem[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  /** Выбрана комната. Взаимоисключимо с `selectedUserId`: беседа на экране всегда одна. */
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [roomDialog, setRoomDialog] = useState<{ open: boolean; id: string | null; title: string; memberIds: string[] }>({
+    open: false,
+    id: null,
+    title: '',
+    memberIds: [],
+  });
   const [adminMode, setAdminMode] = useState<boolean>(false);
   const [adminPair, setAdminPair] = useState<{ aId: string; bId: string }>({ aId: '', bId: '' });
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
@@ -84,6 +108,15 @@ export function ChatPanel(props: {
     if (!unread || (unread as any).ok !== true) return 0;
     return Number((unread as any).global ?? 0);
   }, [unread]);
+  const byRoomUnread = useMemo(() => {
+    if (!unread || (unread as any).ok !== true) return {} as Record<string, number>;
+    return ((unread as any).byRoom ?? {}) as Record<string, number>;
+  }, [unread]);
+  const lastAt = useMemo(() => {
+    const empty = { global: 0, byUser: {} as Record<string, number>, byRoom: {} as Record<string, number> };
+    if (!unread || (unread as any).ok !== true) return empty;
+    return ((unread as any).lastAt ?? empty) as typeof empty;
+  }, [unread]);
 
   const usersById = useMemo(() => {
     const map = new Map<string, ChatUserItem>();
@@ -95,40 +128,65 @@ export function ChatPanel(props: {
   const isAdmin = ['admin', 'superadmin'].includes(role);
   const isPending = role === 'pending';
 
-  // Левая колонка: общий чат + все активные собеседники. Порядок — сначала те, кто
-  // ждёт ответа (непрочитанные), затем кто в сети, затем по имени: оператору важен
-  // не алфавит, а «кому я не ответил».
+  // Левая колонка: общий чат, комнаты и собеседники — одним списком по свежести переписки
+  // (владелец 08.09.2026: «в котором чате последний раз общался, тот и выше»). Комнаты не
+  // выделены в отдельную группу намеренно — они такие же беседы.
   const conversations = useMemo<ConversationItem[]>(() => {
     const base = isPending ? users.filter((u) => u.role === 'superadmin') : users;
     const people = base
       .filter((u) => u.isActive && u.id !== props.meUserId)
       .map<ConversationItem>((u) => ({
+        kind: 'person',
         id: u.id,
         title: (u.chatDisplayName || u.username || '').trim() || 'Пользователь',
         online: u.online ?? false,
         unread: byUserUnread[u.id] ?? 0,
         role: u.role ?? '',
-      }))
-      .sort((a, b) => {
-        if ((b.unread > 0 ? 1 : 0) !== (a.unread > 0 ? 1 : 0)) return (b.unread > 0 ? 1 : 0) - (a.unread > 0 ? 1 : 0);
-        if ((b.online ? 1 : 0) !== (a.online ? 1 : 0)) return (b.online ? 1 : 0) - (a.online ? 1 : 0);
-        return a.title.localeCompare(b.title, 'ru');
-      });
-    const q = peopleQuery.trim().toLowerCase();
-    const filtered = q ? people.filter((p) => p.title.toLowerCase().includes(q)) : people;
+        lastMessageAt: Number(lastAt.byUser[u.id] ?? 0) || 0,
+      }));
+    const roomItems: ConversationItem[] = isPending
+      ? []
+      : rooms.map<ConversationItem>((r) => ({
+          kind: 'room',
+          id: r.id,
+          title: r.title,
+          online: null,
+          unread: byRoomUnread[r.id] ?? 0,
+          role: '',
+          lastMessageAt: Number(lastAt.byRoom[r.id] ?? 0) || 0,
+          canEdit: r.canEdit,
+        }));
     const general: ConversationItem[] = isPending
       ? []
-      : [{ id: null, title: 'Общий чат', online: null, unread: globalUnread, role: '' }];
-    return [...general, ...filtered];
-  }, [users, isPending, props.meUserId, byUserUnread, globalUnread, peopleQuery]);
+      : [
+          {
+            kind: 'global',
+            id: null,
+            title: 'Общий чат',
+            online: null,
+            unread: globalUnread,
+            role: '',
+            lastMessageAt: Number(lastAt.global ?? 0) || 0,
+          },
+        ];
+    const all = [...general, ...roomItems, ...people].sort(compareChatConversations);
+    const q = peopleQuery.trim().toLowerCase();
+    return q ? all.filter((c) => c.title.toLowerCase().includes(q)) : all;
+  }, [users, rooms, isPending, props.meUserId, byUserUnread, byRoomUnread, globalUnread, lastAt, peopleQuery]);
 
   const privateWith = !adminMode && selectedUserId ? usersById.get(selectedUserId) ?? null : null;
   const isPrivate = !!privateWith;
+  const selectedRoom = useMemo(
+    () => (selectedRoomId ? rooms.find((r) => r.id === selectedRoomId) ?? null : null),
+    [selectedRoomId, rooms],
+  );
   const conversationTitle = adminMode
     ? 'Админ: просмотр переписки'
-    : privateWith
-      ? (privateWith.chatDisplayName || privateWith.username || 'Пользователь')
-      : 'Общий чат';
+    : selectedRoom
+      ? `Комната: ${selectedRoom.title}`
+      : privateWith
+        ? (privateWith.chatDisplayName || privateWith.username || 'Пользователь')
+        : 'Общий чат';
 
   // Destructured on purpose: this effect keeps the callback in its deps, so a caller passing an inline arrow
   // would re-fire it on every parent render and store a new context object each time (a render feedback loop).
@@ -140,6 +198,11 @@ export function ChatPanel(props: {
   async function refreshUsers() {
     const r = await window.matrica.chat.usersList().catch(() => null);
     if (r && (r as any).ok) setUsers((r as any).users ?? []);
+  }
+
+  async function refreshRooms() {
+    const r = await window.matrica.chat.roomsList().catch(() => null);
+    if (r && (r as any).ok) setRooms(((r as any).rooms ?? []) as ChatRoomItem[]);
   }
 
   async function refreshUnread() {
@@ -162,7 +225,12 @@ export function ChatPanel(props: {
 
     if (isPending && !selectedUserId) return;
     const r = await window.matrica.chat
-      .list({ mode: selectedUserId ? 'private' : 'global', withUserId: selectedUserId, limit: 200 })
+      .list({
+        mode: selectedRoomId ? 'room' : selectedUserId ? 'private' : 'global',
+        withUserId: selectedUserId,
+        roomId: selectedRoomId,
+        limit: 200,
+      })
       .catch(() => null);
     if (r && (r as any).ok) {
       const msgs = (r as any).messages as ChatMessageItem[];
@@ -193,6 +261,7 @@ export function ChatPanel(props: {
     const tick = async () => {
       if (!alive) return;
       await refreshUsers();
+      await refreshRooms();
       await refreshUnread();
       await refreshMessages();
     };
@@ -203,7 +272,15 @@ export function ChatPanel(props: {
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the poll is keyed to the chat selection only; refreshMessages is re-created on every render, so depending on it would tear down and restart the poll (refetching messages and marking them read) on every render
-  }, [selectedUserId, adminMode, adminPair.aId, adminPair.bId, tabVisible, props.meUserId, props.meRole, props.canAdminViewAll]);
+  }, [selectedUserId, selectedRoomId, adminMode, adminPair.aId, adminPair.bId, tabVisible, props.meUserId, props.meRole, props.canAdminViewAll]);
+
+  // Комната, из которой оператора исключили, перестаёт приходить с сервера: если она была
+  // открыта — уводим на общий чат, иначе на экране осталась бы мёртвая переписка.
+  useEffect(() => {
+    if (!selectedRoomId) return;
+    if (rooms.some((r) => r.id === selectedRoomId)) return;
+    setSelectedRoomId(null);
+  }, [rooms, selectedRoomId]);
 
   useEffect(() => {
     if (!isPending) return;
@@ -300,12 +377,55 @@ export function ChatPanel(props: {
     closeNoteDialog();
   }
 
+  async function saveRoom() {
+    const title = roomDialog.title.trim();
+    if (!title) {
+      setBusyNote('Название комнаты обязательно');
+      return;
+    }
+    const r = await window.matrica.chat
+      .roomSave({ id: roomDialog.id, title, memberIds: roomDialog.memberIds })
+      .catch(() => null);
+    if (!r || (r as any).ok !== true) {
+      setBusyNote(`Комната не сохранена: ${(r as any)?.error ?? 'ошибка'}`);
+      return;
+    }
+    setRoomDialog({ open: false, id: null, title: '', memberIds: [] });
+    if (!props.viewMode) void window.matrica.sync.run().catch(() => {});
+    await refreshRooms();
+    // Только что созданную комнату сразу открываем: иначе оператор ищет её в списке глазами.
+    if (!roomDialog.id) {
+      setSelectedRoomId(String((r as any).id));
+      setSelectedUserId(null);
+    }
+  }
+
+  async function deleteRoom() {
+    if (!roomDialog.id) return;
+    const ok = await confirm({
+      title: 'Удалить комнату?',
+      detail: 'Комната пропадёт у всех участников. Переписка останется в базе, но открыть её будет негде.',
+      confirmLabel: 'Удалить',
+      confirmTone: 'danger',
+    });
+    if (!ok) return;
+    const r = await window.matrica.chat.roomDelete({ id: roomDialog.id }).catch(() => null);
+    if (!r || (r as any).ok !== true) {
+      setBusyNote(`Комната не удалена: ${(r as any)?.error ?? 'ошибка'}`);
+      return;
+    }
+    if (selectedRoomId === roomDialog.id) setSelectedRoomId(null);
+    setRoomDialog({ open: false, id: null, title: '', memberIds: [] });
+    if (!props.viewMode) void window.matrica.sync.run().catch(() => {});
+    await refreshRooms();
+  }
+
   async function sendText() {
     const t = text.trim();
     if (!t) return;
     if (adminMode) return;
     setText('');
-    const r = await window.matrica.chat.sendText({ recipientUserId: selectedUserId, text: t });
+    const r = await window.matrica.chat.sendText({ recipientUserId: selectedUserId, roomId: selectedRoomId, text: t });
     if ((r as any)?.ok && !props.viewMode) void window.matrica.sync.run().catch(() => {});
     await refreshMessages();
     await refreshUnread();
@@ -425,28 +545,48 @@ export function ChatPanel(props: {
             background: theme.colors.surface2,
           }}
         >
-          <div style={{ padding: 8, borderBottom: `1px solid ${theme.colors.border}` }}>
+          <div style={{ padding: 8, borderBottom: `1px solid ${theme.colors.border}`, display: 'grid', gap: 6 }}>
             <Input
               value={peopleQuery}
               data-autogrow="off"
               onChange={(e) => setPeopleQuery(e.target.value)}
-              placeholder="Поиск человека…"
+              placeholder="Поиск беседы…"
             />
+            {!isPending && !props.viewMode && (
+              <Button
+                variant="ghost"
+                data-chat-room-create
+                onClick={() => setRoomDialog({ open: true, id: null, title: '', memberIds: [] })}
+                title="Создать комнату и пригласить в неё сотрудников"
+              >
+                + Комната
+              </Button>
+            )}
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 6 }}>
             {conversations.length === 0 && (
               <div style={{ color: theme.colors.muted, fontSize: 12, padding: 8 }}>Собеседников нет.</div>
             )}
             {conversations.map((c) => {
-              const active = selectedUserId === c.id;
+              const isRoom = c.kind === 'room';
+              const active = isRoom ? selectedRoomId === c.id : !selectedRoomId && selectedUserId === c.id;
               return (
                 <button
-                  key={c.id ?? '__global__'}
+                  key={`${c.kind}:${c.id ?? '__global__'}`}
                   type="button"
                   data-chat-person={c.id ?? 'global'}
+                  data-chat-room={isRoom ? c.id : undefined}
                   data-active={active ? '1' : undefined}
-                  onClick={() => setSelectedUserId(c.id)}
-                  title={c.online == null ? 'Общий чат' : c.online ? 'В сети' : 'Не в сети'}
+                  onClick={() => {
+                    if (isRoom) {
+                      setSelectedRoomId(c.id);
+                      setSelectedUserId(null);
+                      return;
+                    }
+                    setSelectedRoomId(null);
+                    setSelectedUserId(c.id);
+                  }}
+                  title={isRoom ? 'Комната: видят только приглашённые' : c.online == null ? 'Общий чат' : c.online ? 'В сети' : 'Не в сети'}
                   style={{
                     width: '100%',
                     display: 'flex',
@@ -463,10 +603,40 @@ export function ChatPanel(props: {
                     fontWeight: c.unread > 0 ? 800 : 500,
                   }}
                 >
-                  {c.id == null ? <span style={{ fontSize: 14 }}>#</span> : onlineDot(c.online)}
+                  {isRoom ? (
+                    <span style={{ fontSize: 14 }} aria-hidden>
+                      👥
+                    </span>
+                  ) : c.id == null ? (
+                    <span style={{ fontSize: 14 }}>#</span>
+                  ) : (
+                    onlineDot(c.online)
+                  )}
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {c.title}
                   </span>
+                  {isRoom && c.canEdit && !props.viewMode ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      data-chat-room-edit={c.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const room = rooms.find((r) => r.id === c.id);
+                        if (room) setRoomDialog({ open: true, id: room.id, title: room.title, memberIds: [...room.memberIds] });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.stopPropagation();
+                        const room = rooms.find((r) => r.id === c.id);
+                        if (room) setRoomDialog({ open: true, id: room.id, title: room.title, memberIds: [...room.memberIds] });
+                      }}
+                      title="Кто в комнате"
+                      style={{ fontSize: 12, opacity: 0.7, cursor: 'pointer' }}
+                    >
+                      ⚙
+                    </span>
+                  ) : null}
                   {c.unread > 0 ? (
                     <span
                       className="chatBlink"
@@ -806,6 +976,91 @@ export function ChatPanel(props: {
           </div>
         )}
       </div>
+
+      {roomDialog.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div
+            data-chat-room-dialog
+            style={{
+              background: theme.colors.surface,
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: 12,
+              padding: 16,
+              width: 460,
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>
+              {roomDialog.id ? 'Комната' : 'Новая комната'}
+            </div>
+            <Input
+              value={roomDialog.title}
+              onChange={(e) => setRoomDialog((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Название комнаты (например, «Ремонт Д-245»)"
+            />
+            <div style={{ color: theme.colors.muted, fontSize: 12, margin: '10px 0 6px' }}>
+              Кого пригласить. Кто не отмечен — комнату не увидит вовсе.
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderRadius: 8, padding: 6 }}>
+              {users
+                .filter((u) => u.isActive && u.id !== props.meUserId)
+                .map((u) => {
+                  const checked = roomDialog.memberIds.includes(u.id);
+                  return (
+                    <label
+                      key={u.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', cursor: 'pointer' }}
+                    >
+                      <input
+                        type="checkbox"
+                        data-chat-room-member={u.id}
+                        checked={checked}
+                        onChange={(e) =>
+                          setRoomDialog((prev) => ({
+                            ...prev,
+                            memberIds: e.target.checked
+                              ? [...prev.memberIds, u.id]
+                              : prev.memberIds.filter((x) => x !== u.id),
+                          }))
+                        }
+                      />
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {(u.chatDisplayName || u.username || '').trim() || 'Пользователь'}
+                      </span>
+                    </label>
+                  );
+                })}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button variant="primary" data-chat-room-save onClick={() => void saveRoom()}>
+                Сохранить
+              </Button>
+              {roomDialog.id ? (
+                <Button variant="ghost" data-chat-room-delete onClick={() => void deleteRoom()}>
+                  Удалить комнату
+                </Button>
+              ) : null}
+              <div style={{ flex: 1 }} />
+              <Button variant="ghost" onClick={() => setRoomDialog({ open: false, id: null, title: '', memberIds: [] })}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {noteDialog.open && (
         <div

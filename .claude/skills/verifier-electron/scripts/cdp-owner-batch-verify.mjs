@@ -196,7 +196,7 @@ async function main() {
   // Логинимся ЧЕРЕЗ ФОРМУ, а не через мост: вызов window.matrica.auth.login проходит
   // мимо React, и приложение остаётся на экране входа — именно так первый прогон и
   // «не нашёл» ни одного элемента списка.
-  await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].find(i => (i.placeholder||'').includes('огин')) || document.querySelectorAll('input')[0], 'valstan')");
+  await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].filter(i => i.getClientRects().length > 0).find(i => (i.placeholder||'').includes('огин')) || [...document.querySelectorAll('input')].filter(i => i.getClientRects().length > 0 && i.type !== 'password')[0], 'valstan')");
   await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].find(i => i.type === 'password'), 'valstan-dev')");
   await sleep(400);
   await cdp.evalAsync("window.__mv.click(window.__mv.byText('button', 'Войти'))");

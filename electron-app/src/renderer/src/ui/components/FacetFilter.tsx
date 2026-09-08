@@ -74,6 +74,12 @@ export function FacetFilter<Row>(props: {
   onChangeSelection: (next: FacetSelection) => void;
   onChangeFields: (next: string[]) => void;
   onReset: () => void;
+  /**
+   * Кнопка выбора колонок списка. Живёт здесь, а не в тулбаре (владелец 08.09.2026): что
+   * показывать и по чему отбирать — один и тот же вопрос «как я хочу видеть список», и место
+   * у него одно.
+   */
+  columnsControl?: React.ReactNode;
 }) {
   const activeCount = activeFacetCount(props.facets, props.selection);
   const chosen = new Set(props.fields);
@@ -137,6 +143,7 @@ export function FacetFilter<Row>(props: {
           );
         })}
         <div style={{ flex: 1 }} />
+        {props.columnsControl ? <div data-facet-columns>{props.columnsControl}</div> : null}
         <button
           type="button"
           data-facet-reset

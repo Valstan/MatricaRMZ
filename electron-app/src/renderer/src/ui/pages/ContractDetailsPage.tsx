@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 
 import { Button } from '../components/Button.js';
+import { ContractNumberText } from '../components/ContractNumberText.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
@@ -696,6 +697,13 @@ function SectionBlock(props: {
                 onChange={(e) => update({ number: e.target.value })}
                 style={{ width: '100%' }}
               />
+              {/* Внутри поля ввода выделить три цифры нечем, поэтому под ним стоит эхо номера
+                  с подсветкой — те же цифры, по которым договор зовут в цеху. */}
+              {String(section.number ?? '').trim() ? (
+                <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 4 }}>
+                  <ContractNumberText value={section.number} />
+                </div>
+              ) : null}
             </FormField>
           ) : null}
           <FormField label="Дата заключения">

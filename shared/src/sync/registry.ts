@@ -22,6 +22,7 @@ import {
   auditLogRowSchema,
   chatMessageRowSchema,
   chatReadRowSchema,
+  chatRoomRowSchema,
   userPresenceRowSchema,
   noteRowSchema,
   noteShareRowSchema,
@@ -132,6 +133,7 @@ const CHAT_MESSAGE_FIELDS = withBase(
   { db: 'senderUserId', dto: 'sender_user_id' },
   { db: 'senderUsername', dto: 'sender_username' },
   { db: 'recipientUserId', dto: 'recipient_user_id' },
+  { db: 'roomId', dto: 'room_id' },
   { db: 'messageType', dto: 'message_type' },
   { db: 'bodyText', dto: 'body_text' },
   { db: 'payloadJson', dto: 'payload_json' },
@@ -141,6 +143,12 @@ const CHAT_READ_FIELDS = withBase(
   { db: 'messageId', dto: 'message_id' },
   { db: 'userId', dto: 'user_id' },
   { db: 'readAt', dto: 'read_at' },
+);
+
+const CHAT_ROOM_FIELDS = withBase(
+  { db: 'ownerUserId', dto: 'owner_user_id' },
+  { db: 'title', dto: 'title' },
+  { db: 'membersJson', dto: 'members_json' },
 );
 
 const USER_PRESENCE_FIELDS = withBase(
@@ -425,6 +433,14 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: CHAT_READ_FIELDS,
     conflictTarget: ['messageId', 'userId'],
     dependsOn: [SyncTableName.ChatMessages],
+  },
+  {
+    syncName: SyncTableName.ChatRooms,
+    ledgerName: SyncTableName.ChatRooms,
+    schema: chatRoomRowSchema,
+    fields: CHAT_ROOM_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
   },
   {
     syncName: SyncTableName.UserPresence,

@@ -571,6 +571,34 @@ export function shortContractSuffix(contractNumber: string | null | undefined): 
 }
 
 /**
+ * Разбор номера договора на «до», «выделяемое» и «после» (владелец 08.09.2026): те же три
+ * цифры, что дают короткий номер `*239`, надо показывать жирным ВНУТРИ полного номера —
+ * иначе глаз не находит рабочий номер в двадцати пяти цифрах.
+ *
+ * Считаем ровно тем же правилом, что и `shortContractSuffix`, чтобы список, карточка и
+ * печать называли договор одинаково: последние три цифры части ДО первого «/». Если цифр
+ * меньше трёх — выделять нечего, и весь номер возвращается как «до».
+ */
+export function splitContractNumberAccent(contractNumber: string | null | undefined): {
+  before: string;
+  accent: string;
+  after: string;
+} {
+  const raw = String(contractNumber ?? '');
+  const slash = raw.indexOf('/');
+  const head = slash >= 0 ? raw.slice(0, slash) : raw;
+  const tail = slash >= 0 ? raw.slice(slash) : '';
+  const digitPositions: number[] = [];
+  for (let i = 0; i < head.length; i += 1) {
+    const ch = head[i] ?? '';
+    if (ch >= '0' && ch <= '9') digitPositions.push(i);
+  }
+  if (digitPositions.length < 3) return { before: raw, accent: '', after: '' };
+  const start = digitPositions[digitPositions.length - 3] as number;
+  return { before: head.slice(0, start), accent: head.slice(start), after: tail };
+}
+
+/**
  * Короткая метка договора для печатных таблиц: `*239` либо `*239 / ДС 2`.
  * Полный номер в бумаге печатается рядом мелким шрифтом, поэтому совпадение
  * коротких меток у двух договоров читателя не путает.

@@ -3,6 +3,7 @@ import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, typ
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -615,7 +616,7 @@ export function NomenclatureDirectoryPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <PageToolbar>
         {props.canCreate && props.onCreateDeferred ? (
           <Button onClick={() => props.onCreateDeferred?.()}>{props.createButtonText}</Button>
         ) : props.canCreate ? (
@@ -649,9 +650,11 @@ export function NomenclatureDirectoryPage(props: {
 
         {props.secondaryAction}
 
-        <div style={{ flex: 1 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={props.searchPlaceholder} />
-        </div>
+        <ToolbarPin>
+          <div style={{ width: 280 }}>
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={props.searchPlaceholder} />
+          </div>
+        </ToolbarPin>
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
@@ -661,19 +664,8 @@ export function NomenclatureDirectoryPage(props: {
             Печать списка
           </Button>
         )}
-        {printDialogOpen && (
-          <ListPrintDialog
-            title={`Справочник: ${directoryLabel}`}
-            unitLabel="Строк"
-            columns={printColumns}
-            visibleColumnIds={visibleColumns.map((c) => c.id)}
-            rows={sortedRows}
-            selectedRows={[]}
-            storageKey={`${layoutId}:printFields`}
-            onClose={() => setPrintDialogOpen(false)}
-          />
-        )}
         <ColumnSettingsButton
+          label="Колонки списка"
           columns={columnDescriptors}
           order={columnLayout.order}
           isVisible={columnLayout.isVisible}
@@ -684,7 +676,22 @@ export function NomenclatureDirectoryPage(props: {
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
-      </div>
+      </PageToolbar>
+
+      {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
+          кнопкой и открывался бы внутри выпадающей панели. */}
+      {printDialogOpen && (
+        <ListPrintDialog
+          title={`Справочник: ${directoryLabel}`}
+          unitLabel="Строк"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sortedRows}
+          selectedRows={[]}
+          storageKey={`${layoutId}:printFields`}
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
       {status.startsWith('Ошибка') && buildCreateHint(status) ? (

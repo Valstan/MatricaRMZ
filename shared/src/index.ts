@@ -19,6 +19,7 @@ export * from './domain/contractInternalNumber.js';
 export * from './domain/engineCustomer.js';
 export * from './domain/listFacets.js';
 export * from './domain/engineRepairHistory.js';
+export * from './domain/chatRooms.js';
 export * from './domain/engineListFacets.js';
 export * from './domain/contractListFacets.js';
 export * from './domain/engineInternalNumber.js';

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ContractNumberText } from '../components/ContractNumberText.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -108,8 +110,6 @@ type ContractsListUiState = {
   /** Легаси-тумблер превью: колонку теперь скрывают в шапке столбцов, поле больше не читается. */
   showPreviews?: boolean;
   /** Легаси-фильтр дат заключения: переезжает в ступень `signedAt`. */
-  contractDateFrom: string;
-  contractDateTo: string;
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: string[];
   facets?: ContractFacetSelection;
@@ -275,13 +275,9 @@ export function ContractsPage(props: {
     query: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
-    contractDateFrom: '',
-    contractDateTo: '',
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:contracts');
   const query = String(listState.query ?? '');
-  const contractDateFrom = String(listState.contractDateFrom ?? '');
-  const contractDateTo = String(listState.contractDateTo ?? '');
   const [contractTypeId, setContractTypeId] = useState<string>('');
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
@@ -492,16 +488,9 @@ export function ContractsPage(props: {
     [rows, query, deepIds, searchMode],
   );
 
-  // Старый фильтр дат заключения переезжает в ступень «Дата заключения»: два фильтра об одном
-  // и том же означают, что один из них невидим.
-  const facets = useMemo<ContractFacetSelection>(() => {
-    const base = sanitizeContractFacetSelection(listState.facets);
-    if ((!contractDateFrom && !contractDateTo) || contractFacetIsActive(base, 'signedAt')) return base;
-    return {
-      ...base,
-      signedAt: { ...(contractDateFrom ? { from: contractDateFrom } : {}), ...(contractDateTo ? { to: contractDateTo } : {}) },
-    };
-  }, [listState.facets, contractDateFrom, contractDateTo]);
+  // Старых полей дат заключения в тулбаре больше нет (владелец 08.09.2026): отбор по дате
+  // живёт ступенью «Дата заключения». Сохранённую границу не переносим — снять её было бы нечем.
+  const facets = useMemo<ContractFacetSelection>(() => sanitizeContractFacetSelection(listState.facets), [listState.facets]);
   const facetFields = useMemo<string[]>(() => {
     const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
     const known = raw.filter((id) => CONTRACT_FACETS.some((f) => f.id === id));
@@ -565,7 +554,10 @@ export function ContractsPage(props: {
         sortable: true,
         sortKey: 'number',
         kind: 'name',
-        render: (row) => row.number || '(без номера)',
+        // Печать и выгрузка берут `printValue` — туда уходит чистая строка: выделение это
+        // оформление экрана, в бумаге и в файле его быть не должно.
+        printValue: (row) => row.number || '',
+        render: (row) => (row.number ? <ContractNumberText value={row.number} /> : '(без номера)'),
       },
       {
         id: 'internalNumber',
@@ -965,7 +957,7 @@ export function ContractsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+      <PageToolbar>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -983,16 +975,21 @@ export function ContractsPage(props: {
             Создать контракт
           </Button>
         )}
-        <div style={{ flex: 1 }}>
+        {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем. */}
+        <ToolbarPin>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контракта…" />
-        </div>
-        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
-        <FacetToggleButton<Row>
-          facets={CONTRACT_FACETS as readonly FacetDescriptor<Row>[]}
-          selection={facets as FacetSelection}
-          open={facetsOpen}
-          onToggle={() => patchState({ facetsOpen: !facetsOpen })}
-        />
+        </ToolbarPin>
+        <ToolbarPin>
+          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
+        </ToolbarPin>
+        <ToolbarPin>
+          <FacetToggleButton<Row>
+            facets={CONTRACT_FACETS as readonly FacetDescriptor<Row>[]}
+            selection={facets as FacetSelection}
+            open={facetsOpen}
+            onToggle={() => patchState({ facetsOpen: !facetsOpen })}
+          />
+        </ToolbarPin>
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
@@ -1007,26 +1004,22 @@ export function ContractsPage(props: {
             Печать списка
           </Button>
         )}
-        {printDialogOpen && (
-          <ListPrintDialog
-            title="Список договоров"
-            unitLabel="Договоров"
-            columns={printColumns}
-            visibleColumnIds={visibleColumns.map((c) => c.id)}
-            rows={sorted}
-            selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
-            storageKey="list:contracts:printFields"
-            onClose={() => setPrintDialogOpen(false)}
-          />
-        )}
-        <ColumnSettingsButton
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />      </div>
+      </PageToolbar>
+
+      {/* Диалог печати живёт вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе
+          со своей кнопкой и открывался бы внутри выпадающей панели. */}
+      {printDialogOpen && (
+        <ListPrintDialog
+          title="Список договоров"
+          unitLabel="Договоров"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted}
+          selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
+          storageKey="list:contracts:printFields"
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
 
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>
         <FacetFilter<Row>
@@ -1037,7 +1030,18 @@ export function ContractsPage(props: {
           open={facetsOpen}
           onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [], contractDateFrom: '', contractDateTo: '' })}
+          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          columnsControl={
+            <ColumnSettingsButton
+              label="Колонки списка"
+              columns={columnDescriptors}
+              order={columnLayout.order}
+              isVisible={columnLayout.isVisible}
+              onToggleVisible={columnLayout.setVisible}
+              onMove={columnLayout.moveColumn}
+              onReset={columnLayout.resetToDefault}
+            />
+          }
         />
       </div>
 
