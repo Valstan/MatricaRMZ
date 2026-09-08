@@ -6,7 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { deleteEmployeeRemote, getSectionMembershipByLogin, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeesToServer } from '../../services/employeeService.js';
+import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, getSectionMembershipByLogin, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -84,6 +84,28 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     const result = await mergeEmployeesToServer(ctx.dataDb(), ctx.sysDb, ctx.mgr.getApiBaseUrl());
     if (!result.ok) return result;
     await ctx.mgr.runOnce().catch(() => {});
+    return result;
+  });
+
+  // Дубли сотрудников: анализ читает, слияние правит живые данные — оба под правом создания
+  // сотрудников, оба идут на сервер (там вторая половина сотрудника: users, права, чат).
+  ipcMain.handle('employees:dedupeAnalyze', async () => {
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    return analyzeEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+  });
+
+  ipcMain.handle('employees:dedupeMerge', async (_e, args: { survivorId: string; loserId: string; dryRun?: boolean }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    const result = await mergeEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      survivorId: String(args?.survivorId ?? ''),
+      loserId: String(args?.loserId ?? ''),
+      ...(args?.dryRun === true ? { dryRun: true } : {}),
+    });
+    // После боевого слияния подтягиваем изменения: карточка вторичного погашена на сервере.
+    if (result.ok && args?.dryRun !== true) await ctx.mgr.runOnce().catch(() => {});
     return result;
   });
 
