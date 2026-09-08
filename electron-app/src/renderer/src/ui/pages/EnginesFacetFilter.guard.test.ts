@@ -56,15 +56,24 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER).toContain('data-facet-reset');
   });
 
-  it('панель прячется под одну кнопку, но число активных ступеней видно и свёрнутой', () => {
-    expect(FILTER).toContain('data-facet-toggle');
-    expect(FILTER, 'свёрнутая панель всё равно рисует кнопку').toContain('if (!props.open) return <div data-engine-facets>{toggle}</div>;');
+  it('кнопка «Фильтры» стоит в тулбаре сразу после поиска и «Похожих»', () => {
+    // Владелец 08.09.2026: свёрнутая панель не должна занимать полосу — кнопка живёт рядом
+    // с поиском, а панель разворачивается ниже.
+    const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 400);
+    expect(toolbar).toContain('<EngineFacetToggleButton');
+    expect(FILTER).toContain('export function FacetToggleButton');
     expect(FILTER).toContain("{props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}");
+  });
+
+  it('свёрнутая панель не занимает места, а отбор продолжает работать', () => {
+    expect(FILTER, 'свёрнутая панель обязана исчезать целиком').toContain('if (!props.open) return null;');
+    // Отбор живёт в `selection`, а не в раскрытости панели: сворачивание фильтры не снимает.
+    expect(PAGE).toContain('const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets)');
     expect(PAGE).toContain('open={facetsOpen}');
   });
 
   it('обёртка двигателей подставляет в общий фильтр именно свои ступени', () => {
-    expect(WRAPPER).toContain('facets={ENGINE_FACETS as readonly FacetDescriptor<EngineListItem>[]}');
+    expect(WRAPPER).toContain('const ENGINE_FACET_DESCRIPTORS = ENGINE_FACETS as readonly FacetDescriptor<EngineListItem>[];');
     expect(WRAPPER).toContain('rows={props.engines}');
   });
 
