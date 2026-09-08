@@ -47,7 +47,7 @@ function computeRatio(a: number, b: number) {
 // истинным. Оставшийся счётчик сожжённых номеров (seq gap) сюда не заводим сознательно: он
 // только растёт от откатов, порог по нему сработал бы один раз и навсегда (brain #284
 // «гейт без области»).
-function computeStatus(args: { indexToProjectionLag: number; maxTableRatio: number; skippedDependencyRows24h: number }) {
+export function computeStatus(args: { indexToProjectionLag: number; maxTableRatio: number; skippedDependencyRows24h: number }) {
   const { indexToProjectionLag, maxTableRatio, skippedDependencyRows24h } = args;
   if (indexToProjectionLag > 10_000 || maxTableRatio > 0.15) return 'critical';
   if (skippedDependencyRows24h > CRITICAL_DEPENDENCY_SKIPS_24H) return 'critical';
@@ -59,11 +59,17 @@ function computeStatus(args: { indexToProjectionLag: number; maxTableRatio: numb
 function reasons(args: {
   indexToProjectionLag: number;
   worstTable: { key: string; diffRatio: number } | null;
-  skippedRows24h: { dependency: number; conflict: number };
+  skippedRows24h: { dependency: number; dependencyAttempts?: number; conflict: number };
 }) {
   const out: string[] = [];
   if (args.indexToProjectionLag > 0) out.push(`projection lag by last_server_seq=${args.indexToProjectionLag}`);
-  if (args.skippedRows24h.dependency > 0) out.push(`skipped dependency rows 24h=${args.skippedRows24h.dependency}`);
+  if (args.skippedRows24h.dependency > 0) {
+    const attempts = toNumber(args.skippedRows24h.dependencyAttempts ?? 0);
+    // Обе величины в одной строке: различные строки отвечают «сколько не доехало»,
+    // попытки — «крутится ли цикл». Раньше здесь было только второе, названное первым.
+    const attemptsSuffix = attempts > args.skippedRows24h.dependency ? ` (attempts=${attempts})` : '';
+    out.push(`skipped dependency rows 24h=${args.skippedRows24h.dependency}${attemptsSuffix}`);
+  }
   if (args.skippedRows24h.conflict > 0) out.push(`skipped conflict rows 24h=${args.skippedRows24h.conflict}`);
   if (args.worstTable && args.worstTable.diffRatio > 0) {
     out.push(`table drift ${args.worstTable.key} ratio=${args.worstTable.diffRatio.toFixed(4)}`);
@@ -71,7 +77,67 @@ function reasons(args: {
   return out;
 }
 
-async function loadSkippedRows24h() {
+export type SkippedRowsFold = {
+  dependency: number;
+  dependencyAttempts: number;
+  conflict: number;
+  byTable: Record<string, { dependency: number; conflict: number }>;
+};
+
+/**
+ * Сворачивает снимки пропусков в две разные величины.
+ *
+ * `dependency` — РАЗЛИЧНЫЕ строки, которые не доехали: именно это спрашивает
+ * гейт словами «сколько данных потеряно». `dependencyAttempts` — сколько раз их
+ * пробовали отправить. До 09.2026 гейт считал вторым, а называл первым: один
+ * клиент, повторяющий 8 строк каждые 40 секунд, давал 6000+ «пропущенных строк»
+ * в сутки, держал статус `critical` вечно и прятал за собой настоящие пропуски.
+ *
+ * Снимки старше правки писались без `rowIds` — их вклад считается попытками
+ * (иначе первые сутки после выката гейт видел бы ноль там, где пропуски есть).
+ */
+export function foldSkippedRowsSnapshots(payloads: readonly (string | null | undefined)[]): SkippedRowsFold {
+  const byTable: Record<string, { dependency: number; conflict: number }> = {};
+  const dependencyIdsByTable: Record<string, Set<string>> = {};
+  let dependencyAttempts = 0;
+  let conflict = 0;
+  for (const raw of payloads) {
+    try {
+      const payload = JSON.parse(String(raw ?? '{}')) as any;
+      if (payload?.kind !== 'sync_skipped_rows' || !Array.isArray(payload?.metrics)) continue;
+      for (const m of payload.metrics) {
+        const kind = String(m?.kind ?? '');
+        const table = String(m?.table ?? '');
+        const count = toNumber(m?.count ?? 0);
+        if (!table || count <= 0) continue;
+        if (!byTable[table]) byTable[table] = { dependency: 0, conflict: 0 };
+        if (kind === 'dependency') {
+          dependencyAttempts += count;
+          const ids = Array.isArray(m?.rowIds) ? m.rowIds.map((v: unknown) => String(v)).filter(Boolean) : [];
+          if (ids.length > 0) {
+            if (!dependencyIdsByTable[table]) dependencyIdsByTable[table] = new Set<string>();
+            for (const id of ids) dependencyIdsByTable[table].add(id);
+          } else {
+            byTable[table].dependency += count;
+          }
+        } else if (kind === 'conflict') {
+          byTable[table].conflict += count;
+          conflict += count;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  for (const [table, ids] of Object.entries(dependencyIdsByTable)) {
+    if (!byTable[table]) byTable[table] = { dependency: 0, conflict: 0 };
+    byTable[table].dependency += ids.size;
+  }
+  const dependency = Object.values(byTable).reduce((sum, t) => sum + t.dependency, 0);
+  return { dependency, dependencyAttempts, conflict, byTable };
+}
+
+async function loadSkippedRows24h(): Promise<SkippedRowsFold> {
   const since = Date.now() - 24 * 60 * 60_000;
   const rows = await db
     .select({ payloadJson: diagnosticsSnapshots.payloadJson })
@@ -84,32 +150,7 @@ async function loadSkippedRows24h() {
       ),
     )
     .limit(10_000);
-  const byTable: Record<string, { dependency: number; conflict: number }> = {};
-  let dependency = 0;
-  let conflict = 0;
-  for (const row of rows as any[]) {
-    try {
-      const payload = JSON.parse(String(row?.payloadJson ?? '{}')) as any;
-      if (payload?.kind !== 'sync_skipped_rows' || !Array.isArray(payload?.metrics)) continue;
-      for (const m of payload.metrics) {
-        const kind = String(m?.kind ?? '');
-        const table = String(m?.table ?? '');
-        const count = toNumber(m?.count ?? 0);
-        if (!table || count <= 0) continue;
-        if (!byTable[table]) byTable[table] = { dependency: 0, conflict: 0 };
-        if (kind === 'dependency') {
-          byTable[table].dependency += count;
-          dependency += count;
-        } else if (kind === 'conflict') {
-          byTable[table].conflict += count;
-          conflict += count;
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-  return { dependency, conflict, byTable };
+  return foldSkippedRowsSnapshots((rows as Array<{ payloadJson: string | null }>).map((r) => r?.payloadJson));
 }
 
 // Один проход по таблице вместо постраничного обхода: страницы через queryState тянули бы

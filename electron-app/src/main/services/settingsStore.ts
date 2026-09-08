@@ -18,6 +18,10 @@ export const SettingsKey = {
   LastFullPullDurationMs: 'sync.fullPull.durationMs',
   SyncRepairLastRunAt: 'sync.repair.lastRunAt',
   SyncSchemaFingerprint: 'sync.schemaFingerprint',
+  // Карантин строк, у которых нет зависимости ни на сервере, ни здесь
+  // (sync/blockedRows.ts). Единственное состояние, которое не воскрешает
+  // recoverErroredRows.
+  SyncBlockedRows: 'sync.blockedRows',
 
   // Client schema/migrations
   ClientSchemaVersion: 'schema.clientVersion',
