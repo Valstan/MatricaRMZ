@@ -24,6 +24,7 @@ import type {
 } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
+  formatAppVersionLabel,
   EMPTY_SUPPORT_CONTACT,
   hasSupportContact,
   sanitizeSupportContact,
@@ -838,6 +839,12 @@ export function App() {
     setChatContext(ctx);
   }, []);
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
+  /**
+   * Состояние обновления в главном окне (владелец 08.09.2026). Фон больше не ставит обновление
+   * молча: пока оно качается — заливка под вкладками, когда скачано — вопрос «сейчас или позже».
+   */
+  const [updateState, setUpdateState] = useState<{ state: string; version?: string | null; progress?: number | null } | null>(null);
+  const [updateInstallAsked, setUpdateInstallAsked] = useState('');
   const chatNewMessageAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatUnreadTotalRef = useRef<number>(0);
@@ -2830,6 +2837,28 @@ export function App() {
       chatPendingAudioRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only audio element setup/teardown; ensureChatAudioElements is recreated every render, and re-running would pause and rebuild the audio elements on each render
+  }, []);
+
+  // Обновление: главное окно слушает состояние (полоса прогресса + вопрос «сейчас или позже»).
+  // Подписка — на весь сеанс: скачивание идёт в фоне и не спрашивает, открыт ли нужный экран.
+  useEffect(() => {
+    let alive = true;
+    const off = window.matrica.update?.onState?.((state) => {
+      if (!alive) return;
+      setUpdateState(state as unknown as { state: string; version?: string | null; progress?: number | null });
+    });
+    void (async () => {
+      try {
+        const r = await window.matrica.update.status();
+        if (alive && r?.ok) setUpdateState(r.status as unknown as { state: string; version?: string | null; progress?: number | null });
+      } catch {
+        /* состояние обновления — справочное, его отсутствие ничего не ломает */
+      }
+    })();
+    return () => {
+      alive = false;
+      off?.();
+    };
   }, []);
 
   // Poll unread count (for the "Открыть чат" counter).
@@ -4844,6 +4873,57 @@ export function App() {
     );
   }
 
+  /**
+   * «Обновление скачано»: ставить сейчас или позже (владелец 08.09.2026). Раньше фоновая
+   * проверка запускала установку сама — программа могла перезагрузиться посреди работы.
+   *
+   * «Позже» ничего не теряет: установщик уже записан отложенным и применится при следующем
+   * запуске. Спрашиваем один раз на версию — иначе окно возвращалось бы на каждое событие
+   * состояния и мешало работать.
+   */
+  function renderUpdateReadyModal() {
+    if (!updateState || updateState.state !== 'downloaded') return null;
+    const version = String(updateState.version ?? '');
+    if (!version || updateInstallAsked === version) return null;
+    return (
+      <div
+        data-update-ready
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1200,
+          padding: 20,
+        }}
+      >
+        <div style={{ width: 'min(520px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Обновление скачано</div>
+          <div style={{ marginTop: 8, color: 'var(--muted)' }}>
+            {`Версия ${formatAppVersionLabel(version)} готова к установке. Установить сейчас — программа перезапустится; можно и позже: обновление встанет при следующем запуске.`}
+          </div>
+          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <Button variant="ghost" data-update-later onClick={() => setUpdateInstallAsked(version)}>
+              Позже
+            </Button>
+            <Button
+              tone="success"
+              data-update-now
+              onClick={() => {
+                setUpdateInstallAsked(version);
+                void window.matrica.update.installNow().catch(() => {});
+              }}
+            >
+              Установить сейчас
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderCardCloseModal() {
     if (!cardCloseModalOpen) return null;
     return (
@@ -6199,6 +6279,7 @@ export function App() {
         {renderFullSyncModal()}
         {renderFatalModal()}
         {renderCardCloseModal()}
+        {renderUpdateReadyModal()}
         {renderRecoveryModal()}
         {renderAppCloseSyncOverlay()}
         {tabsState.notice?.code === 'card_limit' && (
@@ -6273,6 +6354,11 @@ export function App() {
           {isV3 ? (
             <V3TabShell
               chatUnread={chatUnreadTotal}
+              updateProgress={
+                updateState?.state === 'downloading' && typeof updateState.progress === 'number'
+                  ? { pct: Math.round(updateState.progress), version: updateState.version ?? null }
+                  : null
+              }
               availableTabs={sectionGatedTabs}
               tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
               menuLabels={menuLabels}

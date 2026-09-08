@@ -1489,6 +1489,10 @@ export type MatricaApi = {
     reset: () => Promise<{ ok: true } | { ok: false; error: string }>;
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+    /** Установить скачанное обновление сейчас (кнопка оператора; фон больше не ставит молча). */
+    installNow: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    /** Состояние обновления в главном окне: полоса прогресса и вопрос «сейчас или позже». */
+    onState: (handler: (state: UpdateRuntimeState) => void) => () => void;
   };
   checklists: {
     templatesList: (args?: { stage?: string }) => Promise<

@@ -69,6 +69,8 @@ export function V3TabShell(props: {
   onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
   /** Непрочитанные сообщения чата — бейдж на вкладке Верстака (владелец 08.09.2026). */
   chatUnread?: number;
+  /** Прогресс фоновой загрузки обновления: заливка под вкладками. `null` — ничего не качается. */
+  updateProgress?: { pct: number; version?: string | null } | null;
   /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
   notice?: ShellNotice | null;
   openTabs: OpenTab[];
@@ -302,6 +304,18 @@ export function V3TabShell(props: {
   return (
     <div className="v3-shell">
       <div className="v3-tab-strip" role="tablist">
+        {/* Прогресс фонового обновления — заливка ПОД вкладками во всю ширину (владелец
+            08.09.2026): видно, что программа что-то качает и скоро может перезагрузиться,
+            но подписи вкладок читаются как обычно. */}
+        {props.updateProgress != null && (
+          <div
+            className="v3-tabs-progress"
+            data-update-progress={String(props.updateProgress.pct)}
+            style={{ width: `${Math.max(0, Math.min(100, props.updateProgress.pct))}%` }}
+            title={`Загружается обновление ${props.updateProgress.version ?? ''} — ${props.updateProgress.pct}%`}
+            aria-hidden="true"
+          />
+        )}
         <img
           src={RMZ_LOGO_SRC}
           alt="RMZ"
