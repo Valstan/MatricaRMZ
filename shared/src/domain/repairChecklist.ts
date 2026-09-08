@@ -898,6 +898,32 @@ export function engineInventoryRowSignature(row: Pick<EngineInventoryRow, 'part_
 }
 
 /**
+ * Автоподстановка поля шапки акта из карточки двигателя: что записать, если вообще писать.
+ *
+ * Карточка шлёт своё состояние на каждое нажатие, поэтому «поле пустое» не годится как
+ * признак «поле ничьё»: первая же буква номера делала поле непустым, и остаток номера
+ * в акт уже не доезжал. Владение помнится явно — `owned` это то, что автоподстановка
+ * записала сюда сама:
+ *  - поля никто не касался (`owned === undefined`, пусто) → заполняем;
+ *  - в поле ровно наше прежнее значение → догоняем карточку;
+ *  - оператор правил или очистил поле руками → оно навсегда его, возвращаем null.
+ */
+export function resolveHeaderAutofill(args: {
+  current: string;
+  incoming: string;
+  owned: string | undefined;
+}): string | null {
+  const incoming = String(args.incoming ?? '');
+  if (!incoming) return null;
+  const current = String(args.current ?? '');
+  const ours = args.owned !== undefined && current === args.owned;
+  if (current.trim() && !ours) return null;
+  if (!current.trim() && args.owned !== undefined && !ours) return null;
+  if (current === incoming) return null;
+  return incoming;
+}
+
+/**
  * Миграция legacy answers stage='defect' + stage='completeness' в новый engine_inventory.
  *
  * Семантика merge:
