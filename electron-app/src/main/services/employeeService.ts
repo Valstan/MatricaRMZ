@@ -533,6 +533,31 @@ export async function mergeEmployeesToServer(
   return { ok: true as const, stats: r.json?.stats };
 }
 
+/**
+ * Дубли сотрудников: анализ и слияние — серверные (владелец 08.09.2026). Клиент только
+ * показывает найденное и передаёт решение оператора: правка живых данных идёт там, где живёт
+ * вторая половина сотрудника — строки `users`, права, чат и файлы.
+ */
+export async function analyzeEmployeeDuplicatesRemote(sysDb: BetterSQLite3Database, apiBaseUrl: string) {
+  const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/dedupe/analyze', { method: 'GET' });
+  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  return r.json as { ok: boolean; totalEmployees?: number; groups?: unknown[]; error?: string };
+}
+
+export async function mergeEmployeeDuplicatesRemote(
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { survivorId: string; loserId: string; dryRun?: boolean },
+) {
+  const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/dedupe/merge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  return r.json as { ok: boolean; report?: unknown; error?: string };
+}
+
 export async function deleteEmployeeRemote(sysDb: BetterSQLite3Database, apiBaseUrl: string, employeeId: string) {
   const r = await httpAuthed(sysDb, apiBaseUrl, `/admin/users/${encodeURIComponent(employeeId)}/delete`, {
     method: 'POST',

@@ -20,6 +20,7 @@ import {
   upsertAttributeDef,
   upsertEntityType,
 } from '../services/adminMasterdataService.js';
+import { analyzeEmployeeDuplicates, mergeEmployees } from '../services/employeeDedupeService.js';
 import { mergeEmployeesByFullName } from '../services/employeeMergeService.js';
 import { emitAllMasterdataSyncSnapshot, emitEntityTypeSyncSnapshot } from '../services/masterdataSyncService.js';
 
@@ -258,6 +259,34 @@ adminMasterdataRouter.post('/entities/:id/detach-links-delete', async (req, res)
   if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
   const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username }, id);
   return res.json(r);
+});
+
+// Дубли сотрудников (владелец 08.09.2026). Анализ ничего не меняет; слияние — необратимая
+// правка живых данных, поэтому у него есть dryRun: сперва отчёт, потом решение.
+adminMasterdataRouter.get('/employees/dedupe/analyze', async (req, res) => {
+  const actor = await requireAdmin(req, res);
+  if (!actor) return;
+  const result = await analyzeEmployeeDuplicates();
+  return res.json(result);
+});
+
+adminMasterdataRouter.post('/employees/dedupe/merge', async (req, res) => {
+  const actor = await requireAdmin(req, res);
+  if (!actor) return;
+  const schema = z.object({
+    survivorId: z.string().min(1),
+    loserId: z.string().min(1),
+    dryRun: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await mergeEmployees({
+    survivorId: parsed.data.survivorId,
+    loserId: parsed.data.loserId,
+    ...(parsed.data.dryRun === true ? { dryRun: true } : {}),
+    actor: { id: actor.id, username: actor.username, role: 'admin' },
+  });
+  return res.json(result);
 });
 
 adminMasterdataRouter.post('/employees/merge', async (req, res) => {

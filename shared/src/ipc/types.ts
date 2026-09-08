@@ -343,6 +343,36 @@ export type UpdateRuntimeState = {
 
 export type UpdateResult = { ok: boolean; error?: string };
 
+/** Одна запись сотрудника в группе дублей: показывает и доступ — по нему выбирают основную. */
+export type EmployeeDupCandidate = {
+  id: string;
+  fullName: string;
+  login: string | null;
+  systemRole: string | null;
+  accessEnabled: boolean | null;
+  hasPassword: boolean;
+  filledAttrs: number;
+  createdAt: number;
+};
+
+export type EmployeeDupGroup = { kind: 'exact' | 'similar'; key: string; employees: EmployeeDupCandidate[] };
+
+export type EmployeeDedupeAnalyzeResult =
+  | { ok: true; totalEmployees: number; groups: EmployeeDupGroup[] }
+  | { ok: false; error: string };
+
+export type EmployeeMergeReport = {
+  survivorId: string;
+  loserId: string;
+  attrsFilled: number;
+  protectedSkipped: string[];
+  userReferencesMoved: boolean;
+  clientSettingsRelinked: number;
+  dryRun: boolean;
+};
+
+export type EmployeeDedupeMergeResult = { ok: true; report: EmployeeMergeReport } | { ok: false; error: string };
+
 export type AppVersionResult = { ok: true; version: string } | { ok: false; error: string };
 
 export type ReleaseWelcomeGetResult =
@@ -1456,6 +1486,13 @@ export type MatricaApi = {
     merge: () => Promise<{ ok: true; stats?: any } | { ok: false; error: string }>;
     /** Подтянуть карточки сотрудников снимком с сервера и прогнать синхронизацию следом. */
     resyncFromServer: () => Promise<MasterdataResyncResult>;
+    /** Дубли сотрудников: что нашлось (ничего не меняет). */
+    dedupeAnalyze: () => Promise<EmployeeDedupeAnalyzeResult>;
+    /**
+     * Слияние двух записей одного человека. `dryRun` возвращает тот же отчёт, ничего не
+     * записывая, — им проверяют слияние до боевого.
+     */
+    dedupeMerge: (args: { survivorId: string; loserId: string; dryRun?: boolean }) => Promise<EmployeeDedupeMergeResult>;
     departmentsList: () => Promise<EntityListItem[]>;
     defs: () => Promise<EmployeeAttributeDef[]>;
     permissionsGet: (userId: string) => Promise<

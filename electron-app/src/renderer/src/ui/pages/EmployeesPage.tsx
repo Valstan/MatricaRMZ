@@ -24,6 +24,7 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { EmployeeDedupeDialog } from '../components/EmployeeDedupeDialog.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
@@ -88,6 +89,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const searchSimilar = listState.searchSimilar === true;
   const searchMode = searchModeOf(searchSimilar);
   const [rows, setRows] = useState<Row[]>([]);
+  const [dedupeOpen, setDedupeOpen] = useState(false);
   const [status, setStatus] = useState('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const [workshops, setWorkshops] = useState<Array<{ id: string; label: string }>>([]);
@@ -537,10 +539,15 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             Создать сотрудника
           </Button>
         )}
-        <div style={{ flex: 1 }}>
+        <div>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
-          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
         </div>
+        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
+        {props.canCreate && (
+          <Button variant="ghost" data-employee-dedupe-open onClick={() => setDedupeOpen(true)} title="Найти сотрудников, заведённых дважды, и объединить записи">
+            Найти дубли
+          </Button>
+        )}
         <div
           aria-label="Сводка по сотрудникам"
           style={{
@@ -646,6 +653,14 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           onClose={() => setMenu(null)}
         />
       ) : null}
+      {dedupeOpen && (
+        <EmployeeDedupeDialog
+          onClose={() => setDedupeOpen(false)}
+          onMerged={() => {
+            void refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
