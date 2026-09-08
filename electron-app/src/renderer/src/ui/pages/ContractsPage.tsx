@@ -105,7 +105,8 @@ type ContractsListUiState = {
   query: string;
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
-  showPreviews: boolean;
+  /** Легаси-тумблер превью: колонку теперь скрывают в шапке столбцов, поле больше не читается. */
+  showPreviews?: boolean;
   /** Легаси-фильтр дат заключения: переезжает в ступень `signedAt`. */
   contractDateFrom: string;
   contractDateTo: string;
@@ -274,13 +275,11 @@ export function ContractsPage(props: {
     query: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
-    showPreviews: true,
     contractDateFrom: '',
     contractDateTo: '',
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:contracts');
   const query = String(listState.query ?? '');
-  const showPreviews = listState.showPreviews !== false;
   const contractDateFrom = String(listState.contractDateFrom ?? '');
   const contractDateTo = String(listState.contractDateTo ?? '');
   const [contractTypeId, setContractTypeId] = useState<string>('');
@@ -554,7 +553,6 @@ export function ContractsPage(props: {
     cellAlign?: 'left' | 'right';
     width?: number;
     kind?: ListColumnKind;
-    requireShowPreviews?: boolean;
     render: (row: Row, ctx: { textColor: string }) => React.ReactNode;
   };
 
@@ -748,7 +746,6 @@ export function ContractsPage(props: {
         headerAlign: 'right',
         cellAlign: 'right',
         kind: 'thumbs',
-        requireShowPreviews: true,
         render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} />,
       },
     ],
@@ -767,10 +764,9 @@ export function ContractsPage(props: {
       columnLayout.order
         .map((id) => columnsById.get(id))
         .filter((col): col is ColumnDef => Boolean(col))
-        .filter((col) => columnLayout.isVisible(col.id))
-        .filter((col) => !col.requireShowPreviews || showPreviews),
+        .filter((col) => columnLayout.isVisible(col.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render; isVisible derives solely from columnLayout.hidden which is already a dep, adding columnLayout would defeat the memo
-    [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
+    [columnLayout.order, columnLayout.hidden, columnsById],
   );
   const columnDescriptors = useMemo<ColumnDescriptor[]>(
     () => allColumns.map((col) => ({ id: col.id, label: col.label, ...(col.tabletLabel ? { tabletLabel: col.tabletLabel } : {}) })),
@@ -1000,9 +996,8 @@ export function ContractsPage(props: {
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
-        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
-          {showPreviews ? 'Отключить превью' : 'Включить превью'}
-        </Button>
+        {/* Колонку «Превью» оператор убирает в шапке столбцов (владелец 08.09.2026) —
+            второй способ управлять той же колонкой не нужен. */}
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"

@@ -46,6 +46,13 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER).toContain('data-facet-reset');
   });
 
+  it('тулбар без кнопки превью: колонку убирают в шапке столбцов', () => {
+    // Владелец 08.09.2026 — то же, что и в списке двигателей: второй способ управлять одной
+    // и той же колонкой только путает.
+    expect(PAGE).not.toContain('Отключить превью');
+    expect(PAGE, 'мёртвый механизм видимости не должен остаться в коде').not.toContain('requireShowPreviews');
+  });
+
   it('кнопка «Фильтры» — в тулбаре, панель разворачивается ниже', () => {
     const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 500);
     expect(toolbar).toContain('<FacetToggleButton<Row>');
