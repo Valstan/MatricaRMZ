@@ -334,6 +334,12 @@ const matricaApi = {
     reset: async () => ipcRenderer.invoke('update:reset'),
     downloadDirGet: async () => ipcRenderer.invoke('update:downloadDir:get'),
     downloadDirPick: async () => ipcRenderer.invoke('update:downloadDir:pick'),
+    installNow: async () => ipcRenderer.invoke('update:installNow'),
+    onState: (handler: (payload: any) => void) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
+      ipcRenderer.on('update:appState', wrapped);
+      return () => ipcRenderer.removeListener('update:appState', wrapped);
+    },
   },
   checklists: {
     templatesList: async (args?: { stage?: string }) => ipcRenderer.invoke('checklists:templates:list', args),

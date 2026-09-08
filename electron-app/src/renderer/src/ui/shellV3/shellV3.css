@@ -469,3 +469,28 @@
     animation: none;
   }
 }
+
+/* Полоса фоновой загрузки обновления: заливка ПОД вкладками во всю ширину полосы.
+   Лёгкий розовый и подложка (z-index ниже вкладок) — чтобы подписи читались как обычно;
+   без анимации ширины прыжки процентов выглядели бы дёрганьем. */
+.v3-tabs-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(236, 72, 153, 0.14);
+  transition: width 400ms ease-out;
+}
+
+/* Полоса вкладок становится системой координат для заливки; сами вкладки — над ней. */
+.v3-tab-strip {
+  position: relative;
+}
+
+.v3-tab-strip > .v3-tab,
+.v3-tab-strip > .v3-logo {
+  position: relative;
+  z-index: 1;
+}

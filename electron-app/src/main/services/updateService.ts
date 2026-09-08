@@ -802,6 +802,62 @@ function setUpdateState(next: Partial<UpdateRuntimeState>) {
     ...next,
     updatedAt: Date.now(),
   };
+  pushUpdateStateToApp();
+}
+
+/**
+ * Состояние обновления — в ГЛАВНОЕ окно (владелец 08.09.2026: «покажи прогресс, чтобы человек
+ * понял, что программа скоро перезагрузится»). Отдельное окно апдейтера получает своё
+ * подробное состояние через `pushUpdateUiState`; здесь — короткая сводка для полосы в строке
+ * вкладок и для вопроса «установить сейчас или позже».
+ *
+ * Рассылаем ВСЕМ окнам кроме окна апдейтера: главное окно у сервиса не хранится, а заводить
+ * вторую ссылку на него ради одного события — лишняя связь, которая рассохнется молча.
+ */
+function pushUpdateStateToApp() {
+  const payload = getUpdateState();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (w.isDestroyed()) continue;
+    if (updateUiWindow && !updateUiWindow.isDestroyed() && w.id === updateUiWindow.id) continue;
+    try {
+      w.webContents.send('update:appState', payload);
+    } catch {
+      /* окно закрывается — состояние ему уже не нужно */
+    }
+  }
+}
+
+/**
+ * Обновление скачано и проверено: спрашиваем оператора, ставить сейчас или позже, вместо
+ * немедленного перезапуска.
+ *
+ * Раньше `tick` сразу открывал окно апдейтера и звал `installNow` — программа могла
+ * перезагрузиться посреди работы. Отложенный установщик уже записан (`queuePendingUpdate`),
+ * поэтому «позже» ничего не теряет: обновление применится при следующем запуске
+ * (`applyPendingUpdateIfAny`), а «сейчас» запускает ту же установку по кнопке.
+ */
+async function offerInstall(args: { installerPath: string; version?: string }) {
+  pendingInstallOffer = { installerPath: args.installerPath, ...(args.version ? { version: args.version } : {}) };
+  setUpdateState({
+    state: 'downloaded',
+    ...(args.version ? { version: args.version } : {}),
+    progress: 100,
+    message: 'Обновление скачано — можно установить',
+  });
+  await writeUpdaterLog(`update downloaded, waiting for operator: version=${args.version ?? '?'}`);
+}
+
+/** Что предложено к установке — чтобы кнопка «Установить сейчас» знала, что ставить. */
+let pendingInstallOffer: { installerPath: string; version?: string } | null = null;
+
+/** Установка по кнопке оператора. `false` — ставить нечего (предложение устарело или снято). */
+export async function installOfferedUpdate(): Promise<boolean> {
+  const offer = pendingInstallOffer;
+  if (!offer) return false;
+  pendingInstallOffer = null;
+  showUpdateWindow(null);
+  await installNow(offer);
+  return true;
 }
 
 export function getUpdateState(): UpdateRuntimeState {
@@ -1712,8 +1768,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
               await releaseUpdateLock();
               lockReleased = true;
               backgroundInFlight = false;
-              showUpdateWindow(null);
-              await installNow({ installerPath: cachedPath, version: serverMeta.version });
+              await offerInstall({ installerPath: cachedPath, version: serverMeta.version });
               return;
             }
           }
@@ -1746,8 +1801,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
             await releaseUpdateLock();
             lockReleased = true;
             backgroundInFlight = false;
-            showUpdateWindow(null);
-            await installNow({ installerPath: cachedPath, version: torrentMeta.version });
+            await offerInstall({ installerPath: cachedPath, version: torrentMeta.version });
             return;
           }
         }
@@ -1798,8 +1852,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
           await releaseUpdateLock();
           lockReleased = true;
           backgroundInFlight = false;
-          showUpdateWindow(null);
-          await installNow({ installerPath: cachedPath, version: serverMeta.version });
+          await offerInstall({ installerPath: cachedPath, version: serverMeta.version });
           return;
         }
       }
@@ -1811,8 +1864,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         await releaseUpdateLock();
         lockReleased = true;
         backgroundInFlight = false;
-        showUpdateWindow(null);
-        await installNow({ installerPath: y.installerPath, version: y.version });
+        await offerInstall({ installerPath: y.installerPath, version: y.version });
         return;
       }
       if (y && !y.ok) {
@@ -1827,8 +1879,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         await releaseUpdateLock();
         lockReleased = true;
         backgroundInFlight = false;
-        showUpdateWindow(null);
-        await installNow({ installerPath: gh.installerPath, version: gh.version });
+        await offerInstall({ installerPath: gh.installerPath, version: gh.version });
         return;
       }
       if (gh && !gh.ok) {
@@ -1856,8 +1907,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
             await releaseUpdateLock();
             lockReleased = true;
             backgroundInFlight = false;
-            showUpdateWindow(null);
-            await installNow({ installerPath: cachedPath, version: torrentMeta.version });
+            await offerInstall({ installerPath: cachedPath, version: torrentMeta.version });
             return;
           }
         }
@@ -1898,8 +1948,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
           await releaseUpdateLock();
           lockReleased = true;
           backgroundInFlight = false;
-          showUpdateWindow(null);
-          await installNow({ installerPath: cachedPath, version: serverMeta.version });
+          await offerInstall({ installerPath: cachedPath, version: serverMeta.version });
           return;
         }
         candidateReason = queued.error;

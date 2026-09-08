@@ -7,6 +7,7 @@ import {
   checkForUpdates,
   getUpdateDownloadDir,
   getUpdateState,
+  installOfferedUpdate,
   resetUpdateCache,
   setUpdateDownloadDir,
 } from '../../services/updateService.js';
@@ -25,6 +26,15 @@ export function registerUpdateIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'updates.use');
     if (!gate.ok) return { ok: false as const, error: gate.error };
     return { ok: true as const, status: getUpdateState() };
+  });
+
+  // Установка по кнопке оператора: фоновая проверка больше не ставит молча, а предлагает
+  // (владелец 08.09.2026 — «установить сейчас или сделать это позже»).
+  ipcMain.handle('update:installNow', async () => {
+    const gate = await requirePermOrResult(ctx, 'updates.use');
+    if (!gate.ok) return { ok: false as const, error: gate.error };
+    const started = await installOfferedUpdate();
+    return started ? { ok: true as const } : { ok: false as const, error: 'нечего устанавливать' };
   });
 
   ipcMain.handle('update:reset', async () => {
