@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -9,6 +9,7 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
+import { EngineRepairHistoryPanel } from '../components/EngineRepairHistoryPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
@@ -1173,6 +1174,24 @@ export function EngineDetailsPage(props: {
               );
             } catch {
               /* передача — аудиторская запись, не валим сохранение карточки */
+            }
+          }
+          // История ремонта: стадия, выставленная в этом сохранении, становится строкой истории.
+          // Пишем только ВЗВЕДЁННЫЕ флаги — снятая галочка означает «поставили по ошибке», и
+          // событие «двигатель перестал быть отремонтированным» истории не принадлежит.
+          for (const [code, value] of changedEntries) {
+            if (value !== true || !STATUS_CODES.includes(code as StatusCode)) continue;
+            const meta = repairHistoryMetaForStatus(code as StatusCode);
+            try {
+              await window.matrica.operations.add(
+                props.engineId,
+                REPAIR_HISTORY_OPERATION_TYPE,
+                'done',
+                repairHistoryNoteLine(meta),
+                JSON.stringify(meta),
+              );
+            } catch {
+              /* история — аудиторская запись, не валим сохранение карточки */
             }
           }
           await props.onEngineUpdated();
@@ -2449,6 +2468,12 @@ export function EngineDetailsPage(props: {
           hidden={activeTab !== 'history'}
           style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}
         >
+          <EngineRepairHistoryPanel
+            engineId={props.engineId}
+            canEdit={canEditEnginesEff}
+            workshopOptions={workshopOptions}
+            onChanged={() => void props.onEngineUpdated()}
+          />
           <EngineTimelinePanel engineId={props.engineId} />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
         </div>

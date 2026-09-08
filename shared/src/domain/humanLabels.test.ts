@@ -139,8 +139,11 @@ describe('stripIdentifierTokens', () => {
 
 describe('домены реестра', () => {
   it('покрывают все коды таймлайна двигателя, а не выборочные', () => {
-    expect(humanLabelDomainCodes('operation_type')).toHaveLength(29);
+    expect(humanLabelDomainCodes('operation_type')).toHaveLength(30);
     expect(hasHumanLabel('operation_type', 'defect_conducted')).toBe(true);
+    // История ремонта (08.09.2026) — новый тип операции обязан быть подписан по-человечески:
+    // без подписи лента паспорта показала бы оператору сырой код.
+    expect(hasHumanLabel('operation_type', 'repair_history_entry')).toBe(true);
     expect(hasHumanLabel('operation_type', 'нет_такого')).toBe(false);
   });
 

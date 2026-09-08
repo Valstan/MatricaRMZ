@@ -9,6 +9,9 @@ import {
   ENGINE_INVENTORY_STAGE,
   RECLAMATION_DEFECT_NATURE,
   ENGINE_RESERVATION_CODE,
+  REPAIR_HISTORY_OPERATION_TYPE,
+  currentWorkshopFromHistory,
+  repairHistoryFromOperations,
   EntityTypeCode,
   formatEngineReservationHolder,
   isEngineReservationLive,
@@ -33,6 +36,7 @@ import { attributeDefs, attributeValues, entities, entityTypes, operations } fro
 import { collectChunked } from '../utils/sqlChunks.js';
 import { listEntitiesByType } from './entityService.js';
 import type {
+  RepairHistorySourceRow,
   EngineDetails,
   EngineDuplicateCandidate,
   EngineDuplicateMatches,
@@ -367,6 +371,76 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
   return result;
 }
 
+type EngineRepairHistorySummary = { lastAction: string; lastAt: number | null; workshopId: string };
+
+/**
+ * Последнее событие истории ремонта по каждому двигателю — для ступеней списка «что с ним
+ * происходило» и «в каком он цехе».
+ *
+ * Берём только строки истории и межцеховые передачи: остальные операции (акты, наряды,
+ * движения склада) к этому вопросу отношения не имеют, а их у двигателя больше всего.
+ */
+async function getEngineRepairHistoryMap(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+): Promise<Map<string, EngineRepairHistorySummary>> {
+  const result = new Map<string, EngineRepairHistorySummary>();
+  if (engineIds.length === 0) return result;
+
+  const rows = await collectChunked(engineIds, (idsChunk) =>
+    db
+      .select({
+        id: operations.id,
+        engineEntityId: operations.engineEntityId,
+        operationType: operations.operationType,
+        note: operations.note,
+        performedAt: operations.performedAt,
+        performedBy: operations.performedBy,
+        metaJson: operations.metaJson,
+        createdAt: operations.createdAt,
+        updatedAt: operations.updatedAt,
+      })
+      .from(operations)
+      .where(
+        and(
+          inArray(operations.engineEntityId, idsChunk),
+          inArray(operations.operationType, [REPAIR_HISTORY_OPERATION_TYPE, 'workshop_transfer']),
+          isNull(operations.deletedAt),
+        ),
+      ),
+  );
+
+  const byEngine = new Map<string, RepairHistorySourceRow[]>();
+  for (const row of rows) {
+    const engineId = String(row.engineEntityId ?? '').trim();
+    if (!engineId) continue;
+    const bucket = byEngine.get(engineId) ?? [];
+    bucket.push({
+      id: String(row.id),
+      operationType: String(row.operationType ?? ''),
+      note: row.note == null ? null : String(row.note),
+      performedAt: row.performedAt == null ? null : Number(row.performedAt),
+      performedBy: row.performedBy == null ? null : String(row.performedBy),
+      metaJson: row.metaJson == null ? null : String(row.metaJson),
+      createdAt: Number(row.createdAt ?? 0),
+      updatedAt: Number(row.updatedAt ?? 0),
+    });
+    byEngine.set(engineId, bucket);
+  }
+
+  for (const [engineId, bucket] of byEngine) {
+    const entries = repairHistoryFromOperations(bucket);
+    const last = entries[0];
+    if (!last) continue;
+    result.set(engineId, {
+      lastAction: last.action,
+      lastAt: last.at,
+      workshopId: currentWorkshopFromHistory(entries) ?? '',
+    });
+  }
+  return result;
+}
+
 export type EngineLabel = { engineNumber: string; engineBrand: string; internalNumberFull: string };
 
 /**
@@ -472,6 +546,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const contractCustomerById = await getContractCustomerMap(db);
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
+  const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
   const baseDefIds = [
     numberDefId,
     internalNumberDefId,
@@ -670,6 +745,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const statusScrapMarked = isScrapEngine(statusFlags);
     // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
+    const history = historyByEngineId.get(e.id);
     const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
 
     // Заказчик считается из договора, а поле карточки — запасной путь (общее правило
@@ -706,7 +782,11 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       ...(inventoryFlags?.defectStarted === true ? { hasDefectAct: true } : {}),
       defectDate,
-      ...(workshopId ? { workshopId } : {}),
+      // Цех истории важнее атрибута карточки: переезд фиксируется событием, и список должен
+      // показывать то же, что вкладка «История ремонта».
+      ...(history?.workshopId || workshopId ? { workshopId: history?.workshopId || workshopId } : {}),
+      ...(history?.lastAction ? { lastHistoryAction: history.lastAction } : {}),
+      ...(history?.lastAt != null ? { lastHistoryAt: history.lastAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),
