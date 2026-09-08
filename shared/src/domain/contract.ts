@@ -18,12 +18,34 @@ export type ContractExecutionPartRow = {
   completedQty: number;
 };
 
+/**
+ * Военный / гражданский контракт (просьба владельца 08.09.2026 — по нему фильтруется список).
+ *
+ * Живёт ВНУТРИ `contract_sections`, а не отдельным EAV-атрибутом: с 2026-08-18 действует
+ * EAV-freeze (AGENTS.md §EAV), а строгая таблица `erp_contracts` — зеркало EAV, писать в неё
+ * напрямую нельзя. Поле в уже существующем JSON не заводит ни атрибута, ни колонки и само
+ * доезжает до зеркала (`sections_json`) и синхронизации.
+ */
+export type ContractKind = 'military' | 'civil';
+
+export const CONTRACT_KIND_LABELS: Record<ContractKind, string> = {
+  military: 'Военный',
+  civil: 'Гражданский',
+};
+
+export function parseContractKind(raw: unknown): ContractKind | null {
+  const value = String(raw ?? '').trim();
+  return value === 'military' || value === 'civil' ? value : null;
+}
+
 export type ContractPrimarySection = {
   number: string;
   signedAt: number | null;
   dueAt: number | null;
   internalNumber: string;
   customerId: string | null;
+  /** `null` — вид не проставлен: у старых контрактов его нет, и угадывать нечего. */
+  kind: ContractKind | null;
   engineBrands: ContractEngineBrandRow[];
   parts: ContractPartRow[];
 };
@@ -421,6 +443,7 @@ const defaultPrimary: ContractPrimarySection = {
   dueAt: null,
   internalNumber: '',
   customerId: null,
+  kind: null,
   engineBrands: [],
   parts: [],
 };
@@ -440,6 +463,7 @@ export function parseContractSections(attrs: Record<string, unknown> | null | un
             dueAt: typeof primary.dueAt === 'number' ? primary.dueAt : null,
             internalNumber: String(primary.internalNumber ?? primary.number ?? ''),
             customerId: primary.customerId != null ? String(primary.customerId) : null,
+            kind: parseContractKind(primary.kind),
             engineBrands: Array.isArray(primary.engineBrands) ? primary.engineBrands.filter((r) => r && typeof r.engineBrandId === 'string') : [],
             parts: Array.isArray(primary.parts) ? primary.parts.filter((p) => p && typeof p.partId === 'string') : [],
           }

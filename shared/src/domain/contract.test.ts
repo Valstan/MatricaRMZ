@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONTRACT_KIND_LABELS,
   aggregateContractExecutionProgress,
   buildContractSectionOptions,
   canonicalContractSectionKey,
@@ -13,6 +14,7 @@ import {
   isContractLaggingVsSchedule,
   linearScheduleExpectedProgressPct,
   parseContractExecutionParts,
+  parseContractKind,
   parseContractSections,
   sumEngineBrandQtyByBrandFromContractSections,
   type ContractSections,
@@ -287,5 +289,34 @@ describe('isEavFlagSet — три представления одного «не
   it('утиль по строковому "false" больше не мерещится', () => {
     expect(isScrapEngine(statusFlagsFromAttrs({ status_scrap_confirmed: 'false' }))).toBe(false);
     expect(isScrapEngine(statusFlagsFromAttrs({ status_rework_sent: 'true' }))).toBe(true);
+  });
+});
+
+// Вид контракта «военный / гражданский» (просьба владельца 08.09.2026). Живёт ВНУТРИ
+// contract_sections, а не отдельным EAV-атрибутом: действует EAV-freeze, а erp_contracts —
+// зеркало EAV, писать в него напрямую нельзя.
+describe('вид контракта', () => {
+  it('читается из основного раздела и переживает разбор', () => {
+    const sections = parseContractSections({ contract_sections: { primary: { number: '1', kind: 'military' }, addons: [] } });
+    expect(sections.primary.kind).toBe('military');
+  });
+
+  it('у контракта без вида это null, а не догадка', () => {
+    const sections = parseContractSections({ contract_sections: { primary: { number: '1' }, addons: [] } });
+    expect(sections.primary.kind).toBeNull();
+    expect(parseContractSections({ number: '7/2026' }).primary.kind).toBeNull();
+  });
+
+  it('мусор в поле не превращается в вид', () => {
+    for (const raw of ['военный', 'MILITARY', '', 0, null, {}]) {
+      const sections = parseContractSections({ contract_sections: { primary: { number: '1', kind: raw }, addons: [] } });
+      expect(sections.primary.kind).toBeNull();
+    }
+  });
+
+  it('у обоих видов есть подпись для оператора', () => {
+    expect(CONTRACT_KIND_LABELS.military).toBe('Военный');
+    expect(CONTRACT_KIND_LABELS.civil).toBe('Гражданский');
+    expect(parseContractKind('civil')).toBe('civil');
   });
 });

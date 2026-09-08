@@ -62,6 +62,8 @@ import {
   type PlannedSectionBrand,
   type ContractExecutionProgressAggregate,
   type ContractSections,
+  CONTRACT_KIND_LABELS,
+  type ContractKind,
   type ContractPrimarySection,
   type ContractAddonSection,
   type ContractEngineBrandRow,
@@ -723,6 +725,36 @@ function SectionBlock(props: {
                   onChange={(e) => update({ internalNumber: e.target.value })}
                   style={{ width: '100%' }}
                 />
+              </FormField>
+              <FormField label="Вид контракта">
+                {/* Повторный щелчок по выбранному снимает вид: проставить его по ошибке легче,
+                    чем догадаться, как вернуть «не указан». */}
+                <div style={{ display: 'flex', gap: 6 }} data-contract-kind>
+                  {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
+                    const on = primarySection.kind === kind;
+                    return (
+                      <button
+                        key={kind}
+                        type="button"
+                        data-contract-kind-option={kind}
+                        disabled={!canEdit}
+                        onClick={() => update({ kind: on ? null : kind })}
+                        title={on ? 'Снять вид контракта' : `Отметить контракт как «${CONTRACT_KIND_LABELS[kind]}»`}
+                        style={{
+                          flex: 1,
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: '1px solid var(--border)',
+                          background: on ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                          fontWeight: on ? 700 : 400,
+                          cursor: canEdit ? 'pointer' : 'default',
+                        }}
+                      >
+                        {CONTRACT_KIND_LABELS[kind]}
+                      </button>
+                    );
+                  })}
+                </div>
               </FormField>
               <FormField label="Контрагент" fullWidth>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
