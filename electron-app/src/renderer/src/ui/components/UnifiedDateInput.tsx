@@ -144,6 +144,14 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
     localStorage.setItem(DATE_PICKER_SIZE_KEY, size);
   }, [size]);
 
+  // Датапикер подменяет поле своим, поэтому `title` и `data-*` вызывающего до DOM не доезжали:
+  // снаружи код выглядел рабочим (`<Input type="date" title="Дата прихода: по" />`), а подсказки
+  // оператору и зацепки смоуков молча пропадали. Пробрасываем их явно.
+  const passThroughAttrs: Record<string, unknown> = {
+    ...(props.title != null ? { title: props.title } : {}),
+    ...Object.fromEntries(Object.entries(props).filter(([key]) => key.startsWith('data-'))),
+  };
+
   const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '4px 6px',
@@ -230,7 +238,15 @@ export const UnifiedDateInput = React.forwardRef<HTMLInputElement, React.InputHT
         props.onKeyDown?.(e as unknown as React.KeyboardEvent<HTMLInputElement>);
       }}
       autoComplete="off"
-      customInput={<input ref={ref} style={inputStyle} data-autogrow="off" data-input-assist="component-suggestions" />}
+      customInput={
+        <input
+          ref={ref}
+          style={inputStyle}
+          data-autogrow="off"
+          data-input-assist="component-suggestions"
+          {...passThroughAttrs}
+        />
+      }
       {...optionalPickerProps}
       />
     </DatePickerSizeContext.Provider>
