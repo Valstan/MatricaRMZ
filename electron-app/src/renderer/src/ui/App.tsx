@@ -1032,6 +1032,8 @@ export function App() {
   // Split: набор панелей, чьё сохранение решает текущая close-модалка ('primary'/'secondary').
   const cardClosePanesRef = useRef<Array<'primary' | 'secondary'>>([]);
   const [cardClosePaneCount, setCardClosePaneCount] = useState(1);
+  /** Подписи закрываемых карточек: оператор должен видеть, ЧТО именно не сохранено. */
+  const [cardCloseLabels, setCardCloseLabels] = useState<string[]>([]);
   const cardCloseTimerRef = useRef<number | null>(null);
   const navigateDeepLinkRef = useRef<(link: ChatDeepLinkPayload) => Promise<void>>(async () => {});
   // Phase 3b: recovery drafts surfaced once after login (null = not shown / dismissed).
@@ -1210,16 +1212,30 @@ export function App() {
       cardCloseFromAppRef.current = fromApp;
       cardClosePanesRef.current = dirtyPanes;
       clearCardCloseTimer();
-      setCardCloseCountdown(10);
+      // При выходе из программы отсчёт длиннее (владелец 08.09.2026): оператор должен успеть
+      // прочитать список и решить, а не гадать, что за карточку у него сейчас закроют.
+      setCardCloseCountdown(fromApp ? 30 : 10);
       setCardCloseStatus('');
       setCardCloseSupportsDraft(supportsDraft);
       setCardClosePaneCount(dirtyPanes.length);
+      // Имена карточек берём из полосы вкладок: «карточка закрывается» без имени заставляет
+      // оператора гадать, где именно он набедокурил.
+      setCardCloseLabels(
+        dirtyPanes.map((pane) => {
+          if (pane === 'secondary') return sessionSecondaryCard(tabsState)?.title ?? 'Вторая панель';
+          return activeCardTab(tabsState)?.label ?? 'Открытая карточка';
+        }),
+      );
       setCardCloseModalOpen(true);
-      // Автозавершение по таймеру — ТОЛЬКО для карточек с черновиком (безопасный дефолт = оставить
-      // черновик: ничего не теряем и ничего молча не коммитим). Legacy-карточки без черновика
-      // (напр. карточка двигателя) НЕ дожимаем молча в save — оператор явно выбирает
-      // «Сохранить» / «Не сохранять»; иначе он не видит, где набедокурил, а изменения уже записаны.
-      if (supportsDraft) {
+      // Автозавершение по таймеру: при обычном переходе — ТОЛЬКО для карточек с черновиком
+      // (безопасный дефолт «оставить черновик» ничего не теряет и ничего молча не коммитит);
+      // legacy-карточку без черновика молча в save не дожимаем — оператор выбирает сам.
+      //
+      // При ЗАКРЫТИИ ПРОГРАММЫ таймер идёт всегда (владелец 08.09.2026: «если решение не принято,
+      // сохранять как черновики и завершать работу»). Для карточек без черновика `keepDraft`
+      // падает на `saveAndClose` — это по-прежнему не потеря данных, а запись; молчаливым такой
+      // исход не будет: список карточек оператор видел все 30 секунд.
+      if (supportsDraft || fromApp) {
         cardCloseTimerRef.current = window.setInterval(() => {
           setCardCloseCountdown((seconds) => {
             if (seconds <= 1) {
@@ -1235,6 +1251,35 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- finalizeCardClose is declared below this hook (mutual reference via the countdown timer); listing it here would read a TDZ binding and crash on render, and the timer closure resolves it lazily at call time
     [setTabState, paneCloseActions, clearSecondaryPaneState, respondAppClose],
   );
+
+  /**
+   * «Перейти в карточку» — отмена закрытия (владелец 08.09.2026). Модал гаснет, отсчёт
+   * останавливается, карточка остаётся открытой и НЕ сохраняется; если закрывали программу,
+   * окно остаётся жить: отвечаем `allowClose: false`.
+   */
+  const cancelCardCloseAndGoBack = useCallback(() => {
+    clearCardCloseTimer();
+    setCardCloseModalOpen(false);
+    setCardCloseStatus('');
+    const fromApp = cardCloseFromAppRef.current;
+    cardCloseInProgressRef.current = false;
+    cardClosePanesRef.current = [];
+    cardCloseTargetTabRef.current = null;
+    cardCloseFromAppRef.current = false;
+    // Переход между вкладками тоже отменяем: карточка, ради которой всё затевалось, остаётся
+    // активной — оператору некуда «переходить», он уже в ней.
+    pendingCardOpenRef.current = null;
+    pendingCardTabRef.current = null;
+    if (fromApp) {
+      try {
+        window.matrica.app.respondToCloseRequest({ allowClose: false });
+      } catch {
+        /* окно уже закрывается — отменять нечего */
+      }
+    }
+    // Зависимостей нет намеренно: колбэк читает только refs и стабильные сеттеры, а
+    // `clearCardCloseTimer` — функция тела компонента, которая тоже работает через ref.
+  }, []);
 
   const finalizeCardClose = useCallback(
     async (decision: 'save' | 'discard' | 'keepDraft') => {
@@ -4832,8 +4877,22 @@ export function App() {
                 ? `Если не выбрать действие, изменения останутся черновиком через ${cardCloseCountdown} сек.`
                 : 'Пока не выберете действие, изменения не сохраняются, карточка остаётся открытой.'}
           </div>
+          {cardCloseLabels.length > 0 ? (
+            <ul data-card-close-list style={{ marginTop: 10, marginBottom: 0, paddingLeft: 20 }}>
+              {cardCloseLabels.map((label, i) => (
+                <li key={i} style={{ fontWeight: 600 }}>
+                  {label}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {cardCloseStatus ? <div style={{ marginTop: 8, color: 'var(--danger)' }}>{cardCloseStatus}</div> : null}
           <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            {/* Третий выход (владелец 08.09.2026): не решать вслепую, а пойти и посмотреть.
+                Закрытие программы при этом отменяется — окно остаётся открытым. */}
+            <Button variant="ghost" data-card-close-goto onClick={cancelCardCloseAndGoBack}>
+              Перейти в карточку
+            </Button>
             <Button tone="danger" variant="ghost" onClick={() => void finalizeCardClose('discard')}>
               {cardClosePaneCount > 1 ? 'Не сохранять все' : 'Не сохранять'}
             </Button>
