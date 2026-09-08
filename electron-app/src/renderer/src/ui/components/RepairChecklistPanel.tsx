@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DefectConductedVersionSummary, DefectPartHistoryEvent, EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, resolveHeaderAutofill, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
@@ -517,6 +517,8 @@ export function RepairChecklistPanel(props: {
   const [collapsed, setCollapsed] = useState<boolean>(props.defaultCollapsed === true);
   const [loadVersion, setLoadVersion] = useState(0);
   const brandRowsSyncKeyRef = useRef<string>('');
+  // Что автоподстановка шапки записала сама: поле её, пока значение совпадает.
+  const headerAutofillRef = useRef<Record<string, string>>({});
   const lastSavedAnswersRef = useRef<string>('');
   const saveInFlightRef = useRef(false);
   const queuedSaveAnswersRef = useRef<RepairChecklistAnswers | null>(null);
@@ -943,6 +945,7 @@ export function RepairChecklistPanel(props: {
     setAnswers(nextAnswers);
     lastSavedAnswersRef.current = safeJsonStringify({ templateId: preferred, answers: nextAnswers });
     brandRowsSyncKeyRef.current = '';
+    headerAutofillRef.current = {};
     setLoadVersion((v) => v + 1);
     setStatus('');
   }, [props.engineId, props.stage]);
@@ -993,41 +996,27 @@ export function RepairChecklistPanel(props: {
     const isCompleteness = props.stage === 'completeness';
     const isInventory = props.stage === ENGINE_INVENTORY_STAGE;
 
-    // Решение владельца 2026-08-01: оператор вправе править эти поля на каждом двигателе.
-    // Поэтому автоподстановка только ЗАПОЛНЯЕТ ПУСТОЕ и никогда не перетирает введённое —
-    // вернуть значения из карточки двигателя можно кнопкой «Сбросить по двигателю и марке».
-    if (hasItem('engine_brand') && brand) {
-      const a: any = (answers as any).engine_brand;
-      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim()) {
-        (next as any).engine_brand = { kind: 'text', value: brand };
-        changed = true;
-      }
-    }
-    if (hasItem('engine_number') && num) {
-      const a: any = (answers as any).engine_number;
-      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim()) {
-        (next as any).engine_number = { kind: 'text', value: num };
-        changed = true;
-      }
-    }
-    if (hasItem('engine_internal_number') && internalNum) {
-      const a: any = (answers as any).engine_internal_number;
-      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim()) {
-        (next as any).engine_internal_number = { kind: 'text', value: internalNum };
-        changed = true;
-      }
-    }
-    if ((isCompleteness || isInventory) && hasItem('contract_number') && contractNumber) {
-      const a: any = (answers as any).contract_number;
-      const current = a?.kind === 'text' ? String(a.value ?? '') : '';
-      if (!current.trim()) {
-        (next as any).contract_number = { kind: 'text', value: contractNumber };
-        changed = true;
-      }
-    }
+    // Решение владельца 2026-08-01: оператор вправе править эти поля на каждом двигателе,
+    // автоподстановка не перетирает введённое им — вернуть значения из карточки двигателя
+    // можно кнопкой «Сбросить по двигателю и марке». Правило владения — в домене.
+    const fillText = (id: string, value: string) => {
+      if (!hasItem(id)) return;
+      const a: any = (answers as any)[id];
+      const resolved = resolveHeaderAutofill({
+        current: a?.kind === 'text' ? String(a.value ?? '') : '',
+        incoming: value,
+        owned: headerAutofillRef.current[id],
+      });
+      if (resolved == null) return;
+      (next as any)[id] = { kind: 'text', value: resolved };
+      headerAutofillRef.current[id] = resolved;
+      changed = true;
+    };
+
+    fillText('engine_brand', brand);
+    fillText('engine_number', num);
+    fillText('engine_internal_number', internalNum);
+    if (isCompleteness || isInventory) fillText('contract_number', contractNumber);
     if (isInventory && hasItem('arrival_date') && arrivalDate) {
       const a: any = (answers as any).arrival_date;
       const current = a?.kind === 'date' && Number.isFinite(a.value) ? Number(a.value) : null;
@@ -1040,7 +1029,7 @@ export function RepairChecklistPanel(props: {
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; since each branch now only fills a BLANK field, an edited field never matches and the `if (!changed) return` guard keeps it a no-op
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; a field the operator has touched fails the ownership check in `fillText`, so the `if (!changed) return` guard keeps it a no-op
   }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
   useEffect(() => {
@@ -1497,6 +1486,11 @@ export function RepairChecklistPanel(props: {
             actual_qty: prev != null ? toQtyValue((prev as any).actual_qty ?? 0) : toQtyValue((base as any).actual_qty ?? 0),
             scrap_qty: toQtyValue((prev as any)?.scrap_qty ?? 0),
             replace_qty: toQtyValue((prev as any)?.replace_qty ?? 0),
+            // Причина утиля — операторский текст строки, у строки марки его нет:
+            // без явного переноса resync затирал её при каждом открытии карточки.
+            ...(prev && String((prev as any).scrap_reason ?? '').trim()
+              ? { scrap_reason: String((prev as any).scrap_reason) }
+              : {}),
             // Т6: «№ на детали» (набитый) — операторские данные строки, переживают brand-resync.
             ...(prev && String((prev as any).stamped_number ?? '').trim()
               ? { stamped_number: String((prev as any).stamped_number) }
