@@ -50,6 +50,11 @@ import {
   warehouseLocations,
 } from '../../database/schema.js';
 
+// Потолок id в снимке пропусков: снимок пишется на КАЖДЫЙ push с пропуском, а
+// здоровье конвейера считает различные строки за сутки. Реальные значения —
+// единицы; потолок нужен, чтобы разовый мусорный батч не раздул payload.
+const SKIPPED_ROW_IDS_CAP = 200;
+
 // Специальный “контейнер” для операций заявок в снабжение.
 // Клиент использует этот UUID как operations.engine_entity_id для supply_request.
 const SUPPLY_REQUESTS_CONTAINER_ENTITY_ID = SystemIds.SupplyRequestsContainerEntityId;
@@ -2105,13 +2110,30 @@ export async function applyPushBatch(
     await flushOwners();
 
     if (skipCounters.size > 0) {
+      // Вместе со счётчиком кладём и сами id (с потолком). Без них здоровье
+      // конвейера считалось по числу ПОПЫТОК: один залипший клиент, повторяющий
+      // 8 строк каждые 40 секунд, давал 6000+ «пропущенных строк» в сутки и
+      // держал статус `critical` вечно, пряча за собой настоящие пропуски.
       const metrics = Array.from(skipCounters.entries()).map(([key, count]) => {
         const [kind, table, dependency] = key.split('|');
+        const rowIds =
+          kind === 'dependency'
+            ? Array.from(
+                new Set(
+                  skippedRows
+                    .filter(
+                      (r) => r.reason === 'missing_dependency' && String(r.table) === table && String(r.dependency ?? '') === dependency,
+                    )
+                    .map((r) => String(r.row_id)),
+                ),
+              ).slice(0, SKIPPED_ROW_IDS_CAP)
+            : [];
         return {
           kind,
           table,
           dependency: dependency || null,
           count,
+          ...(rowIds.length > 0 ? { rowIds } : {}),
         };
       });
       await tx.insert(diagnosticsSnapshots).values({

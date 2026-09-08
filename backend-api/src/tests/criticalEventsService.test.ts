@@ -58,6 +58,36 @@ describe('criticalEventsService alert hygiene', () => {
     expect(events[0]?.severity).toBe('error');
   });
 
+  it('raises blocked rows reported by the client as their own incident', () => {
+    // Клиент сам говорит, что строки не отправятся никогда. До 09.2026 такое
+    // было видно только по чужому симптому — счётчику пропусков на сервере.
+    ingestClientLogForCriticalEvent({
+      username: 'tester',
+      level: 'error',
+      message: 'sync blocked rows: 8 row(s) cannot be sent, dependency missing here too',
+      metadata: { component: 'sync', action: 'blocked_rows', critical: true, added: 8, total: 8 },
+      timestamp: Date.now(),
+    });
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventCode).toBe('client.sync.blocked_rows');
+    expect(events[0]?.severity).toBe('error');
+  });
+
+  it('does not confuse a blocked-by-auth sync with blocked rows', () => {
+    ingestClientLogForCriticalEvent({
+      username: 'tester',
+      level: 'warn',
+      message: 'sync blocked: auth required',
+      metadata: { component: 'sync', action: 'run', critical: true },
+      timestamp: Date.now(),
+    });
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events.map((e) => e.eventCode)).not.toContain('client.sync.blocked_rows');
+  });
+
   it('demotes transient pipeline bot polling failures to warn', () => {
     ingestServerLogForCriticalEvent({
       level: 'warn',

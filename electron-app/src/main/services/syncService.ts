@@ -58,7 +58,15 @@ import type { SyncRunResult } from '@matricarmz/shared';
 import { authRefresh, clearSession, getSession } from './authService.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { buildOrphanCleanupSql } from './sync/repairSql.js';
-import { planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
+import { DEPENDENCY_TABLE, planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
+import {
+  blockedIdsForTable,
+  mergeBlockedRows,
+  parseBlockedRows,
+  releaseResolvedBlockedRows,
+  serializeBlockedRows,
+  type BlockedRowInput,
+} from './sync/blockedRows.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
@@ -241,6 +249,29 @@ const FULL_STATE_SYNC_TABLES_PRIORITIZED: string[] = [
 
 function logSync(message: string) {
   appendMainLogLine(app, `sync ${message}`);
+}
+
+// Адрес сервера последнего запуска синка. Сбор pending-строк и карантин живут
+// вне функции запуска, а доложить о застрявшей работе они обязаны тем же
+// адресом, которым ходит сам синк.
+let lastKnownApiBaseUrl: string | null = null;
+
+/**
+ * Причина отказа схемы — путём и кодом, без значений: строка карточки едет в
+ * серверный лог, а там значения полей были бы ПДн (AGENTS.md §«Персональные
+ * данные сотрудников»). Путь и код отвечают на «что именно не так», значение —
+ * не нужно.
+ */
+function describeParseFailure(parsed: { success: boolean; error?: unknown }): string[] {
+  if (parsed.success) return [];
+  const issues = (parsed.error as { issues?: Array<{ path?: unknown[]; code?: string }> } | undefined)?.issues;
+  if (!Array.isArray(issues) || issues.length === 0) return ['unknown'];
+  const out = new Set<string>();
+  for (const issue of issues) {
+    const path = Array.isArray(issue?.path) && issue.path.length > 0 ? issue.path.join('.') : '(root)';
+    out.add(`${path}:${String(issue?.code ?? 'invalid')}`);
+  }
+  return Array.from(out);
 }
 
 // Async-шов над сырым SQLite (см. database/sqlExecutor.ts): десктоп оборачивает
@@ -1068,8 +1099,14 @@ async function collectPending(db: BetterSQLite3Database) {
   ) {
     const rows = await db.select().from(table).where(eq(table.syncStatus, errored as any)).limit(limit);
     if (!rows.length) return;
+    // Карантин не воскрешаем: у этих строк валидна схема и отсутствует родитель,
+    // а проверка ниже смотрит ровно на схему — без этого гарда лечение
+    // «строка без зависимости уходит в error» отменялось на следующем же цикле
+    // (sync/blockedRows.ts).
+    const blockedIds = blockedIdsForTable(blockedRows, tableName);
     const recoveredIds: string[] = [];
     for (const row of rows as any[]) {
+      if (blockedIds.has(String(row.id))) continue;
       let parsed = schema.safeParse(toSyncRow(tableName, row));
       if (!parsed.success && fixRow) {
         const fixed = await fixRow(row);
@@ -1115,6 +1152,13 @@ async function collectPending(db: BetterSQLite3Database) {
     await db.update(table).set({ syncStatus: pending as any }).where(inArray(table.id, ids as any));
     logSync(`push requeue unconfirmed rows table=${tableName} count=${ids.length}`);
   }
+
+  // Карантин читается один раз за сбор: он нужен и чтобы не воскрешать его строки,
+  // и чтобы отпустить те, чья зависимость успела приехать pull'ом.
+  await releaseBlockedRowsWithDependency(db).catch((e) => {
+    logSync(`push blocked rows release failed err=${formatError(e)}`);
+  });
+  const blockedRows = parseBlockedRows(await settingsGetString(db, SettingsKey.SyncBlockedRows).catch(() => null));
 
   await requeueUnconfirmedRows(entities, SyncTableName.Entities);
   await requeueUnconfirmedRows(attributeDefs, SyncTableName.AttributeDefs);
@@ -1171,6 +1215,7 @@ async function collectPending(db: BetterSQLite3Database) {
   {
     const valid: typeof pendingEntities = [];
     const invalidIds: string[] = [];
+    const invalidReasons = new Set<string>();
     for (const row of pendingEntities) {
       let parsed = entityRowSchema.safeParse(toSyncRow(SyncTableName.Entities, row));
       if (!parsed.success) {
@@ -1182,11 +1227,34 @@ async function collectPending(db: BetterSQLite3Database) {
         valid.push(row);
       } else {
         invalidIds.push(String(row.id));
+        for (const reason of describeParseFailure(parsed)) invalidReasons.add(reason);
       }
     }
     if (invalidIds.length > 0) {
       await markPendingError(db, SyncTableName.Entities, invalidIds);
-      logSync(`push drop invalid entities count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+      // Причину пишем полем, а не одним счётчиком: карточка, которую местная
+      // проверка не пускает в push, не доедет до сервера НИКОГДА, и до этой
+      // правки узнать почему было неоткуда — строка молча оседала в `error`.
+      logSync(
+        `push drop invalid entities count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')} reasons=${Array.from(invalidReasons).slice(0, 5).join(';')}`,
+      );
+      // Через тот же карантин: он и защищает от воскрешения, и помнит, о чём уже
+      // доложено. Зависимости у этой причины нет — строка выйдет из карантина,
+      // когда перестанет быть `error` (карточку поправили).
+      const { added } = await quarantineRows(
+        db,
+        invalidIds.map((id) => ({ table: SyncTableName.Entities, id, dependency: 'schema', missingId: '' })),
+      );
+      if (added.length > 0 && lastKnownApiBaseUrl) {
+        void logMessage(db, lastKnownApiBaseUrl, 'error', `sync_invalid_row entities: ${added.length} row(s) rejected locally before push`, {
+          component: 'sync',
+          action: 'drop_invalid_rows',
+          critical: true,
+          table: SyncTableName.Entities,
+          ids: added.slice(0, 5).map((r) => r.id),
+          reasons: Array.from(invalidReasons).slice(0, 5),
+        }).catch(() => {});
+      }
     }
     await add(SyncTableName.Entities, valid);
   }
@@ -1494,6 +1562,16 @@ function toLedgerTx(table: SyncTableName, row: any) {
 async function healSkippedDependencies(db: BetterSQLite3Database, skipped: SkippedRowLike[]) {
   const sqlite = getSqlExecutor();
   if (!sqlite) return;
+  const skippedDetails = new Map<string, { dependency: string; missingId: string }>();
+  for (const row of skipped) {
+    const table = String(row?.table ?? '');
+    const rowId = String(row?.row_id ?? '');
+    if (!table || !rowId) continue;
+    skippedDetails.set(`${table}:${rowId}`, {
+      dependency: String(row?.dependency ?? ''),
+      missingId: String(row?.missing_id ?? ''),
+    });
+  }
   const plan = await planDependencyRequeue(skipped, async (table, id) => {
     const rows = (await sqlite.all(`SELECT 1 AS one FROM ${quoteIdent(table)} WHERE id = ? LIMIT 1`, [id])) as unknown[];
     return rows.length > 0;
@@ -1513,10 +1591,102 @@ async function healSkippedDependencies(db: BetterSQLite3Database, skipped: Skipp
     }
     logSync(`push dependency requeue table=${table} ids=${ids.length} requeued=${requeued}`);
   }
+  const blockedInputs: BlockedRowInput[] = [];
   for (const [table, ids] of plan.markError) {
     await markPendingError(db, table, ids);
     logSync(`push dependency missing locally too: table=${table} marked error ids=${ids.length} sample=${ids.slice(0, 3).join(',')}`);
+    for (const id of ids) {
+      const detail = skippedDetails.get(`${table}:${id}`);
+      blockedInputs.push({
+        table,
+        id,
+        dependency: detail?.dependency ?? '',
+        missingId: detail?.missingId ?? '',
+      });
+    }
   }
+  if (blockedInputs.length === 0) return;
+  const { added, total } = await quarantineRows(db, blockedInputs);
+  if (added.length === 0 || !lastKnownApiBaseUrl) return;
+  // Доклад — один раз на строку (карантин помнит, что уже сказано), и он
+  // `critical`: иначе застрявшая работа оператора видна только по чужому
+  // симптому — счётчику пропусков на сервере, — а на самой машине никак.
+  void logMessage(db, lastKnownApiBaseUrl, 'error', `sync blocked rows: ${added.length} row(s) cannot be sent, dependency missing here too`, {
+    component: 'sync',
+    action: 'blocked_rows',
+    critical: true,
+    added: added.length,
+    total,
+    sample: added.slice(0, 5).map((r) => `${r.table}:${r.id}->${r.dependency}:${r.missingId}`),
+  }).catch(() => {});
+}
+
+/**
+ * Кладёт строки в карантин. Пометки `error` мало: её снимает
+ * `recoverErroredRows` (см. `sync/blockedRows.ts`), и до этой правки строка
+ * возвращалась в цикл на следующем же push. Возвращает то, что добавилось
+ * ВПЕРВЫЕ, — по нему вызывающий решает, докладывать ли: повторный доклад об
+ * одной и той же строке превратил бы вечный цикл строк в вечный цикл тревог.
+ */
+async function quarantineRows(db: BetterSQLite3Database, inputs: BlockedRowInput[]) {
+  const raw = await settingsGetString(db, SettingsKey.SyncBlockedRows).catch(() => null);
+  const { rows, added, overflow } = mergeBlockedRows(parseBlockedRows(raw), inputs, Date.now());
+  if (added.length > 0) {
+    await settingsSetString(db, SettingsKey.SyncBlockedRows, serializeBlockedRows(rows)).catch((e) => {
+      logSync(`push blocked rows save failed err=${formatError(e)}`);
+    });
+    logSync(`push blocked rows added=${added.length} total=${rows.length}`);
+  }
+  if (overflow > 0) {
+    logSync(`push blocked rows cap reached total=${rows.length} not_quarantined=${overflow}`);
+  }
+  return { added, total: rows.length, overflow };
+}
+
+/**
+ * Чистка карантина перед сбором push'а. Два выхода из него:
+ * - строка больше не в `error` (оператор поправил карточку, строку удалили,
+ *   базу перезалили) — запись карантина протухла, снимаем её и ничего не
+ *   трогаем: строка и так живёт своей жизнью;
+ * - зависимость появилась локально (её привёз pull) — возвращаем строку в
+ *   очередь, следующий push повезёт её вместе с родителем.
+ */
+async function releaseBlockedRowsWithDependency(db: BetterSQLite3Database) {
+  const raw = await settingsGetString(db, SettingsKey.SyncBlockedRows).catch(() => null);
+  const stored = parseBlockedRows(raw);
+  if (stored.length === 0) return;
+  const sqlite = getSqlExecutor();
+  if (!sqlite) return;
+
+  const stillParked: typeof stored = [];
+  let stale = 0;
+  for (const row of stored) {
+    const found = (await sqlite
+      .all(`SELECT sync_status AS status FROM ${quoteIdent(row.table)} WHERE id = ? LIMIT 1`, [row.id])
+      .catch(() => [])) as Array<{ status?: unknown }>;
+    if (found.length === 0 || String(found[0]?.status ?? '') !== 'error') {
+      stale += 1;
+      continue;
+    }
+    stillParked.push(row);
+  }
+
+  const { blocked, released } = await releaseResolvedBlockedRows(
+    stillParked,
+    async (table, id) => {
+      const rows = (await sqlite.all(`SELECT 1 AS one FROM ${quoteIdent(table)} WHERE id = ? LIMIT 1`, [id])) as unknown[];
+      return rows.length > 0;
+    },
+    DEPENDENCY_TABLE,
+  );
+  if (released.length === 0 && stale === 0) return;
+  for (const row of released) {
+    await sqlite
+      .run(`UPDATE ${quoteIdent(row.table)} SET sync_status = 'pending' WHERE id = ? AND sync_status <> 'pending'`, [row.id])
+      .catch(() => {});
+  }
+  await settingsSetString(db, SettingsKey.SyncBlockedRows, serializeBlockedRows(blocked)).catch(() => {});
+  logSync(`push blocked rows released=${released.length} stale=${stale} still_blocked=${blocked.length}`);
 }
 
 async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, ids: string[]) {
@@ -3283,6 +3453,7 @@ export async function runSync(
   const syncRunId = randomUUID();
   const startedAt = nowMs();
   let currentApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  lastKnownApiBaseUrl = currentApiBaseUrl;
   let attemptedFix = false;
   const fullPull = opts?.fullPull ?? null;
   const progressMode: SyncProgressEvent['mode'] = fullPull ? 'force_full_pull' : 'incremental';

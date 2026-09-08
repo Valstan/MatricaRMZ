@@ -58,6 +58,18 @@ const CLIENT_PATTERNS: Array<{ re: RegExp; info: MatchInfo }> = [
     },
   },
   {
+    // Клиент сам сказал, что не может отправить строки: зависимости нет и у него.
+    // До 09.2026 такое было видно только по чужому симптому — счётчику пропусков
+    // на сервере, — а работа оператора при этом стояла молча.
+    re: /sync blocked rows/i,
+    info: {
+      code: 'client.sync.blocked_rows',
+      title: 'Клиент не может отправить строки: нет зависимости',
+      category: 'sync',
+      severity: 'error',
+    },
+  },
+  {
     re: /pull http (502|503|504)/i,
     info: {
       code: 'client.sync.pull_gateway_error',
