@@ -165,19 +165,6 @@ function collectProgressContractNumbers(sections: ContractSections): Set<string>
   return out;
 }
 
-function fromInputDate(value: string): number | null {
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-  const ms = Date.parse(`${text}T00:00:00`);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function endOfInputDate(value: string): number | null {
-  const startMs = fromInputDate(value);
-  if (startMs == null) return null;
-  return startMs + 24 * 60 * 60 * 1000 - 1;
-}
-
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
   if (!Array.isArray(raw)) return [];
   const previews: Array<{ id: string; name: string; mime: string | null }> = [];
