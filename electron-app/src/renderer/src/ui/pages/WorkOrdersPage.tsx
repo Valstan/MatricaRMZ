@@ -14,6 +14,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -523,7 +524,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* mx-page-toolbar — планшетный режим убирает ряд при прокрутке списка. */}
-      <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+      <PageToolbar>
         {props.canCreate && (
           <Button
             disabled={creating}
@@ -537,11 +538,13 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
             Отчёт по нарядам
           </Button>
         )}
-        <div style={{ width: '50%', minWidth: 260 }}>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным наряда…" />
-        </div>
-        <div style={{ width: 180 }}>
-          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} />
+        <ToolbarPin>
+          <div style={{ width: 260 }}>
+            <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным наряда…" />
+          </div>
+        </ToolbarPin>
+        <div style={{ width: 160 }}>
+          <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} title="Месяц нарядов" />
         </div>
         <div style={{ width: 180 }}>
           <select
@@ -569,7 +572,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         </div>
         <Button variant="ghost" onClick={() => void refresh()}>
           Применить фильтр
-        </Button>        <span style={{ color: '#6b7280', fontSize: 12 }}>Итог по списку: {rub(totalRowsAmount)}</span>
+        </Button>
+        <span style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap' }}>Итог по списку: {rub(totalRowsAmount)}</span>
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
@@ -579,19 +583,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
             Печать списка
           </Button>
         )}
-        {printDialogOpen && (
-          <ListPrintDialog
-            title="Список нарядов"
-            unitLabel="Нарядов"
-            columns={printColumns}
-            visibleColumnIds={visibleColumns.map((c) => c.id)}
-            rows={displayRows}
-            selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
-            storageKey="list:work-orders:printFields"
-            onClose={() => setPrintDialogOpen(false)}
-          />
-        )}
         <ColumnSettingsButton
+          label="Колонки списка"
           columns={columnDescriptors}
           order={columnLayout.order}
           isVisible={columnLayout.isVisible}
@@ -599,7 +592,22 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
           onMove={columnLayout.moveColumn}
           onReset={columnLayout.resetToDefault}
         />
-      </div>
+      </PageToolbar>
+
+      {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
+          кнопкой и открывался бы внутри выпадающей панели. */}
+      {printDialogOpen && (
+        <ListPrintDialog
+          title="Список нарядов"
+          unitLabel="Нарядов"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
+          storageKey="list:work-orders:printFields"
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>

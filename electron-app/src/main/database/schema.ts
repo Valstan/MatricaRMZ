@@ -130,13 +130,36 @@ export const auditLog = sqliteTable(
 // -----------------------------
 // Chat (sync tables)
 // -----------------------------
+/**
+ * Комната чата: создатель + приглашённые (владелец 08.09.2026). Участники — JSON-массивом
+ * в строке комнаты; кто не приглашён, тому сервер строку вовсе не отдаёт.
+ */
+export const chatRooms = sqliteTable(
+  'chat_rooms',
+  {
+    id: text('id').primaryKey(), // uuid
+    ownerUserId: text('owner_user_id').notNull(), // uuid
+    title: text('title').notNull(),
+    membersJson: text('members_json'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
+    deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (t) => ({
+    syncStatusIdx: index('chat_rooms_sync_status_idx').on(t.syncStatus),
+  }),
+);
+
 export const chatMessages = sqliteTable(
   'chat_messages',
   {
     id: text('id').primaryKey(), // uuid
     senderUserId: text('sender_user_id').notNull(), // uuid
     senderUsername: text('sender_username').notNull(),
-    recipientUserId: text('recipient_user_id'), // uuid | null (общий чат)
+    recipientUserId: text('recipient_user_id'), // uuid | null (общий чат или комната)
+    roomId: text('room_id'), // uuid | null — адрес комнаты
     messageType: text('message_type').notNull(), // text/file/deep_link/text_notify
     bodyText: text('body_text'),
     payloadJson: text('payload_json'),

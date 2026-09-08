@@ -538,6 +538,8 @@ export type ChatMessageItem = {
   senderUserId: string;
   senderUsername: string;
   recipientUserId: string | null;
+  /** Комната, если сообщение адресовано ей. Общий чат — обе ссылки пусты. */
+  roomId?: string | null;
   messageType: ChatMessageType;
   bodyText: string | null;
   payload: unknown | null;
@@ -555,11 +557,35 @@ export type ChatUserItem = {
   online: boolean;
 };
 
+/** Комната чата: создатель + приглашённые. Кто не приглашён, тот её вовсе не получает. */
+export type ChatRoomItem = {
+  id: string;
+  title: string;
+  ownerUserId: string;
+  memberIds: string[];
+  /** Может ли текущий пользователь править название и состав (создатель — да). */
+  canEdit: boolean;
+};
+
+export type ChatRoomsListResult = { ok: true; rooms: ChatRoomItem[] } | { ok: false; error: string };
+export type ChatRoomSaveResult = { ok: true; id: string } | { ok: false; error: string };
+
 export type ChatUsersListResult = { ok: true; users: ChatUserItem[] } | { ok: false; error: string };
 export type ChatListResult = { ok: true; messages: ChatMessageItem[] } | { ok: false; error: string };
 export type ChatSendResult = { ok: true; id: string } | { ok: false; error: string };
 export type ChatUnreadCountResult =
-  | { ok: true; total: number; global: number; byUser: Record<string, number> }
+  | {
+      ok: true;
+      total: number;
+      global: number;
+      byUser: Record<string, number>;
+      byRoom?: Record<string, number>;
+      /**
+       * Время последнего сообщения каждой беседы — по нему список бесед и упорядочен
+       * (владелец 08.09.2026). Считается по любому сообщению, включая своё отправленное.
+       */
+      lastAt?: { global: number; byUser: Record<string, number>; byRoom: Record<string, number> };
+    }
   | { ok: false; error: string };
 export type ChatExportResult = { ok: true; path: string } | { ok: false; error: string };
 export type ChatDeleteResult = { ok: true } | { ok: false; error: string };
@@ -2472,10 +2498,18 @@ export type MatricaApi = {
   };
   chat: {
     usersList: () => Promise<ChatUsersListResult>;
-    list: (args: { mode: 'global' | 'private'; withUserId?: string | null; limit?: number }) => Promise<ChatListResult>;
+    list: (args: {
+      mode: 'global' | 'private' | 'room';
+      withUserId?: string | null;
+      roomId?: string | null;
+      limit?: number;
+    }) => Promise<ChatListResult>;
+    roomsList: () => Promise<ChatRoomsListResult>;
+    roomSave: (args: { id?: string | null; title: string; memberIds: string[] }) => Promise<ChatRoomSaveResult>;
+    roomDelete: (args: { id: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     // Admin-only: list private dialog between any two users.
     adminListPair: (args: { userAId: string; userBId: string; limit?: number }) => Promise<ChatListResult>;
-    sendText: (args: { recipientUserId?: string | null; text: string }) => Promise<ChatSendResult>;
+    sendText: (args: { recipientUserId?: string | null; roomId?: string | null; text: string }) => Promise<ChatSendResult>;
     sendTextEverywhere: (args: { recipientUserId?: string | null; text: string }) => Promise<ChatSendResult>;
     sendFile: (args: { recipientUserId?: string | null; path: string }) => Promise<ChatSendResult>;
     sendDeepLink: (args: { recipientUserId?: string | null; link: ChatDeepLinkPayload; text?: string | null }) => Promise<ChatSendResult>;

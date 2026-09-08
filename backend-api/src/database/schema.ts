@@ -550,6 +550,30 @@ export const aiChatHistory = pgTable(
 // -----------------------------
 // Chat (sync tables)
 // -----------------------------
+/**
+ * Комната чата: создатель + приглашённые. Участники — JSON-массив идентификаторов В строке,
+ * чтобы приглашение было правкой одной строки, а не гонкой двух таблиц. Кто не в списке —
+ * не видит комнату вовсе (фильтр выдачи в syncPrivacy).
+ */
+export const chatRooms = pgTable(
+  'chat_rooms',
+  {
+    id: uuid('id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => entities.id),
+    title: text('title').notNull(),
+    membersJson: text('members_json'),
+
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+  },
+  (_t) => ({}),
+);
+
 export const chatMessages = pgTable(
   'chat_messages',
   {
@@ -560,8 +584,11 @@ export const chatMessages = pgTable(
       .references(() => entities.id),
     senderUsername: text('sender_username').notNull(),
 
-    // null => общий чат
+    // null => общий чат ИЛИ комната (см. roomId ниже)
     recipientUserId: uuid('recipient_user_id').references(() => entities.id),
+
+    // Комната, если сообщение адресовано ей. Общий чат = обе ссылки пусты.
+    roomId: uuid('room_id').references(() => chatRooms.id),
 
     // text/file/deep_link
     messageType: text('message_type').notNull(),

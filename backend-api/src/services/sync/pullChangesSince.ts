@@ -22,6 +22,7 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  chatRooms,
   clientSettings,
   entities,
   entityTypes,
@@ -43,7 +44,7 @@ import {
   warehouseLocations,
 } from '../../database/schema.js';
 import { getLedgerLastSeq } from '../../ledger/ledgerService.js';
-import { PRIVACY_TABLES, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
+import { PRIVACY_TABLES, adminRoomFilterForTable, privacyFilterForTable, getSharedNoteIds } from './syncPrivacy.js';
 import { isPullTableAllowedForRole } from './pullReadFilter.js';
 
 // ── PG table map (same structure used by /state/snapshot) ────────────
@@ -59,6 +60,7 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.AuditLog]: { drizzle: auditLog, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.AuditLog, r) },
   [SyncTableName.ChatMessages]: { drizzle: chatMessages, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatMessages, r) },
   [SyncTableName.ChatReads]: { drizzle: chatReads, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatReads, r) },
+  [SyncTableName.ChatRooms]: { drizzle: chatRooms, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ChatRooms, r) },
   [SyncTableName.UserPresence]: { drizzle: userPresence, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserPresence, r) },
   [SyncTableName.Notes]: { drizzle: notes, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Notes, r) },
   [SyncTableName.NoteShares]: { drizzle: noteShares, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.NoteShares, r) },
@@ -222,6 +224,12 @@ export async function pullChangesSince(
     const conditions: any[] = [];
     if ('lastServerSeq' in pgTable) {
       conditions.push(gt(pgTable.lastServerSeq, effectiveSince));
+    }
+
+    // Комнаты админ не обходит: допущены участники и суперадминистратор (владелец 08.09.2026).
+    if (actorIsAdmin && actorRole !== 'superadmin') {
+      const rf = adminRoomFilterForTable(tableName, pgTable, actorId);
+      if (rf) conditions.push(rf);
     }
 
     // Privacy filtering for non-admin

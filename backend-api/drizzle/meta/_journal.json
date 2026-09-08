@@ -652,6 +652,13 @@
       "when": 1788778274363,
       "tag": "0093_warehouse_locations_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1788896434796,
+      "tag": "0094_chat_rooms",
+      "breakpoints": true
     }
   ]
 }

@@ -76,7 +76,9 @@ export const chatMessageRowSchema = z.object({
   ...baseRowFields,
   sender_user_id: z.string().uuid(),
   sender_username: z.string().min(1),
-  recipient_user_id: z.string().uuid().nullable().optional(), // null => общий чат
+  recipient_user_id: z.string().uuid().nullable().optional(), // null => общий чат ИЛИ комната
+  // Комната, если сообщение адресовано ей. Общий чат = обе ссылки пусты.
+  room_id: z.string().uuid().nullable().optional(),
   message_type: z.enum(['text', 'file', 'deep_link', 'text_notify']),
   body_text: z.string().nullable().optional(),
   payload_json: z.string().nullable().optional(), // JSON-строка (FileRef / deep-link payload)
@@ -87,6 +89,17 @@ export const chatReadRowSchema = z.object({
   message_id: z.string().uuid(),
   user_id: z.string().uuid(),
   read_at: z.number().int(),
+});
+
+/**
+ * Комната чата. Участники — массивом идентификаторов в JSON-строке: приглашение правит одну
+ * строку, и «кто видит комнату» читается одним полем, без второй таблицы и её гонок.
+ */
+export const chatRoomRowSchema = z.object({
+  ...baseRowFields,
+  owner_user_id: z.string().uuid(),
+  title: z.string().min(1),
+  members_json: z.string().nullable().optional(),
 });
 
 export const noteRowSchema = z.object({
@@ -194,6 +207,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.AuditLog]: auditLogRowSchema,
   [SyncTableName.ChatMessages]: chatMessageRowSchema,
   [SyncTableName.ChatReads]: chatReadRowSchema,
+  [SyncTableName.ChatRooms]: chatRoomRowSchema,
   [SyncTableName.UserPresence]: userPresenceRowSchema,
   [SyncTableName.Notes]: noteRowSchema,
   [SyncTableName.NoteShares]: noteShareRowSchema,

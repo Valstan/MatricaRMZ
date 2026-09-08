@@ -1,3 +1,4 @@
+import { splitContractNumberAccent } from './contract.js';
 import {
   ENGINE_FLOW_DEFAULT_PRINT_LAYOUT,
   ENGINE_FLOW_REQUIRED_COLUMN_KEYS,
@@ -202,6 +203,16 @@ ${metricKeys.map((key) => `<th class="num col-${key} w-metric">${METRIC_PRINT_HE
     return `<div class="sum-table"><div class="sum-head">${htmlEscape(title)}</div><table><thead>${summaryHeadRow}</thead><tbody>${body}</tbody></table></div>`;
   }
 
+  /**
+   * Полный номер договора с выделенными тремя цифрами — теми же, что дают короткий номер
+   * `*239` (владелец 08.09.2026). На бумаге длинный номер иначе не читается.
+   */
+  function contractNumberHtml(fullLabel: string): string {
+    const { before, accent, after } = splitContractNumberAccent(fullLabel);
+    if (!accent) return htmlEscape(fullLabel);
+    return `${htmlEscape(before)}<b>${htmlEscape(accent)}</b>${htmlEscape(after)}`;
+  }
+
   function counterpartySection(counterpartyRows: Row[]): string {
     const contractGroups = groupBy(counterpartyRows, (row) => String(row._contractKey ?? row.contractShortLabel ?? ''));
     const body = contractGroups
@@ -215,7 +226,9 @@ ${metricKeys.map((key) => `<th class="num col-${key} w-metric">${METRIC_PRINT_HE
         const contractCell = `<td class="c-contract w-contract" rowspan="${span}"><div class="c-short col-contractShortLabel">${htmlEscape(
           shortLabel,
         )}</div>${
-          showFullNumber && fullLabel ? `<div class="c-full col-contractFullLabel">${htmlEscape(fullLabel)}</div>` : ''
+          showFullNumber && fullLabel
+            ? `<div class="c-full col-contractFullLabel">${contractNumberHtml(fullLabel)}</div>`
+            : ''
         }</td>`;
         const brandRows = contract.rows
           .map((row, index) => {

@@ -271,6 +271,7 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.AuditLog]: 'Журнал действий',
       [SyncTableName.ChatMessages]: 'Сообщения',
       [SyncTableName.ChatReads]: 'Прочтения сообщений',
+      [SyncTableName.ChatRooms]: 'Комнаты чата',
       [SyncTableName.UserPresence]: 'Присутствие пользователей',
       [SyncTableName.Notes]: 'Заметки',
       [SyncTableName.NoteShares]: 'Доступ к заметкам',

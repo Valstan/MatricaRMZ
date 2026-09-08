@@ -143,6 +143,13 @@ class CDP {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Строки считаем ТОЛЬКО в видимой таблице двигателей: закрытые вкладки остаются в DOM и
+// приносят свои строки-заглушки «Ничего не найдено» — с ними отбор выглядит нерабочим.
+const VISIBLE_ENGINE_ROWS =
+  "(() => { const t = [...document.querySelectorAll('table.list-table')].filter(x => x.getClientRects().length > 0)" +
+  ".find(x => [...x.querySelectorAll('thead th')].some(th => (th.textContent||'').includes('Марка'))); " +
+  "return t ? [...t.querySelectorAll('tbody tr')].filter(tr => !(tr.textContent||'').includes('Ничего не найдено')).length : 0; })()";
+
 const HELPERS = `
 window.__mv = {
   txt(el){ return (el.textContent||'').replace(/\\s+/g,' ').trim(); },
@@ -166,7 +173,14 @@ async function ensureHelpers(cdp) {
   if (ok !== true) await cdp.evalRaw(HELPERS);
 }
 
-const ACTION = 'Ушёл на балансировку';
+// Действие уникально на прогон: с постоянным текстом повторный прогон оставлял такие же
+// записи у других двигателей, и отбор честно возвращал не одну строку, а все прошлые.
+const ACTION = `Ушёл на балансировку ${Date.now() % 100000}`;
+// Смещение растёт со временем, поэтому запись каждого следующего прогона заведомо позже
+// записей всех предыдущих: даты хранятся без времени, и одинаковая дата снова дала бы ничью.
+const ENTRY_DATE = new Date(Date.now() + (90 + (Math.floor(Date.now() / 1000) % 20000)) * 24 * 3600 * 1000)
+  .toISOString()
+  .slice(0, 10);
 
 async function main() {
   const WebSocket = await loadWebSocket();
@@ -181,7 +195,7 @@ async function main() {
   // Вход через форму: вызов моста прошёл бы мимо React и оставил экран логина.
   const needLogin = await cdp.evalAsync("Boolean([...document.querySelectorAll('input')].find(i => i.type === 'password'))");
   if (needLogin === true) {
-    await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].find(i => (i.placeholder||'').includes('огин')) || document.querySelectorAll('input')[0], 'valstan')");
+    await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].filter(i => i.getClientRects().length > 0).find(i => (i.placeholder||'').includes('огин')) || [...document.querySelectorAll('input')].filter(i => i.getClientRects().length > 0 && i.type !== 'password')[0], 'valstan')");
     await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].find(i => i.type === 'password'), 'valstan-dev')");
     await sleep(400);
     await cdp.evalAsync("window.__mv.click(window.__mv.byText('button', 'Войти'))");
@@ -215,6 +229,9 @@ async function main() {
   const formShown = await cdp.evalAsync("Boolean(document.querySelector('[data-repair-history-action]'))");
   check('форма добавления открылась', formShown === true);
 
+  // Дата — заведомо позже всех уже записанных: события хранятся датой без времени, и при
+  // равных датах «последним» в строке списка оказывается запись прошлого прогона, а не наша.
+  await cdp.evalAsync(`window.__mv.setInput(document.querySelector('[data-repair-history-date]'), ${JSON.stringify(ENTRY_DATE)})`);
   await cdp.evalAsync(`window.__mv.setInput(document.querySelector('[data-repair-history-action]'), ${JSON.stringify(ACTION)})`);
   await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].find(i => (i.placeholder||'').includes('Причина')), 'нет своего стенда')");
   await cdp.evalAsync("window.__mv.setInput([...document.querySelectorAll('input')].find(i => (i.placeholder||'').includes('Примечание')), 'договорились на среду')");
@@ -259,6 +276,10 @@ async function main() {
     "(() => { if (!document.querySelector('[data-facet-field]')) { const t = document.querySelector('[data-facet-toggle]'); if (t) t.click(); } return true; })()",
   );
   await sleep(700);
+  // Отбор от прошлых прогонов роумится вместе со списком: без сброса к нашему значению
+  // добавились бы чужие, и «осталась одна строка» превратилось бы в «осталось три».
+  await cdp.evalRaw("(() => { const r = document.querySelector('[data-facet-reset]'); if (r && !r.disabled) r.click(); return true; })()");
+  await sleep(900);
   await cdp.evalRaw(
     "(() => { if (!document.querySelector('[data-facet-value^=\"historyAction:\"]')) { const b = document.querySelector('[data-facet-field=\"historyAction\"]'); if (b) b.click(); } return true; })()",
   );
@@ -277,13 +298,13 @@ async function main() {
     "(() => { if (!document.querySelector('[data-facet-value^=\"historyAction:\"]')) document.querySelector('[data-facet-field=\"historyAction\"]').click(); return true; })()",
   );
   await sleep(900);
-  const totalRows = await cdp.evalAsync("document.querySelectorAll('table tbody tr').length");
+  const totalRows = await cdp.evalAsync(VISIBLE_ENGINE_ROWS);
   const picked = await cdp.evalAsync(
     `(() => { const b = [...document.querySelectorAll('[data-facet-value^="historyAction:"]')].find(x => window.__mv.txt(x).includes(${JSON.stringify(ACTION)})); if (!b) return 'значения нет'; b.click(); return 'ok'; })()`,
   );
   check('среди значений ступени есть введённое оператором действие', picked === 'ok', String(picked));
   await sleep(1200);
-  const filtered = await cdp.evalAsync("document.querySelectorAll('table tbody tr').length");
+  const filtered = await cdp.evalAsync(VISIBLE_ENGINE_ROWS);
   check(
     'отбор по событию оставляет только этот двигатель',
     Number(filtered) === 1 && Number(filtered) < Number(totalRows),

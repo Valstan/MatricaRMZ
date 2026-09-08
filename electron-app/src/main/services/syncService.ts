@@ -35,6 +35,7 @@ import {
   auditLog,
   chatMessages,
   chatReads,
+  chatRooms,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
@@ -1368,6 +1369,14 @@ async function collectPending(db: BetterSQLite3Database) {
     await add(SyncTableName.AuditLog, valid);
   }
   {
+    const pendingRooms = await db
+      .select()
+      .from(chatRooms)
+      .where(eq(chatRooms.syncStatus, pending))
+      .limit(limitFor(SyncTableName.ChatRooms));
+    await add(SyncTableName.ChatRooms, pendingRooms);
+  }
+  {
     const pendingMessages = await db
       .select()
       .from(chatMessages)
@@ -1867,6 +1876,7 @@ async function applyPulledChanges(
     [SyncTableName.AuditLog]: [],
     [SyncTableName.ChatMessages]: [],
     [SyncTableName.ChatReads]: [],
+    [SyncTableName.ChatRooms]: [],
     [SyncTableName.UserPresence]: [],
     [SyncTableName.Notes]: [],
     [SyncTableName.NoteShares]: [],
@@ -2001,6 +2011,22 @@ async function applyPulledChanges(
           });
         }
         break;
+      case SyncTableName.ChatRooms:
+        {
+          const payload = payloadRaw;
+          groups.chat_rooms.push({
+            id: payload.id,
+            ownerUserId: payload.owner_user_id,
+            title: payload.title,
+            membersJson: payload.members_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
       case SyncTableName.ChatMessages:
         {
           const payload = payloadRaw;
@@ -2009,6 +2035,7 @@ async function applyPulledChanges(
             senderUserId: payload.sender_user_id,
             senderUsername: payload.sender_username,
             recipientUserId: payload.recipient_user_id ?? null,
+            roomId: payload.room_id ?? null,
             messageType: payload.message_type,
             bodyText: payload.body_text ?? null,
             payloadJson: payload.payload_json ?? null,
@@ -2393,6 +2420,7 @@ async function applyPulledChanges(
   groups.attribute_values = dedupById(groups.attribute_values);
   groups.operations = dedupById(groups.operations);
   groups.audit_log = dedupById(groups.audit_log);
+  groups.chat_rooms = dedupById(groups.chat_rooms);
   groups.chat_messages = dedupById(groups.chat_messages);
   groups.chat_reads = dedupById(groups.chat_reads);
   groups.notes = dedupById(groups.notes);
@@ -2816,12 +2844,28 @@ async function applyPulledChanges(
     await maybeYieldAfterBatch(groups.audit_log.length);
   }
 
+  // Комнаты применяются ДО сообщений: сообщение комнаты, чьей строки ещё нет, было бы нечем
+  // подписать в списке бесед.
+  if (groups.chat_rooms.length > 0) {
+    emitApply(SyncTableName.ChatRooms, groups.chat_rooms.length);
+    await upsertPulledRowsInChunks(db, chatRooms, groups.chat_rooms, chatRooms.id, {
+      ownerUserId: sql`excluded.owner_user_id`,
+      title: sql`excluded.title`,
+      membersJson: sql`excluded.members_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
   if (groups.chat_messages.length > 0) {
     emitApply(SyncTableName.ChatMessages, groups.chat_messages.length);
     await upsertPulledRowsInChunks(db, chatMessages, groups.chat_messages, chatMessages.id, {
       senderUserId: sql`excluded.sender_user_id`,
       senderUsername: sql`excluded.sender_username`,
       recipientUserId: sql`excluded.recipient_user_id`,
+      roomId: sql`excluded.room_id`,
       messageType: sql`excluded.message_type`,
       bodyText: sql`excluded.body_text`,
       payloadJson: sql`excluded.payload_json`,

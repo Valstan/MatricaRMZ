@@ -9,10 +9,10 @@ const { makePrivacyRowFilter, isPrivacyTable } = await import('./syncPrivacy.js'
 const ME = 'user-me';
 const OTHER = 'user-other';
 
-const operator = (shared: string[] = [], owned: string[] = []) =>
+const operator = (shared: string[] = [], owned: string[] = [], rooms: string[] = []) =>
   makePrivacyRowFilter(
     { id: ME, isAdmin: false, isPending: false },
-    { sharedNoteIds: new Set(shared), ownedNoteIds: new Set(owned) },
+    { sharedNoteIds: new Set(shared), ownedNoteIds: new Set(owned), visibleRoomIds: new Set(rooms) },
   );
 
 describe('isPrivacyTable', () => {
@@ -71,11 +71,11 @@ describe('makePrivacyRowFilter — operator (non-admin)', () => {
 describe('makePrivacyRowFilter — admin sees all, pending sees none', () => {
   const admin = makePrivacyRowFilter(
     { id: ME, isAdmin: true, isPending: false },
-    { sharedNoteIds: new Set(), ownedNoteIds: new Set() },
+    { sharedNoteIds: new Set(), ownedNoteIds: new Set(), visibleRoomIds: new Set() },
   );
   const pending = makePrivacyRowFilter(
     { id: ME, isAdmin: false, isPending: true },
-    { sharedNoteIds: new Set(), ownedNoteIds: new Set() },
+    { sharedNoteIds: new Set(), ownedNoteIds: new Set(), visibleRoomIds: new Set() },
   );
 
   it('admin: every privacy row visible', () => {

@@ -4,6 +4,7 @@ import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -99,7 +100,6 @@ export function CounterpartiesPage(props: {
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
   const query = String(listState.query ?? '');
-  const showPreviews = listState.showPreviews !== false;
   const searchSimilar = listState.searchSimilar === true;
   const searchMode = searchModeOf(searchSimilar);
   const [typeId, setTypeId] = useState<string>('');
@@ -271,11 +271,13 @@ export function CounterpartiesPage(props: {
       columnLayout.order
         .map((id) => columnsById.get(id))
         .filter((col): col is CounterpartyColumn => Boolean(col))
-        .filter((col) => columnLayout.isVisible(col.id))
-        .filter((col) => !col.requireShowPreviews || showPreviews),
+        .filter((col) => columnLayout.isVisible(col.id)),
+    // Колонку превью оператор убирает в шапке столбца или в «Колонках списка» — отдельной
+    // кнопки тулбара для той же колонки быть не должно (владелец 08.09.2026).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object every render, so depending on `columnLayout` (demanded only because `isVisible` is called as a method) would defeat this memo; `columnLayout.hidden` is the Set `isVisible` reads, so the listed deps already cover every input
-    [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
+    [columnLayout.order, columnLayout.hidden, columnsById],
   );
+  const showPreviews = useMemo(() => visibleColumns.some((col) => col.requireShowPreviews), [visibleColumns]);
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
   const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -380,7 +382,7 @@ export function CounterpartiesPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+      <PageToolbar>
         {props.canCreate && (
           <Button
             onClick={async () => {
@@ -398,13 +400,12 @@ export function CounterpartiesPage(props: {
             Добавить контрагента
           </Button>
         )}
-        <div style={{ flex: 1 }}>
+        <ToolbarPin>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
+        </ToolbarPin>
+        <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
-        </div>
-        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
-          {showPreviews ? 'Отключить превью' : 'Включить превью'}
-        </Button>
+        </ToolbarPin>
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
@@ -414,19 +415,8 @@ export function CounterpartiesPage(props: {
             Печать списка
           </Button>
         )}
-        {printDialogOpen && (
-          <ListPrintDialog
-            title="Список контрагентов"
-            unitLabel="Контрагентов"
-            columns={printColumns}
-            visibleColumnIds={visibleColumns.map((c) => c.id)}
-            rows={sorted}
-            selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
-            storageKey="list:counterparties:printFields"
-            onClose={() => setPrintDialogOpen(false)}
-          />
-        )}
         <ColumnSettingsButton
+          label="Колонки списка"
           columns={columnDescriptors}
           order={columnLayout.order}
           isVisible={columnLayout.isVisible}
@@ -434,7 +424,22 @@ export function CounterpartiesPage(props: {
           onMove={columnLayout.moveColumn}
           onReset={columnLayout.resetToDefault}
         />
-      </div>
+      </PageToolbar>
+
+      {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
+          кнопкой и открывался бы внутри выпадающей панели. */}
+      {printDialogOpen && (
+        <ListPrintDialog
+          title="Список контрагентов"
+          unitLabel="Контрагентов"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted}
+          selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
+          storageKey="list:counterparties:printFields"
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>

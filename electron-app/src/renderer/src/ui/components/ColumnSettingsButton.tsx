@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useViewportClamp } from '../hooks/useViewportClamp.js';
 import { isAndroidPlatform } from '../platform.js';
 import { Button } from './Button.js';
 
@@ -12,6 +13,9 @@ export type ColumnDescriptor = {
 
 export function ColumnSettingsButton(props: {
   columns: ColumnDescriptor[];
+  /** Подпись рядом с пиктограммой. В панели фильтров кнопка стоит среди прочих отборов и
+      обязана называться словами (владелец 08.09.2026); в тулбаре хватает пиктограммы. */
+  label?: string;
   order: string[];
   isVisible: (id: string) => boolean;
   onToggleVisible: (id: string, visible: boolean) => void;
@@ -20,6 +24,8 @@ export function ColumnSettingsButton(props: {
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Кнопка колонок стоит у правого края панели фильтров: без зажима панель уезжала за экран.
+  const clamp = useViewportClamp(open);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -74,6 +80,7 @@ export function ColumnSettingsButton(props: {
             strokeDasharray="2 1.5"
           />
         </svg>
+        {props.label ? <span>{props.label}</span> : null}
         <span>
           {visibleCount}/{totalCount}
         </span>
@@ -82,6 +89,7 @@ export function ColumnSettingsButton(props: {
         <div
           role="dialog"
           aria-label="Настройка колонок"
+          ref={clamp.ref}
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -89,6 +97,7 @@ export function ColumnSettingsButton(props: {
             zIndex: 50,
             minWidth: 320,
             maxHeight: 480,
+            ...clamp.style,
             overflowY: 'auto',
             background: 'var(--surface)',
             color: 'var(--text)',

@@ -154,6 +154,8 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // AI-чат: owner-checked + rate-limited в push-guard (aiChatPushGuard)
   [SyncTableName.AiChatRequests]: { kind: 'open' },
   [SyncTableName.ChatReads]: { kind: 'open' },
+  // Комнаты: право на строку проверяется в push-гарде (правит только создатель).
+  [SyncTableName.ChatRooms]: { kind: 'open' },
   [SyncTableName.UserPresence]: { kind: 'open' },
   [SyncTableName.AuditLog]: { kind: 'open' },
   // schema metadata — not the sensitive surface (data lives in attribute_values, which IS gated)

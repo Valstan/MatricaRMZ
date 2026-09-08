@@ -234,6 +234,32 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS warehouse_locations_code_idx ON warehouse_locations(code);
   `);
 
+  // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:
+  // свежая установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS chat_rooms (
+      id text PRIMARY KEY NOT NULL,
+      owner_user_id text NOT NULL,
+      title text NOT NULL,
+      members_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS chat_rooms_sync_status_idx ON chat_rooms(sync_status);
+  `);
+
+  // chat_messages.room_id — адрес комнаты. SQLite не знает ADD COLUMN IF NOT EXISTS, поэтому
+  // проверяем наличие сами: повторный ALTER уронил бы всю транзакцию миграции.
+  if (hasTable('chat_messages')) {
+    if (!columnNames('chat_messages').has('room_id')) {
+      sqlite.exec(`ALTER TABLE chat_messages ADD COLUMN room_id text;`);
+    }
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS chat_messages_room_idx ON chat_messages(room_id);`);
+  }
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (hasTable('erp_document_lines')) {
     if (!columnNames('erp_document_lines').has('nomenclature_id')) {

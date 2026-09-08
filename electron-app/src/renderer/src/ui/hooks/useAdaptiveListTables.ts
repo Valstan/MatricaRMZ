@@ -81,8 +81,11 @@ function recalcAdaptiveTableColumns() {
       let textVotes = 0;
       let hasInteractiveContent = false;
 
+      // Длина подписи в ширину НЕ идёт (владелец 08.09.2026): колонку меряют данные строк,
+      // а заголовок обрезается в «…». Иначе «Дата поступления» раздувала колонку с датами
+      // вдвое против самих дат. Голос за характер колонки заголовок при этом сохраняет —
+      // по нему отличима числовая колонка, у которой все значения пусты.
       if (headerText) {
-        lengths.push(headerText.length);
         if (isMostlyNumeric(headerText)) numericVotes += 1;
         else textVotes += 1;
       }
@@ -113,6 +116,13 @@ function recalcAdaptiveTableColumns() {
       if (hasInteractiveContent) maxCh = Math.max(maxCh, 22);
 
       table.style.setProperty(`--ui-list-col-${col + 1}-max-ch`, String(maxCh));
+
+      // Заголовок теперь всегда однострочный, поэтому подсказка на нём нужна не «иногда»,
+      // а всегда, когда подпись длиннее колонки: иначе обрезанное имя нечем прочитать.
+      const headerCell = headerCells[col] as HTMLElement | undefined;
+      if (headerCell && headerText && headerText.length > maxCh && !headerCell.getAttribute('title')) {
+        headerCell.setAttribute('title', headerText);
+      }
 
       // Keep full value available in hover tooltip when visual truncation is applied.
       for (const row of bodyRows) {

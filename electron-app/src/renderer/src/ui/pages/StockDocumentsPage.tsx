@@ -4,6 +4,7 @@ import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -293,19 +294,38 @@ export function StockDocumentsPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       {/* mx-page-toolbar — планшетный режим убирает фильтры при прокрутке списка. */}
-      <div className="mx-page-toolbar" style={{ display: 'grid', gap: 8, alignItems: 'center', gridTemplateColumns: 'minmax(220px, 0.9fr) minmax(220px, 0.9fr) minmax(220px, 1fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto auto auto' }}>
-        <select value={docType} onChange={(e) => setDocType((e.target.value || '') as WarehouseDocumentType | '')} style={{ minWidth: 220, padding: '8px 10px' }}>
-          {WAREHOUSE_DOC_TYPE_OPTIONS.map((item) => (
-            <option key={item.id || 'all'} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <WarehouseDocumentStatusFilterDropdown value={includedStatuses} onChange={persistIncludedStatuses} />
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру, основанию, складу, контрагенту..." />
-        <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        <SearchSelect value={warehouseId} options={lookupToSelectOptions(lookups.warehouses)} placeholder="Склад" onChange={setWarehouseId} />
+      <PageToolbar>
+        <div style={{ width: 220 }}>
+          <select
+            value={docType}
+            onChange={(e) => setDocType((e.target.value || '') as WarehouseDocumentType | '')}
+            title="Тип документа склада"
+            style={{ width: '100%', padding: '8px 10px' }}
+          >
+            {WAREHOUSE_DOC_TYPE_OPTIONS.map((item) => (
+              <option key={item.id || 'all'} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={{ width: 220 }}>
+          <WarehouseDocumentStatusFilterDropdown value={includedStatuses} onChange={persistIncludedStatuses} />
+        </div>
+        <ToolbarPin>
+          <div style={{ width: 260 }}>
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру, основанию, складу, контрагенту..." />
+          </div>
+        </ToolbarPin>
+        <div style={{ width: 150 }}>
+          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} title="Документы с даты" />
+        </div>
+        <div style={{ width: 150 }}>
+          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} title="Документы по дату" />
+        </div>
+        <div style={{ width: 200 }}>
+          <SearchSelect value={warehouseId} options={lookupToSelectOptions(lookups.warehouses)} placeholder="Склад" onChange={setWarehouseId} />
+        </div>
         {props.canEdit ? (
           <Button
             onClick={async () => {
@@ -353,19 +373,8 @@ export function StockDocumentsPage(props: {
             Печать списка
           </Button>
         )}
-        {printDialogOpen && (
-          <ListPrintDialog
-            title="Документы склада"
-            unitLabel="Документов"
-            columns={printColumns}
-            visibleColumnIds={visibleColumns.map((c) => c.id)}
-            rows={displayRows}
-            selectedRows={[]}
-            storageKey="list:stock-documents:printFields"
-            onClose={() => setPrintDialogOpen(false)}
-          />
-        )}
         <ColumnSettingsButton
+          label="Колонки списка"
           columns={columnDescriptors}
           order={columnLayout.order}
           isVisible={columnLayout.isVisible}
@@ -373,7 +382,22 @@ export function StockDocumentsPage(props: {
           onMove={columnLayout.moveColumn}
           onReset={columnLayout.resetToDefault}
         />
-      </div>
+      </PageToolbar>
+
+      {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
+          кнопкой и открывался бы внутри выпадающей панели. */}
+      {printDialogOpen && (
+        <ListPrintDialog
+          title="Документы склада"
+          unitLabel="Документов"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={[]}
+          storageKey="list:stock-documents:printFields"
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
 
       {includedStatuses.length === 0 ? (
         <div style={{ color: 'var(--warning, #b8860b)', fontSize: 14 }}>Отметьте хотя бы один статус в фильтре «Статусы», чтобы загрузить список.</div>

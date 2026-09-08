@@ -13,6 +13,7 @@ import {
   isPrivacyTable,
   makePrivacyRowFilter,
   getSharedNoteIds,
+  getVisibleChatRoomIds,
   getOwnedNoteIds,
 } from '../services/sync/syncPrivacy.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
@@ -273,15 +274,26 @@ ledgerRouter.get('/state/query', async (req, res) => {
   const queryIsAdmin = queryRole === 'admin' || queryRole === 'superadmin';
   const queryIsPending = queryRole === 'pending';
   let privacyRows = rows as Array<Record<string, unknown>>;
-  if (!queryIsAdmin && isPrivacyTable(queryTable)) {
-    if (queryIsPending) {
+  // Фильтр применяется и к админу: комнаты чата он не обходит (владелец 08.09.2026),
+  // а всё остальное `makePrivacyRowFilter` ему по-прежнему пропускает.
+  if (isPrivacyTable(queryTable)) {
+    if (queryIsPending && !queryIsAdmin) {
       privacyRows = [];
     } else {
       const sharedNoteIds = queryTable === SyncTableName.Notes ? await getSharedNoteIds(String(actor.id)) : new Set<string>();
       const ownedNoteIds = queryTable === SyncTableName.NoteShares ? await getOwnedNoteIds(String(actor.id)) : new Set<string>();
+      const visibleRoomIds =
+        queryTable === SyncTableName.ChatRooms || queryTable === SyncTableName.ChatMessages
+          ? await getVisibleChatRoomIds(String(actor.id))
+          : new Set<string>();
       const privacyFilter = makePrivacyRowFilter(
-        { id: String(actor.id), isAdmin: queryIsAdmin, isPending: queryIsPending },
-        { sharedNoteIds, ownedNoteIds },
+        {
+          id: String(actor.id),
+          isAdmin: queryIsAdmin,
+          isPending: queryIsPending,
+          isSuperadmin: String(actor.role ?? '').toLowerCase() === 'superadmin',
+        },
+        { sharedNoteIds, ownedNoteIds, visibleRoomIds },
       );
       privacyRows = privacyRows.filter((r) => privacyFilter(queryTable, r));
     }
@@ -365,14 +377,23 @@ ledgerRouter.get('/state/snapshot', async (req, res) => {
     const snapIsPending = snapRole === 'pending';
     let privacyRows = syncRows as Array<Record<string, unknown>>;
     if (!snapIsAdmin && isPrivacyTable(tableName)) {
-      if (snapIsPending) {
+      if (snapIsPending && !snapIsAdmin) {
         privacyRows = [];
       } else {
         const sharedNoteIds = tableName === SyncTableName.Notes ? await getSharedNoteIds(String(actor.id)) : new Set<string>();
         const ownedNoteIds = tableName === SyncTableName.NoteShares ? await getOwnedNoteIds(String(actor.id)) : new Set<string>();
+        const visibleRoomIds =
+          tableName === SyncTableName.ChatRooms || tableName === SyncTableName.ChatMessages
+            ? await getVisibleChatRoomIds(String(actor.id))
+            : new Set<string>();
         const privacyFilter = makePrivacyRowFilter(
-          { id: String(actor.id), isAdmin: snapIsAdmin, isPending: snapIsPending },
-          { sharedNoteIds, ownedNoteIds },
+          {
+            id: String(actor.id),
+            isAdmin: snapIsAdmin,
+            isPending: snapIsPending,
+            isSuperadmin: String(actor.role ?? '').toLowerCase() === 'superadmin',
+          },
+          { sharedNoteIds, ownedNoteIds, visibleRoomIds },
         );
         privacyRows = privacyRows.filter((r) => privacyFilter(tableName, r));
       }

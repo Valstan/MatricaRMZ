@@ -16,6 +16,7 @@ const PAGE = src('./EnginesPage.tsx');
 // подставляющая свои ступени. Сторожим обе половины: обёртка без ступеней рисует пустую панель.
 const WRAPPER = src('../components/EngineFacetFilter.tsx');
 const FILTER = src('../components/FacetFilter.tsx');
+const TOOLBAR = src('../components/PageToolbar.tsx');
 
 describe('ступенчатый фильтр доезжает до строк списка', () => {
   it('таблица строится по отфильтрованному ступенями массиву', () => {
@@ -39,9 +40,11 @@ describe('ступенчатый фильтр доезжает до строк �
     ]) {
       expect(PAGE).toContain(migration);
     }
-    expect(PAGE, 'даты прихода переезжают диапазоном, а не парой полей тулбара').toContain(
-      "if ((contractDateFrom || contractDateTo) && !engineFacetIsActive(base, 'arrivalDate')) {",
-    );
+    // Полей дат прихода в тулбаре нет вовсе (владелец 08.09.2026), и сохранённая граница
+    // НЕ переезжает в ступень: снять её потом было бы нечем — поля, которое её показывало,
+    // на экране больше не существует.
+    expect(PAGE).not.toContain('contractDateFrom');
+    expect(PAGE).not.toContain('contractDateTo');
   });
 
   it('ступень с выбранными значениями показывается всегда', () => {
@@ -50,7 +53,7 @@ describe('ступенчатый фильтр доезжает до строк �
   });
 
   it('кнопка сброса чистит ступени, их значения и все легаси-поля', () => {
-    for (const cleared of ['facets: {},', 'facetFields: [],', "customerFilter: '',", 'onlyReclamation: false,', "completenessFilter: 'all',", "contractDateFrom: '',", "contractDateTo: '',"]) {
+    for (const cleared of ['facets: {},', 'facetFields: [],', "customerFilter: '',", 'onlyReclamation: false,', "completenessFilter: 'all',"]) {
       expect(PAGE).toContain(cleared);
     }
     expect(FILTER).toContain('data-facet-reset');
@@ -72,13 +75,28 @@ describe('ступенчатый фильтр доезжает до строк �
     const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 400);
     expect(toolbar).toContain('<EngineFacetToggleButton');
     expect(FILTER).toContain('export function FacetToggleButton');
-    // Поле поиска не тянется на всю ширину: растяжку забирает распорка ПОСЛЕ кнопок,
-    // иначе «Похожие» и «Фильтры» уезжают к правому краю от поиска.
-    const toolbarStart = PAGE.indexOf('className="mx-page-toolbar"');
-    const beforeSearch = PAGE.slice(toolbarStart, PAGE.indexOf('placeholder="Поиск по всем данным двигателя'));
-    expect(beforeSearch, 'растяжка перед поиском развела бы группу по краям').not.toContain('flex: 1');
-    expect(PAGE).toContain('<div style={{ flex: 1 }} />');
+    // Поиск и его спутники не уезжают в меню переполнения: без них список неуправляем.
+    expect(PAGE).toContain('<ToolbarPin>');
     expect(FILTER).toContain("{props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}");
+  });
+
+  it('ряд кнопок — одна строка, лишнее уезжает в меню справа', () => {
+    // Владелец 08.09.2026: перенос второй строкой съедал высоту у самого списка.
+    expect(PAGE, 'перенос строкой вернул бы прежнюю беду').not.toContain("flexWrap: 'wrap'");
+    expect(PAGE).toContain('<PageToolbar>');
+    expect(TOOLBAR).toContain("flexWrap: 'nowrap'");
+    expect(TOOLBAR).toContain('data-toolbar-overflow');
+    expect(TOOLBAR, 'закреплённые элементы в меню не уезжают').toContain('if (!it || measured.pinned[it.key]) continue;');
+    expect(TOOLBAR, 'уехавший элемент рисуется в ОДНОМ месте, иначе диалог раздвоится').toContain(
+      '.filter((it) => !hiddenKeys.has(it.key))',
+    );
+  });
+
+  it('выбор колонок называется словами и живёт в панели фильтров', () => {
+    // Владелец 08.09.2026: «что показывать» и «по чему отбирать» — один вопрос, место одно.
+    expect(PAGE).toContain('label="Колонки списка"');
+    expect(PAGE, 'кнопка колонок уехала из тулбара в панель').toContain('columnsControl={');
+    expect(FILTER).toContain('data-facet-columns');
   });
 
   it('свёрнутая панель не занимает места, а отбор продолжает работать', () => {

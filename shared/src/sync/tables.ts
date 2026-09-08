@@ -10,6 +10,10 @@ export const SyncTableName = {
   AuditLog: 'audit_log',
   ChatMessages: 'chat_messages',
   ChatReads: 'chat_reads',
+  // Комнаты чата (владелец 08.09.2026): личная переписка живёт парой отправитель/получатель,
+  // а обсуждение бригадой — комнатой. Участники лежат списком В строке комнаты, отдельной
+  // таблицы членства нет: приглашение — это правка одной строки её создателем.
+  ChatRooms: 'chat_rooms',
   UserPresence: 'user_presence',
   Notes: 'notes',
   NoteShares: 'note_shares',
