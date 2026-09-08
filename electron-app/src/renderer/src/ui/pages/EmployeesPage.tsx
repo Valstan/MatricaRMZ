@@ -23,6 +23,7 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListSelection } from '../hooks/useListSelection.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
@@ -79,10 +80,13 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     showPreviews: true,
     pageSize: 50 as WarehouseListPageSize,
     pageIndex: 0,
+    searchSimilar: false,
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
   const showPreviews = listState.showPreviews !== false;
+  const searchSimilar = listState.searchSimilar === true;
+  const searchMode = searchModeOf(searchSimilar);
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState('');
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
@@ -157,9 +161,9 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           formatDepartment(row),
           employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate)),
           row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
-        ]) || (deepIds?.has(String(row.id)) ?? false),
+        ], searchMode) || (deepIds?.has(String(row.id)) ?? false),
     );
-  }, [deepIds, formatDepartment, query, rows]);
+  }, [deepIds, formatDepartment, query, rows, searchMode]);
   const summary = useMemo(() => {
     let working = 0;
     let fired = 0;
@@ -535,6 +539,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         )}
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
         </div>
         <div
           aria-label="Сводка по сотрудникам"

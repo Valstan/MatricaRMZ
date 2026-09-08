@@ -4,6 +4,7 @@ import {
   rankPreparedLookupOptions,
   searchPreparedLookupOptionsTiered,
   type PreparedLookupOption,
+  type SearchMode,
 } from '@matricarmz/shared';
 
 const MAX_DEPTH = 5;
@@ -54,12 +55,12 @@ function collectParts(value: unknown, out: string[], seen: WeakSet<object>, dept
  * per-record — fuzzy "did you mean" only makes sense across the whole set, so
  * set-level callers use filterPreparedRecords below.
  */
-export function matchesQueryInRecord(query: string, value: unknown, extraValues?: unknown[]): boolean {
+export function matchesQueryInRecord(query: string, value: unknown, extraValues?: unknown[], mode: SearchMode = 'similar'): boolean {
   const q = String(query ?? '').trim();
   if (!q) return true;
   const text = collectRecordText(extraValues && extraValues.length > 0 ? [value, ...extraValues] : value);
   const prepared = prepareLookupOptions([{ id: '_', label: '', searchText: text }]);
-  return rankPreparedLookupOptions(prepared, q, { minScore: LOOKUP_FILTER_MIN_SCORE }).length > 0;
+  return rankPreparedLookupOptions(prepared, q, { minScore: LOOKUP_FILTER_MIN_SCORE, mode }).length > 0;
 }
 
 /** Raw (un-normalized) concatenation of all record fields — feed for the shared tiered matcher, which normalizes itself (keeps punctuation for compact-number matching). */
@@ -103,9 +104,13 @@ export function prepareRecordSearch<T>(records: T[], getId: (r: T) => string, ge
  * applies (callers must NOT re-apply column sort while a query is active — see
  * EnginesPage). The «похожие» typo fallback is likewise distance-ordered.
  */
-export function filterPreparedRecords<T>(search: PreparedRecordSearch<T>, query: string): TieredRecordFilterResult<T> {
+export function filterPreparedRecords<T>(
+  search: PreparedRecordSearch<T>,
+  query: string,
+  mode: SearchMode = 'similar',
+): TieredRecordFilterResult<T> {
   if (!String(query ?? '').trim()) return { records: search.records, similarMode: false };
-  const tiered = searchPreparedLookupOptionsTiered(search.prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE });
+  const tiered = searchPreparedLookupOptionsTiered(search.prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE, mode });
   const matched = tiered.primary.length > 0 ? tiered.primary : tiered.similar;
   return {
     records: matched.map((o) => o.record),
