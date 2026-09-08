@@ -17,17 +17,27 @@ import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
+  CONTRACT_FACETS,
   CONTRACT_PAYMENTS_ATTR_CODE,
   aggregateContractExecutionProgress,
+  applyContractFacets,
   burningEnginesCount,
+  contractFacetIsActive,
   effectiveContractDueAt,
   isEngineRepairedForCountdown,
   parseContractPayments,
+  sanitizeContractFacetSelection,
+  type ContractFacetSelection,
+  type ContractKind,
   type ContractSections,
+  type FacetDescriptor,
+  type FacetSelection,
   type ProgressLinkedItem,
   parseContractExecutionParts,
   parseContractSections,
 } from '@matricarmz/shared';
+
+import { FacetFilter } from '../components/FacetFilter.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
 import {
   buildCopyRowsStatus,
@@ -48,6 +58,15 @@ type Row = {
   number: string;
   internalNumber: string;
   counterparty: string;
+  /** Поля ниже читает ступенчатый фильтр (`contractListFacets`). */
+  kind?: ContractKind;
+  customerId?: string;
+  gozName?: string;
+  gozIgk?: string;
+  hasSeparateAccount?: boolean;
+  hasFiles?: boolean;
+  engineBrandNames?: string[];
+  addonCount?: number;
   searchText?: string;
   dateMs: number | null;
   dueDateMs: number | null;
@@ -86,9 +105,27 @@ type ContractsListUiState = {
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
   showPreviews: boolean;
+  /** Легаси-фильтр дат заключения: переезжает в ступень `signedAt`. */
   contractDateFrom: string;
   contractDateTo: string;
+  /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
+  facetFields?: string[];
+  facets?: ContractFacetSelection;
+  /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
+  facetsOpen?: boolean;
 };
+
+/** Марки контракта — из основного раздела и всех ДС: ступень отбирает по любой из них. */
+function collectContractBrandNames(sections: ContractSections, nameById: Map<string, string>): string[] {
+  const out = new Set<string>();
+  for (const section of [sections.primary, ...sections.addons]) {
+    for (const row of section.engineBrands) {
+      const name = nameById.get(String(row.engineBrandId ?? ''));
+      if (name) out.add(name);
+    }
+  }
+  return [...out];
+}
 
 function sumMoneyItems(items: Array<{ qty: number; unitPrice: number }>) {
   return items.reduce<number>((acc, row) => {
@@ -126,19 +163,6 @@ function collectProgressContractNumbers(sections: ContractSections): Set<string>
     if (addonNumber) out.add(addonNumber);
   }
   return out;
-}
-
-function fromInputDate(value: string): number | null {
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-  const ms = Date.parse(`${text}T00:00:00`);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function endOfInputDate(value: string): number | null {
-  const startMs = fromInputDate(value);
-  if (startMs == null) return null;
-  return startMs + 24 * 60 * 60 * 1000 - 1;
 }
 
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
@@ -290,6 +314,16 @@ export function ContractsPage(props: {
         customerById.set(String(row.id), String(row.displayName ?? '(без названия)'));
       }
 
+      // Марки нужны ступени «Марка в контракте»: в разделах лежат только их идентификаторы.
+      const brandType = (types as any[]).find((t) => String(t.code) === 'engine_brand') ?? null;
+      const brandRows =
+        brandType?.id != null ? await window.matrica.admin.entities.listByEntityType(String(brandType.id)).catch(() => []) : [];
+      const engineBrandNameById = new Map<string, string>();
+      for (const row of brandRows) {
+        if (!row?.id) continue;
+        engineBrandNameById.set(String(row.id), String(row.displayName ?? ''));
+      }
+
       const engines = await window.matrica.engines.list();
       const linkedItemsByContractId = new Map<string, Array<Pick<ProgressLinkedItem, 'statusFlags'>>>();
       const repairedEngineIds = new Set<string>();
@@ -374,6 +408,16 @@ export function ContractsPage(props: {
               number: numberRaw == null ? '' : String(numberRaw),
               internalNumber: internalRaw == null ? '' : String(internalRaw),
               counterparty,
+              // Поля ниже читают ступени фильтра — они уже разобраны из карточки выше,
+              // отдельного запроса не стоят.
+              ...(sections.primary.kind ? { kind: sections.primary.kind } : {}),
+              customerId: sections.primary.customerId ?? '',
+              gozName: String(attrs.goz_name ?? ''),
+              gozIgk: String(attrs.goz_igk ?? ''),
+              hasSeparateAccount: Boolean(String(attrs.goz_separate_account_number ?? '').trim()),
+              hasFiles: attachmentPreviews.length > 0 || attrs.has_files === true,
+              engineBrandNames: collectContractBrandNames(sections, engineBrandNameById),
+              addonCount: sections.addons.length,
               searchText: row.searchText ? String(row.searchText) : '',
               dueDateMs,
               contractAmount,
@@ -439,20 +483,32 @@ export function ContractsPage(props: {
   // Верхний поиск: поля строки + внутрь карточки (EAV).
   const getRowId = useCallback((row: { id: string }) => String(row.id), []);
   const deepIds = useCardContentIds(rows, getRowId, query);
-  const filtered = useMemo(() => {
-    const fromMs = fromInputDate(contractDateFrom);
-    const toMs = endOfInputDate(contractDateTo);
-    const hasDateFilter = fromMs != null || toMs != null;
-    return rows.filter((row) => {
-      if (!matchesQueryInRecord(query, row) && !(deepIds?.has(String(row.id)) ?? false)) return false;
-      if (!hasDateFilter) return true;
-      const contractSignedAt = row.dateMs;
-      if (contractSignedAt == null) return false;
-      if (fromMs != null && contractSignedAt < fromMs) return false;
-      if (toMs != null && contractSignedAt > toMs) return false;
-      return true;
-    });
-  }, [rows, query, deepIds, contractDateFrom, contractDateTo]);
+  // Поиск отбирает первым, ступени — вторым: варианты ступеней считаются по найденному.
+  const searched = useMemo(
+    () => rows.filter((row) => matchesQueryInRecord(query, row) || (deepIds?.has(String(row.id)) ?? false)),
+    [rows, query, deepIds],
+  );
+
+  // Старый фильтр дат заключения переезжает в ступень «Дата заключения»: два фильтра об одном
+  // и том же означают, что один из них невидим.
+  const facets = useMemo<ContractFacetSelection>(() => {
+    const base = sanitizeContractFacetSelection(listState.facets);
+    if ((!contractDateFrom && !contractDateTo) || contractFacetIsActive(base, 'signedAt')) return base;
+    return {
+      ...base,
+      signedAt: { ...(contractDateFrom ? { from: contractDateFrom } : {}), ...(contractDateTo ? { to: contractDateTo } : {}) },
+    };
+  }, [listState.facets, contractDateFrom, contractDateTo]);
+  const facetFields = useMemo<string[]>(() => {
+    const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
+    const known = raw.filter((id) => CONTRACT_FACETS.some((f) => f.id === id));
+    const active = CONTRACT_FACETS.filter((f) => contractFacetIsActive(facets, f.id)).map((f) => f.id);
+    // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
+    return Array.from(new Set([...known, ...active]));
+  }, [listState.facetFields, facets]);
+  const facetsOpen = listState.facetsOpen === true;
+
+  const filtered = useMemo(() => applyContractFacets(searched, facets), [searched, facets]);
 
   const sorted = useSortedItems(
     filtered,
@@ -929,32 +985,6 @@ export function ContractsPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контракта…" />
         </div>
-        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-          По дате заключения:
-        </span>
-        <div style={{ width: 170 }}>
-          <Input
-            type="date"
-            value={contractDateFrom}
-            onChange={(e) => patchState({ contractDateFrom: e.target.value })}
-            title="Дата заключения контракта: с"
-          />
-        </div>
-        <div style={{ width: 170 }}>
-          <Input
-            type="date"
-            value={contractDateTo}
-            onChange={(e) => patchState({ contractDateTo: e.target.value })}
-            title="Дата заключения контракта: по"
-          />
-        </div>
-        <Button
-          variant="ghost"
-          onClick={() => patchState({ contractDateFrom: '', contractDateTo: '' })}
-          disabled={!contractDateFrom && !contractDateTo}
-        >
-          Сбросить даты
-        </Button>
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
@@ -990,6 +1020,20 @@ export function ContractsPage(props: {
           onMove={columnLayout.moveColumn}
           onReset={columnLayout.resetToDefault}
         />      </div>
+
+      <div style={{ marginTop: 8, flex: '0 0 auto' }}>
+        <FacetFilter<Row>
+          facets={CONTRACT_FACETS as readonly FacetDescriptor<Row>[]}
+          rows={searched}
+          selection={facets as FacetSelection}
+          fields={facetFields}
+          open={facetsOpen}
+          onToggleOpen={() => patchState({ facetsOpen: !facetsOpen })}
+          onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
+          onChangeFields={(next) => patchState({ facetFields: next })}
+          onReset={() => patchState({ facets: {}, facetFields: [], contractDateFrom: '', contractDateTo: '' })}
+        />
+      </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 

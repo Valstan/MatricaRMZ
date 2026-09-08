@@ -12,7 +12,10 @@ function src(rel: string): string {
 }
 
 const PAGE = src('./EnginesPage.tsx');
-const FILTER = src('../components/EngineFacetFilter.tsx');
+// Разметка ступеней общая для двигателей и контрактов; двигательный компонент — тонкая обёртка,
+// подставляющая свои ступени. Сторожим обе половины: обёртка без ступеней рисует пустую панель.
+const WRAPPER = src('../components/EngineFacetFilter.tsx');
+const FILTER = src('../components/FacetFilter.tsx');
 
 describe('ступенчатый фильтр доезжает до строк списка', () => {
   it('таблица строится по отфильтрованному ступенями массиву', () => {
@@ -58,6 +61,11 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER, 'свёрнутая панель всё равно рисует кнопку').toContain('if (!props.open) return <div data-engine-facets>{toggle}</div>;');
     expect(FILTER).toContain("{props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}");
     expect(PAGE).toContain('open={facetsOpen}');
+  });
+
+  it('обёртка двигателей подставляет в общий фильтр именно свои ступени', () => {
+    expect(WRAPPER).toContain('facets={ENGINE_FACETS as readonly FacetDescriptor<EngineListItem>[]}');
+    expect(WRAPPER).toContain('rows={props.engines}');
   });
 
   it('ступень по датам рисует две границы, а не список значений', () => {
