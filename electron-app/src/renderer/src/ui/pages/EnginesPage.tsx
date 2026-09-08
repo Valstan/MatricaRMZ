@@ -128,7 +128,8 @@ export type EnginesPageUiState = {
     | 'updatedAt';
   sortDir: 'asc' | 'desc';
   page: number;
-  showPreviews: boolean;
+  /** Легаси-тумблер превью: колонку теперь скрывают в шапке столбцов, поле больше не читается. */
+  showPreviews?: boolean;
   contractDateFrom: string;
   contractDateTo: string;
   onlyReclamation?: boolean;
@@ -151,7 +152,6 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
     sortKey: 'arrivalDate',
     sortDir: 'desc',
     page: 0,
-    showPreviews: true,
     contractDateFrom: '',
     contractDateTo: '',
   };
@@ -329,7 +329,6 @@ export function EnginesPage(props: {
   /** ПКМ → «Наряд на сборку» (тема D): открыть новый сборочный наряд для этого двигателя. */
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
   /** Кнопка «Отчёт „Двигатели“» → объединённый пресет engines (разрезы/фильтры/колонки/шаблоны). */
-  onOpenReport?: () => void;
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
@@ -339,7 +338,6 @@ export function EnginesPage(props: {
   const query = listState.query;
   const sortKey = listState.sortKey;
   const sortDir = listState.sortDir;
-  const showPreviews = listState.showPreviews !== false;
   const contractDateFrom = String(listState.contractDateFrom ?? '');
   const contractDateTo = String(listState.contractDateTo ?? '');
   const onlyReclamation = listState.onlyReclamation === true;
@@ -521,7 +519,6 @@ export function EnginesPage(props: {
     cellAlign?: 'left' | 'right';
     width?: number;
     kind?: ListColumnKind;
-    requireShowPreviews?: boolean;
     render: (e: EngineListItem) => React.ReactNode;
     printValue?: (e: EngineListItem) => string;
     printSkip?: boolean;
@@ -629,7 +626,6 @@ export function EnginesPage(props: {
         headerAlign: 'right',
         cellAlign: 'right',
         kind: 'thumbs',
-        requireShowPreviews: true,
         printSkip: true,
         render: (e) => <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />,
       },
@@ -644,11 +640,13 @@ export function EnginesPage(props: {
       columnLayout.order
         .map((id) => columnsById.get(id))
         .filter((col): col is EngineColumn => Boolean(col))
-        .filter((col) => columnLayout.isVisible(col.id))
-        .filter((col) => !col.requireShowPreviews || showPreviews),
+        .filter((col) => columnLayout.isVisible(col.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object/isVisible every render; the data isVisible reads (order/hidden) is already in deps, adding columnLayout would recompute the memo on every render
-    [columnLayout.order, columnLayout.hidden, columnsById, showPreviews],
+    [columnLayout.order, columnLayout.hidden, columnsById],
   );
+  // Колонку «Превью» оператор убирает прямо в шапке столбцов (владелец 08.09.2026), поэтому
+  // отдельной кнопки-тумблера больше нет: высоту строки определяет сама видимость колонки.
+  const previewsVisible = useMemo(() => visibleColumns.some((c) => c.id === 'previews'), [visibleColumns]);
   const columnDescriptors = useMemo<ColumnDescriptor[]>(() => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })), [allColumns]);
   const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
 
@@ -773,17 +771,15 @@ export function EnginesPage(props: {
       {/* mx-page-toolbar — на планшете ряд уезжает, когда оператор листает список
           (возврат: язычок 🔍 у левого края, он же ставит курсор в поиск). */}
       <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto', flexWrap: 'wrap' }}>
-        {props.onOpenReport && (
-          <Button
-            variant="ghost"
-            onClick={() => props.onOpenReport?.()}
-            title="Единый отчёт «Двигатели»: разрезы по контрактам / маркам / двигателям, фильтры, выбор колонок, шаблоны, печать"
-          >
-            Отчёт «Двигатели»
-          </Button>
-        )}
+        {/* Отчёт «Двигатели» живёт в разделе «Отчёты» (пресет `engines`, темы «Двигатели» и
+            «Контракты») — вторая точка входа из списка только дублировала каталог. */}
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
-        <div style={{ flex: 1 }}>
+        {/* Поиск и то, что им управляет, стоят вместе слева: «Похожие» и «Фильтры» относятся
+            к поиску и отбору, а не к прочим кнопкам ряда (владелец 08.09.2026). Растяжку
+            забирает распорка ПОСЛЕ них, поэтому группа не разъезжается по ширине окна.
+            Ширину обёртке не задаём: поле само ограничено 48ch, и любая большая ширина
+            превратилась бы в пустоту между поиском и кнопками. */}
+        <div>
           <Input
             value={query}
             onChange={(e) => patchState({ query: e.target.value, page: 0 })}
@@ -795,9 +791,7 @@ export function EnginesPage(props: {
         <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
         </span>
-        <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
-          {showPreviews ? 'Отключить превью' : 'Включить превью'}
-        </Button>
+        <div style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
@@ -900,7 +894,7 @@ export function EnginesPage(props: {
             getRowKey={(i) => String(displayRows[i]!.id)}
             getRowProps={(i) => engineRowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
-            estimateSize={showPreviews ? 64 : 40}
+            estimateSize={previewsVisible ? 64 : 40}
             emptyState="Ничего не найдено"
           />
         )}
