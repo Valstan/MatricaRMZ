@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import {
   ENGINE_FACETS,
   applyEngineFacets,
+  engineFacetIsActive,
   sanitizeEngineFacetSelection,
   classifyEngineContractBinding,
   engineInternalNumberSortKey,
@@ -137,6 +138,8 @@ export type EnginesPageUiState = {
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: EngineFacetId[];
   facets?: EngineFacetSelection;
+  /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
+  facetsOpen?: boolean;
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -149,19 +152,6 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
     contractDateFrom: '',
     contractDateTo: '',
   };
-}
-
-function fromInputDate(value: string): number | null {
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-  const ms = Date.parse(`${text}T00:00:00`);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function endOfInputDate(value: string): number | null {
-  const startMs = fromInputDate(value);
-  if (startMs == null) return null;
-  return startMs + 24 * 60 * 60 * 1000 - 1;
 }
 
 function toDateLabel(ms?: number | null) {
@@ -352,20 +342,29 @@ export function EnginesPage(props: {
   const onlyReclamation = listState.onlyReclamation === true;
   const completenessFilter = listState.completenessFilter ?? 'all';
   const customerFilter = String(listState.customerFilter ?? '');
-  // Старый одиночный выбор контрагента переезжает в ступень «Контрагент»: у оператора не
-  // должно остаться двух фильтров об одном и том же, из которых один невидим.
+  // Старые одиночные фильтры тулбара (контрагент, рекламация, акт комплектности, даты прихода)
+  // переезжают в свои ступени: у оператора не должно остаться двух фильтров об одном и том же,
+  // из которых один невидим. Переезд читающий — в состоянии списка старые поля остаются лежать,
+  // пока их не перезапишет первая же правка фильтра.
   const facets = useMemo<EngineFacetSelection>(() => {
     const base = sanitizeEngineFacetSelection(listState.facets);
-    if (!customerFilter || (base.customer ?? []).length > 0) return base;
-    return { ...base, customer: [customerFilter] };
-  }, [listState.facets, customerFilter]);
+    const out: EngineFacetSelection = { ...base };
+    if (customerFilter && !engineFacetIsActive(base, 'customer')) out.customer = [customerFilter];
+    if (onlyReclamation && !engineFacetIsActive(base, 'reclamation')) out.reclamation = ['yes'];
+    if (completenessFilter !== 'all' && !engineFacetIsActive(base, 'completenessAct')) out.completenessAct = [completenessFilter];
+    if ((contractDateFrom || contractDateTo) && !engineFacetIsActive(base, 'arrivalDate')) {
+      out.arrivalDate = { ...(contractDateFrom ? { from: contractDateFrom } : {}), ...(contractDateTo ? { to: contractDateTo } : {}) };
+    }
+    return out;
+  }, [listState.facets, customerFilter, onlyReclamation, completenessFilter, contractDateFrom, contractDateTo]);
   const facetFields = useMemo<EngineFacetId[]>(() => {
     const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
     const known = raw.filter((id): id is EngineFacetId => ENGINE_FACETS.some((f) => f.id === id));
-    const active = (Object.keys(facets) as EngineFacetId[]).filter((id) => (facets[id] ?? []).length > 0);
+    const active = ENGINE_FACETS.filter((f) => engineFacetIsActive(facets, f.id)).map((f) => f.id);
     // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
+  const facetsOpen = listState.facetsOpen === true;
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -378,26 +377,43 @@ export function EnginesPage(props: {
   const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
   const deepFilter = useListDeepFilter(props.engines, getRowId, getRowLabel, query);
   const similarMode = deepFilter.similarMode;
-  const filtered = useMemo(() => {
-    const fromMs = fromInputDate(contractDateFrom);
-    const toMs = endOfInputDate(contractDateTo);
-    const hasDateFilter = fromMs != null || toMs != null;
-    return deepFilter.filtered.filter((engine) => {
-      if (onlyReclamation && engine.isReclamation !== true) return false;
-      if (completenessFilter === 'yes' && engine.hasCompletenessAct !== true) return false;
-      if (completenessFilter === 'no' && engine.hasCompletenessAct === true) return false;
-      // Отбор по ступеням идёт ниже одним проходом — здесь только прочие фильтры шапки.
-      if (!hasDateFilter) return true;
-      const arrivalDate = typeof engine.arrivalDate === 'number' && Number.isFinite(engine.arrivalDate) ? engine.arrivalDate : null;
-      if (arrivalDate == null) return false;
-      if (fromMs != null && arrivalDate < fromMs) return false;
-      if (toMs != null && arrivalDate > toMs) return false;
-      return true;
+  // Все отборы, кроме поиска, живут теперь в ступенях: рекламация, акт комплектности и даты
+  // прихода стали ступенями и применяются одним проходом ниже.
+  const filtered = deepFilter.filtered;
+
+  // Цех у строки списка приходит идентификатором: справочник живёт на сервере, локальной
+  // реплики у него нет. Имя подставляем здесь — ступени «Цех» нужно показать оператору
+  // название, а не UUID. Нет связи или справочник пуст — ступень честно скажет «без названия».
+  const [workshopNameById, setWorkshopNameById] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await window.matrica.workshops.list({ activeOnly: false });
+        if (!alive || !r?.ok) return;
+        const map: Record<string, string> = {};
+        for (const w of r.rows) map[String(w.id)] = String(w.name ?? '');
+        setWorkshopNameById(map);
+      } catch {
+        /* ignore — ступень «Цех» покажет значения без названий */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const facetRows = useMemo(() => {
+    if (Object.keys(workshopNameById).length === 0) return filtered;
+    return filtered.map((engine) => {
+      const id = String(engine.workshopId ?? '');
+      const name = id ? workshopNameById[id] : '';
+      return name ? { ...engine, workshopName: name } : engine;
     });
-  }, [deepFilter.filtered, contractDateFrom, contractDateTo, onlyReclamation, completenessFilter]);
+  }, [filtered, workshopNameById]);
 
   /** Ступенчатый фильтр применяется последним: его варианты считаются по уже отобранному. */
-  const facetFiltered = useMemo(() => applyEngineFacets(filtered, facets), [filtered, facets]);
+  const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets), [facetRows, facets]);
 
 
   // Этикетка клеится на тару с деталями двигателя: в QR — полный внутренний номер
@@ -773,50 +789,6 @@ export function EnginesPage(props: {
         <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
         </span>
-        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-          По дате привоза:
-        </span>
-        <div style={{ width: 170 }}>
-          <Input
-            type="date"
-            value={contractDateFrom}
-            onChange={(e) => patchState({ contractDateFrom: e.target.value, page: 0 })}
-            title="Дата прихода двигателя: с"
-          />
-        </div>
-        <div style={{ width: 170 }}>
-          <Input
-            type="date"
-            value={contractDateTo}
-            onChange={(e) => patchState({ contractDateTo: e.target.value, page: 0 })}
-            title="Дата прихода двигателя: по"
-          />
-        </div>
-        <Button
-          variant="ghost"
-          onClick={() => patchState({ contractDateFrom: '', contractDateTo: '', page: 0 })}
-          disabled={!contractDateFrom && !contractDateTo}
-        >
-          Сбросить даты
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => patchState({ onlyReclamation: !onlyReclamation, page: 0 })}
-          title="Показать только двигатели, принятые по рекламации"
-          style={onlyReclamation ? { background: 'rgba(37, 99, 235, 0.15)' } : undefined}
-        >
-          Рекламационные
-        </Button>
-        <select
-          value={completenessFilter}
-          onChange={(e) => patchState({ completenessFilter: e.target.value as 'all' | 'yes' | 'no', page: 0 })}
-          title="Фильтр по акту комплектности: заполнен = хотя бы одна деталь отмечена «на месте»"
-          style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: completenessFilter !== 'all' ? 'rgba(37, 99, 235, 0.08)' : undefined }}
-        >
-          <option value="all">Акт компл.: все</option>
-          <option value="yes">Акт заполнен</option>
-          <option value="no">Акт не заполнен</option>
-        </select>
         <Button variant="ghost" onClick={() => patchState({ showPreviews: !showPreviews })}>
           {showPreviews ? 'Отключить превью' : 'Включить превью'}
         </Button>
@@ -853,12 +825,25 @@ export function EnginesPage(props: {
 
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>
         <EngineFacetFilter
-          engines={filtered}
+          engines={facetRows}
           selection={facets}
           fields={facetFields}
+          open={facetsOpen}
+          onToggleOpen={() => patchState({ facetsOpen: !facetsOpen })}
           onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
-          onReset={() => patchState({ facets: {}, facetFields: [], customerFilter: '', page: 0 })}
+          onReset={() =>
+            patchState({
+              facets: {},
+              facetFields: [],
+              customerFilter: '',
+              onlyReclamation: false,
+              completenessFilter: 'all',
+              contractDateFrom: '',
+              contractDateTo: '',
+              page: 0,
+            })
+          }
         />
       </div>
 

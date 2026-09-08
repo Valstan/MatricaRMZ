@@ -60,6 +60,13 @@ export type EngineListItem = {
   isScrap?: boolean;
   /** Акт комплектности начат: хотя бы одна деталь в списке деталей отмечена «на месте». */
   hasCompletenessAct?: boolean;
+  /** Акт дефектовки начат: у хотя бы одной детали проставлен утиль или замена. */
+  hasDefectAct?: boolean;
+  /** Дата дефектовки (attr `defect_date`) — для фильтра по датам. */
+  defectDate?: number | null;
+  /** Цех, в котором двигатель сейчас (attr `workshop_id` + справочник цехов). */
+  workshopId?: string;
+  workshopName?: string;
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;

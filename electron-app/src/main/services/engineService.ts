@@ -248,7 +248,7 @@ function toNonNegativeInteger(value: unknown): number | null {
 // (migrateChecklistToEngineInventory) объединил defect+completeness в неё и soft-delete'нул
 // прежние defect-акты, поэтому читать надо именно её, иначе флаг всегда пуст (G: метка
 // не снималась — читался опустевший defect-акт, а карточка пишет engine_inventory).
-type EngineInventoryFlags = { crankcaseScrapped: boolean; actStarted: boolean };
+type EngineInventoryFlags = { crankcaseScrapped: boolean; actStarted: boolean; defectStarted: boolean };
 
 function inventoryRowsOf(payload: unknown): Array<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') return [];
@@ -270,10 +270,18 @@ function isPresentValue(value: unknown): boolean {
 function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
   let crankcaseScrapped = false;
   let actStarted = false;
+  let defectStarted = false;
   for (const row of inventoryRowsOf(payload)) {
     // Акт комплектности «заполнен», как только хотя бы одна деталь отмечена «на месте»
     // (решение владельца 2026-07-15): работник начал заполнять акт.
     if (!actStarted && isPresentValue(row.present)) actStarted = true;
+    // Акт дефектовки «заполнен» по первому же вердикту о детали — утиль или замена.
+    // «На месте» тут не считается: это приёмка, дефектовку по ней ещё не делали.
+    if (!defectStarted) {
+      const scrapQty = toNonNegativeInteger(row.scrap_qty) ?? 0;
+      const replaceQty = toNonNegativeInteger(row.replace_qty) ?? 0;
+      if (scrapQty > 0 || replaceQty > 0) defectStarted = true;
+    }
     if (!crankcaseScrapped) {
       const name = String(row.part_name ?? '').toLowerCase();
       if (name.includes('картер')) {
@@ -281,9 +289,9 @@ function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
         if (scrapQty != null && scrapQty > 0) crankcaseScrapped = true;
       }
     }
-    if (actStarted && crankcaseScrapped) break;
+    if (actStarted && crankcaseScrapped && defectStarted) break;
   }
-  return { crankcaseScrapped, actStarted };
+  return { crankcaseScrapped, actStarted, defectStarted };
 }
 
 /**
@@ -448,6 +456,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const contractSectionDefId = defs['contract_section_number'];
   const arrivalDateDefId = defs['arrival_date'];
   const shippingDateDefId = defs['shipping_date'];
+  const defectDateDefId = defs['defect_date'];
+  const workshopIdDefId = defs['workshop_id'];
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
   const reclamationFlagDefId = defs['reclamation_flag'];
@@ -473,6 +483,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     contractSectionDefId,
     arrivalDateDefId,
     shippingDateDefId,
+    defectDateDefId,
+    workshopIdDefId,
     attachmentsDefId,
     reclamationFlagDefId,
     repeatArrivalDefId,
@@ -589,6 +601,19 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       legacyShippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
+    let defectDate: number | null = null;
+    if (defectDateDefId) {
+      const v = rowValues.get(defectDateDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
+      const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+      defectDate = typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
+    }
+    let workshopId = '';
+    if (workshopIdDefId) {
+      const v = rowValues.get(workshopIdDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
+      workshopId = String(raw ?? '').trim();
+    }
     for (const statusDateDefId of statusDateDefIds) {
       const code = (statusDateDefById as Record<string, StatusCode | undefined>)[statusDateDefId];
       if (!code) continue;
@@ -679,6 +704,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       isScrap: statusRejected || statusScrapMarked || crankcaseScrapped,
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
+      ...(inventoryFlags?.defectStarted === true ? { hasDefectAct: true } : {}),
+      defectDate,
+      ...(workshopId ? { workshopId } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),
