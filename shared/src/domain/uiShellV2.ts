@@ -110,12 +110,18 @@ export const DEFAULT_V2_PREFS: V2Prefs = {
 
 export const V2_SESSION_MAX_CARDS = 3;
 
-/** V3: всего вкладок ≤ 10 (2 закреплённые + карточки) → карточек не больше 8. */
+/** V3: всего вкладок ≤ 15 (2 закреплённые + карточки) → карточек не больше 13. */
 export const V3_PINNED_TABS = 2;
-export const V3_MAX_TOTAL_TABS = 10;
+export const V3_MAX_TOTAL_TABS = 15;
 export const V3_MAX_CARD_TABS = V3_MAX_TOTAL_TABS - V3_PINNED_TABS;
-/** Красное предупреждение «вкладок многовато», когда всего открыто больше 5. */
-export const V3_WARN_TOTAL_TABS = 5;
+/**
+ * Предупреждение «вкладок многовато» — когда всего открыто больше 10 (владелец 08.09.2026,
+ * прежний порог 5 срабатывал в обычной работе и превратился в фон).
+ *
+ * Потолок обязан быть ВЫШЕ порога: иначе предупреждение появлялось бы ровно тогда, когда
+ * открыть уже нечего, и вместо совета получалось бы уведомление о запрете.
+ */
+export const V3_WARN_TOTAL_TABS = 10;
 
 export function v3TotalTabs(cardCount: number): number {
   return V3_PINNED_TABS + Math.max(0, cardCount);

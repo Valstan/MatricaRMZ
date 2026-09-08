@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import type { V2ButtonLayout } from '@matricarmz/shared';
+import React, { useEffect, useMemo, useState } from 'react';
+import { formatAppVersionLabel, type V2ButtonLayout } from '@matricarmz/shared';
 import {
   DndContext,
   PointerSensor,
@@ -87,6 +87,23 @@ export function ButtonPanel(props: {
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
+  // Версия клиента спрашивается у моста: на планшете она приходит из сборки, в Electron — от
+  // самого приложения. Единственная точка показа для обеих платформ.
+  const [appVersionLabel, setAppVersionLabel] = useState('');
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await window.matrica.app.version();
+        if (alive && r?.ok && r.version) setAppVersionLabel(formatAppVersionLabel(r.version));
+      } catch {
+        /* версия — справочная строка, её отсутствие не ломает меню */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
   const sensors = useSensors(...(isAndroidPlatform() ? [] : [pointerSensor]));
 
@@ -193,6 +210,11 @@ export function ButtonPanel(props: {
 
   return (
     <div className="v2-button-panel" onClick={() => { if (menu) closeMenu(); }}>
+      {/* Версия — первая строка меню (просьба владельца 08.09.2026): на планшете её негде было
+          увидеть вовсе, а на Windows приходилось идти в настройки. Одинаково в обоих клиентах. */}
+      <div className="v2-app-version" data-app-version title="Версия программы на этом компьютере">
+        {appVersionLabel || 'Версия: —'}
+      </div>
       {/* Закреплённая область — всегда видна и развёрнута, живёт ВНЕ скролла:
           при прокрутке остальных секций остаётся наверху (владелец 2026-08-11). */}
       {props.buttons.pinned.length > 0 && (

@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_UI_SHELL_PREFS,
   V3_MAX_CARD_TABS,
+  V3_MAX_TOTAL_TABS,
+  V3_PINNED_TABS,
+  V3_WARN_TOTAL_TABS,
   sanitizeUiShellPrefs,
   sanitizeV3Prefs,
   sanitizeV3Session,
@@ -103,10 +106,12 @@ describe('v3 «Вкладки»: sanitize + лимиты вкладок', () => 
     expect(s.tabs.filter((t) => t.kind === 'card')).toHaveLength(1);
   });
 
-  it('карточки обрезаются лимитом V3_MAX_CARD_TABS (8), списки — НЕ обрезаются', () => {
+  it('карточки обрезаются лимитом V3_MAX_CARD_TABS, списки — НЕ обрезаются', () => {
+    // Считаем от самой константы: лимит менялся (8 → 13 при поднятии потолка 08.09.2026), и
+    // тест с зашитым числом перестал бы проверять обрезку — просто перестал бы её вызывать.
     const s = sanitizeV3Session({
       tabs: [
-        ...Array.from({ length: 12 }, (_, i) => ({ kind: 'card', card: { kind: 'engine', entityId: `e${i}`, title: `t${i}` } })),
+        ...Array.from({ length: V3_MAX_CARD_TABS + 4 }, (_, i) => ({ kind: 'card', card: { kind: 'engine', entityId: `e${i}`, title: `t${i}` } })),
         ...Array.from({ length: 9 }, (_, i) => ({ kind: 'list', tabId: `section${i}` })),
       ],
     });
@@ -146,11 +151,14 @@ describe('v3 «Вкладки»: sanitize + лимиты вкладок', () => 
     expect(sanitizeV3Prefs({ sectionsPct: 'мусор' }).sectionsPct).toBe(25);
   });
 
-  it('лимиты: 10 всего (2 закреплённые + 8 карточек), предупреждение при >5 открытых', () => {
-    expect(v3TotalTabs(0)).toBe(2);
+  it('лимиты: потолок и порог предупреждения согласованы между собой', () => {
+    expect(v3TotalTabs(0)).toBe(V3_PINNED_TABS);
     expect(v3CanOpenCard(V3_MAX_CARD_TABS - 1)).toBe(true);
     expect(v3CanOpenCard(V3_MAX_CARD_TABS)).toBe(false);
-    expect(v3ShowTabsWarning(3)).toBe(false); // 5 всего — ещё тихо
-    expect(v3ShowTabsWarning(4)).toBe(true); // 6 всего — предупреждаем
+    // Предупреждение считает ВСЕ вкладки, включая закреплённые: тихо ровно до порога.
+    expect(v3ShowTabsWarning(V3_WARN_TOTAL_TABS - V3_PINNED_TABS)).toBe(false);
+    expect(v3ShowTabsWarning(V3_WARN_TOTAL_TABS - V3_PINNED_TABS + 1)).toBe(true);
+    // Предупредить надо ДО потолка, иначе это не совет, а уведомление о запрете.
+    expect(V3_WARN_TOTAL_TABS).toBeLessThan(V3_MAX_TOTAL_TABS);
   });
 });

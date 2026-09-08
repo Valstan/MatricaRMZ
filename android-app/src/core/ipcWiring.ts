@@ -105,7 +105,10 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
 
   // Каналы, живущие в electron-app/src/main/index.ts (не портируется целиком).
   ipcMain.handle('app:ping', async () => 'pong');
-  ipcMain.handle('app:version', async () => getAndroidPlatformHooks().appVersion());
+  // Форма ответа — как в Electron (`{ ok, version }`), а не голая строка: экраны проверяют
+  // `v?.ok && v.version`, и строка молча читалась как «версии нет» — на планшете в настройках
+  // стоял прочерк, хотя версия сборки была на месте.
+  ipcMain.handle('app:version', async () => ({ ok: true, version: getAndroidPlatformHooks().appVersion() }));
 
   return ctx;
 }

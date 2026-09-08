@@ -12,6 +12,21 @@
   gap: 2px;
 }
 
+/* Версия программы — первая строка меню (владелец 08.09.2026). Справочная строка, поэтому
+   приглушена и не кликается: она отвечает на вопрос «какая у меня версия», а не открывает
+   раздел. Живёт вне скролла, как и закреплённый блок. */
+.v2-app-version {
+  flex: 0 0 auto;
+  padding: 4px 8px 6px;
+  font-size: 12px;
+  color: var(--subtle);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Закреплённый блок живёт вне скролла (всегда наверху), прокручиваются только
    секции: sticky больше не нужен, фиксацию даёт раскладка. */
 .v2-button-panel-fixed {

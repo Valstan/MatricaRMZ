@@ -539,7 +539,12 @@ export function DesktopPane(props: {
           flexDirection: 'column',
           alignItems: 'center',
           gap: 4,
-          padding: '10px 4px',
+          // 7, а не 10 (владелец 08.09.2026): высота плитки из `desktopTileMetrics` считалась
+          // как отступ + иконка + зазор + ДВЕ строки подписи + отступ, но у плитки есть ещё
+          // рамка в 1px с каждой стороны. При отступе 10 подписи не хватало 6px, и вторая
+          // строка резалась; при 8 не хватало ровно рамочных 2px — движок считал, что текст не
+          // поместился, и ставил многоточие уже в первой строке («Скрипты… обслуживания»).
+          padding: '7px 4px',
           border: `1px solid ${on ? theme.colors.borderStrong : 'transparent'}`,
           borderRadius: 10,
           background: on ? theme.colors.surface2 : 'transparent',
@@ -557,6 +562,9 @@ export function DesktopPane(props: {
             lineHeight: `${m.labelLine}px`,
             textAlign: 'center',
             overflow: 'hidden',
+            // `textOverflow: ellipsis` здесь ВРЕДЕН: вместе с `-webkit-box` он обрезает КАЖДУЮ
+            // строку, и «Скрипты обслуживания» превращалось в «Скрипты… обслуживания». Клампу
+            // многоточие в конце второй строки и так рисует сам движок.
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
