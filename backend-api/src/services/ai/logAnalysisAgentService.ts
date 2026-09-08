@@ -13,6 +13,10 @@ const DEFAULT_TIMES = ['06:00', '18:00'];
 const DEFAULT_LOOKBACK_HOURS = 12;
 const TICK_MS = 60_000;
 const MAX_LOG_LINES = 100;
+// Потолок выборки критических событий. Он есть ради памяти, а не ради смысла:
+// счёт за окно берётся отфильтрованным, и если выборка упёрлась в потолок,
+// число честно помечается как «не меньше чем» (countCriticalEventsInWindow).
+const CRITICAL_EVENTS_FETCH_LIMIT = 1_000;
 const MAX_LOG_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_AI_DETAILS_BYTES = 16_000;
 
@@ -30,7 +34,18 @@ export type LogAnalysisContext = {
   rangeSinceMs: number;
   rangeUntilMs: number;
   timeZone: string;
+  // Число событий ИМЕННО ЗА ОКНО. Раньше здесь лежала длина выборки (все коды
+  // за двое суток, упёршиеся в лимит 200), а в промпте она стояла рядом со
+  // словами «за окно» — отсюда доклады вида «200 сбоев за 12 часов» при 28
+  // фактических. Числа отчёта цитируются владельцу, поэтому величина обязана
+  // отвечать ровно на тот вопрос, которым названа.
   criticalEventCount: number;
+  // Выборка упёрлась в лимит и обрезана — значит `criticalEventCount` это «не
+  // меньше чем», и так его и надо называть в отчёте.
+  criticalEventCountIsLowerBound: boolean;
+  // Разбивка по кодам за окно: она отвечает на «чего именно много», не оставляя
+  // модели повода сочинять число из размера выборки.
+  criticalEventsByCode: Array<{ eventCode: string; count: number; severity: string; category: string; title: string }>;
   criticalEventsTop: Array<{ severity: string; category: string; title: string; eventCode: string }>;
   syncPipeline: { status: string; reasons: string[]; ledgerToIndexLag: number; indexToProjectionLag: number };
   assistMetrics: AssistMetricsAgg;
@@ -180,6 +195,77 @@ function pickTopCriticalEvents(events: ReturnType<typeof listCriticalEvents>, si
     }));
 }
 
+/**
+ * События окна, свёрнутые по коду. Модель получает «сколько чего», а не только
+ * первые двадцать штук и общий счётчик: последнее она пересказывала числом
+ * выборки («200 повторяющихся сбоев за 12 часов» при 28 реальных).
+ */
+export function foldCriticalEventsByCode(
+  events: ReturnType<typeof listCriticalEvents>,
+  sinceMs: number,
+  untilMs: number,
+  maxCodes = 15,
+) {
+  const byCode = new Map<string, { eventCode: string; count: number; severity: string; category: string; title: string }>();
+  for (const e of events) {
+    if (e.createdAt < sinceMs || e.createdAt > untilMs) continue;
+    const code = String(e.eventCode ?? 'unknown');
+    const cur = byCode.get(code);
+    if (cur) {
+      cur.count += 1;
+      continue;
+    }
+    byCode.set(code, {
+      eventCode: code,
+      count: 1,
+      severity: String(e.severity ?? ''),
+      category: String(e.category ?? ''),
+      title: String(e.title ?? ''),
+    });
+  }
+  return Array.from(byCode.values())
+    .sort((a, b) => b.count - a.count || a.eventCode.localeCompare(b.eventCode))
+    .slice(0, maxCodes);
+}
+
+/**
+ * Сколько событий попало в окно и можно ли доверять этому числу как точному.
+ *
+ * Выборка приходит отсортированной от новых к старым и обрезана лимитом. Если
+ * в ней есть хоть одно событие СТАРШЕ окна — значит окно выбрано целиком, и
+ * счёт точен. Если же все до одного попали в окно и выборка упёрлась в лимит —
+ * за границей могло остаться ещё сколько-то, и число honestly «не меньше чем».
+ */
+export function countCriticalEventsInWindow(
+  events: ReturnType<typeof listCriticalEvents>,
+  sinceMs: number,
+  untilMs: number,
+  fetchLimit: number,
+): { count: number; isLowerBound: boolean } {
+  const inWindow = events.filter((e) => e.createdAt >= sinceMs && e.createdAt <= untilMs);
+  const sawOlderThanWindow = events.some((e) => e.createdAt < sinceMs);
+  return { count: inWindow.length, isLowerBound: !sawOlderThanWindow && events.length >= fetchLimit };
+}
+
+/**
+ * Хвост журнала, обрезанный по тому же окну. Строки сервера начинаются с ISO-
+ * метки в квадратных скобках; строка без разбираемой метки (продолжение
+ * стектрейса) остаётся — она принадлежит своей записи, а не окну.
+ */
+export function filterLogLinesToWindow(lines: readonly string[], sinceMs: number, untilMs: number): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = /^\[(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\]/.exec(line);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+    const ts = Date.parse(m[1] as string);
+    if (!Number.isFinite(ts) || (ts >= sinceMs && ts <= untilMs)) out.push(line);
+  }
+  return out;
+}
+
 export async function collectLogAnalysisContext(args?: { lookbackHours?: number; timeZone?: string }): Promise<LogAnalysisContext> {
   const timeZone = args?.timeZone || DEFAULT_TIME_ZONE;
   const lookbackHours = Math.max(1, Math.min(72, args?.lookbackHours ?? DEFAULT_LOOKBACK_HOURS));
@@ -187,17 +273,20 @@ export async function collectLogAnalysisContext(args?: { lookbackHours?: number;
   const sinceMs = untilMs - lookbackHours * 60 * 60 * 1000;
 
   const [criticalEvents, syncHealth, assistMetrics, recentLogLines] = await Promise.all([
-    Promise.resolve(listCriticalEvents({ days: Math.ceil(lookbackHours / 24) + 1, limit: 200 })),
+    Promise.resolve(listCriticalEvents({ days: Math.ceil(lookbackHours / 24) + 1, limit: CRITICAL_EVENTS_FETCH_LIMIT })),
     getSyncPipelineHealth().catch(() => null),
     loadAssistMetrics(sinceMs, untilMs),
     loadRecentServerLogLines(),
   ]);
+  const windowed = countCriticalEventsInWindow(criticalEvents, sinceMs, untilMs, CRITICAL_EVENTS_FETCH_LIMIT);
 
   return {
     rangeSinceMs: sinceMs,
     rangeUntilMs: untilMs,
     timeZone,
-    criticalEventCount: criticalEvents.length,
+    criticalEventCount: windowed.count,
+    criticalEventCountIsLowerBound: windowed.isLowerBound,
+    criticalEventsByCode: foldCriticalEventsByCode(criticalEvents, sinceMs, untilMs),
     criticalEventsTop: pickTopCriticalEvents(criticalEvents, sinceMs),
     syncPipeline: syncHealth
       ? {
@@ -208,7 +297,7 @@ export async function collectLogAnalysisContext(args?: { lookbackHours?: number;
         }
       : { status: 'unknown', reasons: ['sync pipeline health unavailable'], ledgerToIndexLag: 0, indexToProjectionLag: 0 },
     assistMetrics,
-    recentLogLines,
+    recentLogLines: filterLogLinesToWindow(recentLogLines, sinceMs, untilMs),
   };
 }
 
@@ -224,13 +313,19 @@ function buildPrompt(ctx: LogAnalysisContext): { system: string; user: string } 
   // префикс кончался ровно там (R29). Ключи объекта идут в порядке объявления, поэтому
   // новые изменчивые поля класть только ПОСЛЕ range.
   const user =
-    'Сводка состояния сервера. Поля: criticalEvents — критические события за окно; ' +
-    'syncPipeline — здоровье конвейера синхронизации; assistMetrics — расход ИИ-помощника; ' +
-    'recentLogLines — хвост журнала; range — границы окна разбора.\n' +
+    'Сводка состояния сервера. Поля: criticalEvents.count — сколько событий произошло ЗА ОКНО ' +
+    '(если countIsLowerBound=true, событий было не меньше этого; точное число неизвестно); ' +
+    'criticalEvents.byCode — сколько раз за окно случился каждый код; criticalEvents.top — первые ' +
+    'события окна для примера, это НЕ счётчик; syncPipeline — здоровье конвейера синхронизации; ' +
+    'assistMetrics — расход ИИ-помощника; recentLogLines — хвост журнала за то же окно, обрезанный ' +
+    'по объёму; range — границы окна разбора. Числа бери только из полей count, никогда не выводи ' +
+    'их из длины списков: списки обрезаны.\n' +
     JSON.stringify(
       {
         criticalEvents: {
           count: ctx.criticalEventCount,
+          countIsLowerBound: ctx.criticalEventCountIsLowerBound,
+          byCode: ctx.criticalEventsByCode,
           top: ctx.criticalEventsTop,
         },
         syncPipeline: ctx.syncPipeline,
