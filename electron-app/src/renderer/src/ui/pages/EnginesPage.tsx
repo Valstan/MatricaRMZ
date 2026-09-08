@@ -13,7 +13,7 @@ import {
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem } from '@matricarmz/shared';
 
-import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
+import { EngineFacetFilter, EngineFacetToggleButton } from '../components/EngineFacetFilter.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
@@ -791,6 +791,7 @@ export function EnginesPage(props: {
           />
         </div>
         <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
+        <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} />
         <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
         </span>
@@ -834,7 +835,6 @@ export function EnginesPage(props: {
           selection={facets}
           fields={facetFields}
           open={facetsOpen}
-          onToggleOpen={() => patchState({ facetsOpen: !facetsOpen })}
           onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
           onReset={() =>

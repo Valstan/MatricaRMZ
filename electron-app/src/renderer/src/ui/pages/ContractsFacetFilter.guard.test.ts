@@ -46,9 +46,12 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER).toContain('data-facet-reset');
   });
 
-  it('панель прячется под ту же кнопку, что и у двигателей', () => {
+  it('кнопка «Фильтры» — в тулбаре, панель разворачивается ниже', () => {
+    const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 500);
+    expect(toolbar).toContain('<FacetToggleButton<Row>');
     expect(PAGE).toContain('open={facetsOpen}');
     expect(FILTER).toContain('data-facet-toggle');
+    expect(FILTER, 'свёрнутая панель не занимает полосу').toContain('if (!props.open) return null;');
   });
 });
 

@@ -25,15 +25,52 @@ import { Input } from './Input.js';
  * ОСТАЛЬНЫЕ ступени. Отсюда следствие, ради которого всё и затевалось: выбор в одной ступени
  * сужает варианты в других, и порядок щелчков ни на что не влияет.
  */
+
+/**
+ * Кнопка «Фильтры» для тулбара — рядом с полем поиска (владелец 08.09.2026: панель не должна
+ * занимать полосу, когда она свёрнута). Число активных ступеней видно и в свёрнутом виде:
+ * иначе отобранный список неотличим от полного.
+ */
+export function FacetToggleButton<Row>(props: {
+  facets: readonly FacetDescriptor<Row>[];
+  selection: FacetSelection;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const activeCount = activeFacetCount(props.facets, props.selection);
+  return (
+    <button
+      type="button"
+      data-facet-toggle
+      onClick={props.onToggle}
+      title={props.open ? 'Свернуть панель фильтров (отбор останется)' : 'Развернуть панель фильтров'}
+      style={{
+        padding: '6px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--border)',
+        background: activeCount > 0 ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+        fontWeight: activeCount > 0 ? 700 : 400,
+        whiteSpace: 'nowrap',
+        cursor: 'pointer',
+      }}
+    >
+      {props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}
+    </button>
+  );
+}
+
 export function FacetFilter<Row>(props: {
   facets: readonly FacetDescriptor<Row>[];
   rows: readonly Row[];
   selection: FacetSelection;
   /** Какие ступени раскрыты. Хранится снаружи: состояние списка роумится вместе с фильтром. */
   fields: string[];
-  /** Раскрыта ли панель целиком. Тоже снаружи — роумится вместе со списком. */
+  /**
+   * Раскрыта ли панель. Состояние снаружи (роумится вместе со списком), а переключает его
+   * `FacetToggleButton` из тулбара: свёрнутая панель не должна занимать полосу, но отбор
+   * при этом продолжает работать — он живёт в `selection`, а не в раскрытости.
+   */
   open: boolean;
-  onToggleOpen: () => void;
   onChangeSelection: (next: FacetSelection) => void;
   onChangeFields: (next: string[]) => void;
   onReset: () => void;
@@ -57,27 +94,8 @@ export function FacetFilter<Row>(props: {
     return facetRangeOf(props.selection, id) == null ? 0 : 1;
   };
 
-  // Кнопка живёт и в свёрнутом виде — по числу рядом с ней видно, что список отобран.
-  const toggle = (
-    <button
-      type="button"
-      data-facet-toggle
-      onClick={props.onToggleOpen}
-      title={props.open ? 'Свернуть фильтры' : 'Развернуть фильтры'}
-      style={{
-        padding: '6px 12px',
-        borderRadius: 8,
-        border: '1px solid var(--border)',
-        background: activeCount > 0 ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
-        fontWeight: activeCount > 0 ? 700 : 400,
-        cursor: 'pointer',
-      }}
-    >
-      {props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}
-    </button>
-  );
-
-  if (!props.open) return <div data-engine-facets>{toggle}</div>;
+  // Свёрнутая панель не занимает НИЧЕГО: кнопка живёт в тулбаре рядом с поиском.
+  if (!props.open) return null;
 
   return (
     <div
@@ -92,8 +110,7 @@ export function FacetFilter<Row>(props: {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {toggle}
-        <span style={{ fontWeight: 700 }}>по столбцам:</span>
+        <span style={{ fontWeight: 700 }}>Фильтр по столбцам:</span>
         {props.facets.map((facet) => {
           const on = chosen.has(facet.id);
           const picked = pickedCount(facet.id);

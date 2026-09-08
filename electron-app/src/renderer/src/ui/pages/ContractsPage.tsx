@@ -37,7 +37,7 @@ import {
   parseContractSections,
 } from '@matricarmz/shared';
 
-import { FacetFilter } from '../components/FacetFilter.js';
+import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
 import {
@@ -991,6 +991,12 @@ export function ContractsPage(props: {
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контракта…" />
         </div>
         <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
+        <FacetToggleButton<Row>
+          facets={CONTRACT_FACETS as readonly FacetDescriptor<Row>[]}
+          selection={facets as FacetSelection}
+          open={facetsOpen}
+          onToggle={() => patchState({ facetsOpen: !facetsOpen })}
+        />
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
@@ -1034,7 +1040,6 @@ export function ContractsPage(props: {
           selection={facets as FacetSelection}
           fields={facetFields}
           open={facetsOpen}
-          onToggleOpen={() => patchState({ facetsOpen: !facetsOpen })}
           onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [], contractDateFrom: '', contractDateTo: '' })}
