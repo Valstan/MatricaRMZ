@@ -1485,6 +1485,15 @@ export async function applyPushBatch(
                 'recipient_user',
                 'recipient_user_id',
               );
+              logSkip('sync dependency rows skipped', {
+                table: SyncTableName.ChatMessages,
+                dependency: 'recipient_user',
+                missing: missingRows.length,
+                missing_ids: missingIdSample(missingRows as Array<Record<string, unknown>>, 'recipient_user_id'),
+                row_ids: missingIdSample(missingRows as Array<Record<string, unknown>>, 'id'),
+                client_id: req.client_id,
+                user: actor.username,
+              });
               rows = rows.filter((r) => {
                 const recipient = r.recipient_user_id ? String(r.recipient_user_id) : '';
                 return !(recipient && missingSet.has(recipient));
@@ -1935,6 +1944,15 @@ export async function applyPushBatch(
               'note_recipient',
               'recipient_user_id',
             );
+            logSkip('sync dependency rows skipped', {
+              table: SyncTableName.NoteShares,
+              dependency: 'note_recipient',
+              missing: missingRows.length,
+              missing_ids: missingIdSample(missingRows as Array<Record<string, unknown>>, 'recipient_user_id'),
+              row_ids: missingIdSample(missingRows as Array<Record<string, unknown>>, 'id'),
+              client_id: req.client_id,
+              user: actor.username,
+            });
             rows = rows.filter((r) => !missingSet.has(String(r.recipient_user_id)));
           }
         }

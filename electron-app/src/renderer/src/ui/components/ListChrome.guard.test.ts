@@ -7,8 +7,11 @@ import { describe, expect, it } from 'vitest';
 // выбор колонок внутри панели фильтров, однострочные заголовки и ширина колонок по данным.
 // Всё это рвётся молча — вёрстка «работает», просто снова занимает две строки или снова
 // растягивает колонку под длинную подпись.
+// Перевод строки нормализуется: на рабочей копии с CRLF многострочные ожидания
+// («блок правила CSS целиком») не совпадали ни при какой вёрстке, и сторож краснел
+// от настройки Git, а не от кода.
 function src(rel: string): string {
-  return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
 }
 
 const TOOLBAR = src('./PageToolbar.tsx');
