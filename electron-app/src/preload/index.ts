@@ -346,7 +346,14 @@ const matricaApi = {
   checklists: {
     templatesList: async (args?: { stage?: string }) => ipcRenderer.invoke('checklists:templates:list', args),
     engineGet: async (args: { engineId: string; stage: string }) => ipcRenderer.invoke('checklists:engine:get', args),
-    engineSave: async (args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: unknown }) =>
+    engineSave: async (args: {
+      engineId: string;
+      stage: string;
+      templateId: string;
+      operationId?: string | null;
+      answers: unknown;
+      auto?: boolean;
+    }) =>
       ipcRenderer.invoke('checklists:engine:save', args),
     engineActSnapshot: async (args: {
       engineId: string;

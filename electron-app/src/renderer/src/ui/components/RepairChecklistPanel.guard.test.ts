@@ -34,6 +34,22 @@ describe('RepairChecklistPanel: операторские данные переж
   });
 });
 
+// Автозаполнение нового двигателя (10.09.2026): панель сама писала лист под id карточки, у
+// которой ещё нет строки двигателя. Main откладывает такие записи только если знает, что это
+// автозаполнение, — поэтому каждое сохранение из эффекта обязано нести `auto`.
+describe('RepairChecklistPanel: автозаполнение не создаёт лист раньше двигателя', () => {
+  it('ни одно сохранение из эффекта не идёт без пометки auto', () => {
+    expect(PANEL).not.toContain('if (props.canEdit) void save(next);');
+    expect(PANEL.split('void save(next, { auto: true });').length - 1).toBe(7);
+  });
+
+  it('пометка доезжает до main и отложенный лист дописывается', () => {
+    expect(PANEL).toContain('...(auto ? { auto: true } : {}),');
+    expect(PANEL).toContain("if ('deferred' in r) {");
+    expect(PANEL).toContain('if (!props.engineStored || deferredAutoSaveRef.current == null) return;');
+  });
+});
+
 describe('RepairChecklistPanel: автоподстановка шапки', () => {
   it('решение о записи принимает доменная функция, а не проверка «поле пустое»', () => {
     expect(PANEL).toContain('resolveHeaderAutofill({');

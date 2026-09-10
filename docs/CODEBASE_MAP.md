@@ -37,7 +37,7 @@
 | **Diagnostics / Critical events** | `services/diagnostics*.ts`, `services/criticalEventsService.ts`, `services/criticalEventsTelegramService.ts` | Прод-диагностика, autoheal, Telegram-уведомления |
 | **Updates** | `routes/updates.ts`, `services/updateTorrentService.ts` | Раздача Windows-installer'ов (`.exe` + `latest.yml`), торрент |
 | **Маршруты** | `backend-api/src/routes/*.ts` | Точка входа Express: `warehouse`, `workOrders`, `parts`, `erp`, `sync`, `ledger`, `auth`, ... |
-| **Drizzle schema** | `backend-api/src/database/schema.ts` | Поля колонок, индексы, FK; миграции в `backend-api/drizzle/` (последняя — `0059`) |
+| **Drizzle schema** | `backend-api/src/database/schema.ts` | Поля колонок, индексы, FK; миграции в `backend-api/drizzle/` (последняя — `0094`) |
 
 ## Frontend (`electron-app/src/renderer/src/ui/`)
 
@@ -79,7 +79,7 @@
 
 ## БД
 
-- **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0059_directory_parts_spec_columns.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
+- **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0094_chat_rooms.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
 - **SQLite (клиент):** локальный кэш. Миграции — `electron-app/drizzle/`. Накат при старте Electron.
 - **EAV (`attribute_values`):** атрибуты сущностей без DDL. Новые атрибуты регистрировать в `ensureAttributeDefs` (`SimpleMasterdataDetailsPage.tsx`). См. `AGENTS.md` §EAV.
 - **Журнал изменений:** таблица `ledger_tx_index` (seq, таблица, строка, payload открытым текстом со штампом seq, актор) + `SEQUENCE ledger_seq`; реестр выпусков — `release_registry`. Пишет только `ledgerService.signAndAppendDetailed` (через `writeSyncChanges`).
