@@ -8,7 +8,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
 }));
 
-import { callLlmJson, callLlmWithTools } from '../services/ai/llmProvider.js';
+import { callLlm, callLlmJson, callLlmWithTools, LlmOutputTruncatedError } from '../services/ai/llmProvider.js';
 
 const TOOL_USE_RESPONSE = {
   content: [{ type: 'tool_use', id: 'tu-1', name: 'sql_query', input: {} }],
@@ -184,5 +184,64 @@ describe('callLlmJson', () => {
       name: 'report',
     });
     expect((create.mock.calls[1]?.[0] as { tool_choice?: unknown }).tool_choice).toBeUndefined();
+  });
+
+  it('обрезание потолком — отдельная ошибка, а не «модель не вернула отчёт»', async () => {
+    create.mockResolvedValueOnce({
+      content: [{ type: 'thinking', thinking: '…' }],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 1, output_tokens: 2048 },
+    });
+
+    await expect(callLlmJson({ ...JSON_ARGS, options: { maxTokens: 2048 } })).rejects.toBeInstanceOf(
+      LlmOutputTruncatedError,
+    );
+  });
+
+  it('обрезанный вызов инструмента за отчёт не выдаётся — аргументы недописаны', async () => {
+    create.mockResolvedValueOnce({
+      content: [{ type: 'tool_use', id: 'tu-1', name: 'report', input: { severity: 'warn' } }],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 1, output_tokens: 2048 },
+    });
+
+    await expect(callLlmJson(JSON_ARGS)).rejects.toBeInstanceOf(LlmOutputTruncatedError);
+  });
+
+  it('контроль: без инструмента и без обрезания по-прежнему null', async () => {
+    create.mockResolvedValueOnce(textResponse('не буду звать инструмент'));
+
+    await expect(callLlmJson(JSON_ARGS)).resolves.toBeNull();
+  });
+});
+
+describe('callLlm', () => {
+  const ARGS = { model: 'deepseek-v4-flash', system: 'system', user: 'user', scope: 'usage-digest' };
+
+  it('обрезанный текст не выдаётся за законченный', async () => {
+    create.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'Наблюдения недели:\n- Склад активен, а' }],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 1, output_tokens: 1200 },
+    });
+
+    await expect(callLlm({ ...ARGS, options: { maxTokens: 1200 } })).rejects.toThrow(/max_tokens=1200 \(usage-digest\)/);
+  });
+
+  it('контроль: пустой ответ без обрезания остаётся пустой строкой', async () => {
+    create.mockResolvedValueOnce(textResponse(''));
+
+    await expect(callLlm(ARGS)).resolves.toBe('');
+  });
+
+  it('признак конца попадает в строку расхода', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    create.mockResolvedValueOnce(textResponse('ok'));
+
+    await callLlm(ARGS);
+
+    const line = log.mock.calls.map((c) => String(c[0])).find((s) => s.includes('llm usage'));
+    log.mockRestore();
+    expect(line).toContain('"stop":"end_turn"');
   });
 });

@@ -346,7 +346,8 @@ async function narrateDigest(statsMd: string): Promise<string | null> {
       system: NARRATION_SYSTEM_PROMPT,
       user: statsMd,
       scope: 'usage-digest',
-      options: { timeoutMs: 120_000, maxTokens: 1200, temperature: 0.4 },
+      // 1200 обрезало оба прогона сентября: раздумья делят бюджет с текстом.
+      options: { timeoutMs: 120_000, maxTokens: 4000, temperature: 0.4 },
     });
     return text.trim() || null;
   } catch (e) {

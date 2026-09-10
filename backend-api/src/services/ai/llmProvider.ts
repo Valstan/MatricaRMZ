@@ -53,7 +53,13 @@ const EMPTY_USAGE: LlmCallUsage = {
  * префикса нечем измерить, а стабильный ноль в `cacheRead` — сигнал, что префикс сломан.
  * `critical: true` обязателен — в прод-режиме `logInfo` без него не печатается вовсе.
  */
-function trackUsage(scope: string, model: string, phase: string, raw: LlmRawUsage | null | undefined): LlmCallUsage {
+function trackUsage(
+  scope: string,
+  model: string,
+  phase: string,
+  raw: LlmRawUsage | null | undefined,
+  stopReason: string | null | undefined,
+): LlmCallUsage {
   const usage: LlmCallUsage = {
     inputTokens: raw?.input_tokens ?? 0,
     outputTokens: raw?.output_tokens ?? 0,
@@ -72,6 +78,7 @@ function trackUsage(scope: string, model: string, phase: string, raw: LlmRawUsag
       cacheRead: usage.cacheReadTokens,
       cacheCreation: usage.cacheCreationTokens,
       hitPct: prompt > 0 ? Math.round((usage.cacheReadTokens / prompt) * 100) : 0,
+      stop: stopReason ?? null,
     },
     { critical: true },
   );
@@ -116,6 +123,19 @@ export class LlmMisconfiguredError extends Error {
   }
 }
 
+/**
+ * Ответ оборван потолком `max_tokens`. Раздумья модели тратят тот же бюджет, что и ответ,
+ * и при тесном потолке наружу выходит HTTP 200 с пустым или недописанным содержимым —
+ * без отдельной ошибки это читалось как «модель промолчала» (прод 2026-09: сводка недели
+ * обрезана 2 раза из 2, вечерний разбор логов — 3 из 10).
+ */
+export class LlmOutputTruncatedError extends Error {
+  constructor(scope: string, maxTokens: number) {
+    super(`ответ модели обрезан потолком max_tokens=${maxTokens} (${scope})`);
+    this.name = 'LlmOutputTruncatedError';
+  }
+}
+
 function getClient(): Anthropic {
   if (cachedClient) return cachedClient;
   const provider = getLlmProvider();
@@ -152,18 +172,21 @@ export async function callLlm(args: {
   const ac = new AbortController();
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
+  const scope = args.scope ?? 'llm';
+  const maxTokens = args.options?.maxTokens ?? 1024;
   try {
     const resp = await client.messages.create(
       {
         model: args.model,
-        max_tokens: args.options?.maxTokens ?? 1024,
+        max_tokens: maxTokens,
         system: args.system,
         messages: [{ role: 'user', content: args.user }],
         ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
       },
       { signal: ac.signal },
     );
-    trackUsage(args.scope ?? 'llm', args.model, 'single', resp.usage);
+    trackUsage(scope, args.model, 'single', resp.usage, resp.stop_reason);
+    if (resp.stop_reason === 'max_tokens') throw new LlmOutputTruncatedError(scope, maxTokens);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -210,13 +233,15 @@ export async function callLlmJson<T = unknown>(args: {
   const timeoutMs = args.options?.timeoutMs ?? 0;
   const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(new Error('llm timeout')), timeoutMs) : null;
   const forcesTool = getLlmProvider() !== 'deepseek';
+  const scope = args.scope ?? 'llm';
+  const maxTokens = args.options?.maxTokens ?? 1024;
   // System собирается ОДИН раз на обе попытки: если бы приписка появлялась только в
   // откате, повторный запрос уходил бы с другим префиксом и терял кэш целиком. Просьба
   // словами безвредна и там, где инструмент принуждается параметром.
   const system = `${args.system}\n\nОтвет верни единственным вызовом инструмента ${args.toolName} — обычным текстом не отвечай.`;
   const request = (forceTool: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
     model: args.model,
-    max_tokens: args.options?.maxTokens ?? 1024,
+    max_tokens: maxTokens,
     system,
     tools: [
       {
@@ -241,7 +266,9 @@ export async function callLlmJson<T = unknown>(args: {
         if (!forcesTool || !isThinkingToolChoiceError(err)) throw err;
         return client.messages.create(request(false), { signal: ac.signal });
       });
-    trackUsage(args.scope ?? 'llm', args.model, 'json', resp.usage);
+    trackUsage(scope, args.model, 'json', resp.usage, resp.stop_reason);
+    // Обрезанный вызов инструмента несёт недописанные аргументы — это не отчёт, даже если блок есть.
+    if (resp.stop_reason === 'max_tokens') throw new LlmOutputTruncatedError(scope, maxTokens);
     const toolUse = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (!toolUse) return null;
     return toolUse.input as T;
@@ -367,7 +394,7 @@ export async function callLlmWithTools(args: {
         },
         { signal: ac.signal },
       );
-      addUsage(usage, trackUsage(scope, args.model, `step${step}`, resp.usage));
+      addUsage(usage, trackUsage(scope, args.model, `step${step}`, resp.usage, resp.stop_reason));
       const toolUseBlocks = resp.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
@@ -440,7 +467,10 @@ export async function callLlmWithTools(args: {
         finalRetried = true;
         return client.messages.create(finalRequest(true), { signal: ac.signal });
       });
-    addUsage(usage, trackUsage(scope, args.model, finalRetried ? 'final-retry' : 'final', finalResp.usage));
+    addUsage(
+      usage,
+      trackUsage(scope, args.model, finalRetried ? 'final-retry' : 'final', finalResp.usage, finalResp.stop_reason),
+    );
     const synthesized = finalResp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -508,7 +538,7 @@ export async function streamLlmWithTools(args: {
         if (delta) void args.onEvent({ type: 'text', delta });
       });
       const finalMessage = await stream.finalMessage();
-      addUsage(usage, trackUsage(scope, args.model, `stream-step${step}`, finalMessage.usage));
+      addUsage(usage, trackUsage(scope, args.model, `stream-step${step}`, finalMessage.usage, finalMessage.stop_reason));
       const toolUseBlocks = finalMessage.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
@@ -584,7 +614,10 @@ export async function streamLlmWithTools(args: {
       if (delta) void args.onEvent({ type: 'text', delta });
     });
     const synthesizedMessage = await finalStream.finalMessage();
-    addUsage(usage, trackUsage(scope, args.model, 'stream-final', synthesizedMessage.usage));
+    addUsage(
+      usage,
+      trackUsage(scope, args.model, 'stream-final', synthesizedMessage.usage, synthesizedMessage.stop_reason),
+    );
     const synthesized = synthesizedMessage.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
