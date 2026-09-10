@@ -93,6 +93,39 @@ function normalizeLogin(value: string | null | undefined) {
   return v.startsWith('@') ? v : `@${v}`;
 }
 
+type BotUpdateLike = {
+  my_chat_member?: { chat?: { id?: number | string; type?: string }; new_chat_member?: { status?: string } };
+  message?: { chat?: { id?: number | string; type?: string }; from?: { username?: string } };
+};
+
+export type BotUpdateTrace =
+  | { kind: 'ignored_sender'; chatId: number | string; chatType: string; fromUsername: string | null }
+  | { kind: 'membership'; chatId: number | string; chatType: string; status: string };
+
+/**
+ * Что записать в журнал об обновлении, которое бот не обработает. Раньше такие обновления исчезали
+ * бесследно: 10.09 владелец трижды писал `/sync_chat_id`, а в карточке суперадмина стоял не тот
+ * Telegram-логин — бот отбрасывал команды, не оставив ни строки. Текст сообщения в след не попадает
+ * намеренно: на вопрос «почему бот молчит» отвечают номер чата и отправитель, а не текст.
+ */
+export function traceUnhandledBotUpdate(upd: unknown, adminLogin: string | null | undefined): BotUpdateTrace | null {
+  const u = (upd ?? {}) as BotUpdateLike;
+  const member = u.my_chat_member;
+  if (member?.chat?.id != null) {
+    return {
+      kind: 'membership',
+      chatId: member.chat.id,
+      chatType: String(member.chat.type ?? ''),
+      status: String(member.new_chat_member?.status ?? ''),
+    };
+  }
+  const msg = u.message;
+  if (msg?.chat?.id == null) return null;
+  const fromLogin = normalizeLogin(msg.from?.username);
+  if (fromLogin && fromLogin === normalizeLogin(adminLogin)) return null;
+  return { kind: 'ignored_sender', chatId: msg.chat.id, chatType: String(msg.chat.type ?? ''), fromUsername: fromLogin || null };
+}
+
 function getTimeParts(timeZone: string) {
   const fmt = new Intl.DateTimeFormat('ru-RU', {
     timeZone,
@@ -255,6 +288,24 @@ export function startSyncPipelineSupervisorService() {
   let lastMetricsConflict = 0;
   let lastMetricsMisconfigured = 0;
   let lastMetricsOther = 0;
+  let noSuperadminLoginLogged = false;
+  const tracedSenders = new Set<string>();
+
+  const logUpdateTrace = (trace: BotUpdateTrace) => {
+    if (trace.kind === 'membership') {
+      logInfo('telegram bot membership changed', { ...trace }, { critical: true });
+      return;
+    }
+    const key = `${trace.chatId}|${trace.fromUsername ?? ''}`;
+    if (tracedSenders.has(key)) return;
+    tracedSenders.add(key);
+    logInfo('telegram bot ignored a message: sender is not the superadmin', { ...trace }, { critical: true });
+  };
+
+  const replyInChat = async (chatId: string | number, command: string, message: { text: string; replyMarkup?: unknown }) => {
+    const res = await sendTelegramMessageToChat({ chatId, ...message });
+    if (!res.ok) logWarn('telegram bot reply failed', { chatId, command, error: res.error });
+  };
 
   const logBotPollSilentCounter = (force = false) => {
     const now = Date.now();
@@ -324,15 +375,13 @@ export function startSyncPipelineSupervisorService() {
   const handleCommand = async (chatId: string | number, command: string) => {
     const cmd = String(command ?? '').trim().toLowerCase();
     if (cmd === '/sync_help') {
-      await sendTelegramMessageToChat({
-        chatId,
+      await replyInChat(chatId, cmd, {
         text: 'Доступные команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь\n/sync_chat_id — узнать chat_id текущего чата',
       });
       return;
     }
     if (cmd === '/sync_chat_id') {
-      await sendTelegramMessageToChat({
-        chatId,
+      await replyInChat(chatId, cmd, {
         text: `chat_id: ${chatId}`,
       });
       return;
@@ -340,8 +389,7 @@ export function startSyncPipelineSupervisorService() {
     if (cmd === '/sync_status') {
       const health = await getSyncPipelineHealth();
       mirrorPipelineAlertToCriticalEvents(health, 'manual');
-      await sendTelegramMessageToChat({
-        chatId,
+      await replyInChat(chatId, cmd, {
         text: formatPipelineMessage(health, 'manual'),
         replyMarkup: {
           inline_keyboard: [
@@ -404,7 +452,17 @@ export function startSyncPipelineSupervisorService() {
     }
     if (!updatesRes.updates.length) return;
     const admin = await getSuperadminTelegram();
-    if (!admin) return;
+    if (!admin) {
+      // Обновления не разбираются и `updateOffset` не сдвигается — без этой строки бот молчит без причины.
+      if (!noSuperadminLoginLogged) {
+        noSuperadminLoginLogged = true;
+        logWarn('telegram bot: superadmin has no telegram login, updates are not processed', {
+          pending: updatesRes.updates.length,
+        });
+      }
+      return;
+    }
+    noSuperadminLoginLogged = false;
     const adminLogin = normalizeLogin(admin.telegramLogin);
 
     for (const upd of updatesRes.updates) {
@@ -425,13 +483,12 @@ export function startSyncPipelineSupervisorService() {
         if (data === 'sync:check_now') {
           const health = await getSyncPipelineHealth();
           mirrorPipelineAlertToCriticalEvents(health, 'manual');
-          await sendTelegramMessageToChat({ chatId, text: formatPipelineMessage(health, 'manual') });
+          await replyInChat(chatId, 'sync:check_now', { text: formatPipelineMessage(health, 'manual') });
           await answerTelegramCallbackQuery({ callbackQueryId: String(cb.id), text: 'Готово' });
           continue;
         }
         if (data === 'sync:help') {
-          await sendTelegramMessageToChat({
-            chatId,
+          await replyInChat(chatId, 'sync:help', {
             text: 'Команды:\n/sync_status — текущий статус синхронизации\n/sync_help — помощь\n/sync_chat_id — узнать chat_id текущего чата',
           });
           await answerTelegramCallbackQuery({ callbackQueryId: String(cb.id), text: 'Ок' });
@@ -439,10 +496,13 @@ export function startSyncPipelineSupervisorService() {
         continue;
       }
 
+      const trace = traceUnhandledBotUpdate(upd, adminLogin);
+      if (trace) {
+        logUpdateTrace(trace);
+        continue;
+      }
       const msg = upd?.message;
       if (!msg?.text || !msg?.chat?.id) continue;
-      const fromLogin = normalizeLogin(msg?.from?.username ?? '');
-      if (!fromLogin || fromLogin !== adminLogin) continue;
       knownSuperadminChatId = String(msg.chat.id);
       await handleCommand(msg.chat.id, String(msg.text));
     }
