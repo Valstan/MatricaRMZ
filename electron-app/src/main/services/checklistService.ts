@@ -21,9 +21,10 @@ import {
   type RepairFundRequirementSnapshotPayload,
   type RepairFundRequirementVersionRecord,
 } from '@matricarmz/shared';
-import { operations } from '../database/schema.js';
+import { entities, operations } from '../database/schema.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
+import { ensureEngineRow } from './engineService.js';
 
 function nowMs() {
   return Date.now();
@@ -242,13 +243,36 @@ export async function getRepairChecklistForEngine(
 
 export async function saveRepairChecklistForEngine(
   db: BetterSQLite3Database,
-  args: { engineId: string; stage: string; operationId?: string | null; payload: RepairChecklistPayload; actor: string },
-): Promise<{ ok: true; operationId: string } | { ok: false; error: string }> {
+  args: {
+    engineId: string;
+    stage: string;
+    operationId?: string | null;
+    payload: RepairChecklistPayload;
+    actor: string;
+    auto?: boolean;
+  },
+): Promise<{ ok: true; operationId: string } | { ok: true; operationId: null; deferred: true } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
     const metaJson = JSON.stringify(args.payload);
 
-    const opId = args.operationId?.trim() ? args.operationId.trim() : null;
+    // Новая карточка получает id двигателя без строки в базе (deferred create). Лист под
+    // таким id уезжал на сервер раньше двигателя: сервер его отбивал, клиент клал в карантин
+    // с «критичной» тревогой, а брошенная карточка оставляла лист-сироту навсегда (10.09.2026).
+    // Автозаполнение ждёт двигателя; правка оператора — уже содержимое карточки, она его и создаёт.
+    const engineRow = await db.select({ id: entities.id }).from(entities).where(eq(entities.id, args.engineId)).limit(1);
+    if (!engineRow[0]) {
+      if (args.auto) return { ok: true as const, operationId: null, deferred: true as const };
+      await ensureEngineRow(db, args.engineId, ts);
+    }
+
+    // Два автосохранения подряд оба видели «листа ещё нет» и создавали по листу — отсюда
+    // двигатели с двумя списками деталей. Лист у двигателя один на этап.
+    let opId = args.operationId?.trim() ? args.operationId.trim() : null;
+    if (!opId) {
+      const existing = await getRepairChecklistForEngine(db, args.engineId, args.stage);
+      if (existing.ok && existing.operationId) opId = existing.operationId;
+    }
     if (opId) {
       await db
         .update(operations)

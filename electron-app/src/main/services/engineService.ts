@@ -816,6 +816,21 @@ export async function createEngine(_db: BetterSQLite3Database, _actor?: string):
   return { id: randomUUID() };
 }
 
+// Deferred create (Phase 2): the entity row is materialized on the first real write to the
+// card — createEngine no longer inserts, so an empty card that's never edited leaves no ghost.
+export async function ensureEngineRow(db: BetterSQLite3Database, engineId: string, ts = nowMs()): Promise<void> {
+  const ent = await db.select({ id: entities.id }).from(entities).where(eq(entities.id, engineId)).limit(1);
+  if (ent[0]) return;
+  await db.insert(entities).values({
+    id: engineId,
+    typeId: await getEngineTypeId(db),
+    createdAt: ts,
+    updatedAt: ts,
+    deletedAt: null,
+    syncStatus: 'pending',
+  });
+}
+
 export async function getEngineDetails(db: BetterSQLite3Database, id: string): Promise<EngineDetails> {
   const e = await db.select().from(entities).where(eq(entities.id, id)).limit(1);
   if (!e[0]) {
@@ -1153,19 +1168,7 @@ export async function setEngineAttribute(
     }
   }
 
-  // Deferred create (Phase 2): materialize the entity row on the first attribute write —
-  // createEngine no longer inserts, so an empty card that's never edited leaves no ghost.
-  const ent = await db.select({ id: entities.id }).from(entities).where(eq(entities.id, engineId)).limit(1);
-  if (!ent[0]) {
-    await db.insert(entities).values({
-      id: engineId,
-      typeId: await getEngineTypeId(db),
-      createdAt: ts,
-      updatedAt: ts,
-      deletedAt: null,
-      syncStatus: 'pending',
-    });
-  }
+  await ensureEngineRow(db, engineId, ts);
 
   // Update the NEWEST non-deleted row and collapse any other active duplicates so a
   // single active value remains (mirrors setEntityAttribute). The old code matched by

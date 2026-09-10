@@ -56,7 +56,10 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['workshops:upsert', 'directories'],
   ['workshops:delete', 'directories'],
   ['maintenance:', 'directories'],
-  ['audit:', 'administration'],
+  // Гейтим только чтение журнала. `audit:add` — телеметрия интерфейса (uiUsageLog), её пишет
+  // КАЖДЫЙ пользователь; под префиксом `audit:` она отбивалась у всех, кто не состоит в
+  // «Администрировании», и журнал действий был слеп к половине парка (3.1.0 → 10.09.2026).
+  ['audit:list', 'administration'],
 ];
 // НЕ гейтятся сознательно: `tools:` (один namespace на справочник инструментов
 // production и учёт выдач supply); lookup-чтения employees/workshops (см. выше).
@@ -192,7 +195,7 @@ const ADMIN_WRITE_CHANNELS = new Set([
   'admin:entities:detachLinksAndDelete',
 ]);
 
-function matchPrefixRule(channel: string): AccessSection | null {
+export function matchPrefixRule(channel: string): AccessSection | null {
   let best: readonly [string, AccessSection] | null = null;
   for (const rule of PREFIX_RULES) {
     if (channel.startsWith(rule[0]) && (!best || rule[0].length > best[0].length)) best = rule;

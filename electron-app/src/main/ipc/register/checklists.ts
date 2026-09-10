@@ -40,7 +40,15 @@ export function registerChecklistsIpc(ctx: IpcContext) {
     'checklists:engine:save',
     async (
       _e,
-      args: { engineId: string; stage: string; templateId: string; operationId?: string | null; answers: any; attachments?: any[] },
+      args: {
+        engineId: string;
+        stage: string;
+        templateId: string;
+        operationId?: string | null;
+        answers: any;
+        attachments?: any[];
+        auto?: boolean;
+      },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();
       const gate = await requirePermOrResult(ctx, 'operations.edit');
@@ -70,12 +78,13 @@ export function registerChecklistsIpc(ctx: IpcContext) {
         ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
         payload,
         actor,
+        ...(args.auto === true ? { auto: true } : {}),
       });
       // Начало дефектовки = двигатель в работе: авто-переход в «Начат ремонт»
       // (запрос владельца 2026-07-29). Best-effort побочный эффект — сохранение листа
       // не роняем; гейт «только вперёд» внутри не трогает утильные/продвинутые статусы.
       // Голая приёмка (комплектность без решений по деталям) переход не даёт.
-      if (saved.ok && args.stage === ENGINE_INVENTORY_STAGE && engineInventoryHasDefectData(payload)) {
+      if (saved.ok && saved.operationId && args.stage === ENGINE_INVENTORY_STAGE && engineInventoryHasDefectData(payload)) {
         try {
           await advanceEngineStatusForWorkOrder(ctx.dataDb(), args.engineId, 'status_repair_started', Date.now(), actor || undefined);
         } catch {

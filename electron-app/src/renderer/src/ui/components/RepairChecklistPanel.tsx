@@ -452,6 +452,8 @@ function applyCommissionPicks(
 
 export function RepairChecklistPanel(props: {
   engineId: string;
+  /** Строка двигателя уже есть в базе. До этого автозаполнение листа придерживается (deferred create). */
+  engineStored?: boolean;
   stage: string;
   canEdit: boolean;
   canEditMasterData?: boolean;
@@ -522,6 +524,9 @@ export function RepairChecklistPanel(props: {
   const lastSavedAnswersRef = useRef<string>('');
   const saveInFlightRef = useRef(false);
   const queuedSaveAnswersRef = useRef<RepairChecklistAnswers | null>(null);
+  const queuedSaveAutoRef = useRef(false);
+  // templateId листа, запись которого main отложил: двигатель карточки ещё не сохранён.
+  const deferredAutoSaveRef = useRef<string | null>(null);
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
   // Полные записи работников для автоподстановки комиссии (нужны departmentName/employmentStatus).
   const [employeeRows, setEmployeeRows] = useState<any[]>([]);
@@ -1028,7 +1033,7 @@ export function RepairChecklistPanel(props: {
 
     if (!changed) return;
     setAnswers(next);
-    if (props.canEdit) void save(next);
+    if (props.canEdit) void save(next, { auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; a field the operator has touched fails the ownership check in `fillText`, so the `if (!changed) return` guard keeps it a no-op
   }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
 
@@ -1053,7 +1058,7 @@ export function RepairChecklistPanel(props: {
     }
     if (!changed) return;
     setAnswers(next);
-    if (props.canEdit) void save(next);
+    if (props.canEdit) void save(next, { auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!changed) return` guard above keeps it a no-op once the signature fields already hold the current user's name/position
   }, [activeTemplate?.id, answers, props.canEdit, props.currentUserProfile?.fullName, props.currentUserProfile?.position]);
 
@@ -1089,7 +1094,7 @@ export function RepairChecklistPanel(props: {
     if (!res.changed) return;
     const next = { ...answers, [COMMISSION_MEMBERS_KEY]: { kind: 'commission', members: res.members } } as RepairChecklistAnswers;
     setAnswers(next);
-    void save(next);
+    void save(next, { auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!res.changed) return` guard above keeps it a no-op once the commission rows match the workshop roster
   }, [activeTemplate?.id, answers, employeeRows, props.canEdit, props.stage, props.workshopName]);
 
@@ -1450,7 +1455,7 @@ export function RepairChecklistPanel(props: {
         if (nextJson === currJson) return;
         const next = { ...answers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
         setAnswers(next);
-        if (props.canEdit) void save(next);
+        if (props.canEdit) void save(next, { auto: true });
         return;
       }
       const parts = await listAllPartSpecs({ engineBrandId: props.engineBrandId });
@@ -1531,7 +1536,7 @@ export function RepairChecklistPanel(props: {
         if (nextJson === currJson) return;
         const next = { ...liveAnswers, [tableItem.id]: { kind: 'table', rows: preservedRows } } as RepairChecklistAnswers;
         setAnswers(next);
-        if (props.canEdit) void save(next);
+        if (props.canEdit) void save(next, { auto: true });
         return;
       }
 
@@ -1547,7 +1552,7 @@ export function RepairChecklistPanel(props: {
         if (nextJson === currJson) return;
         const next = { ...liveAnswers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
         setAnswers(next);
-        if (props.canEdit) void save(next);
+        if (props.canEdit) void save(next, { auto: true });
         return;
       }
 
@@ -1563,7 +1568,7 @@ export function RepairChecklistPanel(props: {
       if (nextJson === currJson) return;
       const next = { ...liveAnswers, [tableItem.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
       setAnswers(next);
-      if (props.canEdit) void save(next);
+      if (props.canEdit) void save(next, { auto: true });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- brand-rows resync is one-shot per syncKey (brandRowsSyncKeyRef); save is re-created every render (declared later in the body), adding it would run this effect on every render
   }, [activeTemplate?.id, answers, loadVersion, props.canEdit, props.engineBrandId, props.engineId, props.stage]);
@@ -1639,9 +1644,34 @@ export function RepairChecklistPanel(props: {
     };
   }, [isInventoryStage, assemblyVariant, props.engineBrandId]);
 
-  async function save(nextAnswers: RepairChecklistAnswers) {
+  // Автозаполнение нового двигателя main придержал, пока у карточки не было строки двигателя:
+  // дописываем лист, как только карточка двигатель сохранила.
+  useEffect(() => {
+    if (!props.engineStored || deferredAutoSaveRef.current == null) return;
+    void save(answersRef.current, { auto: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- save is re-created every render (declared later in the body); the flush is keyed on the card's stored flag only
+  }, [props.engineStored]);
+
+  // «Сохранить и закрыть» пишет поля и закрывает карточку раньше, чем панель перерисуется с
+  // сохранённым двигателем, — отложенный лист дописываем на выходе. Если двигатель так и не
+  // появился (карточку бросили), main снова отложит запись, и сироты не будет.
+  useEffect(() => {
+    const engineId = props.engineId;
+    const stage = props.stage;
+    return () => {
+      const templateId = deferredAutoSaveRef.current;
+      if (templateId == null) return;
+      deferredAutoSaveRef.current = null;
+      void window.matrica.checklists
+        .engineSave({ engineId, stage, templateId, operationId: null, answers: answersRef.current, auto: true })
+        .catch(() => undefined);
+    };
+  }, [props.engineId, props.stage]);
+
+  async function save(nextAnswers: RepairChecklistAnswers, opts?: { auto?: boolean }) {
     if (!activeTemplate) return;
     if (!props.canEdit) return;
+    const auto = opts?.auto === true;
     const normalized =
       props.stage === 'defect'
         ? normalizeDefectAnswers(activeTemplate, nextAnswers)
@@ -1655,6 +1685,8 @@ export function RepairChecklistPanel(props: {
     const snapshot = safeJsonStringify({ templateId: activeTemplate.id, answers: normalized.next });
     if (snapshot && snapshot === lastSavedAnswersRef.current) return;
     if (saveInFlightRef.current) {
+      // Очередь — автозаполнение, только если автозаполнением было всё, что в неё легло.
+      queuedSaveAutoRef.current = queuedSaveAnswersRef.current == null ? auto : queuedSaveAutoRef.current && auto;
       queuedSaveAnswersRef.current = normalized.next;
       return;
     }
@@ -1667,6 +1699,7 @@ export function RepairChecklistPanel(props: {
       templateId: activeTemplate.id,
       operationId,
       answers: normalized.next,
+      ...(auto ? { auto: true } : {}),
     });
     saveInFlightRef.current = false;
 
@@ -1674,17 +1707,25 @@ export function RepairChecklistPanel(props: {
       setStatus(`Ошибка: ${r.error}`);
       return;
     }
-    setOperationId(r.operationId);
-    lastSavedAnswersRef.current = snapshot;
-    setStatus('Сохранено');
-    setTimeout(() => setStatus(''), 700);
+    if ('deferred' in r) {
+      deferredAutoSaveRef.current = activeTemplate.id;
+      setStatus('');
+    } else {
+      deferredAutoSaveRef.current = null;
+      setOperationId(r.operationId);
+      lastSavedAnswersRef.current = snapshot;
+      setStatus('Сохранено');
+      setTimeout(() => setStatus(''), 700);
+    }
 
     const queued = queuedSaveAnswersRef.current;
+    const queuedAuto = queuedSaveAutoRef.current;
     queuedSaveAnswersRef.current = null;
+    queuedSaveAutoRef.current = false;
     if (!queued) return;
     const queuedSnapshot = safeJsonStringify({ templateId: activeTemplate.id, answers: queued });
     if (queuedSnapshot && queuedSnapshot !== lastSavedAnswersRef.current) {
-      void save(queued);
+      void save(queued, { auto: queuedAuto });
     }
   }
 

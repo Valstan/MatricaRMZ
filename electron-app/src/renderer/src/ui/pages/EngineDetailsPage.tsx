@@ -2435,6 +2435,9 @@ export function EngineDetailsPage(props: {
         <div className="entity-card-span-full" hidden={activeTab !== 'details'} style={{ background: 'rgba(99, 102, 241, 0.08)', borderRadius: 14, padding: 10 }}>
           <RepairChecklistPanel
             engineId={props.engineId}
+            // Строка двигателя появляется с первым записанным полем (deferred create), до этого
+            // у карточки нет атрибутов — панель придерживает автозаполненный лист до этого момента.
+            engineStored={Object.keys(props.engine.attributes ?? {}).length > 0}
             stage="engine_inventory"
             canEdit={canEditOperationsEff}
             canEditMasterData={props.canEditMasterData}

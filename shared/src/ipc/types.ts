@@ -1573,7 +1573,13 @@ export type MatricaApi = {
       operationId?: string | null;
       answers: RepairChecklistAnswers;
       attachments?: FileRef[];
-    }) => Promise<{ ok: true; operationId: string } | { ok: false; error: string }>;
+      /** Автозаполнение, а не правка оператора: пока двигатель не сохранён, лист не пишется (`deferred`). */
+      auto?: boolean;
+    }) => Promise<
+      | { ok: true; operationId: string }
+      | { ok: true; operationId: null; deferred: true }
+      | { ok: false; error: string }
+    >;
     /** Ф2: зафиксировать версию акта (комплектности/дефектовки) при печати. Дедуп идентичных подряд. */
     engineActSnapshot: (args: {
       engineId: string;

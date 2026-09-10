@@ -36,11 +36,15 @@ export function logUiUsage(
     }
   }
   try {
-    void window.matrica.audit.add({
-      action,
-      payload: { label, ...(safeExtra ?? {}) },
-      ...(id ? { entityId: id, tableName: 'entities' } : {}),
-    });
+    // Отказ приходит отклонённым промисом, а не исключением: без .catch он всплывал
+    // unhandledrejection'ом и уходил в лог сервера ошибкой на каждый визит вкладки.
+    void window.matrica.audit
+      .add({
+        action,
+        payload: { label, ...(safeExtra ?? {}) },
+        ...(id ? { entityId: id, tableName: 'entities' } : {}),
+      })
+      .catch(() => undefined);
   } catch {
     // best-effort
   }
