@@ -399,7 +399,8 @@ export async function runLogAnalysisOnce(args?: { lookbackHours?: number; timeZo
         },
         required: ['severity', 'summary'],
       },
-      options: { timeoutMs: AI_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: 2048 },
+      // 2048 упиралось в потолок в 3 вечерних прогонах из 10 (сентябрь): раздумья делят бюджет с отчётом.
+      options: { timeoutMs: AI_TIMEOUT_ANALYTICS_MS, temperature: 0, maxTokens: 4096 },
     });
   } catch (err) {
     if (isLlmMisconfigured(err)) {
