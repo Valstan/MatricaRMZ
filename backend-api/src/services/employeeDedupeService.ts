@@ -22,7 +22,7 @@ import { attributeDefs, attributeValues, clientSettings, entities, entityTypes, 
 import { logInfo } from '../utils/logger.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
-import { setEntityAttribute, softDeleteEntity } from './adminMasterdataService.js';
+import { setEntityAttribute, softDeleteEntity, upsertAttributeDef } from './adminMasterdataService.js';
 import { reassignUserReferences } from './userDeletionService.js';
 
 
@@ -325,6 +325,19 @@ export async function mergeEmployees(args: {
       report.userReferencesMoved = Boolean(survivorLogin);
       report.clientSettingsRelinked = settingsRows.length;
       return { ok: true as const, report };
+    }
+
+    // У сотрудников метку никто не заводил (у двигателей её заводит их дедуп) — слияние падало на
+    // ней уже ПОСЛЕ переноса чата и файлов. Заводим до первой записи и через журнал: иначе клиенты
+    // получили бы значение метки без её определения.
+    if (![...codeByDefId.values()].includes(MERGED_INTO_CODE)) {
+      await upsertAttributeDef(args.actor, {
+        entityTypeId: typeId,
+        code: MERGED_INTO_CODE,
+        name: 'Слит в запись (служебное)',
+        dataType: 'text',
+        sortOrder: 9000,
+      });
     }
 
     for (const { code, value } of fillable) {
