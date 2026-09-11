@@ -759,6 +759,8 @@ export function EmployeeDetailsPage(props: {
         'access_enabled',
         'section_access',
         'chat_display_name',
+        // служебная метка слияния дублей, не поле карточки
+        'merged_into',
       ]);
       const filtered = (defs as AttrDef[]).filter((d) => !base.has(String(d.code)));
       setCustomDefs(filtered);

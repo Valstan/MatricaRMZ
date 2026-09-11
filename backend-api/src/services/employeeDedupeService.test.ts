@@ -73,6 +73,13 @@ describe('путь записи (сторож по коду)', () => {
     expect(SRC.indexOf('MERGED_INTO_CODE, survivorId')).toBeLessThan(SRC.indexOf('await softDeleteEntity(args.actor, loserId'));
   });
 
+  it('определение метки заводится до первой записи, но не в проверке', () => {
+    // Без определения метка не пишется, а падало на ней уже ПОСЛЕ переноса чата и файлов.
+    const ensureAt = SRC.indexOf('await upsertAttributeDef(args.actor');
+    expect(ensureAt).toBeGreaterThan(SRC.indexOf('if (dryRun) {'));
+    expect(ensureAt).toBeLessThan(SRC.indexOf('for (const { code, value } of fillable) {'));
+  });
+
   it('вход по вторичному логину закрывается явно', () => {
     // Строка `users` остаётся, и без выключения доступа по её логину можно было бы войти.
     expect(SRC).toContain('.update(users).set({ accessEnabled: false })');
