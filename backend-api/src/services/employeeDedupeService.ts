@@ -13,16 +13,41 @@
 //  - доступ и роль основного НИКОГДА не перетираются данными вторичного — иначе слияние может
 //    отобрать у человека права, а именно это в исходной жалобе и было риском (у одной записи
 //    администратор, у другой доступ запрещён).
-import { SyncTableName, damerauLevenshtein } from '@matricarmz/shared';
+import {
+  SyncTableName,
+  collectSupplyRequestEntityReferences,
+  collectWorkOrderEntityReferences,
+  damerauLevenshtein,
+  humanLabel,
+} from '@matricarmz/shared';
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, clientSettings, entities, entityTypes, users } from '../database/schema.js';
+import {
+  attributeDefs,
+  attributeValues,
+  clientSettings,
+  entities,
+  entityTypes,
+  erpDocumentHeaders,
+  erpEngineAssemblyBom,
+  operations,
+  servicePriceOrders,
+  timesheetRows,
+  timesheets,
+  users,
+} from '../database/schema.js';
 import { logInfo } from '../utils/logger.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
-import { setEntityAttribute, softDeleteEntity, upsertAttributeDef } from './adminMasterdataService.js';
+import {
+  countExtendedIncomingReferences,
+  findIncomingLinkRows,
+  setEntityAttribute,
+  softDeleteEntity,
+  upsertAttributeDef,
+} from './adminMasterdataService.js';
 import { reassignUserReferences } from './userDeletionService.js';
 
 
@@ -238,10 +263,104 @@ export async function analyzeEmployeeDuplicates(): Promise<
   }
 }
 
+/** Виды, которые гейт удаления считает сам: своя подпись дала бы вторую строку того же вида. */
+const GATE_OPERATION_LABELS: Record<string, string> = { work_order: 'Наряды', supply_request: 'Заявки снабжения' };
+
+/**
+ * Операция, в `meta_json` которой стоит id сотрудника, а гейт удаления её не посчитал. Гейт
+ * разбирает только наряды и заявки, а в наряде видит бригаду и подписи: утверждающий в грифе,
+ * комиссия и подписи актов двигателя проходят мимо него.
+ */
+function isUncountedOperationReference(operationType: string, meta: unknown, employeeId: string): boolean {
+  if (!meta || typeof meta !== 'object') return true;
+  const seenByGate =
+    operationType === 'work_order'
+      ? collectWorkOrderEntityReferences(meta as never)
+      : operationType === 'supply_request'
+        ? collectSupplyRequestEntityReferences(meta as never)
+        : [];
+  return !seenByGate.some((c) => c.referenceId === employeeId);
+}
+
+/**
+ * Ссылки на сотрудника по видам. Основа — те же счётчики, что у гейта удаления
+ * (`softDeleteEntity`); сверх них — места, куда гейт не смотрит, а id сотрудника там живёт:
+ * остальные поля и виды `operations.meta_json`, подписи профиля сборки, табели, приказы о ценах,
+ * автор складского документа. `contract_sections` и `contract_payments` сотрудников не несут.
+ */
+async function countEmployeeIncomingReferences(employeeId: string): Promise<Map<string, number>> {
+  const byType = await countExtendedIncomingReferences(employeeId);
+  const bump = (label: string, n = 1) => byType.set(label, (byType.get(label) ?? 0) + n);
+  for (const link of await findIncomingLinkRows(employeeId)) {
+    bump(link.fromEntityTypeName || link.fromEntityTypeCode || 'связанные записи');
+  }
+
+  const quotedId = `%${JSON.stringify(employeeId)}%`;
+  const opRows = await db
+    .select({ operationType: operations.operationType, metaJson: operations.metaJson })
+    .from(operations)
+    .where(and(isNull(operations.deletedAt), like(operations.metaJson, quotedId)))
+    .limit(10_000);
+  for (const r of opRows) {
+    const type = String(r.operationType);
+    let meta: unknown = null;
+    try {
+      meta = r.metaJson ? JSON.parse(String(r.metaJson)) : null;
+    } catch {
+      meta = null;
+    }
+    if (!isUncountedOperationReference(type, meta, employeeId)) continue;
+    bump(GATE_OPERATION_LABELS[type] ?? humanLabel('operation_type', type, 'Записи по двигателям'));
+  }
+
+  const bomRows = await db
+    .select({ id: erpEngineAssemblyBom.id })
+    .from(erpEngineAssemblyBom)
+    .where(and(isNull(erpEngineAssemblyBom.deletedAt), like(erpEngineAssemblyBom.executionProfileJson, quotedId)))
+    .limit(10_000);
+  if (bomRows.length > 0) bump('Спецификации сборки (подписи)', bomRows.length);
+
+  const sheetRows = await db
+    .select({ id: timesheetRows.id })
+    .from(timesheetRows)
+    .innerJoin(timesheets, eq(timesheets.id, timesheetRows.timesheetId))
+    .where(and(eq(timesheetRows.employeeId, employeeId as never), isNull(timesheets.deletedAt)))
+    .limit(10_000);
+  if (sheetRows.length > 0) bump('Табели', sheetRows.length);
+
+  const priceOrderRows = await db
+    .select({ id: servicePriceOrders.id })
+    .from(servicePriceOrders)
+    .where(and(eq(servicePriceOrders.issuedByEmployeeId, employeeId as never), isNull(servicePriceOrders.deletedAt)))
+    .limit(10_000);
+  if (priceOrderRows.length > 0) bump('Приказы о ценах на услуги', priceOrderRows.length);
+
+  const docRows = await db
+    .select({ id: erpDocumentHeaders.id })
+    .from(erpDocumentHeaders)
+    .where(and(eq(erpDocumentHeaders.authorId, employeeId as never), isNull(erpDocumentHeaders.deletedAt)))
+    .limit(10_000);
+  if (docRows.length > 0) bump('Складские документы (автор)', docRows.length);
+
+  return byType;
+}
+
+/** Текст отказа — оператор видит его в диалоге сразу после «Проверить». */
+function referenceRefusalMessage(byType: Map<string, number>): string {
+  const breakdown = [...byType.entries()].map(([label, count]) => `${label}: ${count}`).join(', ');
+  return (
+    `Слияние остановлено: вторичная запись упоминается в других данных — ${breakdown}. ` +
+    'Переносить такие упоминания на основную запись слияние пока не умеет, а после него они указывали бы на ' +
+    'погашенного сотрудника. Где можно, замените в них сотрудника на основную запись и нажмите «Проверить» снова.'
+  );
+}
+
 /**
  * Слияние двух записей одного человека.
  *
  * Правила, ради которых всё и писалось:
+ *  - на вторичную запись не должно быть ссылок (наряд, табель, карточка): переводить их слияние
+ *    пока не умеет, поэтому отказывает — и в проверке тоже (`countEmployeeIncomingReferences`);
  *  - у основного заполняются ТОЛЬКО пустые поля; непустое не перетирается никогда;
  *  - логин, пароль, роль и доступ основного не трогаются вовсе (см. `PROTECTED_CODES`);
  *  - пользовательские ссылки (чат, файлы, заметки, права, токены) переезжают на основного;
@@ -279,6 +398,11 @@ export async function mergeEmployees(args: {
     const aliveIds = new Set(alive.map((r) => String(r.id)));
     if (!aliveIds.has(survivorId)) return { ok: false as const, error: 'основная запись не найдена среди действующих сотрудников' };
     if (!aliveIds.has(loserId)) return { ok: false as const, error: 'вторичная запись не найдена среди действующих сотрудников' };
+
+    // Ссылки на вторичную запись слияние пока не переводит: наряд, табель или карточка молча
+    // остались бы с погашенным сотрудником. Отказ — и в проверке, и в слиянии, до первой записи.
+    const incoming = await countEmployeeIncomingReferences(loserId);
+    if (incoming.size > 0) return { ok: false as const, error: referenceRefusalMessage(incoming) };
 
     const codeByDefId = await loadCodeByDefId(typeId);
     const survivorAttrs = await loadAttrs(survivorId, codeByDefId);
@@ -389,4 +513,11 @@ export async function mergeEmployees(args: {
   }
 }
 
-export const __testables = { normalizeName, editBudgetForName, PROTECTED_CODES, SyncTableName };
+export const __testables = {
+  normalizeName,
+  editBudgetForName,
+  PROTECTED_CODES,
+  SyncTableName,
+  isUncountedOperationReference,
+  referenceRefusalMessage,
+};
