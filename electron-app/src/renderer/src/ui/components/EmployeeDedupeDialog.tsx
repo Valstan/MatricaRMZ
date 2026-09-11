@@ -168,6 +168,16 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
                   полей будет заполнено {report.attrsFilled}; настроек клиента перевешено {report.clientSettingsRelinked};
                   {report.userReferencesMoved ? ' чат, файлы и права переносятся' : ' переносить пользовательские ссылки не потребуется'}
                   {report.protectedSkipped.length > 0 ? `; не тронуты: ${report.protectedSkipped.join(', ')}` : ''}
+                  {report.referencesMoved > 0
+                    ? `; ссылок ${report.dryRun ? 'будет переведено' : 'переведено'} ${report.referencesMoved} (${report.referencesByStore
+                        .map((s) => `${s.store}: ${s.count}`)
+                        .join(', ')})`
+                    : '; ссылок на вторичную запись нет'}
+                  {report.referenceNotes.length > 0 ? (
+                    <div data-dedupe-report-notes style={{ marginTop: 4 }}>
+                      {report.referenceNotes.join('; ')}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

@@ -455,7 +455,7 @@ async function getEntityDisplayName(entityId: string, entityTypeId: string): Pro
   return String(val);
 }
 
-export async function findIncomingLinkRows(entityId: string): Promise<
+async function findIncomingLinkRows(entityId: string): Promise<
   {
     valueId: string;
     fromEntityId: string;
@@ -514,7 +514,7 @@ export async function findIncomingLinkRows(entityId: string): Promise<
  * findAllIncomingReferences (advisory-реплика может быть неполной — сервер
  * авторитетен). Возвращает breakdown «тип источника → количество».
  */
-export async function countExtendedIncomingReferences(entityId: string): Promise<Map<string, number>> {
+async function countExtendedIncomingReferences(entityId: string): Promise<Map<string, number>> {
   const byType = new Map<string, number>();
   const bump = (label: string, n = 1) => byType.set(label, (byType.get(label) ?? 0) + n);
   const jsonId = JSON.stringify(entityId);
