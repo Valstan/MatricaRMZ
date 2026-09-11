@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// База и соседние сервисы подменены. Чистой части и сторожу по коду это безразлично, а проверка
-// отказа внизу гоняет сам `mergeEmployees` и смотрит, что до отказа не случилось ни одной записи.
+// База и соседние сервисы подменены. Чистой части и сторожу по коду это безразлично, а проверки
+// ниже гоняют сам `mergeEmployees`: важно не «склеилось ли», а порядок — перевод ссылок идёт
+// первым, отказ не оставляет записей, а «Проверить» не пишет вовсе.
 const state = vi.hoisted(() => ({ selectByTable: new Map<unknown, unknown[][]>() }));
 
 vi.mock('../database/db.js', () => {
@@ -33,29 +34,27 @@ vi.mock('../database/db.js', () => {
 });
 
 vi.mock('./adminMasterdataService.js', () => ({
-  countExtendedIncomingReferences: vi.fn(async () => new Map<string, number>()),
-  findIncomingLinkRows: vi.fn(async () => []),
   setEntityAttribute: vi.fn(async () => ({ ok: true })),
   softDeleteEntity: vi.fn(async () => ({ ok: true })),
   upsertAttributeDef: vi.fn(async () => ({ ok: true })),
 }));
+vi.mock('./employeeAuthService.js', () => ({ setEmployeeAuth: vi.fn(async () => ({ ok: true })) }));
+vi.mock('./employeeReferenceRepoint.js', () => ({
+  repointEmployeeReferences: vi.fn(async () => ({ moved: 0, byStore: [], blockers: [], notes: [] })),
+}));
 vi.mock('./userDeletionService.js', () => ({ reassignUserReferences: vi.fn(async () => undefined) }));
-vi.mock('./sync/syncChangeService.js', () => ({ recordSyncChanges: vi.fn(async () => undefined) }));
 vi.mock('./criticalEventsService.js', () => ({ ingestServerCriticalEvent: vi.fn() }));
 
 const { db } = await import('../database/db.js');
-const { entities, entityTypes, operations, timesheetRows } = await import('../database/schema.js');
+const { entities, entityTypes } = await import('../database/schema.js');
 const admin = await import('./adminMasterdataService.js');
+const { setEmployeeAuth } = await import('./employeeAuthService.js');
+const { repointEmployeeReferences } = await import('./employeeReferenceRepoint.js');
 const { reassignUserReferences } = await import('./userDeletionService.js');
 const { __testables, mergeEmployees } = await import('./employeeDedupeService.js');
 
-const { normalizeName, editBudgetForName, PROTECTED_CODES, isUncountedOperationReference, referenceRefusalMessage } =
-  __testables;
+const { normalizeName, editBudgetForName, PROTECTED_CODES, blockerMessage } = __testables;
 
-// Слияние сотрудников правит ЖИВЫЕ данные и необратимо. Самое дорогое здесь — не «склеилось
-// или нет», а границы: что переносится, что не трогается никогда и что происходит в dry-run.
-// Чистая часть проверяется вызовами, а границы записи — сторожем по коду: поднимать ради них
-// живую БД в юнит-тесте дороже, чем прочитать сам путь записи.
 describe('ключ группировки по имени', () => {
   it('не различает регистр, лишние пробелы и «ё»', () => {
     expect(normalizeName('  Цветкова   Алёна Владимировна ')).toBe('цветкова алена владимировна');
@@ -89,6 +88,20 @@ describe('границы слияния', () => {
     for (const code of ['full_name', 'telegram_login', 'personnel_number', 'department_id']) {
       expect(PROTECTED_CODES.has(code)).toBe(false);
     }
+  });
+
+  it('отказ по непереводимой ссылке называет причину и не обещает пустого хода', () => {
+    const text = blockerMessage({
+      moved: 3,
+      byStore: [{ store: 'Наряды', count: 3 }],
+      blockers: [{ store: 'Складские документы (автор)', reason: 'нет строки erp_employee_cards' }],
+      notes: [],
+    });
+    expect(text).toContain('Складские документы (автор)');
+    expect(text).toContain('нет строки erp_employee_cards');
+    // На боевом проходе часть ссылок уже переехала — обещать «ничего не изменено» нельзя.
+    expect(text).not.toContain('Ни одна запись не изменена');
+    expect(text).toContain('повтор');
   });
 });
 
@@ -125,9 +138,19 @@ describe('путь записи (сторож по коду)', () => {
     expect(ensureAt).toBeLessThan(SRC.indexOf('for (const { code, value } of fillable) {'));
   });
 
-  it('вход по вторичному логину закрывается явно', () => {
-    // Строка `users` остаётся, и без выключения доступа по её логину можно было бы войти.
-    expect(SRC).toContain('.update(users).set({ accessEnabled: false })');
+  it('доступ вторичного гасится через EAV, а не прямым UPDATE по зеркалу `users`', () => {
+    // Строку `users` собирает триггер и публикует очередь: прямая правка не доехала бы до
+    // клиентов и была бы стёрта следующей пересборкой из EAV.
+    expect(SRC).toContain('await setEmployeeAuth(loserId, { accessEnabled: false })');
+    expect(SRC).not.toContain('.update(users).set({ accessEnabled: false })');
+  });
+
+  it('перевод ссылок считается тем же кодом, что и применяет', () => {
+    expect(SRC).toContain('apply: false');
+    expect(SRC).toContain('apply: true');
+    const planAt = SRC.indexOf('apply: false');
+    expect(planAt).toBeLessThan(SRC.indexOf('if (dryRun) {'));
+    expect(SRC.indexOf('apply: true')).toBeLessThan(SRC.indexOf('for (const { code, value } of fillable) {'));
   });
 
   it('слияние записи с самой собой и мёртвых записей отвергается', () => {
@@ -142,60 +165,9 @@ describe('путь записи (сторож по коду)', () => {
   it('один человек не может попасть в две группы', () => {
     expect(SRC).toContain('const rest = candidates.filter((c) => !grouped.has(c.id));');
   });
-
-  it('ссылки на вторичную считаются до «Проверить» — отказ видит и проверка', () => {
-    const countAt = SRC.indexOf('await countEmployeeIncomingReferences(loserId)');
-    expect(countAt).toBeGreaterThan(-1);
-    expect(countAt).toBeLessThan(SRC.indexOf('if (dryRun) {'));
-  });
-
-  it('счёт ссылок видит всё, что гейт удаления, и хранилища сотрудника сверх него', () => {
-    // Каждое из этих мест держит id сотрудника; выпавшее снова дало бы слияние «без ссылок».
-    for (const probe of [
-      'countExtendedIncomingReferences(employeeId)',
-      'findIncomingLinkRows(employeeId)',
-      'like(operations.metaJson, quotedId)',
-      'erpEngineAssemblyBom.executionProfileJson',
-      'timesheetRows.employeeId',
-      'erpDocumentHeaders.authorId',
-    ]) {
-      expect(SRC, probe).toContain(probe);
-    }
-  });
-
-  it('в счёт не попадает таблица, которой нет ни на одной базе', () => {
-    // `service_price_orders` описана в схеме, но её не создаёт ни одна миграция: на проде (94 из 94
-    // применены) её нет вовсе, и запрос к ней ронял бы всю проверку ссылок — вместе с «Проверить».
-    expect(SRC).not.toContain('servicePriceOrders');
-  });
 });
 
-describe('ссылки, мимо которых проходит гейт удаления', () => {
-  const EMP = 'eeeeeeee-0000-0000-0000-000000000001';
-
-  it('бригада и подписи наряда уже посчитаны гейтом — второй раз не считаются', () => {
-    expect(isUncountedOperationReference('work_order', { crew: [{ employeeId: EMP }] }, EMP)).toBe(false);
-    expect(isUncountedOperationReference('work_order', { signatureBlocks: [{ slots: [{ employeeId: EMP }] }] }, EMP)).toBe(false);
-  });
-
-  it('утверждающий наряда и акт двигателя гейт не видит — их считает слияние', () => {
-    expect(isUncountedOperationReference('work_order', { printSettings: { approverEmployeeId: EMP } }, EMP)).toBe(true);
-    expect(isUncountedOperationReference('completeness', { commission: [{ id: 'm1', employeeId: EMP }] }, EMP)).toBe(true);
-  });
-
-  it('нечитаемый meta_json с id сотрудника — тоже ссылка: гейт такие пропускает', () => {
-    expect(isUncountedOperationReference('work_order', null, EMP)).toBe(true);
-  });
-
-  it('отказ называет каждый вид с числом и говорит, что делать', () => {
-    const text = referenceRefusalMessage(new Map([['Наряды', 3], ['Табели', 1]]));
-    expect(text).toContain('Наряды: 3');
-    expect(text).toContain('Табели: 1');
-    expect(text).toContain('«Проверить»');
-  });
-});
-
-describe('отказ при ссылках на вторичную запись', () => {
+describe('перевод ссылок в слиянии', () => {
   const SURVIVOR = 'aaaaaaaa-0000-0000-0000-000000000001';
   const LOSER = 'aaaaaaaa-0000-0000-0000-000000000002';
   const ACTOR = { id: 'u1', username: 'owner1', role: 'superadmin' };
@@ -212,56 +184,73 @@ describe('отказ при ссылках на вторичную запись'
     expect(admin.setEntityAttribute).not.toHaveBeenCalled();
     expect(admin.softDeleteEntity).not.toHaveBeenCalled();
     expect(reassignUserReferences).not.toHaveBeenCalled();
+    expect(setEmployeeAuth).not.toHaveBeenCalled();
     expect(db.update).not.toHaveBeenCalled();
   }
 
-  it('«Проверить» отказывает с разбивкой: вторичная в наряде и в табеле', async () => {
-    vi.mocked(admin.countExtendedIncomingReferences).mockResolvedValueOnce(new Map([['Наряды', 2]]));
-    state.selectByTable.set(timesheetRows, [[{ id: 'row-1' }]]);
+  it('«Проверить» показывает, что будет переведено, и ничего не пишет', async () => {
+    vi.mocked(repointEmployeeReferences).mockResolvedValueOnce({
+      moved: 4,
+      byStore: [
+        { store: 'Наряды', count: 3 },
+        { store: 'Табели (строки)', count: 1 },
+      ],
+      blockers: [],
+      notes: ['в табеле обе записи уже стояли: 2 дн. остались с отметками основной записи'],
+    });
 
     const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR, dryRun: true });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error).toContain('Наряды: 2');
-      expect(r.error).toContain('Табели: 1');
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.report.referencesMoved).toBe(4);
+      expect(r.report.referencesByStore).toEqual([
+        { store: 'Наряды', count: 3 },
+        { store: 'Табели (строки)', count: 1 },
+      ]);
+      expect(r.report.referenceNotes[0]).toContain('в табеле');
     }
+    expect(vi.mocked(repointEmployeeReferences).mock.calls[0]?.[0]?.apply).toBe(false);
+    expectNoWrites();
   });
 
-  it('боевое слияние отказывает раньше первой записи — утверждающий наряда тоже ссылка', async () => {
-    state.selectByTable.set(operations, [
-      [{ operationType: 'work_order', metaJson: JSON.stringify({ printSettings: { approverEmployeeId: LOSER } }) }],
-    ]);
+  it('непереводимая ссылка останавливает и проверку, и слияние', async () => {
+    vi.mocked(repointEmployeeReferences).mockResolvedValueOnce({
+      moved: 0,
+      byStore: [],
+      blockers: [{ store: 'Складские документы (автор)', reason: 'нет строки erp_employee_cards' }],
+      notes: [],
+    });
 
     const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('Наряды: 1');
+    if (!r.ok) expect(r.error).toContain('Складские документы (автор)');
     expectNoWrites();
   });
 
-  it('link-атрибут карточки назван видом карточки', async () => {
-    vi.mocked(admin.findIncomingLinkRows).mockResolvedValueOnce([
-      {
-        valueId: 'v1',
-        fromEntityId: 'dep-1',
-        fromEntityTypeId: 'type-department',
-        fromEntityTypeCode: 'department',
-        fromEntityTypeName: 'Подразделения',
-        attributeDefId: 'def-head',
-        attributeCode: 'head_employee_id',
-        attributeName: 'Руководитель',
-      },
-    ]);
+  it('боевое слияние переводит ссылки ДО заполнения полей и гашения', async () => {
+    vi.mocked(repointEmployeeReferences)
+      .mockResolvedValueOnce({ moved: 2, byStore: [{ store: 'Наряды', count: 2 }], blockers: [], notes: [] })
+      .mockResolvedValueOnce({ moved: 2, byStore: [{ store: 'Наряды', count: 2 }], blockers: [], notes: [] });
 
-    const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR, dryRun: true });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('Подразделения: 1');
-    expectNoWrites();
+    const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.report.referencesMoved).toBe(2);
+
+    const applyCall = vi.mocked(repointEmployeeReferences).mock.invocationCallOrder[1];
+    const tombCall = vi.mocked(admin.setEntityAttribute).mock.invocationCallOrder[0];
+    const deleteCall = vi.mocked(admin.softDeleteEntity).mock.invocationCallOrder[0];
+    expect(applyCall).toBeLessThan(tombCall ?? Number.MAX_SAFE_INTEGER);
+    expect(applyCall).toBeLessThan(deleteCall ?? Number.MAX_SAFE_INTEGER);
+    expect(vi.mocked(repointEmployeeReferences).mock.calls[1]?.[0]?.apply).toBe(true);
+    expect(setEmployeeAuth).toHaveBeenCalledWith(LOSER, { accessEnabled: false });
   });
 
-  it('без ссылок проверка проходит, как раньше', async () => {
+  it('без ссылок отчёт честно показывает ноль', async () => {
     const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR, dryRun: true });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.report.dryRun).toBe(true);
-    expectNoWrites();
+    if (r.ok) {
+      expect(r.report.referencesMoved).toBe(0);
+      expect(r.report.referencesByStore).toEqual([]);
+    }
   });
 });

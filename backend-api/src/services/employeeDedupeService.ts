@@ -13,40 +13,17 @@
 //  - доступ и роль основного НИКОГДА не перетираются данными вторичного — иначе слияние может
 //    отобрать у человека права, а именно это в исходной жалобе и было риском (у одной записи
 //    администратор, у другой доступ запрещён).
-import {
-  SyncTableName,
-  collectSupplyRequestEntityReferences,
-  collectWorkOrderEntityReferences,
-  damerauLevenshtein,
-  humanLabel,
-} from '@matricarmz/shared';
+import { SyncTableName, damerauLevenshtein } from '@matricarmz/shared';
 
-import { and, eq, inArray, isNull, like } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
-import {
-  attributeDefs,
-  attributeValues,
-  clientSettings,
-  entities,
-  entityTypes,
-  erpDocumentHeaders,
-  erpEngineAssemblyBom,
-  operations,
-  timesheetRows,
-  timesheets,
-  users,
-} from '../database/schema.js';
+import { attributeDefs, attributeValues, clientSettings, entities, entityTypes, users } from '../database/schema.js';
 import { logInfo } from '../utils/logger.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
-import { recordSyncChanges } from './sync/syncChangeService.js';
-import {
-  countExtendedIncomingReferences,
-  findIncomingLinkRows,
-  setEntityAttribute,
-  softDeleteEntity,
-  upsertAttributeDef,
-} from './adminMasterdataService.js';
+import { setEntityAttribute, softDeleteEntity, upsertAttributeDef } from './adminMasterdataService.js';
+import { setEmployeeAuth } from './employeeAuthService.js';
+import { repointEmployeeReferences, type RepointOutcome } from './employeeReferenceRepoint.js';
 import { reassignUserReferences } from './userDeletionService.js';
 
 
@@ -98,6 +75,12 @@ export type EmployeeMergeReport = {
   userReferencesMoved: boolean;
   /** Сколько строк `client_settings` перевешено с логина вторичного на логин основного. */
   clientSettingsRelinked: number;
+  /** Сколько ссылок на вторичную запись переведено на основную. */
+  referencesMoved: number;
+  /** Разбивка переведённых ссылок по видам данных. */
+  referencesByStore: Array<{ store: string; count: number }>;
+  /** Переносы не «один в один»: сложенные доли бригады, снятые дубли, занятые дни табеля. */
+  referenceNotes: string[];
   /** Только отчёт, без единой записи. */
   dryRun: boolean;
 };
@@ -262,93 +245,22 @@ export async function analyzeEmployeeDuplicates(): Promise<
   }
 }
 
-/** Виды, которые гейт удаления считает сам: своя подпись дала бы вторую строку того же вида. */
-const GATE_OPERATION_LABELS: Record<string, string> = { work_order: 'Наряды', supply_request: 'Заявки снабжения' };
-
-/**
- * Операция, в `meta_json` которой стоит id сотрудника, а гейт удаления её не посчитал. Гейт
- * разбирает только наряды и заявки, а в наряде видит бригаду и подписи: утверждающий в грифе,
- * комиссия и подписи актов двигателя проходят мимо него.
- */
-function isUncountedOperationReference(operationType: string, meta: unknown, employeeId: string): boolean {
-  if (!meta || typeof meta !== 'object') return true;
-  const seenByGate =
-    operationType === 'work_order'
-      ? collectWorkOrderEntityReferences(meta as never)
-      : operationType === 'supply_request'
-        ? collectSupplyRequestEntityReferences(meta as never)
-        : [];
-  return !seenByGate.some((c) => c.referenceId === employeeId);
+/** Хвост отчёта о переводе ссылок — три поля, которые видит оператор в диалоге. */
+function referenceReportFields(outcome: RepointOutcome) {
+  return {
+    referencesMoved: outcome.moved,
+    referencesByStore: outcome.byStore.map((s) => ({ store: s.store, count: s.count })),
+    referenceNotes: outcome.notes,
+  };
 }
 
-/**
- * Ссылки на сотрудника по видам. Основа — те же счётчики, что у гейта удаления
- * (`softDeleteEntity`); сверх них — места, куда гейт не смотрит, а id сотрудника там живёт:
- * остальные поля и виды `operations.meta_json`, подписи профиля сборки, табели, приказы о ценах,
- * автор складского документа. `contract_sections` и `contract_payments` сотрудников не несут.
- */
-async function countEmployeeIncomingReferences(employeeId: string): Promise<Map<string, number>> {
-  const byType = await countExtendedIncomingReferences(employeeId);
-  const bump = (label: string, n = 1) => byType.set(label, (byType.get(label) ?? 0) + n);
-  for (const link of await findIncomingLinkRows(employeeId)) {
-    bump(link.fromEntityTypeName || link.fromEntityTypeCode || 'связанные записи');
-  }
-
-  const quotedId = `%${JSON.stringify(employeeId)}%`;
-  const opRows = await db
-    .select({ operationType: operations.operationType, metaJson: operations.metaJson })
-    .from(operations)
-    .where(and(isNull(operations.deletedAt), like(operations.metaJson, quotedId)))
-    .limit(10_000);
-  for (const r of opRows) {
-    const type = String(r.operationType);
-    let meta: unknown = null;
-    try {
-      meta = r.metaJson ? JSON.parse(String(r.metaJson)) : null;
-    } catch {
-      meta = null;
-    }
-    if (!isUncountedOperationReference(type, meta, employeeId)) continue;
-    bump(GATE_OPERATION_LABELS[type] ?? humanLabel('operation_type', type, 'Записи по двигателям'));
-  }
-
-  const bomRows = await db
-    .select({ id: erpEngineAssemblyBom.id })
-    .from(erpEngineAssemblyBom)
-    .where(and(isNull(erpEngineAssemblyBom.deletedAt), like(erpEngineAssemblyBom.executionProfileJson, quotedId)))
-    .limit(10_000);
-  if (bomRows.length > 0) bump('Спецификации сборки (подписи)', bomRows.length);
-
-  const sheetRows = await db
-    .select({ id: timesheetRows.id })
-    .from(timesheetRows)
-    .innerJoin(timesheets, eq(timesheets.id, timesheetRows.timesheetId))
-    .where(and(eq(timesheetRows.employeeId, employeeId as never), isNull(timesheets.deletedAt)))
-    .limit(10_000);
-  if (sheetRows.length > 0) bump('Табели', sheetRows.length);
-
-  // Приказов о ценах здесь нет намеренно: таблица `service_price_orders` описана в схеме, но её
-  // не создаёт ни одна миграция — на проде (94 из 94 применены) её нет вовсе, и запрос к ней
-  // ронял бы всю проверку ссылок ошибкой «relation does not exist». Вернуть, когда у сервиса
-  // цен появится миграция (`PENDING` §«Приказы о ценах на услуги»).
-
-  const docRows = await db
-    .select({ id: erpDocumentHeaders.id })
-    .from(erpDocumentHeaders)
-    .where(and(eq(erpDocumentHeaders.authorId, employeeId as never), isNull(erpDocumentHeaders.deletedAt)))
-    .limit(10_000);
-  if (docRows.length > 0) bump('Складские документы (автор)', docRows.length);
-
-  return byType;
-}
-
-/** Текст отказа — оператор видит его в диалоге сразу после «Проверить». */
-function referenceRefusalMessage(byType: Map<string, number>): string {
-  const breakdown = [...byType.entries()].map(([label, count]) => `${label}: ${count}`).join(', ');
+/** Текст отказа: перевести ссылку нельзя, и слияние не идёт — иначе она осталась бы висеть. */
+function blockerMessage(outcome: RepointOutcome): string {
+  const reasons = outcome.blockers.map((b) => `${b.store}: ${b.reason}`).join('; ');
   return (
-    `Слияние остановлено: вторичная запись упоминается в других данных — ${breakdown}. ` +
-    'Переносить такие упоминания на основную запись слияние пока не умеет, а после него они указывали бы на ' +
-    'погашенного сотрудника. Где можно, замените в них сотрудника на основную запись и нажмите «Проверить» снова.'
+    `Слияние остановлено: часть ссылок на вторичную запись перевести не удалось (${reasons}). ` +
+    'Вторичная запись осталась действующей; уже переведённые ссылки стоят на основной, повтор ' +
+    'слияния продолжит с того же места. Разберите причину и нажмите «Проверить» снова.'
   );
 }
 
@@ -356,8 +268,8 @@ function referenceRefusalMessage(byType: Map<string, number>): string {
  * Слияние двух записей одного человека.
  *
  * Правила, ради которых всё и писалось:
- *  - на вторичную запись не должно быть ссылок (наряд, табель, карточка): переводить их слияние
- *    пока не умеет, поэтому отказывает — и в проверке тоже (`countEmployeeIncomingReferences`);
+ *  - ссылки на вторичную запись переводятся на основную (`repointEmployeeReferences`): наряды,
+ *    акты, табели, карточки, комнаты чата; что перевести нельзя — отказ, и ни одной записи;
  *  - у основного заполняются ТОЛЬКО пустые поля; непустое не перетирается никогда;
  *  - логин, пароль, роль и доступ основного не трогаются вовсе (см. `PROTECTED_CODES`);
  *  - пользовательские ссылки (чат, файлы, заметки, права, токены) переезжают на основного;
@@ -396,11 +308,6 @@ export async function mergeEmployees(args: {
     if (!aliveIds.has(survivorId)) return { ok: false as const, error: 'основная запись не найдена среди действующих сотрудников' };
     if (!aliveIds.has(loserId)) return { ok: false as const, error: 'вторичная запись не найдена среди действующих сотрудников' };
 
-    // Ссылки на вторичную запись слияние пока не переводит: наряд, табель или карточка молча
-    // остались бы с погашенным сотрудником. Отказ — и в проверке, и в слиянии, до первой записи.
-    const incoming = await countEmployeeIncomingReferences(loserId);
-    if (incoming.size > 0) return { ok: false as const, error: referenceRefusalMessage(incoming) };
-
     const codeByDefId = await loadCodeByDefId(typeId);
     const survivorAttrs = await loadAttrs(survivorId, codeByDefId);
     const loserAttrs = await loadAttrs(loserId, codeByDefId);
@@ -419,6 +326,9 @@ export async function mergeEmployees(args: {
       protectedSkipped: [],
       userReferencesMoved: false,
       clientSettingsRelinked: 0,
+      referencesMoved: 0,
+      referencesByStore: [],
+      referenceNotes: [],
       dryRun,
     };
 
@@ -441,10 +351,26 @@ export async function mergeEmployees(args: {
           .where(eq(clientSettings.lastUsername, loserLogin as never))
       : [];
 
+    // Ссылки считает ТОТ ЖЕ код, что и переводит (`apply: false` — только счёт): иначе
+    // «Проверить» показывала бы одну оценку, а слияние делало другое.
+    const plan = await repointEmployeeReferences({
+      fromId: loserId,
+      toId: survivorId,
+      survivorLogin,
+      loserLogin,
+      actor: args.actor,
+      apply: false,
+    });
+    if (plan.blockers.length > 0) return { ok: false as const, error: blockerMessage(plan) };
+
     if (dryRun) {
       report.attrsFilled = fillable.length;
       report.userReferencesMoved = Boolean(survivorLogin);
       report.clientSettingsRelinked = settingsRows.length;
+      const planned = referenceReportFields(plan);
+      report.referencesMoved = planned.referencesMoved;
+      report.referencesByStore = planned.referencesByStore;
+      report.referenceNotes = planned.referenceNotes;
       return { ok: true as const, report };
     }
 
@@ -460,6 +386,22 @@ export async function mergeEmployees(args: {
         sortOrder: 9000,
       });
     }
+
+    // Перевод ссылок — первым делом: он идемпотентен (повторный проход уже переведённых не
+    // находит), поэтому обрыв дальше лечится повтором слияния, а не разбором полу-состояния.
+    const moved = await repointEmployeeReferences({
+      fromId: loserId,
+      toId: survivorId,
+      survivorLogin,
+      loserLogin,
+      actor: args.actor,
+      apply: true,
+    });
+    const movedFields = referenceReportFields(moved);
+    report.referencesMoved = movedFields.referencesMoved;
+    report.referencesByStore = movedFields.referencesByStore;
+    report.referenceNotes = movedFields.referenceNotes;
+    if (moved.blockers.length > 0) return { ok: false as const, error: blockerMessage(moved) };
 
     for (const { code, value } of fillable) {
       const res = await setEntityAttribute(args.actor, survivorId, code, value, { allowSyncConflicts: true });
@@ -487,9 +429,11 @@ export async function mergeEmployees(args: {
     const tomb = await setEntityAttribute(args.actor, loserId, MERGED_INTO_CODE, survivorId, { allowSyncConflicts: true });
     if (!tomb.ok) return { ok: false as const, error: `не удалось пометить вторичную запись: ${tomb.error}` };
 
-    // Доступ вторичного выключаем явно: пока строка `users` жива, по её логину можно войти.
-    await db.update(users).set({ accessEnabled: false }).where(eq(users.id, loserId as never));
-    await recordSyncChanges(args.actor, [], { allowSyncConflicts: true }).catch(() => {});
+    // Доступ вторичного выключаем через EAV, а не прямым UPDATE по `users`: строку `users`
+    // собирает триггер из EAV и публикует очередь (`usersSyncPublisherService`). Прямая правка
+    // до клиентов не доехала бы — номер журнала у строки уже есть, а страховочный проход берёт
+    // только строки без номера, — и её стёрла бы следующая пересборка из EAV.
+    await setEmployeeAuth(loserId, { accessEnabled: false });
 
     const del = await softDeleteEntity(args.actor, loserId, { allowSyncConflicts: true, skipReferenceCheck: true });
     if (!del.ok) return { ok: false as const, error: `не удалось погасить вторичную запись: ${del.error}` };
@@ -510,11 +454,4 @@ export async function mergeEmployees(args: {
   }
 }
 
-export const __testables = {
-  normalizeName,
-  editBudgetForName,
-  PROTECTED_CODES,
-  SyncTableName,
-  isUncountedOperationReference,
-  referenceRefusalMessage,
-};
+export const __testables = { normalizeName, editBudgetForName, PROTECTED_CODES, SyncTableName, blockerMessage };

@@ -368,6 +368,12 @@ export type EmployeeMergeReport = {
   protectedSkipped: string[];
   userReferencesMoved: boolean;
   clientSettingsRelinked: number;
+  /** Сколько ссылок на вторичную запись переведено на основную (в проверке — будет переведено). */
+  referencesMoved: number;
+  /** Разбивка переведённых ссылок по видам данных: наряды, табели, карточки, комнаты чата. */
+  referencesByStore: Array<{ store: string; count: number }>;
+  /** Переносы не «один в один»: сложенные доли бригады, снятые дубли, занятые дни табеля. */
+  referenceNotes: string[];
   dryRun: boolean;
 };
 
