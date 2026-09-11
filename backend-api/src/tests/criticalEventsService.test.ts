@@ -89,6 +89,23 @@ describe('criticalEventsService alert hygiene', () => {
     expect(codes).toEqual(['client.sync.network_transient', 'client.sync.network_transient', 'client.sync.network_transient']);
   });
 
+  it('a tablet names the same drop "Failed to fetch"', () => {
+    // Текст с планшета 11.09.2026 (WebView): ответа не было вовсе — это обрыв, а не отказ сервера.
+    ingestClientLogForCriticalEvent({
+      username: 'tester',
+      level: 'error',
+      message:
+        'sync failed: TypeError: Failed to fetch\nTypeError: Failed to fetch\n    at ei (https://localhost/assets/bootCapacitor-DQqeamcf.js:802:58943)',
+      metadata: { component: 'sync', action: 'run', critical: true, clientId: 'android-1' },
+      timestamp: Date.now(),
+    });
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventCode).toBe('client.sync.network_transient');
+    expect(events[0]?.severity).toBe('warn');
+  });
+
   it('keeps a server refusal a sync error', () => {
     ingestClientLogForCriticalEvent({
       username: 'tester',
