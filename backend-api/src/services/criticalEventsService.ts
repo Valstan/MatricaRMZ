@@ -128,6 +128,27 @@ const CLIENT_PATTERNS: Array<{ re: RegExp; info: MatchInfo }> = [
   },
 ];
 
+// Обрыв связи клиента с сервером: соединение не состоялось или порвалось, сервер ничего не отказывал.
+// Сообщение о нём доходит, только когда связь уже вернулась, — «серьёзной ошибкой» оно было шумом
+// (11.09.2026: 19 таких тревог за три дня, у одной машины — до четырёх в час). Список — то, что
+// реально приходило с парка, плюс ближайшие родственники; HTTP-отказы сервера сюда не входят.
+const TRANSIENT_NETWORK_RE =
+  /net::ERR_(?:CONNECTION_(?:TIMED_OUT|RESET|CLOSED|REFUSED|ABORTED|FAILED)|TIMED_OUT|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|NETWORK_IO_SUSPENDED|ADDRESS_UNREACHABLE|HTTP2_PING_FAILED)\b|\b(?:ETIMEDOUT|ECONNRESET|EAI_AGAIN)\b/i;
+
+const NETWORK_TRANSIENT: MatchInfo = {
+  code: 'client.sync.network_transient',
+  title: 'Кратковременный обрыв связи клиента с сервером',
+  category: 'network',
+  severity: 'warn',
+};
+
+// Сигналом обрывы становятся, когда их много у одной машины: тогда одна тревога на машину, не чаще
+// раза в шесть часов. Порог выше замеренного максимума (4 в час), который владелец назвал шумом.
+const NETWORK_FLAPPING_CODE = 'client.sync.network_flapping';
+const NETWORK_FLAPPING_WINDOW_MS = 60 * 60_000;
+const NETWORK_FLAPPING_THRESHOLD = 6;
+const NETWORK_FLAPPING_COOLDOWN_MS = 6 * 60 * 60_000;
+
 const SERVER_PATTERNS: Array<{ re: RegExp; info: MatchInfo }> = [
   {
     re: /invalid input syntax for type uuid/i,
@@ -352,6 +373,37 @@ function appendEvent(event: CriticalEventRecord) {
   maybePrune(now);
 }
 
+/**
+ * Одна тревога на машину, которая теряет связь часто. Считаем по файлу событий, а не в памяти: клиентские
+ * логи принимают оба экземпляра сервера, и счёт в памяти одного из них видел бы половину обрывов.
+ */
+function raiseIfNetworkFlapping(args: { username: string; clientId: string | null; at: number }) {
+  const rows = readEvents().filter((row) => (args.clientId ? row.clientId === args.clientId : row.username === args.username));
+  const now = Date.now();
+  if (rows.some((row) => row.eventCode === NETWORK_FLAPPING_CODE && now - Number(row.createdAt) < NETWORK_FLAPPING_COOLDOWN_MS)) return;
+  const drops = rows.filter((row) => {
+    const age = args.at - Number(row.createdAt);
+    return row.eventCode === NETWORK_TRANSIENT.code && age >= 0 && age < NETWORK_FLAPPING_WINDOW_MS;
+  }).length;
+  if (drops < NETWORK_FLAPPING_THRESHOLD) return;
+
+  const title = 'Клиент часто теряет связь с сервером';
+  appendEvent({
+    id: randomUUID(),
+    createdAt: now,
+    source: 'client',
+    severity: 'error',
+    category: 'network',
+    eventCode: NETWORK_FLAPPING_CODE,
+    title,
+    humanMessage: `${title}: ${drops} обрывов за час. Разовые обрывы в Telegram не приходят — это сводка по машине.`,
+    aiDetails: makeAiDetails({ source: 'client', username: args.username, clientId: args.clientId, drops, windowMs: NETWORK_FLAPPING_WINDOW_MS }),
+    username: args.username ? String(args.username) : null,
+    clientId: args.clientId,
+    fingerprint: eventFingerprint('client', args.username, args.clientId, NETWORK_FLAPPING_CODE, String(now)),
+  });
+}
+
 export function ingestClientLogForCriticalEvent(args: {
   username: string;
   level: ClientLogLevel;
@@ -366,8 +418,10 @@ export function ingestClientLogForCriticalEvent(args: {
   const isCritical = args.metadata?.critical === true;
   if (!detected && !isCritical) return;
 
+  const transient =
+    (detected?.code === 'client.sync.failed' || detected?.code === 'client.network.net_err') && TRANSIENT_NETWORK_RE.test(text);
   const info: MatchInfo =
-    detected ??
+    (transient ? NETWORK_TRANSIENT : detected) ??
     ({
       code: 'client.critical.flagged',
       title: 'Клиент отправил событие с критичным флагом',
@@ -375,6 +429,7 @@ export function ingestClientLogForCriticalEvent(args: {
       severity: args.level === 'warn' ? 'warn' : 'error',
     } as const);
   const createdAt = Number(args.timestamp ?? Date.now());
+  const at = Number.isFinite(createdAt) ? createdAt : Date.now();
   const clientId = normalizeClientId(args.metadata?.clientId);
   const humanMessage = safeText(`${info.title}: ${text}`, 2_000);
   const aiDetails = makeAiDetails({
@@ -389,7 +444,7 @@ export function ingestClientLogForCriticalEvent(args: {
 
   appendEvent({
     id: randomUUID(),
-    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    createdAt: at,
     source: 'client',
     severity: info.severity,
     category: info.category,
@@ -399,8 +454,11 @@ export function ingestClientLogForCriticalEvent(args: {
     aiDetails,
     username: args.username ? String(args.username) : null,
     clientId,
-    fingerprint: eventFingerprint('client', args.username, clientId, info.code, text),
+    // Клиент копит логи, пока нет связи, и присылает пачкой: одинаковый текст обрыва с разным временем —
+    // разные обрывы. Склей их окно дублей — сводке было бы нечего считать.
+    fingerprint: eventFingerprint('client', args.username, clientId, info.code, transient ? `${at}|${text}` : text),
   });
+  if (transient) raiseIfNetworkFlapping({ username: args.username, clientId, at });
 }
 
 export function ingestServerLogForCriticalEvent(args: {

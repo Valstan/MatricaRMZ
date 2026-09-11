@@ -58,6 +58,85 @@ describe('criticalEventsService alert hygiene', () => {
     expect(events[0]?.severity).toBe('error');
   });
 
+  // Текст — ровно тот, что приходит с парка (11.09.2026).
+  const dropMessage = (code: string) =>
+    `sync failed: Error: net::${code}\nError: net::${code}\n    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:132481)`;
+
+  function dropAt(timestamp: number, clientId = 'pc-1', code = 'ERR_CONNECTION_TIMED_OUT') {
+    ingestClientLogForCriticalEvent({
+      username: 'tester',
+      level: 'error',
+      message: dropMessage(code),
+      metadata: { component: 'sync', action: 'run', critical: true, clientId },
+      timestamp,
+    });
+  }
+
+  it('records a dropped connection as a quiet network warning, not a sync error', () => {
+    dropAt(Date.now());
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventCode).toBe('client.sync.network_transient');
+    expect(events[0]?.severity).toBe('warn');
+  });
+
+  it('treats every connection-level error seen on the fleet as a drop', () => {
+    const t0 = Date.now() - 30 * 60_000;
+    ['ERR_TIMED_OUT', 'ERR_NAME_NOT_RESOLVED', 'ERR_HTTP2_PING_FAILED'].forEach((code, i) => dropAt(t0 + i * 60_000, 'pc-1', code));
+
+    const codes = listCriticalEvents({ days: 1, limit: 20 }).map((e) => e.eventCode);
+    expect(codes).toEqual(['client.sync.network_transient', 'client.sync.network_transient', 'client.sync.network_transient']);
+  });
+
+  it('keeps a server refusal a sync error', () => {
+    ingestClientLogForCriticalEvent({
+      username: 'tester',
+      level: 'error',
+      message: 'sync failed: Error: state snapshot HTTP 403: {"ok":false,"error":"forbidden"}',
+      metadata: { component: 'sync', action: 'run', critical: true, clientId: 'pc-1' },
+      timestamp: Date.now(),
+    });
+
+    const events = listCriticalEvents({ days: 1, limit: 20 });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventCode).toBe('client.sync.failed');
+    expect(events[0]?.severity).toBe('error');
+  });
+
+  it('counts drops sent in one batch separately, and a few an hour stay quiet', () => {
+    // Клиент копит логи, пока нет связи, и присылает пачкой: одинаковый текст с разным временем —
+    // разные обрывы. Четыре в час — замеренный максимум, который владелец назвал шумом.
+    const t0 = Date.now() - 50 * 60_000;
+    for (let i = 0; i < 4; i += 1) dropAt(t0 + i * 10 * 60_000);
+
+    const codes = listCriticalEvents({ days: 1, limit: 20 }).map((e) => e.eventCode);
+    expect(codes.filter((c) => c === 'client.sync.network_transient')).toHaveLength(4);
+    expect(codes).not.toContain('client.sync.network_flapping');
+  });
+
+  it('a machine that keeps dropping raises one alert, and only once', () => {
+    const t0 = Date.now() - 55 * 60_000;
+    for (let i = 0; i < 9; i += 1) dropAt(t0 + i * 5 * 60_000);
+
+    const flapping = listCriticalEvents({ days: 1, limit: 50 }).filter((e) => e.eventCode === 'client.sync.network_flapping');
+    expect(flapping).toHaveLength(1);
+    expect(flapping[0]?.severity).toBe('error');
+    expect(flapping[0]?.category).toBe('network');
+    expect(flapping[0]?.clientId).toBe('pc-1');
+  });
+
+  it('drops of different machines are not summed', () => {
+    const t0 = Date.now() - 20 * 60_000;
+    for (let i = 0; i < 5; i += 1) {
+      dropAt(t0 + i * 60_000, 'pc-1');
+      dropAt(t0 + i * 60_000, 'pc-2');
+    }
+
+    const codes = listCriticalEvents({ days: 1, limit: 50 }).map((e) => e.eventCode);
+    expect(codes).not.toContain('client.sync.network_flapping');
+  });
+
   it('raises blocked rows reported by the client as their own incident', () => {
     // Клиент сам говорит, что строки не отправятся никогда. До 09.2026 такое
     // было видно только по чужому симптому — счётчику пропусков на сервере.
