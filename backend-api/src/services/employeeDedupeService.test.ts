@@ -157,11 +157,16 @@ describe('путь записи (сторож по коду)', () => {
       'like(operations.metaJson, quotedId)',
       'erpEngineAssemblyBom.executionProfileJson',
       'timesheetRows.employeeId',
-      'servicePriceOrders.issuedByEmployeeId',
       'erpDocumentHeaders.authorId',
     ]) {
       expect(SRC, probe).toContain(probe);
     }
+  });
+
+  it('в счёт не попадает таблица, которой нет ни на одной базе', () => {
+    // `service_price_orders` описана в схеме, но её не создаёт ни одна миграция: на проде (94 из 94
+    // применены) её нет вовсе, и запрос к ней ронял бы всю проверку ссылок — вместе с «Проверить».
+    expect(SRC).not.toContain('servicePriceOrders');
   });
 });
 

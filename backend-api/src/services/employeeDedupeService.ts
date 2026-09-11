@@ -33,7 +33,6 @@ import {
   erpDocumentHeaders,
   erpEngineAssemblyBom,
   operations,
-  servicePriceOrders,
   timesheetRows,
   timesheets,
   users,
@@ -328,12 +327,10 @@ async function countEmployeeIncomingReferences(employeeId: string): Promise<Map<
     .limit(10_000);
   if (sheetRows.length > 0) bump('Табели', sheetRows.length);
 
-  const priceOrderRows = await db
-    .select({ id: servicePriceOrders.id })
-    .from(servicePriceOrders)
-    .where(and(eq(servicePriceOrders.issuedByEmployeeId, employeeId as never), isNull(servicePriceOrders.deletedAt)))
-    .limit(10_000);
-  if (priceOrderRows.length > 0) bump('Приказы о ценах на услуги', priceOrderRows.length);
+  // Приказов о ценах здесь нет намеренно: таблица `service_price_orders` описана в схеме, но её
+  // не создаёт ни одна миграция — на проде (94 из 94 применены) её нет вовсе, и запрос к ней
+  // ронял бы всю проверку ссылок ошибкой «relation does not exist». Вернуть, когда у сервиса
+  // цен появится миграция (`PENDING` §«Приказы о ценах на услуги»).
 
   const docRows = await db
     .select({ id: erpDocumentHeaders.id })
