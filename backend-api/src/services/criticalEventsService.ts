@@ -132,8 +132,10 @@ const CLIENT_PATTERNS: Array<{ re: RegExp; info: MatchInfo }> = [
 // Сообщение о нём доходит, только когда связь уже вернулась, — «серьёзной ошибкой» оно было шумом
 // (11.09.2026: 19 таких тревог за три дня, у одной машины — до четырёх в час). Список — то, что
 // реально приходило с парка, плюс ближайшие родственники; HTTP-отказы сервера сюда не входят.
+// Планшет (WebView) называет тот же обрыв «TypeError: Failed to fetch»: fetch падает, только когда
+// ответа нет вовсе, — на HTTP-ошибку сервера он отвечает статусом, а не исключением.
 const TRANSIENT_NETWORK_RE =
-  /net::ERR_(?:CONNECTION_(?:TIMED_OUT|RESET|CLOSED|REFUSED|ABORTED|FAILED)|TIMED_OUT|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|NETWORK_IO_SUSPENDED|ADDRESS_UNREACHABLE|HTTP2_PING_FAILED)\b|\b(?:ETIMEDOUT|ECONNRESET|EAI_AGAIN)\b/i;
+  /net::ERR_(?:CONNECTION_(?:TIMED_OUT|RESET|CLOSED|REFUSED|ABORTED|FAILED)|TIMED_OUT|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|NETWORK_IO_SUSPENDED|ADDRESS_UNREACHABLE|HTTP2_PING_FAILED)\b|\b(?:ETIMEDOUT|ECONNRESET|EAI_AGAIN)\b|TypeError: Failed to fetch/i;
 
 const NETWORK_TRANSIENT: MatchInfo = {
   code: 'client.sync.network_transient',
