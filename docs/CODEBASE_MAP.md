@@ -14,7 +14,7 @@
 | [`backend-api/`](../backend-api) | Express REST API + Drizzle ORM (PostgreSQL) | API endpoints, бизнес-логика, миграции, фоновые job'ы |
 | [`shared/`](../shared) | Общие типы и pure-логика TS | Изменения видимые и UI и API, доменные правила (BOM, forecast, signatures) |
 | [`web-admin/`](../web-admin) | Веб-админка (React, отдельно от Electron) | Админ-задачи через браузер |
-| [`ledger/`](../ledger) | Типы контракта журнала (`LedgerTableName`, `LedgerTxPayload`) | Имена таблиц журнала/синка; цепочка блоков снята 2026-09 ([план](plans/ledger-journal-in-pg-2026-09.md)) |
+| [`ledger/`](../ledger) | Типы контракта журнала (`LedgerTableName`, `LedgerTxPayload`) | Имена таблиц журнала/синка; цепочка блоков снята 2026-09 ([план](plans/_archive/ledger-journal-in-pg-2026-09.md)) |
 | [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger; `prod-ops/` — ops прод-VPS; `client-ops/` — инструменты для машин парка | Релизный процесс (см. `AGENTS.md` §Release); настройка антивируса на клиенте — [`client-ops/README.md`](../scripts/client-ops/README.md) |
 | [`deploy/`](../deploy) | nginx config + systemd units | Прод-конфигурация nginx / systemd таймеры |
 
