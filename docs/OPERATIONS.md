@@ -21,7 +21,7 @@
   - `matricarmz-backend-secondary.service` (`127.0.0.1:3002`) — только API (без background jobs)
 - nginx upstream: `127.0.0.1:3001` + `127.0.0.1:3002`
 - Роуты: `backend-api/src/routes/*`
-- Журнал изменений: таблицы `ledger_tx_index` + `release_registry` в PostgreSQL (цепочка блоков снята 2026-09, см. `docs/plans/ledger-journal-in-pg-2026-09.md`)
+- Журнал изменений: таблицы `ledger_tx_index` + `release_registry` в PostgreSQL (цепочка блоков снята 2026-09, см. `docs/plans/_archive/ledger-journal-in-pg-2026-09.md`)
 - Складской backend-контур: `backend-api/src/routes/warehouse.ts`, `backend-api/src/services/warehouseService.ts`
 
 ### Electron клиент

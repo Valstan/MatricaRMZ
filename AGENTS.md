@@ -189,7 +189,7 @@ Monorepo structure:
 - `web-admin/` — web admin panel
 - `scripts/` — release automation scripts; `scripts/prod-ops/` — ops-скрипты прод-VPS, `scripts/client-ops/` — инструменты для машин парка (помощник по исключениям Касперского)
 
-Где что живёт подробно — [`docs/CODEBASE_MAP.md`](docs/CODEBASE_MAP.md). **Все серверные записи в sync-таблицы идут через `writeSyncChanges`** (журнал в PG `ledger_tx_index` + seq + применение в таблицы) — не обходить его прямыми `db.insert` в синхронизируемые таблицы: строка без номера журнала невидима инкрементальному pull. Цепочка блоков снята 2026-09 ([план](docs/plans/ledger-journal-in-pg-2026-09.md)); пакет `ledger/` — только типы контракта.
+Где что живёт подробно — [`docs/CODEBASE_MAP.md`](docs/CODEBASE_MAP.md). **Все серверные записи в sync-таблицы идут через `writeSyncChanges`** (журнал в PG `ledger_tx_index` + seq + применение в таблицы) — не обходить его прямыми `db.insert` в синхронизируемые таблицы: строка без номера журнала невидима инкрементальному pull. Цепочка блоков снята 2026-09 ([план](docs/plans/_archive/ledger-journal-in-pg-2026-09.md)); пакет `ledger/` — только типы контракта.
 
 ## Быстрые команды разработки
 

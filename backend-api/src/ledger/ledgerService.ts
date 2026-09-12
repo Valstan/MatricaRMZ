@@ -7,7 +7,7 @@ import { ledgerTxIndex, releaseRegistry } from '../database/schema.js';
 import { PG_SYNC_TABLES } from '../services/sync/pgSyncTables.js';
 
 /**
- * Журнал изменений в PostgreSQL (план docs/plans/ledger-journal-in-pg-2026-09.md).
+ * Журнал изменений в PostgreSQL (план docs/plans/_archive/ledger-journal-in-pg-2026-09.md).
  *
  * До 2026-09 здесь была цепочка блоков на диске: подпись, шифрование строк, проекция
  * state.json, чекпоинты. Клиенты её не читали (снапшот и инкремент идут из PG), а в пути

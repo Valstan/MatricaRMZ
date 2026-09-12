@@ -92,6 +92,10 @@ curl -L -H "Authorization: OAuth $YANDEX_DISK_TOKEN" \
 # С 2026-09 (журнал в PostgreSQL, план ledger-journal-in-pg) архив содержит ТОЛЬКО db.dump —
 # ledger-дерево попадает в него, лишь если на боксе ещё лежит каталог с blocks/. Для таких
 # архивов всё про blocks/индекс/высоту ниже не применяется: восстановление = pg_restore.
+# Каталог цепочки снесён 12.09.2026; последний архив С деревом цепочки лежит вне ротации:
+#   /matricarmz/ledger-final/matricarmz-backup-20260912-001701-LAST-WITH-LEDGER-TREE.tar.zst.gpg
+# (1 876 758 272 байт, sha256 339e9d53ee46…). Нужен только для криминалистики по старой цепочке —
+# прод на него не опирается; распаковывать дерево некуда и незачем (MATRICA_LEDGER_DIR снят).
 
 # Вариант А — со staging-каталогом (нужно ~2× размера ledger свободного места)
 mkdir restore && gpg --batch --passphrase-file <pass> --decrypt backup.tar.zst.gpg | zstd -d | tar -x -C restore
