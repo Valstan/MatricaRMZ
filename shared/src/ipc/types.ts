@@ -7,6 +7,7 @@ import type { UserUiProfile } from '../domain/userUiProfile.js';
 import type { UiShellPrefs } from '../domain/uiShellV2.js';
 import type { SectionMembership } from '../domain/sectionAccess.js';
 import type { SupportContact } from '../domain/supportContact.js';
+import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -2031,6 +2032,36 @@ export type MatricaApi = {
     delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
 
+  servicePricing: {
+    orders: {
+      list: (args?: { status?: string }) => Promise<
+        { ok: true; rows: Array<ServicePriceOrderDto & { linesCount: number }> } | { ok: false; error: string }
+      >;
+      upsert: (args: {
+        id?: string;
+        orderNumber: string;
+        orderDate: number;
+        title: string;
+        notes?: string | null;
+        documentLink?: string | null;
+        issuedByEmployeeId?: string | null;
+        effectiveFrom: number;
+        status?: string;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    };
+    history: {
+      list: (args?: { orderId?: string; nomenclatureId?: string }) => Promise<
+        | { ok: true; rows: Array<ServicePriceHistoryDto & { nomenclatureName: string | null; nomenclatureCode: string | null }> }
+        | { ok: false; error: string }
+      >;
+      set: (args: { nomenclatureId: string; orderId: string; price: number; effectiveFrom?: number; notes?: string | null }) => Promise<
+        { ok: true; id: string; applied: boolean; appliedPrice: number | null; applyReason?: string } | { ok: false; error: string }
+      >;
+      delete: (id: string) => Promise<{ ok: true; id: string; applied: boolean; appliedPrice: number | null } | { ok: false; error: string }>;
+    };
+    current: (nomenclatureId: string) => Promise<{ ok: true; row: ServicePriceHistoryDto | null } | { ok: false; error: string }>;
+  };
   tools: {
     list: (args?: { q?: string }) => Promise<{ ok: true; tools: ToolListItem[] } | { ok: false; error: string }>;
     get: (id: string) => Promise<{ ok: true; tool: ToolDetails } | { ok: false; error: string }>;

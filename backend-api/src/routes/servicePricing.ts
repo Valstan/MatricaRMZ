@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { PermissionCode } from '../auth/permissions.js';
-import { requireAuth, requirePermission } from '../auth/middleware.js';
+import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import {
+  deleteServicePriceHistoryRow,
   deleteServicePriceOrder,
   getCurrentServicePrice,
   listServicePriceHistory,
@@ -100,7 +101,8 @@ servicePricingRouter.post('/history', requirePermission(PermissionCode.ErpDictio
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await setServicePriceByOrder({
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const result = await setServicePriceByOrder(actor, {
     nomenclatureId: parsed.data.nomenclatureId,
     orderId: parsed.data.orderId,
     price: parsed.data.price,
@@ -108,6 +110,15 @@ servicePricingRouter.post('/history', requirePermission(PermissionCode.ErpDictio
     ...(parsed.data.effectiveFrom !== undefined ? { effectiveFrom: parsed.data.effectiveFrom } : {}),
     ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
   });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+servicePricingRouter.delete('/history/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  const result = await deleteServicePriceHistoryRow(actor, id);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

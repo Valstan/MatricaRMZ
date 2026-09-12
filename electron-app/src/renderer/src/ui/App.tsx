@@ -229,6 +229,7 @@ const WarehouseLocationsPage = lazyPage('./pages/WarehouseLocationsPage.tsx', 'W
 const WarehouseLocationsAdminPage = lazyPage('./pages/WarehouseLocationsAdminPage.tsx', 'WarehouseLocationsAdminPage');
 const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
+const ServicePriceOrdersPage = lazyPage('./pages/ServicePriceOrdersPage.tsx', 'ServicePriceOrdersPage');
 const UserScreensPage = lazyPage('./pages/UserScreensPage.tsx', 'UserScreensPage');
 const UserScreenViewPage = lazyPage('./pages/UserScreenViewPage.tsx', 'UserScreenViewPage');
 const ScreenEditorPage = lazyPage('./pages/ScreenEditorPage.tsx', 'ScreenEditorPage');
@@ -547,6 +548,7 @@ function appTabTitle(tab: string): string {
     product: 'Карточка товара',
     services: 'Услуги',
     services_by_brand: 'Услуги по маркам',
+    service_price_orders: 'Приказы о ценах',
     service: 'Карточка услуги',
     nomenclature: 'Номенклатура',
     parts_dedupe: 'Дубли номенклатуры',
@@ -597,6 +599,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   products: 'Товары',
   services: 'Услуги',
   services_by_brand: 'Услуги по маркам',
+  service_price_orders: 'Приказы о ценах',
   nomenclature: 'Номенклатура',
   parts_dedupe: 'Дубли номенклатуры',
   empty_cards: 'Пустые карточки',
@@ -2663,6 +2666,7 @@ export function App() {
     ...(caps.canViewMasterData ? (['counterparties'] as const) : []),
     ...(caps.canViewSupplyRequests ? (['requests', 'tool_accounting'] as const) : []),
     ...(caps.canViewMasterData ? (['services', 'services_by_brand'] as const) : []),
+    ...(caps.canViewMasterData ? (['service_price_orders'] as const) : []),
     ...(caps.canViewWorkOrders ? (['work_orders'] as const) : []),
     ...(caps.canViewWorkOrders ? (['work_order_templates'] as const) : []),
     // Legacy справочники: меню скрыто, создание/просмотр через Склад → Номенклатура (фильтр по типу).
@@ -5417,6 +5421,10 @@ export function App() {
             canDelete={caps.canEditMasterData}
             canViewMasterData={caps.canViewMasterData}
           />
+        )}
+
+        {t === 'service_price_orders' && (
+          <ServicePriceOrdersPage canEdit={caps.canEditNomenclature} onOpenService={(id: string) => openService(id, { from: 'service_price_orders' })} />
         )}
 
         {t === 'services_by_brand' && (

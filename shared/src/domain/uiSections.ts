@@ -19,6 +19,7 @@ export type TabId =
   | 'product'
   | 'services'
   | 'services_by_brand'
+  | 'service_price_orders'
   | 'service'
   | 'nomenclature'
   | 'nomenclature_item'
@@ -142,6 +143,7 @@ const menuTabSet = new Set<MenuTabId>([
   'products',
   'services',
   'services_by_brand',
+  'service_price_orders',
   'nomenclature',
   'parts_dedupe',
   'stock_balances',
@@ -220,6 +222,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   products: 'Товары',
   services: 'Услуги',
   services_by_brand: 'Услуги по маркам',
+  service_price_orders: 'Приказы о ценах',
   nomenclature: 'Номенклатура',
   parts_dedupe: 'Дубли номенклатуры',
   engine_assembly_bom: 'BOM двигателей',
@@ -254,7 +257,7 @@ export const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'sup
 export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history', 'user_screens'],
   production: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
-  supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'tool_accounting'],
+  supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'service_price_orders', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'timesheets', 'access_sections'],
