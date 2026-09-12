@@ -113,6 +113,20 @@ export type UserUiProfile = {
    * на одной машине, повторялся с другой. LWW — секцией целиком.
    */
   reportHistory?: ReportHistoryEntryRoamed[];
+  /**
+   * Личные шаблоны «Моих отчётов» (конструктор). Раньше жили только в блобе машины, и на
+   * втором компьютере владельца их не было вовсе. Общий бакет (`__shared__`) сюда НЕ едет:
+   * профиль личный, и общие шаблоны, приехав в него, стали бы личной копией у каждого.
+   */
+  customReportTemplates?: CustomReportTemplateRoamed[];
+};
+
+export type CustomReportTemplateRoamed = {
+  id: string;
+  name: string;
+  createdAt?: number;
+  /** Спека отчёта как есть; разбирает её `sanitizeCustomReportSpec` на стороне клиента. */
+  spec: Record<string, unknown>;
 };
 
 export type ReportHistoryEntryRoamed = {
@@ -319,7 +333,37 @@ function sanitizeColumnLayouts(raw: unknown): Record<string, UserUiProfileColumn
 const MAX_TEMPLATE_PRESETS = 60;
 const MAX_TEMPLATES_PER_PRESET = 20;
 const MAX_HISTORY_ENTRIES = 50;
+const MAX_CUSTOM_REPORT_TEMPLATES = 50;
+const MAX_CUSTOM_REPORT_SPEC_JSON = 8000;
 const MAX_TEMPLATE_FILTERS_JSON = 6000;
+
+function sanitizeCustomReportTemplatesSection(raw: unknown): CustomReportTemplateRoamed[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: CustomReportTemplateRoamed[] = [];
+  for (const item of raw.slice(0, MAX_CUSTOM_REPORT_TEMPLATES)) {
+    if (typeof item !== 'object' || item == null) continue;
+    const r = item as Record<string, unknown>;
+    const id = String(r.id ?? '').trim().slice(0, 80);
+    const name = String(r.name ?? '').trim().slice(0, MAX_STR);
+    if (!id || !name) continue;
+    if (typeof r.spec !== 'object' || r.spec == null || Array.isArray(r.spec)) continue;
+    // Спеку не разбираем: её формат знает клиент. Здесь только потолок размера, иначе
+    // один раздутый шаблон утащил бы за собой весь профиль.
+    try {
+      if (JSON.stringify(r.spec).length > MAX_CUSTOM_REPORT_SPEC_JSON) continue;
+    } catch {
+      continue;
+    }
+    const createdAt = Number(r.createdAt);
+    out.push({
+      id,
+      name,
+      spec: r.spec as Record<string, unknown>,
+      ...(Number.isFinite(createdAt) && createdAt > 0 ? { createdAt: Math.floor(createdAt) } : {}),
+    });
+  }
+  return out;
+}
 
 function sanitizeReportHistorySection(raw: unknown): ReportHistoryEntryRoamed[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -438,6 +482,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (reportFilterTemplates !== undefined) out.reportFilterTemplates = reportFilterTemplates;
   const reportHistory = sanitizeReportHistorySection(r.reportHistory);
   if (reportHistory !== undefined) out.reportHistory = reportHistory;
+  const customReportTemplates = sanitizeCustomReportTemplatesSection(r.customReportTemplates);
+  if (customReportTemplates !== undefined) out.customReportTemplates = customReportTemplates;
   return out;
 }
 

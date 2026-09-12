@@ -164,6 +164,9 @@ const matricaApi = {
       };
     }) => ipcRenderer.invoke('reports:historyAdd', args),
     historyMerge: async (args: { userId?: string; entries: unknown[] }) => ipcRenderer.invoke('reports:historyMerge', args),
+    customTemplatesExport: async (args: { userId?: string }) => ipcRenderer.invoke('reports:customTemplatesExport', args),
+    customTemplatesImport: async (args: { userId?: string; templates: unknown[] }) =>
+      ipcRenderer.invoke('reports:customTemplatesImport', args),
     filterTemplatesList: async (args: { userId?: string; presetId: string }) =>
       ipcRenderer.invoke('reports:filterTemplatesList', args),
     filterTemplatesExportAll: async (args: { userId?: string }) => ipcRenderer.invoke('reports:filterTemplatesExportAll', args),
