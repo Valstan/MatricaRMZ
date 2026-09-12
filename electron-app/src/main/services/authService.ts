@@ -2,6 +2,7 @@ import { net, safeStorage } from 'electron';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { AuthLoginResult, AuthStatus, AuthUserInfo, AuthLogoutResult } from '@matricarmz/shared';
+import { describeAuthFailure, describeAuthNetworkFailure } from '@matricarmz/shared';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
 import { clearSidecarSession, readSidecarSession, writeSidecarSession } from './sessionSidecarStore.js';
@@ -164,10 +165,14 @@ export async function authLogin(
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      return { ok: false, error: `login HTTP ${r.status}: ${t || 'no body'}` };
+      // Оператору — фраза, а не транспортный код: разбор в `shared/domain/authFailure.ts`.
+      const failure = describeAuthFailure({ status: r.status, rawBody: t });
+      return { ok: false, error: failure.message, code: failure.code };
     }
     const json = (await r.json().catch(() => null)) as any;
-    if (!json?.ok || !json?.accessToken || !json?.refreshToken || !json?.user) return { ok: false, error: 'bad login response' };
+    if (!json?.ok || !json?.accessToken || !json?.refreshToken || !json?.user) {
+      return { ok: false, error: 'Сервер ответил неожиданным образом. Повторите вход или сообщите администратору.', code: 'server' };
+    }
 
     const payload: SessionPayload = {
       accessToken: String(json.accessToken),
@@ -188,7 +193,9 @@ export async function authLogin(
       ...(json.fullName ? { fullName: String(json.fullName) } : {}),
     };
   } catch (e) {
-    return { ok: false, error: String(e) };
+    // До сервера не дошли вовсе — это не «ошибка входа», это связь.
+    const failure = describeAuthNetworkFailure(e);
+    return { ok: false, error: failure.message, code: failure.code };
   }
 }
 
@@ -231,10 +238,13 @@ export async function authRegister(
     });
     if (!r.ok) {
       const t = await r.text().catch(() => '');
-      return { ok: false, error: `register HTTP ${r.status}: ${t || 'no body'}` };
+      const failure = describeAuthFailure({ status: r.status, rawBody: t });
+      return { ok: false, error: failure.message, code: failure.code };
     }
     const json = (await r.json().catch(() => null)) as any;
-    if (!json?.ok || !json?.accessToken || !json?.refreshToken || !json?.user) return { ok: false, error: 'bad register response' };
+    if (!json?.ok || !json?.accessToken || !json?.refreshToken || !json?.user) {
+      return { ok: false, error: 'Сервер ответил неожиданным образом. Повторите попытку или сообщите администратору.', code: 'server' };
+    }
 
     const payload: SessionPayload = {
       accessToken: String(json.accessToken),
@@ -254,7 +264,8 @@ export async function authRegister(
       permissions: payload.permissions,
     };
   } catch (e) {
-    return { ok: false, error: String(e) };
+    const failure = describeAuthNetworkFailure(e);
+    return { ok: false, error: failure.message, code: failure.code };
   }
 }
 
