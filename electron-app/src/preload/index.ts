@@ -524,6 +524,30 @@ const matricaApi = {
     }) => ipcRenderer.invoke('warehouseLocations:upsert', args),
     delete: async (id: string) => ipcRenderer.invoke('warehouseLocations:delete', id),
   },
+  servicePricing: {
+    orders: {
+      list: async (args?: { status?: string }) => ipcRenderer.invoke('servicePricing:orders:list', args),
+      upsert: async (args: {
+        id?: string;
+        orderNumber: string;
+        orderDate: number;
+        title: string;
+        notes?: string | null;
+        documentLink?: string | null;
+        issuedByEmployeeId?: string | null;
+        effectiveFrom: number;
+        status?: string;
+      }) => ipcRenderer.invoke('servicePricing:orders:upsert', args),
+      delete: async (id: string) => ipcRenderer.invoke('servicePricing:orders:delete', id),
+    },
+    history: {
+      list: async (args?: { orderId?: string; nomenclatureId?: string }) => ipcRenderer.invoke('servicePricing:history:list', args),
+      set: async (args: { nomenclatureId: string; orderId: string; price: number; effectiveFrom?: number; notes?: string | null }) =>
+        ipcRenderer.invoke('servicePricing:history:set', args),
+      delete: async (id: string) => ipcRenderer.invoke('servicePricing:history:delete', id),
+    },
+    current: async (nomenclatureId: string) => ipcRenderer.invoke('servicePricing:current', nomenclatureId),
+  },
   tools: {
     list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),
     get: async (id: string) => ipcRenderer.invoke('tools:get', id),

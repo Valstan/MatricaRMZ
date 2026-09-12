@@ -27,7 +27,8 @@
 | **Склад (3 регистра)** | `services/warehouseService.ts`, `services/warehouseLocationsService.ts` | Stock balances, документы прихода/расхода/перемещения, FK warehouse_location_id (Phase 2.x) |
 | **Инструмент: позиция vs экземпляр** | `services/toolsService.ts` (экземпляры), `pages/ToolDetailsPage.tsx`, `scripts/migrateToolCatalogToNomenclature.ts` | Наименование живёт в номенклатуре, конкретная единица — в EAV-`tool`; выдаётся экземпляр. Граница — [`WAREHOUSE.md`](WAREHOUSE.md#инструмент-позиция--экземпляр-2026-08-13) |
 | **Прогноз сборки** | `services/warehouseForecastService.ts` | Прогноз 7 дней, kit-варианты, edge cases (см. v1.22.0 блок A) |
-| **Наряды** | `services/workOrderClosingService.ts`, `services/servicePricingService.ts` | 4 типа нарядов (Regular/Repair/Assembly/Manufacturing), подписи, ценообразование услуг |
+| **Наряды** | `services/workOrderClosingService.ts` | 4 типа нарядов (Regular/Repair/Assembly/Manufacturing), подписи |
+| **Приказы о ценах на услуги** | `services/servicePricingService.ts`, `routes/servicePricing.ts`, shared `domain/servicePriceOrders.ts`, миграция `0095` | Приказ (номер, дата, с какого числа) + строки «услуга → цена». Действующая строка переносится в EAV `price` карточки услуги (`applyEffectiveServicePriceToCard`) — по нему считают наряды. Таблицы вне синка, клиент ходит по REST |
 | **Sync + журнал** | `routes/ledger.ts` (push `/tx/submit`, pull `/state/*`), `services/sync/syncWriteService.ts` (единый путь записи), `ledger/ledgerService.ts` (журнал в PG: `ledger_seq` + `ledger_tx_index` под advisory-lock, `queryState`), `services/syncPipelineSupervisorService.ts` | Синхронизация клиент↔сервер, история изменений, supervisor (singleton на primary). Блоков, подписей и проекции нет с 2026-09 |
 | **Список деталей двигателя (строгая таблица)** | `services/engineInventoryLinesService.ts` (вывод строк из листа, диф по `line_key`), `scripts/backfillEngineInventoryLines.ts`, shared `domain/engineInventoryLines.ts` (конвертация строка↔лист), миграция `0090`, клиентская реплика `electron-app/drizzle/0023` + `migrate.ts` | `erp_engine_inventory_lines`: одна строка = одна деталь листа `engine_inventory`. Сервер выводит строки из `meta_json` при каждой записи листа (`writeSyncChanges` шаг 4); читатели пока на `meta_json`. План — [`plans/engine-inventory-lines-2026-09.md`](plans/engine-inventory-lines-2026-09.md) |
 | **AI** | `services/ai/llmProvider.ts` (единственный клиент модели), `services/ai/aiChatAnswerService.ts` (ИИваныч), `services/ai/logAnalysisAgentService.ts`, `services/ai/aiUsageDigestService.ts`, `services/ai/chatService.ts` / `analyticsService.ts` | На проде **включено** — DeepSeek через Anthropic-совместимый эндпойнт (D-024). Каждый вызов пишет строку `llm usage` с признаком конца `stop`; обрыв потолком `max_tokens` — отдельная ошибка `LlmOutputTruncatedError`, а не «пустой ответ»: раздумья модели делят бюджет с ответом |
@@ -37,7 +38,7 @@
 | **Diagnostics / Critical events** | `services/diagnostics*.ts`, `services/criticalEventsService.ts`, `services/criticalEventsTelegramService.ts` | Прод-диагностика, autoheal, Telegram-уведомления |
 | **Updates** | `routes/updates.ts`, `services/updateTorrentService.ts` | Раздача Windows-installer'ов (`.exe` + `latest.yml`), торрент |
 | **Маршруты** | `backend-api/src/routes/*.ts` | Точка входа Express: `warehouse`, `workOrders`, `parts`, `erp`, `sync`, `ledger`, `auth`, ... |
-| **Drizzle schema** | `backend-api/src/database/schema.ts` | Поля колонок, индексы, FK; миграции в `backend-api/drizzle/` (последняя — `0094`) |
+| **Drizzle schema** | `backend-api/src/database/schema.ts` | Поля колонок, индексы, FK; миграции в `backend-api/drizzle/` (последняя — `0095`) |
 
 ## Frontend (`electron-app/src/renderer/src/ui/`)
 
@@ -47,7 +48,7 @@
 | **Склад → Локации** | `pages/WarehouseLocationsPage.tsx`, `WarehouseLocationsAdminPage.tsx` | Управление складами/цехами (Phase 2 FK-миграция) |
 | **Склад → Номенклатура** | `pages/NomenclaturePage.tsx`, `NomenclatureDirectoryPage.tsx`, `NomenclatureDetailsPage.tsx` | Карточка номенклатуры, component_type_id (нативная колонка), templates |
 | **Склад → BOM сборки** | `pages/EngineAssemblyBomPage.tsx`, `EngineAssemblyBomDetailsPage.tsx` | BOM спецификация двигателя, режим дерева, варианты сборки |
-| **Снабжение** | `pages/SupplyRequestsPage.tsx`, `SupplyRequestDetailsPage.tsx`, `ServicesPage.tsx`, `ServicesByBrandPage.tsx`, `SupplyToolMovementsPage.tsx` | Заявки в снабжение, услуги (с фильтром по марке) |
+| **Снабжение** | `pages/SupplyRequestsPage.tsx`, `SupplyRequestDetailsPage.tsx`, `ServicesPage.tsx`, `ServicesByBrandPage.tsx`, `ServicePriceOrdersPage.tsx`, `SupplyToolMovementsPage.tsx` | Заявки в снабжение, услуги (с фильтром по марке), приказы о ценах на услуги (REST через `ipc/register/servicePricing.ts`, без реплики) |
 | **Производство** | `pages/WorkOrdersPage.tsx`, `WorkOrderDetailsPage.tsx`, `EnginesPage.tsx`, `EngineDetailsPage.tsx` | Наряды (4 типа), двигатели, контракты на ремонт |
 | **Печать наряда** | `utils/woPrintModel.ts` (+ `.test.ts`) | Две формы: сборочная и простая (обычный/ремонт/изготовление). Развилка по `workOrderKind`; зависимости — явный `WoPrintDeps`, не замыкание карточки |
 | **Платежи контракта** | `utils/contractPaymentsStore.ts`, `components/EnginePaymentsTab.tsx`, `pages/ContractDetailsPage.tsx` | Единственная точка записи EAV `contract_payments` — read-modify-write. Писать атрибут напрямую из стейта нельзя: в него пишут и карточка контракта, и вкладка «Платежи» двигателя |
@@ -79,7 +80,7 @@
 
 ## БД
 
-- **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0094_chat_rooms.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
+- **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0095_service_price_orders.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
 - **SQLite (клиент):** локальный кэш. Миграции — `electron-app/drizzle/`. Накат при старте Electron.
 - **EAV (`attribute_values`):** атрибуты сущностей без DDL. Новые атрибуты регистрировать в `ensureAttributeDefs` (`SimpleMasterdataDetailsPage.tsx`). См. `AGENTS.md` §EAV.
 - **Журнал изменений:** таблица `ledger_tx_index` (seq, таблица, строка, payload открытым текстом со штампом seq, актор) + `SEQUENCE ledger_seq`; реестр выпусков — `release_registry`. Пишет только `ledgerService.signAndAppendDetailed` (через `writeSyncChanges`).

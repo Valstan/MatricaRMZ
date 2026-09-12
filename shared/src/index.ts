@@ -54,6 +54,7 @@ export * from './domain/employees.js';
 export * from './domain/erp.js';
 export * from './domain/warehouse.js';
 export * from './domain/warehouseLocations.js';
+export * from './domain/servicePriceOrders.js';
 export * from './domain/workshopRepairTemplate.js';
 export * from './domain/workOrderTemplate.js';
 export * from './domain/engineActTemplate.js';

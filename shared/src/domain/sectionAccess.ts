@@ -79,7 +79,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   {
     id: AccessSection.Supply,
     titleRu: 'Снабжение',
-    menuTabs: ['requests', 'services', 'services_by_brand', 'tool_accounting'],
+    menuTabs: ['requests', 'services', 'services_by_brand', 'service_price_orders', 'tool_accounting'],
   },
   {
     id: AccessSection.Warehouse,
