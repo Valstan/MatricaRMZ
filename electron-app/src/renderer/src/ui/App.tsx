@@ -6343,7 +6343,10 @@ export function App() {
       context={aiContext}
       lastEvent={aiLastEvent}
       recentEvents={aiRecentEvents}
-      onOpenReport={(presetId) => openReportPreset(presetId as ReportPresetId)}
+      onOpenReport={(
+        presetId,
+        opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
+      ) => openReportPreset(presetId as ReportPresetId, opts)}
     />
   );
 
