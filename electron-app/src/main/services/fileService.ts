@@ -18,6 +18,7 @@ import { getSession } from './authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
 import { logMessage } from './logService.js';
+import { previewCache } from './previewCache.js';
 
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
 const PREVIEW_PNG_MAX_SIDE = 256;
@@ -282,6 +283,7 @@ async function uploadPreview(db: BetterSQLite3Database, apiBaseUrl: string, args
     },
     { timeoutMs: 30_000 },
   ).catch(() => {});
+  previewCache.delete(fileId);
 }
 
 /**
@@ -537,6 +539,7 @@ export async function filesDelete(
     const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
     if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
+    previewCache.delete(fileId);
     return r.json as any;
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -551,6 +554,8 @@ export async function filesPreviewGet(
   try {
     const fileId = String(args.fileId || '').trim();
     if (!fileId) return { ok: false, error: 'fileId is empty' };
+    const cached = previewCache.get(fileId);
+    if (cached) return { ok: true, dataUrl: cached.dataUrl };
 
     const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/preview`, { method: 'GET' }, { timeoutMs: 30_000 });
     if (!r.ok) {
@@ -560,11 +565,11 @@ export async function filesPreviewGet(
     if (!r.json?.ok) return { ok: false, error: 'bad preview response' };
 
     const p = (r.json as any).preview as { mime: string; dataBase64: string } | null | undefined;
-    if (!p || !p.dataBase64) return { ok: true, dataUrl: null };
-    const mime = String((p as any).mime || 'image/png');
-    const dataBase64 = String((p as any).dataBase64 || '');
-    if (!dataBase64) return { ok: true, dataUrl: null };
-    return { ok: true, dataUrl: `data:${mime};base64,${dataBase64}` };
+    const mime = String((p as any)?.mime || 'image/png');
+    const dataBase64 = String((p as any)?.dataBase64 || '');
+    const dataUrl = dataBase64 ? `data:${mime};base64,${dataBase64}` : null;
+    previewCache.set(fileId, dataUrl);
+    return { ok: true, dataUrl };
   } catch (e) {
     void logMessage(db, apiBaseUrl, 'error', `file preview error: ${String(e)}`, { component: 'files', action: 'preview' });
     return { ok: false, error: String(e) };

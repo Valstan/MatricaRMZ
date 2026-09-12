@@ -22,6 +22,8 @@ export * from './domain/engineRepairHistory.js';
 export * from './domain/chatRooms.js';
 export * from './domain/engineListFacets.js';
 export * from './domain/contractListFacets.js';
+export * from './domain/employeeListFacets.js';
+export * from './domain/authFailure.js';
 export * from './domain/engineInternalNumber.js';
 export * from './domain/engineReservation.js';
 export * from './domain/engineFlatFields.js';

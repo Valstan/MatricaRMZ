@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  EMPLOYEE_FACETS,
+  applyEmployeeFacets,
+  employeeFacetIsActive,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
+  sanitizeEmployeeFacetSelection,
+  type EmployeeFacetSelection,
+  type FacetDescriptor,
+  type FacetSelection,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -11,6 +18,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -58,9 +66,28 @@ type Row = {
   personnelNumber?: string | null;
   updatedAt: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
+  /** Поля ниже досчитывает страница для ступенчатого фильтра (`employeeListFacets`). */
+  workshopName?: string;
+  hasFiles?: boolean;
 };
 
 type SortKey = 'displayName' | 'personnelNumber' | 'position' | 'departmentName' | 'employmentStatus' | 'access' | 'updatedAt';
+
+type EmployeesListUiState = {
+  query: string;
+  sortKey: SortKey;
+  sortDir: 'asc' | 'desc';
+  showPreviews?: boolean;
+  pageSize?: WarehouseListPageSize;
+  pageIndex?: number;
+  /** Поиск показывает и похожее. По умолчанию — только точное совпадение. */
+  searchSimilar?: boolean;
+  /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
+  facetFields?: string[];
+  facets?: EmployeeFacetSelection;
+  /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
+  facetsOpen?: boolean;
+};
 
 function formatAccessRole(role: string | null | undefined) {
   const normalized = String(role ?? '').trim().toLowerCase();
@@ -75,7 +102,7 @@ function formatAccessRole(role: string | null | undefined) {
 
 export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean; refreshKey?: number }) {
   const { confirm } = useConfirm();
-  const { state: listState, patchState } = useListUiState('list:employees', {
+  const { state: listState, patchState } = useListUiState<EmployeesListUiState>('list:employees', {
     query: '',
     sortKey: 'updatedAt' as SortKey,
     sortDir: 'desc' as const,
@@ -84,6 +111,16 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     pageIndex: 0,
     searchSimilar: false,
   });
+  // Ступенчатый фильтр (владелец 12.09.2026): состояние роумится вместе со списком, как у двигателей.
+  const facets = useMemo<EmployeeFacetSelection>(() => sanitizeEmployeeFacetSelection(listState.facets), [listState.facets]);
+  const facetFields = useMemo<string[]>(() => {
+    const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
+    const known = raw.filter((id: string) => EMPLOYEE_FACETS.some((f) => f.id === id));
+    const active = EMPLOYEE_FACETS.filter((f) => employeeFacetIsActive(facets, f.id)).map((f) => f.id);
+    // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
+    return Array.from(new Set([...known, ...active]));
+  }, [listState.facetFields, facets]);
+  const facetsOpen = listState.facetsOpen === true;
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
   const searchSimilar = listState.searchSimilar === true;
@@ -156,8 +193,19 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     },
     [workshopNameById],
   );
-  const filtered = useMemo(() => {
-    return rows.filter(
+  // Ступени читают цех именем и признак файлов: в строке сервиса лежит id цеха и список превью.
+  const facetRows = useMemo<Row[]>(
+    () =>
+      rows.map((row) => ({
+        ...row,
+        workshopName: row.workshopId ? String(workshopNameById.get(row.workshopId) ?? '') : '',
+        hasFiles: (row.attachmentPreviews?.length ?? 0) > 0,
+      })),
+    [rows, workshopNameById],
+  );
+  // Поиск отбирает первым, ступени — вторым: варианты ступеней считаются по найденному.
+  const searched = useMemo(() => {
+    return facetRows.filter(
       (row) =>
         matchesQueryInRecord(query, row, [
           formatDepartment(row),
@@ -165,7 +213,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
         ], searchMode) || (deepIds?.has(String(row.id)) ?? false),
     );
-  }, [deepIds, formatDepartment, query, rows, searchMode]);
+  }, [deepIds, facetRows, formatDepartment, query, searchMode]);
+  const filtered = useMemo(() => applyEmployeeFacets(searched, facets), [searched, facets]);
   const summary = useMemo(() => {
     let working = 0;
     let fired = 0;
@@ -547,6 +596,14 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
         </ToolbarPin>
+        <ToolbarPin>
+          <FacetToggleButton<Row>
+            facets={EMPLOYEE_FACETS as readonly FacetDescriptor<Row>[]}
+            selection={facets as FacetSelection}
+            open={facetsOpen}
+            onToggle={() => patchState({ facetsOpen: !facetsOpen })}
+          />
+        </ToolbarPin>
         {props.canCreate && (
           <Button variant="ghost" data-employee-dedupe-open onClick={() => setDedupeOpen(true)} title="Найти сотрудников, заведённых дважды, и объединить записи">
             Найти дубли
@@ -577,15 +634,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             Печать списка
           </Button>
         )}
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
       </PageToolbar>
 
       {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
@@ -602,6 +650,30 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           onClose={() => setPrintDialogOpen(false)}
         />
       )}
+
+      <div style={{ marginTop: 8, flex: '0 0 auto' }}>
+        <FacetFilter<Row>
+          facets={EMPLOYEE_FACETS as readonly FacetDescriptor<Row>[]}
+          rows={searched}
+          selection={facets as FacetSelection}
+          fields={facetFields}
+          open={facetsOpen}
+          onChangeSelection={(next) => patchState({ facets: next as EmployeeFacetSelection, pageIndex: 0 })}
+          onChangeFields={(next) => patchState({ facetFields: next })}
+          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          columnsControl={
+            <ColumnSettingsButton
+              label="Колонки списка"
+              columns={columnDescriptors}
+              order={columnLayout.order}
+              isVisible={columnLayout.isVisible}
+              onToggleVisible={columnLayout.setVisible}
+              onMove={columnLayout.moveColumn}
+              onReset={columnLayout.resetToDefault}
+            />
+          }
+        />
+      </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>

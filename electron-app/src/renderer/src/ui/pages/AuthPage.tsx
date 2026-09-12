@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AuthStatus } from '@matricarmz/shared';
-import { appProductName, formatAppVersionLabel } from '@matricarmz/shared';
+import { appProductName, authFailureNeedsModal, formatAppVersionLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -80,6 +80,9 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   const [regFullName, setRegFullName] = useState('');
   const [regPosition, setRegPosition] = useState('');
   const [msg, setMsg] = useState<string>('');
+  // Отказ входа оператор читает модалкой, а не жёлтой строчкой под формой: строку он не замечал
+  // и видел в ней транспортный код (владелец 12.09.2026).
+  const [failure, setFailure] = useState<{ title: string; message: string } | null>(null);
   const [presence, setPresence] = useState<{ online: boolean; lastActivityAt: number | null } | null>(null);
   const regPasswordValid = regPassword.trim().length >= 6;
   const palette = {
@@ -103,7 +106,14 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
     try {
       const r = await window.matrica.auth.login({ username, password });
       if (!r.ok) {
-        setMsg(`Ошибка: ${r.error}`);
+        const message = String(r.error ?? 'Вход не выполнен.');
+        setMsg('');
+        if (authFailureNeedsModal(r.code ?? 'unknown')) {
+          setPassword('');
+          setFailure({ title: r.code === 'offline' ? 'Нет связи с сервером' : 'Вход не выполнен', message });
+        } else {
+          setMsg(message);
+        }
         return;
       }
       setPassword('');
@@ -126,7 +136,10 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
         position: regPosition,
       });
       if (!r.ok) {
-        setMsg(`Ошибка: ${r.error}`);
+        const message = String(r.error ?? 'Регистрация не выполнена.');
+        setMsg('');
+        if (authFailureNeedsModal(r.code ?? 'unknown')) setFailure({ title: 'Регистрация не выполнена', message });
+        else setMsg(message);
         return;
       }
       setRegPassword('');
@@ -238,6 +251,25 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
   }, [username, mode]);
 
   const recentPeople = useMemo(() => mruEntries.filter((e) => e.login.trim()), [mruEntries]);
+
+  // Esc закрывает сообщение: модалка своя, штатного обработчика у неё нет.
+  useEffect(() => {
+    if (!failure) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setFailure(null);
+        setTimeout(() => passwordRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [failure]);
+
+  function closeFailure() {
+    setFailure(null);
+    // Оператор закрыл сообщение — курсор должен стоять в пароле, чтобы сразу набрать заново.
+    setTimeout(() => passwordRef.current?.focus(), 0);
+  }
 
   function pickPerson(login: string) {
     setUsername(login);
@@ -664,6 +696,47 @@ export function AuthPage(props: { onChanged?: (s: AuthStatus) => void }) {
             Сделано вМалмыже.РФ
           </a>
         </div>
+
+        {failure && (
+          <div
+            data-auth-failure
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={failure.title}
+            onClick={closeFailure}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: palette.panelBg,
+                color: palette.text,
+                border: `1px solid ${palette.formBorder}`,
+                borderRadius: 12,
+                padding: 20,
+                width: 380,
+                maxWidth: '90vw',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                boxShadow: '0 18px 48px rgba(0,0,0,0.55)',
+              }}
+            >
+              <strong style={{ fontSize: 16 }}>{failure.title}</strong>
+              <div style={{ fontSize: 14, lineHeight: 1.45, color: palette.text }}>{failure.message}</div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  data-auth-failure-close
+                  autoFocus
+                  onClick={closeFailure}
+                  style={{ background: palette.buttonBg, color: palette.text, border: `1px solid ${palette.buttonBorder}` }}
+                >
+                  Понятно
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

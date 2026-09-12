@@ -1,3 +1,4 @@
+import type { AuthFailureCode } from '../domain/authFailure.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
@@ -669,7 +670,8 @@ export type ReportBuilderExportResult =
 
 export type AuthLoginResult =
   | { ok: true; accessToken: string; refreshToken: string; user: AuthUserInfo; permissions: Record<string, boolean>; fullName?: string }
-  | { ok: false; error: string };
+  /** `error` — готовая фраза для оператора; `code` решает, показать её модалкой или строкой (`authFailure.ts`). */
+  | { ok: false; error: string; code?: AuthFailureCode };
 
 export type AuthLogoutResult = { ok: boolean; error?: string };
 
