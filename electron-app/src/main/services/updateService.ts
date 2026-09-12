@@ -59,6 +59,9 @@ export type UpdateHelperArgs = {
 const UPDATE_CHECK_TIMEOUT_MS = 20_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 const UPDATE_DOWNLOAD_NO_PROGRESS_MS = 45_000;
+/** Сосед по локальной сети: одна попытка и короткое окно тишины — см. tryDownloadFromTorrentPeers. */
+export const LAN_PEER_DOWNLOAD_ATTEMPTS = 1;
+export const LAN_PEER_NO_PROGRESS_MS = 8_000;
 const FIXED_UPDATE_INSTALLER_NAME = 'matrica_rmz_update.exe';
 const INTEGRITY_RECOVERY_HINT =
   'Установщик не прошёл проверку целостности. Программа сама докачает его заново и повторит установку при следующем запуске — вмешательство не требуется.';
@@ -1349,14 +1352,22 @@ async function tryDownloadFromTorrentPeers(
   const uniqCandidates = Array.from(new Set(candidates));
   if (!uniqCandidates.length) return { ok: false as const, error: 'no peer download candidates' };
 
+  const serverWebSeedUrl = opts?.includeServerWebSeed
+    ? joinUrl(apiBaseUrl, `/updates/file/${encodeURIComponent(meta.fileName)}`)
+    : null;
   const outPath = await prepareStableInstallerDownloadTarget();
 
   for (const url of uniqCandidates) {
+    const isLanPeer = url !== serverWebSeedUrl;
     await logTorrent(`download try url=${url}`);
     const dl = await downloadWithResume(url, outPath, {
-      attempts: 2,
+      // Сосед, у которого порт закрыт брандмауэром (правило ещё не поставили), молча роняет SYN:
+      // с общим порогом это 45 с × 2 попытки на каждого такого соседа, и обновление парка
+      // встало бы на минуты ещё до обращения к серверу. Соседу даём одну попытку и короткое
+      // окно — в локальной сети ответ либо есть сразу, либо его не будет.
+      attempts: isLanPeer ? LAN_PEER_DOWNLOAD_ATTEMPTS : 2,
       timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS,
-      noProgressTimeoutMs: UPDATE_DOWNLOAD_NO_PROGRESS_MS,
+      noProgressTimeoutMs: isLanPeer ? LAN_PEER_NO_PROGRESS_MS : UPDATE_DOWNLOAD_NO_PROGRESS_MS,
       useBitsOnWindows: false,
       backoffMs: 800,
       maxBackoffMs: 6000,
