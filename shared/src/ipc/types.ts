@@ -1187,6 +1187,8 @@ export type MatricaApi = {
     favoritesSet: (args: { userId?: string; ids: string[] }) => Promise<ReportPresetFavoritesResult>;
     historyList: (args?: { userId?: string; limit?: number }) => Promise<ReportPresetHistoryListResult>;
     historyAdd: (args: { userId?: string; entry: ReportPresetHistoryEntry }) => Promise<ReportPresetHistoryAddResult>;
+    /** Слияние журнала отчётов, приехавшего секцией профиля с другой машины. */
+    historyMerge: (args: { userId?: string; entries: unknown[] }) => Promise<ReportPresetHistoryListResult>;
     filterTemplatesList: (args: { userId?: string; presetId: ReportPresetId }) => Promise<ReportPresetFilterTemplatesListResult>;
     /** «Популярные настройки» фильтров пресета из локальной телеметрии ui.report_build (этап 7). */
     popularFilters: (args: { presetId: string }) => Promise<

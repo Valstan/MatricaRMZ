@@ -17,6 +17,7 @@ import type {
   V3Prefs,
   ReleaseWelcomeContent,
   SupportContact,
+  ReportPresetFilters,
   ReportPresetId,
   ReportThemeId,
   WorkOrderPayload,
@@ -824,6 +825,12 @@ export function App() {
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedCounterpartyId, setSelectedCounterpartyId] = useState<string | null>(null);
   const [selectedReportPresetId, setSelectedReportPresetId] = useState<ReportPresetId | null>(null);
+  // Набор настроек, с которым отчёт открыли (повтор из «Последних», витрина шаблонов,
+  // ссылка ИИваныча). Хранится рядом с самим пресетом и гасится при обычном открытии:
+  // иначе следующее открытие того же отчёта молча унаследовало бы чужие фильтры.
+  const [reportPresetInitialFilters, setReportPresetInitialFilters] = useState<
+    { presetId: ReportPresetId; filters: Record<string, unknown>; disabled?: string[]; label?: string } | null
+  >(null);
   // Тема каталога отчётов живёт здесь, а не в странице: возврат из карточки пресета ремонтирует
   // ReportsCatalogPage, и локальное состояние уронило бы оператора обратно на корень тем.
   const [reportsThemeId, setReportsThemeId] = useState<ReportThemeId | null>(null);
@@ -1023,6 +1030,9 @@ export function App() {
   // зеркалируется в секцию `reportFilterTemplates` профиля — снимок для пуша.
   const [reportTemplatesSnap, setReportTemplatesSnap] = useState<Record<string, unknown> | null>(null);
   const [reportTemplatesNonce, setReportTemplatesNonce] = useState(0);
+  // Журнал построенных отчётов вместе с настройками — своей секцией профиля, чтобы
+  // «повторить прежний отчёт» работало и на второй машине владельца.
+  const [reportHistorySnap, setReportHistorySnap] = useState<unknown[] | null>(null);
   // «Правка программы» — окно доступно с любого экрана (шапка вкладок + МЕНЮ).
   const [programFeedbackOpen, setProgramFeedbackOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -2007,6 +2017,16 @@ export function App() {
               .then(() => setReportTemplatesNonce((n) => n + 1))
               .catch(() => {});
           }
+          // Журнал отчётов с сервера вливается в локальный: записи с обеих машин
+          // складываются, повторы схлопывает санитайзер main-процесса по набору настроек.
+          const historySection = p.reportHistory;
+          if (Array.isArray(historySection) && historySection.length > 0) {
+            uiProfileKeySigsRef.current.reportHistory = JSON.stringify(historySection);
+            void window.matrica.reports
+              .historyMerge({ userId, entries: historySection as never })
+              .then(() => setReportTemplatesNonce((n) => n + 1))
+              .catch(() => {});
+          }
         } else {
           uiProfileKeyStampsRef.current = {};
           uiProfileKeySigsRef.current = {};
@@ -2085,6 +2105,8 @@ export function App() {
     if (Object.keys(desktopUsage.buckets).length > 0) snapshot.desktopUsage = desktopUsage;
     // Шаблоны фильтров отчётов: снимок из main (null до первой выгрузки — не пушим).
     if (reportTemplatesSnap != null) snapshot.reportFilterTemplates = reportTemplatesSnap;
+    // Журнал отчётов: пустой не пушим — он появится после первого построения.
+    if (reportHistorySnap != null && reportHistorySnap.length > 0) snapshot.reportHistory = reportHistorySnap;
     const keySigs: Record<string, string> = {};
     const changed: string[] = [];
     for (const [k, v] of Object.entries(snapshot)) {
@@ -2133,6 +2155,7 @@ export function App() {
     desktopUi,
     desktopUsage,
     reportTemplatesSnap,
+    reportHistorySnap,
   ]);
 
   // Правка колонок на любой странице (порядок/скрытие) поднимает nonce —
@@ -2166,6 +2189,12 @@ export function App() {
       .filterTemplatesExportAll({ userId })
       .then((r) => {
         if (alive && r?.ok) setReportTemplatesSnap(r.byPreset as Record<string, unknown>);
+      })
+      .catch(() => {});
+    void window.matrica.reports
+      .historyList({ userId, limit: 50 })
+      .then((r) => {
+        if (alive && r?.ok) setReportHistorySnap(r.entries as unknown[]);
       })
       .catch(() => {});
     return () => {
@@ -3431,12 +3460,36 @@ export function App() {
     });
   }
 
-  function openReportPreset(presetId: ReportPresetId) {
+  function openReportPreset(
+    presetId: ReportPresetId,
+    opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
+  ) {
     logUiUsage('ui.report_open', presetId);
+    setReportPresetInitialFilters(
+      opts?.filters
+        ? {
+            presetId,
+            filters: opts.filters,
+            ...(opts.disabled ? { disabled: opts.disabled } : {}),
+            ...(opts.label ? { label: opts.label } : {}),
+          }
+        : null,
+    );
     v2OpenCardGuarded('report_preset', presetId, () => {
       setSelectedReportPresetId(presetId);
       setTab('report_preset');
     });
+  }
+
+  /** Набор настроек для конкретного пресета — только если открывали именно его. */
+  function initialFiltersFor(presetId: ReportPresetId) {
+    const snap = reportPresetInitialFilters;
+    if (!snap || snap.presetId !== presetId) return null;
+    return {
+      filters: snap.filters as ReportPresetFilters,
+      ...(snap.disabled ? { disabled: snap.disabled } : {}),
+      ...(snap.label ? { label: snap.label } : {}),
+    };
   }
 
   const openByCode = {
@@ -5244,7 +5297,7 @@ export function App() {
       case 'stock_document':
         return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditWarehouseDocs} canRevert={caps.canRevertMovements} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
       case 'report_preset':
-        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
+        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} initialFilters={initialFiltersFor(id as ReportPresetId)} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
       default:
         return <div style={{ padding: 16, color: 'var(--muted)' }}>Этот вид карточки нельзя открыть во второй панели.</div>;
     }
@@ -5986,7 +6039,10 @@ export function App() {
         {t === 'reports' && (
           <ReportsCatalogPage
             userId={authStatus.user?.id ?? ''}
-            onOpenPreset={(presetId: ReportPresetId) => openReportPreset(presetId)}
+            onOpenPreset={(
+              presetId: ReportPresetId,
+              opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
+            ) => openReportPreset(presetId, opts)}
             themeId={reportsThemeId}
             onThemeChange={setReportsThemeId}
             desktopPresetIds={desktopReportPresetIds}
@@ -6001,6 +6057,7 @@ export function App() {
             presetId={selectedReportPresetId}
             canExport={caps.canExportReports}
             userId={authStatus.user?.id ?? ''}
+            initialFilters={initialFiltersFor(selectedReportPresetId)}
             onBack={() => setTab('reports')}
             onOpenWorkOrder={openWorkOrder}
             onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
