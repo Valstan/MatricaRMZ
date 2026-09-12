@@ -107,6 +107,22 @@ export type UserUiProfile = {
    * пользователем. LWW — секцией целиком.
    */
   reportFilterTemplates?: Record<string, ReportFilterTemplateEntry[]>;
+  /**
+   * Журнал построенных отчётов вместе с настройками (владелец 12.09.2026: «хотим
+   * повторить недавний отчёт и не помним настройки»). Роумится, чтобы отчёт, собранный
+   * на одной машине, повторялся с другой. LWW — секцией целиком.
+   */
+  reportHistory?: ReportHistoryEntryRoamed[];
+};
+
+export type ReportHistoryEntryRoamed = {
+  presetId: string;
+  title: string;
+  generatedAt: number;
+  filters?: Record<string, unknown>;
+  disabled?: string[];
+  rowCount?: number;
+  times?: number;
 };
 
 export type ReportFilterTemplateEntry = {
@@ -302,7 +318,44 @@ function sanitizeColumnLayouts(raw: unknown): Record<string, UserUiProfileColumn
 
 const MAX_TEMPLATE_PRESETS = 60;
 const MAX_TEMPLATES_PER_PRESET = 20;
+const MAX_HISTORY_ENTRIES = 50;
 const MAX_TEMPLATE_FILTERS_JSON = 6000;
+
+function sanitizeReportHistorySection(raw: unknown): ReportHistoryEntryRoamed[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ReportHistoryEntryRoamed[] = [];
+  for (const item of raw.slice(0, MAX_HISTORY_ENTRIES)) {
+    if (typeof item !== 'object' || item == null) continue;
+    const r = item as Record<string, unknown>;
+    const presetId = String(r.presetId ?? '').trim().slice(0, 80);
+    const generatedAtRaw = Number(r.generatedAt ?? 0);
+    if (!presetId || !Number.isFinite(generatedAtRaw) || generatedAtRaw <= 0) continue;
+    const title = String(r.title ?? '').trim().slice(0, MAX_STR);
+    let filters: Record<string, unknown> | undefined;
+    if (typeof r.filters === 'object' && r.filters != null && !Array.isArray(r.filters)) {
+      try {
+        if (JSON.stringify(r.filters).length <= MAX_TEMPLATE_FILTERS_JSON) filters = r.filters as Record<string, unknown>;
+      } catch {
+        // несериализуемые настройки — запись остаётся без них, как раньше
+      }
+    }
+    const disabled = Array.isArray(r.disabled)
+      ? r.disabled.map((x) => String(x ?? '').trim().slice(0, MAX_STR)).filter(Boolean).slice(0, 50)
+      : [];
+    const rowCount = Number(r.rowCount);
+    const times = Number(r.times);
+    out.push({
+      presetId,
+      title: title || presetId,
+      generatedAt: Math.floor(generatedAtRaw),
+      ...(filters ? { filters } : {}),
+      ...(disabled.length > 0 ? { disabled } : {}),
+      ...(Number.isFinite(rowCount) && rowCount >= 0 ? { rowCount: Math.floor(rowCount) } : {}),
+      ...(Number.isFinite(times) && times > 1 ? { times: Math.floor(times) } : {}),
+    });
+  }
+  return out;
+}
 
 function sanitizeReportFilterTemplatesSection(raw: unknown): Record<string, ReportFilterTemplateEntry[]> | undefined {
   if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return undefined;
@@ -383,6 +436,8 @@ export function sanitizeUserUiProfile(raw: unknown): UserUiProfile {
   if (desktopUsage !== undefined) out.desktopUsage = desktopUsage;
   const reportFilterTemplates = sanitizeReportFilterTemplatesSection(r.reportFilterTemplates);
   if (reportFilterTemplates !== undefined) out.reportFilterTemplates = reportFilterTemplates;
+  const reportHistory = sanitizeReportHistorySection(r.reportHistory);
+  if (reportHistory !== undefined) out.reportHistory = reportHistory;
   return out;
 }
 

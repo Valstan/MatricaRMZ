@@ -600,7 +600,37 @@ export type ReportPresetHistoryEntry = {
   presetId: ReportPresetId;
   title: string;
   generatedAt: number;
+  /**
+   * Настройки, с которыми отчёт был построен (владелец 12.09.2026: «хотим повторить
+   * недавний отчёт и не помним, какие настройки выставляли»). До этого история несла
+   * только пресет и время, и повторить прежний отчёт было нечем.
+   */
+  filters?: ReportPresetFilters;
+  /** Ключи фильтров, выключенных на момент построения (кнопка «выкл» у фильтра). */
+  disabled?: string[];
+  /** Сколько строк дал отчёт — по нему видно, был ли смысл в этом наборе. */
+  rowCount?: number;
+  /** Сколько раз строили этот же набор; «популярное» — сортировка по этому числу. */
+  times?: number;
 };
+
+/**
+ * Подпись набора настроек: одинаковый пресет с одинаковыми фильтрами — одна строка
+ * журнала с растущим счётчиком, а не десять одинаковых записей подряд.
+ * Ключи сортируются, иначе один и тот же набор дал бы разные подписи.
+ */
+export function reportHistorySignature(
+  presetId: string,
+  filters: ReportPresetFilters | undefined,
+  disabled: string[] | undefined,
+): string {
+  const entries = Object.entries(filters ?? {})
+    .filter(([, value]) => value !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const normalizedFilters = entries.map(([key, value]) => `${key}=${JSON.stringify(value ?? null)}`).join('&');
+  const normalizedDisabled = [...(disabled ?? [])].map((x) => String(x ?? '').trim()).filter(Boolean).sort().join(',');
+  return `${presetId}::${normalizedFilters}::${normalizedDisabled}`;
+}
 
 /** Именованный шаблон фильтров отчёта (сохранённый набор значений + отключённые фильтры). */
 export type ReportPresetFilterTemplate = {

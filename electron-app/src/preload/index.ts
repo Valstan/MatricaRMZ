@@ -152,8 +152,18 @@ const matricaApi = {
     favoritesGet: async (args?: { userId?: string }) => ipcRenderer.invoke('reports:favoritesGet', args),
     favoritesSet: async (args: { userId?: string; ids: string[] }) => ipcRenderer.invoke('reports:favoritesSet', args),
     historyList: async (args?: { userId?: string; limit?: number }) => ipcRenderer.invoke('reports:historyList', args),
-    historyAdd: async (args: { userId?: string; entry: { presetId: string; title: string; generatedAt: number } }) =>
-      ipcRenderer.invoke('reports:historyAdd', args),
+    historyAdd: async (args: {
+      userId?: string;
+      entry: {
+        presetId: string;
+        title: string;
+        generatedAt: number;
+        filters?: Record<string, unknown>;
+        disabled?: string[];
+        rowCount?: number;
+      };
+    }) => ipcRenderer.invoke('reports:historyAdd', args),
+    historyMerge: async (args: { userId?: string; entries: unknown[] }) => ipcRenderer.invoke('reports:historyMerge', args),
     filterTemplatesList: async (args: { userId?: string; presetId: string }) =>
       ipcRenderer.invoke('reports:filterTemplatesList', args),
     filterTemplatesExportAll: async (args: { userId?: string }) => ipcRenderer.invoke('reports:filterTemplatesExportAll', args),

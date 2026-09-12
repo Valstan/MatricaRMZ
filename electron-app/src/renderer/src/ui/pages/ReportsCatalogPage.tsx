@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ReportFilterOption,
+  ReportOptionSource,
   ReportPresetDefinition,
   ReportPresetId,
   ReportPresetHistoryEntry,
   ReportThemeId,
 } from '@matricarmz/shared';
-import { REPORT_PRESET_THEMES, REPORT_THEMES } from '@matricarmz/shared';
+import { REPORT_PRESET_THEMES, REPORT_THEMES, formatReportFiltersSummary } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -26,7 +28,14 @@ function presetMatchesQuery(preset: ReportPresetDefinition, query: string): bool
 
 export function ReportsCatalogPage(props: {
   userId: string;
-  onOpenPreset: (presetId: ReportPresetId) => void;
+  /**
+   * `opts` несёт настройки, с которыми отчёт открывают повторно (владелец 12.09.2026:
+   * «хотим возобновить отчёт и не помним, что выставляли»). Без них — открытие как раньше.
+   */
+  onOpenPreset: (
+    presetId: ReportPresetId,
+    opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
+  ) => void;
   themeId: ReportThemeId | null;
   onThemeChange: (themeId: ReportThemeId | null) => void;
   /** Пресеты, ярлыки которых лежат на Верстаке (этап B: «Мой круг» и Верстак — одна модель). */
@@ -35,6 +44,8 @@ export function ReportsCatalogPage(props: {
   onRemoveFromDesktop?: (presetId: ReportPresetId) => void;
 }) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
+  // Варианты фильтров нужны, чтобы показывать настройки именами, а не идентификаторами.
+  const [optionSets, setOptionSets] = useState<Partial<Record<ReportOptionSource, ReportFilterOption[]>>>({});
   const [favoriteIds, setFavoriteIds] = useState<ReportPresetId[]>([]);
   const [history, setHistory] = useState<ReportPresetHistoryEntry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -76,6 +87,74 @@ export function ReportsCatalogPage(props: {
     () => [...history].sort((a, b) => Number(b.generatedAt ?? 0) - Number(a.generatedAt ?? 0)),
     [history],
   );
+  // Часто повторяемые наборы — те же записи журнала, отсортированные по числу построений.
+  // Отдельного источника «популярного» нет намеренно: он был бы вторым мнением о том же.
+  const frequentHistory = useMemo(
+    () =>
+      [...history]
+        .filter((entry) => Number(entry.times ?? 0) > 1)
+        .sort((a, b) => Number(b.times ?? 0) - Number(a.times ?? 0) || Number(b.generatedAt ?? 0) - Number(a.generatedAt ?? 0))
+        .slice(0, 5),
+    [history],
+  );
+  const describeEntry = useCallback(
+    (entry: ReportPresetHistoryEntry) =>
+      formatReportFiltersSummary(presetById.get(entry.presetId), entry.filters, { optionSets }, entry.disabled ?? []),
+    [presetById, optionSets],
+  );
+
+  /**
+   * Строка журнала: название отчёта, настройки словами и то, когда и сколько раз его
+   * строили. Щелчок открывает отчёт УЖЕ настроенным — ради этого журнал и помнит фильтры.
+   * Записи, сохранённые до 3.30.0, фильтров не несут: они открываются как раньше.
+   */
+  function renderHistoryRow(entry: ReportPresetHistoryEntry, key: string, showTimes: boolean) {
+    const title = presetById.get(entry.presetId)?.title ?? entry.title;
+    const summary = entry.filters ? describeEntry(entry) : '';
+    const times = Number(entry.times ?? 0);
+    return (
+      <button
+        key={key}
+        type="button"
+        data-report-history-row={entry.presetId}
+        title={summary ? `Открыть с настройками: ${summary}` : 'Открыть отчёт'}
+        onClick={() =>
+          props.onOpenPreset(entry.presetId, {
+            filters: entry.filters ?? null,
+            ...(entry.disabled ? { disabled: entry.disabled } : {}),
+          })
+        }
+        style={{
+          textAlign: 'left',
+          background: 'transparent',
+          border: '1px solid transparent',
+          borderRadius: 8,
+          padding: '6px 8px',
+          cursor: 'pointer',
+          display: 'grid',
+          gridTemplateColumns: '1fr auto',
+          alignItems: 'baseline',
+          gap: 12,
+        }}
+      >
+        <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+          <span style={{ color: 'var(--primary, #1d4ed8)', textDecoration: 'underline', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {title}
+          </span>
+          {summary ? (
+            <span style={{ color: 'var(--muted)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {summary}
+              {Number.isFinite(Number(entry.rowCount)) && Number(entry.rowCount) >= 0 ? ` · строк: ${entry.rowCount}` : ''}
+            </span>
+          ) : null}
+        </span>
+        <span style={{ color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>
+          {showTimes && times > 1 ? `${times} раз · ` : ''}
+          {formatMoscowDateTime(entry.generatedAt)}
+        </span>
+      </button>
+    );
+  }
 
   const loadAll = useCallback(async () => {
     setBusy(true);
@@ -91,6 +170,7 @@ export function ReportsCatalogPage(props: {
         return;
       }
       setPresets(presetsResult.presets);
+      setOptionSets(presetsResult.optionSets ?? {});
       if (favoritesResult?.ok) setFavoriteIds(favoritesResult.ids);
       if (historyResult?.ok) setHistory(historyResult.entries);
       setStatus('');
@@ -100,6 +180,16 @@ export function ReportsCatalogPage(props: {
       setBusy(false);
     }
   }, [props.userId]);
+
+  // Построенный отчёт попадает в журнал из соседней вкладки — перечитываем по событию,
+  // иначе «Последние» устаревают до следующего открытия каталога.
+  useEffect(() => {
+    function onHistoryChanged() {
+      void loadAll();
+    }
+    window.addEventListener('matrica:report-history-changed', onHistoryChanged);
+    return () => window.removeEventListener('matrica:report-history-changed', onHistoryChanged);
+  }, [loadAll]);
 
   useEffect(() => {
     void loadAll();
@@ -320,41 +410,21 @@ export function ReportsCatalogPage(props: {
         </div>
       </SectionCard>
 
+      {!activeTheme && !searching && frequentHistory.length > 0 && (
+      <SectionCard title="Часто повторяемые отчёты">
+        <div style={{ display: 'grid', gap: 4 }}>
+          {frequentHistory.map((entry) => renderHistoryRow(entry, `freq-${entry.presetId}-${entry.generatedAt}`, true))}
+        </div>
+      </SectionCard>
+      )}
+
       {!activeTheme && !searching && (
       <SectionCard title="Последние созданные отчёты">
         {sortedHistory.length === 0 ? (
           <div className="ui-muted">Пока нет сформированных отчётов.</div>
         ) : (
           <div style={{ display: 'grid', gap: 4 }}>
-            {sortedHistory.map((entry) => {
-              const title = presetById.get(entry.presetId)?.title ?? entry.title;
-              return (
-                <button
-                  key={`${entry.presetId}-${entry.generatedAt}`}
-                  type="button"
-                  onClick={() => props.onOpenPreset(entry.presetId)}
-                  style={{
-                    textAlign: 'left',
-                    background: 'transparent',
-                    border: '1px solid transparent',
-                    borderRadius: 8,
-                    padding: '6px 8px',
-                    cursor: 'pointer',
-                    color: 'var(--primary, #1d4ed8)',
-                    textDecoration: 'underline',
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                  <span style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 12 }}>
-                    {formatMoscowDateTime(entry.generatedAt)}
-                  </span>
-                </button>
-              );
-            })}
+            {sortedHistory.map((entry) => renderHistoryRow(entry, `${entry.presetId}-${entry.generatedAt}`, false))}
           </div>
         )}
       </SectionCard>

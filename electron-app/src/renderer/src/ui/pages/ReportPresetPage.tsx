@@ -111,6 +111,12 @@ export function ReportPresetPage(props: {
   presetId: ReportPresetId;
   canExport: boolean;
   userId: string;
+  /**
+   * Готовый набор настроек, с которым отчёт открыли: повтор из «Последних», карточка
+   * витрины шаблонов, ссылка ИИваныча. Применяется один раз на открытие и ОТМЕНЯЕТ
+   * предзаполнение популярными — иначе оно затёрло бы то, что оператор только что выбрал.
+   */
+  initialFilters?: { filters: ReportPresetFilters; disabled?: string[]; label?: string } | null;
   onBack: () => void;
   /** Stage 4 нитки assembly-work-order-from-forecast: callback для перехода в карточку наряда,
    * созданного через «Создать наряд на сборку» в Прогнозе сборки двигателей. */
@@ -132,6 +138,9 @@ export function ReportPresetPage(props: {
   // предзаполняются частыми значениями из телеметрии ui.report_build; пометка
   // с кнопкой «Сбросить» возвращает дефолты.
   const [popularAppliedFor, setPopularAppliedFor] = useState<Partial<Record<ReportPresetId, boolean>>>({});
+  // Отчёт открыт с готовым набором из журнала/витрины: плашка объясняет оператору,
+  // откуда взялись фильтры, и даёт их сбросить одним щелчком.
+  const [prefilledFor, setPrefilledFor] = useState<Partial<Record<ReportPresetId, boolean>>>({});
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [preview, setPreview] = useState<PreviewOk | null>(null);
@@ -253,6 +262,8 @@ export function ReportPresetPage(props: {
   const popularCheckedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!activePreset) return;
+    // Пресет открыт с готовым набором — популярные значения не спрашиваем вовсе.
+    if (props.initialFilters && props.initialFilters.filters) return;
     if (popularCheckedRef.current.has(activePreset.id)) return;
     popularCheckedRef.current.add(activePreset.id);
     let alive = true;
@@ -273,6 +284,27 @@ export function ReportPresetPage(props: {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- один прогон на пресет; правка фильтров не должна перезапускать предзаполнение
   }, [activePresetId]);
+
+  // Открытие с готовым набором: тем же способом, что и шаблон фильтров (дефолты +
+  // сохранённые значения), один раз на каждый набор — повторный щелчок по той же
+  // карточке витрины должен снова его применить, поэтому ключ включает сам набор.
+  const initialAppliedRef = useRef<string>('');
+  useEffect(() => {
+    const incoming = props.initialFilters;
+    if (!activePreset || !incoming || !incoming.filters) return;
+    const key = `${activePreset.id}::${JSON.stringify(incoming.filters)}::${JSON.stringify(incoming.disabled ?? [])}`;
+    if (initialAppliedRef.current === key) return;
+    initialAppliedRef.current = key;
+    popularCheckedRef.current.add(activePreset.id);
+    setFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: { ...buildDefaultFilters(activePreset), ...incoming.filters } }));
+    setDisabledFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: [...(incoming.disabled ?? [])] }));
+    setPopularAppliedFor((prev) => ({ ...prev, [activePreset.id]: false }));
+    setPrefilledFor((prev) => ({ ...prev, [activePreset.id]: true }));
+    if (incoming.label) setTemplateName(incoming.label);
+    // `activePreset` в зависимостях обязателен: на первом рендере каталог пресетов ещё
+    // грузится, `activePreset` пуст, эффект выходит — и без этой зависимости он больше
+    // не перезапустился бы, а отчёт открылся бы с настройками по умолчанию.
+  }, [activePresetId, activePreset, props.initialFilters]);
 
   function applyFilterTemplate(templateId: string | null) {
     setSelectedTemplateId(templateId);
@@ -429,8 +461,16 @@ export function ReportPresetPage(props: {
           presetId: report.presetId,
           title: report.title,
           generatedAt: report.generatedAt,
+          // Настройки едут вместе с отчётом (владелец 12.09.2026): без них «Последние»
+          // помнят, ЧТО строили, но не помнят КАК, и повторить прежний отчёт нечем.
+          filters: requestFilters as Record<string, unknown>,
+          disabled: [...activeDisabled],
+          rowCount: report.rows.length,
         },
       });
+      // Каталог отчётов живёт в соседней вкладке и не размонтируется: без события он
+      // показывал бы «Последние» такими, какими они были при его открытии.
+      window.dispatchEvent(new Event('matrica:report-history-changed'));
     } catch {
       // History persistence should not block report generation.
     }
@@ -1603,6 +1643,23 @@ export function ReportPresetPage(props: {
                   onClick={() => {
                     resetAllFilters();
                     setPopularAppliedFor((prev) => ({ ...prev, [activePreset.id]: false }));
+                  }}
+                >
+                  Сбросить
+                </Button>
+              </div>
+            ) : null}
+            {activePreset && prefilledFor[activePreset.id] ? (
+              <div
+                data-report-prefilled={activePreset.id}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: 12 }}
+              >
+                <span>↩️ Настройки взяты из прошлого отчёта — можно поправить и сформировать заново</span>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    resetAllFilters();
+                    setPrefilledFor((prev) => ({ ...prev, [activePreset.id]: false }));
                   }}
                 >
                   Сбросить

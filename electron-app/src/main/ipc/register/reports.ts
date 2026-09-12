@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import {
   REPORT_PRESET_ALIASES,
   REPORT_PRESET_DEFINITIONS,
+  reportHistorySignature,
   resolveReportPresetId,
   sanitizeCustomReportSpec,
   type CustomReportTemplate,
@@ -55,7 +56,25 @@ type ReportHistoryEntry = {
   presetId: string;
   title: string;
   generatedAt: number;
+  filters?: Record<string, unknown>;
+  disabled?: string[];
+  rowCount?: number;
+  times?: number;
 };
+
+/** Потолок на объём сохранённых настроек — как у шаблонов фильтров: журнал не должен пухнуть. */
+const HISTORY_FILTERS_JSON_LIMIT = 4000;
+
+function sanitizeHistoryFilters(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return undefined;
+  try {
+    const json = JSON.stringify(raw);
+    if (!json || json.length > HISTORY_FILTERS_JSON_LIMIT) return undefined;
+  } catch {
+    return undefined;
+  }
+  return raw as Record<string, unknown>;
+}
 
 function resolveUserScope(rawUserId: unknown): string {
   const userId = String(rawUserId ?? '').trim();
@@ -134,19 +153,40 @@ function sanitizeHistoryEntries(entries: unknown): ReportHistoryEntry[] {
     if (generatedAt <= 0) continue;
     const titleRaw = String((row as any)?.title ?? '').trim();
     const fallbackTitle = REPORT_PRESET_DEFINITIONS.find((preset) => String(preset.id) === presetId)?.title ?? presetId;
+    const filters = sanitizeHistoryFilters((row as any)?.filters);
+    const disabledRaw = (row as any)?.disabled;
+    const disabled = Array.isArray(disabledRaw)
+      ? disabledRaw.map((v: unknown) => String(v ?? '').trim()).filter(Boolean).slice(0, 50)
+      : [];
+    const rowCountRaw = Number((row as any)?.rowCount);
+    const timesRaw = Number((row as any)?.times);
     out.push({
       presetId,
       title: titleRaw || fallbackTitle,
       generatedAt,
+      ...(filters ? { filters } : {}),
+      ...(disabled.length > 0 ? { disabled } : {}),
+      ...(Number.isFinite(rowCountRaw) && rowCountRaw >= 0 ? { rowCount: Math.floor(rowCountRaw) } : {}),
+      ...(Number.isFinite(timesRaw) && timesRaw > 1 ? { times: Math.floor(timesRaw) } : {}),
     });
   }
   out.sort((a, b) => b.generatedAt - a.generatedAt);
+  // Схлопывание по НАБОРУ настроек, а не по «пресет+время»: тот же отчёт с теми же
+  // фильтрами — одна строка с растущим счётчиком, иначе список повторов вытеснял бы
+  // из журнала всё остальное и «популярное» посчитать было бы нечем.
   const uniq: ReportHistoryEntry[] = [];
-  const signatures = new Set<string>();
+  const seen = new Map<string, ReportHistoryEntry>();
   for (const row of out) {
-    const signature = `${row.presetId}::${row.generatedAt}`;
-    if (signatures.has(signature)) continue;
-    signatures.add(signature);
+    const signature = reportHistorySignature(row.presetId, row.filters, row.disabled);
+    const prev = seen.get(signature);
+    if (prev) {
+      // Максимум, а не сумма: счётчик ведёт точка записи, а санитайзер лишь
+      // убирает дубли (иначе каждое чтение блоба удваивало бы число повторов).
+      const merged = Math.max(prev.times ?? 1, row.times ?? 1);
+      if (merged > 1) prev.times = merged;
+      continue;
+    }
+    seen.set(signature, row);
     uniq.push(row);
     if (uniq.length >= REPORT_HISTORY_LIMIT) break;
   }
@@ -512,7 +552,20 @@ export function registerReportsIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'reports:historyAdd',
-    async (_e, args?: { userId?: string; entry?: { presetId?: string; title?: string; generatedAt?: number } }) => {
+    async (
+      _e,
+      args?: {
+        userId?: string;
+        entry?: {
+          presetId?: string;
+          title?: string;
+          generatedAt?: number;
+          filters?: Record<string, unknown>;
+          disabled?: string[];
+          rowCount?: number;
+        };
+      },
+    ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
       if (!gate.ok) return gate as any;
       const scope = resolveUserScope(args?.userId);
@@ -524,16 +577,57 @@ export function registerReportsIpc(ctx: IpcContext) {
       const generatedAt = Number.isFinite(generatedAtRaw) && generatedAtRaw > 0 ? Math.floor(generatedAtRaw) : Date.now();
       const fallbackTitle = REPORT_PRESET_DEFINITIONS.find((preset) => String(preset.id) === presetId)?.title ?? presetId;
       const title = String(args?.entry?.title ?? '').trim() || fallbackTitle;
+      const filters = sanitizeHistoryFilters(args?.entry?.filters);
+      const disabled = Array.isArray(args?.entry?.disabled)
+        ? args!.entry!.disabled!.map((v) => String(v ?? '').trim()).filter(Boolean).slice(0, 50)
+        : [];
+      const rowCountRaw = Number(args?.entry?.rowCount);
 
       const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetHistory);
       const byScope = parseByScope<unknown>(raw);
       const current = sanitizeHistoryEntries(byScope[scope]);
-      const next = sanitizeHistoryEntries([{ presetId, title, generatedAt }, ...current]).slice(0, REPORT_HISTORY_LIMIT);
+      // Счётчик повторов ведём здесь: санитайзер только складывает уже известные числа,
+      // а «этот набор построили ещё раз» знает именно точка записи.
+      const signature = reportHistorySignature(resolveReportPresetId(presetId), filters, disabled);
+      const prev = current.find((row) => reportHistorySignature(row.presetId, row.filters, row.disabled) === signature);
+      const entry: ReportHistoryEntry = {
+        presetId,
+        title,
+        generatedAt,
+        ...(filters ? { filters } : {}),
+        ...(disabled.length > 0 ? { disabled } : {}),
+        ...(Number.isFinite(rowCountRaw) && rowCountRaw >= 0 ? { rowCount: Math.floor(rowCountRaw) } : {}),
+        ...(prev ? { times: (prev.times ?? 1) + 1 } : {}),
+      };
+      // Прежняя строка того же набора убирается здесь, а не схлопыванием в санитайзере:
+      // так счётчик растёт ровно на одно построение.
+      const rest = prev
+        ? current.filter((row) => reportHistorySignature(row.presetId, row.filters, row.disabled) !== signature)
+        : current;
+      const next = sanitizeHistoryEntries([entry, ...rest]).slice(0, REPORT_HISTORY_LIMIT);
       byScope[scope] = next;
       await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetHistory, JSON.stringify(byScope));
       return { ok: true as const };
     },
   );
+
+  // Слияние журнала с другой машины (секция профиля `reportHistory`): записи обеих
+  // сторон складываются, повторы схлопывает санитайзер по набору настроек, счётчик
+  // берётся максимумом — так журнал не теряет ни одной машины и не удваивает числа.
+  ipcMain.handle('reports:historyMerge', async (_e, args?: { userId?: string; entries?: unknown[] }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const incoming = sanitizeHistoryEntries(args?.entries);
+    if (incoming.length === 0) return { ok: true as const, entries: [] };
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportPresetHistory);
+    const byScope = parseByScope<unknown>(raw);
+    const current = sanitizeHistoryEntries(byScope[scope]);
+    const next = sanitizeHistoryEntries([...current, ...incoming]).slice(0, REPORT_HISTORY_LIMIT);
+    byScope[scope] = next;
+    await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetHistory, JSON.stringify(byScope));
+    return { ok: true as const, entries: next };
+  });
 
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) => {
     const gate = await requirePermOrResult(ctx, 'reports.view');
