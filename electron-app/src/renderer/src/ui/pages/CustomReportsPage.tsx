@@ -103,6 +103,20 @@ export function CustomReportsPage() {
     };
   }, []);
 
+  // Шаблоны, приехавшие с другой машины, вливаются в фоне при получении профиля —
+  // без этого экран показывал бы прежний список до следующего открытия.
+  useEffect(() => {
+    function onChanged() {
+      void (async () => {
+        const uid = String(userId ?? '');
+        const tpl = await window.matrica.reports.customTemplatesList({ userId: uid });
+        if (tpl.ok) setTemplates(tpl.templates);
+      })();
+    }
+    window.addEventListener('matrica:custom-reports-changed', onChanged);
+    return () => window.removeEventListener('matrica:custom-reports-changed', onChanged);
+  }, [userId]);
+
   function buildSpec(): CustomReportSpecV1 | null {
     if (!isCustomReportSourcePresetId(sourcePresetId)) return null;
     return {
@@ -203,6 +217,9 @@ export function CustomReportsPage() {
       return;
     }
     setTemplates(res.templates);
+    // Событие поднимает снимок для секции профиля: без него шаблон уехал бы за
+    // пользователем только при следующем входе.
+    window.dispatchEvent(new Event('matrica:custom-reports-changed'));
     notify(`Шаблон «${name}» сохранён`);
   }
 
@@ -240,6 +257,7 @@ export function CustomReportsPage() {
       return;
     }
     setTemplates(res.templates);
+    window.dispatchEvent(new Event('matrica:custom-reports-changed'));
   }
 
   function toggleColumn(key: string) {

@@ -10,7 +10,7 @@ import {
 
 import type { IpcContext } from '../ipcContext.js';
 import { requirePermOrResult } from '../ipcContext.js';
-import { findTemplate, listTemplates, removeTemplate, upsertTemplate } from '../../services/customReportTemplatesBucket.js';
+import { findTemplate, listTemplates, removeTemplate, sanitizeTemplateRow, upsertTemplate } from '../../services/customReportTemplatesBucket.js';
 
 import {
   buildReportByPreset,
@@ -627,6 +627,49 @@ export function registerReportsIpc(ctx: IpcContext) {
     byScope[scope] = next;
     await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetHistory, JSON.stringify(byScope));
     return { ok: true as const, entries: next };
+  });
+
+  // Роуминг «Моих отчётов»: личный бакет выгружается в секцию профиля и вливается обратно
+  // на другой машине. Общий бакет (`__shared__`) НЕ роумится — профиль личный, и общий
+  // шаблон, приехав в него, стал бы личной копией у каждого оператора.
+  ipcMain.handle('reports:customTemplatesExport', async (_e, args?: { userId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    if (scope === REPORT_USER_SCOPE_FALLBACK) return { ok: true as const, templates: [] };
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
+    const byScope = parseByScope<unknown>(raw);
+    // Только личный бакет: общие шаблоны в личный профиль не выгружаем.
+    return { ok: true as const, templates: listTemplates(byScope[scope]) };
+  });
+
+  ipcMain.handle('reports:customTemplatesImport', async (_e, args?: { userId?: string; templates?: unknown[] }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    if (scope === REPORT_USER_SCOPE_FALLBACK) return { ok: true as const, templates: [] };
+    const incoming = Array.isArray(args?.templates) ? args!.templates! : [];
+    if (incoming.length === 0) return { ok: true as const, templates: [] };
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.CustomReportTemplates);
+    const byScope = parseByScope<unknown>(raw);
+    let bucket = byScope[scope];
+    let changed = false;
+    for (const row of incoming) {
+      const entry = sanitizeTemplateRow(row);
+      if (!entry) continue;
+      // Шаблон, уже лежащий на этой машине, не трогаем: локальная правка свежее приехавшей
+      // копии, а серверная секция обновляется следом (LWW секцией, как у фильтров).
+      if (findTemplate(bucket, { id: entry.id })) continue;
+      const outcome = upsertTemplate(bucket, entry);
+      if (!outcome.ok) break;
+      bucket = outcome.bucket;
+      changed = true;
+    }
+    if (changed) {
+      byScope[scope] = bucket as unknown[];
+      await settingsSetString(ctx.sysDb, SettingsKey.CustomReportTemplates, JSON.stringify(byScope));
+    }
+    return { ok: true as const, templates: listTemplates(byScope[scope]) };
   });
 
   ipcMain.handle('reports:periodStagesCsv', async (_e, args: { startMs?: number; endMs: number }) => {

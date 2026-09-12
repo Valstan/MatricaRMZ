@@ -1033,6 +1033,9 @@ export function App() {
   // Журнал построенных отчётов вместе с настройками — своей секцией профиля, чтобы
   // «повторить прежний отчёт» работало и на второй машине владельца.
   const [reportHistorySnap, setReportHistorySnap] = useState<unknown[] | null>(null);
+  // Личные шаблоны «Моих отчётов» — своей секцией профиля: до этого они жили только на
+  // машине, и на втором компьютере владельца их не было вовсе.
+  const [customReportsSnap, setCustomReportsSnap] = useState<unknown[] | null>(null);
   // «Правка программы» — окно доступно с любого экрана (шапка вкладок + МЕНЮ).
   const [programFeedbackOpen, setProgramFeedbackOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -2027,6 +2030,19 @@ export function App() {
               .then(() => setReportTemplatesNonce((n) => n + 1))
               .catch(() => {});
           }
+          // «Мои отчёты» с другой машины: вливаются, не затирая local-правки (строка,
+          // которая уже есть на этой машине, остаётся как есть).
+          const customSection = p.customReportTemplates;
+          if (Array.isArray(customSection) && customSection.length > 0) {
+            uiProfileKeySigsRef.current.customReportTemplates = JSON.stringify(customSection);
+            void window.matrica.reports
+              .customTemplatesImport({ userId, templates: customSection as unknown[] })
+              .then(() => {
+                setReportTemplatesNonce((n) => n + 1);
+                window.dispatchEvent(new Event('matrica:custom-reports-changed'));
+              })
+              .catch(() => {});
+          }
         } else {
           uiProfileKeyStampsRef.current = {};
           uiProfileKeySigsRef.current = {};
@@ -2107,6 +2123,7 @@ export function App() {
     if (reportTemplatesSnap != null) snapshot.reportFilterTemplates = reportTemplatesSnap;
     // Журнал отчётов: пустой не пушим — он появится после первого построения.
     if (reportHistorySnap != null && reportHistorySnap.length > 0) snapshot.reportHistory = reportHistorySnap;
+    if (customReportsSnap != null && customReportsSnap.length > 0) snapshot.customReportTemplates = customReportsSnap;
     const keySigs: Record<string, string> = {};
     const changed: string[] = [];
     for (const [k, v] of Object.entries(snapshot)) {
@@ -2156,6 +2173,7 @@ export function App() {
     desktopUsage,
     reportTemplatesSnap,
     reportHistorySnap,
+    customReportsSnap,
   ]);
 
   // Правка колонок на любой странице (порядок/скрытие) поднимает nonce —
@@ -2166,6 +2184,16 @@ export function App() {
     }
     window.addEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
     return () => window.removeEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
+  }, []);
+
+  // Правка «Моих отчётов» (сохранение, удаление, вливание с другой машины) поднимает тот же
+  // nonce: снимок для секции профиля перечитывается вместе с шаблонами фильтров.
+  useEffect(() => {
+    function onChange() {
+      setReportTemplatesNonce((n) => n + 1);
+    }
+    window.addEventListener('matrica:custom-reports-changed', onChange);
+    return () => window.removeEventListener('matrica:custom-reports-changed', onChange);
   }, []);
 
   // Правка шаблонов фильтров на странице отчёта поднимает nonce → перечитываем
@@ -2195,6 +2223,12 @@ export function App() {
       .historyList({ userId, limit: 50 })
       .then((r) => {
         if (alive && r?.ok) setReportHistorySnap(r.entries as unknown[]);
+      })
+      .catch(() => {});
+    void window.matrica.reports
+      .customTemplatesExport({ userId })
+      .then((r) => {
+        if (alive && r?.ok) setCustomReportsSnap(r.templates as unknown[]);
       })
       .catch(() => {});
     return () => {
