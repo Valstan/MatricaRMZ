@@ -594,7 +594,7 @@ func findInstaller(hs *handshake) (path string, source string, err error) {
 	// 2026.717). With the server unreachable (latestVersion == ""), any valid
 	// local installer beats leaving the machine without an app.
 	latestVersion := ""
-	if meta, merr := fetchLatestMeta(hs.APIBaseURL); merr == nil {
+	if meta, merr := fetchLatestMeta(hs.APIBaseURL, hs.Version); merr == nil {
 		latestVersion = strings.TrimSpace(meta.Version)
 	}
 	// 1) pending-update.json staged by the app.
@@ -675,7 +675,7 @@ func installerFromUpdatesDir(hs *handshake, latestVersion string) (string, bool)
 }
 
 func downloadInstaller(hs *handshake) (string, error) {
-	meta, err := fetchLatestMeta(hs.APIBaseURL)
+	meta, err := fetchLatestMeta(hs.APIBaseURL, hs.Version)
 	if err != nil {
 		return "", fmt.Errorf("latest-meta: %w", err)
 	}
@@ -799,8 +799,17 @@ func runSilentInstaller(path string) (int, error) {
 
 // --- server I/O ------------------------------------------------------------
 
-func fetchLatestMeta(base string) (*latestMeta, error) {
-	req, err := newGET(joinURL(base, "/updates/latest-meta"))
+// The request MUST carry the client's version: without `current` the server answers with the
+// eternal stub installer (the bridge for clients older than 3.1.0), so the watchdog compared
+// cached installers against the stub's version and, on repair, silently launched the stub,
+// which then downloads and launches the real installer — two quiet loaders in a row, exactly
+// the behavioural pattern antivirus flags (PENDING «Watchdog-агент», found 2026-09-10).
+func fetchLatestMeta(base, current string) (*latestMeta, error) {
+	endpoint := "/updates/latest-meta"
+	if v := strings.TrimSpace(current); v != "" {
+		endpoint += "?current=" + url.QueryEscape(v)
+	}
+	req, err := newGET(joinURL(base, endpoint))
 	if err != nil {
 		return nil, err
 	}
