@@ -13,9 +13,9 @@ const SRC = readFileSync(fileURLToPath(new URL('./updateService.ts', import.meta
 );
 
 function constant(name: string): number {
-  const m = SRC.match(new RegExp(`export const ${name} = ([0-9_]+);`));
-  if (!m) throw new Error(`${name} not found in updateService.ts`);
-  return Number(m[1].replace(/_/g, ''));
+  const value = SRC.match(new RegExp(`export const ${name} = ([0-9_]+);`))?.[1];
+  if (!value) throw new Error(`${name} not found in updateService.ts`);
+  return Number(value.replace(/_/g, ''));
 }
 
 describe('глухой сосед по локальной сети не держит обновление', () => {
