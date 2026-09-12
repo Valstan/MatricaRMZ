@@ -1,6 +1,7 @@
 import { REPORT_PRESET_DEFINITIONS, REPORT_PRESET_THEMES, resolveReportPresetId } from '@matricarmz/shared';
 
 import { pool } from '../../database/db.js';
+import { suggestReportsForTask } from './reportSuggestService.js';
 import { computeAssemblyForecastFromServer } from '../warehouseForecastService.js';
 import { getRestrictedWorkOrderIds, isAllowlistedReaderById } from '../sync/restrictedWorkOrders.js';
 import type { LlmToolDef, LlmToolUse } from './llmProvider.js';
@@ -703,29 +704,30 @@ async function listReportPresets(input: Record<string, unknown>): Promise<ToolRe
   }
   return jsonResult({
     presets: items,
-    hint: 'Чтобы дать пользователю кнопку открытия отчёта, вставь в свой ответ маркер вида [report:<id>] (например [report:engines]) — клиент отрисует его кнопкой «Открыть отчёт».',
+    hint:
+      'Чтобы дать пользователю кнопку открытия отчёта, вставь в ответ маркер вида [report:<id>] (например [report:engines]). ' +
+      'Если в задаче есть период, марка, договор или заказчик — зови suggest_report: он вернёт маркер с уже готовыми ' +
+      'настройками, и отчёт откроется настроенным, а не пустым.',
   });
 }
 
 async function suggestReport(input: Record<string, unknown>): Promise<ToolResult> {
-  const task = String(input.task ?? '').trim().toLowerCase();
+  const task = String(input.task ?? '').trim();
   if (!task) return { content: 'Опиши задачу пользователя в поле task.', isError: true };
-  const words = task.split(/[^a-zа-яё0-9]+/i).filter((w) => w.length >= 3);
-  const scored = REPORT_PRESET_DEFINITIONS.map((d) => {
-    const hay = `${d.title} ${d.description} ${d.filters.map((f) => ('label' in f ? (f as { label?: string }).label ?? '' : '')).join(' ')}`.toLowerCase();
-    let score = 0;
-    for (const w of words) if (hay.includes(w)) score += 1;
-    return { d, score };
-  })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
-  if (scored.length === 0) {
+  // Подбор и сборку настроек держит отдельный сервис: он же ищет в задаче период, марки,
+  // договоры и заказчиков и отдаёт ГОТОВУЮ строку маркера — её модель только копирует.
+  const { suggestions, period } = await suggestReportsForTask(task);
+  if (suggestions.length === 0) {
     return jsonResult({ suggestions: [], hint: 'Совпадений нет — возьми полный каталог через list_report_presets.' });
   }
   return jsonResult({
-    suggestions: scored.map((x) => ({ ...reportPresetBrief(x.d), matchScore: x.score })),
-    hint: 'Предложи пользователю лучший вариант и вставь в ответ маркер [report:<id>] — клиент отрисует его кнопкой «Открыть отчёт».',
+    period,
+    suggestions,
+    hint:
+      'Назови лучший вариант и ВСТАВЬ В ОТВЕТ строку из поля marker КАК ЕСТЬ, целиком, ничего в ней не меняя — ' +
+      'клиент превратит её в кнопку «Открыть отчёт», и отчёт откроется уже настроенным. ' +
+      'Поле applied говорит, что именно подставлено в фильтры — упомяни это словами. ' +
+      'Свой маркер не собирай и настройки в него не дописывай.',
   });
 }
 
@@ -1083,8 +1085,10 @@ const TOOLS: Record<string, ToolEntry> = {
     def: {
       name: 'suggest_report',
       description:
-        'Подбор готового отчёта под задачу пользователя («хочу посмотреть, сколько двигателей ушло заказчику за месяц»). ' +
-        'Возвращает до 5 подходящих пресетов с фильтрами. В ответ пользователю вставь маркер [report:<id>] — он станет кнопкой открытия.',
+        'Подбор готового отчёта под задачу пользователя («сколько двигателей ушло заказчику за сентябрь») ' +
+        'ВМЕСТЕ С НАСТРОЙКАМИ: период, марки, договоры и заказчиков из задачи сервер сам кладёт в фильтры. ' +
+        'У каждого варианта есть поле marker — вставь эту строку в ответ как есть, она станет кнопкой открытия ' +
+        'уже настроенного отчёта.',
       input_schema: {
         type: 'object',
         properties: {

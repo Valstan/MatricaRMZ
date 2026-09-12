@@ -117,7 +117,14 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   lastEvent: AiAgentEvent | null;
   recentEvents?: AiAgentEvent[];
   /** Открыть готовый отчёт по маркеру [report:<id>] из ответа (этап 7, 19.08б). */
-  onOpenReport?: (presetId: string) => void;
+  /**
+   * `opts` несёт настройки из маркера: отчёт открывается уже с отбором, который ИИваныч
+   * подобрал по вопросу (период, марка, договор, заказчик).
+   */
+  onOpenReport?: (
+    presetId: string,
+    opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
+  ) => void;
 }>((props, ref) => {
   // props.visible — «панель отрисована», useTabVisible — «её вкладка сейчас активна».
   const tabVisible = useTabVisible();
@@ -474,7 +481,13 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
                     key={l.presetId}
                     type="button"
                     data-ai-report-link={l.presetId}
-                    onClick={() => props.onOpenReport?.(l.presetId)}
+                    onClick={() =>
+                      props.onOpenReport?.(l.presetId, {
+                        filters: l.filters ?? null,
+                        ...(l.disabled ? { disabled: l.disabled } : {}),
+                        ...(l.summary ? { label: l.summary } : {}),
+                      })
+                    }
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -487,9 +500,10 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
                       fontSize: 12,
                       cursor: 'pointer',
                     }}
-                    title={`Открыть отчёт «${l.title}»`}
+                    title={l.summary ? `Открыть отчёт «${l.title}» с настройками: ${l.summary}` : `Открыть отчёт «${l.title}»`}
                   >
                     📊 Открыть отчёт «{l.title}»
+                    {l.summary ? <span style={{ opacity: 0.75 }}> · {l.summary}</span> : null}
                   </button>
                 ))}
               </div>
