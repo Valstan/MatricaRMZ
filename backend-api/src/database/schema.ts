@@ -10,6 +10,7 @@ import {
   uuid,
   bigint,
   index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -1252,6 +1253,8 @@ export const erpNomenclature = pgTable(
      * Read path during transition: column → spec_json fallback → heuristic.
      * Backfill from spec_json: pnpm -F @matricarmz/backend-api warehouse:migrate-component-type --apply */
     componentTypeId: text('component_type_id'),
+    /** Обобщённая позиция (migration 0096): родитель без артикула, эта строка — его вариант. Один уровень. */
+    parentNomenclatureId: uuid('parent_nomenclature_id').references((): AnyPgColumn => erpNomenclature.id),
     isActive: boolean('is_active').notNull().default(true),
     syncStatus: text('sync_status').notNull().default('synced'),
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
@@ -1276,6 +1279,7 @@ export const erpNomenclature = pgTable(
     groupIdx: index('erp_nomenclature_group_idx').on(t.groupId),
     defaultBrandIdx: index('erp_nomenclature_default_brand_idx').on(t.defaultBrandId),
     nameIdx: index('erp_nomenclature_name_idx').on(t.name),
+    parentIdx: index('erp_nomenclature_parent_idx').on(t.parentNomenclatureId).where(sql`${t.deletedAt} is null`),
     componentTypeIdx: index('erp_nomenclature_component_type_idx')
       .on(t.componentTypeId)
       .where(sql`${t.deletedAt} is null`),

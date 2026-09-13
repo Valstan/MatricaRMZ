@@ -577,6 +577,8 @@ export function buildAssemblyForecastKits(input: {
   >;
   brandLabels: ReadonlyMap<string, string>;
   /** Фаза 3: текущий сток по номенклатуре — для подстановки запасного варианта позиции при отсутствии основного. Опц.: без него позиция коллапсирует к основному как раньше. */
+  /** Обобщённые позиции (migration 0096): родитель → варианты. Строка BOM на родителя раскрывается в позицию, основной — по остатку. */
+  variantsByParentId?: ReadonlyMap<string, ReadonlyArray<{ id: string; code: string | null; name: string | null }>>;
   stockByNomenclatureId?: ReadonlyMap<string, number>;
 }): { kits: AssemblyEngineBrandKit[]; warnings: string[] } {
   const warnings: string[] = [];
@@ -656,7 +658,23 @@ export function buildAssemblyForecastKits(input: {
           isDefaultOption: line.isDefaultOption !== false,
         };
       })
-      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .flatMap((row) => {
+        // Обобщённая позиция: строка на родителя → варианты как взаимозаменяемые детали одной
+        // позиции. Родитель сам не деталь склада, поэтому в кит не идёт; основной вариант — по остатку.
+        const variants = input.variantsByParentId?.get(row.compId) ?? [];
+        if (variants.length === 0) return [row];
+        const stockOf = (id: string) => Math.max(0, Math.floor(input.stockByNomenclatureId?.get(id) ?? 0));
+        const best = variants.reduce((acc, v) => (stockOf(v.id) > stockOf(acc.id) ? v : acc), variants[0]!);
+        const positionKey = row.positionKey ?? `parent:${row.compId}`;
+        return variants.map((v) => ({
+          ...row,
+          compId: v.id,
+          partLabel: partLabelForAssemblyForecast({ name: v.name, code: v.code }, v.id),
+          positionKey,
+          isDefaultOption: row.isDefaultOption && v.id === best.id,
+        }));
+      });
     if (droppedDueToDeletedNomenclature > 0) {
       warnings.push(
         `BOM марки «${brandTitle}»: пропущено ${droppedDueToDeletedNomenclature} ` +
@@ -821,6 +839,21 @@ async function loadActiveDefaultBomKits(
           .from(erpNomenclature)
           .where(inArray(erpNomenclature.id, componentIds as any))
       : [];
+  // Варианты обобщённых позиций, на которые ссылается BOM (один уровень, только живые).
+  const variantRows =
+    componentIds.length > 0
+      ? await db
+          .select({ id: erpNomenclature.id, code: erpNomenclature.code, name: erpNomenclature.name, parentId: erpNomenclature.parentNomenclatureId })
+          .from(erpNomenclature)
+          .where(and(inArray(erpNomenclature.parentNomenclatureId, componentIds as any), isNull(erpNomenclature.deletedAt)))
+      : [];
+  const variantsByParentId = new Map<string, Array<{ id: string; code: string | null; name: string | null }>>();
+  for (const v of variantRows) {
+    const key = String(v.parentId);
+    const arr = variantsByParentId.get(key) ?? [];
+    arr.push({ id: String(v.id), code: v.code == null ? null : String(v.code), name: v.name == null ? null : String(v.name) });
+    variantsByParentId.set(key, arr);
+  }
   const nomenclatureById = new Map(
     nomenclatureRows.map((row) => [
       String(row.id),
@@ -853,6 +886,7 @@ async function loadActiveDefaultBomKits(
     })),
     nomenclatureById,
     brandLabels,
+    variantsByParentId,
     ...(stockByNomenclatureId ? { stockByNomenclatureId } : {}),
   });
   return { kits: built.kits, warnings: [...linklessWarnings, ...built.warnings] };

@@ -666,6 +666,13 @@
       "when": 1789206000000,
       "tag": "0095_service_price_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1789209600000,
+      "tag": "0096_nomenclature_parent_position",
+      "breakpoints": true
     }
   ]
 }

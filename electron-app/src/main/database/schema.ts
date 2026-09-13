@@ -444,6 +444,8 @@ export const erpNomenclature = sqliteTable(
     isSerialTracked: integer('is_serial_tracked', { mode: 'boolean' }).notNull().default(false),
     defaultWarehouseId: text('default_warehouse_id'),
     specJson: text('spec_json'),
+    /** Обобщённая позиция (сервер: migration 0096; реплика: 0026 / шаг 12→13). Без FK — реплика не строже сервера. */
+    parentNomenclatureId: text('parent_nomenclature_id'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     syncStatus: text('sync_status').notNull().default('synced'),
     lastServerSeq: integer('last_server_seq'),

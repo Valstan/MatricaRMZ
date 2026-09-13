@@ -93,6 +93,28 @@ export const LEGACY_SCHEMA_SNAPSHOT_TABLES: readonly string[] = [
   SyncTableName.ErpRegStockMovements,
 ];
 
+/**
+ * Колонки, добавленные к легаси-таблицам ПОСЛЕ заморозки снимка. Старый клиент их всё равно
+ * не читает (pull кладёт только колонки, известные локальной таблице), а вот хеш снимка от
+ * них двигается — и сборка ниже v3.5.0 на это отвечает перестройкой базы с потерей
+ * неотправленной работы. Поэтому из легаси-снимка они вырезаются вместе со своими FK.
+ * Снимать вместе с LEGACY_SCHEMA_SNAPSHOT_TABLES.
+ */
+export const LEGACY_HIDDEN_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  [SyncTableName.ErpNomenclature]: ['parent_nomenclature_id'],
+};
+
+export function hideSnapshotColumns(snapshot: SyncSchemaSnapshot, hidden: Readonly<Record<string, readonly string[]>>): SyncSchemaSnapshot {
+  for (const [table, cols] of Object.entries(hidden)) {
+    const entry = snapshot.tables[table];
+    if (!entry) continue;
+    const drop = new Set(cols);
+    entry.columns = entry.columns.filter((c) => !drop.has(c.name));
+    entry.foreignKeys = entry.foreignKeys.filter((fk) => !drop.has(fk.column));
+  }
+  return snapshot;
+}
+
 // Список колонок из array_agg: массив, если драйвер разобрал тип; строка вида
 // "{a,b}" — если не разобрал (name[] без ::text). Строку тоже принимаем, чтобы
 // класс поломки «тип не разобран → ограничение молча выпало» не повторился.

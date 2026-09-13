@@ -231,6 +231,7 @@ function nomenclatureLedgerRow(row: typeof erpNomenclature.$inferSelect, ts: num
     is_serial_tracked: Boolean(row.isSerialTracked),
     default_warehouse_id: row.defaultWarehouseId,
     spec_json: row.specJson,
+    parent_nomenclature_id: row.parentNomenclatureId ?? null,
     is_active: Boolean(row.isActive),
     created_at: Number(row.createdAt),
     updated_at: ts,

@@ -138,6 +138,7 @@ function ledgerRow(row: Record<string, any>): Record<string, unknown> {
     is_serial_tracked: Boolean(row.isSerialTracked),
     default_warehouse_id: row.defaultWarehouseId,
     spec_json: row.specJson,
+    parent_nomenclature_id: row.parentNomenclatureId ?? null,
     is_active: Boolean(row.isActive),
     created_at: Number(row.createdAt),
     updated_at: Number(row.updatedAt),

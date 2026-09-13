@@ -1407,6 +1407,7 @@ export async function listWarehouseNomenclature(args?: {
         .from(erpNomenclature)
         .where(and(eq(erpNomenclature.id, idOne), isNull(erpNomenclature.deletedAt)))
         .limit(1);
+      const parentNameById = await loadNomenclatureParentNames(one);
       return {
         ok: true,
         hasMore: false,
@@ -1419,6 +1420,7 @@ export async function listWarehouseNomenclature(args?: {
           componentTypeId: resolveComponentTypeId(row),
           defaultBrandName: readLookupLabel(refs.engineBrandById, row.defaultBrandId == null ? null : String(row.defaultBrandId)),
           groupName: readLookupLabel(refs.groupById, row.groupId == null ? null : String(row.groupId)),
+          parentNomenclatureName: row.parentNomenclatureId ? parentNameById.get(String(row.parentNomenclatureId)) ?? null : null,
           unitName: readLookupLabel(refs.unitById, row.unitId == null ? null : String(row.unitId)),
           defaultWarehouseName: readLookupLabel(refs.warehouseById, row.defaultWarehouseId == null ? null : String(row.defaultWarehouseId)),
         })) as Array<Record<string, unknown>>,
@@ -1450,6 +1452,7 @@ export async function listWarehouseNomenclature(args?: {
       .offset(offset);
     const hasMore = pageRows.length > limit;
     const rows = hasMore ? pageRows.slice(0, limit) : pageRows;
+    const parentNameById = await loadNomenclatureParentNames(rows);
 
     return {
       ok: true,
@@ -1463,6 +1466,7 @@ export async function listWarehouseNomenclature(args?: {
         componentTypeId: resolveComponentTypeId(row),
         defaultBrandName: readLookupLabel(refs.engineBrandById, row.defaultBrandId == null ? null : String(row.defaultBrandId)),
         groupName: readLookupLabel(refs.groupById, row.groupId == null ? null : String(row.groupId)),
+        parentNomenclatureName: row.parentNomenclatureId ? parentNameById.get(String(row.parentNomenclatureId)) ?? null : null,
         unitName: readLookupLabel(refs.unitById, row.unitId == null ? null : String(row.unitId)),
         defaultWarehouseName: readLookupLabel(refs.warehouseById, row.defaultWarehouseId == null ? null : String(row.defaultWarehouseId)),
       })) as Array<Record<string, unknown>>,
@@ -1470,6 +1474,14 @@ export async function listWarehouseNomenclature(args?: {
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** Имена обобщённых позиций для строк списка (родители могут лежать в другой группе/странице). */
+async function loadNomenclatureParentNames(rows: ReadonlyArray<{ parentNomenclatureId: string | null }>): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(rows.map((r) => r.parentNomenclatureId).filter((v): v is string => !!v)));
+  if (ids.length === 0) return new Map();
+  const parents = await db.select({ id: erpNomenclature.id, name: erpNomenclature.name }).from(erpNomenclature).where(inArray(erpNomenclature.id, ids));
+  return new Map(parents.map((p) => [String(p.id), String(p.name ?? '')]));
 }
 
 export async function listWarehouseNomenclatureGroupCounts(args?: {
@@ -1535,6 +1547,8 @@ export async function upsertWarehouseNomenclature(args: {
    * instead of stuffing it into spec_json. Older legacy spec_json.componentTypeId still
    * read by resolveNomenclatureComponentTypeId as fallback during transitional period. */
   componentTypeId?: string | null;
+  /** Обобщённая позиция (migration 0096): id родителя без артикула; null — снять. undefined — не трогать. */
+  parentNomenclatureId?: string | null;
   isActive?: boolean;
 }): Promise<Result<{ id: string }>> {
   try {
@@ -1754,6 +1768,18 @@ export async function upsertWarehouseNomenclature(args: {
     }
 
     const ts = nowMs();
+    // Обобщённая позиция — один уровень: родитель не может иметь родителя, а строка с вариантами
+    // не может стать чьим-то вариантом. Проверяется здесь, а не в БД: реплика не должна быть строже сервера.
+    const parentIdOrNull = args.parentNomenclatureId == null ? null : String(args.parentNomenclatureId).trim() || null;
+    if (parentIdOrNull) {
+      if (parentIdOrNull === id) return { ok: false, error: 'Позиция не может быть обобщённой для самой себя.' };
+      const childCountRows = await db.select({ n: count() }).from(erpNomenclature).where(and(eq(erpNomenclature.parentNomenclatureId, id), isNull(erpNomenclature.deletedAt)));
+      if (Number(childCountRows[0]?.n ?? 0) > 0) return { ok: false, error: 'У этой позиции есть свои варианты — она не может стать вариантом другой.' };
+      const parentRows = await db.select({ id: erpNomenclature.id, parentNomenclatureId: erpNomenclature.parentNomenclatureId }).from(erpNomenclature).where(and(eq(erpNomenclature.id, parentIdOrNull), isNull(erpNomenclature.deletedAt))).limit(1);
+      const parentRow = parentRows[0];
+      if (!parentRow) return { ok: false, error: 'Обобщённая позиция не найдена.' };
+      if (parentRow.parentNomenclatureId) return { ok: false, error: 'Обобщённая позиция сама является вариантом — допустим один уровень.' };
+    }
     const normalized = {
       code: String(args.code).trim(),
       sku: args.sku == null ? null : String(args.sku).trim() || null,
@@ -1781,6 +1807,7 @@ export async function upsertWarehouseNomenclature(args: {
                 : String(args.componentTypeId).trim() || null,
           }
         : {}),
+      ...(args.parentNomenclatureId !== undefined ? { parentNomenclatureId: parentIdOrNull } : {}),
       isActive: args.isActive ?? true,
     };
     await db
@@ -1813,6 +1840,7 @@ export async function upsertWarehouseNomenclature(args: {
             is_serial_tracked: Boolean(row.isSerialTracked),
             default_warehouse_id: row.defaultWarehouseId,
             spec_json: row.specJson,
+            parent_nomenclature_id: row.parentNomenclatureId ?? null,
             is_active: Boolean(row.isActive),
             created_at: Number(row.createdAt),
             updated_at: Number(row.updatedAt),
@@ -1872,6 +1900,7 @@ export async function deleteWarehouseNomenclature(args: {
             is_serial_tracked: Boolean(row.isSerialTracked),
             default_warehouse_id: row.defaultWarehouseId,
             spec_json: row.specJson,
+            parent_nomenclature_id: row.parentNomenclatureId ?? null,
             is_active: false,
             created_at: Number(row.createdAt),
             updated_at: ts,
@@ -2351,6 +2380,7 @@ export async function listWarehouseStock(args?: {
         ? []
         : await db.select().from(erpNomenclature).where(and(inArray(erpNomenclature.id, nomenclatureIds), isNull(erpNomenclature.deletedAt)));
     const nomenclatureById = new Map(nomenclatureRows.map((row) => [String(row.id), row]));
+    const stockParentNameById = await loadNomenclatureParentNames(nomenclatureRows);
     const search = String(args?.search ?? '').trim().toLowerCase();
     // Filter speaks code (picker option id); resolve to the uuid stored in the register.
     // Tolerate an already-resolved uuid by falling through to the raw value.
@@ -2390,6 +2420,8 @@ export async function listWarehouseStock(args?: {
           nomenclatureCode: n?.code ?? null,
           sku: n?.sku ?? null,
           nomenclatureName: n?.name ?? null,
+          parentNomenclatureId: n?.parentNomenclatureId ?? null,
+          parentNomenclatureName: n?.parentNomenclatureId ? stockParentNameById.get(String(n.parentNomenclatureId)) ?? null : null,
           itemType: n?.itemType ?? null,
           category: n?.category ?? normalizeItemTypeToCategory(String(n?.itemType ?? 'component')),
           isSerialTracked: Boolean(n?.isSerialTracked ?? String(n?.itemType ?? '').toLowerCase() === 'engine'),
