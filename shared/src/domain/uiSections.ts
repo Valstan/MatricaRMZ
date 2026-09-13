@@ -37,6 +37,7 @@ export type TabId =
   | 'warehouse_analytics'
   | 'workshop_stats'
   | 'custom_reports'
+  | 'report_templates'
   | 'engine_assembly_bom'
   | 'repair_norms'
   | 'engine_assembly_bom_item'
@@ -162,6 +163,7 @@ const menuTabSet = new Set<MenuTabId>([
   'access_sections',
   'reports',
   'custom_reports',
+  'report_templates',
   'audit',
   // empty_cards/drafts отсутствовали в реестре renderer'а — их визиты оставались бы
   // непереведёнными ключами в статистике, хотя это обычные пункты меню «Контроль».
@@ -241,6 +243,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   access_sections: 'Доступы по разделам',
   reports: 'Отчёты',
   custom_reports: 'Мои отчёты',
+  report_templates: 'Заготовки отчётов',
   audit: 'Журнал',
   empty_cards: 'Пустые карточки',
   drafts: 'Черновики',
@@ -261,7 +264,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'timesheets', 'access_sections'],
-  control: ['reports', 'custom_reports', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
+  control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
 export function groupForTab(tab: MenuTabId): MenuGroupId {

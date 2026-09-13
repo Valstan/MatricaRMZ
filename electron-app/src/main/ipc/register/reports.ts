@@ -117,7 +117,11 @@ type ReportFilterTemplate = {
   createdAt: number;
   filters: Record<string, unknown>;
   disabled: string[];
+  description?: string;
 };
+
+/** Потолок описания шаблона: это подпись в одну строку, а не место для повести. */
+const FILTER_TEMPLATE_DESCRIPTION_LIMIT = 200;
 
 // Blob-структура: { [userScope]: { [presetId]: ReportFilterTemplate[] } }
 function sanitizeFilterTemplates(entries: unknown): ReportFilterTemplate[] {
@@ -130,12 +134,14 @@ function sanitizeFilterTemplates(entries: unknown): ReportFilterTemplate[] {
     const createdAtRaw = Number((row as any)?.createdAt ?? 0);
     const filters = (row as any)?.filters;
     const disabledRaw = (row as any)?.disabled;
+    const description = String((row as any)?.description ?? '').trim().slice(0, FILTER_TEMPLATE_DESCRIPTION_LIMIT);
     out.push({
       id,
       name,
       createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? Math.floor(createdAtRaw) : 0,
       filters: filters && typeof filters === 'object' && !Array.isArray(filters) ? (filters as Record<string, unknown>) : {},
       disabled: Array.isArray(disabledRaw) ? disabledRaw.map((v: unknown) => String(v ?? '').trim()).filter(Boolean) : [],
+      ...(description ? { description } : {}),
     });
     if (out.length >= FILTER_TEMPLATES_LIMIT) break;
   }
@@ -385,7 +391,7 @@ export function registerReportsIpc(ctx: IpcContext) {
       args?: {
         userId?: string;
         presetId?: string;
-        template?: { id?: string; name?: string; filters?: Record<string, unknown>; disabled?: string[] };
+        template?: { id?: string; name?: string; filters?: Record<string, unknown>; disabled?: string[]; description?: string };
       },
     ) => {
       const gate = await requirePermOrResult(ctx, 'reports.view');
@@ -400,7 +406,14 @@ export function registerReportsIpc(ctx: IpcContext) {
       const current = sanitizeFilterTemplates(byScope[scope]?.[presetId]);
       const id = String(args?.template?.id ?? '').trim() || `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const entry = sanitizeFilterTemplates([
-        { id, name, createdAt: Date.now(), filters: args?.template?.filters ?? {}, disabled: args?.template?.disabled ?? [] },
+        {
+          id,
+          name,
+          createdAt: Date.now(),
+          filters: args?.template?.filters ?? {},
+          disabled: args?.template?.disabled ?? [],
+          description: args?.template?.description ?? '',
+        },
       ])[0];
       if (!entry) return { ok: false as const, error: 'Некорректный шаблон' };
       // Замена по id или по имени (пересохранение под тем же именем перезаписывает шаблон).

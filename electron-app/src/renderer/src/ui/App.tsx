@@ -248,6 +248,7 @@ const RepairFundAuditPage = lazyPage('./pages/RepairFundAuditPage.tsx', 'RepairF
 const WarehouseAnalyticsPage = lazyPage('./pages/WarehouseAnalyticsPage.tsx', 'WarehouseAnalyticsPage');
 const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopStatsPage');
 const CustomReportsPage = lazyPage('./pages/CustomReportsPage.tsx', 'CustomReportsPage');
+const ReportTemplatesShowcasePage = lazyPage('./pages/ReportTemplatesShowcasePage.tsx', 'ReportTemplatesShowcasePage');
 const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
 const EngineAssemblyBomPage = lazyPage('./pages/EngineAssemblyBomPage.tsx', 'EngineAssemblyBomPage');
 const RepairNormsPage = lazyPage('./pages/RepairNormsPage.tsx', 'RepairNormsPage');
@@ -621,6 +622,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   access_sections: 'Доступы по разделам',
   reports: 'Отчёты',
   custom_reports: 'Мои отчёты',
+  report_templates: 'Заготовки отчётов',
   audit: 'Журнал',
   admin: 'Админ',
   auth: 'Вход',
@@ -834,6 +836,10 @@ export function App() {
   // Тема каталога отчётов живёт здесь, а не в странице: возврат из карточки пресета ремонтирует
   // ReportsCatalogPage, и локальное состояние уронило бы оператора обратно на корень тем.
   const [reportsThemeId, setReportsThemeId] = useState<ReportThemeId | null>(null);
+  // «Мой отчёт», выбранный в витрине заготовок: конструктор открывается сразу на нём.
+  // По той же причине, что и набор настроек пресета, живёт здесь — вкладка конструктора
+  // перемонтируется, а выбор должен пережить переход на неё.
+  const [customReportInitialTemplateId, setCustomReportInitialTemplateId] = useState<string | null>(null);
   // UI builder: 'new' = создание нового экрана в редакторе (карточный tab требует непустой id).
   const [selectedUserScreenId, setSelectedUserScreenId] = useState<string | null>(null);
   const [userScreenEditMode, setUserScreenEditMode] = useState<boolean>(false);
@@ -2744,7 +2750,7 @@ export function App() {
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(authStatus.loggedIn ? (['drafts'] as const) : []),
-    ...(caps.canViewReports ? (['reports', 'custom_reports'] as const) : []),
+    ...(caps.canViewReports ? (['reports', 'custom_reports', 'report_templates'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewMasterData ? (['empty_cards'] as const) : []),
     ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops', 'workshop_stats'] as const) : []),
@@ -5819,7 +5825,21 @@ export function App() {
         {t === 'warehouse_analytics' && <WarehouseAnalyticsPage />}
 
         {t === 'workshop_stats' && <WorkshopStatsPage />}
-        {t === 'custom_reports' && <CustomReportsPage />}
+        {t === 'custom_reports' && <CustomReportsPage initialTemplateId={customReportInitialTemplateId} />}
+
+        {t === 'report_templates' && (
+          <ReportTemplatesShowcasePage
+            userId={authStatus.user?.id ?? ''}
+            onOpenPreset={(
+              presetId: ReportPresetId,
+              opts?: { filters?: Record<string, unknown> | null; disabled?: string[]; label?: string },
+            ) => openReportPreset(presetId, opts)}
+            onOpenCustomReport={(templateId: string) => {
+              setCustomReportInitialTemplateId(templateId);
+              setTab('custom_reports');
+            }}
+          />
+        )}
 
         {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
 

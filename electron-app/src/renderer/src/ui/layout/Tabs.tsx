@@ -98,6 +98,7 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   access_sections: { icon: '🔐', subtitle: 'Кто видит и правит каждый раздел', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
   reports: { icon: '📊', subtitle: 'Аналитика и выгрузки', gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)' },
   custom_reports: { icon: '🧩', subtitle: 'Свои отчёты: фильтры, колонки, шаблоны', gradient: 'linear-gradient(135deg, #be185d 0%, #f472b6 100%)' },
+  report_templates: { icon: '🗃️', subtitle: 'Всё, что уже настроено: открыть отчёт готовым', gradient: 'linear-gradient(135deg, #be185d 0%, #fb7185 100%)' },
   changes: { icon: '🧾', subtitle: 'История изменений данных', gradient: 'linear-gradient(135deg, #6b7280 0%, #94a3b8 100%)' },
   drafts: { icon: '🗂️', subtitle: 'Несохранённые черновики карточек', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' },
   audit: { icon: '🔍', subtitle: 'Журнал аудита действий', gradient: 'linear-gradient(135deg, #374151 0%, #6b7280 100%)' },

@@ -143,6 +143,8 @@ export function ReportPresetPage(props: {
   const [prefilledFor, setPrefilledFor] = useState<Partial<Record<ReportPresetId, boolean>>>({});
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
+  // Зачем набор сохранён — из перечня фильтров не выводится: подпись пишет тот, кто сохранял.
+  const [templateDescription, setTemplateDescription] = useState('');
   const [preview, setPreview] = useState<PreviewOk | null>(null);
   // filtersKey, под который был сформирован последний preview. Используется для
   // индикатора «фильтры изменились — нажмите Сформировать прогноз». Только для
@@ -316,6 +318,7 @@ export function ReportPresetPage(props: {
     setFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: { ...buildDefaultFilters(activePreset), ...tpl.filters } }));
     setDisabledFiltersByPreset((prev) => ({ ...prev, [activePreset.id]: [...tpl.disabled] }));
     setTemplateName(tpl.name);
+    setTemplateDescription(tpl.description ?? '');
   }
 
   async function saveFilterTemplate() {
@@ -325,7 +328,12 @@ export function ReportPresetPage(props: {
     const r = await window.matrica.reports.filterTemplateSave({
       userId: props.userId,
       presetId: activePreset.id,
-      template: { name, filters: activeFilters, disabled: activeDisabled },
+      template: {
+        name,
+        filters: activeFilters,
+        disabled: activeDisabled,
+        ...(templateDescription.trim() ? { description: templateDescription.trim() } : {}),
+      },
     });
     if (!r.ok) {
       setStatus(`Ошибка сохранения шаблона: ${r.error}`);
@@ -353,6 +361,7 @@ export function ReportPresetPage(props: {
     setFilterTemplates(r.templates);
     setSelectedTemplateId(null);
     setTemplateName('');
+    setTemplateDescription('');
     if (tpl) setStatus(`Шаблон «${tpl.name}» удалён`);
     window.dispatchEvent(new Event('matrica:report-templates-changed'));
   }
@@ -1565,6 +1574,14 @@ export function ReportPresetPage(props: {
                       disabled={busy}
                       style={{ width: 200 }}
                     />
+                    <Input
+                      value={templateDescription}
+                      onChange={(e) => setTemplateDescription(e.target.value)}
+                      placeholder="Для чего он — например «для сверки с бухгалтерией»"
+                      disabled={busy}
+                      data-report-template-description
+                      style={{ width: 280 }}
+                    />
                     <Button variant="ghost" onClick={() => void saveFilterTemplate()} disabled={busy || !templateName.trim()}>
                       Сохранить
                     </Button>
@@ -1621,6 +1638,14 @@ export function ReportPresetPage(props: {
                   placeholder="Название шаблона"
                   disabled={busy}
                   style={{ width: 180 }}
+                />
+                <Input
+                  value={templateDescription}
+                  onChange={(e) => setTemplateDescription(e.target.value)}
+                  placeholder="Для чего он — например «для сверки с бухгалтерией»"
+                  disabled={busy}
+                  data-report-template-description
+                  style={{ width: 280 }}
                 />
                 <Button variant="ghost" onClick={() => void saveFilterTemplate()} disabled={busy || !templateName.trim()}>
                   Сохранить шаблон
