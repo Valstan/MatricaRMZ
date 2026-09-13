@@ -24,6 +24,7 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
+import { collapseNomenclatureVariants } from '../utils/nomenclatureParent.js';
 import { fetchWarehouseNomenclatureAllPages } from '../utils/warehousePagedFetch.js';
 import {
   ALL_NOMENCLATURE_CREATE_PRESETS,
@@ -80,7 +81,7 @@ function NomenclatureCollapsePanel(props: {
   );
 }
 
-type SortKey = 'name' | 'code' | 'itemType' | 'group' | 'unit' | 'updatedAt';
+type SortKey = 'name' | 'code' | 'parent' | 'itemType' | 'group' | 'unit' | 'updatedAt';
 
 type PropertyGovernanceRow = {
   id: string;
@@ -140,6 +141,8 @@ export function NomenclaturePage(props: {
   const [newTemplateItemType, setNewTemplateItemType] = useState('');
   const [newTemplateDirectoryKind, setNewTemplateDirectoryKind] = useState('');
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
+  // Обобщённые позиции: варианты прячутся под родителя (E3). Тумблер не роумится — это удобство экрана.
+  const [collapseVariants, setCollapseVariants] = useState(false);
   const [groupCounts, setGroupCounts] = useState<Array<{ groupId: string | null; groupName: string; count: number }>>([]);
   const [panelTypesOpen, setPanelTypesOpen] = useState(false);
   const [panelPropertiesOpen, setPanelPropertiesOpen] = useState(false);
@@ -268,6 +271,7 @@ export function NomenclaturePage(props: {
     void refreshGovernance();
   }, [refreshGovernance]);
 
+  const variantCountByParent = useMemo(() => collapseNomenclatureVariants(rows).variantCountByParent, [rows]);
   const sorted = useMemo(() => {
     if (expandedGroupKey == null) return [];
     // Оставляем только позиции развёрнутой группы. Бэкенд фильтрует по groupId
@@ -275,12 +279,13 @@ export function NomenclaturePage(props: {
     // поэтому здесь надёжно отбираем по row.groupId на клиенте.
     const targetGroupId = expandedGroupKey === '__none__' ? null : expandedGroupKey;
     const dir = sortDir === 'asc' ? 1 : -1;
-    return rows
-      .filter((r) => (r.groupId ?? null) === targetGroupId)
+    const inGroup = rows.filter((r) => (r.groupId ?? null) === targetGroupId);
+    return (collapseVariants ? collapseNomenclatureVariants(inGroup).rows : inGroup)
       .sort((a, b) => {
         let cmp = 0;
         if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
         else if (sortKey === 'code') cmp = String(a.code ?? '').localeCompare(String(b.code ?? ''), 'ru');
+        else if (sortKey === 'parent') cmp = String(a.parentNomenclatureName ?? '').localeCompare(String(b.parentNomenclatureName ?? ''), 'ru');
         else if (sortKey === 'itemType') cmp = String(a.itemType ?? '').localeCompare(String(b.itemType ?? ''), 'ru');
         else if (sortKey === 'group') cmp = String(a.groupName ?? '').localeCompare(String(b.groupName ?? ''), 'ru');
         else if (sortKey === 'unit') cmp = String(a.unitName ?? '').localeCompare(String(b.unitName ?? ''), 'ru');
@@ -288,7 +293,7 @@ export function NomenclaturePage(props: {
         if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
         return cmp * dir;
       });
-  }, [rows, expandedGroupKey, sortDir, sortKey]);
+  }, [rows, expandedGroupKey, sortDir, sortKey, collapseVariants]);
 
   useEffect(() => {
     if (groupCounts.length === 0) {
@@ -358,6 +363,19 @@ export function NomenclaturePage(props: {
         printValue: (row) => row.code ?? '',
       },
       {
+        id: 'parent',
+        label: 'Обобщённая позиция',
+        tabletLabel: 'Обобщ.',
+        sortKey: 'parent',
+        minWidth: 140,
+        render: (row) => {
+          const n = variantCountByParent.get(String(row.id)) ?? 0;
+          if (n > 0) return <span title="Эта строка — родитель без артикула; варианты под ней">{`${n} вар.`}</span>;
+          return row.parentNomenclatureName ? <span style={{ color: 'var(--subtle)' }}>{row.parentNomenclatureName}</span> : '—';
+        },
+        printValue: (row) => row.parentNomenclatureName ?? '',
+      },
+      {
         id: 'itemType',
         label: 'Тип',
         sortKey: 'itemType',
@@ -374,7 +392,7 @@ export function NomenclaturePage(props: {
         render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—'),
       },
     ],
-    [itemTypeOptions],
+    [itemTypeOptions, variantCountByParent],
   );
   const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
   const columnLayout = useColumnLayout('list:nomenclature:columns', columnIds);
@@ -676,6 +694,10 @@ export function NomenclaturePage(props: {
                   <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по наименованию, коду, штрихкоду…" />
                 </div>
               </ToolbarPin>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }} title="Артикульные варианты прячутся под обобщённую позицию">
+                <input type="checkbox" checked={collapseVariants} onChange={(e) => setCollapseVariants(e.target.checked)} data-collapse-variants />
+                Свернуть варианты
+              </label>
               <select
                 value={itemType}
                 onChange={(e) => setItemType((e.target.value || '') as NomenclatureItemType | '')}

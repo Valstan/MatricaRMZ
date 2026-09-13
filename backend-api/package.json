@@ -55,6 +55,7 @@
     "warehouse:import-zamena-kr": "tsx src/scripts/importZamenaKrBomNorms.ts",
     "warehouse:set-completeness-flags": "tsx src/scripts/setCompletenessActFlags.ts",
     "warehouse:audit-parts-mirror": "tsx src/scripts/auditPartsMirror.ts",
+    "warehouse:suggest-parent-positions": "tsx src/scripts/suggestParentPositions.ts",
     "warehouse:fix-parts-mirror": "tsx src/scripts/fixPartsMirror.ts",
     "warehouse:backfill-orphan-part-nomenclature": "tsx src/scripts/backfillOrphanPartNomenclature.ts",
     "warehouse:link-nomenclature-to-part": "tsx src/scripts/linkNomenclatureToPart.ts",

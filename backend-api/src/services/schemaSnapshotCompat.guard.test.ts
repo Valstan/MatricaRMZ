@@ -1,7 +1,7 @@
 import { SyncTableName } from '@matricarmz/shared';
 import { describe, expect, it } from 'vitest';
 
-import { LEGACY_SCHEMA_SNAPSHOT_TABLES } from './diagnosticsSchemaService.js';
+import { LEGACY_HIDDEN_COLUMNS, LEGACY_SCHEMA_SNAPSHOT_TABLES, hideSnapshotColumns } from './diagnosticsSchemaService.js';
 
 // Снимок схемы едет на клиент, клиент его хеширует и сравнивает с сохранённым.
 // Сборки ДО v3.5.0 на расхождение хеша отвечают ПЕРЕСБОРКОЙ локальной базы —
@@ -57,5 +57,29 @@ describe('легаси-снимок схемы для сборок ниже v3.5
     // вычислять — и очередная таблица контракта уедет старым клиентам,
     // стерев им базу. Тест обязан покраснеть раньше, чем это случится.
     expect(LEGACY_SCHEMA_SNAPSHOT_TABLES.length).toBeLessThan(Object.values(SyncTableName).length);
+  });
+});
+
+describe('колонки, спрятанные из легаси-снимка', () => {
+  it('parent_nomenclature_id (0096) не двигает хеш старым сборкам: колонка и её FK вырезаны', () => {
+    const snapshot = {
+      generatedAt: 1,
+      tables: {
+        erp_nomenclature: {
+          columns: [
+            { name: 'id', dataType: 'uuid', notNull: true, default: null },
+            { name: 'parent_nomenclature_id', dataType: 'uuid', notNull: false, default: null },
+          ],
+          foreignKeys: [{ column: 'parent_nomenclature_id', refTable: 'erp_nomenclature', refColumn: 'id', onUpdate: 'a', onDelete: 'a' }],
+          uniqueConstraints: [],
+        },
+      },
+    } as unknown as Parameters<typeof hideSnapshotColumns>[0];
+    const out = hideSnapshotColumns(snapshot, LEGACY_HIDDEN_COLUMNS);
+    expect(out.tables.erp_nomenclature!.columns.map((c) => c.name)).toEqual(['id']);
+    expect(out.tables.erp_nomenclature!.foreignKeys).toEqual([]);
+  });
+  it('прячутся только колонки легаси-таблиц', () => {
+    for (const table of Object.keys(LEGACY_HIDDEN_COLUMNS)) expect(LEGACY_SCHEMA_SNAPSHOT_TABLES).toContain(table);
   });
 });

@@ -6,7 +6,7 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../au
 import { PermissionCode } from '../auth/permissions.js';
 import { getConsistencyReport, runServerSnapshot, storeClientSnapshot } from '../services/diagnosticsConsistencyService.js';
 import { getLatestEntityDiff, storeEntityDiff } from '../services/diagnosticsEntityDiffService.js';
-import { LEGACY_SCHEMA_SNAPSHOT_TABLES, SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, getSyncSchemaSnapshot } from '../services/diagnosticsSchemaService.js';
+import { LEGACY_HIDDEN_COLUMNS, LEGACY_SCHEMA_SNAPSHOT_TABLES, SCHEMA_UNIQUE_SAFE_CLIENT_VERSION, getSyncSchemaSnapshot, hideSnapshotColumns } from '../services/diagnosticsSchemaService.js';
 import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineService.js';
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
 import { deleteAllCriticalEvents, deleteCriticalEventById, listCriticalEvents } from '../services/criticalEventsService.js';
@@ -137,7 +137,7 @@ diagnosticsRouter.get('/sync-schema', requirePermission(PermissionCode.SyncUse),
     const includeUniqueConstraints = raw !== '' && compareAppVersion(raw, SCHEMA_UNIQUE_SAFE_CLIENT_VERSION) >= 0;
     const schema = canTakeFullSnapshot
       ? await getSyncSchemaSnapshot({ includeUniqueConstraints })
-      : await getSyncSchemaSnapshot({ tables: LEGACY_SCHEMA_SNAPSHOT_TABLES });
+      : hideSnapshotColumns(await getSyncSchemaSnapshot({ tables: LEGACY_SCHEMA_SNAPSHOT_TABLES }), LEGACY_HIDDEN_COLUMNS);
     return res.json({ ok: true, schema });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });

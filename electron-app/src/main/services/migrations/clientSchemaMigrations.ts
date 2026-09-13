@@ -47,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 12;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 13;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -482,6 +482,18 @@ const MIGRATIONS: Migration[] = [
       if (!lineColumns.some((column) => column.name === 'is_default_option')) {
         sqlite.exec(`ALTER TABLE erp_engine_assembly_bom_lines ADD COLUMN is_default_option integer NOT NULL DEFAULT 1;`);
       }
+    },
+  },
+  {
+    from: 12,
+    to: 13,
+    name: 'erp_nomenclature parent_nomenclature_id (обобщённая позиция)',
+    up: async (_db, sqlite) => {
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_nomenclature')`).all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === 'parent_nomenclature_id')) {
+        sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
+      }
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`);
     },
   },
 ];

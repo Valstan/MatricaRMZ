@@ -5,6 +5,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
+import { rollupStockByParent, type StockRollupRow } from '../utils/nomenclatureParent.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -32,6 +33,8 @@ export function StockBalancesPage(props: {
   const [itemTypeFilter, setItemTypeFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  // Свод по обобщённым позициям (E3): варианты одного родителя на складе — одной строкой.
+  const [rollupByParent, setRollupByParent] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [movements, setMovements] = useState<WarehouseMovementListItem[]>([]);
   const [movementsStatus, setMovementsStatus] = useState('');
@@ -101,6 +104,7 @@ export function StockBalancesPage(props: {
       return true;
     });
   }, [rows, itemTypeFilter, categoryFilter]);
+  const displayRows = useMemo<StockRollupRow[]>(() => (rollupByParent ? rollupStockByParent(filtered) : filtered), [filtered, rollupByParent]);
 
   const totals = useMemo(
     () =>
@@ -118,7 +122,7 @@ export function StockBalancesPage(props: {
 
   const sortedRows = useMemo(() => {
     const dir = balanceSortDir === 'asc' ? 1 : -1;
-    return [...filtered].sort((a, b) => {
+    return [...displayRows].sort((a, b) => {
       let cmp = 0;
       if (balanceSortKey === 'warehouse') cmp = String(a.warehouseName ?? '').localeCompare(String(b.warehouseName ?? ''), 'ru');
       else if (balanceSortKey === 'code') cmp = String(a.nomenclatureCode ?? '').localeCompare(String(b.nomenclatureCode ?? ''), 'ru');
@@ -133,7 +137,7 @@ export function StockBalancesPage(props: {
       if (cmp === 0) cmp = String(a.nomenclatureName ?? '').localeCompare(String(b.nomenclatureName ?? ''), 'ru');
       return cmp * dir;
     });
-  }, [filtered, balanceSortDir, balanceSortKey]);
+  }, [displayRows, balanceSortDir, balanceSortKey]);
 
   // Точка заказа: рекомендуемое кол-во к закупке — добрать доступный остаток до
   // max (или до min, если max не задан). >0 только когда остаток ≤ min.
@@ -257,7 +261,7 @@ export function StockBalancesPage(props: {
     };
   }
 
-  function renderBalanceCells(row: WarehouseStockListItem) {
+  function renderBalanceCells(row: StockRollupRow) {
     return (
       <>
         <td data-col-kind="name">
@@ -276,6 +280,7 @@ export function StockBalancesPage(props: {
               style={{ border: 'none', background: 'transparent', color: 'var(--link, #2563eb)', padding: 0, cursor: 'pointer' }}
             >
               {row.nomenclatureName || '—'}
+              {row.variantCount ? <span style={{ color: 'var(--subtle)' }}>{` (${row.variantCount} вар.)`}</span> : null}
             </button>
           ) : (
             '—'
@@ -293,7 +298,7 @@ export function StockBalancesPage(props: {
     );
   }
 
-  function renderBalanceTable(items: WarehouseStockListItem[]) {
+  function renderBalanceTable(items: StockRollupRow[]) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
@@ -349,6 +354,10 @@ export function StockBalancesPage(props: {
         <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }}>
           <input type="checkbox" checked={lowStockOnly} onChange={(e) => setLowStockOnly(e.target.checked)} />
           Ниже минимального
+        </label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }} title="Варианты одной обобщённой позиции на складе складываются в одну строку">
+          <input type="checkbox" checked={rollupByParent} onChange={(e) => setRollupByParent(e.target.checked)} data-rollup-parent />
+          Свод по обобщённым
         </label>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button variant="ghost" onClick={() => void refresh()}>

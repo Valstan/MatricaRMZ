@@ -127,6 +127,8 @@ export type NomenclatureItem = {
   isSerialTracked?: boolean;
   defaultWarehouseId: string | null;
   specJson: string | null;
+  /** Обобщённая позиция: id родителя без артикула (эта строка — его вариант). Один уровень. */
+  parentNomenclatureId?: string | null;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;
@@ -479,6 +481,8 @@ export type WarehouseNomenclatureListItem = NomenclatureItem & {
    * Значение `null` означает «Прочее» в UI группировки.
    */
   componentTypeId?: string | null;
+  /** Имя обобщённой позиции (родителя), если строка — вариант. */
+  parentNomenclatureName?: string | null;
 };
 
 export type WarehouseStockListItem = StockBalance & {
@@ -486,6 +490,8 @@ export type WarehouseStockListItem = StockBalance & {
   nomenclatureCode: string | null;
   sku?: string | null;
   nomenclatureName: string | null;
+  parentNomenclatureId?: string | null;
+  parentNomenclatureName?: string | null;
   itemType: NomenclatureItemType | null;
   category?: WarehouseNomenclatureType | string | null;
   isSerialTracked?: boolean;

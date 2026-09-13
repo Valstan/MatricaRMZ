@@ -473,3 +473,36 @@ describe('buildAssemblyForecastKits — Фаза 3: подстановка за�
     expect(positions[0]!.options.map((o) => o.nomenclatureId)).toEqual(['piston-def', 'piston-b', 'piston-c']);
   });
 });
+
+describe('обобщённая позиция (parent_nomenclature_id, план bom-simplify E3)', () => {
+  it('строка BOM на родителя раскрывается в позицию с вариантами; основной — вариант с наибольшим остатком', () => {
+    const r = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom', engineBrandId: 'brand' })],
+      lineRows: [line({ bomId: 'bom', componentNomenclatureId: 'pump', qtyPerUnit: 1 })],
+      nomenclatureById: new Map([['pump', nom({ id: 'pump', name: 'Масляный насос' })]]),
+      brandLabels: new Map([['brand', 'В-84']]),
+      variantsByParentId: new Map([['pump', [
+        { id: 'pump-a', code: 'A-1', name: 'Масляный насос' },
+        { id: 'pump-b', code: 'B-2', name: 'Масляный насос' },
+      ]]]),
+      stockByNomenclatureId: new Map([['pump-a', 0], ['pump-b', 7]]),
+    });
+    expect(r.kits).toHaveLength(1);
+    const kit = r.kits[0]!;
+    // Родитель в кит не идёт, в плоском виде — один выбранный вариант (по остатку — B-2).
+    expect(kit.parts.map((p) => p.nomenclatureId)).toEqual(['pump-b']);
+    expect(kit.positions?.[0]?.positionKey).toBe('parent:pump');
+    expect(kit.positions?.[0]?.options.map((o) => o.nomenclatureId)).toEqual(['pump-b', 'pump-a']);
+  });
+
+  it('родитель без вариантов идёт как обычная деталь', () => {
+    const r = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'bom', engineBrandId: 'brand' })],
+      lineRows: [line({ bomId: 'bom', componentNomenclatureId: 'pump' })],
+      nomenclatureById: new Map([['pump', nom({ id: 'pump' })]]),
+      brandLabels: new Map(),
+      variantsByParentId: new Map(),
+    });
+    expect(r.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['pump']);
+  });
+});

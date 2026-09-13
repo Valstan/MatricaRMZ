@@ -32,6 +32,7 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { buildPartSpecPayload } from '../utils/partSpecPayload.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
+import { fetchWarehouseNomenclatureAllPages } from '../utils/warehousePagedFetch.js';
 import { selfHealPart } from '../utils/liveGroupSync.js';
 import {
   appendTemplateProperty,
@@ -103,6 +104,9 @@ export function NomenclatureDetailsPage(props: {
   const [defaultWarehouseId, setDefaultWarehouseId] = useState<string | null>(null);
   const [specJson, setSpecJson] = useState('');
   const [componentTypeId, setComponentTypeId] = useState<string | null>(null);
+  // Обобщённая позиция (E3): родитель без артикула; варианты этой строки — если она сама родитель.
+  const [parentNomenclatureId, setParentNomenclatureId] = useState<string | null>(null);
+  const [parentCandidates, setParentCandidates] = useState<Array<{ id: string; name: string; code: string; parentNomenclatureId: string | null }>>([]);
   const [bomRelationSchema, setBomRelationSchema] = useState<WarehouseBomRelationSchema>(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [propertyValues, setPropertyValues] = useState<Record<string, unknown>>({});
@@ -197,6 +201,7 @@ export function NomenclatureDetailsPage(props: {
       setComponentTypeId(
         found.componentTypeId ?? readWarehouseNomenclatureComponentTypeId(found.specJson ?? null),
       );
+      setParentNomenclatureId(found.parentNomenclatureId ?? null);
       try {
         const parsedSpec = found.specJson ? (JSON.parse(String(found.specJson)) as Record<string, unknown>) : {};
         const parsedTemplateId = typeof parsedSpec.templateId === 'string' && parsedSpec.templateId.trim() ? parsedSpec.templateId.trim() : null;
@@ -545,6 +550,24 @@ export function NomenclatureDetailsPage(props: {
   );
   const groupOptions = useMemo(() => withRecents('groupId', lookupToSelectOptions(lookups.nomenclatureGroups)), [lookups.nomenclatureGroups, withRecents]);
   const unitOptions = useMemo(() => withRecents('unitId', lookupToSelectOptions(lookups.units)), [lookups.units, withRecents]);
+  useEffect(() => {
+    let alive = true;
+    void fetchWarehouseNomenclatureAllPages({})
+      .then((all) => {
+        if (!alive) return;
+        setParentCandidates(all.map((r) => ({ id: String(r.id), name: String(r.name ?? ''), code: String(r.code ?? ''), parentNomenclatureId: r.parentNomenclatureId ?? null })));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [props.id]);
+  // Родителем может быть только строка без родителя (один уровень) и не сама карточка; у строки с вариантами родителя не выбрать.
+  const ownVariants = useMemo(() => parentCandidates.filter((c) => c.parentNomenclatureId === props.id), [parentCandidates, props.id]);
+  const parentOptions = useMemo<SearchSelectOption[]>(
+    () => parentCandidates.filter((c) => c.id !== props.id && !c.parentNomenclatureId).map((c) => ({ id: c.id, label: c.name || c.id, ...(c.code ? { hintText: c.code } : {}) })),
+    [parentCandidates, props.id],
+  );
   const brandOptions = useMemo(() => withRecents('defaultBrandId', lookupToSelectOptions(lookups.engineBrands)), [lookups.engineBrands, withRecents]);
   const warehouseOptions = useMemo(() => withRecents('defaultWarehouseId', lookupToSelectOptions(lookups.warehouses)), [lookups.warehouses, withRecents]);
   const instanceWarehouseOptions = useMemo(
@@ -581,6 +604,7 @@ export function NomenclatureDetailsPage(props: {
       // erp_nomenclature (migration 0053). UI no longer stores it inside specJson.
       // Pass `null` explicitly so backend can clear the column if the operator unset it.
       componentTypeId: componentTypeId ?? null,
+      parentNomenclatureId: parentNomenclatureId ?? null,
       isActive: true,
     });
     if (!result?.ok) {
@@ -673,6 +697,29 @@ export function NomenclatureDetailsPage(props: {
           <Input value={code} disabled={!canEditNomenclatureFields} onChange={(e) => setCode(e.target.value)} placeholder="Внутренний код / артикул" />
           <div>Наименование</div>
           <Input value={name} disabled={!canEditNomenclatureFields} onChange={(e) => setName(e.target.value)} />
+          <div title="Одна деталь на все двигатели: артикульные строки — варианты обобщённой позиции без артикула. Спецификация ссылается на родителя, прогноз берёт вариант по остатку.">Обобщённая позиция</div>
+          {ownVariants.length > 0 ? (
+            <div data-nomenclature-variants style={{ display: 'grid', gap: 4, fontSize: 13 }}>
+              <div style={{ color: 'var(--subtle)' }}>Эта строка — обобщённая позиция, вариантов: {ownVariants.length}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {ownVariants.map((v) => (
+                  <span key={v.id} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 10, background: 'var(--card-row-bg)', border: '1px solid var(--card-row-border)' }}>
+                    {v.name}{v.code ? <span style={{ color: 'var(--subtle)' }}> · {v.code}</span> : null}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <SearchSelect
+              value={parentNomenclatureId}
+              options={parentOptions}
+              placeholder="(самостоятельная позиция)"
+              disabled={!canEditNomenclatureFields}
+              showAllWhenEmpty
+              emptyQueryLimit={20}
+              onChange={(next) => setParentNomenclatureId(next)}
+            />
+          )}
           <div>Тип</div>
           <select value={itemType} disabled={!canEditNomenclatureFields} onChange={(e) => setItemType(e.target.value)} style={{ padding: '8px 10px' }}>
             {itemTypeSelectOptions.map((item) => (

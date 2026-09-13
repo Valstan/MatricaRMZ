@@ -2317,6 +2317,8 @@ export type MatricaApi = {
       specJson?: string | null;
       /** Block D of v1.22.0: native column for BOM component type id (migration 0053). */
       componentTypeId?: string | null;
+      /** Обобщённая позиция (migration 0096): id родителя; null — снять; не передавать — не трогать. */
+      parentNomenclatureId?: string | null;
       isActive?: boolean;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     nomenclatureDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
