@@ -1,0 +1,55 @@
+name: Check Android signing secrets
+
+# Секреты подписи из GitHub обратно не читаются, поэтому «валиден ли ключ» до сих пор
+# выяснялось только на релизном теге — там ошибка уже блокирует выкат. Этот прогон даёт
+# тот же ответ в любой момент и ничего не публикует.
+#
+# Наружу идёт ТОЛЬКО отпечаток сертификата и срок — они и так записаны в
+# docs/PROJECT_STATE.md §«Подпись Android-клиента»; приватная половина остаётся в раннере.
+# Артефактов шаг не выкладывает намеренно: репозиторий публичный, артефакты публичного
+# репо качает кто угодно.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Та же версия, что и у сборки APK: подпись читает именно Gradle на Java 21.
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Inspect signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 пуст — релизный тег соберётся без подписи и упадёт"
+            exit 1
+          fi
+          ks="$RUNNER_TEMP/matricarmz-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ks"
+
+          echo "— хранилище открывается паролем хранилища, алиас на месте:"
+          keytool -list -v -keystore "$ks" -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            | grep -E "Alias name|Owner:|Valid from|SHA256:|Signature algorithm"
+
+          # Пароль КЛЮЧА Gradle берёт отдельно от пароля хранилища, и расхождение между ними
+          # видно только в момент подписи — то есть на релизном теге. Достаём ключ явно.
+          echo "— ключ достаётся паролем ключа (это и делает Gradle при подписи):"
+          keytool -importkeystore -noprompt \
+            -srckeystore "$ks" -srcstorepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -srcalias "$ANDROID_KEY_ALIAS" -srckeypass "$ANDROID_KEY_PASSWORD" \
+            -destkeystore "$RUNNER_TEMP/probe.p12" -deststoretype pkcs12 \
+            -deststorepass probe-only-never-leaves-runner \
+            -destkeypass probe-only-never-leaves-runner > /dev/null
+          echo "ok — четыре секрета согласованы, релизная сборка подпишется"
