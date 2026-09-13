@@ -15,13 +15,19 @@ import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
+import { BOM_COMPACT_PRINT_CSS, buildBomCompactSections, buildBomFullSections } from '../utils/bomPrint.js';
 import {
+  BOM_BASE_SCOPE,
   buildBomSnapshot as buildBomSnapshotShared,
+  filterBomLineIdxs,
+  genBomKitKey,
+  groupBomLinesForCard,
+  listBomScopes,
   pruneDefaultForBrands,
   toggleDefaultForBrand,
   type EngineBomDetailsForSnapshot,
 } from '../utils/engineBomCardLogic.js';
-import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
+import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type BomDetails = {
@@ -98,113 +104,6 @@ function keyValueTable(rows: Array<[string, string]>): string {
   return `<table><tbody>${rows
     .map(([k, v]) => `<tr><th style="width:260px">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
     .join('')}</tbody></table>`;
-}
-
-function buildBomPrintSections(lines: BomLine[]): PrintSection[] {
-  if (!lines.length) {
-    return [{ id: 'lines-empty', title: 'Строки спецификации', html: '<div class="muted">Нет строк BOM</div>' }];
-  }
-
-  const buildKeyResolver = (chunk: BomLine[]) => {
-    const byKey = new Map<string, string>();
-    for (const line of chunk) {
-      const raw = String(line.lineKey ?? '').trim();
-      if (!raw) continue;
-      const label = getLineDisplayLabel(line);
-      byKey.set(raw, label);
-      const normalized = normalizeNodeKey(raw);
-      if (normalized && normalized !== raw && !byKey.has(normalized)) {
-        byKey.set(normalized, label);
-      }
-    }
-    return (raw: string | null | undefined): string => {
-      const key = String(raw ?? '').trim();
-      if (!key) return '—';
-      return byKey.get(key) ?? byKey.get(normalizeNodeKey(key)) ?? key;
-    };
-  };
-
-  const renderRows = (chunk: BomLine[]): string => {
-    const resolveKey = buildKeyResolver(chunk);
-    return [...chunk]
-      .sort((a, b) => {
-        const ap = Number(a.priority ?? 100);
-        const bp = Number(b.priority ?? 100);
-        if (ap !== bp) return ap - bp;
-        return getLineDisplayLabel(a).localeCompare(getLineDisplayLabel(b), 'ru');
-      })
-      .map((line) => {
-        const type = String(line.componentType ?? '');
-        const component = getLineDisplayLabel(line);
-        const qty = String(Number(line.qtyPerUnit ?? 0));
-        const required = line.isRequired !== false ? 'Да' : 'Нет';
-        const priority = String(Number(line.priority ?? 100));
-        const parent = resolveKey(line.parentLineKey);
-        return `<tr>
-          <td>${escapeHtml(type)}</td>
-          <td>${escapeHtml(component)}</td>
-          <td>${escapeHtml(qty)}</td>
-          <td>${escapeHtml(required)}</td>
-          <td>${escapeHtml(priority)}</td>
-          <td>${escapeHtml(parent)}</td>
-        </tr>`;
-      })
-      .join('');
-  };
-
-  const renderTable = (chunk: BomLine[]): string => {
-    const rows = renderRows(chunk);
-    return `<table>
-      <thead>
-        <tr>
-          <th>Тип</th>
-          <th>Компонент</th>
-          <th>Кол-во/двиг.</th>
-          <th>Обяз.</th>
-          <th>Приоритет</th>
-          <th>Входит в</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-  };
-
-  const baseLines = lines.filter((line) => !String(line.variantGroup ?? '').trim());
-  const variantMap = new Map<string, BomLine[]>();
-  for (const line of lines) {
-    const vg = String(line.variantGroup ?? '').trim();
-    if (!vg) continue;
-    const arr = variantMap.get(vg) ?? [];
-    arr.push(line);
-    variantMap.set(vg, arr);
-  }
-  const variants = Array.from(variantMap.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ru'));
-  const sections: PrintSection[] = [];
-
-  if (baseLines.length > 0) {
-    sections.push({
-      id: 'bom-base',
-      title: 'База (общие строки)',
-      html: renderTable(baseLines),
-      checked: true,
-    });
-  }
-
-  Array.from(variants).forEach(([variantId, variantOnlyLines], idx) => {
-    const merged = [...baseLines, ...variantOnlyLines];
-    const safeId = `variant-${variantId.toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'unnamed'}`;
-    sections.push({
-      id: safeId,
-      title: formatAssemblyVariantLabel(variantId, idx),
-      html: renderTable(merged),
-      checked: true,
-    });
-  });
-
-  if (sections.length === 0) {
-    return [{ id: 'bom-lines', title: 'Строки спецификации', html: renderTable(lines), checked: true }];
-  }
-  return sections;
 }
 
 // Snapshot для dirty-detection — shared логика в utils/engineBomCardLogic.
@@ -355,6 +254,10 @@ export function EngineAssemblyBomDetailsPage(props: {
   const [savingBom, setSavingBom] = useState(false);
   const [deletingBom, setDeletingBom] = useState(false);
   const [lastSaveWarnings, setLastSaveWarnings] = useState<string[]>([]);
+  // Вкладка комплекта (база / __kit_*), только что созданные пустые киты и поиск по строкам.
+  const [activeScope, setActiveScope] = useState<string>(BOM_BASE_SCOPE);
+  const [draftKits, setDraftKits] = useState<string[]>([]);
+  const [lineQuery, setLineQuery] = useState('');
   const [nomenclatureMetaRows, setNomenclatureMetaRows] = useState<
     Array<{
       id: string;
@@ -494,19 +397,43 @@ export function EngineAssemblyBomDetailsPage(props: {
     setData((prev) => (prev ? { ...prev, lines: prev.lines.map((line, i) => (set.has(i) ? { ...line, isDefaultOption: i === chosenIdx } : line)) } : prev));
   }, []);
 
+  // Новая позиция попадает в открытый комплект (база или вариант).
   const addPosition = useCallback(() => {
+    const variantGroup = activeScope === BOM_BASE_SCOPE ? null : activeScope;
     setData((prev) =>
       prev
         ? {
             ...prev,
             lines: [
               ...prev.lines,
-              { id: '', componentNomenclatureId: '', componentType: 'other', qtyPerUnit: 1, variantGroup: null, lineKey: null, parentLineKey: null, isRequired: true, priority: 100, positionKey: genPositionKey(), positionLabel: '', isDefaultOption: true },
+              { id: '', componentNomenclatureId: '', componentType: 'other', qtyPerUnit: 1, variantGroup, lineKey: null, parentLineKey: null, isRequired: true, priority: 100, positionKey: genPositionKey(), positionLabel: '', isDefaultOption: true },
             ],
           }
         : prev,
     );
-  }, [genPositionKey]);
+  }, [activeScope, genPositionKey]);
+
+  const addKit = useCallback(() => {
+    const key = genBomKitKey();
+    setDraftKits((prev) => [...prev, key]);
+    setActiveScope(key);
+  }, []);
+
+  const scopes = useMemo(() => {
+    const fromLines = listBomScopes(data?.lines ?? []);
+    return [...fromLines, ...draftKits.filter((k) => !fromLines.includes(k))];
+  }, [data?.lines, draftKits]);
+
+  const typeSortOrder = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const node of bomRelationSchema.nodes ?? []) map.set(String(node.typeId).toLowerCase(), Number(node.sortOrder ?? 100));
+    return map;
+  }, [bomRelationSchema.nodes]);
+
+  const visibleIdxs = useMemo(
+    () => filterBomLineIdxs(data?.lines ?? [], lineQuery, (line) => `${line.componentNomenclatureName ?? ''} ${line.componentNomenclatureCode ?? ''} ${line.positionLabel ?? ''}`),
+    [data?.lines, lineQuery],
+  );
 
   // Добавить взаимозаменяемый вариант детали в позицию. Если позиция была одиночкой
   // (positionKey пуст — легаси-строка), присваиваем ей сгенерированный ключ, чтобы варианты сгруппировались.
@@ -820,7 +747,7 @@ export function EngineAssemblyBomDetailsPage(props: {
                           ['Строк в спецификации', String(lines.length)],
                         ]),
                       },
-                      ...buildBomPrintSections(lines),
+                      ...buildBomFullSections(lines, componentTypeLabelMap),
                     ],
                   });
                   setStatus('');
@@ -841,11 +768,25 @@ export function EngineAssemblyBomDetailsPage(props: {
         extraActionsCenter={
           <Button
             variant="ghost"
-            onClick={resortBomLinesBySchema}
-            disabled={!props.canEdit || !data || (data?.lines.length ?? 0) === 0}
-            title="Установить priority строк по sortOrder (порядок отображения позиций)."
+            tone="info"
+            disabled={!data}
+            title="Компактная печать: базовый комплект, только основные детали, альбомный лист"
+            onClick={() => {
+              if (!data) return;
+              const brandsLabel = (ids: string[]) =>
+                ids.map((id) => lookupLabel(id, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS)).join(', ') || BRAND_LABEL_TEXTS.absent;
+              openPrintPreview({
+                title: 'Спецификация двигателя — на один лист',
+                subtitle: `${String(data.header.name ?? 'Без названия')} • марки: ${brandsLabel(data.header.engineBrandIds ?? [])} • версия: ${String(data.header.version ?? 1)}`,
+                sections: buildBomCompactSections(
+                  { header: { id: data.header.id, name: data.header.name, engineBrandIds: data.header.engineBrandIds ?? [], version: data.header.version }, lines: data.lines },
+                  { brandsLabel, typeLabels: componentTypeLabelMap, typeOrder: typeSortOrder },
+                ),
+                extraCss: BOM_COMPACT_PRINT_CSS,
+              });
+            }}
           >
-            Пересортировать по схеме
+            На один лист
           </Button>
         }
       />
@@ -964,36 +905,6 @@ export function EngineAssemblyBomDetailsPage(props: {
           ))}
         </div>
       ) : null}
-      {lineValidation.warnings.length > 0 ? (
-        <div style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8 }}>
-          <div style={{ fontWeight: 600, color: 'var(--warning, #b45309)', marginBottom: 4 }}>Предупреждения</div>
-          {lineValidation.warnings.map((message) => (
-            <div key={message} style={{ color: 'var(--warning, #b45309)', fontSize: 12 }}>
-              - {message}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {componentTypeMismatchedLines.length > 0 ? (
-        <details style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
-          <summary style={{ fontWeight: 600, color: 'var(--warning, #b45309)', cursor: 'pointer' }}>
-            Рассинхрон типа строки и типа номенклатуры ({componentTypeMismatchedLines.length}) — развернуть
-          </summary>
-          <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
-            У этих строк тип не совпадает с «Типом компонента BOM» из карточки номенклатуры. При следующем сохранении тип строки будет приведён к типу из карточки номенклатуры (источник истины).
-          </div>
-          {componentTypeMismatchedLines.slice(0, 12).map((entry) => (
-            <div key={`mismatch-${entry.index}-${entry.lineLabel}`} style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
-              · «{entry.lineLabel}»: текущий тип «{componentTypeLabelMap.get(entry.currentType) ?? entry.currentType}» → будет «{componentTypeLabelMap.get(entry.expectedType) ?? entry.expectedType}»
-            </div>
-          ))}
-          {componentTypeMismatchedLines.length > 12 ? (
-            <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
-              … и ещё {componentTypeMismatchedLines.length - 12}
-            </div>
-          ) : null}
-        </details>
-      ) : null}
       {lastSaveWarnings.length > 0 ? (
         <details style={{ border: '1px solid var(--warning, #b45309)', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, padding: 8, display: 'grid', gap: 6 }}>
           <summary style={{ fontWeight: 600, color: 'var(--warning, #b45309)', cursor: 'pointer' }}>
@@ -1108,174 +1019,296 @@ export function EngineAssemblyBomDetailsPage(props: {
           </div>
 
           {(() => {
-            type PosCard = { posKey: string; label: string; qty: number; typeTag: string; idxs: number[]; defaultIdx: number | null };
-            const positions: PosCard[] = [];
-            const byKey = new Map<string, number>();
-            data.lines.forEach((line, i) => {
-              const key = String(line.positionKey ?? '').trim();
-              if (key) {
-                let pi = byKey.get(key);
-                if (pi === undefined) {
-                  pi = positions.length;
-                  byKey.set(key, pi);
-                  positions.push({ posKey: key, label: String(line.positionLabel ?? ''), qty: Number(line.qtyPerUnit ?? 0), typeTag: String(line.componentType ?? ''), idxs: [], defaultIdx: null });
-                }
-                const card = positions[pi]!;
-                card.idxs.push(i);
-                if (line.isDefaultOption !== false) {
-                  if (card.defaultIdx === null) card.defaultIdx = i;
-                  card.label = String(line.positionLabel ?? card.label);
-                  card.qty = Number(line.qtyPerUnit ?? card.qty);
-                  card.typeTag = String(line.componentType ?? card.typeTag);
-                }
-              } else {
-                positions.push({ posKey: `solo-${i}`, label: String(line.positionLabel ?? ''), qty: Number(line.qtyPerUnit ?? 0), typeTag: String(line.componentType ?? ''), idxs: [i], defaultIdx: i });
-              }
-            });
-            const legacyVariantCount = data.lines.filter((l) => String(l.variantGroup ?? '').trim()).length;
+            const cellStyle: React.CSSProperties = { padding: '3px 6px', verticalAlign: 'middle', borderBottom: '1px solid var(--border)' };
+            const headStyle: React.CSSProperties = { ...cellStyle, fontSize: 12, color: 'var(--subtle)', fontWeight: 500, position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 };
+            const sections = groupBomLinesForCard(data.lines, activeScope, typeSortOrder, getLineDisplayLabel).map((section) => ({
+              ...section,
+              positions: section.positions.filter((pos) => !visibleIdxs || [pos.primaryIdx, ...pos.backupIdxs].some((i) => visibleIdxs.has(i))),
+            })).filter((section) => section.positions.length > 0);
+            const scopeLineCount = (scope: string) => data.lines.filter((l) => (normalizeVariantGroup(l.variantGroup) ?? BOM_BASE_SCOPE) === scope).length;
+
+            const renderPicker = (i: number) => {
+              const line = data.lines[i]!;
+              const selectedId = String(line.componentNomenclatureId ?? '').trim();
+              const groups = !selectedId || componentItemById.has(selectedId)
+                ? componentGroupedGroups
+                : [
+                    {
+                      groupId: '__orphan__',
+                      groupLabel: 'Текущий выбор (не найден в справочнике)',
+                      items: [
+                        {
+                          id: selectedId,
+                          label: line.componentNomenclatureName || line.componentNomenclatureCode || `(удалено: ${selectedId.slice(0, 8)})`,
+                          ...(line.componentNomenclatureCode ? { hintText: line.componentNomenclatureCode } : {}),
+                          componentTypeId: line.componentType ?? null,
+                        },
+                      ],
+                    } satisfies GroupedSearchSelectGroup,
+                    ...componentGroupedGroups,
+                  ];
+              return (
+                <GroupedSearchSelect
+                  value={selectedId || null}
+                  groups={groups}
+                  onChange={(nextId, nextTypeId) => {
+                    pushRecent('componentNomenclatureId', nextId ?? null);
+                    patchLine(i, { componentNomenclatureId: nextId ?? '', componentType: nextTypeId ?? line.componentType ?? 'other' });
+                  }}
+                  disabled={!props.canEdit}
+                />
+              );
+            };
+
             return (
-              <div style={{ display: 'grid', gap: 10, gridAutoRows: 'max-content', alignContent: 'start', flex: 1, minHeight: 0, overflow: 'auto' }}>
-                {data.lines.length === 0 ? (
-                  <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface2)', display: 'grid', gap: 8, justifyItems: 'center', textAlign: 'center' }}>
-                    <div style={{ fontWeight: 600 }}>Спецификация пустая — добавьте позиции</div>
-                    <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Позиция — деталь узла (например «Картер верхний»). Если к позиции подходит несколько взаимозаменяемых деталей — добавьте варианты и отметьте основной.</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {scopes.map((scope, i) => (
+                    <Button
+                      key={scope}
+                      variant={scope === activeScope ? 'primary' : 'ghost'}
+                      size="sm"
+                      onClick={() => setActiveScope(scope)}
+                      title={scope === BOM_BASE_SCOPE ? 'Строки, общие для всех комплектов' : 'Вариант комплекта: отличия от базового'}
+                    >
+                      {scope === BOM_BASE_SCOPE ? 'Базовый комплект' : formatAssemblyVariantLabel(scope, i - 1)}
+                      <span style={{ marginLeft: 6, opacity: 0.7, fontSize: 11 }}>{scopeLineCount(scope)}</span>
+                    </Button>
+                  ))}
+                  {props.canEdit ? (
+                    <Button variant="ghost" size="sm" onClick={addKit} title="Новый вариант комплекта (например, другая комплектация той же марки)">
+                      + вариант комплекта
+                    </Button>
+                  ) : null}
+                  <Input
+                    value={lineQuery}
+                    onChange={(e) => setLineQuery(e.target.value)}
+                    placeholder="Поиск по названию или артикулу"
+                    style={{ marginLeft: 'auto', width: 260 }}
+                  />
+                </div>
+                {activeScope !== BOM_BASE_SCOPE ? (
+                  <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                    Строки варианта дополняют базовый комплект в прогнозе сборки; в сборочный наряд по этому варианту идут только его строки.
                   </div>
                 ) : null}
-                {legacyVariantCount > 0 ? (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', background: 'rgba(245, 158, 11, 0.08)', fontSize: 12, color: 'var(--subtle)' }}>
-                    Спецификация содержит старые «варианты сборки» ({legacyVariantCount} строк с variant-group) — показаны как отдельные позиции. При желании объедините взаимозаменяемые детали в одну позицию через «+ вариант детали».
-                  </div>
-                ) : null}
-                {positions.map((pos) => {
-                  const defaultIdx = pos.defaultIdx ?? pos.idxs[0] ?? -1;
-                  const typeLabel = componentTypeLabelMap.get(String(pos.typeTag ?? '').trim().toLowerCase()) ?? pos.typeTag ?? '';
-                  return (
-                    <div key={pos.posKey} style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface2)', padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <Input
-                          value={pos.label}
-                          placeholder={typeLabel || 'Название позиции'}
-                          onChange={(e) => patchPositionLines(pos.idxs, { positionLabel: e.target.value })}
-                          disabled={!props.canEdit}
-                          style={{ flex: 1, minWidth: 180, fontWeight: 600 }}
-                        />
-                        <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Кол-во/двиг.</span>
-                        <Input
-                          value={String(pos.qty)}
-                          onChange={(e) => patchPositionLines(pos.idxs, { qtyPerUnit: Number(e.target.value || 0) })}
-                          disabled={!props.canEdit}
-                          style={{ width: 72 }}
-                        />
-                        {typeLabel ? (
-                          <span style={{ background: 'var(--surface)', color: 'var(--subtle)', fontSize: 12, padding: '3px 8px', borderRadius: 8, border: '1px solid var(--border)' }} title="Тип определяется выбранной деталью">
-                            {typeLabel}
-                          </span>
-                        ) : null}
-                        {props.canEdit ? (
-                          <Button
-                            variant="ghost"
-                            style={{ color: 'var(--danger)', padding: '2px 8px', minHeight: 0, marginLeft: 'auto' }}
-                            onClick={() => {
-                              void (async () => {
-                                const ok = await confirm({ detail: `Будет удалена позиция «${pos.label || typeLabel || 'без имени'}» (${pos.idxs.length} вариант(ов)) из спецификации «${data?.header.name ?? ''}».` });
-                                if (!ok) return;
-                                removePosition(pos.idxs);
-                              })();
-                            }}
-                            title="Удалить позицию целиком"
-                          >
-                            Удалить позицию
-                          </Button>
-                        ) : null}
-                      </div>
-                      <div style={{ display: 'grid', gap: 6, marginTop: 8, marginLeft: 4 }}>
-                        {pos.idxs.map((i) => {
-                          const line = data.lines[i]!;
-                          const isDefault = i === defaultIdx;
-                          const issues = lineValidation.lineIssues.get(i);
+                <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface2)' }}>
+                  {sections.length === 0 ? (
+                    <div style={{ padding: 16, textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>
+                      {data.lines.length === 0
+                        ? 'Спецификация пустая — добавьте позиции. Позиция — деталь узла; если подходит несколько взаимозаменяемых деталей, добавьте к ней запасные варианты.'
+                        : lineQuery.trim()
+                          ? 'Ничего не найдено по запросу.'
+                          : 'В этом комплекте пока нет строк.'}
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...headStyle, width: 200 }}>Позиция</th>
+                          <th style={headStyle}>Деталь</th>
+                          <th style={{ ...headStyle, width: 70, textAlign: 'center' }}>Кол-во</th>
+                          <th style={{ ...headStyle, width: 80, textAlign: 'center' }} title="Норма расхода, % — доля двигателей, где деталь меняется">Норма %</th>
+                          <th style={{ ...headStyle, width: 220 }}>Примечание</th>
+                          <th style={{ ...headStyle, width: props.canEdit ? 150 : 0 }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sections.map((section) => {
+                          const typeLabel = componentTypeLabelMap.get(section.typeId) ?? section.typeId;
                           return (
-                            <div
-                              key={line.id || `opt-${i}`}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                flexWrap: 'wrap',
-                                padding: '4px 6px',
-                                borderRadius: 8,
-                                background: issues?.errors.length ? 'rgba(239, 68, 68, 0.08)' : undefined,
-                              }}
-                            >
-                              <input
-                                type="radio"
-                                name={`pos-${pos.posKey}`}
-                                checked={isDefault}
-                                onChange={() => setDefaultOption(pos.idxs, i)}
-                                disabled={!props.canEdit}
-                                title="Основной вариант — идёт в прогноз и сборку"
-                              />
-                              <div style={{ flex: 1, minWidth: 240 }}>
-                                <GroupedSearchSelect
-                                  value={line.componentNomenclatureId || null}
-                                  groups={(() => {
-                                    const selectedId = String(line.componentNomenclatureId ?? '').trim();
-                                    if (!selectedId || componentItemById.has(selectedId)) return componentGroupedGroups;
-                                    const orphanLabel = line.componentNomenclatureName || line.componentNomenclatureCode || `(удалено: ${selectedId.slice(0, 8)})`;
-                                    const orphanGroup: GroupedSearchSelectGroup = {
-                                      groupId: '__orphan__',
-                                      groupLabel: 'Текущий выбор (не найден в справочнике)',
-                                      items: [
-                                        {
-                                          id: selectedId,
-                                          label: orphanLabel,
-                                          ...(line.componentNomenclatureCode ? { hintText: line.componentNomenclatureCode } : {}),
-                                          componentTypeId: line.componentType ?? null,
-                                        },
-                                      ],
-                                    };
-                                    return [orphanGroup, ...componentGroupedGroups];
-                                  })()}
-                                  onChange={(nextId, nextTypeId) => {
-                                    pushRecent('componentNomenclatureId', nextId ?? null);
-                                    patchLine(i, { componentNomenclatureId: nextId ?? '', componentType: nextTypeId ?? line.componentType ?? 'other' });
-                                  }}
-                                  disabled={!props.canEdit}
-                                />
-                              </div>
-                              {isDefault ? (
-                                <span style={{ background: 'rgba(16,185,129,0.12)', color: '#0f6e56', fontSize: 11, padding: '2px 7px', borderRadius: 8 }}>основной</span>
-                              ) : null}
-                              {props.canEdit ? (
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => {
-                                    void (async () => {
-                                      const nm = line.componentNomenclatureName || line.componentNomenclatureCode || 'вариант';
-                                      const ok = await confirm({ detail: pos.idxs.length > 1 ? `Убрать вариант «${nm}» из позиции?` : `Убрать единственный вариант «${nm}» (позиция станет пустой)?` });
-                                      if (!ok) return;
-                                      removeOption(i);
-                                    })();
-                                  }}
-                                  style={{ color: 'var(--danger)', padding: '2px 6px', minHeight: 0 }}
-                                  title="Убрать этот вариант детали"
-                                >
-                                  ✕
-                                </Button>
-                              ) : null}
-                            </div>
+                            <React.Fragment key={section.typeId}>
+                              <tr>
+                                <td colSpan={6} style={{ ...cellStyle, padding: '8px 6px 3px', fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--subtle)' }}>
+                                  {typeLabel} <span style={{ fontWeight: 400 }}>— {section.positions.length}</span>
+                                </td>
+                              </tr>
+                              {section.positions.map((pos) => {
+                                const idxs = [pos.primaryIdx, ...pos.backupIdxs];
+                                const primary = data.lines[pos.primaryIdx]!;
+                                const issues = lineValidation.lineIssues.get(pos.primaryIdx);
+                                return (
+                                  <React.Fragment key={pos.posKey}>
+                                    <tr style={issues?.errors.length ? { background: 'rgba(239, 68, 68, 0.08)' } : undefined}>
+                                      <td style={cellStyle}>
+                                        <Input
+                                          value={String(primary.positionLabel ?? '')}
+                                          placeholder={typeLabel}
+                                          onChange={(e) => patchPositionLines(idxs, { positionLabel: e.target.value })}
+                                          disabled={!props.canEdit}
+                                          style={{ width: '100%' }}
+                                          title="Название позиции в узле (например «Картер верхний»); пусто = имя детали"
+                                        />
+                                      </td>
+                                      <td style={cellStyle}>{renderPicker(pos.primaryIdx)}</td>
+                                      <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                        <Input
+                                          value={String(Number(primary.qtyPerUnit ?? 0))}
+                                          onChange={(e) => patchPositionLines(idxs, { qtyPerUnit: Number(e.target.value || 0) })}
+                                          disabled={!props.canEdit}
+                                          style={{ width: 56, textAlign: 'center' }}
+                                        />
+                                      </td>
+                                      <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                        <Input
+                                          value={primary.normPercent == null ? '' : String(primary.normPercent)}
+                                          onChange={(e) => {
+                                            const raw = e.target.value.replace(',', '.').trim();
+                                            const n = raw === '' ? null : Number(raw);
+                                            patchLine(pos.primaryIdx, { normPercent: n != null && Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null });
+                                          }}
+                                          disabled={!props.canEdit}
+                                          placeholder="—"
+                                          style={{ width: 64, textAlign: 'center' }}
+                                        />
+                                      </td>
+                                      <td style={cellStyle}>
+                                        <Input
+                                          value={String(primary.notes ?? '')}
+                                          onChange={(e) => patchLine(pos.primaryIdx, { notes: e.target.value || null })}
+                                          disabled={!props.canEdit}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </td>
+                                      <td style={{ ...cellStyle, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                                        {props.canEdit ? (
+                                          <>
+                                            <Button variant="ghost" size="sm" onClick={() => addOption(idxs)} title="Добавить взаимозаменяемую деталь — запасной вариант этой позиции" style={{ padding: '2px 6px', minHeight: 0 }}>
+                                              + запасной
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              style={{ color: 'var(--danger)', padding: '2px 6px', minHeight: 0 }}
+                                              title="Удалить позицию со всеми вариантами"
+                                              onClick={() => {
+                                                void (async () => {
+                                                  const ok = await confirm({ detail: `Будет удалена позиция «${primary.positionLabel || getLineDisplayLabel(primary)}»${idxs.length > 1 ? ` (${idxs.length} варианта)` : ''} из спецификации «${data.header.name}».` });
+                                                  if (ok) removePosition(idxs);
+                                                })();
+                                              }}
+                                            >
+                                              ✕
+                                            </Button>
+                                          </>
+                                        ) : null}
+                                      </td>
+                                    </tr>
+                                    {pos.backupIdxs.map((i) => {
+                                      const line = data.lines[i]!;
+                                      const backupIssues = lineValidation.lineIssues.get(i);
+                                      return (
+                                        <tr key={line.id || `backup-${i}`} style={{ background: backupIssues?.errors.length ? 'rgba(239, 68, 68, 0.08)' : 'rgba(148, 163, 184, 0.08)' }}>
+                                          <td style={{ ...cellStyle, paddingLeft: 24, fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
+                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: props.canEdit ? 'pointer' : 'default' }} title="Сделать основным — именно основной вариант идёт в прогноз и наряд">
+                                              <input type="radio" name={`pos-${pos.posKey}`} checked={false} onChange={() => setDefaultOption(idxs, i)} disabled={!props.canEdit} />
+                                              запасной
+                                            </label>
+                                          </td>
+                                          <td style={cellStyle}>{renderPicker(i)}</td>
+                                          <td style={{ ...cellStyle, textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>{Number(line.qtyPerUnit ?? 0)}</td>
+                                          <td style={cellStyle} />
+                                          <td style={cellStyle} />
+                                          <td style={{ ...cellStyle, textAlign: 'right' }}>
+                                            {props.canEdit ? (
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                style={{ color: 'var(--danger)', padding: '2px 6px', minHeight: 0 }}
+                                                title="Убрать этот запасной вариант"
+                                                onClick={() => {
+                                                  void (async () => {
+                                                    const ok = await confirm({ detail: `Убрать запасной вариант «${getLineDisplayLabel(line)}» из позиции?` });
+                                                    if (ok) removeOption(i);
+                                                  })();
+                                                }}
+                                              >
+                                                ✕
+                                              </Button>
+                                            ) : null}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </React.Fragment>
                           );
                         })}
-                        {props.canEdit ? (
-                          <div>
-                            <Button variant="ghost" onClick={() => addOption(pos.idxs)} style={{ padding: '2px 8px', minHeight: 0 }}>
-                              + вариант детали
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <details style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 12 }}>
+                  <summary style={{ cursor: 'pointer', color: 'var(--subtle)' }}>
+                    Расширенно: дерево узлов, порядок по схеме, служебные предупреждения
+                  </summary>
+                  <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={resortBomLinesBySchema}
+                        disabled={!props.canEdit || data.lines.length === 0}
+                        title="Установить priority строк по sortOrder схемы типов (порядок внутри раздела)."
+                      >
+                        Пересортировать по схеме
+                      </Button>
+                      <span style={{ color: 'var(--subtle)' }}>Тип детали задаётся в её карточке номенклатуры; разделы здесь — по нему.</span>
                     </div>
-                  );
-                })}
+                    {componentTypeMismatchedLines.length > 0 ? (
+                      <div style={{ color: 'var(--warning, #b45309)' }}>
+                        <div style={{ fontWeight: 600 }}>Тип строки не совпадает с карточкой детали ({componentTypeMismatchedLines.length}) — при сохранении будет приведён к карточке:</div>
+                        {componentTypeMismatchedLines.slice(0, 12).map((entry) => (
+                          <div key={`mismatch-${entry.index}-${entry.lineLabel}`}>
+                            · «{entry.lineLabel}»: «{componentTypeLabelMap.get(entry.currentType) ?? entry.currentType}» → «{componentTypeLabelMap.get(entry.expectedType) ?? entry.expectedType}»
+                          </div>
+                        ))}
+                        {componentTypeMismatchedLines.length > 12 ? <div>… и ещё {componentTypeMismatchedLines.length - 12}</div> : null}
+                      </div>
+                    ) : null}
+                    {lineValidation.warnings.length > 0 ? (
+                      <div style={{ color: 'var(--warning, #b45309)' }}>
+                        {lineValidation.warnings.map((message) => (
+                          <div key={message}>- {message}</div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div>
+                      <div style={{ color: 'var(--subtle)', marginBottom: 4 }}>
+                        Дерево узлов комплекта «{activeScope === BOM_BASE_SCOPE ? 'Базовый' : formatAssemblyVariantLabel(activeScope, Math.max(0, scopes.indexOf(activeScope) - 1))}»: ключ узла и «входит в» (ключ родителя). Прогноз отбрасывает строки с несуществующим родителем.
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...headStyle, position: 'static' }}>Деталь</th>
+                            <th style={{ ...headStyle, position: 'static', width: 200 }}>Ключ узла</th>
+                            <th style={{ ...headStyle, position: 'static', width: 200 }}>Входит в</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.lines.map((line, i) => {
+                            if ((normalizeVariantGroup(line.variantGroup) ?? BOM_BASE_SCOPE) !== activeScope) return null;
+                            if (visibleIdxs && !visibleIdxs.has(i)) return null;
+                            return (
+                              <tr key={line.id || `tree-${i}`}>
+                                <td style={cellStyle}>{getLineDisplayLabel(line)}{line.isDefaultOption === false ? <span style={{ color: 'var(--subtle)' }}> (запасной)</span> : null}</td>
+                                <td style={cellStyle}>
+                                  <Input value={String(line.lineKey ?? '')} onChange={(e) => patchLine(i, { lineKey: e.target.value || null })} disabled={!props.canEdit} style={{ width: '100%' }} />
+                                </td>
+                                <td style={cellStyle}>
+                                  <Input value={String(line.parentLineKey ?? '')} onChange={(e) => patchLine(i, { parentLineKey: e.target.value || null })} disabled={!props.canEdit} style={{ width: '100%' }} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </details>
               </div>
             );
           })()}
