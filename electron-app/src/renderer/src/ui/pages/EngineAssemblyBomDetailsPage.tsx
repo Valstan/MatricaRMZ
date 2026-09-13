@@ -16,7 +16,9 @@ import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import { BOM_COMPACT_PRINT_CSS, buildBomCompactSections, buildBomFullSections } from '../utils/bomPrint.js';
+import { loadAllBrandGroups, type EngineBrandGroupSummary } from '../utils/liveGroupSync.js';
 import {
+  addBrandGroupToBom,
   BOM_BASE_SCOPE,
   buildBomSnapshot as buildBomSnapshotShared,
   filterBomLineIdxs,
@@ -350,6 +352,32 @@ export function EngineAssemblyBomDetailsPage(props: {
     // Марка может быть привязана сразу к нескольким BOM, поэтому фильтр по занятым убран.
     return withRecents('engineBrandId', engineBrandSelectOptions);
   }, [engineBrandSelectOptions, withRecents]);
+
+  // «Шаблон на группу марок» (план bom-simplify §6.2, вариант A): модель не меняется —
+  // действие добавляет к BOM все марки выбранной группы. Группы грузятся по требованию (их единицы).
+  const [brandGroups, setBrandGroups] = useState<EngineBrandGroupSummary[] | null>(null);
+  const [brandGroupsLoading, setBrandGroupsLoading] = useState(false);
+  const ensureBrandGroups = useCallback(async () => {
+    if (brandGroups || brandGroupsLoading) return;
+    setBrandGroupsLoading(true);
+    try {
+      setBrandGroups(await loadAllBrandGroups());
+    } catch (e) {
+      setStatus(`Ошибка: группы марок не загрузились (${String(e)})`);
+    } finally {
+      setBrandGroupsLoading(false);
+    }
+  }, [brandGroups, brandGroupsLoading]);
+  const bindBrandGroup = useCallback((groupId: string) => {
+    const group = (brandGroups ?? []).find((g) => g.id === groupId);
+    if (!group) return;
+    setData((prev) => {
+      if (!prev) return prev;
+      const { engineBrandIds, added } = addBrandGroupToBom(prev.header.engineBrandIds ?? [], group.brandIds);
+      setStatus(added > 0 ? `Добавлено марок из группы «${group.name}»: ${added}. Не забудьте сохранить.` : `Все марки группы «${group.name}» уже привязаны.`);
+      return added > 0 ? { ...prev, header: { ...prev.header, engineBrandIds } } : prev;
+    });
+  }, [brandGroups]);
 
 
 
@@ -927,7 +955,30 @@ export function EngineAssemblyBomDetailsPage(props: {
           {warehouseRefsError ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>Справочники склада: {warehouseRefsError}</div> : null}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(280px, 1.2fr) minmax(110px, 160px)', gap: 10, alignItems: 'end' }}>
             <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марки двигателя (можно несколько)</span>
+              <span style={{ fontSize: 12, color: 'var(--subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                Марки двигателя (можно несколько)
+                {props.canEdit ? (
+                  <select
+                    value=""
+                    onFocus={() => void ensureBrandGroups()}
+                    onMouseDown={() => void ensureBrandGroups()}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (id) bindBrandGroup(id);
+                    }}
+                    title="Добавить к спецификации все марки выбранной группы"
+                    style={{ marginLeft: 'auto', fontSize: 12, maxWidth: 260 }}
+                    data-bom-brand-group-select
+                  >
+                    <option value="">{brandGroupsLoading ? 'Группы марок…' : '+ марки группы…'}</option>
+                    {(brandGroups ?? []).map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({g.brandIds.length})
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </span>
               {props.canEdit ? (
                 <MultiSearchSelect
                   values={data.header.engineBrandIds ?? []}
