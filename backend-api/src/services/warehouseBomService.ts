@@ -1100,6 +1100,52 @@ export async function activateWarehouseAssemblyBomAsDefault(args: {
       .update(erpEngineAssemblyBom)
       .set({ status: 'active', isDefault: true, updatedAt: ts, syncStatus: 'synced' })
       .where(eq(erpEngineAssemblyBom.id, id));
+    // Единый механизм «основного BOM» (E4): истина — флаг связки `is_default_for_brand`. Эта BOM
+    // становится основной для всех своих марок, у прочих BOM этих марок флаг снимается; журнал получает все связки.
+    const ownLinks = await db
+      .select()
+      .from(erpEngineAssemblyBomBrandLinks)
+      .where(and(eq(erpEngineAssemblyBomBrandLinks.bomId, id), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)));
+    const ownBrandIds = ownLinks.map((l) => String(l.engineBrandId));
+    const touchedLinks: Array<typeof ownLinks[number]> = [];
+    if (ownBrandIds.length > 0) {
+      const siblingLinks = await db
+        .select()
+        .from(erpEngineAssemblyBomBrandLinks)
+        .where(and(inArray(erpEngineAssemblyBomBrandLinks.engineBrandId, ownBrandIds as any), eq(erpEngineAssemblyBomBrandLinks.isDefaultForBrand, true), ne(erpEngineAssemblyBomBrandLinks.bomId, id as any), isNull(erpEngineAssemblyBomBrandLinks.deletedAt)));
+      for (const l of siblingLinks) {
+        await db.update(erpEngineAssemblyBomBrandLinks).set({ isDefaultForBrand: false, updatedAt: ts, syncStatus: 'synced' }).where(eq(erpEngineAssemblyBomBrandLinks.id, l.id));
+        touchedLinks.push({ ...l, isDefaultForBrand: false, updatedAt: ts });
+      }
+      for (const l of ownLinks) {
+        if (l.isDefaultForBrand) continue;
+        await db.update(erpEngineAssemblyBomBrandLinks).set({ isDefaultForBrand: true, updatedAt: ts, syncStatus: 'synced' }).where(eq(erpEngineAssemblyBomBrandLinks.id, l.id));
+        touchedLinks.push({ ...l, isDefaultForBrand: true, updatedAt: ts });
+      }
+    }
+    if (touchedLinks.length > 0) {
+      await signAndAppendDetailed(
+        touchedLinks.map((link) => ({
+          type: 'upsert' as const,
+          table: LedgerTableName.ErpEngineAssemblyBomBrandLinks,
+          row_id: String(link.id),
+          row: {
+            id: String(link.id),
+            bom_id: String(link.bomId),
+            engine_brand_id: String(link.engineBrandId),
+            is_primary: Boolean(link.isPrimary),
+            is_default_for_brand: Boolean(link.isDefaultForBrand),
+            created_at: Number(link.createdAt),
+            updated_at: Number(link.updatedAt),
+            deleted_at: link.deletedAt == null ? null : Number(link.deletedAt),
+            sync_status: String(link.syncStatus ?? 'synced'),
+            last_server_seq: link.lastServerSeq == null ? null : Number(link.lastServerSeq),
+          },
+          actor: { userId: args.actor.id, username: args.actor.username, role: args.actor.role ?? 'user' },
+          ts,
+        })),
+      );
+    }
     const saved = await db.select().from(erpEngineAssemblyBom).where(eq(erpEngineAssemblyBom.id, id)).limit(1);
     const savedRow = saved[0];
     if (savedRow) {

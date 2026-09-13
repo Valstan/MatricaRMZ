@@ -118,6 +118,18 @@ export function pickDefaultAssemblyBom<T extends { isDefaultForBrand: boolean }>
   return null;
 }
 
+/**
+ * Строки комплекта для наряда: база (variantGroup пуст) + строки выбранного варианта.
+ * Смысл кита тот же, что у прогноза сборки (`buildAssemblyForecastKits`: merged = base + variant) —
+ * решение владельца 13.09 (план bom-simplify §4). Без варианта — только база.
+ */
+export function selectAssemblyPlanLines<T extends { variantGroup?: unknown }>(allLines: readonly T[], variantKey: string | null): T[] {
+  return allLines.filter((line) => {
+    const lineVariant = typeof line.variantGroup === 'string' && line.variantGroup.trim() ? line.variantGroup.trim() : null;
+    return lineVariant === null || lineVariant === variantKey;
+  });
+}
+
 export async function resolveAssemblyPlan(args: { engineId: string; bomId?: string }): Promise<AssemblyPlanResolution> {
   try {
     const engineId = args.engineId.trim();
@@ -147,10 +159,7 @@ export async function resolveAssemblyPlan(args: { engineId: string; bomId?: stri
     const variantKey = typeof header.defaultVariantKey === 'string' && header.defaultVariantKey.trim()
       ? header.defaultVariantKey.trim()
       : null;
-    const lines = allLines.filter((line) => {
-      const lineVariant = typeof line.variantGroup === 'string' && line.variantGroup.trim() ? line.variantGroup.trim() : null;
-      return lineVariant === variantKey;
-    });
+    const lines = selectAssemblyPlanLines(allLines, variantKey);
     if (lines.length === 0) {
       return { ok: false, code: 'variant_missing', error: 'В основном варианте BOM нет материалов', engineBrandId: engine.brandId };
     }
