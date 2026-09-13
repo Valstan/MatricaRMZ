@@ -560,6 +560,8 @@ export function buildAssemblyForecastKits(input: {
     name: string | null;
     updatedAt: number | null;
     engineBrandId: string;
+    /** Флаг связки «основная для марки» — единственный источник «основного BOM» (E4). */
+    isDefaultForBrand?: boolean;
   }>;
   lineRows: ReadonlyArray<{
     bomId: string;
@@ -598,14 +600,21 @@ export function buildAssemblyForecastKits(input: {
       headerRows.push(rows[0]!);
       continue;
     }
+    // Основной BOM марки — флаг связки `is_default_for_brand` (единый механизм, E4). Ровно один
+    // флаг — берём его молча; иначе прежнее правило «самый свежий» с предупреждением.
+    const flagged = rows.filter((r) => r.isDefaultForBrand === true);
+    if (flagged.length === 1) {
+      headerRows.push(flagged[0]!);
+      continue;
+    }
     const sorted = [...rows].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0));
     const freshest = sorted[0]!;
     headerRows.push(freshest);
     const brandTitle = displayEngineBrandTitle(brandId, input.brandLabels.get(brandId) ?? brandId);
     const usedName = String(freshest.name ?? '').trim() || freshest.id;
     warnings.push(
-      `Несколько активных default BOM для марки «${brandTitle}» (${rows.length}). ` +
-        `Используется свежая «${usedName}» — архивируйте ненужные.`,
+      `Несколько активных BOM для марки «${brandTitle}» (${rows.length}), основная не отмечена. ` +
+        `Используется свежая «${usedName}» — отметьте основную в карточке BOM или архивируйте лишние.`,
     );
   }
 
@@ -809,6 +818,7 @@ async function loadActiveDefaultBomKits(
       updatedAt: erpEngineAssemblyBom.updatedAt,
       engineBrandId: erpEngineAssemblyBomBrandLinks.engineBrandId,
       isPrimary: erpEngineAssemblyBomBrandLinks.isPrimary,
+      isDefaultForBrand: erpEngineAssemblyBomBrandLinks.isDefaultForBrand,
     })
     .from(erpEngineAssemblyBom)
     .innerJoin(
@@ -873,6 +883,7 @@ async function loadActiveDefaultBomKits(
       name: row.name == null ? null : String(row.name),
       updatedAt: row.updatedAt == null ? null : Number(row.updatedAt),
       engineBrandId: String(row.engineBrandId),
+      isDefaultForBrand: row.isDefaultForBrand === true,
     })),
     lineRows: lineRows.map((line) => ({
       bomId: String(line.bomId),

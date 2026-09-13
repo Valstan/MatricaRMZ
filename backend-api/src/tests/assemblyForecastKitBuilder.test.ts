@@ -194,7 +194,7 @@ describe('buildAssemblyForecastKits — edge case #5: несколько active+
     expect(result.kits).toHaveLength(1);
     expect(result.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['nom-new']);
     // warning с упоминанием количества и имени свежей
-    const collisionWarning = result.warnings.find((w) => w.includes('Несколько активных default BOM'));
+    const collisionWarning = result.warnings.find((w) => w.includes('Несколько активных BOM'));
     expect(collisionWarning).toBeDefined();
     expect(collisionWarning).toContain('А-41');
     expect(collisionWarning).toContain('New BOM');
@@ -504,5 +504,31 @@ describe('обобщённая позиция (parent_nomenclature_id, план 
       variantsByParentId: new Map(),
     });
     expect(r.kits[0]!.parts.map((p) => p.nomenclatureId)).toEqual(['pump']);
+  });
+});
+
+describe('основной BOM марки — флаг связки (E4)', () => {
+  it('из нескольких BOM марки берётся отмеченный флагом, без предупреждения', () => {
+    const r = buildAssemblyForecastKits({
+      headerRows: [
+        { ...header({ id: 'old', engineBrandId: 'brand' }), updatedAt: 1, isDefaultForBrand: true },
+        { ...header({ id: 'fresh', engineBrandId: 'brand' }), updatedAt: 9, isDefaultForBrand: false },
+      ],
+      lineRows: [line({ bomId: 'old', componentNomenclatureId: 'a' }), line({ bomId: 'fresh', componentNomenclatureId: 'b' })],
+      nomenclatureById: new Map([['a', nom({ id: 'a' })], ['b', nom({ id: 'b' })]]),
+      brandLabels: new Map(),
+    });
+    expect(r.kits.map((k) => k.parts[0]!.nomenclatureId)).toEqual(['a']);
+    expect(r.warnings).toEqual([]);
+  });
+  it('без флага — прежнее правило: свежая по updatedAt + предупреждение', () => {
+    const r = buildAssemblyForecastKits({
+      headerRows: [header({ id: 'old', engineBrandId: 'brand', updatedAt: 1 }), header({ id: 'fresh', engineBrandId: 'brand', updatedAt: 9 })],
+      lineRows: [line({ bomId: 'old', componentNomenclatureId: 'a' }), line({ bomId: 'fresh', componentNomenclatureId: 'b' })],
+      nomenclatureById: new Map([['a', nom({ id: 'a' })], ['b', nom({ id: 'b' })]]),
+      brandLabels: new Map(),
+    });
+    expect(r.kits.map((k) => k.parts[0]!.nomenclatureId)).toEqual(['b']);
+    expect(r.warnings.some((w) => /основная не отмечена/.test(w))).toBe(true);
   });
 });

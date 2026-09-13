@@ -1033,11 +1033,12 @@ async function loadBomKitForBrand(
           name: nomen?.name ?? '',
           code: nomen?.code ?? '',
           qty: Math.max(0, Math.floor(Number(l.qtyPerUnit ?? 0))),
-          group: normalizeText(l.variantGroup, ''),
+          // Как и онлайн-путь: позиция важнее комплекта, основной вариант — из колонки реплики (E4, план bom-simplify §4).
+          group: normalizeText(l.positionKey, '') || normalizeText(l.variantGroup, ''),
           groupLabel: normalizeText(l.positionLabel, ''),
           isRequired: Boolean(l.isRequired),
           priority: Number(l.priority ?? 100),
-          isDefaultOption: false,
+          isDefaultOption: l.isDefaultOption !== false && l.isDefaultOption !== 0,
           notes: normalizeText(l.notes, ''),
           normPercent: extractBomLineNormPercent(l.notes == null ? null : String(l.notes)),
         };

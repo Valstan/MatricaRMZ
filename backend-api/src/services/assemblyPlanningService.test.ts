@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 // Модуль тянет db на импорте — для чистых хелперов соединение не нужно.
 vi.mock('../database/db.js', () => ({ db: {} }));
 
-import { dedupeAssemblyBomCandidates, pickDefaultAssemblyBom } from './assemblyPlanningService.js';
+import { dedupeAssemblyBomCandidates, pickDefaultAssemblyBom, selectAssemblyPlanLines } from './assemblyPlanningService.js';
 
 function candidate(bomId: string, isDefaultForBrand = false) {
   return { bomId, bomName: `BOM ${bomId}`, version: 1, defaultVariantKey: null, isDefaultForBrand };
@@ -49,5 +49,20 @@ describe('dedupeAssemblyBomCandidates', () => {
 
   it('разные BOM сохраняются', () => {
     expect(dedupeAssemblyBomCandidates([candidate('a'), candidate('b')])).toHaveLength(2);
+  });
+});
+
+describe('selectAssemblyPlanLines — кит = база + вариант (решение владельца 13.09)', () => {
+  const lines = [
+    { id: 'b1', variantGroup: null },
+    { id: 'b2', variantGroup: '' },
+    { id: 'k1', variantGroup: '__kit_a' },
+    { id: 'k2', variantGroup: '__kit_b' },
+  ];
+  it('с вариантом — база и строки только этого варианта', () => {
+    expect(selectAssemblyPlanLines(lines, '__kit_a').map((l) => l.id)).toEqual(['b1', 'b2', 'k1']);
+  });
+  it('без варианта — только база', () => {
+    expect(selectAssemblyPlanLines(lines, null).map((l) => l.id)).toEqual(['b1', 'b2']);
   });
 });

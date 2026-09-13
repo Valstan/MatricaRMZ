@@ -624,9 +624,13 @@ export async function mergeDirectoryParts(args: {
               .select({ id: erpEngineAssemblyBomLines.id })
               .from(erpEngineAssemblyBomLines)
               .where(
+                // Ключ совпадает с уникальным индексом строк (bom, variant_group, nomenclature, component_type):
+                // иначе слияние сносило бы законную строку другого варианта или оставляло дубль (план bom-simplify §4).
                 and(
                   eq(erpEngineAssemblyBomLines.bomId, line.bomId),
                   eq(erpEngineAssemblyBomLines.componentNomenclatureId, survivorId),
+                  line.variantGroup == null ? isNull(erpEngineAssemblyBomLines.variantGroup) : eq(erpEngineAssemblyBomLines.variantGroup, line.variantGroup),
+                  eq(erpEngineAssemblyBomLines.componentType, line.componentType),
                   isNull(erpEngineAssemblyBomLines.deletedAt),
                 ),
               )
