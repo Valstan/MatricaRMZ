@@ -38,10 +38,24 @@ jobs:
           ks="$RUNNER_TEMP/matricarmz-release.keystore"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ks"
 
+          echo "— файл декодировался: $(stat -c%s "$ks") байт, тип $(file -b "$ks")"
+
+          # Вывод keytool сперва в файл, и только потом фильтруется. Прямой конвейер
+          # `keytool | grep` съедает сообщение об ошибке вместе с диагнозом: шаг краснеет,
+          # а в логе одна пустая строка (поймано на первом же прогоне).
+          out="$RUNNER_TEMP/keytool.out"
           echo "— хранилище открывается паролем хранилища, алиас на месте:"
-          keytool -list -v -keystore "$ks" -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" \
-            | grep -E "Alias name|Owner:|Valid from|SHA256:|Signature algorithm"
+          if ! keytool -list -v -keystore "$ks" -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+                 -alias "$ANDROID_KEY_ALIAS" > "$out" 2>&1; then
+            echo "::error::keytool не открыл хранилище — вывод целиком ниже"
+            cat "$out"
+            echo "— что вообще лежит в хранилище (без -alias):"
+            keytool -list -keystore "$ks" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>&1 || true
+            exit 1
+          fi
+          grep -E "Alias name|Owner:|Valid from|SHA256:|Signature algorithm" "$out" || {
+            echo "::error::keytool отработал, но вывод не тот, что ожидался:"; cat "$out"; exit 1;
+          }
 
           # Пароль КЛЮЧА Gradle берёт отдельно от пароля хранилища, и расхождение между ними
           # видно только в момент подписи — то есть на релизном теге. Достаём ключ явно.
