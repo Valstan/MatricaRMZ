@@ -61,6 +61,15 @@ function normalize(value: string): string {
   return value.trim().toLocaleLowerCase('ru');
 }
 
+/** «2 раза», а не «2 раз»: подпись читает человек, а не отладчик. */
+function timesLabel(times: number): string {
+  const tail = times % 100;
+  const last = times % 10;
+  if (tail >= 11 && tail <= 14) return `${times} раз`;
+  if (last >= 2 && last <= 4) return `${times} раза`;
+  return `${times} раз`;
+}
+
 function themesOf(presetId: ReportPresetId): string {
   const ids: readonly ReportThemeId[] = REPORT_PRESET_THEMES[presetId] ?? [];
   return ids
@@ -294,7 +303,7 @@ export function ReportTemplatesShowcasePage(props: {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-            {item.times > 1 ? `строили ${item.times} раз · ` : ''}
+            {item.times > 1 ? `строили ${timesLabel(item.times)} · ` : ''}
             {item.lastAt > 0 ? formatMoscowDateTime(item.lastAt) : ''}
           </span>
           <Button variant="primary" onClick={item.open}>
