@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BOM_BASE_SCOPE,
   buildBomSnapshot,
   computeMissingComponentTypes,
+  filterBomLineIdxs,
+  genBomKitKey,
+  groupBomLinesForCard,
+  listBomScopes,
   pruneDefaultForBrands,
   toggleDefaultForBrand,
   type EngineBomDetailsForSnapshot,
@@ -166,5 +171,84 @@ describe('pruneDefaultForBrands', () => {
 
   it('подмножество не трогает', () => {
     expect(pruneDefaultForBrands(['brand-1'], ['brand-1', 'brand-2'])).toEqual(['brand-1']);
+  });
+});
+
+describe('buildBomSnapshot — норма расхода', () => {
+  it('меняется когда правят normPercent (E1: поле редактируется в карточке)', () => {
+    const a = buildBomSnapshot(makeData([{ normPercent: 40 }]));
+    const b = buildBomSnapshot(makeData([{ normPercent: 60 }]));
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('listBomScopes / genBomKitKey', () => {
+  it('база всегда первая, киты отсортированы', () => {
+    const lines = [makeLine({ variantGroup: '__kit_b' }), makeLine(), makeLine({ variantGroup: '__kit_a' })];
+    expect(listBomScopes(lines)).toEqual([BOM_BASE_SCOPE, '__kit_a', '__kit_b']);
+  });
+  it('без китов — только база', () => {
+    expect(listBomScopes([makeLine()])).toEqual([BOM_BASE_SCOPE]);
+  });
+  it('ключ кита имеет служебный префикс', () => {
+    expect(genBomKitKey(() => 0.123456789)).toMatch(/^__kit_[a-z0-9]{6,8}$/);
+  });
+});
+
+describe('groupBomLinesForCard', () => {
+  const order = new Map([
+    ['sleeve', 20],
+    ['piston', 30],
+    ['other', 900],
+  ]);
+
+  it('раскладывает по типу в порядке схемы, строки чужого комплекта не берёт', () => {
+    const lines = [
+      makeLine({ componentType: 'other', componentNomenclatureId: 'o1' }),
+      makeLine({ componentType: 'sleeve', componentNomenclatureId: 's1' }),
+      makeLine({ componentType: 'sleeve', componentNomenclatureId: 'kit', variantGroup: '__kit_x' }),
+    ];
+    const sections = groupBomLinesForCard(lines, BOM_BASE_SCOPE, order);
+    expect(sections.map((s) => s.typeId)).toEqual(['sleeve', 'other']);
+    expect(sections[0]!.positions).toEqual([{ posKey: 'solo-1', primaryIdx: 1, backupIdxs: [] }]);
+    expect(groupBomLinesForCard(lines, '__kit_x', order)[0]!.positions[0]!.primaryIdx).toBe(2);
+  });
+
+  it('варианты одной позиции: основная — primary, остальные — запасные, даже если основная не первая', () => {
+    const lines = [
+      makeLine({ positionKey: 'p1', isDefaultOption: false, componentNomenclatureId: 'b1' }),
+      makeLine({ positionKey: 'p1', isDefaultOption: true, componentNomenclatureId: 'main' }),
+      makeLine({ positionKey: 'p1', isDefaultOption: false, componentNomenclatureId: 'b2' }),
+    ];
+    const [section] = groupBomLinesForCard(lines, BOM_BASE_SCOPE, order);
+    expect(section!.positions).toEqual([{ posKey: 'p1', primaryIdx: 1, backupIdxs: [0, 2] }]);
+  });
+
+  it('тип раздела — у основной строки; незнакомый тип уходит в конец', () => {
+    const lines = [
+      makeLine({ componentType: 'zzz', componentNomenclatureId: 'z' }),
+      makeLine({ componentType: 'piston', componentNomenclatureId: 'p' }),
+    ];
+    expect(groupBomLinesForCard(lines, BOM_BASE_SCOPE, order).map((s) => s.typeId)).toEqual(['piston', 'zzz']);
+  });
+
+  it('внутри раздела — по priority, затем по подписи', () => {
+    const lines = [
+      makeLine({ componentType: 'other', priority: 200, componentNomenclatureId: 'b' }),
+      makeLine({ componentType: 'other', priority: 100, componentNomenclatureId: 'z' }),
+      makeLine({ componentType: 'other', priority: 100, componentNomenclatureId: 'a' }),
+    ];
+    const [section] = groupBomLinesForCard(lines, BOM_BASE_SCOPE, order);
+    expect(section!.positions.map((p) => p.primaryIdx)).toEqual([2, 1, 0]);
+  });
+});
+
+describe('filterBomLineIdxs', () => {
+  it('пустой запрос — null (фильтра нет)', () => {
+    expect(filterBomLineIdxs([makeLine()], '  ', (l) => l.componentNomenclatureId)).toBeNull();
+  });
+  it('ищет без учёта регистра по тексту строки', () => {
+    const lines = [makeLine({ componentNomenclatureName: 'Гильза 303' }), makeLine({ componentNomenclatureName: 'Поршень' })];
+    expect(filterBomLineIdxs(lines, 'гиль', (l) => l.componentNomenclatureName ?? '')).toEqual(new Set([0]));
   });
 });

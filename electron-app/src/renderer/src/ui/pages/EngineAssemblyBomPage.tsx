@@ -4,9 +4,10 @@ import { Button } from '../components/Button.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
-import { escapeHtml, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
+import { openPrintPreview } from '../utils/printPreview.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
-import { componentTypeLabel, componentTypeLabelsFromSchema } from '../utils/componentTypeLabels.js';
+import { componentTypeLabelsFromSchema } from '../utils/componentTypeLabels.js';
+import { BOM_COMPARE_PRINT_CSS, buildAllBomsPrintHtml, buildBomComparisonSections, type BomPrintDoc } from '../utils/bomPrint.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type BomListRow = {
@@ -24,101 +25,9 @@ type BomListRow = {
   updatedAt: number;
 };
 
-type BomDetailsFull = {
-  header: {
-    id: string;
-    name: string;
-    engineBrandIds: string[];
-    status: string;
-    isDefault: boolean;
-    version: number;
-    notes?: string | null;
-  };
-  lines: Array<{
-    componentNomenclatureId: string;
-    componentNomenclatureCode?: string | null;
-    componentNomenclatureName?: string | null;
-    componentType: string;
-    qtyPerUnit: number;
-    variantGroup?: string | null;
-    lineKey?: string | null;
-    parentLineKey?: string | null;
-    isRequired: boolean;
-    priority: number;
-    notes?: string | null;
-  }>;
-};
-type BomLineFull = BomDetailsFull['lines'][number];
-
-function lineLabel(line: BomLineFull): string {
-  return line.componentNomenclatureName || line.componentNomenclatureCode || line.componentNomenclatureId || '—';
-}
-
 function brandsLabel(ids: string[], labels: Map<string, string>): string {
   if (!ids.length) return BRAND_LABEL_TEXTS.absent;
   return ids.map((id) => lookupLabel(id, (key) => labels.get(key), BRAND_LABEL_TEXTS)).join(', ');
-}
-
-function buildAllBomsPrintHtml(
-  boms: BomDetailsFull[],
-  brandLabelById: Map<string, string>,
-  typeLabels?: ReadonlyMap<string, string>,
-): { sections: PrintSection[]; legendHtml: string } {
-  const componentSet = new Map<string, { name: string; code: string; type: string }>();
-  const sections: PrintSection[] = [];
-
-  for (const bom of boms) {
-    const brands = brandsLabel((bom.header.engineBrandIds ?? []).map(String), brandLabelById);
-    const lines = [...bom.lines].sort((a, b) => {
-      const ap = Number(a.priority ?? 100);
-      const bp = Number(b.priority ?? 100);
-      if (ap !== bp) return ap - bp;
-      return lineLabel(a).localeCompare(lineLabel(b), 'ru');
-    });
-
-    for (const line of lines) {
-      const id = String(line.componentNomenclatureId ?? '');
-      if (id && !componentSet.has(id)) {
-        componentSet.set(id, {
-          name: line.componentNomenclatureName || '—',
-          code: line.componentNomenclatureCode || '—',
-          type: componentTypeLabel(line.componentType, typeLabels),
-        });
-      }
-    }
-
-    const rowsHtml = lines
-      .map((line) => {
-        const type = escapeHtml(componentTypeLabel(line.componentType, typeLabels));
-        const component = escapeHtml(lineLabel(line));
-        const qty = String(Number(line.qtyPerUnit ?? 0));
-        const required = line.isRequired !== false ? 'Да' : '—';
-        const vg = String(line.variantGroup ?? '').trim();
-        return `<tr><td>${type}</td><td>${component}</td><td style="text-align:center">${escapeHtml(qty)}</td><td style="text-align:center">${required}</td>${vg ? `<td>${escapeHtml(vg)}</td>` : '<td>—</td>'}</tr>`;
-      })
-      .join('');
-
-    const tableHtml = `<div style="margin-bottom:4px;font-size:11px;color:#6b7280">Марки: ${escapeHtml(brands)} · версия ${bom.header.version} · строк: ${lines.length}</div>
-<table><thead><tr><th>Тип</th><th>Компонент</th><th style="text-align:center">Кол-во/двиг.</th><th style="text-align:center">Обяз.</th><th>Вариант</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
-
-    sections.push({
-      id: `bom-${bom.header.id}`,
-      title: String(bom.header.name || 'BOM без названия'),
-      html: tableHtml,
-      checked: true,
-    });
-  }
-
-  const legendRows = Array.from(componentSet.entries())
-    .sort((a, b) => a[1].type.localeCompare(b[1].type, 'ru') || a[1].name.localeCompare(b[1].name, 'ru'))
-    .map(([, c]) => `<tr><td>${escapeHtml(c.type)}</td><td>${escapeHtml(c.code)}</td><td>${escapeHtml(c.name)}</td></tr>`)
-    .join('');
-
-  const legendHtml = legendRows
-    ? `<table><thead><tr><th>Тип</th><th>Код</th><th>Наименование</th></tr></thead><tbody>${legendRows}</tbody></table>`
-    : '<div class="muted">Нет компонентов</div>';
-
-  return { sections, legendHtml };
 }
 
 type SortKey = 'name' | 'brand' | 'version' | 'variants' | 'updatedAt';
@@ -214,37 +123,50 @@ export function EngineAssemblyBomPage(props: {
   }
 
   const [printing, setPrinting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Полные BOM грузятся по одному: спецификаций единицы, отдельная серверная точка не окупается.
+  const loadPrintDocs = useCallback(async (ids: string[]) => {
+    const docs: BomPrintDoc[] = [];
+    for (const id of ids) {
+      const result = await window.matrica.warehouse.assemblyBomGet(id);
+      if (result?.ok && result.bom) docs.push(result.bom as unknown as BomPrintDoc);
+    }
+    // Подписи и порядок типов — из живой схемы (там и типы, заведённые оператором); без неё — словарь.
+    const schemaResult = await window.matrica.warehouse.assemblyBomSchemaGet();
+    const typeLabels = schemaResult?.ok ? componentTypeLabelsFromSchema(schemaResult.schema) : undefined;
+    const typeOrder = new Map<string, number>();
+    if (schemaResult?.ok) for (const node of schemaResult.schema.nodes ?? []) typeOrder.set(String(node.typeId).toLowerCase(), Number(node.sortOrder ?? 100));
+    return {
+      docs,
+      labels: { brandsLabel: (brandIds: string[]) => brandsLabel(brandIds, brandLabelById), ...(typeLabels ? { typeLabels } : {}), typeOrder },
+    };
+  }, [brandLabelById]);
 
   const handlePrintAll = useCallback(async () => {
     if (!sortedRows.length) return;
     setPrinting(true);
     setStatus('Загрузка BOM для печати...');
     try {
-      const details: BomDetailsFull[] = [];
-      for (const row of sortedRows) {
-        const result = await window.matrica.warehouse.assemblyBomGet(String(row.id));
-        if (result?.ok) {
-          const bom = (result as { ok: true; bom: unknown }).bom as BomDetailsFull;
-          if (bom) details.push(bom);
-        }
-      }
-      if (!details.length) {
+      const { docs, labels } = await loadPrintDocs(sortedRows.map((row) => String(row.id)));
+      if (!docs.length) {
         setStatus('Ошибка: не удалось загрузить BOM-спецификации');
         return;
       }
-      // Подписи типов — из живой схемы (там и типы, заведённые оператором); без неё — словарь.
-      const schemaResult = await window.matrica.warehouse.assemblyBomSchemaGet();
-      const typeLabels = schemaResult?.ok ? componentTypeLabelsFromSchema(schemaResult.schema) : undefined;
-      const { sections, legendHtml } = buildAllBomsPrintHtml(details, brandLabelById, typeLabels);
-      sections.push({
-        id: 'legend',
-        title: 'Легенда компонентов',
-        html: legendHtml,
-        checked: true,
-      });
+      const { sections, legendHtml } = buildAllBomsPrintHtml(docs, labels);
+      sections.push({ id: 'legend', title: 'Легенда компонентов', html: legendHtml, checked: true });
       openPrintPreview({
         title: 'Спецификации сборки двигателей (BOM)',
-        subtitle: `Всего спецификаций: ${details.length} · дата: ${new Date().toLocaleDateString('ru-RU')}`,
+        subtitle: `Всего спецификаций: ${docs.length} · дата: ${new Date().toLocaleDateString('ru-RU')}`,
         sections,
       });
       setStatus('');
@@ -253,13 +175,39 @@ export function EngineAssemblyBomPage(props: {
     } finally {
       setPrinting(false);
     }
-  }, [brandLabelById, sortedRows]);
+  }, [loadPrintDocs, sortedRows]);
+
+  const handlePrintCompare = useCallback(async () => {
+    const ids = sortedRows.map((row) => String(row.id)).filter((id) => selectedIds.has(id));
+    if (ids.length < 2) return;
+    setPrinting(true);
+    setStatus('Загрузка BOM для сверки...');
+    try {
+      const { docs, labels } = await loadPrintDocs(ids);
+      if (docs.length < 2) {
+        setStatus('Ошибка: для сверки нужны хотя бы две загруженные спецификации');
+        return;
+      }
+      openPrintPreview({
+        title: 'Сверка спецификаций двигателей',
+        subtitle: `${docs.map((d) => d.header.name).join(' · ')} · дата: ${new Date().toLocaleDateString('ru-RU')}`,
+        sections: buildBomComparisonSections(docs, labels),
+        extraCss: BOM_COMPARE_PRINT_CSS,
+      });
+      setStatus('');
+    } catch (e) {
+      setStatus(`Ошибка печати: ${String(e)}`);
+    } finally {
+      setPrinting(false);
+    }
+  }, [loadPrintDocs, selectedIds, sortedRows]);
 
   const selectedEngineBrandId = engineBrandIdFilter.length === 1 ? engineBrandIdFilter[0] : null;
 
   const tableHeader = (
     <thead>
       <tr>
+        <th style={{ width: 32 }} title="Отметьте две и более спецификации для печати сверки" />
         <th style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220, width: '38%' }} onClick={() => onSort('name')}>
           {sortLabel('Название', 'name')}
         </th>
@@ -289,6 +237,14 @@ export function EngineAssemblyBomPage(props: {
   function renderBomCells(row: BomListRow) {
     return (
       <>
+        <td style={{ verticalAlign: 'top' }} onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(String(row.id))}
+            onChange={() => toggleSelected(String(row.id))}
+            aria-label="Выбрать для сверки"
+          />
+        </td>
         <td style={{ whiteSpace: 'normal', wordBreak: 'break-word', verticalAlign: 'top' }}>{row.name || '—'}</td>
         <td style={{ whiteSpace: 'normal', wordBreak: 'break-word', verticalAlign: 'top' }}>
           <div>{brandsLabel(row.engineBrandIds ?? [], brandLabelById)}</div>
@@ -307,7 +263,7 @@ export function EngineAssemblyBomPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto', alignItems: 'end' }}>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto auto', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка)</span>
           <MultiSearchSelect
@@ -319,6 +275,14 @@ export function EngineAssemblyBomPage(props: {
             }}
           />
         </label>
+        <Button
+          variant="ghost"
+          onClick={() => void handlePrintCompare()}
+          disabled={printing || selectedIds.size < 2}
+          title="Одна таблица: строки — детали, колонки — отмеченные спецификации"
+        >
+          Сверка выбранных ({selectedIds.size})
+        </Button>
         <Button
           onClick={() => void handlePrintAll()}
           disabled={printing || sortedRows.length === 0}
@@ -362,7 +326,7 @@ export function EngineAssemblyBomPage(props: {
           renderCells={(i) => renderBomCells(sortedRows[i]!)}
           getRowKey={(i) => sortedRows[i]!.id}
           getRowProps={(i) => rowProps(sortedRows[i]!)}
-          colCount={5}
+          colCount={6}
           estimateSize={48}
           emptyState="Нет BOM-спецификаций"
         />

@@ -1,6 +1,8 @@
 export type EngineBomLine = {
   id?: string;
   componentNomenclatureId: string;
+  componentNomenclatureCode?: string | null;
+  componentNomenclatureName?: string | null;
   componentType: string;
   qtyPerUnit: number;
   variantGroup?: string | null;
@@ -9,6 +11,8 @@ export type EngineBomLine = {
   isRequired: boolean;
   priority: number;
   notes?: string | null;
+  /** Норма расхода, %. С E1 редактируется в карточке — значит, обязана быть в снапшоте. */
+  normPercent?: number | null;
   positionKey?: string | null;
   positionLabel?: string | null;
   isDefaultOption?: boolean;
@@ -92,11 +96,113 @@ export function buildBomSnapshot(data: EngineBomDetailsForSnapshot | null): stri
       isRequired: line.isRequired !== false,
       priority: Math.max(0, Math.trunc(Number(line.priority ?? 100))),
       notes: line.notes ?? null,
+      normPercent: line.normPercent ?? null,
       positionKey: line.positionKey ?? null,
       positionLabel: line.positionLabel ?? null,
       isDefaultOption: line.isDefaultOption !== false,
     })),
   });
+}
+
+export const BOM_BASE_SCOPE = '__base__';
+
+/** Ключ комплекта-варианта (`__kit_<hex>`): внутренний, оператору показывается как «Вариант N». */
+export function genBomKitKey(random: () => number = Math.random): string {
+  return `__kit_${random().toString(36).slice(2, 10)}`;
+}
+
+/** Комплекты BOM в порядке показа: база всегда первой, киты — по ключу. */
+export function listBomScopes(lines: readonly EngineBomLine[]): string[] {
+  const kits = new Set<string>();
+  for (const line of lines) {
+    const vg = normalizeVariantGroup(line.variantGroup);
+    if (vg) kits.add(vg);
+  }
+  return [BOM_BASE_SCOPE, ...Array.from(kits).sort((a, b) => a.localeCompare(b, 'ru'))];
+}
+
+export type BomCardPosition = {
+  /** Ключ позиции (`positionKey`) либо `solo-<idx>` для строки без позиции. */
+  posKey: string;
+  /** Индекс основной строки в `lines`. */
+  primaryIdx: number;
+  /** Индексы запасных вариантов (isDefaultOption=false) в порядке появления. */
+  backupIdxs: number[];
+};
+
+export type BomCardSection = {
+  typeId: string;
+  positions: BomCardPosition[];
+};
+
+/**
+ * Раскладка карточки: строки одного комплекта → разделы по типу компонента → позиции.
+ * Порядок разделов — по `typeOrder` (sortOrder схемы), незнакомые типы — в конец по алфавиту;
+ * внутри раздела — по `priority`, затем по подписи. Тип позиции берётся у основной строки.
+ */
+export function groupBomLinesForCard(
+  lines: readonly EngineBomLine[],
+  scope: string,
+  typeOrder: ReadonlyMap<string, number>,
+  labelOf: (line: EngineBomLine) => string = (line) => line.componentNomenclatureId,
+): BomCardSection[] {
+  const byPos = new Map<string, BomCardPosition>();
+  const order: string[] = [];
+  lines.forEach((line, idx) => {
+    if ((normalizeVariantGroup(line.variantGroup) ?? BOM_BASE_SCOPE) !== scope) return;
+    const key = String(line.positionKey ?? '').trim();
+    const posKey = key || `solo-${idx}`;
+    let pos = byPos.get(posKey);
+    if (!pos) {
+      pos = { posKey, primaryIdx: idx, backupIdxs: [] };
+      byPos.set(posKey, pos);
+      order.push(posKey);
+      if (line.isDefaultOption === false) pos.backupIdxs.push(idx);
+      return;
+    }
+    if (line.isDefaultOption !== false && lines[pos.primaryIdx]!.isDefaultOption === false) {
+      // Основная пришла после запасных: первая строка была временным primary.
+      pos.backupIdxs = pos.backupIdxs.filter((i) => i !== pos!.primaryIdx);
+      pos.backupIdxs.unshift(pos.primaryIdx);
+      pos.primaryIdx = idx;
+    } else {
+      pos.backupIdxs.push(idx);
+    }
+  });
+
+  const byType = new Map<string, BomCardPosition[]>();
+  for (const posKey of order) {
+    const pos = byPos.get(posKey)!;
+    const typeId = String(lines[pos.primaryIdx]!.componentType ?? 'other').trim().toLowerCase() || 'other';
+    const list = byType.get(typeId) ?? [];
+    list.push(pos);
+    byType.set(typeId, list);
+  }
+  const rank = (typeId: string) => typeOrder.get(typeId) ?? Number.MAX_SAFE_INTEGER;
+  return Array.from(byType.entries())
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0], 'ru'))
+    .map(([typeId, positions]) => ({
+      typeId,
+      positions: [...positions].sort((a, b) => {
+        const la = lines[a.primaryIdx]!;
+        const lb = lines[b.primaryIdx]!;
+        const pa = Number(la.priority ?? 100);
+        const pb = Number(lb.priority ?? 100);
+        if (pa !== pb) return pa - pb;
+        return labelOf(la).localeCompare(labelOf(lb), 'ru');
+      }),
+    }));
+}
+
+/** Индексы строк, чья подпись/артикул содержит запрос (регистр не важен). Пустой запрос = все. */
+export function filterBomLineIdxs(lines: readonly EngineBomLine[], query: string, textOf: (line: EngineBomLine) => string): Set<number> | null {
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+  const out = new Set<number>();
+  lines.forEach((line, idx) => {
+    if (textOf(line).toLowerCase().includes(q)) out.add(idx);
+  });
+  return out;
 }
 
 // Чистый расчёт «чего не хватает» по глобальной схеме. БЕЗ мутации data.
