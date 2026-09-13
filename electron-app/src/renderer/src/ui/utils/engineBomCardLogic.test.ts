@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  addBrandGroupToBom,
   BOM_BASE_SCOPE,
   buildBomSnapshot,
   computeMissingComponentTypes,
@@ -250,5 +251,14 @@ describe('filterBomLineIdxs', () => {
   it('ищет без учёта регистра по тексту строки', () => {
     const lines = [makeLine({ componentNomenclatureName: 'Гильза 303' }), makeLine({ componentNomenclatureName: 'Поршень' })];
     expect(filterBomLineIdxs(lines, 'гиль', (l) => l.componentNomenclatureName ?? '')).toEqual(new Set([0]));
+  });
+});
+
+describe('addBrandGroupToBom', () => {
+  it('добавляет марки группы без дублей, сохраняя порядок выбранных', () => {
+    expect(addBrandGroupToBom(['b2', 'b1'], ['b1', 'b3', 'b3', ' '])).toEqual({ engineBrandIds: ['b2', 'b1', 'b3'], added: 1 });
+  });
+  it('группа целиком уже привязана — ничего не добавляет', () => {
+    expect(addBrandGroupToBom(['b1'], ['b1']).added).toBe(0);
   });
 });

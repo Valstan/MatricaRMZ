@@ -9,16 +9,25 @@ const EMPTY_SPEC: PartSpec = { code: null, dimensions: [], brandLinks: [] };
 // directory (few rows) so the per-group `entities.get` is acceptable, mirroring the other screens.
 export async function loadAllGroupMembers(): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
+  for (const g of await loadAllBrandGroups()) map.set(g.id, g.brandIds);
+  return map;
+}
+
+export type EngineBrandGroupSummary = { id: string; name: string; brandIds: string[] };
+
+/** Группы марок с названиями и составом (для действий «по всей группе» в карточках BOM/деталей). */
+export async function loadAllBrandGroups(): Promise<EngineBrandGroupSummary[]> {
   const types = (await window.matrica.admin.entityTypes.list()) as Array<{ id: string; code: string }>;
   const gt = types.find((t) => String(t.code) === 'engine_brand_group');
-  if (!gt?.id) return map;
+  if (!gt?.id) return [];
   const list = (await window.matrica.admin.entities.listByEntityType(gt.id)) as Array<{ id: string }>;
+  const out: EngineBrandGroupSummary[] = [];
   for (const row of list) {
     const det = await window.matrica.admin.entities.get(String(row.id), gt.id).catch(() => null);
     const attrs = (det as { attributes?: Record<string, unknown> } | null)?.attributes ?? {};
-    map.set(String(row.id), parseIdArray(attrs.engine_brand_ids));
+    out.push({ id: String(row.id), name: String(attrs.name ?? '').trim() || String(row.id), brandIds: parseIdArray(attrs.engine_brand_ids) });
   }
-  return map;
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 }
 
 // Order-insensitive equality of two brand-link sets (idempotency guard — recompute may reorder).

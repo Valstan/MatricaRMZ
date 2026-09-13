@@ -104,6 +104,24 @@ export function buildBomSnapshot(data: EngineBomDetailsForSnapshot | null): stri
   });
 }
 
+/**
+ * «Привязать ко всем маркам группы»: марки группы добавляются к марками BOM без дублей и
+ * без изменения порядка уже выбранных. Возвращает и число добавленных — для сообщения оператору.
+ */
+export function addBrandGroupToBom(current: readonly string[], groupBrandIds: readonly string[]): { engineBrandIds: string[]; added: number } {
+  const have = new Set(current.map(String));
+  const out = [...current.map(String)];
+  let added = 0;
+  for (const raw of groupBrandIds) {
+    const id = String(raw ?? '').trim();
+    if (!id || have.has(id)) continue;
+    have.add(id);
+    out.push(id);
+    added += 1;
+  }
+  return { engineBrandIds: out, added };
+}
+
 export const BOM_BASE_SCOPE = '__base__';
 
 /** Ключ комплекта-варианта (`__kit_<hex>`): внутренний, оператору показывается как «Вариант N». */

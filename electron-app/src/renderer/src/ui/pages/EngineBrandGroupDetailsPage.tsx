@@ -57,6 +57,31 @@ export function EngineBrandGroupDetailsPage(props: {
     };
   }, [props.groupId]);
 
+  // Спецификации (BOM), покрывающие марки группы: подсказка «шаблон на группу» (план bom-simplify §6.2).
+  // Читается по сохранённому составу; правка состава без сохранения список не меняет.
+  const [bomRows, setBomRows] = useState<Array<{ id: string; name: string; engineBrandIds: string[] }> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (loading) return;
+    if (brandIds.length === 0) {
+      setBomRows([]);
+      return;
+    }
+    void (async () => {
+      const r = await window.matrica.warehouse.assemblyBomList({ engineBrandIds: brandIds, status: 'active' }).catch(() => null);
+      if (!alive) return;
+      setBomRows(r?.ok ? (r.rows ?? []).map((row) => ({ id: String(row.id), name: String(row.name ?? ''), engineBrandIds: (row.engineBrandIds ?? []).map(String) })) : []);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- по сохранённому составу: пересчёт после save, не на каждый щелчок
+  }, [loading, saving]);
+  const uncoveredBrandIds = useMemo(() => {
+    const covered = new Set((bomRows ?? []).flatMap((b) => b.engineBrandIds));
+    return brandIds.filter((id) => !covered.has(id));
+  }, [bomRows, brandIds]);
+
   const selectedCount = brandIds.length;
   const brandNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -207,6 +232,33 @@ export function EngineBrandGroupDetailsPage(props: {
               ))}
             </div>
           )}
+
+          {selectedCount > 0 && bomRows ? (
+            <div data-brand-group-boms style={{ display: 'grid', gap: 6, fontSize: 12 }}>
+              <div style={{ color: 'var(--muted)' }}>Спецификации сборки (BOM) марок группы</div>
+              {bomRows.length === 0 ? (
+                <div style={{ color: 'var(--subtle)' }}>У марок группы нет активной спецификации.</div>
+              ) : (
+                bomRows.map((bom) => {
+                  const inGroup = bom.engineBrandIds.filter((id) => brandIds.includes(id));
+                  return (
+                    <div key={bom.id}>
+                      <strong>{bom.name || 'BOM без названия'}</strong>
+                      <span style={{ color: 'var(--subtle)' }}>
+                        {' '}
+                        — {inGroup.length} из {selectedCount} марок группы: {inGroup.map((id) => brandNameById.get(id) ?? id).join(', ')}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+              {uncoveredBrandIds.length > 0 && bomRows.length > 0 ? (
+                <div style={{ color: 'var(--warning, #b45309)' }}>
+                  Без спецификации: {uncoveredBrandIds.map((id) => brandNameById.get(id) ?? id).join(', ')}. В карточке BOM есть действие «+ марки группы…» — оно привяжет всю группу разом.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
