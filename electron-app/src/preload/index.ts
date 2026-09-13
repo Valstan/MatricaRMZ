@@ -176,7 +176,7 @@ const matricaApi = {
     filterTemplateSave: async (args: {
       userId?: string;
       presetId: string;
-      template: { id?: string; name: string; filters: Record<string, unknown>; disabled: string[] };
+      template: { id?: string; name: string; filters: Record<string, unknown>; disabled: string[]; description?: string };
     }) => ipcRenderer.invoke('reports:filterTemplateSave', args),
     filterTemplateDelete: async (args: { userId?: string; presetId: string; templateId: string }) =>
       ipcRenderer.invoke('reports:filterTemplateDelete', args),

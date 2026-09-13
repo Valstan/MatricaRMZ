@@ -639,6 +639,12 @@ export type ReportPresetFilterTemplate = {
   createdAt: number;
   filters: ReportPresetFilters;
   disabled: string[];
+  /**
+   * Подпись владельца своими словами («для сверки с бухгалтерией»). Настройки витрина
+   * и так расписывает именами, но зачем этот набор сохранён — знает только тот, кто его
+   * сохранил; из перечня фильтров это не выводится.
+   */
+  description?: string;
 };
 
 export type ReportPresetFilterTemplatesListResult =

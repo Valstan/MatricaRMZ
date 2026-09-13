@@ -1206,7 +1206,7 @@ export type MatricaApi = {
     filterTemplateSave: (args: {
       userId?: string;
       presetId: ReportPresetId;
-      template: { id?: string; name: string; filters: ReportPresetFilters; disabled: string[] };
+      template: { id?: string; name: string; filters: ReportPresetFilters; disabled: string[]; description?: string };
     }) => Promise<ReportPresetFilterTemplateSaveResult>;
     filterTemplateDelete: (args: {
       userId?: string;

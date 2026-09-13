@@ -54,7 +54,10 @@ function downloadText(content: string, fileName: string, mime: string) {
  * фильтры по колонкам, состав/порядок колонок, сортировка, итоги. Рецепт
  * сохраняется в личный шаблон (settingsStore per-user, как шаблоны фильтров).
  */
-export function CustomReportsPage() {
+export function CustomReportsPage(props: {
+  /** Шаблон, выбранный в витрине заготовок: конструктор открывается сразу на нём. */
+  initialTemplateId?: string | null;
+} = {}) {
   const [sources, setSources] = useState<Array<{ presetId: string; title: string }>>([]);
   const [templates, setTemplates] = useState<CustomReportTemplate[]>([]);
   const [userId, setUserId] = useState('');
@@ -116,6 +119,22 @@ export function CustomReportsPage() {
     window.addEventListener('matrica:custom-reports-changed', onChanged);
     return () => window.removeEventListener('matrica:custom-reports-changed', onChanged);
   }, [userId]);
+
+  // Открытие из витрины: шаблон применяется, как только список доехал. Применяем ОДИН раз на
+  // шаблон — иначе правка фильтров в конструкторе откатывалась бы к сохранённому набору на
+  // каждом перерисовывании, и оператор не понял бы, почему его изменения исчезают.
+  const appliedInitialRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    const wanted = String(props.initialTemplateId ?? '');
+    if (!wanted || templates.length === 0 || appliedInitialRef.current === wanted) return;
+    const tpl = templates.find((t) => t.id === wanted);
+    if (!tpl) return;
+    appliedInitialRef.current = wanted;
+    void applyTemplate(tpl);
+    // applyTemplate объявлена ниже по файлу и стабильна по ссылке внутри рендера —
+    // в зависимости её не берём намеренно, иначе эффект перезапускался бы каждым рендером.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.initialTemplateId, templates]);
 
   function buildSpec(): CustomReportSpecV1 | null {
     if (!isCustomReportSourcePresetId(sourcePresetId)) return null;
