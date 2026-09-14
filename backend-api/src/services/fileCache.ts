@@ -27,9 +27,18 @@ function mb(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1);
 }
 
-export async function sweepExpiredCache(now = Date.now()): Promise<{ evicted: number; bytes: number; gone: number; kept: number }> {
+/**
+ * `all: true` — выселить ВСЕ копии, не глядя на срок. Нужен разовому сбросу кэша: после него
+ * бокс держит только то, к чему обратились заново. Условие безопасности при этом ни на шаг не
+ * ослабевает — каждая копия по-прежнему снимается лишь после того, как Я.Диск подтвердил свою
+ * размером и дайджестом (`evictOne`), а копия без пути на Яндексе не снимается никогда.
+ */
+export async function sweepExpiredCache(
+  now = Date.now(),
+  opts: { all?: boolean; batch?: number } = {},
+): Promise<{ evicted: number; bytes: number; gone: number; kept: number }> {
   const ttlMs = localCacheTtlMs();
-  const cutoff = now - ttlMs;
+  const cutoff = opts.all ? Number.MAX_SAFE_INTEGER : now - ttlMs;
   // Та же формула, что cacheExpiresAt(): самое позднее из трёх меток + TTL ≤ now.
   const rows = await db
     .select({
@@ -51,7 +60,7 @@ export async function sweepExpiredCache(now = Date.now()): Promise<{ evicted: nu
         lt(sql`greatest(${fileAssets.createdAt}, coalesce(${fileAssets.localCachedAt}, 0), coalesce(${fileAssets.lastAccessedAt}, 0))`, cutoff),
       ),
     )
-    .limit(BATCH);
+    .limit(opts.batch ?? BATCH);
 
   const out = { evicted: 0, bytes: 0, gone: 0, kept: 0 };
   const root = uploadsDir();
@@ -86,7 +95,14 @@ export async function sweepExpiredCache(now = Date.now()): Promise<{ evicted: nu
     }
   }
   if (rows.length > 0) {
-    logInfo('file cache sweep', { candidates: rows.length, evicted: out.evicted, freedMb: mb(out.bytes), gone: out.gone, kept: out.kept, ttlDays: ttlMs / 86_400_000 });
+    logInfo('file cache sweep', {
+      candidates: rows.length,
+      evicted: out.evicted,
+      freedMb: mb(out.bytes),
+      gone: out.gone,
+      kept: out.kept,
+      ttlDays: opts.all ? 'все' : ttlMs / 86_400_000,
+    });
   }
   return out;
 }
