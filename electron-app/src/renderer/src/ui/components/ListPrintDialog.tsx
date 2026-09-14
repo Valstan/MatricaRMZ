@@ -95,9 +95,13 @@ export function ListPrintDialog<T>(props: {
   };
 
   const emit = () => {
-    const thead = fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('');
+    // Колонка «№» идёт на печать первой — как на экране (владелец 15.09.2026).
+    const thead = `<th style="text-align:right">№</th>${fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('')}`;
     const tbody = rows
-      .map((row) => `<tr>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`)
+      .map(
+        (row, i) =>
+          `<tr><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`,
+      )
       .join('');
     openPrintPreview({
       title: props.title,

@@ -6,6 +6,8 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { VirtualTable } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
@@ -208,6 +210,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
   const tableHeader = (
     <thead>
       <tr style={{ background: 'linear-gradient(135deg, #16a34a 0%, #15803d 120%)', color: '#fff' }}>
+        <RowNumberHeaderCell style={{ padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' }} />
         <th data-col-kind="name" style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)', cursor: 'pointer' }} onClick={() => onSort('tableName')}>
           Раздел {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'tableName')}
         </th>
@@ -324,18 +327,21 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     );
   }
 
-  function renderTable(items: ChangeRequestRow[]) {
+  function renderTable(items: ChangeRequestRow[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {tableHeader}
           <tbody>
-            {items.map((row) => (
-              <tr key={row.id}>{renderChangeCells(row)}</tr>
+            {items.map((row, i) => (
+              <tr key={row.id}>
+                <RowNumberCell n={startIndex + i + 1} style={{ padding: 10 }} />
+                {renderChangeCells(row)}
+              </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={6}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={7}>
                   Изменений нет
                 </td>
               </tr>
@@ -367,17 +373,14 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
-        <div style={{ flex: 1 }} />
-        <div style={{ color: '#6b7280', fontSize: 12 }}>
-          Всего: <span style={{ fontWeight: 800, color: '#111827' }}>{sorted.length}</span>
-        </div>
       </div>
 
       {msg && <div style={{ marginTop: 10, color: msg.startsWith('Ошибка') ? '#b91c1c' : '#6b7280', flex: '0 0 auto' }}>{msg}</div>}
 
-      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 12, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 10 }} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sorted} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={sorted} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -386,12 +389,12 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
             renderCells={(i) => renderChangeCells(sorted[i]!)}
             getRowKey={(i) => sorted[i]!.id}
             colCount={6}
+            rowNumbers
             estimateSize={100}
             emptyState="Изменений нет"
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sorted.length}</div>
     </div>
   );
 }

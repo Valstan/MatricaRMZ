@@ -32,6 +32,8 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import {
   buildDeleteConfirmMessage,
   buildCopyRowsStatus,
@@ -412,6 +414,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #065f46 0%, #0f766e 120%)', color: '#fff' }}>
+          <RowNumberHeaderCell style={{ borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }} />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -480,20 +483,21 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     );
   }
 
-  function renderTable(items: Row[]) {
+  function renderTable(items: Row[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {renderTableHeader()}
           <tbody>
-            {items.map((row) => (
+            {items.map((row, i) => (
               <tr key={row.id} {...rowProps(row)}>
+                <RowNumberCell n={startIndex + i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} />
                 {renderWorkOrderCells(row)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 1}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 2}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -610,9 +614,10 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       )}
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
-      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <ListCount total={rows.length} shown={displayRows.length} style={{ marginTop: 6 }} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -622,6 +627,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
             getRowKey={(i) => displayRows[i]!.id}
             getRowProps={(i) => rowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
+            rowNumbers
             estimateSize={44}
             emptyState="Ничего не найдено"
           />

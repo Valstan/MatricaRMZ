@@ -2,6 +2,8 @@ import React from 'react';
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+import { RowNumberCell } from './RowNumberCell';
+
 /** Атрибуты строки: стандартные HTML + произвольные `data-*` (для выделения и т.п.). */
 export type VirtualTableRowProps = React.HTMLAttributes<HTMLTableRowElement> & {
   [key: `data-${string}`]: string | undefined;
@@ -39,6 +41,12 @@ export function VirtualTable(props: {
   tableClassName?: string;
   /** Что показать, когда строк нет. */
   emptyState?: React.ReactNode;
+  /**
+   * Колонка «№» первой ячейкой каждой строки (номер = индекс + 1, для страничных
+   * списков + `offset`). Заголовок `<RowNumberHeaderCell/>` ставит вызывающий первым `<th>`;
+   * `colCount` передаётся БЕЗ учёта этой колонки — спейсеры расширяются здесь.
+   */
+  rowNumbers?: boolean | { offset?: number };
 }) {
   const {
     scrollElementRef,
@@ -47,12 +55,15 @@ export function VirtualTable(props: {
     renderCells,
     getRowKey,
     getRowProps,
-    colCount,
+    colCount: baseColCount,
     estimateSize = 48,
     overscan = 12,
     tableClassName = 'list-table',
     emptyState,
+    rowNumbers,
   } = props;
+  const rowNumberOffset = rowNumbers ? (typeof rowNumbers === 'object' ? rowNumbers.offset ?? 0 : 0) : null;
+  const colCount = rowNumberOffset === null ? baseColCount : baseColCount + 1;
 
   const virtualizer = useVirtualizer({
     count,
@@ -95,6 +106,7 @@ export function VirtualTable(props: {
                   ref={virtualizer.measureElement}
                   {...(getRowProps?.(vi.index) ?? {})}
                 >
+                  {rowNumberOffset !== null && <RowNumberCell n={rowNumberOffset + vi.index + 1} />}
                   {renderCells(vi.index)}
                 </tr>
               ))}

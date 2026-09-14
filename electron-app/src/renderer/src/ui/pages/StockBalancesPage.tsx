@@ -7,6 +7,8 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { rollupStockByParent, type StockRollupRow } from '../utils/nomenclatureParent.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
@@ -231,6 +233,7 @@ export function StockBalancesPage(props: {
   const balanceHeader = (
     <thead>
       <tr>
+        <RowNumberHeaderCell />
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('warehouse')}>{label('Склад', balanceSortKey === 'warehouse', balanceSortDir)}</th>
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('code')}>{label('Код', balanceSortKey === 'code', balanceSortDir)}</th>
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onBalanceSort('name')}>{label('Номенклатура', balanceSortKey === 'name', balanceSortDir)}</th>
@@ -298,20 +301,21 @@ export function StockBalancesPage(props: {
     );
   }
 
-  function renderBalanceTable(items: StockRollupRow[]) {
+  function renderBalanceTable(items: StockRollupRow[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {balanceHeader}
           <tbody>
-            {items.map((row) => (
+            {items.map((row, i) => (
               <tr key={row.id} {...balanceRowProps(row)}>
+                <RowNumberCell n={startIndex + i + 1} />
                 {renderBalanceCells(row)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={11}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={12}>
                   Нет данных
                 </td>
               </tr>
@@ -408,9 +412,10 @@ export function StockBalancesPage(props: {
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      <ListCount total={rows.length} shown={sortedRows.length} />
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sortedRows} enabled renderColumn={(items) => renderBalanceTable(items)} />
+          <TwoColumnList items={sortedRows} enabled renderColumn={(items, _c, _n, startIndex) => renderBalanceTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -420,6 +425,7 @@ export function StockBalancesPage(props: {
             getRowKey={(i) => sortedRows[i]!.id}
             getRowProps={(i) => balanceRowProps(sortedRows[i]!)}
             colCount={10}
+            rowNumbers
             estimateSize={40}
             emptyState="Нет данных"
           />
@@ -435,9 +441,11 @@ export function StockBalancesPage(props: {
             </span>
           </div>
           {movementsStatus ? <div style={{ color: movementsStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{movementsStatus}</div> : null}
+          <ListCount total={movements.length} shown={sortedMovements.length} />
           <table className="list-table">
             <thead>
               <tr>
+                <RowNumberHeaderCell />
                 <th data-col-kind="date" title="Дата" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onMovementSort('date')}>
                   {label('Дата', movementSortKey === 'date', movementSortDir)}
                 </th>
@@ -451,13 +459,14 @@ export function StockBalancesPage(props: {
             <tbody>
               {sortedMovements.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: 10, textAlign: 'center', color: 'var(--subtle)' }}>
+                  <td colSpan={7} style={{ padding: 10, textAlign: 'center', color: 'var(--subtle)' }}>
                     Движения не найдены
                   </td>
                 </tr>
               ) : (
-                sortedMovements.map((movement) => (
+                sortedMovements.map((movement, i) => (
                   <tr key={movement.id}>
+                    <RowNumberCell n={i + 1} />
                     <td data-col-kind="date">{movement.performedAt ? formatListDateTime(Number(movement.performedAt)) : '—'}</td>
                     <td data-col-kind="name">
                       {movement.documentHeaderId ? (

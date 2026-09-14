@@ -708,6 +708,20 @@ table.list-table td[data-col-kind='date'] {
   white-space: nowrap;
 }
 
+/* Колонка «№» (components/RowNumberCell.tsx): нумерация на лету, схлопнута до контента. */
+table.list-table th[data-col-kind='rownum'],
+table.list-table td[data-col-kind='rownum'] {
+  width: 1%;
+  max-width: 7ch;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+table.list-table td[data-col-kind='rownum'] {
+  color: #6b7280;
+}
+
 /* Отдельного правила для flag/num больше нет: одну строку с «…» держат теперь ВСЕ
    заголовки (см. `table.list-table th` выше). */
 

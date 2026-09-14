@@ -111,3 +111,51 @@ describe('шапка колонки — одна строка', () => {
     expect(KINDS).toContain("return kind ? { 'data-col-kind': kind, title: label } : { title: label };");
   });
 });
+
+// Счётчик и нумерация (владелец 15.09.2026): над каждым списком «Всего: N · Показано: M»,
+// слева колонка «№», собираемая при каждом построении. Оба ломаются молча — список
+// «работает», просто снова не видно, сколько строк осталось после фильтра.
+const VIRTUAL_TABLE = src('./VirtualTable.tsx');
+const PRINT_DIALOG = src('./ListPrintDialog.tsx');
+const COUNTED_PAGES = [
+  ...PAGES,
+  ...['EngineBrandsPage', 'ChangesPage', 'StockBalancesPage', 'EngineAssemblyBomPage'].map(
+    (name) => [name, src(`../pages/${name}.tsx`)] as const,
+  ),
+];
+
+describe('счётчик и нумерация строк', () => {
+  it('у каждого списка счётчик «Всего · Показано» и колонка «№»', () => {
+    for (const [name, page] of COUNTED_PAGES) {
+      expect(page, `${name}: нет счётчика ListCount`).toContain('<ListCount');
+      expect(page, `${name}: нет заголовка колонки №`).toContain('<RowNumberHeaderCell');
+    }
+  });
+
+  it('виртуальные списки нумеруют строки через VirtualTable', () => {
+    expect(VIRTUAL_TABLE).toContain('rowNumbers?: boolean | { offset?: number }');
+    expect(VIRTUAL_TABLE).toContain('<RowNumberCell n={rowNumberOffset + vi.index + 1} />');
+    // Спейсеры и пустое состояние обязаны накрыть и колонку «№», иначе шапка съезжает.
+    expect(VIRTUAL_TABLE).toContain('baseColCount + 1');
+    for (const [name, page] of COUNTED_PAGES) {
+      if (!page.includes('<VirtualTable')) continue;
+      expect(page, `${name}: VirtualTable без rowNumbers`).toContain('rowNumbers');
+    }
+  });
+
+  it('колонка «№» схлопнута CSS и не меряется хуком ширин', () => {
+    expect(CSS).toContain("table.list-table td[data-col-kind='rownum']");
+    expect(WIDTHS).toContain("getAttribute('data-col-kind') === 'rownum'");
+    expect(KINDS).toContain("'rownum'");
+  });
+
+  it('старый счётчик двигателей, знавший только текстовый поиск, снят', () => {
+    // Он показывал «M из N» лишь при непустом запросе; сужение фасетами выглядело как полный список.
+    const engines = COUNTED_PAGES.find(([name]) => name === 'EnginesPage')![1];
+    expect(engines).not.toContain('`${displayRows.length} из ${props.engines.length}`');
+  });
+
+  it('печать списка ведёт колонку «№» первой', () => {
+    expect(PRINT_DIALOG).toContain('<th style="text-align:right">№</th>');
+  });
+});

@@ -75,6 +75,9 @@ function recalcAdaptiveTableColumns() {
     if (colCount <= 0) continue;
 
     for (let col = 0; col < colCount; col += 1) {
+      // Колонка «№» (data-col-kind="rownum") сама схлопывается CSS; замер ей только вредит
+      // (получила бы --ui-list-col-1-max-ch «имени» и title на каждой ячейке).
+      if (headerCells[col]?.getAttribute('data-col-kind') === 'rownum') continue;
       const headerText = normalizeText(headerCells[col]?.textContent ?? '');
       const lengths: number[] = [];
       let numericVotes = 0;

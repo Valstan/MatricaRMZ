@@ -11,6 +11,8 @@ import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { NomenclaturePropertyEditModal, type NomenclaturePropertyEditRow } from '../components/NomenclaturePropertyEditModal.js';
 import {
   NomenclatureTemplateCompositionEditor,
@@ -532,10 +534,12 @@ export function NomenclaturePage(props: {
                   Добавить свойство
                 </Button>
               </div>
+              <ListCount total={propertiesRows.length} shown={propertiesRows.length} />
               <div style={{ overflow: 'auto', maxHeight: 220, border: '1px solid var(--border)', borderRadius: 8 }}>
                 <table className="list-table">
                   <thead>
                     <tr>
+                      <RowNumberHeaderCell />
                       <th data-col-kind="name">Код</th>
                       <th data-col-kind="name">Наименование</th>
                       <th>Тип</th>
@@ -545,13 +549,14 @@ export function NomenclaturePage(props: {
                   <tbody>
                     {propertiesRows.length === 0 ? (
                       <tr>
-                        <td colSpan={4} style={{ color: 'var(--subtle)', padding: 10, textAlign: 'center' }}>
+                        <td colSpan={5} style={{ color: 'var(--subtle)', padding: 10, textAlign: 'center' }}>
                           Нет свойств
                         </td>
                       </tr>
                     ) : (
-                      propertiesRows.map((row) => (
+                      propertiesRows.map((row, i) => (
                         <tr key={row.id}>
+                          <RowNumberCell n={i + 1} />
                           <td data-col-kind="name">{row.code}</td>
                           <td data-col-kind="name">{row.name}</td>
                           <td>{row.dataType}</td>
@@ -607,10 +612,12 @@ export function NomenclaturePage(props: {
               <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
                 Состав шаблона (список свойств) настраивается кнопкой «Состав» — без ручного JSON.
               </div>
+              <ListCount total={templatesRows.length} shown={templatesRows.length} />
               <div style={{ overflow: 'auto', maxHeight: 240, border: '1px solid var(--border)', borderRadius: 8 }}>
                 <table className="list-table">
                   <thead>
                     <tr>
+                      <RowNumberHeaderCell />
                       <th data-col-kind="name">Код</th>
                       <th data-col-kind="name">Название</th>
                       <th>Тип / источник</th>
@@ -621,13 +628,14 @@ export function NomenclaturePage(props: {
                   <tbody>
                     {templatesRows.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ color: 'var(--subtle)', padding: 10, textAlign: 'center' }}>
+                        <td colSpan={6} style={{ color: 'var(--subtle)', padding: 10, textAlign: 'center' }}>
                           Нет шаблонов
                         </td>
                       </tr>
                     ) : (
-                      templatesRows.map((row) => (
+                      templatesRows.map((row, i) => (
                         <tr key={row.id}>
+                          <RowNumberCell n={i + 1} />
                           <td data-col-kind="name">{row.code}</td>
                           <td data-col-kind="name">{row.name}</td>
                           <td>
@@ -836,9 +844,12 @@ export function NomenclaturePage(props: {
                         </span>
                       </button>
                       {expanded ? (
+                        <>
+                        <ListCount total={rows.length} shown={sorted.length} style={{ margin: '4px 10px 2px' }} />
                         <table className="list-table">
                           <thead>
                             <tr>
+                              <RowNumberHeaderCell style={{ top: GROUP_HEADER_HEIGHT }} />
                               {visibleColumns.map((col) => (
                                 <th
                                   key={col.id}
@@ -865,8 +876,9 @@ export function NomenclaturePage(props: {
                             </tr>
                           </thead>
                           <tbody>
-                            {pageRowsForGroup.map((row) => (
+                            {pageRowsForGroup.map((row, i) => (
                               <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
+                                <RowNumberCell n={i + 1} />
                                 {visibleColumns.map((col) => (
                                   <td
                                     key={col.id}
@@ -880,6 +892,7 @@ export function NomenclaturePage(props: {
                             ))}
                           </tbody>
                         </table>
+                        </>
                       ) : null}
                     </section>
                   );

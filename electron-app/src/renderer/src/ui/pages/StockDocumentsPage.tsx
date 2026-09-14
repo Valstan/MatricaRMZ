@@ -14,6 +14,8 @@ import { Input } from '../components/Input.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useRegisterSearchScope } from '../context/globalSearchScope.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
@@ -223,6 +225,7 @@ export function StockDocumentsPage(props: {
     return (
       <thead>
         <tr>
+          <RowNumberHeaderCell />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -267,20 +270,21 @@ export function StockDocumentsPage(props: {
     );
   }
 
-  function renderTable(items: WarehouseDocumentListItem[]) {
+  function renderTable(items: WarehouseDocumentListItem[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {renderTableHeader()}
           <tbody>
-            {items.map((row) => (
+            {items.map((row, i) => (
               <tr key={String(row.id)} {...rowProps(row)}>
+                <RowNumberCell n={startIndex + i + 1} />
                 {renderDocCells(row)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 1}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 2}>
                   {includedStatuses.length === 0 ? 'Выберите статусы в фильтре выше' : 'Нет документов'}
                 </td>
               </tr>
@@ -406,9 +410,10 @@ export function StockDocumentsPage(props: {
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      <ListCount total={rows.length} shown={displayRows.length} />
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -418,6 +423,7 @@ export function StockDocumentsPage(props: {
             getRowKey={(i) => displayRows[i]!.id}
             getRowProps={(i) => rowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
+            rowNumbers
             estimateSize={40}
             emptyState={includedStatuses.length === 0 ? 'Выберите статусы в фильтре выше' : 'Нет документов'}
           />

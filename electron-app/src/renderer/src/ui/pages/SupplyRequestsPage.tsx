@@ -12,6 +12,8 @@ import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -170,6 +172,7 @@ export function SupplyRequestsPage(props: {
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #a21caf 0%, #7c3aed 120%)', color: '#fff' }}>
+          <RowNumberHeaderCell style={{ borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8 }} />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -222,20 +225,21 @@ export function SupplyRequestsPage(props: {
     };
   }
 
-  function renderTable(items: Row[]) {
+  function renderTable(items: Row[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {renderTableHeader()}
           <tbody>
-            {items.map((r) => (
+            {items.map((r, i) => (
               <tr key={r.id} {...rowProps(r)}>
+                <RowNumberCell n={startIndex + i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} />
                 {renderRequestCells(r)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 1}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 2}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -313,9 +317,10 @@ export function SupplyRequestsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <ListCount total={rows.length} shown={displayRows.length} style={{ marginTop: 6 }} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -325,6 +330,7 @@ export function SupplyRequestsPage(props: {
             getRowKey={(i) => displayRows[i]!.id}
             getRowProps={(i) => rowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
+            rowNumbers
             estimateSize={48}
             emptyState="Ничего не найдено"
           />
