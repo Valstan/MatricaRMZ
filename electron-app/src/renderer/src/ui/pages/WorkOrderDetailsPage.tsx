@@ -50,6 +50,8 @@ import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import {
   getWorkOrderRefs,
@@ -1739,9 +1741,11 @@ export function WorkOrderDetailsPage(props: {
 
   const crewSection = (
     <SectionCard className="entity-card-span-full">
+      <ListCount total={payload.crew.length} shown={payload.crew.length} />
       <div className="list-table-wrap list-table-wrap--single">
         <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
           <colgroup>
+            <col />
             <col />
             <col style={{ width: '12%' }} />
             <col style={{ width: '18%' }} />
@@ -1750,6 +1754,7 @@ export function WorkOrderDetailsPage(props: {
           </colgroup>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }} data-col-kind="name">Сотрудник</th>
               <th style={{ textAlign: 'right' }} data-col-kind="num" title="КТУ">КТУ</th>
               <th style={{ textAlign: 'right' }} data-col-kind="num" title="Начислено">Начислено</th>
@@ -1760,6 +1765,7 @@ export function WorkOrderDetailsPage(props: {
           <tbody>
             {payload.crew.map((member, idx) => (
               <tr key={`crew-${idx}-${member.employeeId}`}>
+                <RowNumberCell n={idx + 1} />
                 <td data-col-kind="name">
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
                     <EntityReferenceField
@@ -1872,7 +1878,7 @@ export function WorkOrderDetailsPage(props: {
             ))}
             {payload.crew.length === 0 && (
               <tr>
-                <td colSpan={canEditNow ? 5 : 4} style={{ color: 'var(--muted)' }}>
+                <td colSpan={canEditNow ? 6 : 5} style={{ color: 'var(--muted)' }}>
                   Состав бригады пуст
                 </td>
               </tr>
@@ -2967,10 +2973,12 @@ export function WorkOrderDetailsPage(props: {
               Комплектовка · {payload.assemblyBomSnapshot?.bomName ?? 'ручной состав'}
               {payload.assemblyBomSnapshot ? ` v${payload.assemblyBomSnapshot.bomVersion}` : ''}
             </div>
+            <ListCount total={(payload.consumedLines ?? []).length} shown={(payload.consumedLines ?? []).length} />
             <div className="list-table-wrap list-table-wrap--single">
               <table className="list-table list-table--single-mode">
                 <thead>
                   <tr>
+                    <RowNumberHeaderCell />
                     <th>Деталь</th>
                     <th>Артикул</th>
                     <th style={{ width: 90 }}>Количество</th>
@@ -2995,6 +3003,7 @@ export function WorkOrderDetailsPage(props: {
                     );
                     return (
                       <tr key={`${line.lineNo}:${line.nomenclatureId}`}>
+                        <RowNumberCell n={index + 1} />
                         <td>{snapshotLine?.nomenclatureName || part?.name || line.nomenclatureId}</td>
                         <td>{snapshotLine?.nomenclatureCode || part?.article || part?.sku || '—'}</td>
                         <td>
@@ -3092,9 +3101,11 @@ export function WorkOrderDetailsPage(props: {
       {/* Виды работ — отдельный широкий блок */}
       <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>
         <SectionCard className="entity-card-span-full work-order-works-panel">
+        <ListCount total={payload.freeWorks.length} shown={payload.freeWorks.length} />
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
+              <col />
               {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? <col style={{ width: '130px' }} /> : null}
               {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                 <col style={{ width: '140px' }} />
@@ -3113,6 +3124,7 @@ export function WorkOrderDetailsPage(props: {
             </colgroup>
             <thead>
               <tr>
+                <RowNumberHeaderCell />
                 {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? <th style={{ textAlign: 'left' }} data-col-kind="name">№ двигателя</th> : null}
                 {!(appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId')) && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                   <th style={{ textAlign: 'left' }} data-col-kind="name">Марка двигателя</th>
@@ -3174,6 +3186,7 @@ export function WorkOrderDetailsPage(props: {
                   : engineOptions;
                 return (
                 <tr key={`free-work-line-${idx}`}>
+                  <RowNumberCell n={idx + 1} />
                   {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
                       <EntityReferenceField
@@ -3451,7 +3464,7 @@ export function WorkOrderDetailsPage(props: {
                 <tr>
                   <td
                     colSpan={
-                      4 + // always-on: Наименование изделия + Артикул + Кол-во + Ед.
+                      5 + // always-on: № + Наименование изделия + Артикул + Кол-во + Ед.
                       (appliedHiddenFields.has('engineNumber') ? 0 : 1) +
                       (appliedHiddenFields.has('engineBrandName') || appliedHiddenFields.has('engineBrandId') ? 0 : 1) +
                       (appliedHiddenFields.has('serviceName') ? 0 : 1) +

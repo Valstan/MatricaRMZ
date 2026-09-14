@@ -3,6 +3,8 @@ import { describeAuditAction, type ChatDeepLinkPayload } from '@matricarmz/share
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
 
@@ -331,9 +333,11 @@ export function SuperadminAuditPage() {
         <div style={{ padding: 10, fontWeight: 700, background: 'var(--surface2)' }}>
           Сводный отчет по клиентам ({String(CLIENT_SUMMARY_CUTOFF_HOUR).padStart(2, '0')}:00)
         </div>
+        <ListCount total={dailyRows.length} shown={dailyRows.length} style={{ padding: '0 10px' }} />
         <table className="list-table">
           <thead>
             <tr style={{ background: 'var(--button-primary-bg)', color: 'var(--button-primary-text)' }}>
+              <RowNumberHeaderCell style={{ padding: 8 }} />
               <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
               <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>ФИО</th>
               <th data-col-kind="num" title="Программа была открыта и жива" style={{ textAlign: 'left', padding: 8 }}>Онлайн</th>
@@ -345,8 +349,9 @@ export function SuperadminAuditPage() {
             </tr>
           </thead>
           <tbody>
-            {dailyRows.map((r) => (
+            {dailyRows.map((r, i) => (
               <tr key={r.login}>
+                <RowNumberCell n={i + 1} style={{ padding: 8, borderBottom: '1px solid var(--border)' }} />
                 <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.login}</td>
                 <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.fullName || '-'}</td>
                 <td data-col-kind="num" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatOnlineHours(r.onlineMs)}</td>
@@ -359,7 +364,7 @@ export function SuperadminAuditPage() {
             ))}
             {dailyRows.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={8}>
+                <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={9}>
                   Нет данных за выбранный день.
                 </td>
               </tr>
@@ -370,9 +375,11 @@ export function SuperadminAuditPage() {
 
       <div style={{ marginTop: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: 10, fontWeight: 700, background: 'var(--surface2)' }}>Журнал действий пользователей</div>
+        <ListCount total={rows.length} shown={filteredRows.length} style={{ padding: '0 10px' }} />
         <table className="list-table">
           <thead>
             <tr style={{ background: 'var(--surface-2)', color: 'var(--text)' }}>
+              <RowNumberHeaderCell style={{ padding: 8 }} />
               <th data-col-kind="date" title="Время" style={{ textAlign: 'left', padding: 8 }}>Время</th>
               <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Аккаунт</th>
               <th data-col-kind="name" style={{ textAlign: 'left', padding: 8 }}>Имя сотрудника</th>
@@ -382,10 +389,11 @@ export function SuperadminAuditPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((r) => {
+            {filteredRows.map((r, i) => {
               const link = getDeepLinkPayload(r);
               return (
                 <tr key={r.id}>
+                  <RowNumberCell n={i + 1} style={{ padding: 8, borderBottom: '1px solid var(--border)' }} />
                   <td data-col-kind="date" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{formatAuditDate(r.createdAt)}</td>
                   <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{r.actor}</td>
                   <td data-col-kind="name" style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>{getActorInitials(r.actor)}</td>
@@ -421,7 +429,7 @@ export function SuperadminAuditPage() {
             })}
             {filteredRows.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={6}>
+                <td style={{ padding: 10, color: 'var(--muted)' }} colSpan={7}>
                   Действий не найдено.
                 </td>
               </tr>

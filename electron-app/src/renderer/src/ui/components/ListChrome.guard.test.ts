@@ -159,3 +159,36 @@ describe('счётчик и нумерация строк', () => {
     expect(PRINT_DIALOG).toContain('<th style="text-align:right">№</th>');
   });
 });
+
+// Sweep подтаблиц (владелец 15.09.2026: «вообще все таблицы»): карточки, диалоги, панели.
+const SUBTABLE_PAGES = [
+  'AdminPage', 'ContractDetailsPage', 'EngineBrandGroupsPage', 'MasterdataWorkshopsPage', 'NomenclatureDetailsPage',
+  'RepairFundAuditPage', 'ReportPresetPage', 'ServicesByBrandPage', 'StockDocumentDetailsPage', 'StockInventoryPage',
+  'SuperadminAuditPage', 'SupplyRequestDetailsPage', 'SupplyToolMovementsPage', 'ToolDetailsPage', 'ToolPropertiesPage',
+  'WarehouseLocationsAdminPage', 'WarehouseLocationsPage', 'WorkOrderDetailsPage', 'WorkOrderTemplatesPage',
+  'ServicePriceOrdersPage', 'TimesheetsPage',
+].map((name) => [name, src(`../pages/${name}.tsx`)] as const);
+const SUBTABLE_COMPONENTS = [
+  'AssemblyReturnDialog', 'DocumentHistoryPanel', 'EngineDismantlePreviewDialog', 'NomenclatureTemplateCompositionEditor',
+  'RepairChecklistPanel', 'WorkOrderTemplateEditorDialog', 'WorkshopTemplateDialog', 'AttachmentsPanel',
+].map((name) => [name, src(`./${name}.tsx`)] as const);
+
+describe('счётчик и нумерация — подтаблицы карточек и диалогов', () => {
+  it('каждая таблица карточки/диалога несёт ListCount и колонку «№»', () => {
+    for (const [name, text] of [...SUBTABLE_PAGES, ...SUBTABLE_COMPONENTS]) {
+      expect(text, `${name}: нет ListCount`).toContain('<ListCount');
+      expect(text, `${name}: нет RowNumberHeaderCell`).toContain('<RowNumberHeaderCell');
+      expect(text, `${name}: нет RowNumberCell в строках`).toContain('<RowNumberCell');
+    }
+  });
+
+  it('старые самодельные «№» и счётчики «Показано … из» сняты', () => {
+    // Самодельные `<th>№</th>` остались только в print-HTML строках (шаблонные литералы), не в JSX.
+    for (const [name, text] of [...SUBTABLE_PAGES, ...SUBTABLE_COMPONENTS]) {
+      const jsxOnly = text.replace(/`[\s\S]*?`/g, '');
+      expect(jsxOnly, `${name}: самодельная колонка № в JSX`).not.toMatch(/<th[^>`]*>№<\/th>/);
+    }
+    expect(SUBTABLE_COMPONENTS.find(([n]) => n === 'AttachmentsPanel')![1]).not.toContain('Показано: {filteredList.length}');
+    expect(SUBTABLE_PAGES.find(([n]) => n === 'ServicesByBrandPage')![1]).not.toContain('Услуг в списке:');
+  });
+});

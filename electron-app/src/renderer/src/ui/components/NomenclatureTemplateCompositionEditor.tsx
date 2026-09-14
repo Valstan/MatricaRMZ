@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { WarehouseNomenclatureTemplateProperty } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { RowReorderButtons } from './RowReorderButtons.js';
 import { SearchSelect } from './SearchSelect.js';
 import {
@@ -148,9 +150,11 @@ export function NomenclatureTemplateCompositionEditor(props: {
           </div>
         </div>
 
+        <ListCount total={rows.length} shown={rows.length} />
         <table className="list-table" style={{ marginBottom: 14 }}>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ width: 72 }}>Порядок</th>
               <th>Свойство</th>
               <th style={{ width: 100 }}>Обяз.</th>
@@ -160,7 +164,7 @@ export function NomenclatureTemplateCompositionEditor(props: {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} style={{ color: 'var(--subtle)', padding: 12, textAlign: 'center' }}>
+                <td colSpan={5} style={{ color: 'var(--subtle)', padding: 12, textAlign: 'center' }}>
                   В шаблоне пока нет свойств
                 </td>
               </tr>
@@ -169,6 +173,7 @@ export function NomenclatureTemplateCompositionEditor(props: {
                 const meta = propertyById.get(row.propertyId);
                 return (
                   <tr key={row.propertyId}>
+                    <RowNumberCell n={idx + 1} />
                     <td>
                       <RowReorderButtons
                         canMoveUp={idx > 0}

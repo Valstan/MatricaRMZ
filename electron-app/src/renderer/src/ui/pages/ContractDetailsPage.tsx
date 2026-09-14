@@ -27,6 +27,8 @@ import { DataTable } from '../components/DataTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import {
   parseContractSections,
   parseContractExecutionParts,
@@ -845,8 +847,10 @@ function SectionBlock(props: {
               </Button>
             )}
           </div>
+          <ListCount total={section.engineBrands.length} shown={section.engineBrands.length} />
           <DataTable className="list-table">
               <colgroup>
+                <col />
                 <col />
                 <col style={{ width: 110 }} />
                 <col style={{ width: 130 }} />
@@ -855,6 +859,7 @@ function SectionBlock(props: {
               </colgroup>
               <thead>
                 <tr>
+                  <RowNumberHeaderCell style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                   <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Марка</th>
                   <th className="num" data-col-kind="num" title="Кол-во">Кол-во</th>
                   <th className="num" data-col-kind="num" title="Цена">Цена</th>
@@ -869,6 +874,7 @@ function SectionBlock(props: {
                   const label = resolved ?? (row.engineBrandId ? '⚠ марка удалена' : '—');
                   return (
                     <tr key={idx}>
+                      <RowNumberCell n={idx + 1} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           {canEdit ? (
@@ -948,8 +954,10 @@ function SectionBlock(props: {
               </Button>
             )}
           </div>
+          <ListCount total={section.parts.length} shown={section.parts.length} />
           <DataTable className="list-table">
               <colgroup>
+                <col />
                 <col />
                 <col style={{ width: 110 }} />
                 <col style={{ width: 130 }} />
@@ -958,6 +966,7 @@ function SectionBlock(props: {
               </colgroup>
               <thead>
                 <tr>
+                  <RowNumberHeaderCell style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                   <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Деталь</th>
                   <th className="num" data-col-kind="num" title="Кол-во">Кол-во</th>
                   <th className="num" data-col-kind="num" title="Цена">Цена</th>
@@ -970,6 +979,7 @@ function SectionBlock(props: {
                   const label = partOptions.find((o) => o.id === row.partId)?.label ?? (row.partId || '—');
                   return (
                     <tr key={idx}>
+                      <RowNumberCell n={idx + 1} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
                           {canEdit ? (
@@ -1083,10 +1093,12 @@ function SectionBlock(props: {
               />
             ) : null}
             {slotRows.length > 0 || orphanEngines.length > 0 ? (
+              <>
+              <ListCount total={slotRows.length + orphanEngines.length} shown={slotRows.length + orphanEngines.length} />
               <DataTable className="list-table">
                 <colgroup>
-                  {props.onToggleSlots ? <col style={{ width: 34 }} /> : null}
                   <col style={{ width: 42 }} />
+                  {props.onToggleSlots ? <col style={{ width: 34 }} /> : null}
                   <col style={{ width: '16%' }} />
                   <col style={{ width: '16%' }} />
                   <col style={{ width: '14%' }} />
@@ -1099,10 +1111,10 @@ function SectionBlock(props: {
                 </colgroup>
                 <thead>
                   <tr>
+                    <RowNumberHeaderCell style={TD_HEAD} />
                     {props.onToggleSlots ? (
                       <th style={{ borderBottom: '1px solid var(--border)' }} title="Отметить для разнесения аванса и служебной записки" />
                     ) : null}
-                    <th style={TD_HEAD}>№</th>
                     <th style={TD_HEAD} data-col-kind="name">Марка</th>
                     <th style={TD_HEAD} data-col-kind="name">Двигатель</th>
                     <th style={TD_HEAD} data-col-kind="text">Статус</th>
@@ -1117,13 +1129,15 @@ function SectionBlock(props: {
                   </tr>
                 </thead>
                 <tbody>
-                  {brandGroups.map((group) => {
+                  {brandGroups.map((group, groupIdx) => {
+                    const groupOffset = brandGroups.slice(0, groupIdx).reduce((acc, g) => acc + g.rows.length, 0);
                     const groupIds = group.rows.map((r) => r.slot.id);
                     const allChecked = groupIds.every((id) => props.slotSelection?.has(id));
                     const occupied = group.rows.filter((r) => r.engine).length;
                     return (
                       <React.Fragment key={group.key || 'no-brand'}>
                         <tr style={{ background: 'var(--surface-2, rgba(127,127,127,0.08))' }}>
+                          <td style={TD_CELL} />
                           {props.onToggleSlots ? (
                             <td style={{ borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                               <input
@@ -1134,7 +1148,7 @@ function SectionBlock(props: {
                               />
                             </td>
                           ) : null}
-                          <td colSpan={7 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
+                          <td colSpan={6 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
                             {group.label}{' '}
                             <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>
                               — {occupied} из {group.rows.length}
@@ -1149,6 +1163,7 @@ function SectionBlock(props: {
                           const payments = slotPayments(slot);
                           return (
                             <tr key={slot.id} style={visual.rowBackground ? { background: visual.rowBackground } : undefined}>
+                              <RowNumberCell n={groupOffset + idx + 1} style={TD_CELL} />
                               {props.onToggleSlots ? (
                                 <td style={{ borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                   <input
@@ -1158,7 +1173,6 @@ function SectionBlock(props: {
                                   />
                                 </td>
                               ) : null}
-                              <td style={{ ...TD_CELL, color: 'var(--subtle)' }}>{idx + 1}</td>
                               <td data-col-kind="name" style={TD_CELL}>
                                 {group.label}
                               </td>
@@ -1244,13 +1258,12 @@ function SectionBlock(props: {
                       </React.Fragment>
                     );
                   })}
-                  {orphanEngines.map((engine) => (
+                  {orphanEngines.map((engine, orphanIdx) => (
                     <tr key={`orphan-${engine.id}`}>
+                      <RowNumberCell n={slotRows.length + orphanIdx + 1} style={TD_CELL} />
                       {props.onToggleSlots ? <td style={{ borderBottom: '1px solid var(--border)' }} /> : null}
-                      <td style={{ ...TD_CELL, color: 'var(--warning, #b45309)' }} title="Двигатель привязан к секции, но слот ему ещё не назначен">
-                        ⚠
-                      </td>
                       <td data-col-kind="name" style={TD_CELL}>
+                        <span style={{ color: 'var(--warning, #b45309)' }} title="Двигатель привязан к секции, но слот ему ещё не назначен">⚠</span>{' '}
                         {engine.engineBrand || '—'}
                       </td>
                       <td data-col-kind="name" style={TD_CELL}>
@@ -1279,6 +1292,7 @@ function SectionBlock(props: {
                   ))}
                 </tbody>
               </DataTable>
+              </>
             ) : null}
             {canEdit && addEngineOpen && (
               <div style={{ display: 'grid', gap: 8, marginTop: slotRows.length > 0 ? 8 : 0 }}>
@@ -2548,8 +2562,10 @@ export function ContractDetailsPage(props: {
                     участвуют в разнесении аванса. Нажмите «Разложить по слотам»: каждый сядет в свободный слот
                     своей марки.
                   </div>
+                  <ListCount total={enginesWithoutSection.length} shown={enginesWithoutSection.length} />
                   <DataTable className="list-table">
                     <colgroup>
+                      <col />
                       <col style={{ width: '30%' }} />
                       <col style={{ width: '25%' }} />
                       <col />
@@ -2557,6 +2573,7 @@ export function ContractDetailsPage(props: {
                     </colgroup>
                     <thead>
                       <tr>
+                        <RowNumberHeaderCell style={TD_HEAD} />
                         <th style={TD_HEAD} data-col-kind="name">Номер двигателя</th>
                         <th style={TD_HEAD} data-col-kind="name">Марка двигателя</th>
                         <th style={TD_HEAD} data-col-kind="text">Статус</th>
@@ -2566,7 +2583,7 @@ export function ContractDetailsPage(props: {
                       </tr>
                     </thead>
                     <tbody>
-                      {enginesWithoutSection.map((engine) => {
+                      {enginesWithoutSection.map((engine, engineIdx) => {
                         const currentToken = canonicalContractSectionKey(engine.contractSectionNumber);
                         const reservedByOther = Boolean(
                           engine.reservedByUserId && engine.reservedByUserId !== (props.currentUserId ?? ''),
@@ -2579,6 +2596,7 @@ export function ContractDetailsPage(props: {
                             : sectionMoveOptions;
                         return (
                           <tr key={engine.id}>
+                            <RowNumberCell n={engineIdx + 1} style={TD_CELL} />
                             <td data-col-kind="name" style={TD_CELL}>
                               {props.onOpenEngine ? (
                                 <button
@@ -2695,8 +2713,10 @@ export function ContractDetailsPage(props: {
             ) : null}
             {expandedBlocks.contractParts !== false && (
               <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+                <ListCount total={executionParts.length} shown={executionParts.length} />
                 <DataTable className="list-table">
                   <colgroup>
+                    <col />
                     <col />
                     <col style={{ width: 120 }} />
                     <col style={{ width: 140 }} />
@@ -2704,6 +2724,7 @@ export function ContractDetailsPage(props: {
                   </colgroup>
                   <thead>
                     <tr>
+                      <RowNumberHeaderCell style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                       <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border)' }} data-col-kind="name">Деталь</th>
                       <th className="num" data-col-kind="num" title="План">План</th>
                       <th className="num" data-col-kind="num" title="Исполнено">Исполнено</th>
@@ -2715,6 +2736,7 @@ export function ContractDetailsPage(props: {
                       const label = partOptions.find((option) => option.id === row.partId)?.label ?? row.partId;
                       return (
                         <tr key={row.partId}>
+                          <RowNumberCell n={idx + 1} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                           <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                             {row.partId && props.onOpenPart ? (
                               <button
@@ -2766,7 +2788,7 @@ export function ContractDetailsPage(props: {
                     })}
                     {executionParts.length === 0 && (
                       <tr>
-                        <td colSpan={props.canEdit ? 4 : 3} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
+                        <td colSpan={props.canEdit ? 5 : 4} style={{ padding: 12, color: 'var(--subtle)', fontSize: 13 }}>
                           Нет деталей исполнения
                         </td>
                       </tr>

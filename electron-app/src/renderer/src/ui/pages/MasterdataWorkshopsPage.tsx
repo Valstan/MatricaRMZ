@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { WorkshopTemplateDialog } from '../components/WorkshopTemplateDialog.js';
 
 type WorkshopRow = {
@@ -163,10 +165,12 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
         <Button onClick={() => void createNew()}>Создать</Button>
       </div>
 
+      <ListCount total={sorted.length} shown={sorted.length} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ width: 80 }}>Код</th>
               <th data-col-kind="name">Название</th>
               <th data-col-kind="flag" title="Активен" style={{ width: 80, textAlign: 'center' }}>Активен</th>
@@ -179,16 +183,17 @@ export function MasterdataWorkshopsPage(props: { canManage: boolean; canEditRepa
           <tbody>
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
+                <td colSpan={8} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                   Цехов нет. Создайте первый сверху.
                 </td>
               </tr>
             ) : (
-              sorted.map((base) => {
+              sorted.map((base, i) => {
                 const draft = getRow(base.id);
                 const dirty = drafts[base.id] !== undefined;
                 return (
                   <tr key={base.id}>
+                    <RowNumberCell n={i + 1} />
                     <td>
                       <Input
                         value={draft.code}

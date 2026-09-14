@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { useConfirm } from './ConfirmContext.js';
 import { useDesktopFiles } from './DesktopFilesContext.js';
 import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
@@ -768,9 +770,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             <option value="all">Показать все файлы</option>
           </select>
         </label>
-        <div style={{ fontSize: 12, color: '#64748b' }}>
-          Показано: {filteredList.length} из {list.length}
-        </div>
+        <ListCount total={list.length} shown={filteredList.length} style={{ margin: 0 }} />
       </div>
       {props.canUpload && !isAndroid && (
         <div style={{ marginTop: 6, fontSize: 12, color: dragOver ? '#1d4ed8' : '#94a3b8' }}>
@@ -807,6 +807,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #2563eb 120%)', color: '#fff' }}>
+              <RowNumberHeaderCell style={{ borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }} />
               <th style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, width: 36 }}>
                 <input
                   type="checkbox"
@@ -826,8 +827,9 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             </tr>
           </thead>
           <tbody>
-            {filteredList.map((f) => (
+            {filteredList.map((f, i) => (
               <tr key={f.id}>
+                <RowNumberCell n={i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }} />
                 <td style={{ borderBottom: '1px solid #f3f4f6', padding: 10, verticalAlign: 'top' }}>
                   <input
                     type="checkbox"
@@ -979,7 +981,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
             ))}
             {filteredList.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: 12, color: '#6b7280' }}>
+                <td colSpan={6} style={{ padding: 12, color: '#6b7280' }}>
                   {list.length === 0
                     ? `Нет вложений. ${props.canUpload ? 'Нажмите “Добавить файл”, чтобы прикрепить документ.' : ''}`
                     : 'По выбранному фильтру файлы не найдены.'}

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 
 type LocationRow = {
@@ -239,10 +241,12 @@ export function WarehouseLocationsAdminPage(props: { canManage: boolean; onOpenW
         </div>
       ) : null}
 
+      <ListCount total={rows.length} shown={filtered.length} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th data-col-kind="flag" title="Тип" style={{ width: 110 }}>Тип</th>
               <th data-col-kind="name" style={{ width: 220 }}>Код (warehouseId)</th>
               <th data-col-kind="name">Название</th>
@@ -255,18 +259,19 @@ export function WarehouseLocationsAdminPage(props: { canManage: boolean; onOpenW
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
+                <td colSpan={8} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                   Нет локаций под фильтр
                 </td>
               </tr>
             ) : (
-              filtered.map((row) => {
+              filtered.map((row, i) => {
                 const isRegular = row.type === 'regular';
                 const edit = getEdit(row);
                 const dirty = editing[row.id] !== undefined;
                 const refs = usage[row.code] ?? 0;
                 return (
                   <tr key={row.id} title={TYPE_HELP[row.type]}>
+                    <RowNumberCell n={i + 1} />
                     <td data-col-kind="flag">
                       <span style={{
                         display: 'inline-block',

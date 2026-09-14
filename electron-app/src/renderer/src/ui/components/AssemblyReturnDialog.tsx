@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AssemblyReturnMode, ASSEMBLY_RETURN_MODE_LABELS, type DefectPartInstanceSummary } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
@@ -450,9 +452,11 @@ export function AssemblyReturnDialog(props: {
           </span>
         </div>
 
+        <ListCount total={lines.length} shown={lines.length} />
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }}>Деталь</th>
               <th style={{ width: 88, textAlign: 'right' }} title="Норма расхода на один двигатель по спецификации">Норма/двиг.</th>
               <th style={{ width: 92, textAlign: 'right' }} title="Сколько сейчас числится в сборке по этому двигателю">В сборке</th>
@@ -463,12 +467,13 @@ export function AssemblyReturnDialog(props: {
             </tr>
           </thead>
           <tbody>
-            {lines.map((line) => {
+            {lines.map((line, i) => {
               const norm = brandQtyMap.get(line.nomenclatureId);
               const avail = assemblyStock.get(line.nomenclatureId);
               const isOver = overLines.has(line.id);
               return (
                 <tr key={line.id}>
+                  <RowNumberCell n={i + 1} />
                   <td style={{ minWidth: 250 }}>
                     <EntityReferenceField
                       target="nomenclature"
@@ -553,6 +558,7 @@ export function AssemblyReturnDialog(props: {
           </tbody>
           <tfoot>
             <tr>
+              <td />
               <td colSpan={3} style={{ textAlign: 'right', padding: '8px', color: 'var(--subtle)' }}>
                 В ремфонд: <strong style={{ color: 'var(--text)' }}>{sums.rework}</strong> · в утиль:{' '}
                 <strong style={{ color: 'var(--text)' }}>{sums.scrap}</strong>

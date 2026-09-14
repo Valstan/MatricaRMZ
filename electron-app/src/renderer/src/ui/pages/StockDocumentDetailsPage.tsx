@@ -15,6 +15,8 @@ import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
@@ -908,10 +910,11 @@ export function StockDocumentDetailsPage(props: {
             {isInventory ? ` | дельта: ${totals.delta}` : ''}
           </div>
         </div>
+        <ListCount total={lines.length} shown={lines.length} />
         <table className="list-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }} data-col-kind="num" title="№">№</th>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }} data-col-kind="name">Номенклатура</th>
               <th style={{ textAlign: 'left' }} data-col-kind="name" title="Артикул / код / сборочный номер">Артикул</th>
               {isDefectLinkedIncoming ? <th style={{ textAlign: 'left' }}>Основание дефектовки</th> : null}
@@ -953,7 +956,7 @@ export function StockDocumentDetailsPage(props: {
                   : [];
                 return (
                   <tr key={line.id || idx}>
-                    <td data-col-kind="num">{idx + 1}</td>
+                    <RowNumberCell n={idx + 1} />
                     <td data-col-kind="name" style={{ minWidth: 280 }}>
                       <EntityReferenceField
                         target="nomenclature"

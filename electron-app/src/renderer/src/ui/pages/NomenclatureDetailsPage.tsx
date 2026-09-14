@@ -23,6 +23,8 @@ import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { NomenclatureTemplateCompositionEditor } from '../components/NomenclatureTemplateCompositionEditor.js';
 import { PartDetailsPage } from './PartDetailsPage.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
@@ -1448,9 +1450,11 @@ export function NomenclatureDetailsPage(props: {
             </Button>
           </div>
         ) : null}
+        <ListCount total={instances.length} shown={instances.length} />
         <table className="list-table">
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }} data-col-kind="name">Серийник</th>
               <th style={{ textAlign: 'left' }} data-col-kind="text">Статус</th>
               <th style={{ textAlign: 'left' }} data-col-kind="name">Склад</th>
@@ -1461,13 +1465,14 @@ export function NomenclatureDetailsPage(props: {
           <tbody>
             {instances.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
+                <td colSpan={6} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
                   Экземпляры не созданы
                 </td>
               </tr>
             ) : (
-              instances.map((instance) => (
+              instances.map((instance, i) => (
                 <tr key={instance.id}>
+                  <RowNumberCell n={i + 1} />
                   <td data-col-kind="name">{instance.serialNumber}</td>
                   <td data-col-kind="text">{instance.currentStatus}</td>
                   <td data-col-kind="name">
@@ -1488,9 +1493,11 @@ export function NomenclatureDetailsPage(props: {
       <div data-card-tab="stock" hidden={activeTab !== 'stock'} style={{ gap: 12, ...(activeTab === 'stock' ? { display: 'grid' } : {}) }}>
       {itemType !== 'service' && (
         <SectionCard title={`Остатки по складам (всего: ${totalQty})`} style={{ padding: 12 }}>
+        <ListCount total={balances.length} shown={balances.length} />
         <table className="list-table">
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }} data-col-kind="name">Склад</th>
               <th style={{ textAlign: 'left' }} data-col-kind="num" title="Доступно">Доступно</th>
               <th style={{ textAlign: 'left' }} data-col-kind="num" title="Остаток">Остаток</th>
@@ -1500,13 +1507,14 @@ export function NomenclatureDetailsPage(props: {
           <tbody>
             {balances.length === 0 ? (
               <tr>
-                <td colSpan={4} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
+                <td colSpan={5} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
                   Нет остатков
                 </td>
               </tr>
             ) : (
-              balances.map((balance) => (
+              balances.map((balance, i) => (
                 <tr key={balance.id}>
+                  <RowNumberCell n={i + 1} />
                   <td data-col-kind="name">
                     {balance.warehouseName ||
                       (String(balance.warehouseId ?? '') === 'default' ? 'Склад по умолчанию' : balance.warehouseId || '—')}
@@ -1524,9 +1532,11 @@ export function NomenclatureDetailsPage(props: {
 
       {itemType !== 'service' && (
         <SectionCard title={`Последние движения (${movements.length})`} style={{ padding: 12 }}>
+        <ListCount total={movements.length} shown={movements.length} />
         <table className="list-table">
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }} data-col-kind="date" title="Дата">Дата</th>
               <th style={{ textAlign: 'left' }} data-col-kind="name">Склад</th>
               <th style={{ textAlign: 'left' }} data-col-kind="name">Документ</th>
@@ -1539,13 +1549,14 @@ export function NomenclatureDetailsPage(props: {
           <tbody>
             {movements.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
+                <td colSpan={8} style={{ color: 'var(--subtle)', textAlign: 'center', padding: 10 }}>
                   Нет движений
                 </td>
               </tr>
             ) : (
-              movements.map((movement) => (
+              movements.map((movement, i) => (
                 <tr key={movement.id}>
+                  <RowNumberCell n={i + 1} />
                   <td data-col-kind="date">{movement.performedAt ? formatListDateTime(Number(movement.performedAt)) : '—'}</td>
                   <td data-col-kind="name">{movement.warehouseName || movement.warehouseId || '—'}</td>
                   <td data-col-kind="name">{movement.documentDocNo || '—'}</td>

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
@@ -125,10 +127,12 @@ export function EngineBrandGroupsPage(props: {
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      <ListCount total={rows.length} shown={sorted.length} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid #e5e7eb', overflowX: 'clip' }}>
         <table className="list-table">
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th data-col-kind="name" style={{ textAlign: 'left' }}>Название группы</th>
               <th data-col-kind="num" style={{ textAlign: 'right', width: 90 }} title="Сколько марок в группе">Марок</th>
               <th data-col-kind="text" style={{ textAlign: 'left' }}>Описание</th>
@@ -136,8 +140,9 @@ export function EngineBrandGroupsPage(props: {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row) => (
+            {sorted.map((row, i) => (
               <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+                <RowNumberCell n={i + 1} />
                 <td data-col-kind="name">{row.name}</td>
                 <td data-col-kind="num" style={{ textAlign: 'right' }}>{row.brandCount}</td>
                 <td data-col-kind="text">{row.description || <span style={{ color: 'var(--subtle)' }}>—</span>}</td>
@@ -152,7 +157,7 @@ export function EngineBrandGroupsPage(props: {
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={4}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={5}>
                   Групп марок пока нет. Нажмите «Создать группу».
                 </td>
               </tr>
@@ -160,7 +165,6 @@ export function EngineBrandGroupsPage(props: {
           </tbody>
         </table>
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sorted.length}</div>
     </div>
   );
 }

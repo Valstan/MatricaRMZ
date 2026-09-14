@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorkshopRepairTemplateDto, WorkshopRepairTemplateSummary } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
 import type { SearchSelectOption } from './SearchSelect.js';
@@ -485,10 +487,11 @@ export function WorkshopTemplateDialog(props: {
                   />
                 </div>
 
+                <ListCount total={editor.lines.length} shown={editor.lines.length} />
                 <table className="list-table" style={{ width: '100%', marginBottom: 8 }}>
                   <thead>
                     <tr>
-                      <th style={{ width: 40 }}>№</th>
+                      <RowNumberHeaderCell />
                       <th style={{ minWidth: 250 }}>Деталь</th>
                       <th style={{ width: 80 }}>Ед.</th>
                       <th style={{ width: 90, textAlign: 'right' }}>По умолч.</th>
@@ -508,7 +511,7 @@ export function WorkshopTemplateDialog(props: {
                         const isDup = duplicateIds.has(line.nomenclatureId);
                         return (
                           <tr key={line.id} style={isDup ? { background: 'rgba(220, 38, 38, 0.08)' } : undefined}>
-                            <td>{idx + 1}</td>
+                            <RowNumberCell n={idx + 1} />
                             <td>
                               <EntityReferenceField
                                 target="nomenclature"

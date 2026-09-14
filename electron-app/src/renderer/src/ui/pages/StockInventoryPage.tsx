@@ -3,6 +3,8 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -87,6 +89,7 @@ export function StockInventoryPage(props: {
   const tableHeader = (
     <thead>
       <tr>
+        <RowNumberHeaderCell />
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('code')}>{sortLabel('Код', 'code')}</th>
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>{sortLabel('Номенклатура', 'name')}</th>
         <th style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('unit')}>{sortLabel('Ед.', 'unit')}</th>
@@ -278,6 +281,7 @@ export function StockInventoryPage(props: {
             при прокрутке (иначе фокус слетает посреди ввода). Sticky-шапка работает,
             т.к. скролл-контейнер (containerRef, overflow:auto) — прямой родитель таблицы
             без промежуточной overflow-обёртки. */}
+        <ListCount total={rows.length} shown={sortedRows.length} />
         <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div style={{ border: '1px solid #e5e7eb' }}>
             <table className="list-table">
@@ -285,20 +289,22 @@ export function StockInventoryPage(props: {
               <tbody>
                 {sortedRows.length === 0 ? (
                   <tr>
-                    <td style={{ padding: 10, color: '#6b7280' }} colSpan={blindMode ? 4 : 6}>
+                    <td style={{ padding: 10, color: '#6b7280' }} colSpan={blindMode ? 5 : 7}>
                       Загрузите остатки по складу, чтобы начать инвентаризацию.
                     </td>
                   </tr>
                 ) : (
-                  sortedRows.map((row) => (
-                    <tr key={`${row.nomenclatureId}-${row.warehouseId}`}>{renderInventoryCells(row)}</tr>
+                  sortedRows.map((row, i) => (
+                    <tr key={`${row.nomenclatureId}-${row.warehouseId}`}>
+                      <RowNumberCell n={i + 1} />
+                      {renderInventoryCells(row)}
+                    </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
         </div>
-        <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sortedRows.length}</div>
       </div>
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

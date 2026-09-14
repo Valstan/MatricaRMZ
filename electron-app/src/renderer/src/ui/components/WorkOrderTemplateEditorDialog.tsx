@@ -19,6 +19,8 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
 import { RowReorderButtons } from './RowReorderButtons.js';
@@ -766,10 +768,11 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
               ) : null}
             </div>
 
+            <ListCount total={editor.lines.length} shown={editor.lines.length} />
             <table className="list-table" style={{ width: '100%', marginBottom: 8 }}>
               <thead>
                 <tr>
-                  <th style={{ width: 40 }}>№</th>
+                  <RowNumberHeaderCell />
                   <th style={{ minWidth: 220 }}>Деталь</th>
                   <th style={{ minWidth: 180 }}>Вид работы</th>
                   <th style={{ width: 70 }}>Ед.</th>
@@ -790,7 +793,7 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                     const isDup = duplicateLineKeys.has(dupKey);
                     return (
                       <tr key={line.id} style={isDup ? { background: 'rgba(220, 38, 38, 0.08)' } : undefined}>
-                        <td>{idx + 1}</td>
+                        <RowNumberCell n={idx + 1} />
                         <td>
                           <EntityReferenceField
                             target="nomenclature"

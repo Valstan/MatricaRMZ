@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -251,10 +253,12 @@ export function ServicesByBrandPage(props: {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--subtle)' }}>
-        <span>
-          {selectedBrandLabel ? `Марка: «${selectedBrandLabel}» · ` : ''}
-          Услуг в списке: {filteredServices.length}{services.length > filteredServices.length ? ` из ${services.length}` : ''}
-        </span>
+        <ListCount
+          total={services.length}
+          shown={filteredServices.length}
+          style={{ margin: 0 }}
+          extra={selectedBrandLabel ? <span>Марка: «{selectedBrandLabel}»</span> : undefined}
+        />
         <span style={{ flex: 1 }} />
         {dirtyCount > 0 ? (
           <>
@@ -279,6 +283,7 @@ export function ServicesByBrandPage(props: {
           <table className="list-table">
             <thead>
               <tr>
+                <RowNumberHeaderCell />
                 <th data-col-kind="flag" title="✓" style={{ width: 36, textAlign: 'center' }}>✓</th>
                 <th data-col-kind="name" style={{ textAlign: 'left' }}>Услуга</th>
                 <th style={{ textAlign: 'left' }}>Ед.</th>
@@ -290,12 +295,12 @@ export function ServicesByBrandPage(props: {
             <tbody>
               {filteredServices.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
+                  <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                     Нет услуг под фильтр
                   </td>
                 </tr>
               ) : (
-                filteredServices.map((s) => {
+                filteredServices.map((s, i) => {
                   const isBound = selectedBrandId ? s.engineBrandIds.includes(selectedBrandId) : false;
                   const isUniversal = s.engineBrandIds.length === 0;
                   const brandNames = s.engineBrandIds
@@ -303,6 +308,7 @@ export function ServicesByBrandPage(props: {
                     .sort((a, b) => a.localeCompare(b, 'ru'));
                   return (
                     <tr key={s.id} style={s.dirty ? { background: 'rgba(245, 158, 11, 0.08)' } : undefined}>
+                      <RowNumberCell n={i + 1} />
                       <td data-col-kind="flag" style={{ textAlign: 'center' }}>
                         <input
                           type="checkbox"
