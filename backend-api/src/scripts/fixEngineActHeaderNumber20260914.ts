@@ -1,20 +1,25 @@
 /**
- * One-off проход по базе: вернуть в шапку листа `engine_inventory` полный номер двигателя.
+ * One-off проход по базе: вернуть в шапку листа `engine_inventory` значения из карточки
+ * двигателя — номер, марку и внутренний номер.
  *
  * Что случилось. Автоподстановка шапки запоминала владение полем в момент ЗАПИСИ, а запись не
  * всегда закреплялась: brand-resync сохранял лист со своим, более старым снимком `answers` и
  * возвращал шапку пустой. Следующий проход читал «поле пустое, а писали его мы» как «оператор
- * стёр руками» и больше не писал никогда — номер замирал на том фрагменте, что был в полёте
- * (обычно на первой букве). Механика починена в клиенте (PR «fix(engine-act): …»), но уже
- * записанные листы сами не исправятся: подстановка не трогает непустое значение.
+ * стёр руками» и больше не писал никогда — значение замирало на том фрагменте, что был в полёте
+ * (у номера — обычно на первой букве). Механика починена в клиенте (PR #898), но уже записанные
+ * листы сами не исправятся: подстановка не трогает непустое значение.
  *
  * Что делает скрипт — правит ТОЛЬКО явные следы этого дефекта:
- *   * шапка пуста, а у двигателя номер есть → ставим номер;
- *   * в шапке строгий ПРЕФИКС номера двигателя («2» при «2Ж03АТ») → ставим номер целиком.
+ *   * поле пусто, а в карточке значение есть → ставим значение;
+ *   * в поле строгий ПРЕФИКС значения из карточки («2» при «2Ж03АТ») → дописываем целиком.
  * Любое другое расхождение — это то, что оператор вписал руками, и оно неприкосновенно.
  * Регистр и пробелы по краям при сравнении не учитываются, иначе «2ж» не опознается префиксом.
  *
- * Печать от этого не менялась: печатная форма берёт номер из карточки двигателя, а из шапки —
+ * ⚠ Внутренний номер собирается ТОЛЬКО из сохранённого года. Карточка, когда года нет,
+ * подставляет текущий — для листа трёхлетней давности это записало бы год, которого в данных
+ * никогда не было. Такой лист получает голый номер («41»), ровно как его видит сервер.
+ *
+ * Печать от этого не менялась: печатная форма берёт значения из карточки двигателя, а из шапки —
  * только когда в карточке пусто. То есть акты печатались верно и до прохода; чинится то, что
  * оператор видит на экране и что уезжает в историю версий акта.
  *
@@ -23,6 +28,7 @@
  *
  * Dry-run по умолчанию. Флаги:
  *   --apply              — выполнить запись
+ *   --fields=a,b         — только эти поля (engine_number, engine_brand, engine_internal_number)
  *   --actor=<username>   — актор (по умолчанию: первый superadmin)
  *   --limit=<N>          — обработать не больше N листов (для пробного прогона на проде)
  *
@@ -35,7 +41,13 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SyncTableName } from '@matricarmz/shared';
+import {
+  ENGINE_INTERNAL_NUMBER_CODE,
+  ENGINE_INTERNAL_NUMBER_YEAR_CODE,
+  formatEngineInternalNumber,
+  isValidEngineInternalNumberYear,
+  SyncTableName,
+} from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
 import { writeSyncChanges } from '../services/sync/syncWriteService.js';
@@ -45,6 +57,27 @@ const actorArg = process.argv.find((a) => a.startsWith('--actor='));
 const ACTOR_OVERRIDE = actorArg ? actorArg.split('=')[1] : null;
 const limitArg = process.argv.find((a) => a.startsWith('--limit='));
 const LIMIT = limitArg ? Math.max(0, Math.trunc(Number(limitArg.split('=')[1]))) : 0;
+const fieldsArg = process.argv.find((a) => a.startsWith('--fields='));
+
+/**
+ * Поля шапки, которые умеет чинить проход. Все три обнулял один и тот же механизм, и правило
+ * для них общее — различается только то, откуда берётся эталон из карточки двигателя.
+ */
+const HEADER_FIELDS = ['engine_number', 'engine_brand', 'engine_internal_number'] as const;
+type HeaderField = (typeof HEADER_FIELDS)[number];
+const FIELD_TITLE: Record<HeaderField, string> = {
+  engine_number: '№ двигателя',
+  engine_brand: 'марка',
+  engine_internal_number: 'внутренний №',
+};
+const FIELDS: HeaderField[] = fieldsArg
+  ? fieldsArg
+      .split('=')[1]!
+      .split(',')
+      .map((f) => f.trim())
+      .filter((f): f is HeaderField => (HEADER_FIELDS as readonly string[]).includes(f))
+  : [...HEADER_FIELDS];
+if (FIELDS.length === 0) throw new Error(`--fields: допустимы ${HEADER_FIELDS.join(', ')}`);
 
 type Actor = { id: string; username: string; role: string };
 
@@ -91,9 +124,9 @@ export function decideHeaderFix(args: {
 }): { action: 'fill' | 'extend' | 'skip'; reason: string } {
   const card = norm(args.card);
   const stored = norm(args.stored);
-  if (!card) return { action: 'skip', reason: 'у двигателя нет номера' };
+  if (!card) return { action: 'skip', reason: 'в карточке пусто' };
   if (key(stored) === key(card)) return { action: 'skip', reason: 'уже совпадает' };
-  if (!stored) return { action: 'fill', reason: 'шапка пуста' };
+  if (!stored) return { action: 'fill', reason: 'поле пусто' };
   if (key(card).startsWith(key(stored))) return { action: 'extend', reason: `обрезано до «${stored}»` };
   return { action: 'skip', reason: `в шапке своё значение «${stored}»` };
 }
@@ -103,32 +136,56 @@ async function main() {
   console.log(`актор: ${actor.username} (${actor.id})`);
   console.log(APPLY ? 'режим: ЗАПИСЬ (--apply)' : 'режим: сухой прогон (записи не будет)');
 
-  // Номер двигателя лежит EAV-атрибутом `engine_number` на сущности двигателя.
+  // Все эталоны лежат EAV-атрибутами на сущности двигателя. Тянем их одним запросом
+  // через сводку по коду атрибута — join'ов на каждый атрибут было бы четыре.
   const rows = (
     await pool.query(
       `select o.id::text as id,
               o.engine_entity_id::text as engine_entity_id,
               o.operation_type, o.status, o.note, o.performed_at, o.performed_by,
               o.meta_json, o.created_at,
-              trim(both '"' from av.value_json) as card_number
+              a.attrs
          from operations o
-         left join entities e on e.id = o.engine_entity_id and e.deleted_at is null
-         left join attribute_defs ad on ad.entity_type_id = e.type_id
-              and ad.code = 'engine_number' and ad.deleted_at is null
-         left join attribute_values av on av.entity_id = e.id
-              and av.attribute_def_id = ad.id and av.deleted_at is null
+         left join lateral (
+           select jsonb_object_agg(ad.code, trim(both '"' from av.value_json)) as attrs
+             from entities e
+             join attribute_defs ad on ad.entity_type_id = e.type_id and ad.deleted_at is null
+             join attribute_values av on av.entity_id = e.id
+                  and av.attribute_def_id = ad.id and av.deleted_at is null
+            where e.id = o.engine_entity_id and e.deleted_at is null
+              and ad.code in ($1, $2, $3, $4)
+         ) a on true
         where o.operation_type = 'engine_inventory' and o.deleted_at is null
         order by o.created_at`,
+      ['engine_number', 'engine_brand', ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE],
     )
   ).rows as Array<Record<string, unknown>>;
 
   console.log(`листов engine_inventory: ${rows.length}`);
 
-  const planned: Array<{ row: Record<string, unknown>; stored: string; card: string; action: 'fill' | 'extend' }> = [];
+  type Change = { field: HeaderField; stored: string; card: string; action: 'fill' | 'extend' };
+  const planned: Array<{ row: Record<string, unknown>; changes: Change[] }> = [];
   const skipped = new Map<string, number>();
-  let emptyBrand = 0;
-  let emptyInternal = 0;
+  const counts = new Map<string, number>();
   let unparsable = 0;
+
+  /**
+   * Эталон поля из карточки двигателя.
+   *
+   * ⚠ Внутренний номер собирается ТОЛЬКО из сохранённого года. Карточка, когда года нет,
+   * подставляет текущий — для старого листа это выдумало бы год, которого в данных никогда
+   * не было. Здесь такой лист получит голый номер («41»), ровно как его видит сервер.
+   */
+  const cardValue = (attrs: Record<string, unknown>, field: HeaderField): string => {
+    if (field === 'engine_internal_number') {
+      const year = Number(attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE]);
+      return formatEngineInternalNumber(
+        norm(attrs[ENGINE_INTERNAL_NUMBER_CODE]),
+        isValidEngineInternalNumberYear(year) ? year : undefined,
+      );
+    }
+    return norm(attrs[field]);
+  };
 
   for (const row of rows) {
     let answers: unknown = null;
@@ -138,38 +195,38 @@ async function main() {
       unparsable += 1;
       continue;
     }
-    const stored = readHeader(answers, 'engine_number');
-    const card = norm(row.card_number);
+    const attrs = (row.attrs ?? {}) as Record<string, unknown>;
+    const changes: Change[] = [];
 
-    // Считаем заодно соседние поля шапки: их обнуляло тем же механизмом. Их НЕ трогаем —
-    // владелец просил проход по номеру; цифры нужны, чтобы он решил про остальные.
-    if (!readHeader(answers, 'engine_brand')) emptyBrand += 1;
-    if (!readHeader(answers, 'engine_internal_number')) emptyInternal += 1;
-
-    const decision = decideHeaderFix({ stored, card });
-    if (decision.action === 'skip') {
-      skipped.set(decision.reason.replace(/«[^»]*»/, '«…»'), (skipped.get(decision.reason.replace(/«[^»]*»/, '«…»')) ?? 0) + 1);
-      continue;
+    for (const field of FIELDS) {
+      const stored = readHeader(answers, field);
+      const card = cardValue(attrs, field);
+      const decision = decideHeaderFix({ stored, card });
+      if (decision.action === 'skip') {
+        const reason = `${FIELD_TITLE[field]}: ${decision.reason.replace(/«[^»]*»/, '«…»')}`;
+        skipped.set(reason, (skipped.get(reason) ?? 0) + 1);
+        continue;
+      }
+      changes.push({ field, stored, card, action: decision.action });
+      const k = `${FIELD_TITLE[field]}: ${decision.action === 'fill' ? 'пусто' : 'обрезано'}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
     }
-    planned.push({ row, stored, card, action: decision.action });
+    if (changes.length) planned.push({ row, changes });
   }
 
   console.log('');
-  console.log(`к правке: ${planned.length}`);
-  console.log(`  из них пустая шапка:      ${planned.filter((p) => p.action === 'fill').length}`);
-  console.log(`  из них обрезанный номер:  ${planned.filter((p) => p.action === 'extend').length}`);
-  for (const [reason, n] of [...skipped.entries()].sort((a, b) => b[1] - a[1])) {
-    console.log(`пропущено (${reason}): ${n}`);
-  }
-  if (unparsable) console.log(`пропущено (meta_json не разбирается): ${unparsable}`);
+  console.log(`поля прохода: ${FIELDS.map((f) => FIELD_TITLE[f]).join(', ')}`);
+  console.log(`листов к правке: ${planned.length}`);
+  for (const [k, n] of [...counts.entries()].sort()) console.log(`  ${k}: ${n}`);
   console.log('');
-  console.log(`справочно, НЕ правится этим проходом: пустая марка — ${emptyBrand}, пустой внутренний № — ${emptyInternal}`);
+  for (const [reason, n] of [...skipped.entries()].sort()) console.log(`пропущено — ${reason}: ${n}`);
+  if (unparsable) console.log(`пропущено — meta_json не разбирается: ${unparsable}`);
 
-  const sample = planned.filter((p) => p.action === 'extend').slice(0, 15);
+  const sample = planned.flatMap((x) => x.changes.filter((c) => c.action === 'extend')).slice(0, 12);
   if (sample.length) {
     console.log('');
-    console.log('примеры обрезанных (до 15):');
-    for (const p of sample) console.log(`  ${p.row.id}: «${p.stored}» → «${p.card}»`);
+    console.log('примеры обрезанных (до 12):');
+    for (const c of sample) console.log(`  ${FIELD_TITLE[c.field]}: «${c.stored}» → «${c.card}»`);
   }
 
   const work = LIMIT > 0 ? planned.slice(0, LIMIT) : planned;
@@ -181,10 +238,14 @@ async function main() {
   }
 
   let applied = 0;
+  let fieldsWritten = 0;
   for (const p of work) {
     const meta = JSON.parse(String(p.row.meta_json ?? '{}')) as Record<string, unknown>;
     const answers = { ...((meta.answers ?? {}) as Record<string, unknown>) };
-    answers.engine_number = { kind: 'text', value: p.card };
+    for (const c of p.changes) {
+      answers[c.field] = { kind: 'text', value: c.card };
+      fieldsWritten += 1;
+    }
     const ts = Date.now();
     await writeSyncChanges(
       [
@@ -211,9 +272,9 @@ async function main() {
       { allowSyncConflicts: true },
     );
     applied += 1;
-    if (applied % 50 === 0) console.log(`  … записано ${applied} из ${work.length}`);
+    if (applied % 100 === 0) console.log(`  … записано ${applied} из ${work.length}`);
   }
-  console.log(`\nготово: записано листов — ${applied}`);
+  console.log(`\nготово: листов — ${applied}, полей — ${fieldsWritten}`);
   await pool.end();
 }
 
