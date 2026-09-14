@@ -38,7 +38,9 @@ export type EngineFacetId =
   | 'defectDate'
   | 'shippingDate'
   | 'historyAction'
-  | 'historyDate';
+  | 'historyDate'
+  | 'sheetNode'
+  | 'sheetDate';
 
 export type EngineFacetValue = FacetValue;
 export type EngineFacetDateRange = FacetDateRange;
@@ -211,6 +213,24 @@ export const ENGINE_FACETS: readonly EngineFacetDescriptor[] = [
     id: 'historyDate',
     label: 'Дата события',
     dateOf: (e) => dateMs(e.lastHistoryAt),
+  },
+  {
+    kind: 'values',
+    id: 'sheetNode',
+    // Узел последней строки ведомости работ — «на каком участке двигатель»: укладка, вал,
+    // обкатка, сборка. Отдельно от «последнего события», потому что ручные записи и стадии
+    // перебивали бы узел, а вопрос диспетчера — именно про ведомости.
+    label: 'Узел (последняя ведомость)',
+    valueOf: (e) => {
+      const node = text(e.lastSheetNode);
+      return node ? { value: node.toLowerCase(), label: node } : { value: 'none', label: 'ведомостей нет' };
+    },
+  },
+  {
+    kind: 'dateRange',
+    id: 'sheetDate',
+    label: 'Дата ведомости',
+    dateOf: (e) => dateMs(e.lastSheetAt),
   },
 ] as const;
 

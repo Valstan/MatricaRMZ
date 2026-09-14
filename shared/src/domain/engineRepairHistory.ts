@@ -1,4 +1,5 @@
 import { STATUS_LABELS, type StatusCode } from './contract.js';
+import { parseWorkSheetFields, type WorkSheetField } from './workSheets.js';
 
 /**
  * История ремонта двигателя (просьба владельца 08.09.2026): что с двигателем происходило,
@@ -13,7 +14,13 @@ import { STATUS_LABELS, type StatusCode } from './contract.js';
  *  - **автоматические** — их пишет программа при смене стадии ремонта и переезде в другой цех;
  *    оператор их не правит, иначе история перестанет соответствовать карточке;
  *  - **ручные** — строка, которую оператор завёл сам (дата, действие, цех, причина, примечание
- *    и произвольные поля, которых мы не предусмотрели).
+ *    и произвольные поля, которых мы не предусмотрели);
+ *  - **строки ведомостей работ** (15.09.2026, `workSheets.ts`) — заводятся с экрана «Ведомости
+ *    работ» и правятся только там; несут узел и его поля в `sheet`.
+ *
+ * Классификация — `entryType`: `manual | status | transfer | sheet`. У старых строк поля нет,
+ * и оно выводится по признакам (`auto`, тип операции, наличие `sheet`), чтобы отчёты и ступени
+ * списка читали одну и ту же историю одинаково.
  */
 
 export const REPAIR_HISTORY_OPERATION_TYPE = 'repair_history_entry';
@@ -21,6 +28,24 @@ export const REPAIR_HISTORY_META_KIND = 'repair_history';
 
 /** Произвольное поле строки: владелец просил не упираться в заранее придуманный набор. */
 export type RepairHistoryExtraField = { label: string; value: string };
+
+export const REPAIR_HISTORY_ENTRY_TYPES = ['manual', 'status', 'transfer', 'sheet'] as const;
+export type RepairHistoryEntryType = (typeof REPAIR_HISTORY_ENTRY_TYPES)[number];
+
+export const REPAIR_HISTORY_ENTRY_TYPE_LABELS: Record<RepairHistoryEntryType, string> = {
+  manual: 'Ручная',
+  status: 'Стадия',
+  transfer: 'Переезд',
+  sheet: 'Ведомость',
+};
+
+/** Строка ведомости работ: узел и его поля — самоописываемо, чтобы читаться без справочника. */
+export type RepairHistorySheet = {
+  typeId: string;
+  typeCode: string;
+  typeName: string;
+  fields: WorkSheetField[];
+};
 
 export type RepairHistoryMeta = {
   kind: typeof REPAIR_HISTORY_META_KIND;
@@ -31,6 +56,10 @@ export type RepairHistoryMeta = {
   extra?: RepairHistoryExtraField[];
   /** Проставлено программой (смена стадии / переезд), а не оператором. */
   auto?: boolean;
+  /** Классификация записи; у старых строк отсутствует и выводится (`repairHistoryEntryType`). */
+  entryType?: RepairHistoryEntryType;
+  /** Строка ведомости работ. */
+  sheet?: RepairHistorySheet;
   /**
    * Дата события, когда она НЕ совпадает с моментом записи: строку истории часто заводят
    * задним числом. Хранится здесь, потому что запись операции даты не принимает — иначе
@@ -69,6 +98,8 @@ export type RepairHistoryEntry = {
   performedBy: string | null;
   /** Тип исходной строки `operations` — по нему видно, откуда событие взялось. */
   operationType: string;
+  entryType: RepairHistoryEntryType;
+  sheet: RepairHistorySheet | null;
 };
 
 /** Форма строки `operations`, которой достаточно истории (без завязки на ipc/types). */
@@ -110,6 +141,36 @@ function parseExtra(raw: unknown): RepairHistoryExtraField[] {
   return out;
 }
 
+function parseSheet(raw: unknown): RepairHistorySheet | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const typeId = text(obj.typeId).slice(0, 80);
+  const typeCode = text(obj.typeCode).toLowerCase().slice(0, 40);
+  const typeName = text(obj.typeName).slice(0, 120);
+  if (!typeId && !typeCode) return null;
+  return { typeId, typeCode, typeName: typeName || typeCode, fields: parseWorkSheetFields(obj.fields) };
+}
+
+function parseEntryType(raw: unknown): RepairHistoryEntryType | null {
+  const s = text(raw);
+  return (REPAIR_HISTORY_ENTRY_TYPES as readonly string[]).includes(s) ? (s as RepairHistoryEntryType) : null;
+}
+
+/**
+ * Классификация записи: явное поле, иначе по признакам. Порядок важен: ведомость узнаётся
+ * по `sheet` даже если кто-то выставил `auto`, переезд — по типу операции.
+ */
+export function repairHistoryEntryType(
+  meta: Pick<RepairHistoryMeta, 'entryType' | 'sheet' | 'auto'> | null,
+  operationType: string,
+): RepairHistoryEntryType {
+  if (meta?.sheet) return 'sheet';
+  if (meta?.entryType) return meta.entryType;
+  if (operationType === 'workshop_transfer') return 'transfer';
+  if (meta?.auto === true) return 'status';
+  return 'manual';
+}
+
 /** Разбор `meta_json` строки истории; `null` — строка не наша. */
 export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMeta | null {
   const raw = parseJson(metaJson);
@@ -127,10 +188,16 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseExtra(obj.extra).length > 0 ? { extra: parseExtra(obj.extra) } : {}),
     ...(obj.auto === true ? { auto: true } : {}),
     ...(typeof obj.at === 'number' && Number.isFinite(obj.at) && obj.at > 0 ? { at: obj.at } : {}),
+    ...(parseEntryType(obj.entryType) ? { entryType: parseEntryType(obj.entryType)! } : {}),
+    ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
   };
 }
 
-/** Собрать `meta_json` строки истории — единственная точка, где эта форма создаётся. */
+/**
+ * Собрать `meta_json` строки истории — единственная точка, где эта форма создаётся.
+ * Новое поле добавляется СРАЗУ и сюда, и в `parseRepairHistoryMeta`: парсер режет неизвестные
+ * ключи, и поле, положенное только здесь, пропадёт при первом же чтении.
+ */
 export function buildRepairHistoryMeta(input: {
   action: string;
   workshopId?: string | null;
@@ -139,7 +206,10 @@ export function buildRepairHistoryMeta(input: {
   extra?: RepairHistoryExtraField[];
   auto?: boolean;
   at?: number;
+  entryType?: RepairHistoryEntryType;
+  sheet?: RepairHistorySheet | null;
 }): RepairHistoryMeta {
+  const sheet = parseSheet(input.sheet);
   return {
     kind: REPAIR_HISTORY_META_KIND,
     action: text(input.action).slice(0, 200),
@@ -149,6 +219,8 @@ export function buildRepairHistoryMeta(input: {
     ...(parseExtra(input.extra).length > 0 ? { extra: parseExtra(input.extra) } : {}),
     ...(input.auto === true ? { auto: true } : {}),
     ...(typeof input.at === 'number' && Number.isFinite(input.at) && input.at > 0 ? { at: input.at } : {}),
+    ...(input.entryType ? { entryType: input.entryType } : {}),
+    ...(sheet ? { sheet } : {}),
   };
 }
 
@@ -186,6 +258,8 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         extra: meta.extra ?? [],
         performedBy: row.performedBy ?? null,
         operationType: row.operationType,
+        entryType: repairHistoryEntryType(meta, row.operationType),
+        sheet: meta.sheet ?? null,
       });
       continue;
     }
@@ -203,6 +277,8 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         extra: [],
         performedBy: row.performedBy ?? null,
         operationType: row.operationType,
+        entryType: 'transfer',
+        sheet: null,
       });
     }
   }
@@ -231,6 +307,14 @@ export function currentWorkshopFromHistory(entries: readonly RepairHistoryEntry[
 }
 
 /** Автозапись смены стадии ремонта — подпись берём из того же реестра, что и карточка. */
-export function repairHistoryMetaForStatus(code: StatusCode): RepairHistoryMeta {
-  return buildRepairHistoryMeta({ action: STATUS_LABELS[code] ?? code, auto: true });
+export function repairHistoryMetaForStatus(code: StatusCode, at?: number): RepairHistoryMeta {
+  return buildRepairHistoryMeta({ action: STATUS_LABELS[code] ?? code, auto: true, entryType: 'status', ...(at ? { at } : {}) });
+}
+
+/** Последняя строка ведомости в ленте — «на каком узле двигатель» для списка и отчётов. */
+export function lastSheetEntry(entries: readonly RepairHistoryEntry[]): RepairHistoryEntry | null {
+  for (const entry of entries) {
+    if (entry.entryType === 'sheet' && entry.sheet) return entry;
+  }
+  return null;
 }
