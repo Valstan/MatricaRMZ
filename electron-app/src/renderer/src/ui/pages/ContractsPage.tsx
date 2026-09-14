@@ -56,6 +56,8 @@ import { matchesQueryInRecord } from '../utils/search.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 type Row = {
   id: string;
   number: string;
@@ -849,6 +851,7 @@ export function ContractsPage(props: {
     return (
       <thead>
         <tr style={{ background: '#f9fafb', color: '#111827' }}>
+          <RowNumberHeaderCell style={headerThBase} />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -889,7 +892,7 @@ export function ContractsPage(props: {
     );
   }
 
-  function renderContractRow(row: Row) {
+  function renderContractRow(row: Row, rowNumber: number) {
     const rowVisual = getProgressBarStyle(row);
     const textColor = rowVisual.textColor;
     return (
@@ -917,6 +920,7 @@ export function ContractsPage(props: {
           if (rowVisual.hoverable) e.currentTarget.style.backgroundColor = 'transparent';
         }}
       >
+        <RowNumberCell n={rowNumber} style={{ padding: '8px 10px', color: textColor }} />
         {visibleColumns.map((col) => {
           const align = col.cellAlign ?? 'left';
           const cellStyle: React.CSSProperties = {
@@ -935,16 +939,16 @@ export function ContractsPage(props: {
     );
   }
 
-  function renderTable(items: Row[]) {
+  function renderTable(items: Row[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {renderTableHeader()}
           <tbody>
-            {items.map((row) => renderContractRow(row))}
+            {items.map((row, i) => renderContractRow(row, startIndex + i + 1))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={Math.max(1, visibleColumns.length) + 1} style={{ padding: 10, color: '#6b7280' }}>
+                <td colSpan={Math.max(1, visibleColumns.length) + 2} style={{ padding: 10, color: '#6b7280' }}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -1047,8 +1051,9 @@ export function ContractsPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items) => renderTable(items)} />
+      <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 6 }} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+        <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
       </div>
       {menu ? (
         <ListContextMenu

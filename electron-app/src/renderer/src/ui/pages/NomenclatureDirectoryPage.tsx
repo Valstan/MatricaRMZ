@@ -10,6 +10,8 @@ import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { Input } from '../components/Input.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
@@ -535,6 +537,7 @@ export function NomenclatureDirectoryPage(props: {
   const tableHeader = (
     <thead>
       <tr>
+        <RowNumberHeaderCell />
         {columnLayout.order
           .map((id) => columnsById.get(id))
           .filter((col): col is DirectoryColumnDef => Boolean(col))
@@ -590,20 +593,21 @@ export function NomenclatureDirectoryPage(props: {
     };
   }
 
-  function renderTable(items: WarehouseNomenclatureListItem[]) {
+  function renderTable(items: WarehouseNomenclatureListItem[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {tableHeader}
           <tbody>
-            {items.map((row) => (
+            {items.map((row, i) => (
               <tr key={String(row.id)} {...rowProps(row)}>
+                <RowNumberCell n={startIndex + i + 1} />
                 {renderRowCells(row)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={colCount}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={colCount + 1}>
                   {props.emptyText}
                 </td>
               </tr>
@@ -720,9 +724,10 @@ export function NomenclatureDirectoryPage(props: {
           ) : null}
         </div>
       ) : null}
+      <ListCount total={rows.length} shown={sortedRows.length} />
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sortedRows} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={sortedRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -732,12 +737,12 @@ export function NomenclatureDirectoryPage(props: {
             getRowKey={(i) => String(sortedRows[i]!.id)}
             getRowProps={(i) => rowProps(sortedRows[i]!)}
             colCount={colCount}
+            rowNumbers
             estimateSize={40}
             emptyState={props.emptyText}
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sortedRows.length}</div>
     </div>
   );
 }

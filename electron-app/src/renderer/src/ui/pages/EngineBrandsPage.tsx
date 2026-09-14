@@ -7,6 +7,8 @@ import { parseIdArray } from '../utils/groupBrandIds.js';
 import { groupBrandsIntoSections } from '../utils/brandGroupSections.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -210,6 +212,7 @@ export function EngineBrandsPage(props: {
   const tableHeader = (
     <thead>
       <tr>
+        <RowNumberHeaderCell />
         <th data-col-kind="name" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort('name')}>
           {sortLabel('Наименование марки двигателя', 'name')}
         </th>
@@ -240,20 +243,21 @@ export function EngineBrandsPage(props: {
     };
   }
 
-  function renderTable(items: BrandRow[]) {
+  function renderTable(items: BrandRow[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {tableHeader}
           <tbody>
-            {items.map((row) => (
+            {items.map((row, i) => (
               <tr key={row.id} {...rowProps(row)}>
+                <RowNumberCell n={startIndex + i + 1} />
                 {renderBrandCells(row)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={2}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={3}>
                   Нет марок двигателя в справочнике
                 </td>
               </tr>
@@ -308,6 +312,7 @@ export function EngineBrandsPage(props: {
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
+      <ListCount total={rows.length} shown={sortedRows.length} />
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {groupBySections ? (
           brandSections.length === 0 ? (
@@ -325,7 +330,7 @@ export function EngineBrandsPage(props: {
             </div>
           )
         ) : twoCol ? (
-          <TwoColumnList items={sortedRows} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={sortedRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -335,12 +340,12 @@ export function EngineBrandsPage(props: {
             getRowKey={(i) => sortedRows[i]!.id}
             getRowProps={(i) => rowProps(sortedRows[i]!)}
             colCount={2}
+            rowNumbers
             estimateSize={40}
             emptyState="Нет марок двигателя в справочнике"
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sortedRows.length}</div>
     </div>
   );
 }

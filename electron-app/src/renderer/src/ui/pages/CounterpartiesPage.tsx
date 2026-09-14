@@ -36,6 +36,8 @@ import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 
 type Row = {
   id: string;
@@ -289,6 +291,7 @@ export function CounterpartiesPage(props: {
     return (
       <thead>
         <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+          <RowNumberHeaderCell style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14, color: '#374151' }} />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -356,7 +359,7 @@ export function CounterpartiesPage(props: {
     );
   }
 
-  function renderTable(items: Row[]) {
+  function renderTable(items: Row[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
@@ -364,13 +367,14 @@ export function CounterpartiesPage(props: {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={Math.max(1, visibleColumns.length) + 1} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                <td colSpan={Math.max(1, visibleColumns.length) + 2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                   {rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
                 </td>
               </tr>
             )}
-            {items.map((row) => (
+            {items.map((row, i) => (
               <tr key={row.id} {...rowProps(row)}>
+                <RowNumberCell n={startIndex + i + 1} style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }} />
                 {renderCounterpartyCells(row)}
               </tr>
             ))}
@@ -442,9 +446,10 @@ export function CounterpartiesPage(props: {
       )}
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
-      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 6 }} />
+      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
-          <TwoColumnList items={sorted} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={sorted} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -454,12 +459,12 @@ export function CounterpartiesPage(props: {
             getRowKey={(i) => sorted[i]!.id}
             getRowProps={(i) => rowProps(sorted[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
+            rowNumbers
             estimateSize={showPreviews ? 52 : 44}
             emptyState={rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
           />
         )}
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sorted.length}</div>
       {menu ? (
         <ListContextMenu
           x={menu.x}

@@ -42,7 +42,8 @@ export function TwoColumnList<T>(props: {
   minColumnWidthPx?: number;
   gapPx?: number;
   maxColumns?: number;
-  renderColumn: (items: T[], colIndex: number, colCount: number) => React.ReactNode;
+  /** `startIndex` — индекс первого элемента колонки в исходном массиве: нумерация «№» сквозная слева→направо. */
+  renderColumn: (items: T[], colIndex: number, colCount: number, startIndex: number) => React.ReactNode;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const probeRef = useRef<HTMLDivElement | null>(null);
@@ -93,6 +94,15 @@ export function TwoColumnList<T>(props: {
   }, [props.enabled, props.gapPx, props.maxColumns, props.items.length, measuredItems.length]);
 
   const columnsData = useMemo(() => splitInColumns(props.items, layout.columns), [layout.columns, props.items]);
+  const columnStarts = useMemo(() => {
+    const starts: number[] = [];
+    let acc = 0;
+    for (const col of columnsData) {
+      starts.push(acc);
+      acc += col.length;
+    }
+    return starts;
+  }, [columnsData]);
 
   if (layout.columns <= 1) {
     return (
@@ -102,9 +112,9 @@ export function TwoColumnList<T>(props: {
           aria-hidden="true"
           style={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', width: 'max-content', maxWidth: 'none', left: -100000, top: 0 }}
         >
-          {props.renderColumn(measuredItems, 0, 1)}
+          {props.renderColumn(measuredItems, 0, 1, 0)}
         </div>
-        {props.renderColumn(props.items, 0, 1)}
+        {props.renderColumn(props.items, 0, 1, 0)}
       </div>
     );
   }
@@ -116,12 +126,12 @@ export function TwoColumnList<T>(props: {
         aria-hidden="true"
         style={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', width: 'max-content', maxWidth: 'none', left: -100000, top: 0 }}
       >
-        {props.renderColumn(measuredItems, 0, 1)}
+        {props.renderColumn(measuredItems, 0, 1, 0)}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`, gap: layout.gap }}>
         {columnsData.map((columnItems, colIndex) => (
           <div key={`list-col-${colIndex}`} style={{ minWidth: 0 }}>
-            {props.renderColumn(columnItems, colIndex, layout.columns)}
+            {props.renderColumn(columnItems, colIndex, layout.columns, columnStarts[colIndex] ?? 0)}
           </div>
         ))}
       </div>

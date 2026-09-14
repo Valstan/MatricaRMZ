@@ -7,7 +7,8 @@
 //   <th {...listHeaderKindProps(col.kind, col.label)}>…</th>
 //   <td {...listCellKindProps(col.kind)}>…</td>
 
-export type ListColumnKind = 'flag' | 'num' | 'date' | 'name' | 'text' | 'thumbs';
+// `rownum` — служебная колонка «№» (components/RowNumberCell.tsx): не меряется хуком ширин.
+export type ListColumnKind = 'flag' | 'num' | 'date' | 'name' | 'text' | 'thumbs' | 'rownum';
 
 export type ListHeaderKindProps = { 'data-col-kind'?: ListColumnKind; title?: string };
 export type ListCellKindProps = { 'data-col-kind'?: ListColumnKind };

@@ -37,6 +37,8 @@ import { resolveMenuRows } from '../utils/listContextActions.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 
 
 type EngineRow = EngineListItem & {
@@ -654,6 +656,7 @@ export function EnginesPage(props: {
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
+          <RowNumberHeaderCell style={{ padding: 8, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid rgba(255,255,255,0.25)' }} />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
             // Hidden columns render nothing at all: a placeholder <th> here had no matching
@@ -735,20 +738,21 @@ export function EnginesPage(props: {
     };
   }
 
-  function renderTable(items: EngineListItem[]) {
+  function renderTable(items: EngineListItem[], startIndex = 0) {
     return (
       <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
         <table className="list-table">
           {renderTableHeader()}
           <tbody>
-            {items.map((e) => (
+            {items.map((e, i) => (
               <tr key={e.id} {...engineRowProps(e)}>
+                <RowNumberCell n={startIndex + i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} />
                 {renderEngineCells(e)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 1}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 2}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -783,9 +787,6 @@ export function EnginesPage(props: {
         <ToolbarPin>
           <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} />
         </ToolbarPin>
-        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-          {query.trim() ? `${displayRows.length} из ${props.engines.length}` : `${props.engines.length}`}
-        </span>
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
@@ -873,13 +874,14 @@ export function EnginesPage(props: {
         </div>
       )}
 
+      <ListCount total={props.engines.length} shown={displayRows.length} style={{ marginTop: 6 }} />
       <div
         ref={containerRef}
-        style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
+        style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
         onScroll={onScroll}
       >
         {twoCol ? (
-          <TwoColumnList items={displayRows} enabled renderColumn={(items) => renderTable(items)} />
+          <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
@@ -889,6 +891,7 @@ export function EnginesPage(props: {
             getRowKey={(i) => String(displayRows[i]!.id)}
             getRowProps={(i) => engineRowProps(displayRows[i]!)}
             colCount={Math.max(1, visibleColumns.length) + 1}
+            rowNumbers
             estimateSize={previewsVisible ? 64 : 40}
             emptyState="Ничего не найдено"
           />

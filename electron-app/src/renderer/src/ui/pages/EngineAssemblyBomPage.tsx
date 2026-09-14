@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/Button.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { formatListDateTime } from '../utils/dateUtils.js';
@@ -207,6 +209,7 @@ export function EngineAssemblyBomPage(props: {
   const tableHeader = (
     <thead>
       <tr>
+        <RowNumberHeaderCell />
         <th style={{ width: 32 }} title="Отметьте две и более спецификации для печати сверки" />
         <th style={{ textAlign: 'left', cursor: 'pointer', minWidth: 220, width: '38%' }} onClick={() => onSort('name')}>
           {sortLabel('Название', 'name')}
@@ -318,6 +321,7 @@ export function EngineAssemblyBomPage(props: {
       </div>
       {refsError ? <div style={{ color: 'var(--danger)' }}>Справочники склада: {refsError}</div> : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
+      <ListCount total={rows.length} shown={sortedRows.length} />
       <div ref={containerRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <VirtualTable
           scrollElementRef={containerRef}
@@ -327,11 +331,11 @@ export function EngineAssemblyBomPage(props: {
           getRowKey={(i) => sortedRows[i]!.id}
           getRowProps={(i) => rowProps(sortedRows[i]!)}
           colCount={6}
+          rowNumbers
           estimateSize={48}
           emptyState="Нет BOM-спецификаций"
         />
       </div>
-      <div style={{ padding: '4px 0 2px', flex: '0 0 auto', fontSize: 12, color: '#9ca3af' }}>Всего: {sortedRows.length}</div>
     </div>
   );
 }
