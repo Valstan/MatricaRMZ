@@ -41,8 +41,13 @@ describe('история ремонта пишется', () => {
   });
 
   it('автоматические записи помечены — оператор не должен принимать их за свои', () => {
-    expect(PANEL).toContain("entry.source === 'auto'");
+    // С 15.09.2026 пометка — бейдж класса записи (Ручная / Стадия / Переезд / Ведомость: узел),
+    // а строка ведомости ещё и говорит, где её правят.
+    expect(PANEL).toContain('REPAIR_HISTORY_ENTRY_TYPE_LABELS[entry.entryType]');
     expect(PANEL).toContain('data-repair-history-row={entry.source}');
+    expect(PANEL).toContain('data-repair-history-kind={entry.entryType}');
+    expect(PANEL).toContain('Правится в «Ведомостях работ»');
+    expect(PANEL).toContain('formatWorkSheetValue(f)');
   });
 });
 
@@ -67,7 +72,7 @@ describe('история доезжает до списка', () => {
   // правки самой сущности (операции!), обязаны быть в подписи — иначе свежий список признаётся
   // тем же самым и отбрасывается, а оператор видит «событий нет» сразу после записи события.
   it('поля ступеней входят в подпись строки списка', () => {
-    for (const field of ['e.hasDefectAct', 'e.defectDate', 'e.workshopId', 'e.lastHistoryAction', 'e.lastHistoryAt']) {
+    for (const field of ['e.hasDefectAct', 'e.defectDate', 'e.workshopId', 'e.lastHistoryAction', 'e.lastHistoryAt', 'e.lastSheetNode', 'e.lastSheetAt']) {
       expect(APP, `${field} нет в engineRowSignature — свежий список будет отброшен`).toContain(field);
     }
   });

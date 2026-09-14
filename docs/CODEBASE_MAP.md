@@ -71,6 +71,7 @@
 |---|---|
 | `warehouse.ts` | `resolveNomenclatureComponentTypeId` (приоритет column → specJson → эвристика), BOM-валидация, types для склада |
 | `assemblyForecast.ts` | Pure-логика прогноза сборки (kit'ы, варианты, edge cases) |
+| `workSheets.ts`, `engineRepairHistory.ts` | **Ведомости работ** (15.09.2026): колонки узла (`sanitizeWorkSheetColumns`, код из подписи), поля строки (`buildWorkSheetFields`, нормализация по типу, `workSheetFieldsSummary`), узлы по умолчанию, ступени фильтра по колонкам (`workSheetFacets`). Строка ведомости = запись истории ремонта (`operations` типа `repair_history_entry`) с `meta.sheet`; история классифицируется `entryType: manual\|status\|transfer\|sheet` (`repairHistoryEntryType` выводит для старых строк). **Новый ключ meta — сразу и в `parseRepairHistoryMeta`, и в `buildRepairHistoryMeta`**: парсер режет неизвестные |
 | `workOrder.ts`, `workOrderSignatures.ts` | Типы нарядов, расчёт ФИО подписантов |
 | `reports.ts` | Реестр пресетов отчётов, типы параметров |
 | `releaseWelcome.ts` | `RELEASE_WELCOME_HISTORY` — текст для оператора при автообновлении |
