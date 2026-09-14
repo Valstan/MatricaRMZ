@@ -16,6 +16,15 @@ async function photo(width: number, height: number, quality = 95): Promise<Buffe
   return sharp(px, { raw: { width, height, channels: 3 } }).jpeg({ quality }).toBuffer();
 }
 
+describe('аппетит к памяти ограничен', () => {
+  it('кэш libvips выключен, а поток один', () => {
+    // На боксе 1536 МБ и нулевой swap: при пустом запасе OOM-killer выбирает жертву сам,
+    // и крупнейший процесс здесь — бэкенд. То есть упал бы прод, а не обработка снимка.
+    expect(sharp.cache()).toMatchObject({ memory: expect.objectContaining({ max: 0 }) });
+    expect(sharp.concurrency()).toBe(1);
+  });
+});
+
 describe('план сжатия', () => {
   it('JPEG опознаётся по байтам, а не по имени', async () => {
     expect(looksLikeJpeg(await photo(32, 32))).toBe(true);
