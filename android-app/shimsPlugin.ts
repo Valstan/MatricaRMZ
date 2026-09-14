@@ -4,8 +4,9 @@
 // Два охвата:
 //  - browser (vite build/dev): шимится всё платформенное — 'electron',
 //    'node:crypto', relative './netFetch.js' из портированных сервисов;
-//  - vitest (node): шимится ТОЛЬКО 'electron' и netFetch — нативные node:*
-//    в тестах работают как есть (и нужны drizzle-мигратору в парити-гейте).
+//  - vitest (node): шимится 'electron', netFetch и десктопные модули, которые
+//    на планшете не существуют (watchdog-handshake, sidecar сессии) — нативные
+//    node:* в тестах работают как есть (и нужны drizzle-мигратору в парити-гейте).
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,7 +52,13 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
         if (source.endsWith('/watchdogHandshakeService.js')) return resolve(shimsDir, 'watchdogHandshake.ts');
         // Sidecar-копия сессии (%APPDATA%) — десктопный механизм на sync node:fs;
         // в браузерном бандле его нет, на планшете reset и так перекрыт портом.
-        if (browser && source.endsWith('/sessionSidecarStore.js')) return resolve(shimsDir, 'sessionSidecarStore.ts');
+        // Шимится и в vitest: там node:fs настоящий, а `app.getPath` шима отдаёт
+        // фиктивный `/android/appData` — сессия уезжала в реальный файл
+        // `<диск>:\android\appData\MatricaRMZ\auth-session.json`, ОДИН на все
+        // параллельные воркеры. Логин в одном тест-файле подхватывался
+        // fallback'ом getSession в другом (boot.test.ts «без логина» видел
+        // чужую сессию) — тот самый «таймингозависимый» флейк.
+        if (source.endsWith('/sessionSidecarStore.js')) return resolve(shimsDir, 'sessionSidecarStore.ts');
         if (browser) {
           if (source.endsWith('/utils/logger.js')) return resolve(shimsDir, 'logger.ts');
           if (source.endsWith('/database/db.js')) return resolve(shimsDir, 'dbHandle.ts');

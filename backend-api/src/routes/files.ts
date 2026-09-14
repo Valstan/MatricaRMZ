@@ -13,6 +13,7 @@ import { canAccessFile } from '../services/fileAccessService.js';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { deletePath, ensureFolderDeep, getDownloadHref, getResourceInfo, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
 import { cacheRelPath } from '../services/fileCachePlan.js';
+import { normalizeUploadImage } from '../services/imageNormalize.js';
 import { verifyUploaded } from '../scripts/offloadLocalFilesToYandexPlan.js';
 import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 import { logWarn } from '../utils/logger.js';
@@ -23,9 +24,15 @@ import { logWarn } from '../utils/logger.js';
 export const filesRouter = Router();
 filesRouter.use(requireAuth);
 
-// D-073: хранилище — Я.Диск, бокс — кэш (services/fileCache.ts снимает копии старше TTL).
-// Загрузка кладёт байты в кэш и тут же на Яндекс; если Яндекс недоступен, строка остаётся
-// 'local' и её доводит files:offload-to-yandex — загрузка не должна падать из-за облака.
+// D-073: хранилище — Я.Диск. Кэша на боксе БОЛЬШЕ НЕТ (решение владельца 14.09): клиент берёт
+// файл прямо с Я.Диска по ссылке из `/files/:id/url`, и бокс уходит из тракта байтов совсем —
+// это и быстрее маленького VPS, и не копит на нём место (за один день фотографий кэш занимал
+// 1.5 ГБ из 10). Загрузка кладёт байты на бокс лишь на время: подтвердил Я.Диск — файл снят.
+// Не подтвердил — строка остаётся 'local', копия на боксе единственная, её доводит
+// files:offload-to-yandex; загрузка не должна падать из-за облака.
+//
+// На боксе постоянно живут только ПРЕВЬЮ: они в девять раз легче снимка (117 КБ против ~1 МБ),
+// делаются один раз и раздаются всем — гнать ради них полный снимок на каждый компьютер дороже.
 const MAX_UPLOAD_BYTES = 250 * 1024 * 1024; // hard safety cap
 const MAX_PREVIEW_BYTES = 3 * 1024 * 1024; // base64 upload size cap for thumbnail payload (decoded bytes)
 
@@ -339,8 +346,13 @@ filesRouter.get('/:id/url', requirePermission(PermissionCode.FilesView), async (
     if (!row) return res.status(404).json({ ok: false, error: 'файл не найден' });
     if (!(await canAccessFile((req as AuthenticatedRequest).user, row))) return res.status(403).json({ ok: false, error: 'доступ запрещён' });
 
-    // Пока копия в кэше, клиенту дешевле забрать её с бокса (GET /files/:id), чем ходить
-    // на Яндекс по href: url=null — «качай у нас».
+    // Отдаём ссылку на Я.Диск — клиент качает напрямую, и бокс уходит из тракта байтов совсем.
+    // Права проверены выше, ссылка живёт считанные минуты; ровно так же работает ЗАГРУЗКА
+    // крупных файлов (`/yandex/init`), только в обратную сторону.
+    //
+    // `localRelPath` остался в условии не как след кэша (его больше нет — решение владельца
+    // 14.09), а как защита: если копия на боксе всё-таки есть, она и есть источник истины —
+    // так у строк 'local', которые Я.Диск не принял.
     if (row.storageKind === 'yandex' && !row.localRelPath) {
       const diskPath = String(row.yandexDiskPath || '');
       if (!diskPath) return res.status(500).json({ ok: false, error: 'путь yandex_disk_path не указан' });
@@ -376,9 +388,15 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
-    if (!bytes.length) return res.status(400).json({ ok: false, error: 'файл пуст' });
-    if (bytes.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `размер файла слишком большой (> ${MAX_UPLOAD_BYTES} байт)` });
+    const raw = Buffer.from(parsed.data.dataBase64, 'base64');
+    if (!raw.length) return res.status(400).json({ ok: false, error: 'файл пуст' });
+    if (raw.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `размер файла слишком большой (> ${MAX_UPLOAD_BYTES} байт)` });
+
+    // Снимок приводим к печатному потолку ДО хеша: и дедуп, и сверка копии на Я.Диске
+    // считаются по тем байтам, которые действительно лягут в хранилище. Не фотография —
+    // вернётся как есть.
+    const normalized = await normalizeUploadImage(raw, { name: parsed.data.name });
+    const bytes = normalized.bytes;
 
     const sha256 = createHash('sha256').update(bytes).digest('hex');
 
@@ -417,6 +435,9 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
 
     const baseYandexPath = (process.env.YANDEX_DISK_BASE_PATH ?? '').trim(); // e.g. /MatricaRMZ/releases
 
+    // Пишем на бокс временно — как страховку на случай, если Я.Диск не примет копию. Примет —
+    // снимаем сразу: с прямой отдачей (D-073 → `/files/:id/url`) клиент качает с
+    // Я.Диска сам, и копия на боксе никому не нужна, а место занимает.
     const rel = cacheRelPath(id, name);
     await writeBytes(join(uploadsDir(), rel), bytes);
 
@@ -433,6 +454,11 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
       }
     }
 
+    // Снимаем страховочную копию ТОЛЬКО когда Я.Диск подтвердил свою (`uploadVerified` сверил
+    // размер и дайджест). Не подтвердил — копия на боксе остаётся единственной, и строка
+    // помечается 'local', её доводит files:offload-to-yandex.
+    if (diskPath) await unlinkAsync(join(uploadsDir(), rel)).catch(() => {});
+
     await db.insert(fileAssets).values({
       id,
       createdAt,
@@ -442,9 +468,9 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
       size,
       sha256,
       storageKind: diskPath ? 'yandex' : 'local',
-      localRelPath: rel,
+      localRelPath: diskPath ? null : rel,
       yandexDiskPath: diskPath,
-      localCachedAt: diskPath ? createdAt : null,
+      localCachedAt: null,
     });
 
     return res.json({ ok: true, file: { id, name, size, mime, sha256, createdAt } });
@@ -470,24 +496,9 @@ async function sendYandexFile(row: any, res: Response) {
   attachmentHeaders(row, res, r.headers.get('content-type'));
   res.end(buf);
 
-  const sha256 = createHash('sha256').update(buf).digest('hex');
-  if (sha256 !== String(row.sha256 || '').toLowerCase()) {
-    logWarn('file cache: скачанное с Яндекса не совпало со строкой — в кэш не кладу', { fileId: row.id });
-    return;
-  }
-  const rel = cacheRelPath(String(row.id), String(row.name || 'file'));
-  try {
-    await writeBytes(join(uploadsDir(), rel), buf);
-    const upd = await db
-      .update(fileAssets)
-      .set({ localRelPath: rel, localCachedAt: nowMs() })
-      .where(and(eq(fileAssets.id, row.id), isNull(fileAssets.localRelPath), isNull(fileAssets.deletedAt)))
-      .returning({ id: fileAssets.id });
-    // Кто-то успел положить копию раньше (второй промах параллельно) — наша лишняя, строка не наша.
-    if (upd.length !== 1) await unlinkAsync(join(uploadsDir(), rel)).catch(() => {});
-  } catch (e) {
-    logWarn('file cache: прогрев не удался', { fileId: row.id, error: String(e) });
-  }
+  // Копию на бокс НЕ кладём: кэша больше нет. Раньше здесь был прогрев, и он же наполнял
+  // диск — за один «фотографический» день 1.5 ГБ (14.09). Сверка скачанного с sha256 строки
+  // тоже ушла вместе с прогревом: она защищала кэш от порчи, а клиенту байты уже отданы.
 }
 
 filesRouter.get('/:id', requirePermission(PermissionCode.FilesView), async (req, res) => {

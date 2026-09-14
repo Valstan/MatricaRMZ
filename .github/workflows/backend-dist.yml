@@ -1,0 +1,69 @@
+name: Backend dist
+
+# Собранный бэкенд как артефакт: прод его СКАЧИВАЕТ, а не собирает.
+#
+# Прод — OpenVZ-контейнер с 1536 МБ и без права на swap (ядро отказывает в `swapon`), и `tsc`
+# там убивает OOM-killer. Это выяснилось в худший момент — при выкате исправления. Пока сборка
+# жила на целевой машине, та молча обязана была быть машиной разработчика: держать компилятор,
+# его зависимости и память под пиковый проход по всем исходникам.
+#
+# Здесь собирает раннер, и собирает ровно то, что прошло гейты. Проду остаются скачивание,
+# распаковка и перезапуск — операции, которым компилятор не нужен.
+#
+# Что едет в архиве: dist всех трёх пакетов, которые нужны бэкенду в рантайме
+# (`shared` и `ledger` — workspace-зависимости, их dist обязан совпадать с тем, против чего
+# собирался backend), плюс drizzle-миграции.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared + ledger
+        run: |
+          pnpm --filter @matricarmz/shared build
+          pnpm --filter @matricarmz/ledger build
+
+      - name: Build backend-api
+        run: pnpm --filter @matricarmz/backend-api build
+
+      # Складываем ровно те пути, которые прод распаковывает поверх своего клона. Архив
+      # разворачивается из корня репозитория, поэтому пути внутри — от корня.
+      - name: Pack dist
+        run: |
+          tar -czf backend-dist.tar.gz \
+            backend-api/dist \
+            backend-api/drizzle \
+            shared/dist \
+            ledger/dist
+          ls -la backend-dist.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: backend-dist.tar.gz
+          # Выкатывают из свежего main; держать дольше незачем, а место у артефактов общее.
+          retention-days: 14
+          if-no-files-found: error
