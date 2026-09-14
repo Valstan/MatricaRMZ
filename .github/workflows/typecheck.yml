@@ -48,3 +48,9 @@ jobs:
 
       - name: Typecheck web-admin
         run: pnpm --filter @matricarmz/web-admin typecheck
+
+      # android-app компилирует ПОРТИРОВАННЫЕ исходники electron-app под своим
+      # tsconfig и шимами. До 2026-09-14 пакета не было ни в одном гейте CI —
+      # вместе с тестами добавлен и сюда (см. test.yml).
+      - name: Typecheck android-app
+        run: pnpm --filter @matricarmz/android-app typecheck
