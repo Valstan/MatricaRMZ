@@ -91,6 +91,7 @@ const matricaApi = {
   },
   clientOps: {
     bundle: async () => ipcRenderer.invoke('clientOps:bundle'),
+    launch: async (args?: { tab?: string }) => ipcRenderer.invoke('clientOps:launch', args ?? {}),
     reveal: async () => ipcRenderer.invoke('clientOps:reveal'),
     saveCopy: async () => ipcRenderer.invoke('clientOps:saveCopy'),
   },

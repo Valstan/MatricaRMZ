@@ -1,24 +1,29 @@
 import React, { useEffect, useState } from 'react';
 
-import type { ClientOpsBundleInfo } from '@matricarmz/shared';
+import type { ClientOpsBundleInfo, ClientOpsTab } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 
 /**
- * «Скрипты обслуживания» — окно доступа к архиву, который едет вместе с клиентом.
+ * «Скрипты обслуживания» — вход в окно обслуживания машины.
  *
- * Зачем окно, а не запуск по кнопке: скрипты правят настройки антивируса и брандмауэра, часть
- * из них требует прав администратора, и запускать их за оператора вслепую нельзя. Программа
- * доводит его до файлов и говорит пароль — дальше он делает это сам, как и раньше делал с
- * архивом на рабочем столе Windows. Разница в том, что теперь этот путь не пропадает при
- * переустановке и есть на КАЖДОЙ машине, а не только там, где ярлык уцелел.
+ * Раньше здесь заканчивалась помощь программы: оператору показывали архив и пароль, а дальше
+ * он сам — найти файл, распаковать, выбрать из двух `.cmd` нужный, догадаться про права
+ * администратора. Каждый из этих шагов терял часть парка. Теперь кнопка делает всё: клиент
+ * распаковывает архив своим ключом и открывает окно, где утилиты разложены по вкладкам.
+ *
+ * Показ архива в проводнике и копия в «Загрузки» остались ЗАПАСНЫМ путём, а не основным:
+ * они нужны, когда окно не открылось (нет PowerShell, политика запуска, чужая машина) —
+ * тогда у оператора по-прежнему есть файл и пароль к нему.
  */
 export function ClientOpsDialog(props: { open: boolean; onClose: () => void; notify?: (text: string, tone?: 'info' | 'error') => void }) {
   const [bundle, setBundle] = useState<ClientOpsBundleInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fallbackOpen, setFallbackOpen] = useState(false);
 
   useEffect(() => {
     if (!props.open) return;
+    setFallbackOpen(false);
     void (async () => {
       try {
         setBundle(await window.matrica.clientOps.bundle());
@@ -29,6 +34,28 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
   }, [props.open]);
 
   if (!props.open) return null;
+
+  const launch = async (tab: ClientOpsTab) => {
+    setBusy(true);
+    try {
+      const res = await window.matrica.clientOps.launch({ tab });
+      if (!res.ok) {
+        props.notify?.(res.error, 'error');
+        // Окно не открылось — оставляем оператора у запасного пути, а не у пустого экрана.
+        setFallbackOpen(true);
+        return;
+      }
+      // Окно поднимается несколько секунд (сбор данных о компьютере), и всё это время оно
+      // ничем не проявляется. Без этой строки оператор успевает нажать кнопку второй раз.
+      props.notify?.('Открываю окно обслуживания — оно появится через несколько секунд. Windows может спросить права администратора.');
+      props.onClose();
+    } catch (e) {
+      props.notify?.(`Не удалось открыть окно обслуживания: ${String(e)}`, 'error');
+      setFallbackOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const run = async (action: 'reveal' | 'saveCopy') => {
     setBusy(true);
@@ -77,37 +104,90 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
         {bundle?.available ? (
           <>
             <div style={{ color: 'var(--subtle)' }}>
-              Внутри архива:
+              Откроется окно с вкладками:
               <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                 {bundle.contents.map((line) => (
                   <li key={line}>{line}</li>
                 ))}
               </ul>
             </div>
-            <div
-              style={{
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                padding: '8px 10px',
-              }}
-            >
-              Пароль архива — <b>{bundle.password}</b>. Он не секрет: без пароля антивирус успевает
-              удалить скрипт раньше, чем для него заведено исключение. Проводник Windows распакует
-              такой архив сам, ничего доустанавливать не нужно.
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button onClick={() => void run('reveal')} disabled={busy}>
-                Показать в проводнике
-              </Button>
-              <Button variant="ghost" onClick={() => void run('saveCopy')} disabled={busy}>
-                Сохранить копию в «Загрузки»
-              </Button>
-              <div style={{ flex: 1 }} />
-              <Button variant="ghost" onClick={props.onClose}>
-                Закрыть
-              </Button>
-            </div>
+
+            {bundle.canLaunch ? (
+              <>
+                <div
+                  style={{
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '8px 10px',
+                  }}
+                >
+                  Программа распакует скрипты сама и откроет окно. Windows может спросить права
+                  администратора — они нужны только правилу брандмауэра; без них окно тоже
+                  работает и готовит строки для Касперского.
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button onClick={() => void launch('kaspersky')} disabled={busy}>
+                    Открыть окно обслуживания
+                  </Button>
+                  <Button variant="ghost" onClick={() => void launch('lan')} disabled={busy}>
+                    Сразу к раздаче соседям
+                  </Button>
+                  <div style={{ flex: 1 }} />
+                  <Button variant="ghost" onClick={props.onClose}>
+                    Закрыть
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div
+                style={{
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '8px 10px',
+                }}
+              >
+                Открыть окно на этой системе нельзя — скрипты рассчитаны на Windows. Архив можно
+                забрать вручную: пароль <b>{bundle.password}</b>.
+              </div>
+            )}
+
+            {fallbackOpen || !bundle.canLaunch ? (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, display: 'grid', gap: 8 }}>
+                <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
+                  Если окно не открылось — архив можно распаковать руками. Пароль — <b>{bundle.password}</b>; он
+                  не секрет, без него антивирус успевает удалить скрипт раньше, чем для него заведено
+                  исключение. Проводник Windows такой архив открывает сам.
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button variant="ghost" onClick={() => void run('reveal')} disabled={busy}>
+                    Показать в проводнике
+                  </Button>
+                  <Button variant="ghost" onClick={() => void run('saveCopy')} disabled={busy}>
+                    Сохранить копию в «Загрузки»
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex' }}>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    color: 'var(--subtle)',
+                    fontSize: 13,
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Окно не открылось? Забрать архив вручную
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <>

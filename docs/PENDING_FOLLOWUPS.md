@@ -406,7 +406,9 @@ Capacitor-shell собран ([#475](https://github.com/Valstan/MatricaRMZ/pull/
 >
 > **Гейт окупился в первый же день.** Он дважды покраснел до того, как ротация дошла бы до релиза: пароль хранилища содержал хвостовой `\r` (`openssl rand` в Git Bash пишет CRLF), а `gh secret set` этот символ срезает — локально хранилище открывалось, в CI нет. Без гейта это всплыло бы на теге `android-v3.32.0` и заблокировало выкат. Грабля записана в `machines/PC79.md`.
 
-> **Инструмент готов 2026-08-19** (директива brain `2026-08-19-three-zero-cost-fixes-before-the-onprem-move`, пункт 1): `node scripts/seal-key-bundle.mjs seal` запечатывает keystore + `.pw` + `backup-private.pem` в один файл под паролем, `self-check` подтверждает побайтовое восстановление (проверено на PC40). **Осталось действие владельца, автоматизировать нечего:** задать пароль, положить свёрток на офлайн-носитель в сейф + вторую копию вне здания, пароль записать отдельно от носителей.
+> ✅ **Офлайн-копия ключа сделана владельцем 2026-09-14.** Пункт закрыт: копия хранилища (`matricarmz-release.keystore` + `.pw`) лежит вне PC79. Единственная копия ключа больше не на одной машине — это и был риск.
+>
+> **Инструмент** (директива brain `2026-08-19-three-zero-cost-fixes-before-the-onprem-move`, пункт 1): `node scripts/seal-key-bundle.mjs seal` запечатывает keystore + `.pw` + `backup-private.pem` в один файл под паролем, `self-check` подтверждает побайтовое восстановление (проверено на PC40). На PC79 не применялся — там нет `backup-private.pem`, которого скрипт требует; копия сделана обычным копированием. Если свёрток понадобится и с PC79 — положить рядом pem либо сделать участников необязательными.
 >
 > **Куда класть — решено владельцем 2026-08-13: в KARMAN**, комната `matricarmz`, четырьмя ключами `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` (base64 хранилища — 5,9 КБ, лимит значения 64 КБ, проходит).
 > **Упирается в токен:** наш токен комнаты **read-only** (`GET /api/secrets/self` → `canWrite:false`, проверено 2026-08-13), а запись — `POST /api/secrets` под read-write. Нужен rw-токен: KARMAN → `/secrets` → комната `matricarmz` → Токены → выпустить read-write (показывается один раз). Как только он есть — запись выполняется одной командой, значения берутся из `%USERPROFILE%\.matricarmz-keys\` на PC40. Гайд — `../karman/docs/secrets-client-guide.md`.
@@ -701,6 +703,19 @@ _Приёмка ветки «пропавшие ярлыки» ✅ 2026-07-25 н
 ---
 
 ## 🟡 Техдолг
+
+### 🔴 Тесты `android-app` не запускаются в CI, и сторож дрейфа схемы красный на main 🗓 since:2026-09-14
+
+`.github/workflows/test.yml` гоняет только `shared`, `backend-api` и `electron-app` — пакета `android-app` в нём нет вовсе. Из-за этого на `main` **уже** висят два красных теста, и CI об этом молчит:
+
+- `android-app/src/db/migrations/clientSchemaCompatible.test.ts` — «версия схемы клиента совпадает с electron-файлом»: `expected 12 to be 13`;
+- `android-app/src/db/migrations/drizzleChain.test.ts` — «схема свежей БД идентична штатному пути Electron-клиента».
+
+Корень: `electron-app/src/main/services/migrations/clientSchemaMigrations.ts:50` поднят до `CURRENT_CLIENT_SCHEMA_VERSION = 13` в [#892](https://github.com/Valstan/MatricaRMZ/pull/892) (13.09, обобщённая позиция / миграция 0096), а `android-app/src/db/migrations/clientSchemaCompatible.ts:30` остался на `12` с [#454](https://github.com/Valstan/MatricaRMZ/pull/454). Сторож написан ровно против такого молчаливого дрейфа и честно красный — но смотреть на него некому.
+
+Надо: (1) догнать схему android-клиента до 13, (2) завести `android-app` в `test.yml` (учесть известный флейк `src/core/boot.test.ts` — таймингозависимый при параллельном прогоне).
+
+Найдено 14.09.2026 при прогоне гейтов перед PR про окно обслуживания; к той работе отношения не имеет.
 
 ### 🟢 Приказы о ценах на услуги: экран есть, карточка услуги пока не заперта 🗓 since:2026-09-12
 

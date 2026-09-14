@@ -2,7 +2,12 @@ import { ipcMain } from 'electron';
 
 import type { IpcContext } from '../ipcContext.js';
 
-import { getClientOpsBundle, revealClientOpsBundle, saveClientOpsBundleCopy } from '../../services/clientOpsService.js';
+import {
+  getClientOpsBundle,
+  launchClientOps,
+  revealClientOpsBundle,
+  saveClientOpsBundleCopy,
+} from '../../services/clientOpsService.js';
 
 /**
  * Скрипты обслуживания машины парка. Доступны ЛЮБОМУ вошедшему: настройка антивируса и
@@ -11,6 +16,7 @@ import { getClientOpsBundle, revealClientOpsBundle, saveClientOpsBundleCopy } fr
  */
 export function registerClientOpsIpc(_ctx: IpcContext) {
   ipcMain.handle('clientOps:bundle', async () => getClientOpsBundle());
+  ipcMain.handle('clientOps:launch', async (_e, args: { tab?: string } = {}) => launchClientOps(args));
   ipcMain.handle('clientOps:reveal', async () => revealClientOpsBundle());
   ipcMain.handle('clientOps:saveCopy', async () => saveClientOpsBundleCopy());
 }

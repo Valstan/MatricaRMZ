@@ -35,7 +35,14 @@ export type ClientOpsBundleInfo = {
   /** Пароль архива — не секрет: он лишь делает архив непрозрачным для антивируса (M94). */
   password: string;
   contents: string[];
+  /** Куда клиент распаковывает скрипты перед запуском окна обслуживания. */
+  workDir: string;
+  /** Можно ли открыть окно в один щелчок: нужен и архив, и Windows. */
+  canLaunch: boolean;
 };
+
+/** Вкладка окна обслуживания, с которой его открыть. Значения совпадают с -Tab у matrica-ops.ps1. */
+export type ClientOpsTab = 'kaspersky' | 'lan' | 'guide';
 
 export type EngineListItem = {
   id: string;
@@ -1121,6 +1128,8 @@ export type MatricaApi = {
   /** Скрипты обслуживания машины парка: архив едет с клиентом, доступен любому вошедшему. */
   clientOps: {
     bundle: () => Promise<ClientOpsBundleInfo>;
+    /** Распаковать архив и открыть окно обслуживания; права запрашивает сам скрипт. */
+    launch: (args?: { tab?: ClientOpsTab }) => Promise<{ ok: true; dir: string } | { ok: false; error: string }>;
     reveal: () => Promise<{ ok: true } | { ok: false; error: string }>;
     saveCopy: () => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
   };

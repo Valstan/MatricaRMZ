@@ -1,3 +1,4 @@
 @echo off
-rem Kaspersky x MatricaRMZ - window with ready-to-paste exclusion strings.
-start "" powershell -sta -NoProfile -ExecutionPolicy Bypass -File "%~dp0kaspersky-matrica.ps1"
+rem MatricaRMZ maintenance window - tabs for every park utility.
+rem The script asks for administrator rights itself and keeps working without them.
+start "" powershell -sta -NoProfile -ExecutionPolicy Bypass -File "%~dp0matrica-ops.ps1"

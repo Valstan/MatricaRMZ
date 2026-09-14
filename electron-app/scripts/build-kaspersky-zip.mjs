@@ -32,6 +32,8 @@ const INNER_DIR = 'kaspersky-matrica' // top-level folder inside the zip → cle
 // на Верстаке у ВСЕХ, а не только у админов). Имя файла оставлено прежним — на него завязаны
 // установщик (installer.nsh) и памятка на рабочем столе Windows.
 const FILES = [
+  // Точка входа окна обслуживания: её запускает клиент после распаковки (clientOpsService.ts).
+  'matrica-ops.ps1',
   'kaspersky-matrica.ps1',
   'lan-share-firewall.ps1',
   'guide.ru.md',
