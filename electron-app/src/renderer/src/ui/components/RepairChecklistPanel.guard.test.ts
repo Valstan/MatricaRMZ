@@ -56,11 +56,43 @@ describe('RepairChecklistPanel: автоподстановка шапки', () =
     expect(PANEL).toContain('owned: headerAutofillRef.current[id],');
   });
 
-  it('запоминает своё значение, чтобы догонять карточку при вводе по буквам', () => {
-    expect(PANEL).toContain('headerAutofillRef.current[id] = resolved;');
+  it('владение фиксируется ТОЛЬКО когда значение фактически оказалось в поле', () => {
+    // Запись может не закрепиться: brand-resync сохраняет лист со своим снимком answers и
+    // возвращает шапку пустой. Запомни мы владение авансом — следующий проход прочитал бы
+    // «поле пустое, писали его мы» как «оператор стёр руками», и номер не доехал бы уже
+    // никогда. Поэтому ref пишется в ветке adopt, а в ветке write его быть не должно.
+    const fill = PANEL.slice(PANEL.indexOf('const fillText ='), PANEL.indexOf("fillText('engine_brand'"));
+    const adoptAt = fill.indexOf("if (decision.action === 'adopt') {");
+    const refAt = fill.indexOf('headerAutofillRef.current[id] = decision.value;');
+    const writeAt = fill.indexOf('(next as any)[id] = { kind:');
+    expect(adoptAt, 'ветка adopt пропала').toBeGreaterThan(-1);
+    expect(refAt, 'владение больше нигде не запоминается').toBeGreaterThan(adoptAt);
+    expect(refAt, 'владение записывается ДО подтверждения — вернётся «первая буква»').toBeLessThan(writeAt);
   });
 
   it('сбрасывает владение при перезагрузке листа', () => {
     expect(PANEL).toContain('headerAutofillRef.current = {};');
+  });
+
+  it('перенятое владение не считается изменением листа', () => {
+    // Взведи ветка adopt `changed` — панель уходила бы в автосейв на каждую перерисовку.
+    const fill = PANEL.slice(PANEL.indexOf('const fillText ='), PANEL.indexOf("fillText('engine_brand'"));
+    const adopt = fill.slice(fill.indexOf("if (decision.action === 'adopt') {"), fill.indexOf('(next as any)[id] = { kind:'));
+    expect(adopt).not.toContain('changed = true;');
+  });
+});
+
+// Номер двигателя на картерах (14.09.2026): верхняя и нижняя половины несут номер самого
+// двигателя, и оператор вбивал его руками в две строки на каждом двигателе. Подстановка идёт
+// из того же эффекта, что и шапка, и опирается на доменную функцию — признак «что такое
+// картер» обязан быть общим с авто-браком двигателя, иначе они разойдутся молча.
+describe('RepairChecklistPanel: номер двигателя в «№ на детали» картеров', () => {
+  it('подстановку делает доменная функция, а не своя проверка имени в панели', () => {
+    expect(PANEL).toContain('fillCrankcaseStampedNumbers({ rows: current.rows, engineNumber: num });');
+    expect(PANEL, 'признак картера не должен дублироваться в панели').not.toContain("includes('картер')");
+  });
+
+  it('результат уезжает в тот же answers и сохраняется автозаполнением', () => {
+    expect(PANEL).toContain("(next as any)[table.id] = { kind: 'table', rows: filled.rows };");
   });
 });
