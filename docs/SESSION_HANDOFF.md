@@ -3,8 +3,8 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-14 (Opus 5, машина `PC79`) — номер двигателя в акте: шапка заполняется целиком (был дефект «доезжает первая буква»), обоим картерам номер проставляется автоматом в «№ на детали»; проверено живым CDP-прогоном, готов разовый проход по базе (1354 листа). Ранее в тот же день: **android-app введён в CI** (тесты + typecheck), схема android-клиента догнала electron (13), флейк `boot.test.ts` закрыт по-настоящему ([#896](https://github.com/Valstan/MatricaRMZ/pull/896), [#897](https://github.com/Valstan/MatricaRMZ/pull/897)); окно обслуживания машины ([#895](https://github.com/Valstan/MatricaRMZ/pull/895)).
-**Branch:** `fix/engine-act-number-and-crankcase-stamp` (от `main`); открыт также `feat/client-ops-window-tabs` → [#895](https://github.com/Valstan/MatricaRMZ/pull/895).
+**Updated:** 2026-09-14 (Opus 5, машина `PC79`) — номер двигателя в акте: шапка заполняется целиком, картерам номер проставляется автоматом ([#898](https://github.com/Valstan/MatricaRMZ/pull/898), проверено живым CDP-прогоном). **Разовый проход по проду выполнен: 1354 листа**, к правке 0, прод здоров. Ранее в тот же день — android-app в CI ([#896](https://github.com/Valstan/MatricaRMZ/pull/896), [#897](https://github.com/Valstan/MatricaRMZ/pull/897)), окно обслуживания машины ([#895](https://github.com/Valstan/MatricaRMZ/pull/895)).
+**Branch:** `main`; открыт `feat/client-ops-window-tabs` → [#895](https://github.com/Valstan/MatricaRMZ/pull/895).
 **Last released version:** **v3.32.0**, выкат 13.09 (детали прод-статуса — тело релизного PR). Везёт **миграцию 0096** (`parent_nomenclature_id`, аддитивная) и первый APK на новом ключе подписи (`android-v3.32.0`).
 
 ## Текущая нитка
