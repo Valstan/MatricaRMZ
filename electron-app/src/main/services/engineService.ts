@@ -11,6 +11,7 @@ import {
   ENGINE_RESERVATION_CODE,
   REPAIR_HISTORY_OPERATION_TYPE,
   currentWorkshopFromHistory,
+  lastSheetEntry,
   repairHistoryFromOperations,
   EntityTypeCode,
   formatEngineReservationHolder,
@@ -371,7 +372,13 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
   return result;
 }
 
-type EngineRepairHistorySummary = { lastAction: string; lastAt: number | null; workshopId: string };
+type EngineRepairHistorySummary = {
+  lastAction: string;
+  lastAt: number | null;
+  workshopId: string;
+  lastSheetNode: string;
+  lastSheetAt: number | null;
+};
 
 /**
  * Последнее событие истории ремонта по каждому двигателю — для ступеней списка «что с ним
@@ -432,10 +439,13 @@ async function getEngineRepairHistoryMap(
     const entries = repairHistoryFromOperations(bucket);
     const last = entries[0];
     if (!last) continue;
+    const sheet = lastSheetEntry(entries);
     result.set(engineId, {
       lastAction: last.action,
       lastAt: last.at,
       workshopId: currentWorkshopFromHistory(entries) ?? '',
+      lastSheetNode: sheet?.sheet?.typeName ?? '',
+      lastSheetAt: sheet?.at ?? null,
     });
   }
   return result;
@@ -787,6 +797,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(history?.workshopId || workshopId ? { workshopId: history?.workshopId || workshopId } : {}),
       ...(history?.lastAction ? { lastHistoryAction: history.lastAction } : {}),
       ...(history?.lastAt != null ? { lastHistoryAt: history.lastAt } : {}),
+      ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),
+      ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),

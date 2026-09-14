@@ -79,6 +79,9 @@ export type EngineListItem = {
   /** Последнее событие истории ремонта — «что с двигателем происходило» для ступени списка. */
   lastHistoryAction?: string;
   lastHistoryAt?: number;
+  /** Узел последней строки ведомости работ (укладка / обкатка / …) и её дата — «где двигатель по ведомостям». */
+  lastSheetNode?: string;
+  lastSheetAt?: number;
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;

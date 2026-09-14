@@ -214,3 +214,23 @@ describe('ступени по истории ремонта', () => {
     expect(ids(applyEngineFacets(historyRows, { workshop: ['W1'], historyAction: ['перемещение в другой цех'] }))).toEqual(['h1']);
   });
 });
+
+// Ведомости работ (15.09.2026): узел последней ведомости — отдельная ступень, потому что ручные
+// записи и стадии перебивали бы его в «последнем событии», а вопрос диспетчера — про участок.
+const sheetRows = [
+  { id: 's1', lastSheetNode: 'Обкатка', lastSheetAt: DAY_09 },
+  { id: 's2', lastSheetNode: 'Укладка', lastSheetAt: DAY_05 },
+  { id: 's3' },
+] as unknown as EngineListItem[];
+
+describe('ступень по узлу ведомости', () => {
+  it('отбирает по узлу без учёта регистра и собирает безведомостных отдельно', () => {
+    expect(ids(applyEngineFacets(sheetRows, { sheetNode: ['обкатка'] }))).toEqual(['s1']);
+    expect(ids(applyEngineFacets(sheetRows, { sheetNode: ['none'] }))).toEqual(['s3']);
+    expect(engineFacetOptions(sheetRows, {}, 'sheetNode').find((o) => o.value === 'обкатка')?.label).toBe('Обкатка');
+  });
+
+  it('дата ведомости отбирается диапазоном', () => {
+    expect(ids(applyEngineFacets(sheetRows, { sheetDate: { from: '2026-09-07' } }))).toEqual(['s1']);
+  });
+});

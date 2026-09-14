@@ -1616,6 +1616,8 @@ export function App() {
       e.workshopId ?? '',
       e.lastHistoryAction ?? '',
       e.lastHistoryAt ?? '',
+      e.lastSheetNode ?? '',
+      e.lastSheetAt ?? '',
       (e.attachmentPreviews ?? []).map((p) => p.id).join(','),
     ].join('|');
   }

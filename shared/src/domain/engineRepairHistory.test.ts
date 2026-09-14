@@ -4,6 +4,7 @@ import {
   REPAIR_HISTORY_ACTIONS,
   buildRepairHistoryMeta,
   currentWorkshopFromHistory,
+  lastSheetEntry,
   parseRepairHistoryMeta,
   repairHistoryActionOptions,
   repairHistoryFromOperations,
@@ -137,5 +138,45 @@ describe('связь со стадиями и лентой паспорта', ()
   it('короткая строка события читается человеком', () => {
     const meta = buildRepairHistoryMeta({ action: 'Перемещение в другой цех', workshopId: 'W2', reason: 'нужен стенд' });
     expect(repairHistoryNoteLine(meta, 'Цех сборки')).toBe('Перемещение в другой цех · цех: Цех сборки · причина: нужен стенд');
+  });
+});
+
+// Ведомости работ (15.09.2026): строка ведомости — та же запись истории с полем `sheet`;
+// классификация `entryType` нужна отчётам и ступеням списка, у старых строк она выводится.
+describe('классификация записей и строки ведомостей', () => {
+  it('строка ведомости проходит через meta целиком — поля, узел, тип', () => {
+    const meta = buildRepairHistoryMeta({
+      action: 'Обкатка',
+      at: 500,
+      sheet: {
+        typeId: 't1',
+        typeCode: 'obkatka',
+        typeName: 'Обкатка',
+        fields: [{ code: 'hours', label: 'Часы', type: 'number', value: 4 }],
+      },
+    });
+    const parsed = parseRepairHistoryMeta(JSON.stringify(meta));
+    expect(parsed?.sheet?.typeCode).toBe('obkatka');
+    expect(parsed?.sheet?.fields).toEqual([{ code: 'hours', label: 'Часы', type: 'number', value: 4 }]);
+    const [entry] = repairHistoryFromOperations([row({ id: 's', metaJson: JSON.stringify(meta) })]);
+    expect(entry?.entryType).toBe('sheet');
+    expect(entry?.at).toBe(500);
+    expect(lastSheetEntry([entry!])?.sheet?.typeName).toBe('Обкатка');
+  });
+
+  it('старые строки без entryType классифицируются по признакам', () => {
+    const list = repairHistoryFromOperations([
+      row({ id: 'auto', performedAt: 3, metaJson: JSON.stringify({ kind: 'repair_history', action: 'Отремонтирован', auto: true }) }),
+      row({ id: 'man', performedAt: 2, metaJson: JSON.stringify({ kind: 'repair_history', action: 'Своё' }) }),
+      row({ id: 'tr', performedAt: 1, operationType: 'workshop_transfer', metaJson: JSON.stringify({ toWorkshopId: 'W1' }) }),
+    ]);
+    expect(list.map((e) => e.entryType)).toEqual(['status', 'manual', 'transfer']);
+    expect(lastSheetEntry(list)).toBeNull();
+  });
+
+  it('автозапись стадии несёт entryType и дату строки, если она дана', () => {
+    const meta = repairHistoryMetaForStatus('status_repaired', 777);
+    expect(meta.entryType).toBe('status');
+    expect(meta.at).toBe(777);
   });
 });
