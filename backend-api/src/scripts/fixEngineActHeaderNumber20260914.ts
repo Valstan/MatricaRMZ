@@ -31,6 +31,10 @@
  */
 import 'dotenv/config';
 
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { SyncTableName } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
@@ -213,8 +217,27 @@ async function main() {
   await pool.end();
 }
 
-main().catch(async (e) => {
-  console.error(e);
-  await pool.end().catch(() => undefined);
-  process.exit(1);
-});
+/**
+ * Проход запускается ТОЛЬКО когда файл вызван напрямую. Без этой проверки его подхватывал
+ * собственный тест: он импортирует `decideHeaderFix`, а импорт выполнял бы `main()` — на
+ * раннере без базы это валило весь прогон `backend-api`, хотя все 825 тестов были зелёными.
+ * `realpathSync` — потому что pnpm водит скрипты через симлинки, и голое сравнение путей
+ * дало бы ложное «не точка входа».
+ */
+function isEntryPoint(): boolean {
+  const argv = process.argv[1];
+  if (!argv) return false;
+  try {
+    return realpathSync(resolve(argv)) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  main().catch(async (e) => {
+    console.error(e);
+    await pool.end().catch(() => undefined);
+    process.exit(1);
+  });
+}
