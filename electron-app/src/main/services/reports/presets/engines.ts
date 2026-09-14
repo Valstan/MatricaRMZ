@@ -29,6 +29,7 @@ import {
   } from '@matricarmz/shared';
 
 import { collectContractEngineQty } from './contracts.js';
+import { getLastSheetByEngine } from './workSheets.js';
 
 import {
   erpEngineAssemblyBom,
@@ -318,6 +319,9 @@ export async function buildEnginesReport(
   const completenessActByEngineId = needCompleteness
     ? await getCompletenessActStartedMap(db).catch(() => new Map<string, boolean>())
     : new Map<string, boolean>();
+  // Узел последней ведомости — тоже скан operations, только для детального разреза.
+  const needSheet = groupBy === 'engines' && (columnKeys.length === 0 || columnKeys.includes('lastSheetNode') || columnKeys.includes('lastSheetAt'));
+  const lastSheetByEngineId = needSheet ? await getLastSheetByEngine(db).catch(() => new Map<string, { node: string; at: number }>()) : new Map<string, { node: string; at: number }>();
 
   const snapshot = await loadSnapshot(db);
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
@@ -468,6 +472,8 @@ export async function buildEnginesReport(
         isScrap: scrap ? 'Да' : 'Нет',
         scrapReason: normalizeText(attrs.scrap_reason, ''),
         completenessAct: completenessActStarted ? 'Да' : 'Нет',
+        lastSheetNode: lastSheetByEngineId.get(engineId)?.node ?? '—',
+        lastSheetAt: lastSheetByEngineId.get(engineId)?.at ?? null,
       });
     }
   }

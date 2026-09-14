@@ -123,6 +123,10 @@ const ID = {
   workOrder: '18ee0000-0000-4000-8000-000000000003',
   repairFundInstance: '18ee0000-0000-4000-8000-000000000004',
   supplyRequest: '29ff0000-0000-4000-8000-000000000001',
+  workSheetRow: '3a000000-0000-4000-8000-000000000001',
+  workSheetRowNoNumber: '3a000000-0000-4000-8000-000000000002',
+  /** Цеха с таким id справочник не знает — висячая ссылка в строке ведомости. */
+  workshopMissing: '3a000000-0000-4000-8000-000000000003',
 } as const;
 
 const ALL_FIXTURE_IDS: string[] = Object.values(ID);
@@ -331,6 +335,38 @@ function operationRows(shape: FixtureShape): Row[] {
             rows: [{ part_name: 'Гильза', assembly_unit_number: 'Д245-1002021', quantity: 4, actual_qty: 1 }],
           },
         },
+      }),
+    },
+    // Ведомости работ (15.09.2026): строка — запись истории ремонта с meta.sheet. Дырявая:
+    // цех ссылается на несуществующий, у второго двигателя нет номера — ровно тут фолбэки
+    // печатали бы UUID и обрезок id.
+    {
+      ...base,
+      id: ID.workSheetRow,
+      engineEntityId: ID.engine,
+      operationType: 'repair_history_entry',
+      performedAt: T0 + 3 * DAY,
+      metaJson: JSON.stringify({
+        kind: 'repair_history',
+        action: 'Обкатка',
+        at: T0 + 3 * DAY,
+        entryType: 'sheet',
+        ...(shape.leaky ? { workshopId: ID.workshopMissing } : {}),
+        sheet: { typeId: 'obk-type', typeCode: 'obkatka', typeName: 'Обкатка', fields: [{ code: 'hours', label: 'Часы обкатки', type: 'number', value: 4 }] },
+      }),
+    },
+    {
+      ...base,
+      id: ID.workSheetRowNoNumber,
+      engineEntityId: ID.engineNoNumber,
+      operationType: 'repair_history_entry',
+      performedAt: T0 + 4 * DAY,
+      metaJson: JSON.stringify({
+        kind: 'repair_history',
+        action: 'Укладка',
+        at: T0 + 4 * DAY,
+        entryType: 'sheet',
+        sheet: { typeId: 'ukl-type', typeCode: 'ukladka', typeName: 'Укладка', fields: [] },
       }),
     },
     {
@@ -653,6 +689,7 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
   { presetId: 'contracts_requisites' },
   { presetId: 'engines' },
   { presetId: 'engine_stages' },
+  { presetId: 'work_sheets' },
   { presetId: 'engine_flow_by_counterparty' },
   { presetId: 'engine_readiness_to_assemble' },
   { presetId: 'scrap_register' },
