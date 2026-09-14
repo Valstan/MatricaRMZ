@@ -18,6 +18,8 @@
     "files:offload-to-yandex": "tsx src/scripts/offloadLocalFilesToYandex.ts",
     "photos:recompress": "tsx src/scripts/recompressStoredPhotos.ts",
     "photos:recompress:apply": "tsx src/scripts/recompressStoredPhotos.ts --apply",
+    "files:drop-cache": "tsx src/scripts/dropLocalFileCache.ts",
+    "files:drop-cache:apply": "tsx src/scripts/dropLocalFileCache.ts --apply",
     "users:parity": "tsx src/scripts/checkUsersParity.ts",
     "users:fixture-check": "tsx src/scripts/checkUsersStrictFixture.ts",
     "users:backfill-check": "tsx src/scripts/checkUsersBackfill.ts",
