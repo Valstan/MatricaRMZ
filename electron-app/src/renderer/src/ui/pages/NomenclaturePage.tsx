@@ -783,6 +783,9 @@ export function NomenclaturePage(props: {
               <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', flexShrink: 0 }}>{status}</div>
             ) : null}
 
+            {/* Всего — позиции всех групп (счётчики групп приходят с сервера), показано — строки
+                раскрытой группы: пока ничего не раскрыто, на экране строк нет. */}
+            <ListCount total={groupCounts.reduce((acc, g) => acc + (Number(g.count) || 0), 0)} shown={sorted.length} style={{ flexShrink: 0 }} />
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 8 }}>
               {groupCounts.length === 0 && sorted.length === 0 ? (
                 <div style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>Нет данных</div>
@@ -845,7 +848,6 @@ export function NomenclaturePage(props: {
                       </button>
                       {expanded ? (
                         <>
-                        <ListCount total={rows.length} shown={sorted.length} style={{ margin: '4px 10px 2px' }} />
                         <table className="list-table">
                           <thead>
                             <tr>
