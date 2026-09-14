@@ -30,7 +30,7 @@ const LAUNCHER = readFileSync(path.join(srcDir, 'matrica-ops.ps1'), 'utf8');
 function builderFiles(): string[] {
   const block = BUILDER.match(/const FILES = \[([\s\S]*?)\]/);
   expect(block, 'в сборщике архива больше нет списка FILES — сторож ослеп').toBeTruthy();
-  return [...block![1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  return [...block![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
 }
 
 describe('архив со скриптами обслуживания везёт всё, что нужно окну', () => {

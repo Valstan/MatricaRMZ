@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -20,6 +20,17 @@ const PASSWORD = '111';
 const stage = mkdtempSync(path.join(tmpdir(), 'client-ops-archive-test-'));
 afterAll(() => rmSync(stage, { recursive: true, force: true }));
 
+/**
+ * Бинарь `7za` из `7zip-bin` приезжает в хранилище pnpm без бита запуска, и на Linux-раннере
+ * `execFileSync` падает `EACCES` (локально на Windows этого не видно — там бита нет вовсе).
+ * Ставим его сами: пропустить тест вместо этого нельзя — сторож, который «зелёный, потому что
+ * не запустился», хуже отсутствующего.
+ */
+function seven(): string {
+  chmodSync(sevenBin.path7za, 0o755);
+  return sevenBin.path7za;
+}
+
 function buildArchive(files: Record<string, string | Buffer>, args: string[] = []): Buffer {
   const dir = mkdtempSync(path.join(stage, 'case-'));
   const inner = path.join(dir, 'kaspersky-matrica');
@@ -27,7 +38,7 @@ function buildArchive(files: Record<string, string | Buffer>, args: string[] = [
   for (const [name, body] of Object.entries(files)) writeFileSync(path.join(inner, name), body);
   const zip = path.join(dir, 'out.zip');
   execFileSync(
-    sevenBin.path7za,
+    seven(),
     ['a', '-tzip', '-mem=ZipCrypto', `-p${PASSWORD}`, '-bso0', '-bsp0', ...args, zip, 'kaspersky-matrica'],
     { cwd: dir, stdio: ['ignore', 'ignore', 'inherit'] },
   );
@@ -82,12 +93,12 @@ describe('readClientOpsArchive', () => {
     mkdirSync(inner);
     writeFileSync(path.join(inner, 'README.md'), '# без пароля\r\n');
     const zip = path.join(dir, 'plain.zip');
-    execFileSync(sevenBin.path7za, ['a', '-tzip', '-bso0', '-bsp0', zip, 'kaspersky-matrica'], {
+    execFileSync(seven(), ['a', '-tzip', '-bso0', '-bsp0', zip, 'kaspersky-matrica'], {
       cwd: dir,
       stdio: ['ignore', 'ignore', 'inherit'],
     });
     const entries = readClientOpsArchive(readFileSync(zip), PASSWORD);
     expect(entries).toHaveLength(1);
-    expect(entries[0].data.toString('utf8')).toContain('без пароля');
+    expect(entries[0]!.data.toString('utf8')).toContain('без пароля');
   });
 });
