@@ -197,6 +197,7 @@ function lazyPage(modulePath: keyof typeof pageModules, exportName: string) {
 }
 
 const EnginesPage = lazyPage('./pages/EnginesPage.tsx', 'EnginesPage');
+const WorkSheetsPage = lazyPage('./pages/WorkSheetsPage.tsx', 'WorkSheetsPage');
 const EngineDetailsPage = lazyPage('./pages/EngineDetailsPage.tsx', 'EngineDetailsPage');
 const EngineBrandsPage = lazyPage('./pages/EngineBrandsPage.tsx', 'EngineBrandsPage');
 const EngineBrandDetailsPage = lazyPage('./pages/EngineBrandDetailsPage.tsx', 'EngineBrandDetailsPage');
@@ -522,6 +523,7 @@ function appTabTitle(tab: string): string {
   const labels: Record<string, string> = {
     history: 'История',
     engines: 'Двигатели',
+    work_sheets: 'Ведомости работ',
     assembly_forecast: 'Прогноз сборки',
     engine: 'Карточка двигателя',
     engine_brands: 'Марки двигателей',
@@ -588,6 +590,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
+  work_sheets: 'Ведомости работ',
   assembly_forecast: 'Прогноз сборки',
   engine_brands: 'Марки двигателей',
   engine_brand_groups: 'Группы марок',
@@ -2731,6 +2734,8 @@ export function App() {
     ...(authStatus.loggedIn ? (['user_screens'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
+    // Ведомости работ — строки истории ремонта, право то же, что у истории.
+    ...(caps.canViewOperations ? (['work_sheets'] as const) : []),
     ...(caps.canViewReports ? (['assembly_forecast'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brand_groups'] as const) : []),
@@ -4163,6 +4168,7 @@ export function App() {
       counterparty: 'Карточка контрагента',
       changes: 'Изменения',
       engines: 'Двигатели',
+      work_sheets: 'Ведомости работ',
       engine_brands: 'Марки двигателей',
       engine_brand: 'Карточка марки двигателя',
       engine: 'Карточка двигателя',
@@ -5366,6 +5372,9 @@ export function App() {
           />
         )}
 
+        {t === 'work_sheets' && (
+          <WorkSheetsPage canEdit={caps.canEditOperations} canManageTypes={caps.canEditMasterData} onOpenEngine={(id: string) => void openEngine(id)} />
+        )}
         {t === 'engines' && (
           <EnginesPage
             engines={engines}

@@ -58,7 +58,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     // «Производство» (ENTITY_TYPE_SECTION.engine_brand_group), а меню пряталось по
     // этому же списку — плитка показывалась тем, кому раздел не выдан, и открывалась
     // отказом «Нет доступа к разделу «Производство»».
-    menuTabs: ['engines', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
+    menuTabs: ['engines', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   },
   {
     id: AccessSection.WorkOrders,

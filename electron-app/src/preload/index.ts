@@ -562,6 +562,27 @@ const matricaApi = {
     },
     current: async (nomenclatureId: string) => ipcRenderer.invoke('servicePricing:current', nomenclatureId),
   },
+  workSheets: {
+    types: {
+      list: async (args?: { includeArchived?: boolean }) => ipcRenderer.invoke('workSheets:types:list', args),
+      upsert: async (args: {
+        id?: string;
+        code?: string;
+        name: string;
+        workshopId?: string | null;
+        completesRepair?: boolean;
+        columns?: unknown[];
+        sortOrder?: number;
+      }) => ipcRenderer.invoke('workSheets:types:upsert', args),
+      archive: async (id: string) => ipcRenderer.invoke('workSheets:types:archive', id),
+      restore: async (id: string) => ipcRenderer.invoke('workSheets:types:restore', id),
+    },
+    rows: {
+      list: async (args?: { sinceMs?: number | null; typeCode?: string | null }) => ipcRenderer.invoke('workSheets:rows:list', args),
+      save: async (args: unknown) => ipcRenderer.invoke('workSheets:rows:save', args),
+      delete: async (id: string) => ipcRenderer.invoke('workSheets:rows:delete', id),
+    },
+  },
   tools: {
     list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),
     get: async (id: string) => ipcRenderer.invoke('tools:get', id),

@@ -1043,6 +1043,28 @@ export const workOrderTemplates = pgTable(
   }),
 );
 
+// Ведомости работ (15.09.2026): справочник узлов — видов ведомостей со своим набором колонок.
+// columns_json — WorkSheetColumn[] (shared/domain/workSheets.ts). Вне синка: клиент ходит по
+// REST /work-sheet-types, строки ведомостей самоописываемы и живут в `operations`.
+export const workSheetTypes = pgTable(
+  'work_sheet_types',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    workshopId: text('workshop_id'),
+    completesRepair: boolean('completes_repair').notNull().default(false),
+    columnsJson: text('columns_json').notNull().default('[]'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by'),
+    archivedAt: bigint('archived_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('work_sheet_types_code_uq').on(t.code).where(sql`${t.archivedAt} is null`),
+  }),
+);
+
 // Именованные шаблоны актов по марке двигателя (editable-engine-acts PR4).
 // payload — JSON «шапки» акта (комиссия / гриф / пункты состояния), text как в work_order_templates.
 export const engineActTemplates = pgTable(
