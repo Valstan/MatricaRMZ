@@ -16,6 +16,8 @@
     "db:migrate": "tsx src/database/migrate.ts",
     "user:create": "tsx src/scripts/createUser.ts",
     "files:offload-to-yandex": "tsx src/scripts/offloadLocalFilesToYandex.ts",
+    "photos:recompress": "tsx src/scripts/recompressStoredPhotos.ts",
+    "photos:recompress:apply": "tsx src/scripts/recompressStoredPhotos.ts --apply",
     "users:parity": "tsx src/scripts/checkUsersParity.ts",
     "users:fixture-check": "tsx src/scripts/checkUsersStrictFixture.ts",
     "users:backfill-check": "tsx src/scripts/checkUsersBackfill.ts",
