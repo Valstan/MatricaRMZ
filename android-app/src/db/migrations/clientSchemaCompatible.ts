@@ -2,12 +2,13 @@
 // (electron-app/src/main/services/migrations/clientSchemaMigrations.ts).
 //
 // Портирован МЕХАНИЗМ (baseline / цепочка / server-hash / rebuild-вердикт),
-// а не исторические шаги 1→12: android-БД всегда создаётся свежей и
-// базлайнится сразу на CURRENT_CLIENT_SCHEMA_VERSION — исторический SQL на ней
-// не исполняется никогда. ЗЕРКАЛИТЬ сюда нужно только шаги НОВЕЕ 12, когда они
-// появятся в electron-файле; пропущенный шаг не теряет данные — buildMigrationChain
-// вернёт null и клиент уйдёт в rebuild (пересоздание БД + полный pull), как на
-// десктопе. Синхронность констант держит тест clientSchemaCompatible.test.ts.
+// а не исторические шаги 1→12: первая android-БД создавалась свежей и
+// базлайнилась сразу на 12 — исторический SQL на ней не исполняется никогда.
+// ЗЕРКАЛИТЬ сюда нужно шаги НОВЕЕ 12 (12→13 уже здесь): планшет обновляется
+// поверх своей БД, и без шага buildMigrationChain вернёт null — клиент уйдёт в
+// rebuild (пересоздание БД + полный pull), как на десктопе; данные не теряются,
+// но холодный pull прод-масштаба планшету дорог.
+// Синхронность констант держит тест clientSchemaCompatible.test.ts.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -27,7 +28,7 @@ import type { AsyncDrizzleDb } from '../drizzleAsync.js';
 
 // Должна совпадать с electron-app (гейт — тест рядом). Не импортируем значение
 // напрямую: electron-файл тянет better-sqlite3/node:crypto и в браузерный бандл не годится.
-export const CURRENT_CLIENT_SCHEMA_VERSION = 12;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 13;
 
 type Migration = {
   from: number;
@@ -36,8 +37,24 @@ type Migration = {
   up: (db: AsyncDrizzleDb, sqlite: AsyncSqlite) => Promise<void>;
 };
 
-// Пусто намеренно: см. шапку файла. Первый реальный элемент появится с шагом 12→13.
-const MIGRATIONS: Migration[] = [];
+// Только шаги новее baseline 12 (см. шапку файла) — зеркало одноимённых шагов
+// electron-файла.
+const MIGRATIONS: Migration[] = [
+  {
+    from: 12,
+    to: 13,
+    name: 'erp_nomenclature parent_nomenclature_id (обобщённая позиция)',
+    up: async (_db, sqlite) => {
+      const cols = await sqlite.all<{ name: string }>(`PRAGMA table_info('erp_nomenclature')`);
+      if (!cols.some((c) => c.name === 'parent_nomenclature_id')) {
+        await sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
+      }
+      await sqlite.exec(
+        `CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`,
+      );
+    },
+  },
+];
 
 // normalizeSchema — порт 1:1 (parity держит тест: хэши должны совпадать с electron).
 function normalizeSchema(snapshot: SyncSchemaSnapshot) {

@@ -124,6 +124,28 @@ describe('electron authService поверх android-шимов', () => {
     expect((await authStatus(db)).loggedIn).toBe(false);
   });
 
+  it('сессия не уезжает в файл: sidecar шимится no-op, свежая БД не залогинена', async () => {
+    globalThis.fetch = fakeFetchImpl({
+      '/auth/login': () => ({
+        status: 200,
+        body: { ok: true, accessToken: 'at-4', refreshToken: 'rt-4', user, permissions: {} },
+      }),
+      '/logs/client-settings': () => ({ status: 200, body: { ok: true } }),
+      '/logs': () => ({ status: 200, body: { ok: true } }),
+    }) as typeof fetch;
+    await authLogin(db, { apiBaseUrl: API, username: 'verify', password: 'verify123' });
+
+    // Настоящий sessionSidecarStore писал бы %APPDATA%-копию, а `app.getPath`
+    // шима отдаёт фиктивный путь — файл получался ОДИН на все параллельные
+    // воркеры vitest, и чужой логин подхватывался fallback'ом getSession
+    // (флейк boot.test.ts «без логина SyncManager честно отказывает»).
+    const other = createBetterSqlite3AsyncAdapter(':memory:');
+    await migrateSqliteAsync(other);
+    const otherDb = createDrizzleAsync(other) as unknown as BetterSQLite3Database;
+    expect((await authStatus(otherDb)).loggedIn).toBe(false);
+    await other.close();
+  });
+
   it('logout чистит сессию даже при недоступном сервере', async () => {
     globalThis.fetch = fakeFetchImpl({
       '/auth/login': () => ({

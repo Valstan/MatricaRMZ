@@ -200,6 +200,10 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     if (!cols.has('directory_ref_id')) {
       await sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN directory_ref_id text;`);
     }
+    // parent_nomenclature_id — обобщённая позиция (шаг 12→13); здесь дубль для баз, минующих цепочку.
+    if (!cols.has('parent_nomenclature_id')) {
+      await sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
+    }
     await sqlite.exec(
       `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,
     );
