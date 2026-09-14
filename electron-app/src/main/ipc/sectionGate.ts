@@ -28,6 +28,7 @@ import { entities, entityTypes } from '../database/schema.js';
 const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['engine:', 'production'],
   ['ops:', 'production'],
+  ['workSheets:', 'production'],
   ['parts:', 'production'],
   ['checklists:', 'production'],
   ['warehouse:assemblyBom:', 'production'],
