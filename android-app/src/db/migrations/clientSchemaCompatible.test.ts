@@ -59,6 +59,23 @@ describe('android clientSchemaCompatible', () => {
     await adapter.close();
   });
 
+  it('шаг 12→13 догоняет планшет, установленный до обобщённой позиции', async () => {
+    const adapter = createBetterSqlite3AsyncAdapter(':memory:');
+    await migrateSqliteAsync(adapter);
+    const db = createDrizzleAsync(adapter);
+    await ensureClientSchemaCompatible(db, adapter, sampleSnapshot);
+
+    // Откат к состоянию БД клиента версии 12: колонки обобщённой позиции ещё нет.
+    // Без зеркального шага цепочка вернула бы null → rebuild (полный pull на планшете).
+    await adapter.exec(`ALTER TABLE erp_nomenclature DROP COLUMN parent_nomenclature_id`);
+    await adapter.run(`UPDATE sync_state SET value = ? WHERE key = 'schema.clientVersion'`, ['12']);
+
+    expect(await ensureClientSchemaCompatible(db, adapter, sampleSnapshot)).toMatchObject({ action: 'migrated' });
+    const columns = await adapter.all<{ name: string }>(`PRAGMA table_info('erp_nomenclature')`);
+    expect(columns.map((c) => c.name)).toContain('parent_nomenclature_id');
+    await adapter.close();
+  });
+
   it('смена server-hash НЕ даёт rebuild (v3.5.0), downgrade даёт', async () => {
     const adapter = createBetterSqlite3AsyncAdapter(':memory:');
     await migrateSqliteAsync(adapter);

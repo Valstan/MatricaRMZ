@@ -41,3 +41,10 @@ jobs:
       # local dev often has it rebuilt for Electron — see docs/machines/*, GOTCHAS M2).
       - name: Test electron-app
         run: pnpm --filter @matricarmz/electron-app test
+
+      # android-app runs the ported electron services over the async DB seam; its
+      # guards (clientSchemaCompatible / drizzleChain) are the only thing that catches
+      # client schema drift between the two clients. Missing here until 2026-09-14 —
+      # CURRENT_CLIENT_SCHEMA_VERSION drifted 12 vs 13 on green main.
+      - name: Test android-app
+        run: pnpm --filter @matricarmz/android-app test
