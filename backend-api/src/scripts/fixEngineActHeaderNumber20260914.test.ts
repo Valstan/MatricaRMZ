@@ -9,7 +9,7 @@ import { decideHeaderFix } from './fixEngineActHeaderNumber20260914.js';
  * возможен только из бэкапа.
  */
 describe('decideHeaderFix', () => {
-  it('пустую шапку заполняет номером из карточки', () => {
+  it('пустое поле заполняет значением из карточки', () => {
     expect(decideHeaderFix({ stored: '', card: '2Ж03АТ' }).action).toBe('fill');
     expect(decideHeaderFix({ stored: '   ', card: '2Ж03АТ' }).action).toBe('fill');
   });
@@ -30,6 +30,15 @@ describe('decideHeaderFix', () => {
     expect(decideHeaderFix({ stored: '2Ж04АТ', card: '2Ж03АТ' }).action).toBe('skip');
     // Длиннее карточки — оператор дописал, а не мы обрезали.
     expect(decideHeaderFix({ stored: '2Ж03АТ-1', card: '2Ж03АТ' }).action).toBe('skip');
+  });
+
+  it('работает для любого поля шапки, не только для номера', () => {
+    // Правило общее: марка и внутренний номер обнулялись тем же механизмом.
+    expect(decideHeaderFix({ stored: '', card: 'В-59УМС' }).action).toBe('fill');
+    expect(decideHeaderFix({ stored: 'В-59', card: 'В-59УМС' }).action).toBe('extend');
+    expect(decideHeaderFix({ stored: 'В-46', card: 'В-59УМС' }).action).toBe('skip');
+    expect(decideHeaderFix({ stored: '41', card: '41/26' }).action).toBe('extend');
+    expect(decideHeaderFix({ stored: '41/25', card: '41/26' }).action).toBe('skip');
   });
 
   it('молчит, когда править нечем или нечего', () => {
