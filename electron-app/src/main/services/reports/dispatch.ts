@@ -13,6 +13,7 @@ import {
 
 
 import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport, buildRepairFundReconciliationReport } from './presets/warehouse.js';
+import { buildWorkSheetsReport } from './presets/workSheets.js';
 import { buildEngineStagesReport, buildEnginesReport, buildEnginesListReport, buildEnginesContractsOverviewReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
@@ -51,6 +52,8 @@ async function dispatchReportPreset(
         return buildPartsDemandReport(db, args.filters);
       case 'engine_stages':
         return buildEngineStagesReport(db, args.filters);
+      case 'work_sheets':
+        return buildWorkSheetsReport(db, args.filters, ctx);
       case 'contracts_finance':
         return buildContractsFinanceReport(db, args.filters);
       case 'contracts_deadlines':

@@ -6,6 +6,7 @@ import { SUPPLY_REQUEST_STATUS_LABELS } from './supplyRequest.js';
 export type ReportPresetId =
   | 'parts_demand'
   | 'engine_stages'
+  | 'work_sheets'
   | 'contracts_finance'
   | 'contracts_deadlines'
   | 'contracts_requisites'
@@ -169,6 +170,9 @@ export const ENGINES_LIST_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'isScrap', label: 'Утиль' },
   { key: 'scrapReason', label: 'Причина утиля' },
   { key: 'completenessAct', label: 'Акт комплектности' },
+  // Ведомости работ (15.09.2026): на каком узле двигатель по последней строке ведомости.
+  { key: 'lastSheetNode', label: 'Узел (последняя ведомость)' },
+  { key: 'lastSheetAt', label: 'Дата ведомости', kind: 'date' },
 ];
 
 /** Какие колонки печатать (в каноническом порядке). Пусто → все. */
@@ -426,6 +430,7 @@ export const REPORT_THEMES: ReportThemeDefinition[] = [
 export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeId, ...ReportThemeId[]]> = {
   parts_demand: ['supply', 'warehouse'],
   engine_stages: ['engines', 'contracts'],
+  work_sheets: ['engines'],
   contracts_finance: ['contracts'],
   contracts_deadlines: ['contracts'],
   contracts_requisites: ['contracts'],
@@ -1852,6 +1857,29 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'nomenclatureCode', label: 'Код' },
       { key: 'qtyRepaired', label: 'Отремонтировано, шт', kind: 'number', align: 'right' },
       { key: 'records', label: 'Записей', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'work_sheets',
+    title: 'Ведомости работ',
+    description:
+      'Строки ведомостей по узлам (укладка, вал, обкатка, сборка, …) — те же записи истории ремонта, что на экране ' +
+      '«Ведомости работ». Колонки узлов добавляются сами: новая колонка в узле появится и здесь.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
+      { type: 'text', key: 'nodeCodes', label: 'Узлы (коды через запятую)', labelHint: 'Например: obkatka, sborka. Пусто — все узлы.' },
+      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
+      { type: 'multi_select', key: 'workshopIds', label: 'Цеха', optionsSource: 'workshops' },
+    ],
+    columns: [
+      { key: 'at', label: 'Дата', kind: 'date' },
+      { key: 'engineNumber', label: '№ двигателя' },
+      { key: 'engineInternalNumber', label: 'Внутр. №' },
+      { key: 'engineBrand', label: 'Марка' },
+      { key: 'nodeLabel', label: 'Узел' },
+      { key: 'workshopLabel', label: 'Цех' },
+      { key: 'performedBy', label: 'Кто внёс' },
+      { key: 'note', label: 'Примечание' },
     ],
   },
   {

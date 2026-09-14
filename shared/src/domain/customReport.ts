@@ -28,6 +28,7 @@ export const CUSTOM_REPORT_SOURCE_PRESET_IDS = [
   'contracts_deadlines',
   'parts_compatibility',
   'engine_stages',
+  'work_sheets',
   'supply_fulfillment',
 ] as const;
 export type CustomReportSourcePresetId = (typeof CUSTOM_REPORT_SOURCE_PRESET_IDS)[number];
