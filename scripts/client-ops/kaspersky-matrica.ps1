@@ -59,7 +59,11 @@ param(
     [string]$Report,
     [string]$ImportDir,
     [string]$MergeExclusions,
-    [string]$MergeTrusted
+    [string]$MergeTrusted,
+    # Не выполнять главный поток: скрипт подключают точкой (`. .\kaspersky-matrica.ps1 -AsLibrary`)
+    # из окна обслуживания `matrica-ops.ps1`, которому нужны только функции — собрать данные и
+    # построить панель для своей вкладки. Без этого ключа дот-сорсинг открыл бы второе окно.
+    [switch]$AsLibrary
 )
 
 $ErrorActionPreference = 'Stop'
@@ -986,16 +990,16 @@ function Invoke-VerifyState {
 # Окно с готовыми строками
 # --------------------------------------------------------------------------------------
 
-function Show-Window {
+function New-KasperskyPanel {
     param($Kav, $Matrica, $Plan, [string]$GuidePath, $ImportFiles, [string]$ImportFilesError)
 
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Касперский × Матрица РМЗ — что внести в исключения'
-    $form.Size = New-Object System.Drawing.Size(940, 680)
-    $form.StartPosition = 'CenterScreen'
-    $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    # Содержимое собирается в ПАНЕЛЬ, а не сразу в окно: то же самое хозяйство нужно и
+    # отдельному окну (`Show-Window`, запуск скрипта напрямую), и вкладке окна обслуживания
+    # (`matrica-ops.ps1`). Разошлись бы два построителя — расходились бы и списки.
+    $body = New-Object System.Windows.Forms.Panel
+    $body.Dock = 'Fill'
 
     $head = New-Object System.Windows.Forms.Label
     $head.Dock = 'Top'; $head.Height = 74; $head.Padding = New-Object System.Windows.Forms.Padding(10, 8, 10, 0)
@@ -1159,23 +1163,94 @@ function Show-Window {
 
     $bottom.Controls.AddRange(@($bCopyAll, $bGuide, $bFiles, $bKav, $bVerify, $bExport, $bImport, $note))
 
-    $form.Controls.Add($panel)
-    $form.Controls.Add($bottom)
-    $form.Controls.Add($head)
+    # Порядок важен: WinForms раздаёт края в порядке добавления, и Fill-панель обязана
+    # войти ПЕРВОЙ, иначе она заберёт всю площадь, а шапка и кнопки лягут поверх неё.
+    $body.Controls.Add($panel)
+    $body.Controls.Add($bottom)
+    $body.Controls.Add($head)
+
+    # Кто должен получить фокус и что прокручивать в начало — знает построитель, а делает
+    # тот, кто показывает панель (у окна и у вкладки это разные моменты). Отдаём наружу
+    # свойствами, чтобы не искать контролы по индексу.
+    $body | Add-Member -NotePropertyName 'FocusControl' -NotePropertyValue $bCopyAll
+    $body | Add-Member -NotePropertyName 'ScrollPanel' -NotePropertyValue $panel
+    return $body
+}
+
+<#
+    Отдельное окно — режим запуска скрипта напрямую (`Запустить.cmd`). Окно обслуживания
+    вместо этого кладёт ту же панель на свою вкладку.
+#>
+function Show-Window {
+    param($Kav, $Matrica, $Plan, [string]$GuidePath, $ImportFiles, [string]$ImportFilesError)
+
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Касперский × Матрица РМЗ — что внести в исключения'
+    $form.Size = New-Object System.Drawing.Size(940, 680)
+    $form.StartPosition = 'CenterScreen'
+    $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+
+    $body = New-KasperskyPanel -Kav $Kav -Matrica $Matrica -Plan $Plan -GuidePath $GuidePath `
+        -ImportFiles $ImportFiles -ImportFilesError $ImportFilesError
+    $form.Controls.Add($body)
 
     # Иначе окно открывается прокрученным вниз (фокус уезжает на первое поле ввода)
     # и заголовок первого раздела не виден — читается как «список начинается сразу».
     $form.Add_Shown({
-        $form.ActiveControl = $bCopyAll
-        $panel.AutoScrollPosition = New-Object System.Drawing.Point(0, 0)
+        $form.ActiveControl = $body.FocusControl
+        $body.ScrollPanel.AutoScrollPosition = New-Object System.Drawing.Point(0, 0)
     }.GetNewClosure())
 
     [void]$form.ShowDialog()
 }
 
 # --------------------------------------------------------------------------------------
+# Сбор всего, что нужно окну
+#
+# Один порядок шагов на всех потребителей: своё окно, -Json, -Quiet и вкладка окна
+# обслуживания. Ключи выключают хвост, а не переставляют начало: -Verify не должен писать
+# файлы (его дёргают часто), -Json не рендерит памятку (её некому читать).
+# --------------------------------------------------------------------------------------
+
+function Get-KasperskyContext {
+    param([switch]$SkipFiles, [switch]$SkipGuide)
+
+    $kav = Get-KasperskyInfo
+    $matrica = Get-MatricaInfo
+    $plan = Get-ExclusionPlan -Matrica $matrica -WorkFolders (Get-WorkFolders)
+    $ctx = [pscustomobject]@{
+        Kav              = $kav
+        Matrica          = $matrica
+        Plan             = $plan
+        ImportFiles      = $null
+        ImportFilesError = ''
+        GuidePath        = ''
+    }
+    if ($SkipFiles) { return $ctx }
+
+    try {
+        $ctx.ImportFiles = Write-KasperskyImportFiles -Plan $plan -Dir $ImportDir `
+            -MergeExclusionsFile $MergeExclusions -MergeTrustedFile $MergeTrusted
+    } catch {
+        # Файлы импорта — удобство, а не смысл инструмента: не смогли записать (нет прав,
+        # диск полон, антивирус забрал папку) — окно и строки для ручного ввода остаются.
+        $ctx.ImportFilesError = [string]$_
+    }
+    if ($SkipGuide) { return $ctx }
+
+    $ctx.GuidePath = Write-Guide -Kav $kav -Matrica $matrica -Plan $plan -OutPath $Report -ImportFiles $ctx.ImportFiles
+    return $ctx
+}
+
+# --------------------------------------------------------------------------------------
 # Главный поток
 # --------------------------------------------------------------------------------------
+
+# Подключение точкой (`-AsLibrary`) обрывается здесь: окну обслуживания нужны функции выше,
+# а не второе окно и не запись файлов импорта при каждом открытии вкладки.
+if ($AsLibrary) { return }
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
@@ -1187,31 +1262,22 @@ foreach ($name in @('ImportDir', 'MergeExclusions', 'MergeTrusted', 'Report')) {
     if ($value) { Set-Variable -Name $name -Value (ConvertTo-FullPath $value) }
 }
 
-$kav = Get-KasperskyInfo
-$matrica = Get-MatricaInfo
-$workFolders = Get-WorkFolders
-$plan = Get-ExclusionPlan -Matrica $matrica -WorkFolders $workFolders
-
-if ($Export) { Invoke-AvpSettings -Action 'EXPORT' -File $Export -Kav $kav -Password $SettingsPassword; return }
-if ($Import) { Invoke-AvpSettings -Action 'IMPORT' -File $Import -Kav $kav -Password $SettingsPassword; return }
-
-# Проверка состояния идёт до генерации: она читающая, и её дёргает сама Матрица —
-# писать файлы на каждый опрос состояния незачем.
-if ($Verify) {
-    (Invoke-VerifyState -Kav $kav -Matrica $matrica) | ForEach-Object { Write-Host $_ }
+# Проверка состояния и работа с эталоном идут ДО генерации: они читающие или совсем про
+# другое, и писать файлы импорта на каждый такой вызов незачем (-Verify дёргает сама Матрица).
+if ($Export -or $Import -or $Verify) {
+    $ctx = Get-KasperskyContext -SkipFiles -SkipGuide
+    if ($Export) { Invoke-AvpSettings -Action 'EXPORT' -File $Export -Kav $ctx.Kav -Password $SettingsPassword; return }
+    if ($Import) { Invoke-AvpSettings -Action 'IMPORT' -File $Import -Kav $ctx.Kav -Password $SettingsPassword; return }
+    (Invoke-VerifyState -Kav $ctx.Kav -Matrica $ctx.Matrica) | ForEach-Object { Write-Host $_ }
     return
 }
 
-$importFiles = $null
-$importFilesError = ''
-try {
-    $importFiles = Write-KasperskyImportFiles -Plan $plan -Dir $ImportDir `
-        -MergeExclusionsFile $MergeExclusions -MergeTrustedFile $MergeTrusted
-} catch {
-    # Файлы импорта — удобство, а не смысл инструмента: не смогли записать (нет прав,
-    # диск полон, антивирус забрал папку) — окно и строки для ручного ввода остаются.
-    $importFilesError = [string]$_
-}
+$ctx = Get-KasperskyContext -SkipGuide:$Json
+$kav = $ctx.Kav
+$matrica = $ctx.Matrica
+$plan = $ctx.Plan
+$importFiles = $ctx.ImportFiles
+$importFilesError = $ctx.ImportFilesError
 
 if ($Json) {
     [pscustomobject]@{
@@ -1227,7 +1293,7 @@ if ($Json) {
     return
 }
 
-$guidePath = Write-Guide -Kav $kav -Matrica $matrica -Plan $plan -OutPath $Report -ImportFiles $importFiles
+$guidePath = $ctx.GuidePath
 
 if ($Quiet) {
     Write-Host "=== Доверенные программы ==="
