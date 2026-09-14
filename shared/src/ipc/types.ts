@@ -9,7 +9,7 @@ import type { UiShellPrefs } from '../domain/uiShellV2.js';
 import type { SectionMembership } from '../domain/sectionAccess.js';
 import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
-import type { WorkSheetType } from '../domain/workSheets.js';
+import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -2098,6 +2098,23 @@ export type MatricaApi = {
       }) => Promise<{ ok: true; row: WorkSheetType } | { ok: false; error: string }>;
       archive: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       restore: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    };
+    rows: {
+      list: (args?: { sinceMs?: number | null; typeCode?: string | null }) => Promise<{ ok: true; rows: WorkSheetRow[] } | { ok: false; error: string }>;
+      /** id строки генерирует клиент; правка приходит с тем же id (upsert). */
+      save: (args: {
+        id: string;
+        engineId: string;
+        type: Pick<WorkSheetType, 'id' | 'code' | 'name' | 'completesRepair' | 'columns' | 'workshopId'>;
+        atMs: number;
+        workshopId?: string | null;
+        note?: string | null;
+        values: Record<string, unknown>;
+      }) => Promise<
+        | { ok: true; id: string; created: boolean; repair: { applied: boolean; reason?: string } | null }
+        | { ok: false; error: string }
+      >;
+      delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
   };
   tools: {

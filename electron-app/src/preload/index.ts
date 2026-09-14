@@ -577,6 +577,11 @@ const matricaApi = {
       archive: async (id: string) => ipcRenderer.invoke('workSheets:types:archive', id),
       restore: async (id: string) => ipcRenderer.invoke('workSheets:types:restore', id),
     },
+    rows: {
+      list: async (args?: { sinceMs?: number | null; typeCode?: string | null }) => ipcRenderer.invoke('workSheets:rows:list', args),
+      save: async (args: unknown) => ipcRenderer.invoke('workSheets:rows:save', args),
+      delete: async (id: string) => ipcRenderer.invoke('workSheets:rows:delete', id),
+    },
   },
   tools: {
     list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),

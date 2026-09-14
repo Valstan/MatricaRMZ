@@ -3,6 +3,7 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { deleteWorkSheetRow, listWorkSheetRows, saveWorkSheetRow, type SaveWorkSheetRowInput } from '../../services/workSheetService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -71,5 +72,38 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as Err;
     return toResult(await httpAuthed(ctx.sysDb, base(), `/work-sheet-types/${encodeURIComponent(id)}/restore`, { method: 'POST' }));
+  });
+  // Строки — записи истории ремонта в локальной реплике: читаются и пишутся без сервера,
+  // уезжают обычным синком. Права те же, что у истории (`operations.view` / `operations.edit`).
+  ipcMain.handle('workSheets:rows:list', async (_e, args?: { sinceMs?: number | null; typeCode?: string | null }) => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      return { ok: true as const, rows: await listWorkSheetRows(ctx.dataDb(), args ?? {}) };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:rows:save', async (_e, args: SaveWorkSheetRowInput) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'operations.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      return await saveWorkSheetRow(ctx.dataDb(), args, await ctx.currentActor());
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:rows:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'operations.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      return await deleteWorkSheetRow(ctx.dataDb(), id);
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
   });
 }

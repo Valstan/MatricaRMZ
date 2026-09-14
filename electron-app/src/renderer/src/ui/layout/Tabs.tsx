@@ -44,6 +44,7 @@ export type TabsLayoutPrefs = {
  */
 export const ANDROID_TABS: readonly MenuTabId[] = [
   'engines',
+  'work_sheets',
   'work_orders',
   'stock_documents',
   'repair_fund_audit',
@@ -51,6 +52,7 @@ export const ANDROID_TABS: readonly MenuTabId[] = [
 
 export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'engines',
+  'work_sheets',
   'work_orders',
   'parts',
   'engine_brands',
