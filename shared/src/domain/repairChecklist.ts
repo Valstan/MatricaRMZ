@@ -898,6 +898,17 @@ export function engineInventoryRowSignature(row: Pick<EngineInventoryRow, 'part_
 }
 
 /**
+ * Что сделать с полем шапки акта.
+ *
+ * `adopt` — писать нечего, значение уже верное, но запомнить его СВОИМ нужно: без этого
+ * владение теряется навсегда (см. ниже).
+ */
+export type HeaderAutofillDecision =
+  | { action: 'write'; value: string }
+  | { action: 'adopt'; value: string }
+  | { action: 'skip' };
+
+/**
  * Автоподстановка поля шапки акта из карточки двигателя: что записать, если вообще писать.
  *
  * Карточка шлёт своё состояние на каждое нажатие, поэтому «поле пустое» не годится как
@@ -906,21 +917,69 @@ export function engineInventoryRowSignature(row: Pick<EngineInventoryRow, 'part_
  * записала сюда сама:
  *  - поля никто не касался (`owned === undefined`, пусто) → заполняем;
  *  - в поле ровно наше прежнее значение → догоняем карточку;
- *  - оператор правил или очистил поле руками → оно навсегда его, возвращаем null.
+ *  - оператор правил или очистил поле руками → оно навсегда его, ничего не делаем.
+ *
+ * ⚠ Память владения живёт в ref панели и **стирается перезагрузкой листа** (`load()` при смене
+ * двигателя или стадии). Из-за этого «первая буква» возвращалась с другой стороны: акт уже
+ * содержал начало номера, записанное нами же до перезагрузки, а после неё это выглядело как
+ * «поле непустое и не наше» — и остаток номера снова не доезжал. Лечится тем, что совпадение
+ * поля с карточкой считается признаком синхронности: кто бы ни сделал их равными, ответ один —
+ * шапка обязана следовать карточке, поэтому владение в этом случае ПЕРЕНИМАЕТСЯ (`adopt`).
+ * Отличное от карточки значение по-прежнему неприкосновенно.
  */
 export function resolveHeaderAutofill(args: {
   current: string;
   incoming: string;
   owned: string | undefined;
-}): string | null {
+}): HeaderAutofillDecision {
   const incoming = String(args.incoming ?? '');
-  if (!incoming) return null;
+  if (!incoming) return { action: 'skip' };
   const current = String(args.current ?? '');
   const ours = args.owned !== undefined && current === args.owned;
-  if (current.trim() && !ours) return null;
-  if (!current.trim() && args.owned !== undefined && !ours) return null;
-  if (current === incoming) return null;
-  return incoming;
+  if (current === incoming) return ours ? { action: 'skip' } : { action: 'adopt', value: current };
+  if (current.trim() && !ours) return { action: 'skip' };
+  if (!current.trim() && args.owned !== undefined && !ours) return { action: 'skip' };
+  return { action: 'write', value: incoming };
+}
+
+/**
+ * Картер узнаём по слову в названии — тем же признаком, что и авто-брак двигателя
+ * (`engineService.ts`: картер в утиле ⇒ двигатель забракован). Второй способ узнавать ту же
+ * деталь разошёлся бы с первым молча. Признак ловит и «Картер верхний», и «Картер нижний».
+ */
+export function isCrankcaseRowName(partName: unknown): boolean {
+  return String(partName ?? '')
+    .toLowerCase()
+    .includes('картер');
+}
+
+/**
+ * Проставить номер двигателя в «№ на детали» обоим картерам.
+ *
+ * На картерах набит номер САМОГО ДВИГАТЕЛЯ — это не совпадение, а то, как двигатель
+ * идентифицируется физически: верхняя и нижняя половины несут его номер. Оператор до сих пор
+ * вбивал его руками в две строки на каждом двигателе.
+ *
+ * Заполняем ТОЛЬКО пустую ячейку. Второго механизма владения (как у шапки) здесь нет
+ * намеренно: набитый номер узнаётся при осмотре, и если в ячейке уже что-то стоит — это
+ * прочитанное с металла, оно всегда важнее подстановки из карточки.
+ */
+export function fillCrankcaseStampedNumbers(args: {
+  rows: ReadonlyArray<Record<string, unknown>>;
+  engineNumber: string;
+}): { rows: Record<string, unknown>[]; changed: boolean } {
+  const engineNumber = String(args.engineNumber ?? '').trim();
+  const rows = args.rows.map((r) => r);
+  if (!engineNumber) return { rows: rows as Record<string, unknown>[], changed: false };
+
+  let changed = false;
+  const out = rows.map((row) => {
+    if (!isCrankcaseRowName(row?.part_name)) return row;
+    if (String(row?.stamped_number ?? '').trim()) return row;
+    changed = true;
+    return { ...row, stamped_number: engineNumber };
+  });
+  return { rows: out as Record<string, unknown>[], changed };
 }
 
 /**

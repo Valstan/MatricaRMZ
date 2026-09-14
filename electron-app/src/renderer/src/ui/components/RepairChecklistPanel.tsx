@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DefectConductedVersionSummary, DefectPartHistoryEvent, EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, resolveHeaderAutofill, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, fillCrankcaseStampedNumbers, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, resolveHeaderAutofill, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
@@ -1007,20 +1007,47 @@ export function RepairChecklistPanel(props: {
     const fillText = (id: string, value: string) => {
       if (!hasItem(id)) return;
       const a: any = (answers as any)[id];
-      const resolved = resolveHeaderAutofill({
+      const decision = resolveHeaderAutofill({
         current: a?.kind === 'text' ? String(a.value ?? '') : '',
         incoming: value,
         owned: headerAutofillRef.current[id],
       });
-      if (resolved == null) return;
-      (next as any)[id] = { kind: 'text', value: resolved };
-      headerAutofillRef.current[id] = resolved;
+      if (decision.action === 'skip') return;
+      if (decision.action === 'adopt') {
+        // Значение уже верное — писать нечего, но запомнить его СВОИМ нужно: иначе после
+        // перезагрузки листа поле выглядит чужим и остаток номера в акт не доезжает.
+        // `changed` не взводим — иначе автосейв уходил бы на каждую перерисовку.
+        headerAutofillRef.current[id] = decision.value;
+        return;
+      }
+      // ⚠ Владение НЕ записывается здесь. Запись может не закрепиться: соседний эффект
+      // (brand-resync) сохраняет лист со СВОИМ снимком `answers`, и если его снимок старше —
+      // шапка возвращается пустой. Запомни мы владение авансом, правило на следующем проходе
+      // увидело бы «поле пустое, а писали его мы» и решило, что оператор стёр его руками, —
+      // после чего номер не доезжал бы уже никогда. Владение фиксирует ветка `adopt` выше,
+      // то есть проход, на котором значение ФАКТИЧЕСКИ оказалось в поле.
+      (next as any)[id] = { kind: 'text', value: decision.value };
       changed = true;
     };
 
     fillText('engine_brand', brand);
     fillText('engine_number', num);
     fillText('engine_internal_number', internalNum);
+
+    // На картерах набит номер самого двигателя — проставляем его в «№ на детали» обеим
+    // половинам, чтобы оператор не вбивал одно и то же в две строки на каждом двигателе.
+    // Заполняется только пустая ячейка: прочитанное с металла важнее подстановки.
+    if (isInventory && num) {
+      const table = activeTemplate.items.find((it) => it.kind === 'table' && it.id === 'engine_inventory_items');
+      const current: any = table ? (answers as any)[table.id] : null;
+      if (table && current?.kind === 'table' && Array.isArray(current.rows)) {
+        const filled = fillCrankcaseStampedNumbers({ rows: current.rows, engineNumber: num });
+        if (filled.changed) {
+          (next as any)[table.id] = { kind: 'table', rows: filled.rows };
+          changed = true;
+        }
+      }
+    }
     if (isCompleteness || isInventory) fillText('contract_number', contractNumber);
     if (isInventory && hasItem('arrival_date') && arrivalDate) {
       const a: any = (answers as any).arrival_date;
