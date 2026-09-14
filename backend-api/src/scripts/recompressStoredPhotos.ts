@@ -169,10 +169,18 @@ async function main() {
       }
 
       // 4. Строка и кэш — только теперь.
-      const newCacheRel = cacheRelPath(id, String(row.name));
-      const newCacheAbs = join(root, newCacheRel);
-      mkdirSync(dirname(newCacheAbs), { recursive: true });
-      writeFileSync(newCacheAbs, out.bytes);
+      //
+      // Кэш-копию обновляем ТОЛЬКО тем файлам, у которых она уже была. Класть её всем подряд
+      // значило бы прогреть кэш на весь архив разом: 1286 копий примерно по мегабайту — плюс
+      // гигабайт на бокс, у которого и так 1.7 ГБ свободных. Кэш существует для того, к чему
+      // недавно обращались, а не для того, что перебрал пакетный проход.
+      const hadCache = Boolean(row.localRelPath);
+      const newCacheRel = hadCache ? cacheRelPath(id, String(row.name)) : null;
+      if (newCacheRel) {
+        const newCacheAbs = join(root, newCacheRel);
+        mkdirSync(dirname(newCacheAbs), { recursive: true });
+        writeFileSync(newCacheAbs, out.bytes);
+      }
       await db
         .update(fileAssets)
         .set({
@@ -181,7 +189,7 @@ async function main() {
           storageKind: 'yandex',
           yandexDiskPath: newPath,
           localRelPath: newCacheRel,
-          localCachedAt: Date.now(),
+          localCachedAt: newCacheRel ? Date.now() : null,
         })
         .where(eq(fileAssets.id, id));
 
