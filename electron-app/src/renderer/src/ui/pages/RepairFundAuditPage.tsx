@@ -6,6 +6,8 @@ import {
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
@@ -187,11 +189,12 @@ export function RepairFundAuditPage(props: {
     }
   }
 
-  function renderRow(row: FundLine) {
+  function renderRow(row: FundLine, i: number) {
     const actualQty = Number(row.actualQty || row.bookQty);
     const delta = actualQty - row.bookQty;
     return (
       <tr key={row.nomenclatureId}>
+        <RowNumberCell n={i + 1} />
         <td data-col-kind="name">{row.code || '—'}</td>
         <td data-col-kind="name">
           {row.name || '—'}
@@ -276,11 +279,13 @@ export function RepairFundAuditPage(props: {
           />
         </div>
         {/* Без виртуализации — редактируемое поле «Факт» не должно размонтироваться при прокрутке. */}
+        <ListCount total={rows.length} shown={visibleRows.length} />
         <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div style={{ border: '1px solid #e5e7eb' }}>
             <table className="list-table">
               <thead>
                 <tr>
+                  <RowNumberHeaderCell />
                   <th data-col-kind="name" style={{ textAlign: 'left' }}>Код</th>
                   <th data-col-kind="name" style={{ textAlign: 'left' }}>Деталь</th>
                   <th style={{ textAlign: 'left' }}>Ед.</th>
@@ -293,12 +298,12 @@ export function RepairFundAuditPage(props: {
               <tbody>
                 {visibleRows.length === 0 ? (
                   <tr>
-                    <td style={{ padding: 10, color: '#6b7280' }} colSpan={7}>
+                    <td style={{ padding: 10, color: '#6b7280' }} colSpan={8}>
                       Список пуст. Добавьте детали через поле «Добавить деталь» выше.
                     </td>
                   </tr>
                 ) : (
-                  visibleRows.map((row) => renderRow(row))
+                  visibleRows.map((row, i) => renderRow(row, i))
                 )}
               </tbody>
             </table>

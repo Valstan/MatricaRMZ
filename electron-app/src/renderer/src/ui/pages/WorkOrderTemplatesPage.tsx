@@ -10,6 +10,8 @@ import {
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -140,9 +142,11 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
         </div>
       ) : null}
 
+      <ListCount total={rows.length} shown={filteredRows.length} />
       <table className="list-table" style={{ width: '100%' }}>
         <thead>
           <tr>
+            <RowNumberHeaderCell />
             <th data-col-kind="name" style={{ width: 200 }}>Тип</th>
             <th data-col-kind="name">Имя</th>
             <th data-col-kind="num" title="Строк" style={{ width: 100, textAlign: 'right' }}>Строк</th>
@@ -160,21 +164,22 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={5} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
+              <td colSpan={6} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                 Загрузка…
               </td>
             </tr>
           ) : filteredRows.length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
+              <td colSpan={6} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                 {rows.length === 0
                   ? 'Шаблонов ещё нет.'
                   : 'По текущему фильтру ничего не найдено.'}
               </td>
             </tr>
           ) : (
-            filteredRows.map((row) => (
+            filteredRows.map((row, i) => (
               <tr key={row.id}>
+                <RowNumberCell n={i + 1} />
                 <td data-col-kind="name">{WORK_ORDER_KIND_LABELS[row.workOrderKind]}</td>
                 <td data-col-kind="name">{row.name}</td>
                 <td data-col-kind="num" style={{ textAlign: 'right' }}>{row.lineCount}</td>

@@ -4,6 +4,8 @@ import type { TimesheetHeader } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
@@ -121,10 +123,12 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
         </div>
       )}
 
+      <ListCount total={rows.length} shown={rows.length} />
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 120%)', color: '#fff' }}>
+              <RowNumberHeaderCell style={{ ...thStyle, ...ROWNUM_STYLE, color: 'inherit' }} />
               <th style={thStyle}>Цех / подразделение</th>
               <th style={thStyle}>Период</th>
               <th style={thStyle}>Режим</th>
@@ -134,10 +138,11 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {rows.map((r, i) => {
               const period = `${MONTHS[r.month - 1] ?? r.month} ${r.year}`;
               return (
                 <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(r.id)}>
+                  <RowNumberCell n={i + 1} style={{ ...tdStyle, ...ROWNUM_STYLE }} />
                   <td style={tdStyle}>{r.scopeName || r.workshopName}</td>
                   <td style={tdStyle}>{period}</td>
                   <td style={tdStyle}>{r.weekMode}-дн.</td>
@@ -156,7 +161,7 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: 14, color: '#6b7280' }}>
+                <td colSpan={7} style={{ padding: 14, color: '#6b7280' }}>
                   Табелей пока нет. {props.canEdit ? 'Выберите цех и месяц, затем «Создать табель».' : ''}
                 </td>
               </tr>
@@ -171,3 +176,4 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
 const selStyle: React.CSSProperties = { height: 32, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#0b1220' };
 const thStyle: React.CSSProperties = { textAlign: 'left', padding: 10, borderBottom: '1px solid rgba(255,255,255,0.25)' };
 const tdStyle: React.CSSProperties = { padding: 10, borderBottom: '1px solid #f3f4f6', fontSize: 14 };
+const ROWNUM_STYLE: React.CSSProperties = { width: '1%', whiteSpace: 'nowrap', textAlign: 'right', color: '#6b7280' };

@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { WAREHOUSE_LOCATION_REPAIR_FUND, WAREHOUSE_LOCATION_SCRAP } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { componentTypeLabel } from '../utils/componentTypeLabels.js';
 import { Input } from './Input.js';
 
@@ -273,9 +275,11 @@ export function EngineDismantlePreviewDialog(props: {
           </div>
         ) : null}
 
+        <ListCount total={bomLines.length} shown={bomLines.length} />
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ textAlign: 'left' }}>Деталь</th>
               <th style={{ width: 110, textAlign: 'left' }}>Тип</th>
               <th style={{ width: 80, textAlign: 'right' }}>Всего</th>
@@ -287,15 +291,16 @@ export function EngineDismantlePreviewDialog(props: {
           <tbody>
             {bomLines.length === 0 && !loading ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
+                <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                   Нет строк. Добавьте вручную.
                 </td>
               </tr>
             ) : null}
-            {bomLines.map((line) => {
+            {bomLines.map((line, i) => {
               const nm = nomenMap.get(line.nomenclatureId);
               return (
                 <tr key={line.key}>
+                  <RowNumberCell n={i + 1} />
                   <td>
                     {nm ? (
                       <span>
@@ -332,6 +337,7 @@ export function EngineDismantlePreviewDialog(props: {
           </tbody>
           <tfoot>
             <tr>
+              <td />
               <td colSpan={3} style={{ textAlign: 'right', padding: '8px' }}><strong>Σ</strong></td>
               <td style={{ textAlign: 'right' }}><strong>{sums.toFund}</strong></td>
               <td style={{ textAlign: 'right' }}><strong>{sums.toScrap}</strong></td>

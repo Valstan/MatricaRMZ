@@ -7,6 +7,8 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { FormField } from '../components/FormField.js';
 import { FormGrid } from '../components/FormGrid.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 
@@ -29,6 +31,8 @@ function toInputDate(ms: number | null): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+const ROWNUM_STYLE: React.CSSProperties = { width: '1%', whiteSpace: 'nowrap', textAlign: 'right', color: '#6b7280' };
 
 function fromInputDate(v: string): number | null {
   if (!v) return null;
@@ -313,16 +317,19 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
         {filteredOrders.length === 0 ? (
           <div style={{ color: 'var(--muted)' }}>{orders.length === 0 ? 'Приказов пока нет.' : 'Ничего не найдено.'}</div>
         ) : (
+          <>
+          <ListCount total={orders.length} shown={filteredOrders.length} />
           <table className="table" style={{ width: '100%' }}>
             <thead>
               <tr>
+                <RowNumberHeaderCell style={ROWNUM_STYLE} />
                 <th>Приказ</th>
                 <th>Действует с</th>
                 <th style={{ textAlign: 'right' }}>Услуг</th>
               </tr>
             </thead>
             <tbody>
-              {filteredOrders.map((o) => {
+              {filteredOrders.map((o, i) => {
                 const active = o.id === selectedId;
                 const future = o.effectiveFrom > now;
                 return (
@@ -331,6 +338,7 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
                     onClick={() => select(o)}
                     style={{ cursor: 'pointer', background: active ? 'var(--accent-soft, rgba(0,0,0,0.06))' : undefined, opacity: o.status === 'cancelled' ? 0.6 : 1 }}
                   >
+                    <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
                     <td>
                       <div>{formatServicePriceOrderLabel(o)}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 12 }}>
@@ -348,6 +356,7 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
               })}
             </tbody>
           </table>
+          </>
         )}
       </SectionCard>
 
@@ -438,9 +447,12 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
             {lines.length === 0 ? (
               <div style={{ color: 'var(--muted)' }}>В приказе пока нет услуг.</div>
             ) : (
+              <>
+              <ListCount total={lines.length} shown={lines.length} />
               <table className="table" style={{ width: '100%' }}>
                 <thead>
                   <tr>
+                    <RowNumberHeaderCell style={ROWNUM_STYLE} />
                     <th>Услуга</th>
                     <th style={{ textAlign: 'right' }}>Цена</th>
                     <th>Действует с</th>
@@ -449,8 +461,9 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((l) => (
+                  {lines.map((l, i) => (
                     <tr key={l.id}>
+                      <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
                       <td>
                         {props.onOpenService ? (
                           <a href="#" onClick={(e) => { e.preventDefault(); props.onOpenService?.(l.nomenclatureId); }}>
@@ -478,6 +491,7 @@ export function ServicePriceOrdersPage(props: { canEdit: boolean; onOpenService?
                   ))}
                 </tbody>
               </table>
+              </>
             )}
           </SectionCard>
         ) : null}

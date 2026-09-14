@@ -11,6 +11,8 @@ import {
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 
 type WorkshopMap = Map<string, string>;
 
@@ -141,6 +143,15 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
     return groups;
   }, [buckets]);
 
+  // Счётчик локаций: всего — по сырым остаткам (до «скрывать нулевые» и поиска), показано — по buckets.
+  const totalLocations = useMemo(
+    () => new Set(rows.map((row) => String(row.warehouseId ?? WAREHOUSE_LOCATION_DEFAULT))).size,
+    [rows],
+  );
+  const shownLocations = Object.keys(buckets).length;
+  // Сквозная нумерация строк-локаций по всем категориям; позиции внутри локации не нумеруются.
+  let locationRowNo = 0;
+
   function toggleExpand(wh: string) {
     setExpandedLoc((prev) => ({ ...prev, [wh]: !prev[wh] }));
   }
@@ -170,10 +181,12 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
         <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>
       ) : null}
 
+      <ListCount total={totalLocations} shown={shownLocations} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)' }}>
         <table className="list-table" style={{ width: '100%' }}>
           <thead>
             <tr>
+              <RowNumberHeaderCell />
               <th style={{ width: 18 }}></th>
               <th data-col-kind="name" style={{ textAlign: 'left' }}>Локация / Деталь</th>
               <th data-col-kind="name" style={{ width: 110 }}>warehouseId</th>
@@ -189,15 +202,17 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
               if (list.length === 0) return [];
               const header = (
                 <tr key={`cat-${cat}`} style={{ background: 'var(--surface-subtle, #f5f5f5)' }}>
-                  <td colSpan={7} style={{ fontWeight: 600, padding: '4px 8px' }}>
+                  <td colSpan={8} style={{ fontWeight: 600, padding: '4px 8px' }}>
                     {CATEGORY_LABELS[cat]} ({list.length})
                   </td>
                 </tr>
               );
               const rows = list.flatMap((bucket) => {
                 const isExpanded = Boolean(expandedLoc[bucket.warehouseId]);
+                locationRowNo += 1;
                 const head = (
                   <tr key={bucket.warehouseId} style={{ cursor: 'pointer' }} onClick={() => toggleExpand(bucket.warehouseId)}>
+                    <RowNumberCell n={locationRowNo} />
                     <td style={{ textAlign: 'center' }}>{isExpanded ? '▾' : '▸'}</td>
                     <td data-col-kind="name"><strong>{bucket.label}</strong> <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{bucket.items.length} поз.</span></td>
                     <td data-col-kind="name"><code style={{ fontSize: 12 }}>{bucket.warehouseId}</code></td>
@@ -222,6 +237,7 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
                 if (!isExpanded) return [head];
                 const itemRows = bucket.items.map((item) => (
                   <tr key={`${bucket.warehouseId}::${item.id}`}>
+                    <td />
                     <td></td>
                     <td data-col-kind="name" style={{ paddingLeft: 24 }}>{item.nomenclatureName ?? '(без названия)'}</td>
                     <td></td>
@@ -250,7 +266,7 @@ export function WarehouseLocationsPage(props: { onOpenReport?: (presetId: string
               return [header, ...rows];
             })}
             {Object.keys(buckets).length === 0 ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>Нет данных</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>Нет данных</td></tr>
             ) : null}
           </tbody>
         </table>

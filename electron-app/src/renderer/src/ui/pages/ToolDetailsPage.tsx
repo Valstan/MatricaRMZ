@@ -4,6 +4,8 @@ import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { SuggestInput } from '../components/SuggestInput.js';
@@ -888,10 +890,12 @@ export function ToolDetailsPage(props: {
           </div>
         )}
 
+        <ListCount total={movements.length} shown={movements.length} />
         <div style={{ border: '1px solid var(--border)', overflow: 'hidden', marginTop: 6 }}>
           <table className="list-table">
             <thead>
               <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                <RowNumberHeaderCell style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} />
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="date" title="Дата">Дата</th>
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="text">Режим</th>
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} data-col-kind="name">Сотрудник</th>
@@ -902,12 +906,12 @@ export function ToolDetailsPage(props: {
             <tbody>
               {movements.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
+                  <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
                     Нет движений
                   </td>
                 </tr>
               )}
-              {movements.map((m) => (
+              {movements.map((m, i) => (
                 <tr
                   key={m.id}
                   style={{
@@ -920,6 +924,7 @@ export function ToolDetailsPage(props: {
                     startEditMovement(m);
                   }}
                 >
+                  <RowNumberCell n={i + 1} style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }} />
                   <td data-col-kind="date" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>
                     {m.movementAt ? formatMoscowDate(m.movementAt) : '—'}
                   </td>

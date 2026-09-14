@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { describeAuditAction } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { theme } from '../theme.js';
 import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
 
@@ -79,9 +81,11 @@ export function DocumentHistoryPanel(props: { entityId: string; canView: boolean
       </div>
 
       {open && rows.length > 0 && (
+        <>
+        <ListCount total={rows.length} shown={rows.length} style={{ marginTop: 8 }} />
         <div
           style={{
-            marginTop: 8,
+            marginTop: 4,
             border: `1px solid ${theme.colors.border}`,
             borderRadius: 10,
             overflow: 'hidden',
@@ -90,6 +94,7 @@ export function DocumentHistoryPanel(props: { entityId: string; canView: boolean
           <table className="list-table" style={{ width: '100%' }}>
             <thead>
               <tr>
+                <RowNumberHeaderCell />
                 <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Когда</th>
                 <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Кто</th>
                 <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Что</th>
@@ -97,8 +102,9 @@ export function DocumentHistoryPanel(props: { entityId: string; canView: boolean
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row, i) => (
                 <tr key={row.id}>
+                  <RowNumberCell n={i + 1} />
                   <td style={{ whiteSpace: 'nowrap' }}>{formatMoscowLongDateTime(row.createdAt)}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{row.actor}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{ACTION_TYPE_LABEL[row.actionType] ?? row.actionType}</td>
@@ -108,6 +114,7 @@ export function DocumentHistoryPanel(props: { entityId: string; canView: boolean
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

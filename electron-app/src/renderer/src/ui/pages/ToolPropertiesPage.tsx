@@ -4,6 +4,8 @@ import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -169,11 +171,13 @@ export function ToolPropertiesPage(props: {
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
-      <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 8, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+      <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 6 }} />
+      <div ref={containerRef} onScroll={onScroll} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
           <table className="list-table list-table--catalog">
             <thead>
               <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                <RowNumberHeaderCell style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14, color: '#374151' }} />
                 <th data-col-kind="name" style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: 'pointer' }} onClick={() => onSort('name')}>
                   Название {sortArrow(listState.sortKey as SortKey, listState.sortDir, 'name')}
                 </th>
@@ -185,12 +189,12 @@ export function ToolPropertiesPage(props: {
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+                  <td colSpan={3} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
                     {rows.length === 0 ? 'Нет свойств' : 'Не найдено'}
                   </td>
                 </tr>
               )}
-              {sorted.map((row) => (
+              {sorted.map((row, i) => (
                 <tr
                   key={row.id}
                   data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
@@ -205,6 +209,7 @@ export function ToolPropertiesPage(props: {
                     void props.onOpen(row.id);
                   }}
                 >
+                  <RowNumberCell n={i + 1} style={{ padding: '10px 12px', fontSize: 14 }} />
                   <td data-col-kind="name" style={{ padding: '10px 12px', fontSize: 14, color: '#111827' }}>{row.name || '(без названия)'}</td>
                   <td data-col-kind="text" style={{ padding: '10px 12px', fontSize: 14, color: '#6b7280' }}>{row.params || '—'}</td>
                 </tr>

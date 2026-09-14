@@ -4,6 +4,8 @@ import type { DefectConductedVersionSummary, DefectPartHistoryEvent, EngineActAp
 import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, fillCrankcaseStampedNumbers, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, resolveHeaderAutofill, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { ListCount } from './ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { useConfirm } from './ConfirmContext.js';
 import { Input } from './Input.js';
@@ -2055,9 +2057,11 @@ export function RepairChecklistPanel(props: {
                     <div style={{ fontSize: 12, color: '#334155', marginBottom: 4 }}>
                       {title} — версий: {list.length}
                     </div>
+                    <ListCount total={list.length} shown={list.length} />
                     <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ textAlign: 'left', color: '#64748b' }}>
+                          <RowNumberHeaderCell style={{ padding: 6 }} />
                           <th style={{ padding: 6 }}>Версия</th>
                           <th style={{ padding: 6 }}>Дата печати</th>
                           <th style={{ padding: 6 }}>Кто</th>
@@ -2067,8 +2071,9 @@ export function RepairChecklistPanel(props: {
                         </tr>
                       </thead>
                       <tbody>
-                        {list.map((v) => (
+                        {list.map((v, i) => (
                           <tr key={v.operationId} style={{ borderTop: '1px solid rgba(15,23,42,0.08)' }}>
+                            <RowNumberCell n={i + 1} style={{ padding: 6 }} />
                             <td style={{ padding: 6 }}>№{v.version}</td>
                             <td style={{ padding: 6 }}>{formatMoscowDateTime(v.printedAt)}</td>
                             <td style={{ padding: 6 }}>{v.printedBy ?? '—'}</td>
@@ -3330,9 +3335,12 @@ export function RepairChecklistPanel(props: {
             {`Личные номера экземпляров (${stampedInstances.length}) ${stampedOpen ? '▲' : '▼'}`}
           </Button>
           {stampedOpen && (
-            <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+            <>
+            <ListCount total={stampedInstances.length} shown={stampedInstances.length} style={{ marginTop: 6 }} />
+            <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 2 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: '#64748b' }}>
+                  <RowNumberHeaderCell style={{ padding: 6 }} />
                   <th style={{ padding: 6 }}>Личный №</th>
                   <th style={{ padding: 6 }}>Деталь</th>
                   <th style={{ padding: 6 }}>Классификация</th>
@@ -3342,8 +3350,9 @@ export function RepairChecklistPanel(props: {
                 </tr>
               </thead>
               <tbody>
-                {stampedInstances.map((it) => (
+                {stampedInstances.map((it, i) => (
                   <tr key={it.operationId} style={{ borderTop: '1px solid rgba(15,23,42,0.08)' }}>
+                    <RowNumberCell n={i + 1} style={{ padding: 6 }} />
                     <td style={{ padding: 6, fontWeight: 600 }}>{it.stampedNumber}</td>
                     <td style={{ padding: 6 }}>{it.partLabel || it.partId}</td>
                     <td style={{ padding: 6, color: it.classification === 'scrap' ? '#b91c1c' : it.classification === 'replace' ? '#b45309' : '#15803d' }}>
@@ -3386,6 +3395,7 @@ export function RepairChecklistPanel(props: {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       )}
@@ -3397,9 +3407,12 @@ export function RepairChecklistPanel(props: {
             {`Версии требования (${requirementVersions.length}) ${requirementVersionsOpen ? '▲' : '▼'}`}
           </Button>
           {requirementVersionsOpen && (
-            <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+            <>
+            <ListCount total={requirementVersions.length} shown={requirementVersions.length} style={{ marginTop: 6 }} />
+            <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 2 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: '#64748b' }}>
+                  <RowNumberHeaderCell style={{ padding: 6 }} />
                   <th style={{ padding: 6 }}>Версия</th>
                   <th style={{ padding: 6 }}>Позиций</th>
                   <th style={{ padding: 6 }}>Напечатано</th>
@@ -3408,8 +3421,9 @@ export function RepairChecklistPanel(props: {
                 </tr>
               </thead>
               <tbody>
-                {requirementVersions.map((v) => (
+                {requirementVersions.map((v, i) => (
                   <tr key={v.operationId} style={{ borderTop: '1px solid rgba(15,23,42,0.08)' }}>
+                    <RowNumberCell n={i + 1} style={{ padding: 6 }} />
                     <td style={{ padding: 6, fontWeight: 600 }}>№{v.version}</td>
                     <td style={{ padding: 6 }}>{selectRequirementInstances(v.instances).length}</td>
                     <td style={{ padding: 6 }}>{v.printedAt ? formatMoscowDateTime(v.printedAt) : '—'}</td>
@@ -3423,6 +3437,7 @@ export function RepairChecklistPanel(props: {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       )}
@@ -3434,9 +3449,12 @@ export function RepairChecklistPanel(props: {
             {`История статусов деталей (${partStatusEvents.length}) ${partStatusHistoryOpen ? '▲' : '▼'}`}
           </Button>
           {partStatusHistoryOpen && (
-            <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+            <>
+            <ListCount total={partStatusEvents.length} shown={partStatusEvents.length} style={{ marginTop: 6 }} />
+            <table className="list-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 2 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: '#64748b' }}>
+                  <RowNumberHeaderCell style={{ padding: 6 }} />
                   <th style={{ padding: 6 }}>Дата</th>
                   <th style={{ padding: 6 }}>Деталь</th>
                   <th style={{ padding: 6 }}>Кол-во</th>
@@ -3446,8 +3464,9 @@ export function RepairChecklistPanel(props: {
                 </tr>
               </thead>
               <tbody>
-                {partStatusEvents.map((ev) => (
+                {partStatusEvents.map((ev, i) => (
                   <tr key={ev.operationId} style={{ borderTop: '1px solid rgba(15,23,42,0.08)' }}>
+                    <RowNumberCell n={i + 1} style={{ padding: 6 }} />
                     <td style={{ padding: 6 }}>{formatMoscowDateTime(ev.at)}</td>
                     <td style={{ padding: 6 }}>{ev.partLabel || ev.partId}</td>
                     <td style={{ padding: 6 }}>{ev.qty}</td>
@@ -3460,6 +3479,7 @@ export function RepairChecklistPanel(props: {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       )}
@@ -3491,6 +3511,8 @@ const INVENTORY_COL_WIDTHS: Record<string, string> = {
   replace_qty: '7%',
 };
 const INVENTORY_ACTIONS_COL_WIDTH = '7%';
+// Колонка «№» (владелец 15.09.2026): фиксированная узкая ширина под table-layout:fixed.
+const INVENTORY_ROWNUM_COL_WIDTH = 40;
 
 function TableEditor(props: {
   tableId?: string;
@@ -3902,11 +3924,14 @@ function TableEditor(props: {
   }
 
   // Табличный рендер заданного набора строк (по абсолютным индексам — setCell/удаление их используют).
-  function renderDataTable(idxList: number[]) {
+  function renderDataTable(idxList: number[], total: number) {
     return (
+      <>
+      <ListCount total={total} shown={idxList.length} style={{ padding: '0 10px' }} />
       <table className={`list-table${isInventoryItemsTable ? ' list-table--single-mode' : ''}`} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         {isInventoryItemsTable && (
           <colgroup>
+            <col style={{ width: INVENTORY_ROWNUM_COL_WIDTH }} />
             {cols.map((c) => (
               <col key={c.id} style={{ width: INVENTORY_COL_WIDTHS[c.id] ?? 'auto' }} />
             ))}
@@ -3915,6 +3940,7 @@ function TableEditor(props: {
         )}
         <thead>
           <tr style={{ background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 120%)', color: '#fff' }}>
+            <RowNumberHeaderCell style={{ borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }} />
             {cols.map((c) => (
               <th
                 key={c.id}
@@ -3929,11 +3955,12 @@ function TableEditor(props: {
           </tr>
         </thead>
         <tbody>
-          {idxList.map((idx) => {
+          {idxList.map((idx, i) => {
             const row = rows[idx]!;
             const extra = props.renderRowExtra?.(idx, row);
             return (
               <tr key={idx}>
+                <RowNumberCell n={i + 1} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }} />
                 {cols.map((c) => (
                   <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8, ...(getColumnSizing(c.id) ?? {}) }}>
                     {renderCellInput(idx, c)}
@@ -3952,13 +3979,14 @@ function TableEditor(props: {
           })}
           {idxList.length === 0 && (
             <tr>
-              <td colSpan={cols.length + (props.canEdit ? 1 : 0)} style={{ padding: 10, color: '#64748b' }}>
+              <td colSpan={cols.length + 1 + (props.canEdit ? 1 : 0)} style={{ padding: 10, color: '#64748b' }}>
                 Пусто
               </td>
             </tr>
           )}
         </tbody>
       </table>
+      </>
     );
   }
 
@@ -4019,7 +4047,7 @@ function TableEditor(props: {
           <span>{title}</span>
           <span style={{ color: '#64748b', fontWeight: 400 }}>({idxList.length})</span>
         </button>
-        {open ? (compactMode ? renderCompactList(idxList) : renderDataTable(idxList)) : null}
+        {open ? (compactMode ? renderCompactList(idxList) : renderDataTable(idxList, idxList.length)) : null}
       </div>
     );
   }
@@ -4061,7 +4089,7 @@ function TableEditor(props: {
       ) : compactMode ? (
         renderCompactList(visibleRowIdxs)
       ) : (
-        renderDataTable(visibleRowIdxs)
+        renderDataTable(visibleRowIdxs, rows.length)
       )}
       {props.canEdit && !isInventoryItemsTable && (
         <div style={{ padding: 10, display: 'flex', gap: 10 }}>

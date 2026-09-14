@@ -4,6 +4,8 @@ import type { ToolListItem, ToolMovementItem, WarehouseNomenclatureListItem } fr
 import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -458,10 +460,12 @@ export function SupplyToolMovementsPage(props: {
       </SectionCard>
 
       <SectionCard title="Журнал движений" style={{ marginTop: 16 }}>
+        <ListCount total={movements.length} shown={movements.length} />
         <div style={{ border: '1px solid var(--border)', overflow: 'hidden', marginTop: 6 }}>
           <table className="list-table">
             <thead>
               <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                <RowNumberHeaderCell style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} />
                 <th data-col-kind="name" style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Позиция</th>
                 <th data-col-kind="date" title="Дата" style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Дата</th>
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }}>Режим</th>
@@ -473,12 +477,12 @@ export function SupplyToolMovementsPage(props: {
             <tbody>
               {movements.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
+                  <td colSpan={7} style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--subtle)', fontSize: 14 }}>
                     Нет движений
                   </td>
                 </tr>
               )}
-              {movements.map((m) => {
+              {movements.map((m, i) => {
                 // Инструмент открывается своей карточкой (экземпляр), товар — карточкой номенклатуры.
                 const isTool = toolSubjectIds.has(m.toolId);
                 const nomId = isTool ? null : nomenclatureIdByRefId.get(m.toolId) ?? null;
@@ -496,6 +500,7 @@ export function SupplyToolMovementsPage(props: {
                       startEditMovement(m);
                     }}
                   >
+                    <RowNumberCell n={i + 1} style={{ padding: '10px 12px', fontSize: 14 }} />
                     <td data-col-kind="name" style={{ padding: '10px 12px', fontSize: 14, color: 'var(--text)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span>{title}</span>

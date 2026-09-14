@@ -24,6 +24,8 @@ import {
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { AssemblyForecastReportView } from '../components/AssemblyForecastReportView.js';
@@ -1750,10 +1752,12 @@ export function ReportPresetPage(props: {
               />
             ) : (
               <>
+                <ListCount total={preview.rows.length} shown={preview.rows.length} />
                 <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
                   <table className="list-table">
                     <thead>
                       <tr>
+                        <RowNumberHeaderCell />
                         {preview.columns.map((column) => (
                           <th
                             key={column.key}
@@ -1769,6 +1773,7 @@ export function ReportPresetPage(props: {
                     <tbody>
                       {preview.rows.map((row, idx) => (
                         <tr key={`report-row-${idx}`}>
+                          <RowNumberCell n={idx + 1} />
                           {preview.columns.map((column) => (
                             <td
                               key={`${idx}-${column.key}`}
@@ -1782,7 +1787,7 @@ export function ReportPresetPage(props: {
                       ))}
                       {preview.rows.length === 0 && (
                         <tr>
-                          <td colSpan={preview.columns.length}>Нет данных</td>
+                          <td colSpan={preview.columns.length + 1}>Нет данных</td>
                         </tr>
                       )}
                     </tbody>
@@ -1797,10 +1802,13 @@ export function ReportPresetPage(props: {
                   <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ fontWeight: 700 }}>{formatWorkOrdersStatusCountsLine(preview.workOrdersStatusSummary.counts)}</div>
                     {preview.workOrdersStatusSummary.byBrand && preview.workOrdersStatusSummary.byBrand.length > 0 ? (
+                      <>
+                      <ListCount total={preview.workOrdersStatusSummary.byBrand.length} shown={preview.workOrdersStatusSummary.byBrand.length} />
                       <div className="list-table-wrap" style={{ border: '1px solid var(--border)' }}>
                         <table className="list-table">
                           <thead>
                             <tr>
+                              <RowNumberHeaderCell />
                               <th>Марка</th>
                               {WORK_ORDERS_STATUS_COUNT_LABELS.map((c) => (
                                 <th key={c.key} style={{ textAlign: 'right' }}>{c.label}</th>
@@ -1808,8 +1816,9 @@ export function ReportPresetPage(props: {
                             </tr>
                           </thead>
                           <tbody>
-                            {preview.workOrdersStatusSummary.byBrand.map((b) => (
+                            {preview.workOrdersStatusSummary.byBrand.map((b, i) => (
                               <tr key={b.brand}>
+                                <RowNumberCell n={i + 1} />
                                 <td>{b.brand}</td>
                                 {WORK_ORDERS_STATUS_COUNT_LABELS.map((c) => (
                                   <td key={c.key} style={{ textAlign: 'right' }}>{b.counts[c.key]}</td>
@@ -1819,6 +1828,7 @@ export function ReportPresetPage(props: {
                           </tbody>
                         </table>
                       </div>
+                      </>
                     ) : null}
                   </div>
                 ) : null}

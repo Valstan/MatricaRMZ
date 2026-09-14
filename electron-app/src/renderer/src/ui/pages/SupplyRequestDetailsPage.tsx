@@ -19,6 +19,8 @@ const SUPPLY_REQUEST_CARD_TABS: CardTab<SupplyRequestCardTab>[] = [
   { key: 'files', label: 'Фото и документы' },
 ];
 import { SectionCard } from '../components/SectionCard.js';
+import { ListCount } from '../components/ListCount.js';
+import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -1274,11 +1276,12 @@ export function SupplyRequestDetailsPage(props: {
           </div>
         </div>
 
+        <ListCount total={(payload.items ?? []).length} shown={(payload.items ?? []).length} />
         <div className="list-table-wrap list-table-wrap--single">
           <table className="list-table list-table--single-mode work-order-table supply-request-items-table">
             <colgroup>
-              {props.canEdit ? <col style={{ width: 74 }} /> : null}
               <col style={{ width: 54 }} />
+              {props.canEdit ? <col style={{ width: 74 }} /> : null}
               <col />
               <col style={{ width: 124 }} />
               <col style={{ width: 132 }} />
@@ -1289,8 +1292,8 @@ export function SupplyRequestDetailsPage(props: {
             </colgroup>
             <thead>
               <tr>
+                <RowNumberHeaderCell />
                 {props.canEdit && <th style={{ textAlign: 'center' }}>Порядок</th>}
-                <th style={{ textAlign: 'left' }} data-col-kind="num" title="№">№</th>
                 <th style={{ textAlign: 'left' }} data-col-kind="name">Товар</th>
                 <th style={rightHeaderStyle} data-col-kind="num" title="Заказано">Заказано</th>
                 <th style={{ textAlign: 'left' }}>Ед.</th>
@@ -1320,6 +1323,7 @@ export function SupplyRequestDetailsPage(props: {
                     <tr
                       style={expandedLine === idx ? { background: 'var(--list-row-bg-hover)' } : undefined}
                     >
+                      <RowNumberCell n={idx + 1} />
                       {props.canEdit && (
                         <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'inline-flex', gap: 4 }}>
@@ -1346,7 +1350,6 @@ export function SupplyRequestDetailsPage(props: {
                           </div>
                         </td>
                       )}
-                      <td data-col-kind="num">{idx + 1}</td>
                       <td data-col-kind="name">
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
                           <EntityReferenceField
