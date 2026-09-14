@@ -13,6 +13,7 @@ import { canAccessFile } from '../services/fileAccessService.js';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { deletePath, ensureFolderDeep, getDownloadHref, getResourceInfo, getUploadHref, uploadBytes } from '../services/yandexDisk.js';
 import { cacheRelPath } from '../services/fileCachePlan.js';
+import { normalizeUploadImage } from '../services/imageNormalize.js';
 import { verifyUploaded } from '../scripts/offloadLocalFilesToYandexPlan.js';
 import { getEmployeeAuthById } from '../services/employeeAuthService.js';
 import { logWarn } from '../utils/logger.js';
@@ -376,9 +377,15 @@ filesRouter.post('/upload', requirePermission(PermissionCode.FilesUpload), async
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-    const bytes = Buffer.from(parsed.data.dataBase64, 'base64');
-    if (!bytes.length) return res.status(400).json({ ok: false, error: 'файл пуст' });
-    if (bytes.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `размер файла слишком большой (> ${MAX_UPLOAD_BYTES} байт)` });
+    const raw = Buffer.from(parsed.data.dataBase64, 'base64');
+    if (!raw.length) return res.status(400).json({ ok: false, error: 'файл пуст' });
+    if (raw.length > MAX_UPLOAD_BYTES) return res.status(400).json({ ok: false, error: `размер файла слишком большой (> ${MAX_UPLOAD_BYTES} байт)` });
+
+    // Снимок приводим к печатному потолку ДО хеша: и дедуп, и сверка копии на Я.Диске
+    // считаются по тем байтам, которые действительно лягут в хранилище. Не фотография —
+    // вернётся как есть.
+    const normalized = await normalizeUploadImage(raw, { name: parsed.data.name });
+    const bytes = normalized.bytes;
 
     const sha256 = createHash('sha256').update(bytes).digest('hex');
 
