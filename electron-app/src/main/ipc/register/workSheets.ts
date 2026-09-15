@@ -48,6 +48,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
         completesRepair?: boolean;
         columns?: unknown[];
         sortOrder?: number;
+        expectedUpdatedAt?: number;
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();

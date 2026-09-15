@@ -21,6 +21,7 @@ const SERVICE = src('../../../../main/services/workSheetService.ts');
 const IPC = src('../../../../main/ipc/register/workSheets.ts');
 const ANDROID_WIRING = src('../../../../../../android-app/src/core/ipcWiring.ts');
 const CACHE = src('../utils/workSheetTypesCache.ts');
+const REST_ROUTE = src('../../../../../../backend-api/src/routes/workSheetTypes.ts');
 
 describe('ведомости работ — экран', () => {
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
@@ -44,6 +45,14 @@ describe('ведомости работ — экран', () => {
     for (const ch of ['workSheets:rows:save', 'workSheets:rows:delete', 'workSheets:types:upsert']) {
       expect(GATE, `наблюдателю раздела запись ${ch} закрыта`).toContain(`'${ch}'`);
     }
+    // Узлы — REST: гейт клиента без такого же гейта на сервере означал бы, что выданное
+    // поимённо право работает до первого сохранения, а потом сервер отвечает отказом.
+    expect(REST_ROUTE, 'серверный роут узлов — то же право, что и IPC').toContain(
+      'requirePermission(PermissionCode.WorkSheetsEdit)',
+    );
+    expect(REST_ROUTE, 'чтение справочника остаётся правом истории').toContain(
+      'requirePermission(PermissionCode.OperationsView)',
+    );
   });
 
   it('домен ведомостей подключён и на планшете — плитка без IPC открывалась и молчала', () => {

@@ -2095,6 +2095,8 @@ export type MatricaApi = {
         completesRepair?: boolean;
         columns?: unknown[];
         sortOrder?: number;
+        /** `updatedAt` узла, каким его открыл редактор: чужую правку не затираем молча. */
+        expectedUpdatedAt?: number;
       }) => Promise<{ ok: true; row: WorkSheetType } | { ok: false; error: string }>;
       archive: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       restore: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
