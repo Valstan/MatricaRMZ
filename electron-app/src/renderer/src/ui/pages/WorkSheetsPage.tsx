@@ -6,6 +6,7 @@ import {
   applyFacets,
   workSheetFacets,
   workSheetFieldsSummary,
+  type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
   type WorkSheetRow,
@@ -15,8 +16,11 @@ import {
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { Input } from '../components/Input.js';
+import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
+import { WorkSheetFieldEditor, fromWorkSheetDateInput, toWorkSheetDateInput } from '../components/WorkSheetFieldEditor.js';
 import { ListCount } from '../components/ListCount.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
@@ -30,6 +34,7 @@ import { useListUiState } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
+import { buildEngineSearchOptions } from '../utils/selectOptions.js';
 import { loadWorkSheetTypes, type WorkSheetTypesSource } from '../utils/workSheetTypesCache.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { isAndroidPlatform } from '../platform.js';
@@ -47,7 +52,27 @@ import { isAndroidPlatform } from '../platform.js';
  *
  * Строки живут записями истории ремонта (`operations`, см. `workSheetService`), справочник
  * видов работ — серверный REST.
+ *
+ * Новая ведомость заводится ПРЯМО В СПИСКЕ (владелец 15.09.2026, вечер): «Добавить»
+ * вставляет черновую строку сверху с редакторами в ячейках — двигатель, вид работ, дата,
+ * цех, поля вида, примечание — и она уходит в историю по Enter / «Сохранить». Отдельное
+ * окно с вертикальной формой «иногда не совсем удобно». Черновик — индекс 0 той же
+ * виртуальной таблицы, а не вторая таблица сверху: ширины колонок меряются по одной
+ * таблице (`useAdaptiveListTables`), две разъехались бы. Правка сохранённой строки —
+ * по-прежнему карточкой-вкладкой.
  */
+
+type WorkSheetDraft = {
+  id: string;
+  typeCode: string;
+  engineId: string | null;
+  date: string;
+  workshopId: string;
+  values: Record<string, unknown>;
+  note: string;
+  busy: boolean;
+  error: string;
+};
 
 type Column = ColumnDescriptor & {
   kind?: ListColumnKind;
@@ -92,6 +117,8 @@ function workshopLabel(r: WorkSheetRow, fromDirectory: (id: string) => string): 
 export function WorkSheetsPage(props: {
   canEdit: boolean;
   canManageTypes: boolean;
+  /** Каталог двигателей приложения — для выбора двигателя в черновой строке и его справки. */
+  engines: EngineListItem[];
   onOpenEngine: (id: string) => void;
   /** Открыть карточку ведомости. Новая заводится тем же путём: id генерирует список. */
   onOpenSheet: (id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void;
@@ -107,6 +134,7 @@ export function WorkSheetsPage(props: {
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
   const [typeEditorOpen, setTypeEditorOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [draft, setDraft] = useState<WorkSheetDraft | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
@@ -179,11 +207,83 @@ export function WorkSheetsPage(props: {
     return first && types.some((t) => t.code === first) ? first : null;
   }, [ui.facets, types]);
 
-  // id новой ведомости генерирует список: карточка открывается сразу, а запись появляется
-  // только по «Сохранить» — пустых ведомостей в истории ремонта не остаётся.
-  const openNewRow = () => props.onOpenSheet(crypto.randomUUID(), { isNew: true, typeCode: initialTypeCode });
+  // id новой ведомости генерирует список; запись появляется только по «Сохранить» —
+  // пустых ведомостей в истории ремонта не остаётся. Черновик один: второй «Добавить»
+  // при открытом черновике кнопка не даёт.
+  const openNewRow = () => {
+    const typeCode = initialTypeCode ?? types[0]?.code ?? '';
+    const type = types.find((t) => t.code === typeCode) ?? null;
+    // Поля вида — обязательные среди них — живут в колонке «Поля»; скрытую придётся показать,
+    // иначе оператор не увидит, чего от него ждут.
+    if ((type?.columns.length ?? 0) > 0 && !columnLayout.isVisible('fields')) columnLayout.setVisible('fields', true);
+    setDraft({
+      id: crypto.randomUUID(),
+      typeCode,
+      engineId: null,
+      date: toWorkSheetDateInput(Date.now()),
+      workshopId: type?.workshopId ?? '',
+      values: {},
+      note: '',
+      busy: false,
+      error: '',
+    });
+  };
   const openRow = (row: WorkSheetRow) =>
     props.onOpenSheet(row.id, { title: `${row.typeName}${row.engineNumber ? ` · ${row.engineNumber}` : ''}` });
+
+  const draftType = useMemo(() => (draft ? types.find((t) => t.code === draft.typeCode) ?? null : null), [draft, types]);
+  const draftEngine = useMemo(() => (draft?.engineId ? props.engines.find((e) => e.id === draft.engineId) ?? null : null), [draft?.engineId, props.engines]);
+  const engineOptions = useMemo(() => buildEngineSearchOptions(props.engines), [props.engines]);
+  const patchDraft = (patch: Partial<WorkSheetDraft>) => setDraft((d) => (d ? { ...d, ...patch, error: patch.error ?? '' } : d));
+  // Смена вида работ подставляет его цех и сбрасывает поля чужого вида — как в карточке.
+  const setDraftType = (typeCode: string) => {
+    const type = types.find((t) => t.code === typeCode) ?? null;
+    patchDraft({ typeCode, workshopId: type?.workshopId ?? '', values: {} });
+  };
+
+  const saveDraft = async () => {
+    if (!draft || draft.busy) return;
+    if (!draftType) return patchDraft({ error: 'Выберите вид работ' });
+    if (!draft.engineId) return patchDraft({ error: 'Выберите двигатель' });
+    const atMs = fromWorkSheetDateInput(draft.date);
+    if (!atMs) return patchDraft({ error: 'Укажите дату' });
+    patchDraft({ busy: true });
+    try {
+      // Тот же payload и тот же main-сервис, что у карточки: проверка обязательных полей и
+      // «Отремонтирован» по completesRepair остаются в одном месте.
+      const r = await window.matrica.workSheets.rows.save({
+        id: draft.id,
+        engineId: draft.engineId,
+        type: {
+          id: draftType.id,
+          code: draftType.code,
+          name: draftType.name,
+          completesRepair: draftType.completesRepair,
+          columns: draftType.columns,
+          workshopId: draftType.workshopId,
+        },
+        atMs,
+        workshopId: draft.workshopId || null,
+        workshopName: workshops.find((w) => w.id === draft.workshopId)?.label ?? null,
+        note: draft.note.trim() || null,
+        values: draft.values,
+      });
+      if (!r.ok) {
+        patchDraft({ busy: false, error: `Ошибка: ${r.error}` });
+        return;
+      }
+      setDraft(null);
+      setStatus(
+        r.repair?.applied
+          ? `Ведомость «${draftType.name}» сохранена; двигателю поставлен «Отремонтирован» датой ведомости`
+          : `Ведомость «${draftType.name}» сохранена`,
+      );
+      await refreshRows();
+    } catch (e) {
+      patchDraft({ busy: false, error: `Ошибка: ${String(e)}` });
+    }
+  };
+  const cancelDraft = () => setDraft(null);
 
   const columns = useMemo<Column[]>(
     () => [
@@ -294,11 +394,134 @@ export function WorkSheetsPage(props: {
     'data-work-sheet-row': r.id,
   });
 
+  // Черновик: редакторы прямо в ячейках видимых колонок. Реквизиты двигателя — справкой из
+  // каталога, как в карточке; поля вида — в колонке «Поля» одной ячейкой; кнопки — в хвосте.
+  const draftCellStyle: React.CSSProperties = { borderBottom: '1px solid #f3f4f6', padding: 6, verticalAlign: 'top' };
+  const draftCellFor = (col: Column, d: WorkSheetDraft): React.ReactNode => {
+    switch (col.id) {
+      case 'at':
+        return <UnifiedDateInput type="date" value={d.date} disabled={d.busy} onChange={(e) => patchDraft({ date: e.target.value })} data-work-sheet-draft-date />;
+      case 'type':
+        return (
+          <select value={d.typeCode} disabled={d.busy} onChange={(e) => setDraftType(e.target.value)} data-work-sheet-draft-type>
+            {types.map((t) => (
+              <option key={t.code} value={t.code}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        );
+      case 'engine':
+        return (
+          <div style={{ minWidth: 220 }}>
+            <EntityReferenceField
+              target="engine"
+              targetLabel="Двигатель"
+              value={d.engineId}
+              options={engineOptions}
+              optionsReady={props.engines.length > 0}
+              disabled={d.busy}
+              placeholder="Номер двигателя или внутренний №…"
+              onChange={(next) => patchDraft({ engineId: next })}
+              onOpen={props.onOpenEngine}
+            />
+          </div>
+        );
+      case 'brand':
+        return draftEngine?.engineBrand ?? '';
+      case 'internal':
+        return draftEngine?.internalNumberFull ?? '';
+      case 'customer':
+        return draftEngine?.customerName ?? '';
+      case 'contract':
+        return draftEngine?.contractName ?? '';
+      case 'workshop':
+        return (
+          <select value={d.workshopId} disabled={d.busy} onChange={(e) => patchDraft({ workshopId: e.target.value })}>
+            <option value="">—</option>
+            {workshops.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+              </option>
+            ))}
+          </select>
+        );
+      case 'fields':
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center' }}>
+            {(draftType?.columns ?? []).map((c) => (
+              <label key={c.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                <span className="ui-muted" style={{ whiteSpace: 'nowrap' }}>
+                  {c.label}
+                  {c.required ? ' *' : ''}
+                </span>
+                <WorkSheetFieldEditor column={c} value={d.values[c.code]} disabled={d.busy} compact onChange={(v) => patchDraft({ values: { ...d.values, [c.code]: v } })} />
+              </label>
+            ))}
+            {draftType?.completesRepair ? (
+              <span className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-completes-hint>
+                Завершает ремонт: двигателю встанет «Отремонтирован» датой ведомости
+              </span>
+            ) : null}
+          </div>
+        );
+      case 'note':
+        return <Input value={d.note} disabled={d.busy} placeholder="Примечание" onChange={(e) => patchDraft({ note: e.target.value })} />;
+      default:
+        return '';
+    }
+  };
+  const draftCells = (d: WorkSheetDraft) => (
+    <>
+      {visibleColumns.map((col) => (
+        <td key={col.id} {...listCellKindProps(col.kind)} style={draftCellStyle}>
+          {draftCellFor(col, d)}
+        </td>
+      ))}
+      <td className="list-col-filler" style={{ ...draftCellStyle, whiteSpace: 'nowrap' }}>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          <Button size="sm" disabled={d.busy} onClick={() => void saveDraft()} title="Сохранить ведомость (Enter)" data-work-sheet-draft-save>
+            {d.busy ? 'Сохраняю…' : 'Сохранить'}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={d.busy} onClick={cancelDraft} title="Убрать черновик (Esc)" data-work-sheet-draft-cancel>
+            Отмена
+          </Button>
+          {d.error ? (
+            <span style={{ color: 'var(--danger)', fontSize: 12 }} data-work-sheet-draft-error>
+              {d.error}
+            </span>
+          ) : null}
+        </span>
+      </td>
+    </>
+  );
+  const draftRowProps = (d: WorkSheetDraft): VirtualTableRowProps => ({
+    'data-work-sheet-draft-row': d.id,
+    style: { background: 'rgba(29, 78, 216, 0.06)' },
+    onKeyDown: (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelDraft();
+        return;
+      }
+      // Enter сохраняет строку, но не из открытого списка двигателей (там он выбирает и
+      // гасится через preventDefault) и не из select'а (там он раскрывает варианты).
+      if (e.key === 'Enter' && !e.defaultPrevented && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        void saveDraft();
+      }
+    },
+  });
+
+  // Черновик — индекс 0 той же таблицы: общая шапка и общие ширины колонок.
+  const itemCount = sorted.length + (draft ? 1 : 0);
+  const rowAt = (i: number) => sorted[draft ? i - 1 : i]!;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-page>
       <PageToolbar>
         {props.canEdit && (
-          <Button onClick={() => void openNewRow()} data-work-sheet-add-row>
+          <Button onClick={() => void openNewRow()} disabled={draft !== null || types.length === 0} data-work-sheet-add-row>
             Добавить ведомость
           </Button>
         )}
@@ -374,11 +597,12 @@ export function WorkSheetsPage(props: {
       <div ref={containerRef} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <VirtualTable
           scrollElementRef={containerRef}
-          count={sorted.length}
+          count={itemCount}
           header={header}
-          renderCells={(i) => cells(sorted[i]!)}
-          getRowKey={(i) => sorted[i]!.id}
-          getRowProps={(i) => rowProps(sorted[i]!)}
+          renderCells={(i) => (draft && i === 0 ? draftCells(draft) : cells(rowAt(i)))}
+          getRowKey={(i) => (draft && i === 0 ? draft.id : rowAt(i).id)}
+          getRowProps={(i) => (draft && i === 0 ? draftRowProps(draft) : rowProps(rowAt(i)))}
+          rowNumberOf={(i) => (draft ? (i === 0 ? null : i) : i + 1)}
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}

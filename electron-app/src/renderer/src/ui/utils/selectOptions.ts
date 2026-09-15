@@ -104,3 +104,22 @@ export function mapPartRowsToSearchOptions(
     }),
   );
 }
+
+type EngineOptionLike = {
+  id: string;
+  engineNumber?: string | null;
+  internalNumberFull?: string | null;
+  engineBrand?: string | null;
+};
+
+/**
+ * Опции выбора двигателя — одни и те же в карточке ведомости и в черновой строке списка:
+ * подпись — номер, подсказка — внутренний номер и марка, ищется по всем трём и по id.
+ */
+export function buildEngineSearchOptions(engines: EngineOptionLike[]): SearchableSelectOption[] {
+  return engines.map((e) => {
+    const hint = joinOptionHint([e.internalNumberFull ? `внутр. ${e.internalNumberFull}` : '', e.engineBrand]);
+    const search = joinOptionSearch([e.engineNumber ?? '', e.internalNumberFull ?? '', e.id, e.engineBrand ?? '']);
+    return buildSearchOption({ id: e.id, label: e.engineNumber || e.id, ...(hint ? { hintText: hint } : {}), ...(search ? { searchText: search } : {}) });
+  });
+}

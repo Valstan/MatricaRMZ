@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  WORK_SHEET_COLUMN_TYPE_LABELS,
-  formatWorkSheetValue,
-  type EngineListItem,
-  type WorkSheetColumn,
-  type WorkSheetRow,
-  type WorkSheetType,
-} from '@matricarmz/shared';
+import { formatWorkSheetValue, type EngineListItem, type WorkSheetColumn, type WorkSheetRow, type WorkSheetType } from '@matricarmz/shared';
 
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Button } from '../components/Button.js';
@@ -17,8 +10,9 @@ import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
+import { WorkSheetFieldEditor, fromWorkSheetDateInput, toWorkSheetDateInput } from '../components/WorkSheetFieldEditor.js';
 import type { WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
-import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
+import { buildEngineSearchOptions } from '../utils/selectOptions.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
 
 /**
@@ -70,7 +64,7 @@ export function WorkSheetDetailsPage(props: {
         setRow(null);
         setTypeCode(props.initialTypeCode ?? typesRes.rows[0]?.code ?? '');
         setEngineId(null);
-        setDate(toDateInput(Date.now()));
+        setDate(toWorkSheetDateInput(Date.now()));
         setWorkshopId('');
         setNote('');
         setValues({});
@@ -83,7 +77,7 @@ export function WorkSheetDetailsPage(props: {
         setRow(res.row);
         setTypeCode(res.row.typeCode);
         setEngineId(res.row.engineId);
-        setDate(toDateInput(res.row.at));
+        setDate(toWorkSheetDateInput(res.row.at));
         setWorkshopId(res.row.workshopId);
         setNote(res.row.note);
         const next: Record<string, unknown> = {};
@@ -126,15 +120,7 @@ export function WorkSheetDetailsPage(props: {
     setValues({});
   }, [props.isNew, type?.code, type?.workshopId]);
 
-  const engineOptions: SearchSelectOption[] = useMemo(
-    () =>
-      props.engines.map((e) => {
-        const hint = joinOptionHint([e.internalNumberFull ? `внутр. ${e.internalNumberFull}` : '', e.engineBrand]);
-        const search = joinOptionSearch([e.engineNumber ?? '', e.internalNumberFull ?? '', e.id, e.engineBrand ?? '']);
-        return buildSearchOption({ id: e.id, label: e.engineNumber || e.id, ...(hint ? { hintText: hint } : {}), ...(search ? { searchText: search } : {}) });
-      }),
-    [props.engines],
-  );
+  const engineOptions: SearchSelectOption[] = useMemo(() => buildEngineSearchOptions(props.engines), [props.engines]);
 
   /**
    * Справка по двигателю — то, что владелец назвал «взаимно помогающим»: ввели номер (или
@@ -163,7 +149,7 @@ export function WorkSheetDetailsPage(props: {
     async (opts: { close?: boolean } = {}) => {
       if (!effectiveType) return setStatus('Выберите вид работ');
       if (!engineId) return setStatus('Выберите двигатель');
-      const atMs = fromDateInput(date);
+      const atMs = fromWorkSheetDateInput(date);
       if (!atMs) return setStatus('Укажите дату');
       setBusy(true);
       setStatus('');
@@ -374,36 +360,7 @@ export function WorkSheetDetailsPage(props: {
           {columns.map((col) => (
             <React.Fragment key={col.code}>
               {label(`${col.label}${col.required ? ' *' : ''}`)}
-              {col.type === 'boolean' ? (
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <input type="checkbox" checked={values[col.code] === true} disabled={!props.canEdit} onChange={(e) => setValue(col.code, e.target.checked)} />
-                  <span className="ui-muted">{WORK_SHEET_COLUMN_TYPE_LABELS.boolean}</span>
-                </label>
-              ) : col.type === 'date' ? (
-                <UnifiedDateInput
-                  type="date"
-                  disabled={!props.canEdit}
-                  value={toDateInput(typeof values[col.code] === 'number' ? (values[col.code] as number) : fromDateInput(String(values[col.code] ?? '')))}
-                  onChange={(e) => setValue(col.code, fromDateInput(e.target.value))}
-                />
-              ) : col.type === 'choice' && (col.options?.length ?? 0) > 0 ? (
-                <select value={String(values[col.code] ?? '')} disabled={!props.canEdit} onChange={(e) => setValue(col.code, e.target.value || null)}>
-                  <option value="">—</option>
-                  {col.options!.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <Input
-                  value={String(values[col.code] ?? '')}
-                  disabled={!props.canEdit}
-                  onChange={(e) => setValue(col.code, e.target.value)}
-                  placeholder={col.type === 'number' ? 'число' : ''}
-                  inputMode={col.type === 'number' ? 'decimal' : undefined}
-                />
-              )}
+              <WorkSheetFieldEditor column={col} value={values[col.code]} disabled={!props.canEdit} onChange={(v) => setValue(col.code, v)} />
             </React.Fragment>
           ))}
 
@@ -429,17 +386,4 @@ export function WorkSheetDetailsPage(props: {
       )}
     </EntityCardShell>
   );
-}
-
-function toDateInput(ms: number | null | undefined): string {
-  if (!ms || !Number.isFinite(ms)) return '';
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function fromDateInput(raw: string): number | null {
-  const s = String(raw ?? '').trim();
-  if (!s) return null;
-  const ms = Date.parse(`${s}T00:00:00`);
-  return Number.isFinite(ms) ? ms : null;
 }

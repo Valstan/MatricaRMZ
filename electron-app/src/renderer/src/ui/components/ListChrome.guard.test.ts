@@ -135,7 +135,9 @@ describe('счётчик и нумерация строк', () => {
 
   it('виртуальные списки нумеруют строки через VirtualTable', () => {
     expect(VIRTUAL_TABLE).toContain('rowNumbers?: boolean | { offset?: number }');
-    expect(VIRTUAL_TABLE).toContain('<RowNumberCell n={rowNumberOffset + vi.index + 1} />');
+    // Сквозная нумерация по умолчанию; `rowNumberOf` отдаёт свой номер или null (черновик,
+    // заголовок группы) — ячейка «№» при этом остаётся, чтобы колонки не съезжали.
+    expect(VIRTUAL_TABLE).toContain('<RowNumberCell n={rowNumberOf ? rowNumberOf(vi.index) : rowNumberOffset + vi.index + 1} />');
     // Спейсеры и пустое состояние обязаны накрыть и колонку «№», иначе шапка съезжает.
     expect(VIRTUAL_TABLE).toContain('baseColCount + 1');
     for (const [name, page] of COUNTED_PAGES) {
