@@ -2122,7 +2122,15 @@ export type MatricaApi = {
         | { ok: true; id: string; created: boolean; repair: { applied: boolean; reason?: string } | null }
         | { ok: false; error: string }
       >;
-      delete: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+      /**
+       * `rollbackRepair` — снять «Отремонтирован», если его поставила ЭТА строка (решение
+       * оператора, спрашивается вторым вопросом). `repairRolledBack` — что вышло на деле:
+       * значение, изменённое после строки кем-то ещё, не откатывается.
+       */
+      delete: (
+        id: string,
+        opts?: { rollbackRepair?: boolean },
+      ) => Promise<{ ok: true; repairRolledBack?: boolean; reason?: string } | { ok: false; error: string }>;
     };
   };
   tools: {

@@ -100,12 +100,12 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     }
   });
 
-  ipcMain.handle('workSheets:rows:delete', async (_e, id: string) => {
+  ipcMain.handle('workSheets:rows:delete', async (_e, id: string, opts?: { rollbackRepair?: boolean }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     try {
-      return await deleteWorkSheetRow(ctx.dataDb(), id);
+      return await deleteWorkSheetRow(ctx.dataDb(), id, opts ?? {}, await ctx.currentActor());
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

@@ -113,6 +113,22 @@ describe('ведомости работ — экран', () => {
     );
   });
 
+  // Откат без штампа — угадывание: историю стадий пишут не все пути, а карточка не помнит,
+  // кто поставил статус. И спрашивать оператора можно только там, где откатывать есть что.
+  it('откат «Отремонтирован» опирается на штамп строки и на второе подтверждение', () => {
+    expect(SERVICE, 'строка запоминает свой след в карточке').toContain('repairStamp: done.stamp');
+    expect(SERVICE, 'откатываем только то, что с тех пор не меняли').toContain(
+      'if (isEavFlagSet(attrs[flag.code]) !== flag.to) {',
+    );
+    expect(SERVICE, 'автозапись стадии гаснет вместе со статусом').toContain(
+      'await softDeleteOperation(db, stamp.statusEntryId);',
+    );
+    expect(ROW_DIALOG, 'второй вопрос — только когда откатывать есть что').toContain(
+      'const askedRollback = props.row.repairStamped;',
+    );
+    expect(PAGE, 'исход отката проговаривается оператору').toContain("reason === 'changed-elsewhere'");
+  });
+
   it('код узла и код колонки после создания заморожены — на них ссылаются строки', () => {
     expect(TYPE_DIALOG).toContain('Код заморожен');
     expect(TYPE_DIALOG).toContain('workSheetCodeFromName(label)');

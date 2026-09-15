@@ -115,6 +115,56 @@ describe('строка ведомости', () => {
     expect((sqlite.prepare(`SELECT count(*) AS n FROM operations`).get() as { n: number }).n).toBe(3);
   });
 
+  // Откат честен только со штампом: история стадий неполна по построению, а карточка не
+  // помнит, кто поставил статус. Строка запоминает свой след сама.
+  it('удаление строки обкатки с подтверждением снимает «Отремонтирован» и гасит автозапись', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
+    expect(attr(sqlite, 'eng-1', 'status_repaired')).toBe(true);
+    const listed = await listWorkSheetRows(db);
+    expect(listed.rows[0]?.repairStamped, 'строка знает, что ей есть что откатывать').toBe(true);
+
+    const r = await deleteWorkSheetRow(db, 'row-1', { rollbackRepair: true }, 'ivanov');
+    expect(r).toMatchObject({ ok: true, repairRolledBack: true });
+    expect(attr(sqlite, 'eng-1', 'status_repaired')).toBe(false);
+    expect(attr(sqlite, 'eng-1', 'status_repaired_date')).toBeNull();
+    const live = sqlite.prepare(`SELECT count(*) AS n FROM operations WHERE deleted_at IS NULL`).get() as { n: number };
+    expect(live.n, 'автозапись стадии гаснет вместе со статусом').toBe(0);
+  });
+
+  it('без подтверждения удаляется только строка — статус остаётся решением оператора', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
+    const r = await deleteWorkSheetRow(db, 'row-1', { rollbackRepair: false }, 'ivanov');
+    expect(r).toMatchObject({ ok: true, repairRolledBack: false });
+    expect(attr(sqlite, 'eng-1', 'status_repaired')).toBe(true);
+    expect(attr(sqlite, 'eng-1', 'status_repaired_date')).toBe(AT);
+  });
+
+  it('отметку после строки трогали в другом месте — откат её не затирает', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
+    // Оператор снял и снова поставил отметку в карточке — теперь это его решение, не строки.
+    sqlite.prepare(`UPDATE attribute_values SET value_json = 'false' WHERE entity_id = 'eng-1' AND attribute_def_id = 'def-status_repaired'`).run();
+
+    const r = await deleteWorkSheetRow(db, 'row-1', { rollbackRepair: true }, 'ivanov');
+    expect(r).toMatchObject({ ok: true, repairRolledBack: false, reason: 'changed-elsewhere' });
+    expect(attr(sqlite, 'eng-1', 'status_repaired_date'), 'чужое значение не тронуто').toBe(AT);
+  });
+
+  it('строка, которая статус не ставила, штампа не несёт и откатывать ей нечего', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
+    const second = await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: OBKATKA, atMs: AT + 86_400_000, values: { hours: 2 } }, 'ivanov');
+    expect(second).toMatchObject({ repair: { applied: false, reason: 'already-repaired' } });
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.find((x) => x.id === 'row-2')?.repairStamped).toBe(false);
+
+    const r = await deleteWorkSheetRow(db, 'row-2', { rollbackRepair: true }, 'ivanov');
+    expect(r).toMatchObject({ ok: true, repairRolledBack: false });
+    expect(attr(sqlite, 'eng-1', 'status_repaired'), 'чужой «Отремонтирован» не трогаем').toBe(true);
+  });
+
   it('утильный двигатель обкаткой не «ремонтируется»', async () => {
     const { sqlite, db } = makeDb();
     sqlite
