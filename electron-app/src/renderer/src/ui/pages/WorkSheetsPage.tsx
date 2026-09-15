@@ -273,12 +273,14 @@ export function WorkSheetsPage(props: {
         return;
       }
       setDraft(null);
+      // Сначала перечитать список, потом сказать словами: `refreshRows` в конце чистит статус,
+      // и написанное до него исчезало через десятки миллисекунд (поймано живьём 15.09).
+      await refreshRows();
       setStatus(
         r.repair?.applied
           ? `Ведомость «${draftType.name}» сохранена; двигателю поставлен «Отремонтирован» датой ведомости`
           : `Ведомость «${draftType.name}» сохранена`,
       );
-      await refreshRows();
     } catch (e) {
       patchDraft({ busy: false, error: `Ошибка: ${String(e)}` });
     }
