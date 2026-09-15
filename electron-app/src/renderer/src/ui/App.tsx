@@ -5410,7 +5410,7 @@ export function App() {
         {t === 'work_sheets' && (
           <WorkSheetsPage
             canEdit={caps.canEditWorkSheets}
-            canManageTypes={caps.canEditWorkSheets}
+            canManageTypes={caps.canEditWorkSheetTypes}
             onOpenEngine={(id: string) => void openEngine(id)}
             onOpenSheet={(id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void openWorkSheet(id, opts)}
             onWorkshopsLoaded={setWorkSheetWorkshops}

@@ -12,7 +12,8 @@ import {
 
 /**
  * Справочник узлов ведомостей работ. Читать может любой, кто видит операции (строки ведомостей
- * — записи истории ремонта под `operations.view`); заводить и править узлы — право на справочники.
+ * — записи истории ремонта под `operations.view`); заводить и править виды работ — отдельное
+ * поимённое право `work_sheet_types.edit` (не то же, что заполнение строк `work_sheets.edit`).
  */
 export const workSheetTypesRouter = Router();
 workSheetTypesRouter.use(requireAuth);
@@ -34,7 +35,7 @@ const columnSchema = z
   })
   .passthrough();
 
-workSheetTypesRouter.post('/', requirePermission(PermissionCode.WorkSheetsEdit), async (req, res) => {
+workSheetTypesRouter.post('/', requirePermission(PermissionCode.WorkSheetTypesEdit), async (req, res) => {
   const schema = z.object({
     id: z.string().optional(),
     code: z.string().max(40).optional(),
@@ -55,14 +56,14 @@ workSheetTypesRouter.post('/', requirePermission(PermissionCode.WorkSheetsEdit),
   return res.json(result);
 });
 
-workSheetTypesRouter.post('/:id/archive', requirePermission(PermissionCode.WorkSheetsEdit), async (req, res) => {
+workSheetTypesRouter.post('/:id/archive', requirePermission(PermissionCode.WorkSheetTypesEdit), async (req, res) => {
   const actor = (req as AuthenticatedRequest).user?.username ?? null;
   const result = await archiveWorkSheetType(String(req.params.id ?? ''), actor);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
 
-workSheetTypesRouter.post('/:id/restore', requirePermission(PermissionCode.WorkSheetsEdit), async (req, res) => {
+workSheetTypesRouter.post('/:id/restore', requirePermission(PermissionCode.WorkSheetTypesEdit), async (req, res) => {
   const actor = (req as AuthenticatedRequest).user?.username ?? null;
   const result = await restoreWorkSheetType(String(req.params.id ?? ''), actor);
   if (!result.ok) return res.status(400).json(result);

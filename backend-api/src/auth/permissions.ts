@@ -47,6 +47,11 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   // супер-админа, а остальным — точечным разрешением в админке; иначе всякий admin
   // получал бы его молча вместе с ролью.
   all[PermissionCode.AuditView] = r === 'superadmin';
+  // Ведомости работ — тот же уклад (владелец 15.09.2026): строки заполняет и виды работ
+  // ведёт узкий круг, названный поимённо. Роль не даёт этих прав даже admin'у и легаси
+  // `user`; персональное разрешение в админке (override `allowed=true`) их выдаёт.
+  all[PermissionCode.WorkSheetsEdit] = r === 'superadmin';
+  all[PermissionCode.WorkSheetTypesEdit] = r === 'superadmin';
   return all;
 }
 

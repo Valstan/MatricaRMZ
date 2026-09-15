@@ -4,6 +4,7 @@ import {
   isServerManagedSyncTable,
   isServerOnlyAttrCode,
   isSuperadminOnlyAttrCode,
+  isWorkSheetRowWrite,
   ledgerWriteRequirement,
   operatorMeetsRequirement,
 } from './ledgerAuthz.js';
@@ -70,6 +71,41 @@ describe('ledgerWriteRequirement — operations & tables', () => {
         code: PermissionCode.OperationsEdit,
       });
     }
+  });
+
+  // Строка ведомости и ручная запись истории ремонта — один operation_type; отличает
+  // их meta. Без своего требования строку ведомости писал бы любой держатель
+  // operations.edit (мастер), а владелец снял право заполнять ведомости у всех.
+  it('строка ведомости работ требует work_sheets.edit, ручная запись истории — operations.edit', () => {
+    const sheetMeta = JSON.stringify({
+      kind: 'repair_history',
+      action: 'Ведомость: Обкатка',
+      entryType: 'sheet',
+      sheet: { typeId: 't1', typeCode: 'obkatka', typeName: 'Обкатка', fields: [] },
+    });
+    const manualMeta = JSON.stringify({ kind: 'repair_history', action: 'Снят с обкатки', entryType: 'manual' });
+    const base = { table: OPS, operationType: 'repair_history_entry' };
+
+    expect(isWorkSheetRowWrite({ ...base, operationMetaJson: sheetMeta })).toBe(true);
+    expect(ledgerWriteRequirement({ ...base, operationMetaJson: sheetMeta })).toEqual({
+      kind: 'permission',
+      code: PermissionCode.WorkSheetsEdit,
+    });
+
+    for (const [name, meta] of [
+      ['ручная запись', manualMeta],
+      ['без meta (легаси-очередь)', null],
+      ['чужой JSON', '{"foo":1}'],
+    ] as const) {
+      expect(isWorkSheetRowWrite({ ...base, operationMetaJson: meta }), name).toBe(false);
+      expect(ledgerWriteRequirement({ ...base, operationMetaJson: meta }), name).toEqual({
+        kind: 'permission',
+        code: PermissionCode.OperationsEdit,
+      });
+    }
+    // meta ведомости на другом типе операции — не ведомость.
+    expect(isWorkSheetRowWrite({ table: OPS, operationType: 'work_order', operationMetaJson: sheetMeta })).toBe(false);
+    expect(isWorkSheetRowWrite({ table: ENTITIES, operationType: 'repair_history_entry', operationMetaJson: sheetMeta })).toBe(false);
   });
 
   it('social / schema / register tables are open', () => {

@@ -7,6 +7,9 @@ import {
   isAssignableSystemRole,
   isOperatorRole,
   operatorRolePermissions,
+  permAdminOnly,
+  permGroupRu,
+  permTitleRu,
   systemRoleTitleRu,
 } from './permissions.js';
 
@@ -47,11 +50,24 @@ describe('operator role presets (RBAC #474)', () => {
   // Ведомости работ заполняет узкий круг, названный владельцем поимённо (15.09.2026).
   // Роль их не даёт никому: право выдаётся конкретным людям в админке поверх роли.
   // Смотреть может каждый оператор — чтение сидит на operations.view из базы.
-  it('work_sheets.edit не входит ни в одну операторскую роль, а чтение есть у всех', () => {
+  it('права на ведомости не входят ни в одну операторскую роль, а чтение есть у всех', () => {
     for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
       const perms = operatorRolePermissions(role)!;
       expect(perms[PermissionCode.WorkSheetsEdit], role).toBeFalsy();
+      expect(perms[PermissionCode.WorkSheetTypesEdit], role).toBeFalsy();
       expect(perms[PermissionCode.OperationsView], role).toBe(true);
+    }
+  });
+
+  // Заполнение строк и ведение видов работ — два права (владелец 15.09.2026, вечер), и оба
+  // должны быть выдаваемы операторам из админки: adminOnly-код web-admin не даёт включить
+  // никому, кроме admin — а владелец выдаёт их именно сотрудникам.
+  it('строки и виды работ — два отдельных права в каталоге, выдаваемых операторам', () => {
+    expect(PermissionCode.WorkSheetsEdit).not.toBe(PermissionCode.WorkSheetTypesEdit);
+    for (const code of [PermissionCode.WorkSheetsEdit, PermissionCode.WorkSheetTypesEdit]) {
+      expect(permGroupRu(code), code).toBe('Операции');
+      expect(permTitleRu(code), code).toContain('Ведомости работ');
+      expect(permAdminOnly(code), code).toBe(false);
     }
   });
 
