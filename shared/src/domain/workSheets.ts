@@ -1,3 +1,4 @@
+import { HUMAN_LABEL_DASH } from './humanLabels.js';
 import type { FacetDescriptor } from './listFacets.js';
 
 /**
@@ -158,10 +159,29 @@ export function buildWorkSheetFields(columns: readonly WorkSheetColumn[], values
   return out;
 }
 
-/** Обязательные колонки без значения — подписи для сообщения оператору. */
-export function missingRequiredWorkSheetFields(columns: readonly WorkSheetColumn[], fields: readonly WorkSheetField[]): string[] {
+/**
+ * Обязательные колонки без значения — подписи для сообщения оператору.
+ *
+ * `previous` — поля строки ДО правки. Когда они переданы, пустота, которая была пустой и
+ * раньше, не блокирует сохранение: обязательность — правило ввода, а не задним числом
+ * наложенная проверка на всё, что уже записано. Колонку сделали обязательной сегодня —
+ * вчерашняя строка не должна из-за этого перестать сохраняться, иначе оператор не может
+ * поправить в ней даже примечание. Очистить уже заполненное обязательное поле по-прежнему
+ * нельзя, и новая строка по-прежнему требует все обязательные.
+ */
+export function missingRequiredWorkSheetFields(
+  columns: readonly WorkSheetColumn[],
+  fields: readonly WorkSheetField[],
+  previous?: readonly WorkSheetField[],
+): string[] {
   const byCode = new Map(fields.map((f) => [f.code, f.value]));
-  return columns.filter((c) => c.required && (byCode.get(c.code) ?? null) === null).map((c) => c.label);
+  // Считаем не «было ли поле пустым», а «было ли оно ЗАПОЛНЕНО»: колонки, заведённой позже,
+  // в прежних полях нет вовсе — и это ровно случай обязательности задним числом.
+  const filledBefore = previous ? new Set(previous.filter((f) => (f.value ?? null) !== null).map((f) => f.code)) : null;
+  return columns
+    .filter((c) => c.required && (byCode.get(c.code) ?? null) === null)
+    .filter((c) => !filledBefore || filledBefore.has(c.code))
+    .map((c) => c.label);
 }
 
 /** Разбор полей из meta (толерантный: чужое — вон). */
@@ -272,7 +292,9 @@ export function workSheetFacets(columns: readonly WorkSheetColumn[]): FacetDescr
   const facets: FacetDescriptor<WorkSheetRow>[] = [
     { kind: 'values', id: 'type', label: 'Узел', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
     { kind: 'values', id: 'engineBrand', label: 'Марка', valueOf: (r) => val(text(r.engineBrand)) },
-    { kind: 'values', id: 'workshop', label: 'Цех', valueOf: (r) => val(r.workshopId, r.workshopName || r.workshopId) },
+    // Подпись ступени — имя из снимка строки; uuid сюда не ставится даже как последнее
+    // средство: он не опознаёт цех, а читается как испорченные данные (см. `humanLabels`).
+    { kind: 'values', id: 'workshop', label: 'Цех', valueOf: (r) => val(r.workshopId, r.workshopName || HUMAN_LABEL_DASH) },
     { kind: 'values', id: 'performedBy', label: 'Исполнитель', valueOf: (r) => val(text(r.performedBy)) },
     { kind: 'dateRange', id: 'date', label: 'Дата', dateOf: (r) => (Number.isFinite(r.at) && r.at > 0 ? r.at : null) },
   ];

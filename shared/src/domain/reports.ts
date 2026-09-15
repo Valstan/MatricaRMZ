@@ -68,7 +68,9 @@ export type ReportOptionSource =
   /** Двигатели (все, кроме утильных): подпись №/внутр.№/марка, поиск по номерам. */
   | 'engines'
   /** Контракты для режима «По контрактам» в прогнозе сборки: подпись № / внутр. / заказчик и поиск по номерам. */
-  | 'assembly_forecast_contracts';
+  | 'assembly_forecast_contracts'
+  /** Узлы ведомостей работ: value — код узла (по нему строка себя и называет), подпись — имя. */
+  | 'work_sheet_types';
 
 export type ReportFilterSpec =
   | {
@@ -1867,7 +1869,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       '«Ведомости работ». Колонки узлов добавляются сами: новая колонка в узле появится и здесь.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
-      { type: 'text', key: 'nodeCodes', label: 'Узлы (коды через запятую)', labelHint: 'Например: obkatka, sborka. Пусто — все узлы.' },
+      { type: 'multi_select', key: 'nodeCodes', label: 'Узлы', optionsSource: 'work_sheet_types' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'workshopIds', label: 'Цеха', optionsSource: 'workshops' },
     ],

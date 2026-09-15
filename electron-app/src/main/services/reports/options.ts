@@ -546,6 +546,7 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
         workshops: (await getWorkshops(ctx)).map((row) => ({ value: row.id, label: row.name })),
+        work_sheet_types: await buildWorkSheetTypeOptions(ctx),
         warehouses: await buildWarehouseLocationOptions(snapshot, ctx),
       },
     };
@@ -553,6 +554,52 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
     // Оператору незачем читать SqliteError в шапке экрана; подробность остаётся в логе.
     console.error('[reports] getReportPresetList failed', e);
     return { ok: false, error: 'Не удалось загрузить список отчётов' };
+  }
+}
+
+/**
+ * Опции «Узлы» для фильтра отчёта «Ведомости работ». Источник — тот же серверный
+ * справочник, что и у экрана: узлы живут REST-таблицей, в реплике их нет.
+ *
+ * `value` — КОД узла, а не id: строка ведомости называет свой узел кодом (`sheet.typeCode`),
+ * и отчёт отбирает по нему же. Архивные узлы включены намеренно — их строки в истории
+ * остались, и отобрать их по отчёту нужно ровно так же, как живые.
+ *
+ * Сервер недоступен — пустой список: лучше пусто, чем выбор, который ничего не отберёт.
+ */
+export async function buildWorkSheetTypeOptions(ctx?: ReportBuildContext): Promise<ReportFilterOption[]> {
+  const normalizedApiBase = String(ctx?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
+  if (!ctx?.sysDb || !normalizedApiBase) return [];
+  try {
+    const res = await httpAuthed(
+      ctx.sysDb,
+      normalizedApiBase,
+      '/work-sheet-types?includeArchived=1',
+      { method: 'GET' },
+      { timeoutMs: 15_000 },
+    );
+    if (!res.ok || !res.json || typeof res.json !== 'object') return [];
+    const payload = res.json as Record<string, unknown>;
+    if (payload.ok !== true) return [];
+    const rows = Array.isArray(payload.rows) ? (payload.rows as unknown[]) : [];
+    const options: ReportFilterOption[] = [];
+    for (const raw of rows) {
+      if (!raw || typeof raw !== 'object') continue;
+      const row = raw as Record<string, unknown>;
+      const code = String(row.code ?? '').trim().toLowerCase();
+      if (!code) continue;
+      const label = pickHumanText(row.name, code) || code;
+      const archived = row.archivedAt != null;
+      options.push({
+        value: code,
+        label: archived ? `${label} (в архиве)` : label,
+        ...(archived ? { hintText: 'узел убран в архив, строки остались' } : {}),
+        searchText: `${label} ${code}`,
+      });
+    }
+    return options;
+  } catch {
+    return [];
   }
 }
 

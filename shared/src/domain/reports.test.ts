@@ -9,6 +9,16 @@ import {
   reportThemeCounts,
 } from './reports.js';
 
+describe('отчёт «Ведомости работ»', () => {
+  it('узлы выбираются из справочника, а не набираются кодами руками', () => {
+    const found = REPORT_PRESET_DEFINITIONS.find((p) => p.id === 'work_sheets');
+    expect(found, 'пресет на месте').toBeTruthy();
+    const node = found!.filters?.find((f) => f.key === 'nodeCodes');
+    expect(node?.type).toBe('multi_select');
+    expect((node as { optionsSource?: string } | undefined)?.optionsSource).toBe('work_sheet_types');
+  });
+});
+
 function preset(id: string) {
   return REPORT_PRESET_DEFINITIONS.find((item) => item.id === id);
 }

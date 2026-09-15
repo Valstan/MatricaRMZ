@@ -88,11 +88,13 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
 
   const columns = sanitizeWorkSheetColumns(input.type.columns ?? []);
   const fields: WorkSheetField[] = buildWorkSheetFields(columns, input.values ?? {});
-  const missing = missingRequiredWorkSheetFields(columns, fields);
-  if (missing.length > 0) return { ok: false, error: `Заполните: ${missing.join(', ')}` };
-
   const existing = await getOperation(db, id);
   const existingMeta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
+  // Прежние поля — чтобы обязательность, наложенная на колонку задним числом, не заперла
+  // уже записанную строку: править примечание в ней оператор должен мочь.
+  const missing = missingRequiredWorkSheetFields(columns, fields, existingMeta?.sheet?.fields);
+  if (missing.length > 0) return { ok: false, error: `Заполните: ${missing.join(', ')}` };
+
   if (existing) {
     const meta = existingMeta;
     if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') {

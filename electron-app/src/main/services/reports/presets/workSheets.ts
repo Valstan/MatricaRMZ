@@ -40,6 +40,16 @@ function engineBrandLabel(snapshot: Snapshot, attrs: Record<string, unknown>): s
   return pickHumanText(relatedEntityLabel(snapshot, brandId), attrs.engine_brand) || BRAND_MISSING;
 }
 
+/**
+ * Коды узлов из фильтра. Список — штатная форма (фильтр выбирается из справочника), но
+ * строка через запятую тоже понимается: так этот фильтр был устроен в первом выпуске, и
+ * сохранённые тогда шаблоны отчётов не должны молча перестать отбирать.
+ */
+function readNodeCodes(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw.map((v) => String(v)) : String(raw ?? '').split(',');
+  return list.map((c) => c.trim().toLowerCase()).filter(Boolean);
+}
+
 /** Ключ колонки поля узла — префикс, чтобы не пересечься с общими ключами. */
 export function workSheetFieldColumnKey(code: string): string {
   return `field_${code}`;
@@ -51,7 +61,7 @@ export async function buildWorkSheetsReport(
   ctx?: ReportBuildContext,
 ): Promise<ReportPresetPreviewResult> {
   const period = readPeriod(filters);
-  const nodeFilter = asArray(filters?.nodeCodes).map((c) => c.toLowerCase());
+  const nodeFilter = readNodeCodes(filters?.nodeCodes);
   const brandFilter = asArray(filters?.brandIds);
   const workshopFilter = asArray(filters?.workshopIds);
 
