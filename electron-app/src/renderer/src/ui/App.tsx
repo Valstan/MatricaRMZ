@@ -2216,6 +2216,18 @@ export function App() {
     return () => window.removeEventListener('matrica:custom-reports-changed', onChange);
   }, []);
 
+  // Ведомость сохранена/удалена → каталог двигателей приложения обязан перечитаться:
+  // «Этап на заводе» в списке «Двигатели» и в отчёте считается по последней ведомости, а
+  // без этого он менялся только после захода на вкладку «Двигатели» (стенд, 15.09.2026).
+  useEffect(() => {
+    function onEnginesChanged() {
+      void refreshEngines();
+    }
+    window.addEventListener('matrica:engines-changed', onEnginesChanged);
+    return () => window.removeEventListener('matrica:engines-changed', onEnginesChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: refreshEngines пересоздаётся каждый рендер, но трогает лишь IPC-мост и setEngines — первая идентичность безопасна (как у подписки на прогресс синка)
+  }, []);
+
   // Правка шаблонов фильтров на странице отчёта поднимает nonce → перечитываем
   // блоб из main и отправляем секцию профиля своим ключом.
   useEffect(() => {

@@ -237,8 +237,13 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     const it = items[i]!;
     if (it.kind === 'group') {
       return (
-        <td colSpan={visibleColumns.length + 1} style={{ ...cellStyle, fontWeight: 600, background: it.depth === 0 ? '#eef2ff' : '#f8fafc', paddingLeft: 8 + it.depth * 18 }} data-report-group-row={it.key}>
-          {it.label} <span className="ui-muted" style={{ fontWeight: 400 }}>· {it.count}</span>
+        // Отступ вложенной группы — внутренним span'ом: паддинг `td` списка задан в global.css
+        // с !important, и inline paddingLeft на ячейке молча съедается (стенд, 15.09.2026).
+        <td colSpan={visibleColumns.length + 1} style={{ ...cellStyle, fontWeight: 600, background: it.depth === 0 ? '#eef2ff' : '#f8fafc' }} data-report-group-row={it.key}>
+          <span style={{ display: 'inline-block', paddingLeft: it.depth * 18 }} data-report-group-depth={it.depth}>
+            {it.depth > 0 ? '↳ ' : ''}
+            {it.label} <span className="ui-muted" style={{ fontWeight: 400 }}>· {it.count}</span>
+          </span>
         </td>
       );
     }

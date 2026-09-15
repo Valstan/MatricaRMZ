@@ -62,5 +62,16 @@ describe('отчёт-список «этапы на заводе» и рамка
     expect(PAGE, 'только двигатели на заводе').toContain('props.engines.filter(isEngineAtPlant)');
     expect(PAGE, 'этап считает домен, не страница').toContain('engineFactoryStage(e, types)');
     expect(PAGE, 'щелчок по строке — карточка двигателя').toContain('onClick: () => props.onOpenEngine(it.row.id)');
+    expect(PAGE, 'отступ вложенной группы — span, не paddingLeft у td (!important в global.css)').toContain('data-report-group-depth={it.depth}');
+  });
+
+  // Этап считается по последней ведомости, а каталог двигателей App перечитывался только при
+  // заходе на «Двигатели»: сохранённая ведомость не меняла отчёт (стенд, 15.09.2026).
+  it('сохранение и удаление ведомости заставляют App перечитать каталог двигателей', () => {
+    const SHEETS = src('../WorkSheetsPage.tsx');
+    const CARD = src('../WorkSheetDetailsPage.tsx');
+    expect(APP).toContain("window.addEventListener('matrica:engines-changed', onEnginesChanged);");
+    expect(SHEETS).toContain("window.dispatchEvent(new Event('matrica:engines-changed'));");
+    expect(CARD.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1, 'карточка: после сохранения и после удаления').toBe(2);
   });
 });
